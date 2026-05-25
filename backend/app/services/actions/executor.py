@@ -1132,6 +1132,471 @@ async def execute_flow_action(
         )
         extra["schedule"] = slot
         awaiting_to_clear = True
+    elif handler == "show_security_posture":
+        # S3.1 — pivot the cockpit on the dual-axis security posture block and
+        # set the focus on the package-securite-dual decision package so the
+        # whole UI converges on the Conseil Defense 15h00 narrative.
+        from app.services.mission_room import SECURITY_POSTURE, _clone
+
+        posture = _clone(SECURITY_POSTURE)
+        set_last_focus(db, workspace, "package-securite-dual")
+        effects.append(
+            _action_effect(
+                "assistant-navigate",
+                {
+                    "route": "/hypervisor/mission-room/cockpit",
+                    "queryParams": {"focus": "security_posture"},
+                    "highlight": "package-securite-dual",
+                },
+            )
+        )
+        interior = posture.get("interior") or {}
+        exterior = posture.get("exterior") or {}
+        next_council = posture.get("next_council") or {}
+        content = (
+            "Monsieur le Vice-Président, la posture securitaire est dual-axis. "
+            f"Interieur Nord : {interior.get('level', 'vigilance')} — {interior.get('headline', '')}. "
+            f"Exterieur Sahel : {exterior.get('level', 'elevee')} — {exterior.get('headline', '')}. "
+            f"Prochain {next_council.get('label', 'Conseil Defense')} a {next_council.get('time', '15:00')}."
+        )
+        sources = [
+            {
+                "title": "Note posture securite Sahel — 25 mai 2026",
+                "kind": "security_brief",
+                "source_id": "src-note-posture-sahel-2026-05-25",
+            },
+            {
+                "title": "Synthese Conseil Defense restreint — 08h30",
+                "kind": "security_brief",
+                "source_id": "src-conseil-defense-2026-05-25-am",
+            },
+        ]
+        extra["security_posture"] = posture
+        extra["next_council"] = next_council
+    elif handler == "show_social_pulse":
+        # S3.2 — surface the social-geo map layer + open the demo-safe Twitter
+        # snapshot drawer. We reuse the press article drawer (Option rapide
+        # v1) by emitting a document_preview draft_payload that the existing
+        # drawer can render as a list/detail of tweets with sentiment badges.
+        from app.services.mission_room import SOCIAL_SNAPSHOT, _clone
+        from app.services.workspace_maps import build_map_command, ensure_workspace_map_seed
+
+        snapshot = _clone(SOCIAL_SNAPSHOT)
+        ensure_workspace_map_seed(db, workspace)
+        command = build_map_command(
+            db,
+            workspace,
+            intent="set_layers",
+            target="port-abidjan",
+            layers=["territorial-risk", "open-intelligence", "social-geo"],
+            user=user,
+        )
+        db.commit()
+        effects.append(
+            _action_effect(
+                "assistant-navigate",
+                {
+                    "route": "/hypervisor/mission-room/strategie",
+                    "queryParams": {"panel": "social", "snapshot": "abidjan"},
+                },
+            )
+        )
+        effects.append({"chunk_type": "map_command", **command})
+        # Build a markdown body block so the generic assistant-draft-drawer
+        # can render the snapshot as a list (Option rapide: reuse the existing
+        # drawer without a dedicated tweet component). Tweets are grouped by
+        # bucket (officiel / citoyen / rumeur) with sentiment badges in text.
+        totals = snapshot.get("totals", {}) or {}
+        tweets = snapshot.get("tweets") or []
+
+        def _bucket_label(kind: str) -> str:
+            return {
+                "officiel": "Comptes officiels",
+                "citoyen": "Comptes citoyens (pseudonymisés)",
+                "rumeur": "Rumeur frontière Nord (pseudonymisés)",
+            }.get(kind, kind.title())
+
+        body_lines = [
+            "## Pulsation sociale — Abidjan, 14h25",
+            "",
+            (
+                f"Snapshot demo-safe : {totals.get('tweets', 0)} tweets sur la dernière heure — "
+                f"{totals.get('officiel', 0)} officiels, {totals.get('citoyen', 0)} citoyens "
+                f"pseudonymisés, {totals.get('rumeur', 0)} signaux rumeur frontière Nord."
+            ),
+            "",
+        ]
+        for bucket in ("officiel", "citoyen", "rumeur"):
+            grouped = [tweet for tweet in tweets if tweet.get("kind") == bucket]
+            if not grouped:
+                continue
+            body_lines.append(f"### {_bucket_label(bucket)} ({len(grouped)})")
+            for tweet in grouped[:6]:
+                sentiment = (tweet.get("sentiment") or "neutral").upper()
+                handle = tweet.get("handle") or ""
+                engagement = tweet.get("engagement") or 0
+                geo = (tweet.get("geo") or {}).get("label") or ""
+                body_lines.append(
+                    f"- [{sentiment}] {handle} — {tweet.get('text', '')} "
+                    f"({engagement} eng. · {geo})"
+                )
+            body_lines.append("")
+        body_lines.append("Démentis officiels en cours · advisory only — démo Sentinel-CI.")
+
+        effects.append(
+            _action_effect(
+                "assistant-draft-open",
+                {
+                    "target_type": "social_pulse_snapshot",
+                    "target_id": "social-snapshot-2026-05-25",
+                    "draft_payload": {
+                        "kind": "social_pulse_snapshot",
+                        "target_type": "social_pulse_snapshot",
+                        "target_id": "social-snapshot-2026-05-25",
+                        "title": "Pulsation sociale — snapshot Abidjan 14h25",
+                        "subject": "Pulsation sociale Abidjan — snapshot demo-safe",
+                        "body_markdown": "\n".join(body_lines),
+                        "summary": (
+                            f"{totals.get('tweets', 0)} tweets — "
+                            f"{totals.get('officiel', 0)} officiels, "
+                            f"{totals.get('citoyen', 0)} citoyens, "
+                            f"{totals.get('rumeur', 0)} rumeur frontiere."
+                        ),
+                        "snapshot": snapshot,
+                        "sources": [
+                            {"title": "Snapshot social Abidjan — 14h25", "id": "src-social-snapshot-2026-05-25"},
+                        ],
+                        "advisory_only": True,
+                    },
+                },
+            )
+        )
+        content = (
+            "Monsieur le Vice-Président, snapshot pulsation sociale Abidjan : "
+            f"{snapshot.get('totals', {}).get('tweets', 0)} tweets, "
+            f"{snapshot.get('totals', {}).get('officiel', 0)} comptes officiels, "
+            f"{snapshot.get('totals', {}).get('citoyen', 0)} citoyens pseudonymises et "
+            f"{snapshot.get('totals', {}).get('rumeur', 0)} signaux rumeur frontiere Nord."
+        )
+        sources = [
+            {
+                "title": "Snapshot social Abidjan — 14h25",
+                "kind": "social_snapshot",
+                "source_id": "src-social-snapshot-2026-05-25",
+            },
+        ]
+        extra["social_snapshot"] = snapshot
+        extra["map_command"] = command
+    elif handler == "trace_rumor_origin":
+        # S3.3 — drill the evidence chain for the Nord border rumor and zoom
+        # the map on the Northern frontier (border-tension layer + zone-nord
+        # focus). Reuses the rumor_origin_trace_v1 skill envelope if present,
+        # otherwise falls back to the deterministic seed in mission_room.
+        from app.services.mission_room import RUMOR_FRONTIER_TRACE, _clone
+        from app.services.workspace_maps import build_map_command, ensure_workspace_map_seed
+
+        trace = _clone(RUMOR_FRONTIER_TRACE)
+        ensure_workspace_map_seed(db, workspace)
+        command = build_map_command(
+            db,
+            workspace,
+            intent="focus_zone",
+            target="zone-nord",
+            layers=["territorial-risk", "open-intelligence", "border-tension", "social-geo"],
+            user=user,
+        )
+        db.commit()
+        set_last_focus(db, workspace, "src-rumor-frontier-nord-2026-05-25")
+        effects.append(
+            _action_effect(
+                "assistant-navigate",
+                {
+                    "route": "/hypervisor/mission-room/strategie",
+                    "queryParams": {"focus": "rumor_frontier_nord"},
+                    "highlight": "zone-nord",
+                },
+            )
+        )
+        effects.append({"chunk_type": "map_command", **command})
+        chain_lines = ["## Trace OSINT — rumeur frontière Nord", "", trace.get("summary", ""), ""]
+        chain_lines.append(f"Origine : {trace.get('origin', '—')}")
+        chain_lines.append("")
+        chain_lines.append("### Chaîne de propagation")
+        for step in trace.get("chain") or []:
+            chain_lines.append(
+                f"- Étape {step.get('step', '?')} · {step.get('time', '—')} · {step.get('channel', '—')} — "
+                f"{step.get('signal', '')} (acteur : {step.get('actor', '—')}, "
+                f"confiance {round(float(step.get('confidence', 0)) * 100)}%)"
+            )
+        chain_lines.append("")
+        chain_lines.append("Démentis officiels FANCI + Préfecture Nord publiés à 13h45 et 13h52.")
+        chain_lines.append("Advisory only — démo Sentinel-CI.")
+
+        effects.append(
+            _action_effect(
+                "assistant-draft-open",
+                {
+                    "target_type": "rumor_trace_dossier",
+                    "target_id": "rumor-frontier-nord-2026-05-25",
+                    "draft_payload": {
+                        "kind": "rumor_trace_dossier",
+                        "target_type": "rumor_trace_dossier",
+                        "target_id": "rumor-frontier-nord-2026-05-25",
+                        "title": trace.get("headline"),
+                        "subject": "Rumeur frontière Nord — chaîne OSINT et démenti officiel",
+                        "body_markdown": "\n".join(chain_lines),
+                        "summary": trace.get("summary"),
+                        "origin": trace.get("origin"),
+                        "chain": trace.get("chain") or [],
+                        "sources": [
+                            {"title": "Dossier rumeur frontière Nord", "id": "src-rumor-frontier-nord-2026-05-25"},
+                        ],
+                        "advisory_only": True,
+                    },
+                },
+            )
+        )
+        awaiting_to_set = {
+            "key": "security_communique",
+            "action_on_yes": "aya.draft_security_communique",
+            "action_on_no": "voice.confirm_no",
+            "expires_at": (datetime.utcnow() + timedelta(minutes=15)).isoformat(),
+            "proposal_id": "propose-security-communique",
+        }
+        effects.append(
+            _action_effect(
+                "assistant-propose",
+                {
+                    "proposal_id": "propose-security-communique",
+                    "label": "Rediger un communique souverain démentant la rumeur ?",
+                    "prompt": "Souhaitez-vous que je redige le communique cabinet citant le démenti FANCI ?",
+                    "confirm_action": "aya.draft_security_communique",
+                    "decline_action": "voice.confirm_no",
+                },
+            )
+        )
+        content = (
+            f"Monsieur le Vice-Président, {trace.get('summary', '')} "
+            f"Démenti FANCI publié a 13h46, Préfecture Nord a 13h52. "
+            "Souhaitez-vous que je redige le communique souverain ?"
+        )
+        sources = [
+            {
+                "title": "Dossier rumeur frontiere Nord — OSINT et démentis",
+                "kind": "rumor_dossier",
+                "source_id": "src-rumor-frontier-nord-2026-05-25",
+            },
+        ]
+        extra["rumor_trace"] = trace
+        extra["map_command"] = command
+    elif handler == "show_troops_movement":
+        # S3.4 — activate military-air + border-tension map layers and surface
+        # the ADS-B advisory snapshot of the Sahel theater. The disclaimer
+        # « ADS-B advisory only » is also carried by the map layer legend.
+        from app.services.mission_room import TROOPS_SAHEL, _clone
+        from app.services.workspace_maps import build_map_command, ensure_workspace_map_seed
+
+        snapshot = _clone(TROOPS_SAHEL)
+        ensure_workspace_map_seed(db, workspace)
+        command = build_map_command(
+            db,
+            workspace,
+            intent="set_layers",
+            target=None,
+            layers=["territorial-risk", "regional-context", "military-air", "border-tension"],
+            user=user,
+        )
+        db.commit()
+        effects.append(
+            _action_effect(
+                "assistant-navigate",
+                {
+                    "route": "/hypervisor/mission-room/strategie",
+                    "queryParams": {"focus": "sahel", "layers": "military-air,border-tension"},
+                },
+            )
+        )
+        effects.append({"chunk_type": "map_command", **command})
+        body_lines = [
+            f"## {snapshot.get('theater_label', 'Théâtre Sahel')} — snapshot ADS-B advisory",
+            "",
+            snapshot.get("disclaimer", "ADS-B advisory only — démo Sentinel-CI."),
+            "",
+            "### Traces ADS-B (snapshot 14h30)",
+        ]
+        for track in (snapshot.get("tracks") or [])[:12]:
+            body_lines.append(
+                f"- {track.get('callsign', '—')} ({track.get('kind', '—')}, "
+                f"{track.get('operator', '—')}) · alt {track.get('altitude_ft', '—')} ft · "
+                f"vitesse {track.get('speed_kt', '—')} kt · {track.get('origin', '—')} → "
+                f"{track.get('destination', '—')}"
+            )
+        if snapshot.get("watch_zones"):
+            body_lines.append("")
+            body_lines.append("### Zones de surveillance")
+            for zone in snapshot.get("watch_zones") or []:
+                body_lines.append(
+                    f"- {zone.get('label', '—')} : {zone.get('summary', '')}"
+                )
+        if snapshot.get("cedeao_bases"):
+            body_lines.append("")
+            body_lines.append("### Bases CEDEAO en alerte standard")
+            for base in snapshot.get("cedeao_bases") or []:
+                body_lines.append(
+                    f"- {base.get('label', '—')} ({base.get('country', '—')}) — {base.get('status', '—')}"
+                )
+
+        effects.append(
+            _action_effect(
+                "assistant-draft-open",
+                {
+                    "target_type": "troops_sahel_snapshot",
+                    "target_id": "troops-sahel-2026-05-25",
+                    "draft_payload": {
+                        "kind": "troops_sahel_snapshot",
+                        "target_type": "troops_sahel_snapshot",
+                        "target_id": "troops-sahel-2026-05-25",
+                        "title": snapshot.get("theater_label"),
+                        "subject": "Snapshot ADS-B advisory — théâtre Sahel",
+                        "body_markdown": "\n".join(body_lines),
+                        "disclaimer": snapshot.get("disclaimer"),
+                        "tracks": snapshot.get("tracks") or [],
+                        "watch_zones": snapshot.get("watch_zones") or [],
+                        "cedeao_bases": snapshot.get("cedeao_bases") or [],
+                        "sources": [
+                            {"title": "Snapshot ADS-B advisory Sahel — 14h30", "id": "src-troops-sahel-2026-05-25"},
+                            {"title": "Note posture sécurité Sahel — 25 mai 2026", "id": "src-note-posture-sahel-2026-05-25"},
+                        ],
+                        "advisory_only": True,
+                    },
+                },
+            )
+        )
+        content = (
+            f"Monsieur le Vice-Président, snapshot ADS-B advisory Sahel — "
+            f"{len(snapshot.get('tracks') or [])} traces, "
+            f"{len(snapshot.get('watch_zones') or [])} zones de surveillance, "
+            f"{len(snapshot.get('cedeao_bases') or [])} bases CEDEAO. "
+            "Lecture advisory only, en appui de la revue Sahel de 15h00."
+        )
+        sources = [
+            {
+                "title": "Snapshot ADS-B advisory Sahel — 14h30",
+                "kind": "ads_b_advisory",
+                "source_id": "src-troops-sahel-2026-05-25",
+            },
+            {
+                "title": "Note posture securite Sahel — 25 mai 2026",
+                "kind": "security_brief",
+                "source_id": "src-note-posture-sahel-2026-05-25",
+            },
+        ]
+        extra["troops_sahel"] = snapshot
+        extra["map_command"] = command
+    elif handler == "show_reputation_drill":
+        # S3.5 — open the reputation view with the 2+ / 1- drill. The critical
+        # item is the existing L'Inter critique (attention-inter-budget) so we
+        # do not invent a press item.
+        from app.services.mission_room import REPUTATION_DRILL, _clone
+
+        drill = _clone(REPUTATION_DRILL)
+        effects.append(
+            _action_effect(
+                "assistant-navigate",
+                {
+                    "route": "/hypervisor/mission-room/reputation",
+                    "queryParams": {"focus": "drill"},
+                },
+            )
+        )
+        items = drill.get("items") or []
+        positive_items = [item for item in items if item.get("kind") == "positif"]
+        critical_items = [item for item in items if item.get("kind") == "critique"]
+        positive_lines = [f"{item.get('title')}" for item in positive_items]
+        critical_lines = [f"{item.get('title')}" for item in critical_items]
+        content = (
+            f"Monsieur le Vice-Président, score réputation {drill.get('score')}/100 "
+            f"({'+' if (drill.get('delta') or 0) >= 0 else ''}{drill.get('delta')} pts). "
+            f"Positifs : {' ; '.join(positive_lines) or 'aucun'}. "
+            f"Critique : {' ; '.join(critical_lines) or 'aucune'}. "
+            f"{drill.get('aya_sentence', '')}"
+        )
+        sources = [
+            {
+                "title": item.get("source_label") or item.get("title"),
+                "kind": "press_article" if item.get("kind") == "positif" else "press_attention",
+                "source_id": item.get("source_id"),
+            }
+            for item in items
+        ]
+        extra["reputation_drill"] = drill
+    elif handler == "draft_security_communique":
+        # S3.6 — draft a sovereign communique citing the FANCI / Prefecture
+        # Nord démentis. Reuses the draft_email_v1 skill envelope so the
+        # drawer renders the brouillon identically to S1.7 (Atlantic Trader).
+        try:
+            draft = await _invoke_skill(
+                "draft_email_v1",
+                {
+                    "template_kind": "security_communique",
+                    "target_id": "rumor-frontier-nord-2026-05-25",
+                    "context_refs": [
+                        "src-rumor-frontier-nord-2026-05-25",
+                        "src-conseil-defense-2026-05-25-am",
+                        "src-note-posture-sahel-2026-05-25",
+                    ],
+                },
+                ctx,
+            )
+        except Exception:  # noqa: BLE001 - degrade gracefully for demo
+            draft = None
+        if not draft or not isinstance(draft, dict):
+            draft = {
+                "subject": "Communique souverain — frontiere Nord, démenti officiel",
+                "to": ["Direction de la communication présidentielle", "Cellule veille SENTINEL-CI"],
+                "body_markdown": (
+                    "Le Cabinet du Vice-Président tient a confirmer le démenti officiel de la "
+                    "FANCI (13h46) et de la Préfecture Nord (13h52) concernant les rumeurs "
+                    "d'incursion frontaliere Nord. Les postes mixtes restent nominaux. "
+                    "Le Cabinet rappelle son engagement de transparence sur les signaux faibles "
+                    "et la posture de coordination CEDEAO active.\n\n"
+                    "Sources : Etat-Major FANCI ; Préfecture Nord ; Cellule veille SENTINEL-CI."
+                ),
+                "sources": [
+                    {"title": "Démenti officiel FANCI", "source_id": "tweet-off-002"},
+                    {"title": "Mise au point Préfecture Nord", "source_id": "tweet-off-005"},
+                    {
+                        "title": "Dossier rumeur frontiere Nord",
+                        "source_id": "src-rumor-frontier-nord-2026-05-25",
+                    },
+                ],
+                "advisory_only": True,
+                "requires_validation": True,
+            }
+        effects.append(
+            _action_effect(
+                "assistant-draft-open",
+                {
+                    "target_type": "security_communique",
+                    "target_id": "rumor-frontier-nord-2026-05-25",
+                    "draft_payload": draft,
+                },
+            )
+        )
+        subject = (draft or {}).get("subject") or "Communique souverain frontiere Nord"
+        content = (
+            f"Monsieur le Vice-Président, brouillon pret : **{subject}**. "
+            "Validation advisory requise avant diffusion."
+        )
+        sources = (draft or {}).get("sources") or [
+            {
+                "title": "Dossier rumeur frontiere Nord",
+                "kind": "rumor_dossier",
+                "source_id": "src-rumor-frontier-nord-2026-05-25",
+            },
+        ]
+        awaiting_to_clear = True
+        extra["draft"] = draft
     elif handler == "voice_navigate_view":
         view = (manifest.input_schema or {}).get("default_view") or "cockpit"
         effects.append(_action_effect("assistant-navigate", {"route": f"/hypervisor/mission-room/{view}"}))

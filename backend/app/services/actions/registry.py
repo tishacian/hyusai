@@ -1041,10 +1041,310 @@ SENTINEL_AYA_ACTIONS = (
 )
 
 
+SENTINEL_AYA_SECURITY_ACTIONS = (
+    ActionManifest(
+        action_id="aya.show_security_posture",
+        label="Show security posture",
+        description="Display the dual-axis security posture block (interieur Nord + exterieur Sahel) on the cockpit.",
+        surfaces=("chat", "voice", "ui", "flow"),
+        phrases=(
+            "posture securitaire",
+            "posture securitaire cet apres midi",
+            "posture securitaire cet après midi",
+            "quelle est la posture securitaire",
+            "quelle est la posture securitaire cet apres midi",
+            "quelle est la posture securitaire cet après midi",
+            "quelle est la posture sécuritaire",
+            "quelle est la posture sécuritaire cet après-midi",
+            "securite ce matin",
+            "sécurité ce matin",
+            "posture de securite",
+            "posture de sécurité",
+            "posture du jour",
+            "posture securite du jour",
+            "posture sécurité du jour",
+            "donne moi la posture securitaire",
+            "donne-moi la posture sécuritaire",
+            "montre la posture securitaire",
+            "montre-moi la posture sécuritaire",
+            "montre la posture securite",
+            "ou en est la securite",
+            "où en est la sécurité",
+            "etat de la securite",
+            "état de la sécurité",
+            "posture",
+            # Anglicisme layer.
+            "security posture",
+            "show security posture",
+            "show me the security posture",
+            "what is the security posture",
+            "current security posture",
+        ),
+        required_permission="action.execute",
+        confirmation_policy="direct_safe",
+        handler=ActionHandler("flow_node", "show_security_posture"),
+        audit_event="action.aya.show_security_posture",
+        pack="sentinel_ci_aya_security_v1",
+        capability_template="aya_voice_command",
+        direct_safe=True,
+    ),
+    ActionManifest(
+        action_id="aya.show_social_pulse",
+        label="Show social pulse",
+        description="Open the demo-safe Twitter snapshot drawer + activate the social-geo map layer.",
+        surfaces=("chat", "voice", "ui", "flow"),
+        phrases=(
+            "pulsation sociale",
+            "montre moi la pulsation sociale",
+            "montre-moi la pulsation sociale",
+            "montre la pulsation sociale",
+            "donne moi la pulsation sociale",
+            "donne-moi la pulsation sociale",
+            "ouvre la pulsation sociale",
+            "snapshot social",
+            "snapshot social abidjan",
+            "snapshot twitter",
+            "snapshot reseaux sociaux",
+            "snapshot réseaux sociaux",
+            "reseaux sociaux abidjan",
+            "réseaux sociaux abidjan",
+            "social abidjan",
+            "social listening",
+            "social listening abidjan",
+            "que disent les reseaux sociaux",
+            "que disent les réseaux sociaux",
+            "ouvre les tweets",
+            "montre les tweets",
+            "montre-moi les tweets",
+            "tweets abidjan",
+            # Anglicisme layer.
+            "social pulse",
+            "show me the social pulse",
+            "show the social pulse",
+            "open the social pulse",
+            "open social snapshot",
+        ),
+        required_permission="action.execute",
+        confirmation_policy="direct_safe",
+        handler=ActionHandler("flow_node", "show_social_pulse"),
+        audit_event="action.aya.show_social_pulse",
+        pack="sentinel_ci_aya_security_v1",
+        capability_template="aya_voice_command",
+        direct_safe=True,
+    ),
+    ActionManifest(
+        action_id="aya.trace_rumor_origin",
+        label="Trace rumor origin (frontier Nord)",
+        description="Drill the evidence chain of the Nord border rumor and surface the official démenti.",
+        surfaces=("chat", "voice", "ui", "flow"),
+        phrases=(
+            "d'ou vient la rumeur",
+            "d ou vient la rumeur",
+            "d'où vient la rumeur",
+            "ou vient la rumeur frontiere",
+            "d'ou vient la rumeur frontiere nord",
+            "d'où vient la rumeur frontière nord",
+            "d ou vient la rumeur frontiere nord",
+            "origine rumeur frontiere",
+            "origine rumeur frontière",
+            "origine rumeur nord",
+            "trace la rumeur",
+            "trace la rumeur frontiere",
+            "trace la rumeur frontière nord",
+            "rumeur frontiere nord",
+            "rumeur frontière nord",
+            "chaine de la rumeur",
+            "chaîne de la rumeur",
+            "chaine rumeur nord",
+            "comment la rumeur s est propagee",
+            "comment la rumeur s'est propagée",
+            "qui a lancé la rumeur",
+            "qui a lance la rumeur",
+            "qui propage la rumeur frontiere",
+            # Anglicisme layer.
+            "trace the rumor",
+            "trace the rumor origin",
+            "where did the rumor come from",
+            "rumor origin north border",
+        ),
+        required_permission="action.execute",
+        confirmation_policy="direct_safe",
+        handler=ActionHandler("flow_node", "trace_rumor_origin"),
+        audit_event="action.aya.trace_rumor_origin",
+        pack="sentinel_ci_aya_security_v1",
+        capability_template="aya_voice_command",
+        direct_safe=True,
+    ),
+    ActionManifest(
+        action_id="aya.show_troops_movement",
+        label="Show troops movement (Sahel ADS-B)",
+        description="Activate the military-air + border-tension map layers and display the Sahel ADS-B advisory snapshot.",
+        surfaces=("chat", "voice", "ui", "flow"),
+        phrases=(
+            "montre les mouvements",
+            "montre les mouvements au sahel",
+            "montre-moi les mouvements au sahel",
+            "montre les mouvements de troupes",
+            "montre-moi les mouvements de troupes",
+            "mouvements au sahel",
+            "mouvements de troupes",
+            "mouvements de troupes au sahel",
+            "mouvements militaires",
+            "mouvements militaires sahel",
+            "que se passe t il au sahel",
+            "que se passe-t-il au sahel",
+            "situation au sahel",
+            "lecture sahel",
+            "lecture sahel ce matin",
+            "lecture du sahel",
+            "snapshot sahel",
+            "ads b sahel",
+            "ads-b sahel",
+            "ads-b advisory sahel",
+            "vols militaires sahel",
+            "vols ads b sahel",
+            # Anglicisme layer.
+            "troops movement",
+            "show troops movement",
+            "show me troops movement",
+            "show me the sahel",
+            "sahel situation",
+            "ads-b advisory",
+            "show ads-b sahel",
+        ),
+        required_permission="action.execute",
+        confirmation_policy="direct_safe",
+        handler=ActionHandler("flow_node", "show_troops_movement"),
+        audit_event="action.aya.show_troops_movement",
+        pack="sentinel_ci_aya_security_v1",
+        capability_template="aya_voice_command",
+        direct_safe=True,
+    ),
+    ActionManifest(
+        action_id="aya.show_reputation_drill",
+        label="Show reputation drill (2+/1-)",
+        description="Open the reputation view and emphasize the 2 positive items + 1 critical item with sources.",
+        surfaces=("chat", "voice", "ui", "flow"),
+        phrases=(
+            "qu est ce qu on dit de moi",
+            "qu'est-ce qu'on dit de moi",
+            "qu est ce qu on dit de moi cette semaine",
+            "qu'est-ce qu'on dit de moi cette semaine",
+            "que dit on de moi",
+            "que dit-on de moi",
+            "que dit on de moi cette semaine",
+            "que dit-on de moi cette semaine",
+            "ma reputation",
+            "ma réputation",
+            "ma reputation cette semaine",
+            "ma réputation cette semaine",
+            "reputation cette semaine",
+            "réputation cette semaine",
+            "score reputation",
+            "score réputation",
+            "drill reputation",
+            "drill réputation",
+            "lecture reputation",
+            "lecture réputation",
+            "comment on me percoit",
+            "comment on me perçoit",
+            "perception publique",
+            "perception médias",
+            "perception medias",
+            "donne moi la reputation",
+            "donne-moi la réputation",
+            # Anglicisme layer.
+            "reputation drill",
+            "show reputation drill",
+            "show me the reputation drill",
+            "what are they saying about me",
+            "what are they saying about me this week",
+            "reputation this week",
+            "show my reputation",
+        ),
+        required_permission="action.execute",
+        confirmation_policy="direct_safe",
+        handler=ActionHandler("flow_node", "show_reputation_drill"),
+        audit_event="action.aya.show_reputation_drill",
+        pack="sentinel_ci_aya_security_v1",
+        capability_template="aya_voice_command",
+        direct_safe=True,
+    ),
+    ActionManifest(
+        action_id="aya.draft_security_communique",
+        label="Draft security communique (frontier Nord)",
+        description="Draft a sovereign communique citing the FANCI démenti for the Nord border rumor.",
+        surfaces=("chat", "voice", "ui", "flow"),
+        phrases=(
+            "redige le communique securite",
+            "redige le communiqué sécurité",
+            "rédige le communique securite",
+            "rédige le communiqué de sécurité",
+            "redige le communique sur la frontiere",
+            "rédige le communiqué sur la frontière",
+            "redige le communique sur la frontiere nord",
+            "rédige le communiqué sur la frontière nord",
+            "redige un communique frontiere nord",
+            "rédige un communiqué frontière nord",
+            "redige communique frontiere",
+            "rédige communiqué frontière",
+            "prepare le communique frontiere",
+            "prépare le communiqué frontière",
+            "prepare un communique sur la rumeur",
+            "prépare un communiqué sur la rumeur",
+            # Trame verbatim (S3.6) — fully-qualified phrases so the resolver
+            # cannot drift toward aya.trace_rumor_origin on the « rumeur
+            # frontière Nord » tokens. The communiqué intent is anchored by
+            # the « communique de securite » lexical block.
+            "prepare un communique de securite",
+            "prépare un communiqué de sécurité",
+            "prepare un communique de securite sur la rumeur",
+            "prépare un communiqué de sécurité sur la rumeur",
+            "prepare un communique de securite sur la rumeur nord",
+            "prépare un communiqué de sécurité sur la rumeur nord",
+            "prepare un communique de securite sur la rumeur frontiere nord",
+            "prépare un communiqué de sécurité sur la rumeur frontière nord",
+            "redige un communique de securite",
+            "rédige un communiqué de sécurité",
+            "redige un communique de securite sur la rumeur frontiere nord",
+            "rédige un communiqué de sécurité sur la rumeur frontière nord",
+            "redige le communique de securite frontiere nord",
+            "rédige le communiqué de sécurité frontière nord",
+            "communique de securite frontiere nord",
+            "communiqué de sécurité frontière nord",
+            "communique de securite sur la rumeur",
+            "communiqué de sécurité sur la rumeur",
+            "communique de securite sur la rumeur frontiere nord",
+            "communiqué de sécurité sur la rumeur frontière nord",
+            "brouillon communique securite",
+            "brouillon communiqué sécurité",
+            "communique frontiere nord",
+            "communiqué frontière nord",
+            "communique demente rumeur",
+            "communiqué démenti rumeur",
+            # Anglicisme layer.
+            "draft security communique",
+            "draft a security communique",
+            "draft a communique on the north border",
+            "draft the border statement",
+            "draft a statement on the rumor",
+        ),
+        required_permission="action.execute",
+        confirmation_policy="direct_safe",
+        handler=ActionHandler("flow_node", "draft_security_communique"),
+        audit_event="action.aya.draft_security_communique",
+        pack="sentinel_ci_aya_security_v1",
+        capability_template="aya_voice_command",
+        direct_safe=True,
+    ),
+)
+
+
 PACKS: Dict[str, tuple[ActionManifest, ...]] = {
     "global_voice_v1": GLOBAL_VOICE_ACTIONS,
     "andritz_industrial_v1": ANDRITZ_ACTIONS,
     "sentinel_ci_aya_v1": SENTINEL_AYA_ACTIONS,
+    "sentinel_ci_aya_security_v1": SENTINEL_AYA_SECURITY_ACTIONS,
 }
 
 
@@ -1167,6 +1467,17 @@ _CUSTOMS_HINT_RE = re.compile(
     r"\b(?:pv|proces\s*verbal|dedouanement|derogation|courrier|email|mail|douanes|customs)\b"
 )
 _VESSEL_HINT_RE = re.compile(r"\b(?:cargo|cargaison|atlantic\s*trader|navire|mv)\b")
+# S3.6 — communique drafting intent. When the query carries both
+# « rumeur frontière nord » tokens (which match aya.trace_rumor_origin
+# strongly) AND an explicit drafting verb (« redige / prepare / brouillon /
+# draft ») plus a « communique » lexical anchor, prefer the
+# aya.draft_security_communique action so the brouillon drawer opens.
+_SECURITY_COMMUNIQUE_VERB_RE = re.compile(
+    r"\b(?:redige|redaction|prepare|preparation|brouillon|ecris|ecrire|draft)\b"
+)
+_SECURITY_COMMUNIQUE_NOUN_RE = re.compile(
+    r"\b(?:communique|statement)\b"
+)
 
 # Maximum normalized-token count allowed for a query to still match
 # ``voice.confirm_yes`` / ``voice.confirm_no``. Anything longer must match
@@ -1222,6 +1533,20 @@ def _apply_tie_breakers(
     ):
         for score, manifest in scored:
             if manifest.action_id == "aya.show_vessel_evidence":
+                return score, manifest
+    # Rule 3 — S3.6 communique drafting: if aya.trace_rumor_origin wins but
+    # the query also carries an explicit drafting verb and the « communique »
+    # noun, prefer aya.draft_security_communique. Otherwise « prépare un
+    # communiqué de sécurité sur la rumeur frontière Nord » misroutes to the
+    # rumor trace action because the « rumeur frontière nord » tokens have a
+    # very high phrase score.
+    if (
+        top_manifest.action_id == "aya.trace_rumor_origin"
+        and _SECURITY_COMMUNIQUE_VERB_RE.search(normalized)
+        and _SECURITY_COMMUNIQUE_NOUN_RE.search(normalized)
+    ):
+        for score, manifest in scored:
+            if manifest.action_id == "aya.draft_security_communique":
                 return score, manifest
     return top_score, top_manifest
 
@@ -1377,6 +1702,11 @@ def _workspace_default_packs(workspace: Workspace) -> list[str]:
         packs.append("andritz_industrial_v1")
     if "sentinel" in slug or "sentinel" in name or "aya_voice_command" in enabled_caps:
         packs.append("sentinel_ci_aya_v1")
+        # S3 security pack: opt-in by default for SENTINEL-CI workspaces so the
+        # 6 new actions (posture, social pulse, rumor trace, troops Sahel,
+        # reputation drill, security communique) are visible without any
+        # additional workspace settings change.
+        packs.append("sentinel_ci_aya_security_v1")
     return packs
 
 
@@ -1388,6 +1718,7 @@ def _capability_template_packs(settings: dict[str, Any]) -> list[str]:
         packs.append("global_voice_v1")
     if "aya_voice_command" in enabled_caps:
         packs.append("sentinel_ci_aya_v1")
+        packs.append("sentinel_ci_aya_security_v1")
     if "expert_knowledge_capture" in enabled_caps or "secure_deposit" in enabled_caps:
         packs.append("andritz_industrial_v1")
     return packs
