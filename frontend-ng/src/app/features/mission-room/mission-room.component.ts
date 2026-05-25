@@ -2289,7 +2289,7 @@ export class MissionRailComponent {
           />
         } @else {
           <section class="two-column map-layout">
-            <article class="content-panel map-panel span-2 strategy-map-shell">
+            <article class="content-panel map-panel span-2" style="position:relative">
               <span class="eyebrow">Carte strategique</span>
               <h2>{{ missionMap()?.question }}</h2>
               <app-workspace-map
@@ -2308,25 +2308,25 @@ export class MissionRailComponent {
                 (mapBackgroundClick)="clearStrategicVessel()"
               />
               @if (selectedStrategicVessel(); as vessel) {
-                <aside class="strategy-vessel-drawer" aria-label="Fiche navire selectionne">
+                <aside class="md" aria-label="Fiche navire selectionne">
                   <header>
                     <span class="eyebrow">Navire AIS</span>
-                    <button type="button" class="drawer-close" aria-label="Fermer" (click)="clearStrategicVessel()">×</button>
+                    <button type="button" class="action-button compact" aria-label="Fermer" (click)="clearStrategicVessel()">×</button>
                   </header>
                   <strong>{{ vessel.name }}</strong>
-                  <p class="vessel-meta">
+                  <p>
                     {{ vessel.vessel_type || 'navire' }}
                     @if (vessel.sog != null) { · {{ vessel.sog | number:'1.0-0' }} kn }
                     @if (vessel.imo) { · IMO {{ vessel.imo }}
                     } · MMSI {{ vessel.mmsi }}
                   </p>
                   @if (vessel.destination) {
-                    <p class="vessel-meta">→ {{ vessel.destination }}@if (vessel.eta) { · ETA {{ vessel.eta }} }</p>
+                    <p>→ {{ vessel.destination }}@if (vessel.eta) { · ETA {{ vessel.eta }} }</p>
                   }
                   @if (vessel.linked_cargo_id) {
-                    <span class="vessel-badge">Cargo lie projet Centre Drones Napie</span>
+                    <span class="hero-status">Cargo lie projet Centre Drones Napie</span>
                   }
-                  <div class="vessel-drawer-actions">
+                  <div class="source-row">
                     @if (strategicVesselHasPortWebcam(vessel)) {
                       <button type="button" class="action-button compact" (click)="openStrategicVesselPort(vessel)">
                         Voir au port
@@ -4222,65 +4222,22 @@ export class MissionRailComponent {
       .map-layout {
         grid-template-columns: minmax(0, 2.15fr) minmax(340px, 0.65fr);
       }
-      .strategy-map-shell {
-        position: relative;
-      }
-      .strategy-vessel-drawer {
+      .md {
         position: absolute;
         right: 18px;
         bottom: 18px;
-        z-index: 6;
         width: min(320px, calc(100% - 36px));
         padding: 14px 16px;
-        border-radius: var(--mission-radius-lg);
         border: 1px solid rgba(180, 136, 255, 0.35);
-        background: linear-gradient(180deg, rgba(12, 18, 28, 0.96), rgba(6, 10, 16, 0.92));
-        box-shadow: var(--mission-shadow-soft);
+        border-radius: var(--mission-radius-lg);
+        background: rgba(8, 12, 20, 0.94);
       }
-      .strategy-vessel-drawer header {
+      .md header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 8px;
         margin-bottom: 8px;
-      }
-      .strategy-vessel-drawer strong {
-        display: block;
-        font-size: 16px;
-        letter-spacing: -0.01em;
-      }
-      .strategy-vessel-drawer .vessel-meta {
-        margin: 4px 0 0;
-        color: var(--mission-text-soft);
-        font-size: 12px;
-        line-height: 1.45;
-      }
-      .strategy-vessel-drawer .vessel-badge {
-        display: inline-block;
-        margin-top: 8px;
-        padding: 4px 8px;
-        border-radius: 999px;
-        background: rgba(180, 136, 255, 0.14);
-        color: #d9c8ff;
-        font-size: 11px;
-      }
-      .strategy-vessel-drawer .vessel-drawer-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 12px;
-      }
-      .strategy-vessel-drawer .drawer-close {
-        border: 0;
-        background: transparent;
-        color: var(--mission-text-muted);
-        font-size: 20px;
-        line-height: 1;
-        cursor: pointer;
-      }
-      .strategy-vessel-drawer .action-button.ghost {
-        background: transparent;
-        border: 1px solid var(--mission-border);
       }
       .territory-map {
         width: 100%;
