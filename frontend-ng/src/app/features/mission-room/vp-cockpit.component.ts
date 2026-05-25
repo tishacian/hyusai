@@ -83,6 +83,51 @@ import type {
         <app-vp-arbitration-strip [cards]="arbitrationCards" (cardSelected)="arbitrationSelected.emit($event)" />
       </section>
 
+      @if (securityPosture; as posture) {
+        <section class="vp-block vp-block-security" aria-label="Posture securitaire dual-axis">
+          <header class="vp-block-head">
+            <span class="vp-block-eyebrow">Posture securitaire</span>
+            <h2 class="vp-block-title">{{ posture.summary || 'Dual-axis interieur · exterieur' }}</h2>
+            @if (postureNextCouncil(posture); as council) {
+              <span class="vp-security-council" [attr.aria-label]="'Prochain conseil ' + council">{{ council }}</span>
+            }
+          </header>
+          <div class="vp-security-grid">
+            @for (axis of postureAxes(posture); track axis.key) {
+              <article class="vp-security-card" [class]="'tone-' + (axis.tone || 'monitoring')">
+                <header class="vp-security-card-head">
+                  <span class="vp-security-card-axis">{{ axis.label }}</span>
+                  <strong class="vp-security-card-level" [attr.data-tone]="axis.tone">{{ axis.level | uppercase }}</strong>
+                </header>
+                @if (axis.headline) {
+                  <p class="vp-security-card-headline">{{ axis.headline }}</p>
+                }
+                @if (axis.signals?.length) {
+                  <ul class="vp-security-card-signals" aria-label="Signaux">
+                    @for (signal of (axis.signals || []).slice(0, 3); track signal.id) {
+                      <li [class]="'tone-' + (signal.tone || 'monitoring')">
+                        <span class="vp-security-signal-label">{{ signal.label }}</span>
+                        @if (signal.summary) {
+                          <small class="vp-security-signal-summary">{{ signal.summary }}</small>
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
+              </article>
+            }
+          </div>
+          <div class="vp-security-actions">
+            <button type="button" class="vp-security-cta vp-security-cta-primary" (click)="securityPostureRequested.emit()">
+              Posture securitaire complete
+            </button>
+            <button type="button" class="vp-security-cta" (click)="securityCommuniqueRequested.emit()">
+              Préparer le communiqué Nord
+            </button>
+          </div>
+        </section>
+      }
+
       <section class="vp-block vp-block-press" aria-label="Alerte presse">
         <header class="vp-block-head">
           <span class="vp-block-eyebrow">Signal presse</span>
@@ -234,9 +279,124 @@ import type {
       .vp-block-press {
         padding: var(--mission-space-5);
       }
+      .vp-block-security {
+        display: grid;
+        gap: var(--mission-space-4);
+      }
+      .vp-security-council {
+        margin-left: auto;
+        padding: var(--mission-space-1) var(--mission-space-3);
+        border-radius: 999px;
+        background: rgba(241, 180, 90, 0.12);
+        border: 1px solid rgba(241, 180, 90, 0.32);
+        color: var(--mission-text-secondary);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
+      }
+      .vp-security-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--mission-space-4);
+      }
+      .vp-security-card {
+        padding: var(--mission-space-4);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: rgba(4, 8, 13, 0.62);
+        display: flex;
+        flex-direction: column;
+        gap: var(--mission-space-3);
+        min-width: 0;
+      }
+      .vp-security-card.tone-watch { border-color: rgba(241, 180, 90, 0.42); }
+      .vp-security-card.tone-elevated { border-color: rgba(241, 180, 90, 0.42); }
+      .vp-security-card.tone-stable { border-color: rgba(63, 209, 141, 0.32); }
+      .vp-security-card-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--mission-space-3);
+      }
+      .vp-security-card-axis {
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
+        color: var(--mission-text-tertiary);
+      }
+      .vp-security-card-level {
+        font-size: var(--mission-text-md);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        color: var(--mission-text-primary);
+      }
+      .vp-security-card-level[data-tone='watch'] { color: var(--mission-warning, #f1b45a); }
+      .vp-security-card-level[data-tone='elevated'] { color: var(--mission-warning, #f1b45a); }
+      .vp-security-card-level[data-tone='stable'] { color: var(--mission-success, #63d18d); }
+      .vp-security-card-level[data-tone='critical'] { color: var(--mission-critical, #f06476); }
+      .vp-security-card-headline {
+        margin: 0;
+        color: var(--mission-text-secondary);
+        font-size: var(--mission-text-sm);
+        line-height: 1.45;
+      }
+      .vp-security-card-signals {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: var(--mission-space-2);
+      }
+      .vp-security-card-signals li {
+        padding: var(--mission-space-2) var(--mission-space-3);
+        border-left: 2px solid var(--mission-border);
+        background: rgba(8, 14, 20, 0.52);
+        border-radius: 4px;
+      }
+      .vp-security-card-signals li.tone-watch { border-left-color: rgba(241, 180, 90, 0.60); }
+      .vp-security-card-signals li.tone-stable { border-left-color: rgba(63, 209, 141, 0.55); }
+      .vp-security-card-signals li.tone-critical { border-left-color: rgba(240, 100, 118, 0.60); }
+      .vp-security-signal-label {
+        display: block;
+        font-weight: 600;
+        font-size: var(--mission-text-xs);
+        color: var(--mission-text-primary);
+      }
+      .vp-security-signal-summary {
+        display: block;
+        margin-top: 2px;
+        font-size: var(--mission-text-xs);
+        color: var(--mission-text-tertiary);
+        line-height: 1.35;
+      }
+      .vp-security-actions {
+        display: flex;
+        gap: var(--mission-space-3);
+        flex-wrap: wrap;
+      }
+      .vp-security-cta {
+        appearance: none;
+        cursor: pointer;
+        padding: var(--mission-space-2) var(--mission-space-4);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: rgba(4, 8, 13, 0.5);
+        color: var(--mission-text-primary);
+        font: inherit;
+        font-size: var(--mission-text-xs);
+        letter-spacing: var(--mission-tracking-tight);
+        transition: border-color var(--mission-dur-fast) var(--mission-ease-out),
+          background var(--mission-dur-fast) var(--mission-ease-out);
+      }
+      .vp-security-cta:hover { border-color: var(--sentinel-accent-muted); background: rgba(101, 214, 110, 0.06); }
+      .vp-security-cta:focus-visible { outline: 2px solid var(--sentinel-accent); outline-offset: 2px; }
+      .vp-security-cta-primary { background: rgba(101, 214, 110, 0.10); border-color: rgba(101, 214, 110, 0.42); }
       @media (max-width: 1100px) {
         .vp-status-bar,
-        .vp-block-terrain {
+        .vp-block-terrain,
+        .vp-security-grid {
           grid-template-columns: 1fr;
         }
       }
@@ -263,6 +423,7 @@ export class VpCockpitComponent {
   @Input() arbitrationCards: VpArbitrationCard[] = [];
   @Input() pressPreview: VpPressPreviewItem[] = [];
   @Input() pressHighlightId: string | null = null;
+  @Input() securityPosture: Record<string, any> | null = null;
 
   @Output() openMap = new EventEmitter<void>();
   @Output() mapZoneSelected = new EventEmitter<VpZoneScore>();
@@ -273,6 +434,8 @@ export class VpCockpitComponent {
   @Output() voiceRequest = new EventEmitter<string | undefined>();
   @Output() voiceListen = new EventEmitter<void>();
   @Output() briefingRequest = new EventEmitter<void>();
+  @Output() securityPostureRequested = new EventEmitter<void>();
+  @Output() securityCommuniqueRequested = new EventEmitter<void>();
 
   toneClass(tone?: string): string {
     const normalized = (tone || '').toLowerCase();
@@ -287,6 +450,42 @@ export class VpCockpitComponent {
     if (normalized.includes('zone nord') || normalized.includes('tension nord')) return true;
     if (normalized.includes('nord') && this.toneClass(item.tone) === 'critical') return true;
     return false;
+  }
+
+  postureAxes(posture: Record<string, any> | null): Array<{ key: string; label: string; level: string; tone: string; headline?: string; signals?: any[] }> {
+    if (!posture) return [];
+    const axes: Array<{ key: string; label: string; level: string; tone: string; headline?: string; signals?: any[] }> = [];
+    const interior = posture['interior'];
+    if (interior) {
+      axes.push({
+        key: 'interior',
+        label: interior.label || 'Intérieur',
+        level: interior.level || 'monitoring',
+        tone: interior.tone || 'monitoring',
+        headline: interior.headline,
+        signals: Array.isArray(interior.signals) ? interior.signals : [],
+      });
+    }
+    const exterior = posture['exterior'];
+    if (exterior) {
+      axes.push({
+        key: 'exterior',
+        label: exterior.label || 'Extérieur',
+        level: exterior.level || 'monitoring',
+        tone: exterior.tone || 'monitoring',
+        headline: exterior.headline,
+        signals: Array.isArray(exterior.signals) ? exterior.signals : [],
+      });
+    }
+    return axes;
+  }
+
+  postureNextCouncil(posture: Record<string, any> | null): string | null {
+    const council = posture?.['next_council'];
+    if (!council) return null;
+    const time = council.time || '';
+    const label = council.label || 'Prochain Conseil';
+    return time ? `${time} — ${label}` : label;
   }
 
   orderedStatusBar(): VpStatusBarItem[] {

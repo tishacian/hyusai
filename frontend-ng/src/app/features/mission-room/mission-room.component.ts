@@ -408,7 +408,27 @@ interface MissionCockpit {
   communications_flow: { hour: string; institutional: number; press: number }[];
   agenda: AgendaItem[];
   zones: { name: string; level: number; tone: string }[];
-  reputation: { score: number; delta: number; trend: number[] };
+  reputation: {
+    score: number;
+    delta: number;
+    trend: number[];
+    summary?: string;
+    period_label?: string;
+    aya_sentence?: string;
+    items?: Array<{
+      id: string;
+      kind?: string;
+      tone?: string;
+      title: string;
+      summary?: string;
+      source_label?: string;
+      source_id?: string;
+      url?: string;
+      sentiment?: string;
+      engagement?: number;
+      linked_attention_id?: string;
+    }>;
+  };
   media_sources: { label: string; coverage: number; count: number }[];
   latest_alerts: NewsSignal[];
   keywords: { label: string; count: number; delta: number }[];
@@ -473,6 +493,10 @@ interface MissionCockpit {
   strategic_posture?: StrategicPosture;
   what_changed?: string[];
   vp_status_bar?: { key: string; label: string; value: string; detail?: string; tone?: string }[];
+  security_posture?: Record<string, any> | null;
+  social_snapshot?: Record<string, any> | null;
+  troops_sahel?: Record<string, any> | null;
+  rumor_frontier_trace?: Record<string, any> | null;
   directive_of_day?: {
     label?: string;
     text: string;
@@ -1520,6 +1544,7 @@ export class MissionRailComponent {
         [arbitrationCards]="arbitrationCards()"
         [pressPreview]="pressPreview()"
         [pressHighlightId]="pressHighlightId()"
+        [securityPosture]="securityPosture()"
         (openMap)="openDrillDownView('strategie', vpMapPreviewContext().geoPreview.top_zone_id || undefined)"
         (mapZoneSelected)="openMapZoneDrillDown($event)"
         (mapVesselSelected)="openCockpitVesselDrillDown($event)"
@@ -1529,6 +1554,8 @@ export class MissionRailComponent {
         (voiceRequest)="openAssistantVoice($event)"
         (voiceListen)="openAssistantVoice('AYA, lis le briefing souverain en 60 secondes.')"
         (briefingRequest)="openZoneNordDossier()"
+        (securityPostureRequested)="openAssistant('AYA, montre-moi la posture securitaire du jour.')"
+        (securityCommuniqueRequested)="openAssistant('AYA, prepare un communique de securite sur la rumeur frontiere Nord.')"
       />
     </ng-template>
 
@@ -2059,7 +2086,7 @@ export class MissionRailComponent {
         <article class="content-panel">
           <span class="eyebrow">Lecture cabinet</span>
           <h2>Reputation institutionnelle</h2>
-          <p>La dynamique positive reste fragile. Les signaux critiques viennent surtout des retards territoriaux et d'une perception de coordination insuffisante.</p>
+          <p>{{ cockpit()?.reputation?.summary || "La dynamique positive reste fragile. Les signaux critiques viennent surtout des retards territoriaux et d'une perception de coordination insuffisante." }}</p>
           <div class="keyword-grid compact">
             @for (kw of cockpit()?.keywords || []; track kw.label) {
               <article>
@@ -2071,6 +2098,60 @@ export class MissionRailComponent {
           </div>
         </article>
       </section>
+
+      @if (reputationDrillItems().length) {
+        <section class="content-panel span-2 reputation-drill-panel" id="reputation-drill">
+          <div class="panel-heading-row">
+            <div>
+              <span class="eyebrow">Drill du sentiment · {{ cockpit()?.reputation?.period_label || 'Cette semaine' }}</span>
+              <h2>Réputation 2 positifs · 1 critique</h2>
+              @if (cockpit()?.reputation?.aya_sentence; as sentence) {
+                <p>{{ sentence }}</p>
+              }
+            </div>
+            <button
+              type="button"
+              class="inline-action"
+              (click)="openAssistant('AYA, montre le drill de réputation 2 positifs et 1 critique.')"
+            >
+              Demander à {{ assistantName() }}
+            </button>
+          </div>
+          <div class="reputation-drill-grid">
+            @for (item of reputationDrillItems(); track item.id) {
+              <article
+                class="reputation-drill-card"
+                [class.positive]="item.kind === 'positif' || item.tone === 'positive'"
+                [class.critical]="item.kind === 'critique' || item.tone === 'negative'"
+              >
+                <header class="reputation-drill-head">
+                  <span class="reputation-drill-tag">
+                    {{ item.kind === 'critique' ? 'Critique' : 'Positif' }}
+                  </span>
+                  @if (item.engagement) {
+                    <small class="reputation-drill-engagement">{{ item.engagement }} eng.</small>
+                  }
+                </header>
+                <h3>{{ item.title }}</h3>
+                @if (item.summary) {
+                  <p>{{ item.summary }}</p>
+                }
+                <footer class="reputation-drill-foot">
+                  @if (item.source_label) {
+                    <span class="reputation-drill-source">{{ item.source_label }}</span>
+                  }
+                  @if (item.source_id) {
+                    <app-mission-source-pill [label]="sourceLabel(item.source_id)" (click)="showSource(item.source_id)" />
+                  }
+                  @if (item.url) {
+                    <a class="reputation-drill-link" [href]="item.url" target="_blank" rel="noopener noreferrer">Voir l'article</a>
+                  }
+                </footer>
+              </article>
+            }
+          </div>
+        </section>
+      }
     </ng-template>
 
     <ng-template #watchView>
@@ -3872,6 +3953,79 @@ export class MissionRailComponent {
         display: grid;
         gap: 10px;
       }
+      .reputation-drill-panel {
+        display: grid;
+        gap: 12px;
+      }
+      .reputation-drill-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .reputation-drill-card {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        min-width: 0;
+        border-radius: var(--mission-radius);
+        border: 1px solid var(--mission-border);
+        background: var(--mission-inset);
+        border-left: 3px solid var(--mission-border);
+      }
+      .reputation-drill-card.positive { border-left-color: rgba(101, 214, 110, 0.65); }
+      .reputation-drill-card.critical { border-left-color: rgba(240, 100, 118, 0.65); }
+      .reputation-drill-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .reputation-drill-tag {
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--mission-text-muted);
+      }
+      .reputation-drill-card.positive .reputation-drill-tag { color: rgba(101, 214, 110, 0.95); }
+      .reputation-drill-card.critical .reputation-drill-tag { color: rgba(240, 100, 118, 0.95); }
+      .reputation-drill-engagement {
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        color: var(--mission-text-faint);
+      }
+      .reputation-drill-card h3 {
+        margin: 0;
+        font-size: 14px;
+        color: var(--mission-text);
+      }
+      .reputation-drill-card p {
+        margin: 0;
+        color: var(--mission-text-soft);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .reputation-drill-foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        font-size: 11px;
+        color: var(--mission-text-faint);
+      }
+      .reputation-drill-source {
+        font-family: var(--ck-font-mono);
+      }
+      .reputation-drill-link {
+        color: var(--mission-accent);
+        text-decoration: none;
+      }
+      .reputation-drill-link:hover { text-decoration: underline; }
+      @media (max-width: 980px) {
+        .reputation-drill-grid {
+          grid-template-columns: 1fr;
+        }
+      }
       .option-compare-head,
       .option-compare-row {
         display: grid;
@@ -4806,6 +4960,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     return `${reputation.score}% +${reputation.delta}pts`;
   }
 
+  reputationDrillItems(): NonNullable<MissionCockpit['reputation']['items']> {
+    return this.cockpit()?.reputation?.items || [];
+  }
+
   newsAlerts(): NewsSignal[] {
     const payload = this.news();
     return payload?.executive_alerts?.length ? payload.executive_alerts : payload?.signals || [];
@@ -5033,6 +5191,18 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       { key: 'flux', label: 'Flux', value: String(this.kpiNumber('analyzed_articles') || 80), detail: 'articles analyses', tone: 'monitoring' },
     ];
     return items.slice(0, 3);
+  }
+
+  securityPosture(): Record<string, any> | null {
+    return this.cockpit()?.security_posture || null;
+  }
+
+  socialSnapshot(): Record<string, any> | null {
+    return this.cockpit()?.social_snapshot || null;
+  }
+
+  rumorFrontierTrace(): Record<string, any> | null {
+    return this.cockpit()?.rumor_frontier_trace || null;
   }
 
   directiveOfDay(): NonNullable<MissionCockpit['directive_of_day']> {
