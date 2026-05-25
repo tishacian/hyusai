@@ -27,13 +27,156 @@ export interface MacroIndicator {
   source?: string;
   source_url?: string;
   description?: string;
+  prism?: string;
 }
 
 interface MacroIndicatorsResponse {
   indicators?: MacroIndicator[];
+  sovereign_indicators?: MacroIndicator[];
+  macro_indicators_sovereign?: MacroIndicator[];
   source?: string;
+  sovereign_source?: string;
   fetched_at?: string;
 }
+
+const SOVEREIGN_FALLBACK: MacroIndicator[] = [
+  {
+    key: 'cacao',
+    label: 'Cacao',
+    current: 4095000,
+    unit: 'CFA/t',
+    trend: '-0.4%',
+    trend_direction: 'down',
+    prism: 'matieres_premieres',
+    source: 'ICCO (cache baseline)',
+    series: [
+      { date: '2026-05-20', value: 4155000 },
+      { date: '2026-05-22', value: 4140000 },
+      { date: '2026-05-23', value: 4125000 },
+      { date: '2026-05-24', value: 4110000 },
+      { date: '2026-05-25', value: 4095000 },
+    ],
+  },
+  {
+    key: 'anacarde',
+    label: 'Anacarde',
+    current: 825,
+    unit: 'CFA/kg',
+    trend: '-0.8%',
+    trend_direction: 'down',
+    prism: 'matieres_premieres',
+    source: 'CCA (cache baseline)',
+    series: [
+      { date: '2026-05-20', value: 852 },
+      { date: '2026-05-22', value: 845 },
+      { date: '2026-05-23', value: 838 },
+      { date: '2026-05-24', value: 832 },
+      { date: '2026-05-25', value: 825 },
+    ],
+  },
+  {
+    key: 'brent',
+    label: 'Brent',
+    current: 78.5,
+    unit: 'USD/bbl',
+    trend: '+0.0%',
+    trend_direction: 'flat',
+    prism: 'matieres_premieres',
+    source: 'Yahoo Finance (cache baseline)',
+    series: [
+      { date: '2026-05-20', value: 78.4 },
+      { date: '2026-05-22', value: 78.5 },
+      { date: '2026-05-23', value: 78.4 },
+      { date: '2026-05-24', value: 78.5 },
+      { date: '2026-05-25', value: 78.5 },
+    ],
+  },
+  {
+    key: 'sovereign_spread',
+    label: 'Spread souverain CI',
+    current: 300,
+    unit: 'bps',
+    trend: '+15 bps',
+    trend_direction: 'up',
+    prism: 'souverainete_financiere',
+    source: 'Eurobonds (cache baseline)',
+    series: [
+      { date: '2026-05-20', value: 299 },
+      { date: '2026-05-22', value: 300 },
+      { date: '2026-05-23', value: 299 },
+      { date: '2026-05-24', value: 300 },
+      { date: '2026-05-25', value: 300 },
+    ],
+  },
+  {
+    key: 'bceao_reserves',
+    label: 'Reserves BCEAO',
+    current: 4.2,
+    unit: 'mois',
+    trend: '-0.1',
+    trend_direction: 'down',
+    prism: 'souverainete_financiere',
+    source: 'BCEAO (cache baseline)',
+    series: [
+      { date: '2026-05-20', value: 4.22 },
+      { date: '2026-05-22', value: 4.21 },
+      { date: '2026-05-23', value: 4.2 },
+      { date: '2026-05-24', value: 4.2 },
+      { date: '2026-05-25', value: 4.2 },
+    ],
+  },
+  {
+    key: 'cedeao_tension',
+    label: 'Tension regionale CEDEAO',
+    current: 72,
+    unit: '/100',
+    trend: '+1',
+    trend_direction: 'up',
+    prism: 'securite_opinion',
+    source: 'OSINT composite (cache baseline)',
+    series: [
+      { date: '2026-05-20', value: 71 },
+      { date: '2026-05-22', value: 71 },
+      { date: '2026-05-23', value: 72 },
+      { date: '2026-05-24', value: 72 },
+      { date: '2026-05-25', value: 72 },
+    ],
+  },
+  {
+    key: 'opinion_ci',
+    label: 'Sentiment opinion CI',
+    current: 58,
+    unit: '/100',
+    trend: '0',
+    trend_direction: 'flat',
+    prism: 'securite_opinion',
+    source: 'OSINT composite (cache baseline)',
+    series: [
+      { date: '2026-05-20', value: 58 },
+      { date: '2026-05-22', value: 58 },
+      { date: '2026-05-23', value: 58 },
+      { date: '2026-05-24', value: 58 },
+      { date: '2026-05-25', value: 58 },
+    ],
+  },
+  {
+    key: 'abidjan_port',
+    label: 'Trafic Port Abidjan',
+    current: 12400,
+    unit: 'TEU/j',
+    trend: '-0.3%',
+    trend_direction: 'down',
+    prism: 'operationnel',
+    source: 'PAA (cache baseline)',
+    series: [
+      { date: '2026-05-20', value: 12480 },
+      { date: '2026-05-22', value: 12460 },
+      { date: '2026-05-23', value: 12450 },
+      { date: '2026-05-24', value: 12440 },
+      { date: '2026-05-25', value: 12400 },
+    ],
+  },
+];
 
 const FALLBACK_INDICATORS: MacroIndicator[] = [
   {
@@ -120,14 +263,14 @@ const FALLBACK_INDICATORS: MacroIndicator[] = [
       <header class="macro-head">
         <div>
           <span class="eyebrow">Indicateurs macro · Côte d'Ivoire</span>
-          <h2>Pouls économique temps réel</h2>
+          <h2>Pouls economique souverain</h2>
         </div>
         @if (sourceLabel()) {
           <small class="source-tag">{{ sourceLabel() }}</small>
         }
       </header>
-      <div class="macro-cards">
-        @for (indicator of indicators(); track indicator.key) {
+      <div class="macro-cards sovereign-grid">
+        @for (indicator of sovereignIndicators(); track indicator.key) {
           <button
             type="button"
             class="macro-card"
@@ -137,6 +280,7 @@ const FALLBACK_INDICATORS: MacroIndicator[] = [
             (click)="toggleExpand(indicator.key)"
             [attr.aria-expanded]="expandedKey() === indicator.key"
           >
+            <span class="kpi-prism">{{ prismLabel(indicator.prism) }}</span>
             <span class="kpi-label">{{ indicator.label }}</span>
             <span class="kpi-trend-pill">{{ indicator.trend || trendFallback(indicator) }}</span>
             <strong class="kpi-value">
@@ -158,6 +302,35 @@ const FALLBACK_INDICATORS: MacroIndicator[] = [
           </button>
         }
       </div>
+
+      @if (contextIndicators().length) {
+        <div class="macro-context">
+          <span class="context-label">Contexte macro · Banque mondiale</span>
+          <div class="macro-cards context-grid">
+            @for (indicator of contextIndicators(); track indicator.key) {
+              <button
+                type="button"
+                class="macro-card context-card"
+                [class.expanded]="expandedKey() === indicator.key"
+                [class.up]="trendClass(indicator) === 'up'"
+                [class.down]="trendClass(indicator) === 'down'"
+                (click)="toggleExpand(indicator.key)"
+                [attr.aria-expanded]="expandedKey() === indicator.key"
+              >
+                <span class="kpi-label">{{ indicator.label }}</span>
+                <span class="kpi-trend-pill">{{ indicator.trend || trendFallback(indicator) }}</span>
+                <strong class="kpi-value">
+                  {{ formatValue(indicator.current) }}<em>{{ indicator.unit || '' }}</em>
+                </strong>
+                <svg class="sparkline" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true">
+                  <path class="spark-area" [attr.d]="areaPath(indicator, 120, 28)" />
+                  <path class="spark-line" [attr.d]="linePath(indicator, 120, 28)" />
+                </svg>
+              </button>
+            }
+          </div>
+        </div>
+      }
 
       @if (expandedIndicator(); as expanded) {
         <article class="macro-detail" role="region" aria-label="Détail indicateur">
@@ -237,14 +410,47 @@ const FALLBACK_INDICATORS: MacroIndicator[] = [
       }
       .macro-cards {
         display: grid;
+        gap: var(--mission-space-3);
+      }
+      .sovereign-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .context-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: var(--mission-space-4);
+      }
+      .macro-context {
+        display: grid;
+        gap: var(--mission-space-2);
+        padding-top: var(--mission-space-2);
+        border-top: 1px solid var(--mission-border);
+      }
+      .context-label {
+        color: var(--mission-text-disabled);
+        font-family: var(--mission-font-mono);
+        font-size: 9px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
+      }
+      .context-card {
+        padding: var(--mission-space-3);
+      }
+      .context-card .kpi-value {
+        font-size: var(--mission-text-lg);
+      }
+      .kpi-prism {
+        grid-area: prism;
+        color: var(--sentinel-accent-muted);
+        font-family: var(--mission-font-mono);
+        font-size: 9px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
       }
       .macro-card {
         position: relative;
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
         grid-template-areas:
+          'prism prism'
           'label trend'
           'value value'
           'spark spark'
@@ -453,8 +659,12 @@ const FALLBACK_INDICATORS: MacroIndicator[] = [
         text-decoration: none;
       }
       .macro-detail-footer a:hover { text-decoration: underline; }
+      @media (max-width: 1200px) {
+        .sovereign-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
       @media (max-width: 960px) {
-        .macro-cards { grid-template-columns: 1fr; }
+        .sovereign-grid,
+        .context-grid { grid-template-columns: 1fr; }
       }
       @media (prefers-reduced-motion: reduce) {
         .macro-detail { animation: none; }
@@ -465,14 +675,16 @@ const FALLBACK_INDICATORS: MacroIndicator[] = [
 export class VpMacroIndicatorsComponent implements OnInit {
   private readonly api = inject(ApiService);
 
-  readonly indicators = signal<MacroIndicator[]>(FALLBACK_INDICATORS);
+  readonly sovereignIndicators = signal<MacroIndicator[]>(SOVEREIGN_FALLBACK);
+  readonly contextIndicators = signal<MacroIndicator[]>(FALLBACK_INDICATORS);
   readonly expandedKey = signal<string | null>(null);
-  readonly sourceLabel = signal<string>('Banque mondiale · données démo');
+  readonly sourceLabel = signal<string>('demo-fixture · osiris baseline');
 
   readonly expandedIndicator = computed<MacroIndicator | null>(() => {
     const key = this.expandedKey();
     if (!key) return null;
-    return this.indicators().find((indicator) => indicator.key === key) || null;
+    const all = [...this.sovereignIndicators(), ...this.contextIndicators()];
+    return all.find((indicator) => indicator.key === key) || null;
   });
 
   ngOnInit(): void {
@@ -480,17 +692,50 @@ export class VpMacroIndicatorsComponent implements OnInit {
       .get<MacroIndicatorsResponse>('/mission-room/macro-indicators', { workspace: 'sentinel-ci' })
       .pipe(catchError(() => of(null)))
       .subscribe((response) => {
-        if (!response?.indicators?.length) return;
-        const normalized = response.indicators
-          .map((indicator) => ({
-            ...indicator,
-            series: Array.isArray(indicator.series) ? indicator.series : [],
-          }))
-          .filter((indicator) => indicator.series.length > 0)
-          .slice(0, 4);
-        if (normalized.length) this.indicators.set(normalized);
-        if (response.source) this.sourceLabel.set(response.source);
+        if (!response) return;
+        const sovereign = this.normalizeIndicators(
+          response.sovereign_indicators || response.macro_indicators_sovereign,
+        );
+        if (sovereign.length) this.sovereignIndicators.set(sovereign);
+        const context = this.normalizeIndicators(response.indicators);
+        if (context.length) this.contextIndicators.set(context);
+        if (response.sovereign_source) {
+          this.sourceLabel.set(response.sovereign_source);
+        } else if (response.source) {
+          this.sourceLabel.set(response.source);
+        }
       });
+  }
+
+  private normalizeIndicators(raw?: MacroIndicator[]): MacroIndicator[] {
+    if (!raw?.length) return [];
+    return raw
+      .map((indicator) => ({
+        ...indicator,
+        current: Number(indicator.current ?? (indicator as { value?: number }).value),
+        series: Array.isArray(indicator.series)
+          ? indicator.series
+          : ((indicator as { sparkline?: number[] }).sparkline || []).map((value, index) => ({
+              date: `p${index}`,
+              value,
+            })),
+      }))
+      .filter((indicator) => Number.isFinite(indicator.current) && indicator.series.length > 0);
+  }
+
+  prismLabel(prism?: string): string {
+    switch (prism) {
+      case 'matieres_premieres':
+        return 'Matieres premieres';
+      case 'souverainete_financiere':
+        return 'Souverainete financiere';
+      case 'securite_opinion':
+        return 'Securite et opinion';
+      case 'operationnel':
+        return 'Operationnel';
+      default:
+        return 'Indicateur souverain';
+    }
   }
 
   toggleExpand(key: string): void {
@@ -499,6 +744,9 @@ export class VpMacroIndicatorsComponent implements OnInit {
 
   formatValue(value: number): string {
     if (!Number.isFinite(value)) return '—';
+    if (Math.abs(value) >= 1000) {
+      return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(value);
+    }
     if (Math.abs(value) >= 100) return value.toFixed(0);
     if (Math.abs(value) >= 10) return value.toFixed(1);
     return value.toFixed(2).replace(/\.?0+$/, '');

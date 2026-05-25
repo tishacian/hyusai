@@ -94,4 +94,10 @@ def test_macro_indicators_payload_lazy_populates(monkeypatch, db_session):
     payload = macro_indicators.macro_indicators_payload(db_session, workspace)
     assert payload["country"] == "CIV"
     assert {item["key"] for item in payload["indicators"]} == {"unemployment", "inflation", "gdp_growth"}
+    assert len(payload["sovereign_indicators"]) == 8
+    sovereign_keys = {item["key"] for item in payload["sovereign_indicators"]}
+    assert sovereign_keys == set(macro_indicators.SOVEREIGN_INDICATOR_KEYS)
+    assert payload["sovereign_indicators"][0]["prism"] == "matieres_premieres"
+    assert payload["sovereign_indicators"][0]["current"] == payload["sovereign_indicators"][0]["value"]
     assert "Banque mondiale" in payload["source"]
+    assert payload["sovereign_source"] == "demo-fixture (osiris baseline)"

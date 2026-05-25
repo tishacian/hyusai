@@ -1,0 +1,188 @@
+{
+  "country_code": "CIV",
+  "source": "demo-fixture (osiris baseline)",
+  "fetched_at": "2026-05-25",
+  "indicators": [
+    {
+      "key": "cacao",
+      "label": "Cacao",
+      "unit": "CFA/t",
+      "prism": "matieres_premieres",
+      "source": "ICCO (cache baseline)",
+      "source_url": "https://www.icco.org/statistics",
+      "description": "Cours spot Londres converti CFA — CI produit ~40 % du cacao mondial.",
+      "series": [
+        {"date": "2026-04-28", "value": 4380000},
+        {"date": "2026-05-02", "value": 4325000},
+        {"date": "2026-05-05", "value": 4290000},
+        {"date": "2026-05-08", "value": 4255000},
+        {"date": "2026-05-11", "value": 4220000},
+        {"date": "2026-05-14", "value": 4195000},
+        {"date": "2026-05-17", "value": 4170000},
+        {"date": "2026-05-20", "value": 4155000},
+        {"date": "2026-05-22", "value": 4140000},
+        {"date": "2026-05-23", "value": 4125000},
+        {"date": "2026-05-24", "value": 4110000},
+        {"date": "2026-05-25", "value": 4095000}
+      ]
+    },
+    {
+      "key": "anacarde",
+      "label": "Anacarde",
+      "unit": "CFA/kg",
+      "prism": "matieres_premieres",
+      "source": "CCA (cache baseline)",
+      "source_url": "https://www.ccacoteivoire.ci",
+      "description": "Prix producteur Zone Nord — filiere diversification Nawa.",
+      "series": [
+        {"date": "2026-04-28", "value": 920},
+        {"date": "2026-05-02", "value": 905},
+        {"date": "2026-05-05", "value": 895},
+        {"date": "2026-05-08", "value": 885},
+        {"date": "2026-05-11", "value": 875},
+        {"date": "2026-05-14", "value": 868},
+        {"date": "2026-05-17", "value": 860},
+        {"date": "2026-05-20", "value": 852},
+        {"date": "2026-05-22", "value": 845},
+        {"date": "2026-05-23", "value": 838},
+        {"date": "2026-05-24", "value": 832},
+        {"date": "2026-05-25", "value": 825}
+      ]
+    },
+    {
+      "key": "brent",
+      "label": "Brent",
+      "unit": "USD/bbl",
+      "prism": "matieres_premieres",
+      "source": "Yahoo Finance (cache baseline)",
+      "source_url": "https://finance.yahoo.com/quote/BZ=F",
+      "description": "Reference importations produits raffines — CI importateur net.",
+      "series": [
+        {"date": "2026-04-28", "value": 78.2},
+        {"date": "2026-05-02", "value": 78.6},
+        {"date": "2026-05-05", "value": 78.4},
+        {"date": "2026-05-08", "value": 78.8},
+        {"date": "2026-05-11", "value": 78.5},
+        {"date": "2026-05-14", "value": 78.3},
+        {"date": "2026-05-17", "value": 78.6},
+        {"date": "2026-05-20", "value": 78.4},
+        {"date": "2026-05-22", "value": 78.5},
+        {"date": "2026-05-23", "value": 78.4},
+        {"date": "2026-05-24", "value": 78.5},
+        {"date": "2026-05-25", "value": 78.5}
+      ]
+    },
+    {
+      "key": "sovereign_spread",
+      "label": "Spread souverain CI",
+      "unit": "bps",
+      "prism": "souverainete_financiere",
+      "source": "Eurobonds (cache baseline)",
+      "description": "Spread vs UST 10Y — eurobonds Cote d'Ivoire.",
+      "series": [
+        {"date": "2026-04-28", "value": 285},
+        {"date": "2026-05-02", "value": 288},
+        {"date": "2026-05-05", "value": 290},
+        {"date": "2026-05-08", "value": 292},
+        {"date": "2026-05-11", "value": 294},
+        {"date": "2026-05-14", "value": 296},
+        {"date": "2026-05-17", "value": 298},
+        {"date": "2026-05-20", "value": 299},
+        {"date": "2026-05-22", "value": 300},
+        {"date": "2026-05-23", "value": 299},
+        {"date": "2026-05-24", "value": 300},
+        {"date": "2026-05-25", "value": 300}
+      ]
+    },
+    {
+      "key": "bceao_reserves",
+      "label": "Reserves BCEAO",
+      "unit": "mois",
+      "prism": "souverainete_financiere",
+      "source": "BCEAO (cache baseline)",
+      "source_url": "https://www.bceao.int",
+      "description": "Mois d'importations couverts — zone UEMOA.",
+      "series": [
+        {"date": "2026-04-28", "value": 4.35},
+        {"date": "2026-05-02", "value": 4.32},
+        {"date": "2026-05-05", "value": 4.30},
+        {"date": "2026-05-08", "value": 4.28},
+        {"date": "2026-05-11", "value": 4.26},
+        {"date": "2026-05-14", "value": 4.24},
+        {"date": "2026-05-17", "value": 4.23},
+        {"date": "2026-05-20", "value": 4.22},
+        {"date": "2026-05-22", "value": 4.21},
+        {"date": "2026-05-23", "value": 4.20},
+        {"date": "2026-05-24", "value": 4.20},
+        {"date": "2026-05-25", "value": 4.20}
+      ]
+    },
+    {
+      "key": "cedeao_tension",
+      "label": "Tension regionale CEDEAO",
+      "unit": "/100",
+      "prism": "securite_opinion",
+      "source": "OSINT composite (cache baseline)",
+      "description": "Indice composite ouvert — stabilite regionale et cooperation transfrontaliere.",
+      "series": [
+        {"date": "2026-04-28", "value": 64},
+        {"date": "2026-05-02", "value": 65},
+        {"date": "2026-05-05", "value": 66},
+        {"date": "2026-05-08", "value": 67},
+        {"date": "2026-05-11", "value": 68},
+        {"date": "2026-05-14", "value": 69},
+        {"date": "2026-05-17", "value": 70},
+        {"date": "2026-05-20", "value": 71},
+        {"date": "2026-05-22", "value": 71},
+        {"date": "2026-05-23", "value": 72},
+        {"date": "2026-05-24", "value": 72},
+        {"date": "2026-05-25", "value": 72}
+      ]
+    },
+    {
+      "key": "opinion_ci",
+      "label": "Sentiment opinion CI",
+      "unit": "/100",
+      "prism": "securite_opinion",
+      "source": "OSINT composite (cache baseline)",
+      "description": "Barometre hebdomadaire — medias francophones et reseaux locaux.",
+      "series": [
+        {"date": "2026-04-28", "value": 62},
+        {"date": "2026-05-02", "value": 61},
+        {"date": "2026-05-05", "value": 61},
+        {"date": "2026-05-08", "value": 60},
+        {"date": "2026-05-11", "value": 60},
+        {"date": "2026-05-14", "value": 59},
+        {"date": "2026-05-17", "value": 59},
+        {"date": "2026-05-20", "value": 58},
+        {"date": "2026-05-22", "value": 58},
+        {"date": "2026-05-23", "value": 58},
+        {"date": "2026-05-24", "value": 58},
+        {"date": "2026-05-25", "value": 58}
+      ]
+    },
+    {
+      "key": "abidjan_port",
+      "label": "Trafic Port Abidjan",
+      "unit": "TEU/j",
+      "prism": "operationnel",
+      "source": "PAA (cache baseline)",
+      "source_url": "https://portabidjan.ci",
+      "description": "Throughput conteneurs — corridor Abidjan-Ouagadougou.",
+      "series": [
+        {"date": "2026-04-28", "value": 12800},
+        {"date": "2026-05-02", "value": 12750},
+        {"date": "2026-05-05", "value": 12700},
+        {"date": "2026-05-08", "value": 12650},
+        {"date": "2026-05-11", "value": 12600},
+        {"date": "2026-05-14", "value": 12550},
+        {"date": "2026-05-17", "value": 12500},
+        {"date": "2026-05-20", "value": 12480},
+        {"date": "2026-05-22", "value": 12460},
+        {"date": "2026-05-23", "value": 12450},
+        {"date": "2026-05-24", "value": 12440},
+        {"date": "2026-05-25", "value": 12400}
+      ]
+    }
+  ]
+}
