@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, OnD
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '@app/core/api.service';
-import type { VesselPosition } from '@app/core/maritime-tracking.service';
+import { MaritimeTrackingService, type VesselPosition } from '@app/core/maritime-tracking.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { WorkspaceMapComponent } from './workspace-map.component';
 
@@ -96,13 +96,18 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   readonly mapVisualFocus = signal<Record<string, unknown> | null>(null);
   readonly activeEvidenceOverride = signal<any | null>(null);
   readonly visualPreviewFailures = signal<Record<string, true>>({});
+  readonly visualSourcePreviewUrls = signal<Record<string, string>>({});
   readonly selectedTerrainMode = signal<TerrainMode>('webcams');
   readonly decisionBannerOpen = signal(false);
+  readonly selectedVesselMmsi = signal<string | null>(null);
 
   private readonly trustedVisualEmbeds = new Map<string, SafeResourceUrl>();
   private readonly api = inject(ApiService);
+  private readonly maritimeTracking = inject(MaritimeTrackingService);
   private clockTimer: ReturnType<typeof setInterval> | null = null;
   private activePortWebcamObjectUrl: string | null = null;
+  private readonly visualSourceObjectUrls = new Map<string, string>();
+  private readonly visualSourceLoading = new Set<string>();
   private readonly showWebcamListener = (event: Event) => {
     this.handleShowWebcamEvent(event as CustomEvent<Record<string, unknown>>);
   };
@@ -121,12 +126,23 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     if (changes['portWebcam'] && this.portWebcam) {
       this.applyPortWebcamDetail(this.portWebcam);
     }
+    if (changes['monitor'] && this.monitor) {
+      const source = this.primaryVisualSource();
+      if (source?.id && !this.selectedVisualSourceId()) {
+        this.selectedVisualSourceId.set(source.id);
+      }
+      if (source) this.loadVisualSourcePreview(source);
+    }
   }
 
   ngOnDestroy(): void {
     if (this.clockTimer) clearInterval(this.clockTimer);
     window.removeEventListener('agentium:assistant-show-webcam', this.showWebcamListener);
     if (this.activePortWebcamObjectUrl) URL.revokeObjectURL(this.activePortWebcamObjectUrl);
+    for (const objectUrl of this.visualSourceObjectUrls.values()) {
+      URL.revokeObjectURL(objectUrl);
+    }
+    this.visualSourceObjectUrls.clear();
   }
 
   scenario(): any {
@@ -379,6 +395,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     if (!source) return;
     this.selectedTerrainMode.set('webcams');
     if (source.id) this.selectedVisualSourceId.set(source.id);
+    this.loadVisualSourcePreview(source);
     this.focusVisualSourceOnMap(source);
     const evidence = this.buildVisualEvidence(source);
     if (evidence) this.activeEvidenceOverride.set(evidence);
@@ -426,9 +443,32 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
       },
     });
     this.selectedVisualSourceId.set(sourceId);
-    this.selectedTerrainMode.set('maritime');
-    this.activeEvidenceOverride.set(this.maritimeEvidence());
-    this.loadPortWebcamPreview(proxyUrl);
+    const source = known || {
+      id: sourceId,
+      name,
+      source_url: proxyUrl,
+      adapter: 'http_image',
+      enabled: true,
+      status: 'active',
+      metadata: { preview_url: proxyUrl, preferred_render: 'snapshot' },
+    };
+    this.selectVisualSource(source);
+    this.activePortWebcam.set({
+      ...(known || {}),
+      id: sourceId,
+      name,
+      proxy_url: proxyUrl,
+      adapter: known?.adapter || 'http_image',
+      source_url: known?.source_url || proxyUrl,
+      attribution: detail['attribution'] || known?.attribution,
+      label_disclaimer: detail['label_disclaimer'] || known?.label_disclaimer,
+      metadata: {
+        ...(known?.metadata || {}),
+        preview_url: proxyUrl,
+        preferred_render: 'snapshot',
+      },
+    });
+    this.syncActivePortWebcamPreview(sourceId);
   }
 
   closeExpandedVisualSource(): void {
@@ -501,23 +541,24 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
 
   webcamPreviewUrl(source: any | null): string | null {
     if (!source || this.visualPreviewFailures()[source.id]) return null;
-    const metadata = source.metadata || {};
-    const preview = typeof metadata.preview_url === 'string' ? metadata.preview_url : '';
-    const url = preview.startsWith('http://') || preview.startsWith('https://')
-      ? preview
-      : source.adapter === 'http_image' && source.source_url?.startsWith('http')
-        ? source.source_url
-        : '';
-    if (url) return this.withSnapshotCacheBust(url);
+    const cached = this.visualSourcePreviewUrls()[source.id];
+    if (cached) return cached;
+    const rawUrl = this.resolveVisualPreviewRawUrl(source);
+    if (!rawUrl) return null;
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      return this.withSnapshotCacheBust(rawUrl);
+    }
+    this.loadVisualSourcePreview(source);
     return null;
   }
 
   portWebcamPreviewUrl(source: any | null): string | null {
     if (!source) return null;
+    const sourceId = String(source.id || source.source_id || '');
+    const cached = sourceId ? this.visualSourcePreviewUrls()[sourceId] : null;
+    if (cached) return cached;
     const objectUrl = this.activePortWebcamImageUrl();
     if (objectUrl) return objectUrl;
-    const direct = typeof source.proxy_url === 'string' ? source.proxy_url : '';
-    if (direct) return this.withRelativeSnapshotCacheBust(direct);
     return this.webcamPreviewUrl(source);
   }
 
@@ -647,7 +688,40 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   }
 
   handleZoneSelected(zone: any): void {
+    this.clearVesselSelection();
     this.activateZoneEvidence(zone);
+  }
+
+  handleVesselSelected(vessel: VesselPosition): void {
+    if (!vessel?.mmsi) return;
+    this.maritimeTracking.selectVessel(vessel);
+    this.selectedVesselMmsi.set(vessel.mmsi);
+    this.selectedTerrainMode.set('maritime');
+    const evidence = this.buildVesselEvidence(vessel);
+    this.activeEvidenceOverride.set(evidence);
+    if (evidence.map_focus) this.mapVisualFocus.set(evidence.map_focus);
+    const sourceId =
+      vessel.recommended_webcam_source_id
+      || (vessel.linked_cargo_id === 'cargo-abidjan-supply-001' || vessel.mmsi === '627012345'
+        ? 'apm-apapa-gate-1'
+        : '');
+    if (sourceId) {
+      this.applyPortWebcamDetail({
+        source_id: sourceId,
+        label: `${vessel.name || vessel.mmsi} · webcam port`,
+        vessel_mmsi: vessel.mmsi,
+        vessel_name: vessel.name,
+        cargo_id: vessel.linked_cargo_id || null,
+      });
+      return;
+    }
+    this.activePortWebcam.set(null);
+    this.activePortWebcamImageUrl.set(null);
+  }
+
+  clearVesselSelection(): void {
+    this.maritimeTracking.clearSelection();
+    this.selectedVesselMmsi.set(null);
   }
 
   handleMapEvidenceAction(event: any): void {
@@ -721,20 +795,78 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     return `${rawUrl}${separator}_mc=${Math.floor(this.visualSnapshotTick() / 60_000)}`;
   }
 
-  private loadPortWebcamPreview(rawUrl: string): void {
+  private resolveVisualPreviewRawUrl(source: any): string {
+    const metadata = source?.metadata || {};
+    const preview = typeof metadata.preview_url === 'string' ? metadata.preview_url : '';
+    if (preview) return preview;
+    if (source?.adapter === 'http_image' && typeof source.source_url === 'string') {
+      return source.source_url;
+    }
+    if (typeof source?.proxy_url === 'string') return source.proxy_url;
+    return '';
+  }
+
+  private isProxyPreviewUrl(rawUrl: string): boolean {
     const path = rawUrl.startsWith('/api/v1') ? rawUrl.slice('/api/v1'.length) : rawUrl;
-    if (!path.startsWith('/mission-room/webcams/proxy')) {
-      this.activePortWebcamImageUrl.set(this.withRelativeSnapshotCacheBust(rawUrl));
+    return path.startsWith('/mission-room/webcams/proxy');
+  }
+
+  private loadVisualSourcePreview(source: any): void {
+    const sourceId = source?.id;
+    if (!sourceId || this.visualSourceLoading.has(sourceId)) return;
+    if (this.visualSourcePreviewUrls()[sourceId]) return;
+
+    const rawUrl = this.resolveVisualPreviewRawUrl(source);
+    if (!rawUrl) return;
+
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      this.visualSourcePreviewUrls.update((urls) => ({
+        ...urls,
+        [sourceId]: this.withSnapshotCacheBust(rawUrl),
+      }));
+      this.syncActivePortWebcamPreview(sourceId);
       return;
     }
+
+    if (!this.isProxyPreviewUrl(rawUrl)) {
+      if (rawUrl.startsWith('/')) {
+        this.visualSourcePreviewUrls.update((urls) => ({
+          ...urls,
+          [sourceId]: this.withRelativeSnapshotCacheBust(rawUrl),
+        }));
+        this.syncActivePortWebcamPreview(sourceId);
+      }
+      return;
+    }
+
+    this.visualSourceLoading.add(sourceId);
+    const path = rawUrl.startsWith('/api/v1') ? rawUrl.slice('/api/v1'.length) : rawUrl;
     this.api.getBlob(path).subscribe({
       next: (blob) => {
-        if (this.activePortWebcamObjectUrl) URL.revokeObjectURL(this.activePortWebcamObjectUrl);
-        this.activePortWebcamObjectUrl = URL.createObjectURL(blob);
-        this.activePortWebcamImageUrl.set(this.activePortWebcamObjectUrl);
+        this.visualSourceLoading.delete(sourceId);
+        const previous = this.visualSourceObjectUrls.get(sourceId);
+        if (previous) URL.revokeObjectURL(previous);
+        const objectUrl = URL.createObjectURL(blob);
+        this.visualSourceObjectUrls.set(sourceId, objectUrl);
+        this.visualSourcePreviewUrls.update((urls) => ({ ...urls, [sourceId]: objectUrl }));
+        this.syncActivePortWebcamPreview(sourceId);
       },
-      error: () => this.activePortWebcamImageUrl.set(this.withRelativeSnapshotCacheBust(rawUrl)),
+      error: () => {
+        this.visualSourceLoading.delete(sourceId);
+        this.visualSourcePreviewUrls.update((urls) => ({
+          ...urls,
+          [sourceId]: this.withRelativeSnapshotCacheBust(rawUrl),
+        }));
+        this.syncActivePortWebcamPreview(sourceId);
+      },
     });
+  }
+
+  private syncActivePortWebcamPreview(sourceId: string): void {
+    const active = this.activePortWebcam();
+    if (!active || String(active.id || active.source_id || '') !== sourceId) return;
+    const cached = this.visualSourcePreviewUrls()[sourceId] || null;
+    this.activePortWebcamImageUrl.set(cached);
   }
 
   private visualPriority(source: any): number {
@@ -794,6 +926,62 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
       evidence_refs: signal.evidence_refs || [],
       aya_context: signal.aya_context,
       map_focus: signal.map_focus,
+    };
+  }
+
+  private buildVesselEvidence(vessel: VesselPosition): any {
+    const speedKn = Number.isFinite(Number(vessel.sog)) ? `${Math.round(Number(vessel.sog))} kn` : '—';
+    const typeLabel = String(vessel.vessel_type || 'navire');
+    const linkedCargo = Boolean(vessel.linked_cargo_id);
+    const refs: Array<{ type: string; id: string; label: string }> = [
+      { type: 'ais', id: vessel.mmsi, label: `MMSI ${vessel.mmsi}` },
+    ];
+    if (vessel.imo) refs.push({ type: 'ais', id: String(vessel.imo), label: `IMO ${vessel.imo}` });
+    if (linkedCargo) refs.push({ type: 'cargo', id: vessel.linked_cargo_id!, label: 'Cargo projet Napié' });
+    if (linkedCargo || vessel.mmsi === '627012345') {
+      refs.push({
+        type: 'document',
+        id: 'proces-verbal-douanes-non-conformite-2026-05-18',
+        label: 'PV douanes 18 mai',
+      });
+    }
+    const webcamHint = vessel.recommended_webcam_source_id || linkedCargo
+      ? 'Ouvrir la webcam port et qualifier le PV douanes avant arbitrage VP.'
+      : 'Surveiller le trafic portuaire et croiser avec agenda economique.';
+    return {
+      id: `vessel-${vessel.mmsi}`,
+      type: 'maritime',
+      title: vessel.name || vessel.mmsi,
+      location: vessel.destination ? `→ ${vessel.destination}` : "Port d'Abidjan · Vridi",
+      score: vessel.highlight === 'aya-target' || linkedCargo ? 78 : 62,
+      severity: linkedCargo ? 'elevated' : 'monitoring',
+      source_quality: `AIS · ${typeLabel} · ${speedKn}`,
+      observation: linkedCargo
+        ? 'Cargo lie au projet Centre Drones Napie · statut douane a croiser avec PV 18/05.'
+        : `Navire ${typeLabel} · ${speedKn} · veille maritime active.`,
+      recommended_action: webcamHint,
+      decision_deadline: 'avant prochain point cabinet',
+      evidence_refs: refs,
+      aya_context: {
+        prompt: linkedCargo
+          ? `AYA, montre le cargo ${vessel.name}.`
+          : `AYA, analyse le navire ${vessel.name} au port d'Abidjan.`,
+      },
+      map_focus: {
+        active_layers: ['territorial-risk', 'open-intelligence', 'visual-streams', 'maritime-traffic'],
+        camera: {
+          longitude: Number(vessel.lon),
+          latitude: Number(vessel.lat),
+          zoom: 11.2,
+          duration_ms: 220,
+        },
+        focus_marker: {
+          longitude: Number(vessel.lon),
+          latitude: Number(vessel.lat),
+          label: vessel.name || vessel.mmsi,
+          tone: 'maritime',
+        },
+      },
     };
   }
 

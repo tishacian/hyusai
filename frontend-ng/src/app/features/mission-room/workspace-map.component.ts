@@ -1040,6 +1040,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   @Output() zoneSelected = new EventEmitter<any>();
   @Output() evidenceAction = new EventEmitter<{ action: string; zone: any }>();
   @Output() vesselSelected = new EventEmitter<VesselPosition>();
+  /** Emitted when the user clicks the map background (not a zone or vessel). */
+  @Output() mapBackgroundClick = new EventEmitter<void>();
   @ViewChild('mapCanvas') private readonly mapCanvas?: ElementRef<HTMLDivElement>;
 
   fallback = false;
@@ -1321,6 +1323,15 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         interleaved: false,
         layers: this.buildDeckLayers(),
         getTooltip: (info: any) => this.deckTooltip(info),
+      });
+      this.mapInstance.on('click', (event: { point?: { x: number; y: number } }) => {
+        const point = event?.point;
+        if (!point || !this.deckOverlay?.pickObject) {
+          this.mapBackgroundClick.emit();
+          return;
+        }
+        const picked = this.deckOverlay.pickObject({ x: point.x, y: point.y, radius: 6 });
+        if (!picked?.object) this.mapBackgroundClick.emit();
       });
       this.mapInstance.on('load', () => {
         this.mapInstance.addControl(this.deckOverlay);

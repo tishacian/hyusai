@@ -93,8 +93,11 @@
       [mapState]="monitorMapState()"
       [selectedZoneId]="selectedZone?.id || null"
       [vessels]="vessels"
+      [highlightedVesselMmsi]="selectedVesselMmsi()"
       (zoneSelected)="handleZoneSelected($event)"
       (evidenceAction)="handleMapEvidenceAction($event)"
+      (vesselSelected)="handleVesselSelected($event)"
+      (mapBackgroundClick)="clearVesselSelection()"
     />
   </main>
 

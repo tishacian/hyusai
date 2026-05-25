@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { Observable, ReplaySubject, of } from 'rxjs';
 import { catchError, shareReplay, tap } from 'rxjs/operators';
 import { ApiService } from './api.service';
@@ -54,6 +54,10 @@ export class MaritimeTrackingService {
   private readonly api = inject(ApiService);
   private readonly cache = new Map<string, Observable<MaritimeVesselsSnapshot>>();
   private readonly latestSubject = new ReplaySubject<MaritimeVesselsSnapshot>(1);
+  private readonly selectedVesselSignal = signal<VesselPosition | null>(null);
+
+  /** Last vessel picked on any map (cockpit preview, Mission Control, strategie). */
+  readonly selectedVessel = this.selectedVesselSignal.asReadonly();
 
   /**
    * Returns the cached snapshot for the given bbox + limit. Subsequent
@@ -86,4 +90,12 @@ export class MaritimeTrackingService {
 
   /** Observable of the most recently fetched snapshot, useful for downstream UIs. */
   readonly latest$ = this.latestSubject.asObservable();
+
+  selectVessel(vessel: VesselPosition | null): void {
+    this.selectedVesselSignal.set(vessel);
+  }
+
+  clearSelection(): void {
+    this.selectedVesselSignal.set(null);
+  }
 }

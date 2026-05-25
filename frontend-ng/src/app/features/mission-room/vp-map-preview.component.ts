@@ -1080,6 +1080,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
 
   selectVessel(vessel: VesselPosition): void {
     this.selectedVessel = vessel;
+    this.maritimeTracking.selectVessel(vessel);
     this.vesselSelected.emit(vessel);
     const sourceId =
       vessel.recommended_webcam_source_id ||
