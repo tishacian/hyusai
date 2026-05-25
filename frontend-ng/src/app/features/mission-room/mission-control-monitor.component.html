@@ -92,6 +92,7 @@
       [mapSystem]="monitor?.map_system || missionMap?.map_system || null"
       [mapState]="monitorMapState()"
       [selectedZoneId]="selectedZone?.id || null"
+      [vessels]="vessels"
       (zoneSelected)="handleZoneSelected($event)"
       (evidenceAction)="handleMapEvidenceAction($event)"
     />
@@ -268,10 +269,13 @@
             }
           </div>
           <div class="webcam-sources">
-            @for (source of visualSources() | slice: 0:4; track source.id) {
-              <button type="button" [class.active]="isVisualSourceSelected(source)" (click)="selectVisualSource(source)">
+            @for (source of visualSources() | slice: 0:6; track source.id) {
+              <button type="button" [class.active]="isVisualSourceSelected(source)" [class.demo-port]="isDemoPortWebcam(source)" (click)="selectVisualSource(source)">
                 <span></span>
                 <b>{{ source.name }}</b>
+                @if (demoPortBadge(source); as badge) {
+                  <em class="demo-port-badge">{{ badge }}</em>
+                }
                 <small>{{ visualLocationLabel(source) }}</small>
               </button>
             }

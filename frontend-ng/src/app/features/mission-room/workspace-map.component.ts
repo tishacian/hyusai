@@ -14,6 +14,7 @@ import {
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import type { VesselPosition } from '@app/core/maritime-tracking.service';
 
 type MapZone = {
   id: string;
@@ -50,6 +51,20 @@ type BasemapOption = {
   description?: string;
   style?: Record<string, any> | string;
 };
+
+/** Color table used by both the deck.gl vessel layer and the legend. */
+const VESSEL_TYPE_COLORS: Record<string, [number, number, number]> = {
+  cargo: [63, 182, 138],
+  container: [63, 182, 138],
+  tanker: [242, 180, 61],
+  roro: [113, 181, 242],
+  passenger: [157, 124, 240],
+  fishing: [148, 164, 182],
+  tug: [148, 164, 182],
+  other: [148, 164, 182],
+};
+/** Violet highlight reserved for vessels linked to a tracked project / cargo. */
+const VESSEL_HIGHLIGHT_RGB: [number, number, number] = [180, 136, 255];
 
 @Component({
   selector: 'app-workspace-map',
@@ -993,8 +1008,18 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   @Input() compact = false;
   @Input() previewMode = false;
   @Input() previewLayers: string[] | null = null;
+  /**
+   * AIS vessel positions to render on top of the basemap when the
+   * `maritime-traffic` layer is active. Rendering is delegated to deck.gl
+   * (scatterplot) so positions inherit MapLibre's native Mercator
+   * projection — no HTML overlay math, no drift on pan/zoom/resize.
+   */
+  @Input() vessels: VesselPosition[] | null = null;
+  /** When set, only the vessel matching this MMSI is highlighted (halo + larger pin). */
+  @Input() highlightedVesselMmsi: string | null = null;
   @Output() zoneSelected = new EventEmitter<any>();
   @Output() evidenceAction = new EventEmitter<{ action: string; zone: any }>();
+  @Output() vesselSelected = new EventEmitter<VesselPosition>();
   @ViewChild('mapCanvas') private readonly mapCanvas?: ElementRef<HTMLDivElement>;
 
   fallback = false;
@@ -1007,6 +1032,13 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly activeLayerKeys = new Set<string>();
   private layerStateInitialized = false;
+  /**
+   * Set to ``true`` the first time the user clicks the maritime-traffic
+   * toggle. While this remains ``false``, an incoming vessel snapshot
+   * auto-activates the layer so the navires AIS appear without a manual
+   * toggle (SENTINEL-CI demo flow).
+   */
+  private userToggledMaritime = false;
   private mapInstance: any;
   private deckOverlay: any;
   private deckLayersModule: any;
@@ -1099,7 +1131,14 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       this.syncStateFromMapPayload();
       this.applyCurrentBasemap();
     }
-    if (changes['zones'] || changes['mapSystem'] || changes['previewMode'] || changes['previewLayers']) {
+    if (
+      changes['zones']
+      || changes['mapSystem']
+      || changes['previewMode']
+      || changes['previewLayers']
+      || changes['vessels']
+      || changes['highlightedVesselMmsi']
+    ) {
       if (!this.layerStateInitialized) this.syncStateFromMapPayload();
       this.updateDeckLayers();
     }
@@ -1290,6 +1329,14 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     }
     if (!this.activeLayerKeys.size) {
       for (const layer of this.layerControls.filter((item) => item.visible)) this.activeLayerKeys.add(layer.key);
+    }
+    // SENTINEL-CI demo: when a vessel snapshot is supplied via the
+    // `vessels` Input, auto-enable the maritime layer so the navires AIS
+    // appear without a manual toggle. The VP can still toggle it off via
+    // the layer panel — `layerStateInitialized` flips below, so we only
+    // auto-enable on first sync, not after every change.
+    if ((this.vessels?.length || 0) > 0 && this.layerControls.some((layer) => layer.key === 'maritime-traffic')) {
+      this.activeLayerKeys.add('maritime-traffic');
     }
     this.layerStateInitialized = true;
   }
@@ -1650,6 +1697,85 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         billboard: true,
         parameters: { depthTest: false },
       }));
+
+      // AIS vessel positions rendered natively by deck.gl so they inherit
+      // MapLibre's Mercator projection — no HTML overlay drift on pan/zoom.
+      const vesselsData = (this.vessels || []).filter(
+        (vessel) => Number.isFinite(Number(vessel?.lat)) && Number.isFinite(Number(vessel?.lon)),
+      );
+      if (vesselsData.length) {
+        const highlightedMmsi = this.highlightedVesselMmsi;
+        const isVesselHighlighted = (vessel: VesselPosition) =>
+          Boolean(
+            (highlightedMmsi && vessel.mmsi === highlightedMmsi)
+              || vessel.linked_cargo_id
+              || vessel.highlight,
+          );
+        layers.push(new ScatterplotLayer({
+          id: 'sentinel-vessels-halo',
+          data: vesselsData.filter(isVesselHighlighted),
+          pickable: false,
+          stroked: true,
+          filled: false,
+          getPosition: (vessel: VesselPosition) => [Number(vessel.lon), Number(vessel.lat)],
+          radiusUnits: 'pixels',
+          getRadius: this.compact ? 11 : 13,
+          getLineColor: [...VESSEL_HIGHLIGHT_RGB, 210] as any,
+          lineWidthMinPixels: 1.4,
+          parameters: { depthTest: false },
+        }));
+        layers.push(new ScatterplotLayer({
+          id: 'sentinel-vessels-rings',
+          data: vesselsData,
+          pickable: false,
+          stroked: true,
+          filled: true,
+          getPosition: (vessel: VesselPosition) => [Number(vessel.lon), Number(vessel.lat)],
+          radiusUnits: 'pixels',
+          getRadius: (vessel: VesselPosition) => (isVesselHighlighted(vessel) ? 7.5 : 6),
+          getFillColor: (vessel: VesselPosition) => [...this.vesselColor(vessel), 70] as any,
+          getLineColor: (vessel: VesselPosition) => [...this.vesselColor(vessel), 220] as any,
+          lineWidthMinPixels: 1.1,
+          parameters: { depthTest: false },
+        }));
+        layers.push(new ScatterplotLayer({
+          id: 'sentinel-vessels-cores',
+          data: vesselsData,
+          pickable: true,
+          stroked: true,
+          filled: true,
+          getPosition: (vessel: VesselPosition) => [Number(vessel.lon), Number(vessel.lat)],
+          radiusUnits: 'pixels',
+          getRadius: (vessel: VesselPosition) => (isVesselHighlighted(vessel) ? 4.4 : 3.4),
+          getFillColor: (vessel: VesselPosition) =>
+            isVesselHighlighted(vessel)
+              ? ([...VESSEL_HIGHLIGHT_RGB, 240] as any)
+              : ([...this.vesselColor(vessel), 240] as any),
+          getLineColor: this.isLightBasemap() ? [10, 25, 38, 230] : [248, 252, 255, 230],
+          lineWidthMinPixels: 1.2,
+          parameters: { depthTest: false },
+          onClick: (info: any) => this.handleVesselClick(info?.object as VesselPosition | undefined),
+        }));
+        const labelFeatures = vesselsData.filter(isVesselHighlighted).slice(0, 4);
+        if (labelFeatures.length) {
+          layers.push(new TextLayer({
+            id: 'sentinel-vessels-labels',
+            data: labelFeatures,
+            getPosition: (vessel: VesselPosition) => [Number(vessel.lon), Number(vessel.lat)],
+            getText: (vessel: VesselPosition) => vessel.name || vessel.mmsi || '',
+            getSize: this.compact ? 9 : 10,
+            getColor: this.isLightBasemap() ? [12, 36, 50, 240] : [248, 252, 255, 238],
+            getPixelOffset: [0, -14],
+            getTextAnchor: 'middle',
+            getAlignmentBaseline: 'bottom',
+            fontSettings: { sdf: true },
+            outlineColor: this.isLightBasemap() ? [255, 255, 255, 232] : [4, 8, 13, 240],
+            outlineWidth: 3,
+            billboard: true,
+            parameters: { depthTest: false },
+          }));
+        }
+      }
     }
 
     const visibleEventPoints = eventFeatures.filter((feature: any) => {
@@ -2026,6 +2152,16 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       return elevated ? [255, 174, 66, 56] : [31, 151, 204, 42];
     }
     return elevated ? [255, 184, 82, 66] : [96, 204, 255, 48];
+  }
+
+  private vesselColor(vessel: VesselPosition): [number, number, number] {
+    const kind = String(vessel?.vessel_type || 'other').toLowerCase();
+    return VESSEL_TYPE_COLORS[kind] || VESSEL_TYPE_COLORS['other'];
+  }
+
+  private handleVesselClick(vessel: VesselPosition | undefined): void {
+    if (!vessel) return;
+    this.vesselSelected.emit(vessel);
   }
 
   private maritimePointColor(feature: any, alpha = 220): number[] {

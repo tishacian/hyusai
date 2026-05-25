@@ -2,10 +2,64 @@ import { ChangeDetectionStrategy, Component, EventEmitter, Input, OnChanges, OnD
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '@app/core/api.service';
+import type { VesselPosition } from '@app/core/maritime-tracking.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { WorkspaceMapComponent } from './workspace-map.component';
 
 type TerrainMode = 'webcams' | 'maritime';
+
+/** Demo port webcams — not always present in monitor.visual.sources (Abidjan.net only). */
+const DEMO_PORT_WEBCAMS: Record<string, unknown>[] = [
+  {
+    id: 'apm-apapa-gate-1',
+    name: 'APM Apapa Gate #1 · Port Vridi (demo)',
+    description: 'Snapshot CCTV public APM Terminals Apapa — reference visuelle demo cargo Atlantic Trader.',
+    source_url: '/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-1',
+    adapter: 'http_image',
+    enabled: true,
+    status: 'active',
+    region: "Port d'Abidjan · Vridi",
+    label_disclaimer: 'Reference visuelle demo Abidjan (source APM Apapa Lagos)',
+    attribution: 'APM Terminals (Apapa) - snapshot public',
+    metadata: {
+      priority: -20,
+      preview_url: '/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-1',
+      preferred_render: 'snapshot',
+      kind: 'port_webcam',
+      demo_badge: 'Port Vridi · cargo demo',
+    },
+  },
+  {
+    id: 'apm-apapa-gate-2',
+    name: 'APM Apapa Gate #2 · Port Vridi (demo)',
+    source_url: '/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-2',
+    adapter: 'http_image',
+    enabled: true,
+    status: 'active',
+    region: "Port d'Abidjan · Vridi",
+    metadata: {
+      priority: -19,
+      preview_url: '/api/v1/mission-room/webcams/proxy?source_id=apm-apapa-gate-2',
+      preferred_render: 'snapshot',
+      kind: 'port_webcam',
+    },
+  },
+  {
+    id: 'paa-aerial-vue',
+    name: 'PAA · vue aerienne (galerie officielle)',
+    source_url: '/api/v1/mission-room/webcams/proxy?source_id=paa-aerial-vue',
+    adapter: 'http_image',
+    enabled: true,
+    status: 'active',
+    region: "Port d'Abidjan",
+    metadata: {
+      priority: -18,
+      preview_url: '/api/v1/mission-room/webcams/proxy?source_id=paa-aerial-vue',
+      preferred_render: 'snapshot',
+      kind: 'port_webcam',
+    },
+  },
+];
 
 @Component({
   selector: 'app-mission-control-monitor',
@@ -25,6 +79,8 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   @Input() portWebcam: Record<string, unknown> | null = null;
   @Input() assistantName = 'AYA';
   @Input() captureImages: Record<string, string> = {};
+  /** AIS vessel snapshot forwarded to the inner <app-workspace-map>. */
+  @Input() vessels: VesselPosition[] | null = null;
 
   @Output() zoneSelected = new EventEmitter<any>();
   @Output() visualCapture = new EventEmitter<any>();
@@ -294,7 +350,22 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   }
 
   visualSources(): any[] {
-    return [...(this.monitor?.visual?.sources || [])].sort((a, b) => this.visualPriority(a) - this.visualPriority(b));
+    const backend = [...(this.monitor?.visual?.sources || [])];
+    const ids = new Set(backend.map((source) => source?.id).filter(Boolean));
+    const injected = DEMO_PORT_WEBCAMS.filter((source) => !ids.has(source['id']));
+    return [...injected, ...backend].sort((a, b) => this.visualPriority(a) - this.visualPriority(b));
+  }
+
+  isDemoPortWebcam(source: any): boolean {
+    const id = String(source?.id || '');
+    return id.startsWith('apm-apapa') || id.startsWith('paa-');
+  }
+
+  demoPortBadge(source: any): string | null {
+    const badge = (source?.metadata || {}).demo_badge;
+    if (typeof badge === 'string' && badge.trim()) return badge.trim();
+    if (this.isDemoPortWebcam(source)) return 'Port Vridi · cargo demo';
+    return null;
   }
 
   primaryVisualSource(): any | null {

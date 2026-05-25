@@ -13,31 +13,15 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { GlyphComponent } from '@app/shared/cockpit';
-import { ApiService } from '@app/core/api.service';
+import {
+  MaritimeTrackingService,
+  type MaritimeVesselsSnapshot,
+  type VesselPosition,
+} from '@app/core/maritime-tracking.service';
 import { WorkspaceMapComponent } from './workspace-map.component';
 import type { VpMapPreviewContext, VpZoneScore } from './vp-cockpit.types';
 
-interface VesselPosition {
-  mmsi: string;
-  imo?: string;
-  name: string;
-  lat: number;
-  lon: number;
-  sog?: number;
-  cog?: number;
-  heading?: number;
-  vessel_type?: string;
-  nav_status?: string;
-  destination?: string;
-  eta?: string;
-  last_seen?: string;
-  source?: string;
-  linked_cargo_id?: string;
-  linked_project_ref?: string;
-  highlight?: string;
-  demo_role?: string;
-  recommended_webcam_source_id?: string;
-}
+type MaritimeVesselsResponse = MaritimeVesselsSnapshot;
 
 interface WebcamCycleEntry {
   source_id: string;
@@ -81,29 +65,6 @@ const DEFAULT_WEBCAM_CYCLE: WebcamCycleEntry[] = [
   },
 ];
 
-interface MaritimeVesselsResponse {
-  vessels: VesselPosition[];
-  bbox?: { west: number; south: number; east: number; north: number } | null;
-  source?: string;
-  provider?: string;
-  fetched_at?: string;
-  embed_url?: string | null;
-  attribution?: string | null;
-  count?: number;
-}
-
-interface VesselMarker {
-  vessel: VesselPosition;
-  /** Horizontal position as percentage (0..100) of the overlay layer. */
-  xPct: number;
-  /** Vertical position as percentage (0..100), 0 = north edge, 100 = south edge. */
-  yPct: number;
-  fill: string;
-  rotation: number;
-  isHighlighted: boolean;
-  outOfFrame: boolean;
-}
-
 const VESSEL_TYPE_COLORS: Record<string, string> = {
   cargo: '#3FB68A',
   container: '#3FB68A',
@@ -119,15 +80,6 @@ const HIGHLIGHT_VIOLET = '#B488FF';
 const DEFAULT_BBOX = '-4.25,5.05,-3.75,5.40';
 
 type VesselZoomMode = 'country' | 'abidjan';
-
-/**
- * Country bbox used to project vessels onto the cockpit map preview when
- * the map shows the full Côte d'Ivoire. Matches `renderer_config.bounds`
- * in `workspace-map.component.ts` (`[[-8.65, 4.2], [-2.45, 10.75]]`).
- */
-const COUNTRY_BBOX = { west: -8.65, east: -2.45, south: 4.2, north: 10.75 } as const;
-/** Tight Abidjan / Vridi bbox used in the "Zoom Abidjan" mode. */
-const ABIDJAN_BBOX = { west: -4.25, east: -3.75, south: 5.05, north: 5.4 } as const;
 
 const COUNTRY_CAMERA = {
   longitude: -5.45,
@@ -166,66 +118,27 @@ const ABIDJAN_CAMERA = {
       </div>
       <div class="map-layout">
         <div class="map-canvas-host">
-          <button
-            type="button"
-            class="map-canvas-wrap"
-            aria-label="Ouvrir la carte fusionnée"
-            (click)="openMap.emit()"
-          >
+          <div class="map-canvas-wrap" aria-label="Aperçu carte fusionnée">
             <app-workspace-map
               [compact]="true"
               [previewMode]="true"
-              [previewLayers]="context.geoPreview.active_layers || null"
+              [previewLayers]="previewLayersWithMaritime()"
               [zones]="$any(context.zones)"
               [map]="context.map"
               [mapSystem]="context.mapSystem"
               [mapState]="previewMapState"
               [selectedZoneId]="context.topZoneId"
+              [vessels]="vesselsEnabled && maritimeLayerVisible ? vessels : null"
+              [highlightedVesselMmsi]="selectedVessel?.mmsi || null"
+              (vesselSelected)="selectVessel($event)"
             />
-          </button>
+          </div>
 
-          @if (vesselsEnabled && maritimeLayerVisible && vesselMarkers.length) {
-            <div
-              class="vessels-overlay-layer"
-              [class.zoom-abidjan]="vesselZoomMode === 'abidjan'"
-              role="img"
-              [attr.aria-label]="vesselOverlayAriaLabel()"
-            >
-              @for (marker of vesselMarkers; track marker.vessel.mmsi) {
-                <button
-                  type="button"
-                  class="vessel-pin"
-                  [class.highlighted]="marker.isHighlighted"
-                  [class.out-of-frame]="marker.outOfFrame"
-                  [style.left.%]="marker.xPct"
-                  [style.top.%]="marker.yPct"
-                  [attr.title]="vesselPinTitle(marker.vessel)"
-                  [attr.aria-label]="vesselPinTitle(marker.vessel)"
-                  (click)="onVesselPinClick(marker.vessel, $event)"
-                >
-                  <span class="vessel-glyph-wrap" [style.transform]="'rotate(' + marker.rotation + 'deg)'">
-                    <svg viewBox="-2 -2 4 4" class="vessel-glyph" aria-hidden="true">
-                      <polygon
-                        points="0,-1.6 1.1,1.2 -1.1,1.2"
-                        [attr.fill]="marker.fill"
-                        stroke="rgba(0,0,0,0.62)"
-                        stroke-width="0.32"
-                      />
-                    </svg>
-                  </span>
-                  @if (marker.isHighlighted) {
-                    <span class="vessel-pin-halo" aria-hidden="true"></span>
-                  }
-                </button>
-              }
-            </div>
-          }
-
-          @if (vesselsEnabled && vesselMarkers.length) {
+          @if (vesselsEnabled && vessels.length) {
             <div class="vessels-overlay-controls" aria-label="Contrôles couche maritime">
               <span class="vessel-count-chip" aria-live="polite">
                 <span class="vessel-count-dot" aria-hidden="true"></span>
-                {{ vesselMarkers.length }} navires AIS · Abidjan / Vridi
+                {{ vessels.length }} navires AIS · Abidjan / Vridi
               </span>
               <button
                 type="button"
@@ -280,7 +193,16 @@ const ABIDJAN_CAMERA = {
             (click)="toggleMaritimeLayer($event)"
           >
             <span class="legend-dot maritime-dot" aria-hidden="true"></span>
-            Maritime · AIS · {{ vesselMarkers.length }} navires
+            Maritime · AIS · {{ vessels.length }} navires
+          </button>
+          <button
+            type="button"
+            class="legend-item port-webcam"
+            aria-label="Ouvrir la webcam port demo APM Apapa"
+            (click)="openDemoPortWebcam($event)"
+          >
+            <span class="legend-dot port-dot" aria-hidden="true"></span>
+            Port Vridi · webcam demo
           </button>
         }
       </footer>
@@ -328,7 +250,7 @@ const ABIDJAN_CAMERA = {
       @if (vesselsEnabled) {
         <aside
           class="vessels-info-strip"
-          [class.has-error]="vesselError && !vesselMarkers.length"
+          [class.has-error]="vesselError && !vessels.length"
           aria-label="Détail couche maritime AIS"
         >
           <header class="vessels-info-head">
@@ -337,11 +259,11 @@ const ABIDJAN_CAMERA = {
               <h3>Navires (AIS) · Abidjan / Vridi</h3>
             </div>
             <span class="vessels-meta" *ngIf="vesselsResponse">
-              {{ vesselMarkers.length }}/{{ vesselsResponse.vessels?.length || 0 }} navires
+              {{ vessels.length }}/{{ vesselsResponse.vessels?.length || 0 }} navires
             </span>
           </header>
 
-          @if (vesselMarkers.length) {
+          @if (vessels.length) {
             <ul class="vessel-legend" aria-label="Légende navires">
               <li><span class="dot" [style.background]="vesselColor('cargo')"></span>Cargo</li>
               <li><span class="dot" [style.background]="vesselColor('tanker')"></span>Tanker</li>
@@ -492,9 +414,13 @@ const ABIDJAN_CAMERA = {
         border-color: var(--sentinel-accent-muted);
         box-shadow: 0 0 0 1px rgba(101, 214, 110, 0.18);
       }
-      .map-canvas-wrap:focus-visible {
-        outline: 2px solid var(--sentinel-accent);
-        outline-offset: 2px;
+      .legend-item.port-webcam {
+        border-color: rgba(180, 136, 255, 0.42);
+        background: rgba(180, 136, 255, 0.08);
+      }
+      .legend-dot.port-dot {
+        background: #b488ff;
+        box-shadow: 0 0 0 2px rgba(180, 136, 255, 0.24);
       }
       .map-canvas-wrap app-workspace-map {
         display: block;
@@ -512,85 +438,12 @@ const ABIDJAN_CAMERA = {
         grid-column: 1 / 2;
       }
       /*
-       * Vessel overlay positioned on top of the workspace map.
-       * Insets approximate the MapLibre fitBounds() padding used in compact
-       * preview mode (20px in workspace-map.component.ts). The pins use a
-       * linear equirectangular projection of the country bbox onto the
-       * overlay rectangle — at Côte d'Ivoire latitudes the Mercator
-       * distortion is < 0.5% so a linear mapping is visually faithful.
+       * Vessels are rendered natively by deck.gl inside <app-workspace-map>
+       * (see WorkspaceMapComponent.buildDeckLayers), so they inherit
+       * MapLibre's projection on pan/zoom/resize. Only the legend chip and
+       * "Zoom Abidjan / Vue pays" toggle remain in this overlay-controls
+       * row positioned absolutely on top of the map canvas.
        */
-      .vessels-overlay-layer {
-        position: absolute;
-        inset: 20px;
-        z-index: 4;
-        pointer-events: none;
-      }
-      .vessels-overlay-layer.zoom-abidjan {
-        inset: 24px;
-      }
-      .vessel-pin {
-        position: absolute;
-        width: 16px;
-        height: 16px;
-        margin: 0;
-        padding: 0;
-        border: 0;
-        background: transparent;
-        transform: translate(-50%, -50%);
-        pointer-events: auto;
-        cursor: pointer;
-        appearance: none;
-        display: grid;
-        place-items: center;
-        line-height: 0;
-      }
-      .vessels-overlay-layer.zoom-abidjan .vessel-pin {
-        width: 22px;
-        height: 22px;
-      }
-      .vessel-pin:focus-visible {
-        outline: 2px solid var(--sentinel-accent);
-        outline-offset: 3px;
-        border-radius: 999px;
-      }
-      .vessel-glyph-wrap {
-        display: block;
-        width: 100%;
-        height: 100%;
-        transform-origin: center;
-      }
-      .vessel-glyph {
-        display: block;
-        width: 100%;
-        height: 100%;
-        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.65));
-      }
-      .vessel-pin.highlighted .vessel-glyph {
-        filter:
-          drop-shadow(0 0 4px rgba(180, 136, 255, 0.85))
-          drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
-      }
-      .vessel-pin-halo {
-        position: absolute;
-        inset: -5px;
-        border-radius: 999px;
-        border: 1px dashed rgba(180, 136, 255, 0.78);
-        pointer-events: none;
-        animation: vesselPinPulse 2.2s ease-in-out infinite;
-      }
-      .vessel-pin.out-of-frame .vessel-glyph {
-        opacity: 0.55;
-      }
-      @keyframes vesselPinPulse {
-        0%, 100% { opacity: 0.35; transform: scale(1); }
-        50% { opacity: 0.85; transform: scale(1.18); }
-      }
-      .vessel-pin:hover .vessel-glyph,
-      .vessel-pin:focus-visible .vessel-glyph {
-        filter:
-          drop-shadow(0 0 6px rgba(255, 255, 255, 0.45))
-          drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
-      }
       .vessels-overlay-controls {
         position: absolute;
         left: 12px;
@@ -1080,7 +933,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   @Output() vesselSelected = new EventEmitter<VesselPosition>();
 
   vesselsResponse: MaritimeVesselsResponse | null = null;
-  vesselMarkers: VesselMarker[] = [];
+  vessels: VesselPosition[] = [];
   vesselError = false;
   vesselErrorMessage = 'AIS indisponible — mode baseline démo';
   selectedVessel: VesselPosition | null = null;
@@ -1098,7 +951,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   maritimeLayerVisible = true;
   readonly HIGHLIGHT_VIOLET = HIGHLIGHT_VIOLET;
 
-  private readonly api = inject(ApiService);
+  private readonly maritimeTracking = inject(MaritimeTrackingService);
   private readonly cdr = inject(ChangeDetectorRef);
   private vesselsSub: Subscription | null = null;
   private readonly showWebcamListener = (event: Event) => {
@@ -1132,14 +985,21 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
     return params;
   }
 
-  vesselColor(kind?: string): string {
-    return VESSEL_TYPE_COLORS[(kind || 'other').toLowerCase()] || VESSEL_TYPE_COLORS['other'];
+  /**
+   * Make sure `maritime-traffic` is always part of the preview layers
+   * advertised to the inner `<app-workspace-map>` so that the deck.gl
+   * vessel layer can render. Without this the cockpit preview would
+   * inherit the backend default (`visible: False`) and the 16 AIS
+   * vessels would silently disappear from the map.
+   */
+  previewLayersWithMaritime(): string[] {
+    const requested = this.context.geoPreview.active_layers || [];
+    if (requested.includes('maritime-traffic')) return requested;
+    return [...requested, 'maritime-traffic'];
   }
 
-  onVesselPinClick(vessel: VesselPosition, event: Event): void {
-    event.stopPropagation();
-    event.preventDefault();
-    this.selectVessel(vessel);
+  vesselColor(kind?: string): string {
+    return VESSEL_TYPE_COLORS[(kind || 'other').toLowerCase()] || VESSEL_TYPE_COLORS['other'];
   }
 
   toggleVesselZoom(event?: Event): void {
@@ -1156,29 +1016,33 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  vesselPinTitle(vessel: VesselPosition): string {
-    const parts: string[] = [vessel.name];
-    if (vessel.mmsi) parts.push(`MMSI ${vessel.mmsi}`);
-    if (vessel.vessel_type) parts.push(vessel.vessel_type);
-    if (vessel.destination) parts.push(`→ ${vessel.destination}`);
-    return parts.filter(Boolean).join(' · ');
-  }
-
-  vesselOverlayAriaLabel(): string {
-    const count = this.vesselMarkers.length;
-    if (this.vesselZoomMode === 'abidjan') {
-      return `Couche maritime AIS - ${count} navires - zoom Abidjan / Vridi`;
-    }
-    return `Couche maritime AIS - ${count} navires positionnés sur la côte sud (Abidjan / Vridi)`;
-  }
-
   private applyVesselZoomMode(): void {
     const camera = this.vesselZoomMode === 'abidjan' ? ABIDJAN_CAMERA : COUNTRY_CAMERA;
     this.previewMapState = { camera: { ...camera } };
-    if (this.vesselsResponse) {
-      this.vesselMarkers = this.buildMarkers(this.vesselsResponse);
-    }
     this.cdr.markForCheck();
+  }
+
+  openDemoPortWebcam(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    const demoVessel = this.vessels.find(
+      (vessel) =>
+        vessel.mmsi === '627012345'
+        || vessel.linked_cargo_id === 'cargo-abidjan-supply-001'
+        || /atlantic trader/i.test(vessel.name || ''),
+    );
+    if (demoVessel) {
+      this.selectVessel(demoVessel);
+      return;
+    }
+    this.handleShowWebcamEvent({
+      detail: {
+        source_id: 'apm-apapa-gate-1',
+        label: 'APM Apapa Gate Cam #1 (demo Abidjan)',
+        cargo_id: 'cargo-abidjan-supply-001',
+        vessel_mmsi: '627012345',
+      },
+    } as CustomEvent);
   }
 
   selectVessel(vessel: VesselPosition): void {
@@ -1338,17 +1202,16 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
 
   private loadVessels(): void {
     this.vesselsSub?.unsubscribe();
-    this.vesselsSub = this.api
-      .get<MaritimeVesselsResponse>('/mission-room/maritime/vessels', {
-        bbox: this.vesselsBbox || DEFAULT_BBOX,
-        limit: '50',
-      })
+    this.vesselsSub = this.maritimeTracking
+      .getSnapshot(this.vesselsBbox || DEFAULT_BBOX, 50)
       .subscribe({
         next: (response) => {
           this.vesselsResponse = response;
           this.vesselError = false;
-          this.vesselMarkers = this.buildMarkers(response);
-          if (!this.vesselMarkers.length) {
+          this.vessels = (response.vessels || []).filter(
+            (vessel) => Number.isFinite(Number(vessel?.lat)) && Number.isFinite(Number(vessel?.lon)),
+          );
+          if (!this.vessels.length) {
             this.vesselErrorMessage = 'AIS indisponible — mode baseline démo';
           }
           this.cdr.markForCheck();
@@ -1356,40 +1219,10 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
         error: () => {
           this.vesselError = true;
           this.vesselsResponse = null;
-          this.vesselMarkers = [];
+          this.vessels = [];
           this.vesselErrorMessage = 'AIS indisponible — mode baseline démo';
           this.cdr.markForCheck();
         },
       });
-  }
-
-  private buildMarkers(response: MaritimeVesselsResponse): VesselMarker[] {
-    const vessels = response.vessels || [];
-    if (!vessels.length) return [];
-    const bbox = this.vesselZoomMode === 'abidjan' ? ABIDJAN_BBOX : COUNTRY_BBOX;
-    const dLon = bbox.east - bbox.west;
-    const dLat = bbox.north - bbox.south;
-    if (dLon <= 0 || dLat <= 0) return [];
-    return vessels.map((vessel) => {
-      const rawX = ((vessel.lon - bbox.west) / dLon) * 100;
-      const rawY = ((bbox.north - vessel.lat) / dLat) * 100;
-      const outOfFrame = rawX < 0 || rawX > 100 || rawY < 0 || rawY > 100;
-      const xPct = Math.max(0, Math.min(100, rawX));
-      const yPct = Math.max(0, Math.min(100, rawY));
-      const isHighlighted = Boolean(vessel.linked_cargo_id || vessel.highlight);
-      return {
-        vessel,
-        xPct,
-        yPct,
-        fill: isHighlighted ? HIGHLIGHT_VIOLET : this.vesselColor(vessel.vessel_type),
-        rotation: Number.isFinite(vessel.heading as number)
-          ? (vessel.heading as number)
-          : Number.isFinite(vessel.cog as number)
-            ? (vessel.cog as number)
-            : 0,
-        isHighlighted,
-        outOfFrame,
-      };
-    });
   }
 }

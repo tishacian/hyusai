@@ -15,12 +15,13 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { forkJoin, of } from 'rxjs';
+import { forkJoin, of, type Subscription } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
 import { AssistantEffectsService, type AssistantNavigateEffect, type AssistantProposeEffect } from '@app/core/assistant-effects.service';
+import { MaritimeTrackingService, type VesselPosition } from '@app/core/maritime-tracking.service';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { MissionControlMonitorComponent } from './mission-control-monitor.component';
 import { WorkspaceMapComponent } from './workspace-map.component';
@@ -1514,12 +1515,13 @@ export class MissionRailComponent {
         [pressHighlightId]="pressHighlightId()"
         (openMap)="openDrillDownView('strategie', vpMapPreviewContext().geoPreview.top_zone_id || undefined)"
         (mapZoneSelected)="openMapZoneDrillDown($event)"
+        (mapVesselSelected)="openCockpitVesselDrillDown($event)"
         (statusBarSelected)="openStatusBarDrillDown($event)"
         (arbitrationSelected)="selectArbitrationCard($event)"
         (pressSelected)="openPressPreviewItem($event)"
         (voiceRequest)="openAssistantVoice($event)"
         (voiceListen)="openAssistantVoice('AYA, lis le briefing souverain en 60 secondes.')"
-        (briefingRequest)="openDrillDownView('decisions', 'package-zone-nord', undefined, undefined, 'brief')"
+        (briefingRequest)="openZoneNordDossier()"
       />
     </ng-template>
 
@@ -2235,6 +2237,7 @@ export class MissionRailComponent {
             [portWebcam]="activePortWebcam()"
             [assistantName]="assistantName()"
             [captureImages]="visualCaptureImages()"
+            [vessels]="strategicVessels()"
             (zoneSelected)="selectZone($event)"
             (visualCapture)="captureVisualSource($event)"
             (assistantPrompt)="openAssistant($event)"
@@ -2253,6 +2256,7 @@ export class MissionRailComponent {
                 [mapSystem]="missionMap()?.map_system || null"
                 [mapState]="mapCommandState()"
                 [selectedZoneId]="selectedZone()?.id || null"
+                [vessels]="strategicVessels()"
                 (zoneSelected)="selectZone($event)"
                 (evidenceAction)="handleMapEvidenceAction($event)"
               />
@@ -4299,7 +4303,16 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly chat = inject(ChatOverlayService);
   private readonly assistantEffects = inject(AssistantEffectsService);
+  private readonly maritimeTracking = inject(MaritimeTrackingService);
   protected readonly workspace = inject(WorkspaceService);
+  /**
+   * AIS vessel positions fed into the strategic <app-workspace-map>.
+   * Sourced from the shared `MaritimeTrackingService` so both the cockpit
+   * preview and the full-screen strategic map render the same snapshot
+   * (and so toggling the maritime layer reveals real vessels everywhere).
+   */
+  readonly strategicVessels = signal<VesselPosition[]>([]);
+  private maritimeVesselsSub: Subscription | null = null;
 
   private readonly routeView = toSignal(
     this.route.paramMap.pipe(map((params) => (params.get('view') || 'cockpit') as MissionView)),
@@ -4494,6 +4507,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     window.addEventListener('agentium:assistant-propose', this.assistantProposeListener);
     window.addEventListener('agentium:assistant-show-webcam', this.assistantShowWebcamListener);
     this.loadAll();
+    this.subscribeMaritimeTracking();
     setTimeout(() => this.scrollToHighlight(), 120);
     this.applyMapQueryState();
   }
@@ -4506,8 +4520,23 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     window.removeEventListener('agentium:assistant-navigate', this.assistantNavigateListener);
     window.removeEventListener('agentium:assistant-propose', this.assistantProposeListener);
     window.removeEventListener('agentium:assistant-show-webcam', this.assistantShowWebcamListener);
+    this.maritimeVesselsSub?.unsubscribe();
+    this.maritimeVesselsSub = null;
     this.visualObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     this.visualObjectUrls.length = 0;
+  }
+
+  private subscribeMaritimeTracking(): void {
+    if (this.maritimeVesselsSub) return;
+    this.maritimeVesselsSub = this.maritimeTracking.getSnapshot().subscribe({
+      next: (snapshot) => {
+        const vessels = (snapshot.vessels || []).filter(
+          (vessel) => Number.isFinite(Number(vessel?.lat)) && Number.isFinite(Number(vessel?.lon)),
+        );
+        this.strategicVessels.set(vessels);
+      },
+      error: () => this.strategicVessels.set([]),
+    });
   }
 
   private loadAll(showSpinner = true): void {
@@ -4842,7 +4871,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const items = direct?.length
       ? direct
       : [
-      { key: 'tension-nord', label: 'Zone Nord', value: 'Tendue', detail: 'projet public bloque · cargo affecte', tone: 'critical' },
+      { key: 'tension-nord', label: 'Zone Nord', value: 'Tendue', detail: 'projet public bloque · cargo affecte', tone: 'critical', drill_down: { view: 'strategie', zone: 'zone-nord', layers: 'threat,press,maritime-traffic', anchor: 'projet-napie' } },
       { key: 'posture', label: 'Posture nationale', value: this.postureLabel(this.cockpit()?.strategic_posture), detail: 'consolidation sources', tone: this.cockpit()?.strategic_posture?.label || 'monitoring' },
       { key: 'decisions', label: 'Decisions', value: '3', detail: 'avant 15h00', tone: 'elevated' },
       { key: 'press', label: 'Presse', value: String(this.kpiNumber('press_alerts') || 16), detail: 'alertes qualifiees', tone: 'critical' },
@@ -5292,6 +5321,22 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   selectArbitrationCard(card: VpArbitrationCard): void {
     this.selectedArbitrationCard.set(card);
+    const pressLike = card.domain === 'PRESSE' || card.drill_down?.view === 'presse';
+    if (pressLike) {
+      const article = this.allNewsSignals().find((signal) => signal.id === card.id);
+      if (article) {
+        this.openPressArticle(article);
+        return;
+      }
+    }
+    const nordLike =
+      card.domain === 'DEFENSE'
+      || card.domain_label === 'Defense'
+      || `${card.id} ${card.title}`.toLowerCase().includes('nord');
+    if (nordLike) {
+      this.openZoneNordDossier();
+      return;
+    }
     this.navigateDrillDown(card.drill_down || { view: 'decisions', anchor: card.id }, card.id);
   }
 
@@ -5306,13 +5351,52 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   openPressPreviewItem(item: VpPressPreviewItem): void {
-    const drill = this.resolvePressPreviewDrillDown(item);
     const article = this.allNewsSignals().find((signal) => signal.id === item.id);
-    if (article && this.currentView() === 'presse') {
+    if (article) {
       this.openPressArticle(article);
       return;
     }
+    const drill = this.resolvePressPreviewDrillDown(item);
     this.navigateDrillDown(drill, item.id);
+  }
+
+  openZoneNordDossier(): void {
+    this.openDrillDownView('strategie', 'projet-napie', undefined, {
+      zone: 'zone-nord',
+      layers: 'threat,press,maritime-traffic',
+    });
+    setTimeout(
+      () => this.openAssistant('AYA, pourquoi la situation Nord est-elle tendue ?'),
+      240,
+    );
+  }
+
+  openCockpitVesselDrillDown(vessel: VesselPosition): void {
+    const isDemoCargo =
+      vessel.mmsi === '627012345'
+      || vessel.linked_cargo_id === 'cargo-abidjan-supply-001'
+      || /atlantic trader/i.test(vessel.name || '');
+    if (isDemoCargo) {
+      window.dispatchEvent(
+        new CustomEvent('agentium:assistant-show-webcam', {
+          detail: {
+            source_id: vessel.recommended_webcam_source_id || 'apm-apapa-gate-1',
+            vessel_mmsi: vessel.mmsi,
+            vessel_name: vessel.name,
+            cargo_id: vessel.linked_cargo_id || 'cargo-abidjan-supply-001',
+          },
+        }),
+      );
+    }
+    const queryParams: Record<string, string> = {
+      mode: 'live',
+      panel: 'maritime',
+      layers: 'maritime-traffic,visual-streams',
+      zone: 'zone-sud',
+    };
+    if (vessel.mmsi) queryParams['vessel'] = vessel.mmsi;
+    if (vessel.linked_cargo_id) queryParams['cargo'] = vessel.linked_cargo_id;
+    void this.router.navigate(['/hypervisor/mission-room/strategie'], { queryParams });
   }
 
   openStatusBarDrillDown(item: VpStatusBarItem): void {
@@ -5362,6 +5446,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private statusBarDrillDown(item: VpStatusBarItem): VpDrillDown {
     if (item.drill_down) return item.drill_down;
     const defaults: Record<string, VpDrillDown> = {
+      'tension-nord': { view: 'strategie', zone: 'zone-nord', layers: 'threat,press,maritime-traffic', anchor: 'projet-napie' },
       posture: { view: 'strategie', layers: 'territorial-risk,open-intelligence' },
       deadline: { view: 'decisions', anchor: 'package-zone-nord' },
       decisions: { view: 'decisions' },

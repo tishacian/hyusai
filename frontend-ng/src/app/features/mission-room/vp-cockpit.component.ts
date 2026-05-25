@@ -5,6 +5,7 @@ import { VpArbitrationStripComponent } from './vp-arbitration-strip.component';
 import { VpAyaPriorityBannerComponent } from './vp-aya-priority-banner.component';
 import { VpPressPreviewComponent } from './vp-press-preview.component';
 import { VpMacroIndicatorsComponent } from './vp-macro-indicators.component';
+import type { VesselPosition } from '@app/core/maritime-tracking.service';
 import type {
   VpArbitrationCard,
   VpAyaRecommendation,
@@ -77,6 +78,7 @@ import type {
           [context]="mapPreview"
           (openMap)="openMap.emit()"
           (zoneSelected)="mapZoneSelected.emit($event)"
+          (vesselSelected)="mapVesselSelected.emit($event)"
         />
         <app-vp-arbitration-strip [cards]="arbitrationCards" (cardSelected)="arbitrationSelected.emit($event)" />
       </section>
@@ -264,6 +266,7 @@ export class VpCockpitComponent {
 
   @Output() openMap = new EventEmitter<void>();
   @Output() mapZoneSelected = new EventEmitter<VpZoneScore>();
+  @Output() mapVesselSelected = new EventEmitter<VesselPosition>();
   @Output() statusBarSelected = new EventEmitter<VpStatusBarItem>();
   @Output() arbitrationSelected = new EventEmitter<VpArbitrationCard>();
   @Output() pressSelected = new EventEmitter<VpPressPreviewItem>();

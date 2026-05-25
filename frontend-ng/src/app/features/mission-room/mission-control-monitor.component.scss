@@ -862,6 +862,24 @@
   background: rgba(31, 88, 61, 0.32);
 }
 
+.webcam-sources button.demo-port {
+  border-color: rgba(180, 136, 255, 0.42);
+  background: rgba(180, 136, 255, 0.08);
+}
+
+.webcam-sources button.demo-port span {
+  background: #b488ff;
+}
+
+.webcam-sources .demo-port-badge {
+  grid-column: 2;
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #d8c4ff;
+}
+
 .webcam-sources .capture-command {
   display: flex;
   grid-template-columns: none;
