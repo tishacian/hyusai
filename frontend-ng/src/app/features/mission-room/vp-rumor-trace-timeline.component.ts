@@ -40,15 +40,17 @@ type Phase = 'emergence' | 'amplification' | 'demente';
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (open && trace) {
-      <div class="rumor-drawer-root" role="dialog" aria-modal="true" aria-label="Dossier rumeur frontiere Nord">
-        <button
-          type="button"
-          class="rumor-drawer-backdrop"
-          aria-label="Fermer le dossier rumeur"
-          (click)="closed.emit()"
-        ></button>
-        <aside class="rumor-drawer-panel">
+    @if (trace && (embedded || open)) {
+      <div [class]="embedded ? 'rumor-embedded-root' : 'rumor-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" aria-label="Dossier rumeur frontiere Nord">
+        @if (!embedded) {
+          <button
+            type="button"
+            class="rumor-drawer-backdrop"
+            aria-label="Fermer le dossier rumeur"
+            (click)="closed.emit()"
+          ></button>
+        }
+        <aside [class]="embedded ? 'rumor-embedded-panel' : 'rumor-drawer-panel'">
           <header class="rumor-drawer-head">
             <div class="rumor-drawer-head-copy">
               <span class="risk-pill" [class.success]="hasOfficialDenial()" [class.warn]="!hasOfficialDenial()">
@@ -58,14 +60,16 @@ type Phase = 'emergence' | 'amplification' | 'demente';
               <h2>{{ trace.headline || 'Dossier rumeur frontiere Nord' }}</h2>
               <p class="rumor-drawer-summary">{{ trace.summary || '' }}</p>
             </div>
-            <button
-              type="button"
-              class="rumor-drawer-close"
-              aria-label="Fermer"
-              (click)="closed.emit()"
-            >
-              ×
-            </button>
+            @if (!embedded) {
+              <button
+                type="button"
+                class="rumor-drawer-close"
+                aria-label="Fermer"
+                (click)="closed.emit()"
+              >
+                ×
+              </button>
+            }
           </header>
 
           <div class="rumor-drawer-body">
@@ -573,10 +577,22 @@ type Phase = 'emergence' | 'amplification' | 'demente';
       @media (prefers-reduced-motion: reduce) {
         .rumor-drawer-panel { animation: none; }
       }
+      .rumor-embedded-root { display: block; }
+      .rumor-embedded-panel {
+        position: relative;
+        width: 100%;
+        max-height: none;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        animation: none;
+      }
     `,
   ],
 })
 export class VpRumorTraceTimelineComponent {
+  @Input() embedded = false;
   @Input() open = false;
   @Input() trace: RumorTrace | null = null;
   @Output() closed = new EventEmitter<void>();

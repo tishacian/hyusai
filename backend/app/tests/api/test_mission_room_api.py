@@ -437,6 +437,24 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert body["maritime"]["active_evidence"]["type"] == "maritime"
     assert body["maritime"]["active_evidence"]["map_focus"]["active_layers"][-1] == "maritime-traffic"
     assert [layer["key"] for layer in body["layers"]] == ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"]
+
+
+def test_mission_room_security_monitor_payload(db_session):
+    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    response = client.get("/api/v1/mission-room/security-monitor")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["route"] == "/hypervisor/mission-room/securite/monitor"
+    assert body["theater_sahel"]["tracks"]
+    assert body["social_signals"]["tweets"]
+    assert body["rumor_thread"]["chain"]
+    assert body["source_freshness"]["baseline"] is True
     assert body["layers"][-1]["enabled"] is False
     assert [layer["key"] for layer in body["map_system"]["layer_catalog"]] == ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"]
     assert "maritime-traffic" not in body["map_system"]["default_map_state"]["active_layers"]

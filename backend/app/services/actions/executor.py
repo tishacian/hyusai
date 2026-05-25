@@ -1144,7 +1144,7 @@ async def execute_flow_action(
             _action_effect(
                 "assistant-navigate",
                 {
-                    "route": "/hypervisor/mission-room/cockpit",
+                    "route": "/hypervisor/mission-room/securite",
                     "queryParams": {"focus": "security_posture"},
                     "highlight": "package-securite-dual",
                 },
@@ -1196,7 +1196,7 @@ async def execute_flow_action(
             _action_effect(
                 "assistant-navigate",
                 {
-                    "route": "/hypervisor/mission-room/strategie",
+                    "route": "/hypervisor/mission-room/veille-sociale",
                     "queryParams": {"panel": "social", "snapshot": "abidjan"},
                 },
             )
@@ -1426,7 +1426,7 @@ async def execute_flow_action(
             _action_effect(
                 "assistant-navigate",
                 {
-                    "route": "/hypervisor/mission-room/strategie",
+                    "route": "/hypervisor/mission-room/securite/monitor",
                     "queryParams": {"focus": "sahel", "layers": "military-air,border-tension"},
                 },
             )

@@ -27,6 +27,8 @@ import { MissionControlMonitorComponent } from './mission-control-monitor.compon
 import { WorkspaceMapComponent } from './workspace-map.component';
 import { VpCockpitComponent } from './vp-cockpit.component';
 import { VpPressArticleDrawerComponent, type PressArticleDetail } from './vp-press-article-drawer.component';
+import { VpTroopsTheaterDrawerComponent } from './vp-troops-theater-drawer.component';
+import { VpRumorTraceTimelineComponent } from './vp-rumor-trace-timeline.component';
 import type {
   VpAgendaTimeline,
   VpAgendaTimelineEvent,
@@ -52,6 +54,7 @@ type MissionView =
   | 'projets'
   | 'presse'
   | 'reputation'
+  | 'securite'
   | 'veille'
   | 'decisions'
   | 'strategie'
@@ -497,6 +500,14 @@ interface MissionCockpit {
   social_snapshot?: Record<string, any> | null;
   troops_sahel?: Record<string, any> | null;
   rumor_frontier_trace?: Record<string, any> | null;
+  security_documents?: {
+    id: string;
+    title: string;
+    kind: string;
+    collection: string;
+    summary: string;
+    sources: string[];
+  }[];
   directive_of_day?: {
     label?: string;
     text: string;
@@ -1393,6 +1404,8 @@ export class MissionRailComponent {
   private readonly primaryRailKeys: MissionView[] = [
     'cockpit',
     'strategie',
+    'securite',
+    'reputation',
     'agenda',
     'presse',
     'decisions',
@@ -1400,6 +1413,8 @@ export class MissionRailComponent {
   private readonly railLabelOverrides: Partial<Record<MissionView, string>> = {
     cockpit: 'Cockpit',
     strategie: 'Carte',
+    securite: 'Securite',
+    reputation: 'Reputation',
     presse: 'Presse',
     decisions: 'Arbitrages',
   };
@@ -1464,6 +1479,8 @@ export class MissionRailComponent {
     WorkspaceMapComponent,
     VpCockpitComponent,
     VpPressArticleDrawerComponent,
+    VpTroopsTheaterDrawerComponent,
+    VpRumorTraceTimelineComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -1521,6 +1538,7 @@ export class MissionRailComponent {
             @case ('strategie') { <ng-container *ngTemplateOutlet="mapView"></ng-container> }
             @case ('recherche') { <ng-container *ngTemplateOutlet="searchView"></ng-container> }
             @case ('reputation') { <ng-container *ngTemplateOutlet="reputationView"></ng-container> }
+            @case ('securite') { <ng-container *ngTemplateOutlet="securiteView"></ng-container> }
             @default { <ng-container *ngTemplateOutlet="cockpitView"></ng-container> }
           }
         }
@@ -2073,6 +2091,68 @@ export class MissionRailComponent {
           </ul>
         </article>
       </section>
+    </ng-template>
+
+    <ng-template #securiteView>
+      <div class="securite-shell">
+        <aside class="securite-council-bar" aria-live="polite">
+          <span class="eyebrow">Prochain arbitrage securitaire</span>
+          <strong>{{ securityCouncilLabel() }}</strong>
+          <a routerLink="/hypervisor/mission-room/securite/monitor" class="inline-action">
+            Ouvrir Security Monitor
+          </a>
+        </aside>
+
+        <div class="securite-tabs" role="tablist">
+          <button type="button" [class.active]="securiteTab() === 'vue'" (click)="securiteTab.set('vue')">Vue</button>
+          <button type="button" [class.active]="securiteTab() === 'documents'" (click)="securiteTab.set('documents')">Documents</button>
+        </div>
+
+        @if (securiteTab() === 'vue') {
+          <app-vp-cockpit
+            [securityOnly]="true"
+            [assistantName]="assistantName()"
+            [statusBar]="[]"
+            [mapPreview]="vpMapPreviewContext()"
+            [directive]="directiveOfDay()"
+            [ayaRecommendation]="ayaRecommendation()"
+            [arbitrationCards]="[]"
+            [pressPreview]="[]"
+            [securityPosture]="securityPosture()"
+            (securityPostureRequested)="openAssistant('AYA, montre-moi la posture securitaire du jour.')"
+            (securityCommuniqueRequested)="openAssistant('AYA, prepare un communique de securite sur la rumeur frontiere Nord.')"
+          />
+
+          <section class="securite-stack">
+            <app-vp-troops-theater-drawer
+              [embedded]="true"
+              [open]="true"
+              [snapshot]="troopsSahel()"
+            />
+            <app-vp-rumor-trace-timeline
+              [embedded]="true"
+              [open]="true"
+              [trace]="rumorFrontierTrace()"
+            />
+          </section>
+        } @else {
+          <section class="content-panel span-2 securite-documents">
+            <span class="eyebrow">Collection sentinel-ci-security-briefs</span>
+            <h2>Documents securite · scope vigie</h2>
+            <p>Briefs posture Sahel, syntheses Conseil Defense et dossiers rumeur utilises par AYA S3.</p>
+            <div class="securite-doc-grid">
+              @for (doc of securityDocuments(); track doc.id) {
+                <article class="securite-doc-card">
+                  <span class="status-pill elevated">{{ doc.kind }}</span>
+                  <h3>{{ doc.title }}</h3>
+                  <p>{{ doc.summary }}</p>
+                  <small>{{ doc.collection }}</small>
+                </article>
+              }
+            </div>
+          </section>
+        }
+      </div>
     </ng-template>
 
     <ng-template #reputationView>
@@ -4022,10 +4102,58 @@ export class MissionRailComponent {
         text-decoration: none;
       }
       .reputation-drill-link:hover { text-decoration: underline; }
+
+      .securite-shell { display: grid; gap: var(--mission-space-4); }
+      .securite-council-bar {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+        padding: 12px 16px;
+        border: 1px solid rgba(240, 100, 118, 0.35);
+        border-radius: var(--mission-radius-lg);
+        background: rgba(240, 100, 118, 0.08);
+      }
+      .securite-council-bar strong { color: #fda4af; }
+      .securite-tabs { display: flex; gap: 8px; }
+      .securite-tabs button {
+        padding: 8px 14px;
+        border: 1px solid var(--mission-border);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--mission-text-secondary);
+        cursor: pointer;
+      }
+      .securite-tabs button.active {
+        background: rgba(15, 111, 63, 0.18);
+        color: var(--mission-text-primary);
+        border-color: rgba(15, 111, 63, 0.45);
+      }
+      .securite-stack { display: grid; gap: var(--mission-space-4); }
+      .securite-doc-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 12px;
+      }
+      .securite-doc-card {
+        padding: 14px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: rgba(8, 14, 20, 0.55);
+      }
+      .securite-doc-card h3 { margin: 8px 0; font-size: 15px; }
+      .securite-doc-card p { margin: 0; color: var(--mission-text-secondary); font-size: 13px; }
+      .securite-doc-card small { display: block; margin-top: 8px; color: var(--mission-text-secondary); }
+
       @media (max-width: 980px) {
         .reputation-drill-grid {
           grid-template-columns: 1fr;
         }
+        .securite-doc-grid { grid-template-columns: 1fr; }
       }
       .option-compare-head,
       .option-compare-row {
@@ -4720,6 +4848,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly fallbackNav: MissionNavigationItem[] = [
     { key: 'cockpit', label: 'Cockpit', glyph: 'ledger', route: '/hypervisor/mission-room/cockpit', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
     { key: 'strategie', label: 'Carte', glyph: 'sliders', route: '/hypervisor/mission-room/strategie', api: '/api/v1/mission-room/map', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'securite', label: 'Securite', glyph: 'shield', route: '/hypervisor/mission-room/securite', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'reputation', label: 'Reputation', glyph: 'pulse', route: '/hypervisor/mission-room/reputation', api: '/api/v1/mission-room/news', object: 'Run', workbench: 'Run' },
     { key: 'agenda', label: 'Agenda', glyph: 'ledger', route: '/hypervisor/mission-room/agenda', api: '/api/v1/mission-room/timeline', object: 'Workbench', workbench: 'Workbench' },
     { key: 'presse', label: 'Presse', glyph: 'pulse', route: '/hypervisor/mission-room/presse', api: '/api/v1/mission-room/news', object: 'Run', workbench: 'Run' },
     { key: 'decisions', label: 'Arbitrages', glyph: 'check', route: '/hypervisor/mission-room/decisions', api: '/api/v1/mission-room/decisions', object: 'Review Queue', workbench: 'Review Queue' },
@@ -4744,6 +4874,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly railAlertBadges = computed<Partial<Record<MissionView, number>>>(() => ({
     presse: this.pressPreview().length || this.kpiNumber('press_alerts') || 0,
     decisions: this.arbitrationCards().length || this.decisionQueue().length || 0,
+    securite: this.securityPosture() ? 1 : 0,
+    reputation: this.reputationDrillItems().length || 0,
   }));
   readonly ayaRailState = computed<'listening' | 'ready'>(() => (this.cockpit()?.briefing_status || '').toLowerCase().includes('ecoute') ? 'listening' : 'ready');
   readonly ayaRailStateLabel = computed(() => {
@@ -4779,7 +4911,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     'strategie',
     'recherche',
     'reputation',
+    'securite',
   ]);
+
+  readonly securiteTab = signal<'vue' | 'documents'>('vue');
 
   constructor() {
     effect(() => {
@@ -5209,6 +5344,21 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   rumorFrontierTrace(): Record<string, any> | null {
     return this.cockpit()?.rumor_frontier_trace || null;
+  }
+
+  troopsSahel(): Record<string, any> | null {
+    return this.cockpit()?.troops_sahel || null;
+  }
+
+  securityDocuments(): NonNullable<MissionCockpit['security_documents']> {
+    return this.cockpit()?.security_documents || [];
+  }
+
+  securityCouncilLabel(): string {
+    const council = (this.securityPosture()?.['next_council'] || {}) as Record<string, unknown>;
+    const label = String(council['label'] || 'Conseil Defense restreint');
+    const time = String(council['time'] || '15:00');
+    return `${label} · ${time}`;
   }
 
   directiveOfDay(): NonNullable<MissionCockpit['directive_of_day']> {

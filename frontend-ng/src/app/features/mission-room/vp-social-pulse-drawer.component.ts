@@ -58,15 +58,17 @@ interface BucketDescriptor {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (open && snapshot) {
-      <div class="social-drawer-root" role="dialog" aria-modal="true" aria-label="Pulsation sociale">
-        <button
-          type="button"
-          class="social-drawer-backdrop"
-          aria-label="Fermer la pulsation sociale"
-          (click)="closed.emit()"
-        ></button>
-        <aside class="social-drawer-panel">
+    @if (snapshot && (embedded || open)) {
+      <div [class]="embedded ? 'social-embedded-root' : 'social-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" aria-label="Pulsation sociale">
+        @if (!embedded) {
+          <button
+            type="button"
+            class="social-drawer-backdrop"
+            aria-label="Fermer la pulsation sociale"
+            (click)="closed.emit()"
+          ></button>
+        }
+        <aside [class]="embedded ? 'social-embedded-panel' : 'social-drawer-panel'">
           <header class="social-drawer-head">
             <div class="social-drawer-head-copy">
               <span class="risk-pill stable">demo-safe</span>
@@ -74,14 +76,16 @@ interface BucketDescriptor {
               <h2>{{ headerTitle() }}</h2>
               <p class="social-drawer-summary">{{ summarySentence() }}</p>
             </div>
-            <button
-              type="button"
-              class="social-drawer-close"
-              aria-label="Fermer"
-              (click)="closed.emit()"
-            >
-              ×
-            </button>
+            @if (!embedded) {
+              <button
+                type="button"
+                class="social-drawer-close"
+                aria-label="Fermer"
+                (click)="closed.emit()"
+              >
+                ×
+              </button>
+            }
           </header>
 
           <div class="social-drawer-body">
@@ -642,10 +646,22 @@ interface BucketDescriptor {
       @media (prefers-reduced-motion: reduce) {
         .social-drawer-panel { animation: none; }
       }
+      .social-embedded-root { display: block; }
+      .social-embedded-panel {
+        position: relative;
+        width: 100%;
+        max-height: none;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-lg);
+        background: rgba(8, 14, 20, 0.72);
+        box-shadow: none;
+        animation: none;
+      }
     `,
   ],
 })
 export class VpSocialPulseDrawerComponent {
+  @Input() embedded = false;
   @Input() open = false;
   @Input() snapshot: SocialSnapshot | null = null;
   @Output() closed = new EventEmitter<void>();

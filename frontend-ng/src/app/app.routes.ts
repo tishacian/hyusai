@@ -23,6 +23,16 @@ export const routes: Routes = [
       { path: '', redirectTo: 'hypervisor', pathMatch: 'full' },
       { path: 'hypervisor/mission-room', redirectTo: 'hypervisor/mission-room/cockpit', pathMatch: 'full' },
       {
+        path: 'hypervisor/mission-room/securite/monitor',
+        loadComponent: () =>
+          import('./features/mission-room/security-monitor.component').then((m) => m.SecurityMonitorComponent),
+      },
+      {
+        path: 'hypervisor/mission-room/veille-sociale',
+        loadComponent: () =>
+          import('./features/mission-room/social-pulse-page.component').then((m) => m.SocialPulsePageComponent),
+      },
+      {
         path: 'hypervisor/mission-room/agenda/meeting/:event_id',
         loadComponent: () =>
           import('./features/mission-room/vp-meeting.component').then((m) => m.VpMeetingComponent),
