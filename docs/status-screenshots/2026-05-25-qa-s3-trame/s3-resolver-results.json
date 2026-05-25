@@ -46,7 +46,7 @@
   },
   {
     "step": "S3.6",
-    "phrase": "AYA, prépare un communiqué de sécurité sur la rumeur frontière Nord.",
+    "phrase": "AYA, prépare un communiqué de sécurité sur la rumeur Nord.",
     "expected_action": "aya.draft_security_communique",
     "matched_action": "aya.draft_security_communique",
     "confidence": 1.06,

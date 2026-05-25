@@ -139,18 +139,18 @@ Cockpit → arbitrages : les 3 cartes droite ne plongent plus directement dans u
 
 ## Scénario 3 — Posture sécuritaire dual-axis (S3.1 → S3.6)
 
-Pack additionnel `sentinel_ci_aya_security_v1` (opt-in via `workspace.settings.actions.enabled_packs`). S'enchaîne après S2.7 (Décision Option B) en cible vers le Conseil Défense restreint de 15h00.
+S3 s'enchaîne après S2.7 (Décision Option B) et prépare le Conseil Défense restreint de 15h00.
 
-| ID | Phrase | Action AYA | Effet UI |
-|----|--------|------------|----------|
-| S3.1 | `AYA, montre-moi la posture sécuritaire du jour.` | `aya.show_security_posture` | Cockpit : bloc « Posture sécuritaire » (Intérieur vigilance / Extérieur Sahel élevée + pastille 15h00 Conseil Défense restreint). `last_focus = package-securite-dual`. |
-| S3.2 | `AYA, montre la pulsation sociale à Abidjan.` | `aya.show_social_pulse` | Stratégie : couche `social-geo` active, drawer pulsation (5 officiels + 8 citoyens pseudonymisés + 5 rumeur frontière). |
-| S3.3 | `AYA, d'où vient la rumeur frontière Nord ?` | `aya.trace_rumor_origin` | Stratégie : zoom Nord, couche `border-tension`, drawer chaîne OSINT (tweet 11h42 → Telegram 12h08 → blog 12h48 → démentis 13h45/13h52) + proposition « Rédiger un communiqué ». |
-| S3.4 | `AYA, montre les mouvements de troupes au Sahel.` | `aya.show_troops_movement` | Stratégie : couches `military-air` + `border-tension` actives, drawer snapshot ADS-B advisory only (10 traces + 3 zones surveillance + 2 bases CEDEAO). |
-| S3.5 | `AYA, montre le drill de réputation 2 positifs 1 critique.` | `aya.show_reputation_drill` | Réputation : score 72/100, 3 cartes (Jeune Afrique + Fraternité Matin + L'Inter), CTA AYA pour préparer un encart Conseil 15h. |
-| S3.6 | `AYA, prépare un communiqué de sécurité sur la rumeur Nord.` | `aya.draft_security_communique` | Drawer brouillon communiqué (skill `draft_response_email_v1` réutilisé), validation advisory requise. |
+| ID | Phrase | Réponse attendue | Effet UI |
+|----|--------|------------------|----------|
+| S3.1 | `AYA, montre-moi la posture sécuritaire du jour.` | Posture en vigilance intérieure et élevée sur l'axe Sahel ; rumeur Nord démentie ; lecture Conseil 15h00 prête. | Cockpit : bloc « Posture sécuritaire » mis en avant (Intérieur vigilance / Extérieur Sahel élevée + pastille 15h00 Conseil Défense restreint). |
+| S3.2 | `AYA, montre la pulsation sociale à Abidjan.` | 18 signaux publics sur la séquence du jour : canaux vérifiés, citoyens pseudonymisés et rumeurs suivies. | Veille sociale : feed 18 tweets, filtres, tri engagement et export CSV advisory. |
+| S3.3 | `AYA, d'où vient la rumeur frontière Nord ?` | Tweet 11h42 → Telegram 12h08 → blog 12h48 → démenti FANCI 13h46 → Préfecture Nord 13h52. | Zoom Nord, couche frontière, timeline rumeur et proposition « Rédiger un communiqué ». |
+| S3.4 | `AYA, montre les mouvements de troupes au Sahel.` | Snapshot ADS-B advisory : 10 traces publiques, aucune confirmation opérationnelle ni donnée classifiée. | Security Monitor : traces ADS-B advisory, zones de surveillance et bases CEDEAO. |
+| S3.5 | `AYA, montre le drill de réputation 2 positifs 1 critique.` | Score 72/100 ; deux lectures favorables, une critique budget défense à surveiller. | Réputation : score 72/100, 3 cartes (Jeune Afrique + Fraternité Matin + L'Inter). |
+| S3.6 | `AYA, prépare un communiqué de sécurité sur la rumeur Nord.` | Brouillon cabinet citant FANCI, Préfecture Nord et coordination CEDEAO ; validation humaine obligatoire. | Drawer brouillon communiqué, validation advisory requise. |
 
-Routes : `/hypervisor/mission-room/cockpit` (S3.1, retour S3.6), `/hypervisor/mission-room/strategie` (S3.2 → S3.4), `/hypervisor/mission-room/reputation` (S3.5).
+Routes : `/hypervisor/mission-room/cockpit` (S3.1, retour S3.6), `/hypervisor/mission-room/securite/monitor` (S3.4), `/hypervisor/mission-room/reputation` (S3.5), `/hypervisor/mission-room/veille-sociale` (S3.2).
 
 Plan B clic : voir `docs/sentinel-ci-demo-trame-s3-presenter-card-2026-05-25.docx`.
 

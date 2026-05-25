@@ -334,7 +334,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, montre la pulsation sociale à Abidjan. »
 
-**Ce que le VP voit** : vue **Stratégie**, couche carte **social-geo** activée (points colorés par sentiment), drawer **Pulsation sociale** listant 18 tweets : **5 officiels** (Présidence CI, FANCI, RFI Sahel, Jeune Afrique, Préfecture Nord), **8 citoyens pseudonymisés** `@citoyen_***`, **5 signaux rumeur frontière** `@rumeur_***`.
+**Ce que le VP voit** : vue **Veille sociale**, drawer **Pulsation sociale** listant 18 tweets : **5 canaux vérifiés** (Présidence CI, FANCI, RFI Sahel, Jeune Afrique, Préfecture Nord), **8 citoyens pseudonymisés** `@citoyen_***`, **5 signaux rumeur frontière** `@rumeur_***`.
 
 **Verdict** : **PASS**
 
@@ -348,7 +348,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, d'où vient la rumeur frontière Nord ? »
 
-**Ce que le VP voit** : carte zoomée Nord, couche **border-tension** orange sur Bouna / Kong / Korhogo, drawer **Trace OSINT** affichant la chaîne : tweet citoyen **11h42** → relai Telegram **12h08** → blog régional **12h48** → démentis FANCI **13h45** + Préfecture Nord **13h52**. Proposition AYA « Rédiger un communiqué ».
+**Ce que le VP voit** : carte zoomée Nord, couche **border-tension** orange sur Bouna / Kong / Korhogo, drawer **Trace OSINT** affichant la chaîne : tweet citoyen **11h42** → relais Telegram **12h08** → blog régional **12h48** → démenti FANCI **13h46** + Préfecture Nord **13h52**. Proposition AYA « Rédiger un communiqué ».
 
 **Verdict** : **PASS**
 
@@ -366,7 +366,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Verdict** : **PASS**
 
-**Plan B clic** : Carte Stratégie → bouton couche **Trafic militaire** → drawer presse rouvert sur le snapshot ADS-B.
+**Plan B clic** : onglet **Sécurité** → **Ouvrir Security Monitor** → drawer snapshot ADS-B.
 
 *Disclaimer porté par la légende : « ADS-B advisory only ». Aucune donnée opérationnelle classifiée.*
 
@@ -376,7 +376,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, montre le drill de réputation 2 positifs et 1 critique. »
 
-**Ce que le VP voit** : vue **Réputation**, score **72 / 100** (**+4 pts**), trois cartes drill : **Jeune Afrique** « Gestion Nord saluée » (positif) — **Fraternité Matin** « Réponse rapide au Préfet Nawa » (positif) — **L'Inter** « Critique budget défense » (orange). CTA AYA : préparer un encart concis pour le Conseil 15h.
+**Ce que le VP voit** : vue **Réputation**, score **72 / 100** (**+4 pts**), trois cartes drill : **Jeune Afrique** « Lecture favorable de la séquence Nord » (positif) — **Fraternité Matin** « Réponse rapide au Préfet Nawa » (positif) — **L'Inter** « Critique budget défense » (orange). CTA AYA : préparer un encart concis pour le Conseil 15h.
 
 **Verdict** : **PASS**
 
@@ -388,9 +388,9 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ## S3.6 — Communiqué sécurité (brouillon)
 
-**Phrase AYA** : « AYA, prépare un communiqué de sécurité sur la rumeur frontière Nord. »
+**Phrase AYA** : « AYA, prépare un communiqué de sécurité sur la rumeur Nord. »
 
-**Ce que le VP voit** : drawer **Brouillon communiqué souverain** — sujet « Communiqué — frontière Nord, démenti officiel », corps citant le démenti FANCI **13h46** et la mise au point Préfecture Nord **13h52**, mention **« Validation advisory requise avant diffusion »**.
+**Ce que le VP voit** : drawer **Brouillon communiqué souverain** — sujet « Communiqué de sécurité — frontière Nord, démenti officiel », corps citant le démenti FANCI **13h46**, la mise au point Préfecture Nord **13h52** et la coordination CEDEAO, mention **« Validation advisory requise avant diffusion »**.
 
 **Verdict** : **PASS**
 
@@ -410,25 +410,25 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ---
 
-## S3.V21.1 — Onglet Securite (rail principal)
+## S3.V21.1 — Onglet Sécurité (rail principal)
 
-**Ce que le VP voit** : rail Cockpit · Carte · **Securite** · **Reputation** · Agenda · Presse · Arbitrages. Vue Securite avec posture dual-axis, theatre Sahel et rumeur inline, barre sticky Conseil Defense 15h00.
+**Ce que le VP voit** : rail Cockpit · Carte · **Sécurité** · **Réputation** · Agenda · Presse · Arbitrages. Vue Sécurité avec posture dual-axis, théâtre Sahel et rumeur inline, barre sticky Conseil Défense 15h00.
 
-**Plan B clic** : Rail gauche → **Securite**.
+**Plan B clic** : Rail gauche → **Sécurité**.
 
 ---
 
-## S3.V21.2 — Security Monitor plein ecran
+## S3.V21.2 — Security Monitor plein écran
 
 **Ce que le VP voit** : `/hypervisor/mission-room/securite/monitor` — carte Sahel (military-air + border-tension), alertes ADS-B, fil rumeur, signaux sociaux, badge **CACHE BASELINE**.
 
-**Plan B clic** : Onglet Securite → **Ouvrir Security Monitor**.
+**Plan B clic** : Onglet Sécurité → **Ouvrir Security Monitor**.
 
 ---
 
-## S3.V21.3 — Reputation rail + Veille sociale
+## S3.V21.3 — Réputation rail + Veille sociale
 
-**Ce que le VP voit** : Reputation dans le rail principal (drill 2+/1-). Page **Veille sociale** `/veille-sociale` avec filtres, tri et export CSV advisory.
+**Ce que le VP voit** : Réputation dans le rail principal (drill 2+/1-). Page **Veille sociale** `/veille-sociale` avec filtres, tri et export CSV advisory.
 
 **Plan B clic** : URL `/hypervisor/mission-room/veille-sociale` ou AYA pulsation sociale.
 
@@ -436,9 +436,9 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ## S3.V21.4 — Documents security-briefs
 
-**Ce que le VP voit** : collection `sentinel-ci-security-briefs` dans scope vigie, onglet **Documents** du shell Securite (briefs Sahel, Conseil Defense, dossier rumeur, ADS-B).
+**Ce que le VP voit** : collection `sentinel-ci-security-briefs` dans scope vigie, onglet **Documents** du shell Sécurité (briefs Sahel, Conseil Défense, dossier rumeur, ADS-B).
 
-**Plan B clic** : Securite → onglet **Documents**.
+**Plan B clic** : Sécurité → onglet **Documents**.
 
 ---
 

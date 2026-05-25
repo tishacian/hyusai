@@ -65,7 +65,7 @@ PHRASES = [
     ("S3.3", "AYA, d'où vient la rumeur frontière Nord ?", "aya.trace_rumor_origin"),
     ("S3.4", "AYA, montre les mouvements de troupes au Sahel.", "aya.show_troops_movement"),
     ("S3.5", "AYA, montre le drill de réputation 2 positifs et 1 critique.", "aya.show_reputation_drill"),
-    ("S3.6", "AYA, prépare un communiqué de sécurité sur la rumeur frontière Nord.", "aya.draft_security_communique"),
+    ("S3.6", "AYA, prépare un communiqué de sécurité sur la rumeur Nord.", "aya.draft_security_communique"),
     # Smoke-probe phrases (scripts/smoke_predeploy_probe.py) — should match too.
     ("S3.1b", "AYA, montre-moi la posture securitaire du jour", "aya.show_security_posture"),
     ("S3.2b", "AYA, montre la pulsation sociale a Abidjan", "aya.show_social_pulse"),
