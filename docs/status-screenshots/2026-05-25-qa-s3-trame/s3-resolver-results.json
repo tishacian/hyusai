@@ -1,0 +1,110 @@
+[
+  {
+    "step": "S3.1",
+    "phrase": "AYA, montre-moi la posture sécuritaire du jour.",
+    "expected_action": "aya.show_security_posture",
+    "matched_action": "aya.show_security_posture",
+    "confidence": 0.935,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.2",
+    "phrase": "AYA, montre la pulsation sociale à Abidjan.",
+    "expected_action": "aya.show_social_pulse",
+    "matched_action": "aya.show_social_pulse",
+    "confidence": 0.92,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.3",
+    "phrase": "AYA, d'où vient la rumeur frontière Nord ?",
+    "expected_action": "aya.trace_rumor_origin",
+    "matched_action": "aya.trace_rumor_origin",
+    "confidence": 1.06,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.4",
+    "phrase": "AYA, montre les mouvements de troupes au Sahel.",
+    "expected_action": "aya.show_troops_movement",
+    "matched_action": "aya.show_troops_movement",
+    "confidence": 0.935,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.5",
+    "phrase": "AYA, montre le drill de réputation 2 positifs et 1 critique.",
+    "expected_action": "aya.show_reputation_drill",
+    "matched_action": "aya.show_reputation_drill",
+    "confidence": 0.85,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.6",
+    "phrase": "AYA, prépare un communiqué de sécurité sur la rumeur frontière Nord.",
+    "expected_action": "aya.draft_security_communique",
+    "matched_action": "aya.draft_security_communique",
+    "confidence": 1.06,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.1b",
+    "phrase": "AYA, montre-moi la posture securitaire du jour",
+    "expected_action": "aya.show_security_posture",
+    "matched_action": "aya.show_security_posture",
+    "confidence": 0.935,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.2b",
+    "phrase": "AYA, montre la pulsation sociale a Abidjan",
+    "expected_action": "aya.show_social_pulse",
+    "matched_action": "aya.show_social_pulse",
+    "confidence": 0.92,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.3b",
+    "phrase": "AYA, d'ou vient la rumeur frontiere Nord ?",
+    "expected_action": "aya.trace_rumor_origin",
+    "matched_action": "aya.trace_rumor_origin",
+    "confidence": 1.06,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.4b",
+    "phrase": "AYA, montre les mouvements de troupes au Sahel",
+    "expected_action": "aya.show_troops_movement",
+    "matched_action": "aya.show_troops_movement",
+    "confidence": 0.935,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.5b",
+    "phrase": "AYA, montre le drill de réputation 2 positifs 1 critique",
+    "expected_action": "aya.show_reputation_drill",
+    "matched_action": "aya.show_reputation_drill",
+    "confidence": 0.85,
+    "verdict": "PASS",
+    "reason": "matched"
+  },
+  {
+    "step": "S3.6b",
+    "phrase": "AYA, prepare un communique de securite sur la rumeur Nord",
+    "expected_action": "aya.draft_security_communique",
+    "matched_action": "aya.draft_security_communique",
+    "confidence": 1.06,
+    "verdict": "PASS",
+    "reason": "matched"
+  }
+]

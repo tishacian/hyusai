@@ -59,3 +59,6 @@ uploads/
 .sharepoint_sessions/
 # Local ingestion output used during CLI runs.
 downloads/
+
+# Node modules installed under helper scripts (playwright local harness).
+node_modules/
