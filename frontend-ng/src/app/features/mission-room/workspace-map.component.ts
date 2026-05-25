@@ -65,6 +65,9 @@ const VESSEL_TYPE_COLORS: Record<string, [number, number, number]> = {
 };
 /** Violet highlight reserved for vessels linked to a tracked project / cargo. */
 const VESSEL_HIGHLIGHT_RGB: [number, number, number] = [180, 136, 255];
+const VESSEL_ICON_MAPPING = {
+  triangle: { x: 0, y: 0, width: 64, height: 64, mask: true, anchorY: 64 },
+} as const;
 
 @Component({
   selector: 'app-workspace-map',
@@ -1011,7 +1014,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   /**
    * AIS vessel positions to render on top of the basemap when the
    * `maritime-traffic` layer is active. Rendering is delegated to deck.gl
-   * (scatterplot) so positions inherit MapLibre's native Mercator
+   * (IconLayer triangles) so positions inherit MapLibre's native Mercator
    * projection — no HTML overlay math, no drift on pan/zoom/resize.
    */
   @Input() vessels: VesselPosition[] | null = null;
@@ -1047,6 +1050,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private mapInstance: any;
   private deckOverlay: any;
   private deckLayersModule: any;
+  private vesselIconAtlas: string | null = null;
   private focusMarker: any | null = null;
   /** Applied on first map load when external state arrives before MapLibre init. */
   private pendingExternalMapState: Record<string, any> | null = null;
@@ -1530,7 +1534,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   private buildDeckLayers(): any[] {
     if (!this.deckLayersModule) return [];
-    const { GeoJsonLayer, ScatterplotLayer, ArcLayer, TextLayer } = this.deckLayersModule;
+    const { GeoJsonLayer, ScatterplotLayer, ArcLayer, TextLayer, IconLayer } = this.deckLayersModule;
     const zonesSource = this.mapSystem?.['geojson_sources']?.zones;
     const markersSource = this.mapSystem?.['geojson_sources']?.markers;
     const contextMarkersSource = this.mapSystem?.['geojson_sources']?.context_markers;
@@ -1591,8 +1595,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         filled: false,
         stroked: true,
         getFillColor: [0, 0, 0, 0],
-        getLineColor: this.isLightBasemap() ? [14, 54, 75, 245] : [156, 222, 255, 238],
-        lineWidthMinPixels: 2.4,
+        getLineColor: this.isLightBasemap() ? [14, 54, 75, 200] : [156, 222, 255, 170],
+        lineWidthMinPixels: 1,
         parameters: { depthTest: false },
       }));
 
@@ -1603,8 +1607,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       filled: false,
       stroked: true,
       getFillColor: [0, 0, 0, 0],
-      getLineColor: this.isLightBasemap() ? [26, 70, 91, 118] : [170, 224, 248, 98],
-      lineWidthMinPixels: 0.95,
+      getLineColor: this.isLightBasemap() ? [26, 70, 91, 72] : [170, 224, 248, 52],
+      lineWidthMinPixels: showTerritory ? 0 : 0.75,
       parameters: { depthTest: false },
     }));
 
@@ -1632,15 +1636,15 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getFillColor: (feature: any) => this.deckColor(
           feature.properties?.tone,
           feature.properties?.id === this.selectedZoneId,
-          feature.properties?.id === this.selectedZoneId ? 126 : (showTerritory ? 62 : 30),
+          feature.properties?.id === this.selectedZoneId ? 72 : (showTerritory ? 42 : 22),
         ),
         getLineColor: (feature: any) => this.deckLineColor(
           feature.properties?.tone,
           feature.properties?.id === this.selectedZoneId,
-          feature.properties?.id === this.selectedZoneId ? 236 : 158,
+          feature.properties?.id === this.selectedZoneId ? 210 : 120,
         ),
-        lineWidthMinPixels: 1.25,
-        lineWidthMaxPixels: 3.4,
+        lineWidthMinPixels: 1,
+        lineWidthMaxPixels: 2,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
       }));
@@ -1667,12 +1671,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           id: 'sentinel-maritime-operating-area',
           data: maritimeAreaSource,
           pickable: false,
-          filled: true,
+          filled: false,
           stroked: true,
-          getFillColor: this.maritimeAreaFillColor(),
+          getFillColor: [0, 0, 0, 0],
           getLineColor: this.maritimeAreaLineColor(),
-          lineWidthMinPixels: 0.75,
-          lineWidthMaxPixels: 1.6,
+          lineWidthMinPixels: 0.65,
+          lineWidthMaxPixels: 1.1,
           parameters: { depthTest: false },
         }));
       }
@@ -1686,8 +1690,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           filled: true,
           getPosition: (feature: any) => feature.geometry.coordinates,
           radiusUnits: 'meters',
-          getRadius: (feature: any) => Math.max(9000, Math.min(28000, (feature.properties?.score || 52) * 330)),
-          getFillColor: (feature: any) => this.maritimeDensityColor(feature),
+          getRadius: (feature: any) => Math.max(7000, Math.min(22000, (feature.properties?.score || 52) * 260)),
+          getFillColor: (feature: any) => {
+            const base = this.maritimeDensityColor(feature);
+            return [base[0], base[1], base[2], Math.min(base[3] as number, 28)];
+          },
           parameters: { depthTest: false },
         }));
       }
@@ -1762,48 +1769,38 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
               || vessel.linked_cargo_id
               || vessel.highlight,
           );
-        layers.push(new ScatterplotLayer({
+        const vesselIconAtlas = this.getVesselIconAtlas();
+        layers.push(new IconLayer({
           id: 'sentinel-vessels-halo',
           data: vesselsData.filter(isVesselHighlighted),
           pickable: false,
-          stroked: true,
-          filled: false,
+          iconAtlas: vesselIconAtlas,
+          iconMapping: VESSEL_ICON_MAPPING,
+          getIcon: () => 'triangle',
           getPosition: (vessel: VesselPosition) => [Number(vessel.lon), Number(vessel.lat)],
-          radiusUnits: 'pixels',
-          getRadius: this.compact ? 11 : 13,
-          getLineColor: [...VESSEL_HIGHLIGHT_RGB, 210] as any,
-          lineWidthMinPixels: 1.4,
+          getAngle: (vessel: VesselPosition) => this.vesselIconAngle(vessel),
+          getSize: this.compact ? 30 : 34,
+          getColor: [...VESSEL_HIGHLIGHT_RGB, 72] as any,
+          sizeUnits: 'pixels',
+          billboard: true,
           parameters: { depthTest: false },
         }));
-        layers.push(new ScatterplotLayer({
-          id: 'sentinel-vessels-rings',
-          data: vesselsData,
-          pickable: false,
-          stroked: true,
-          filled: true,
-          getPosition: (vessel: VesselPosition) => [Number(vessel.lon), Number(vessel.lat)],
-          radiusUnits: 'pixels',
-          getRadius: (vessel: VesselPosition) => (isVesselHighlighted(vessel) ? 7.5 : 6),
-          getFillColor: (vessel: VesselPosition) => [...this.vesselColor(vessel), 70] as any,
-          getLineColor: (vessel: VesselPosition) => [...this.vesselColor(vessel), 220] as any,
-          lineWidthMinPixels: 1.1,
-          parameters: { depthTest: false },
-        }));
-        layers.push(new ScatterplotLayer({
-          id: 'sentinel-vessels-cores',
+        layers.push(new IconLayer({
+          id: 'sentinel-vessels-icons',
           data: vesselsData,
           pickable: true,
-          stroked: true,
-          filled: true,
+          iconAtlas: vesselIconAtlas,
+          iconMapping: VESSEL_ICON_MAPPING,
+          getIcon: () => 'triangle',
           getPosition: (vessel: VesselPosition) => [Number(vessel.lon), Number(vessel.lat)],
-          radiusUnits: 'pixels',
-          getRadius: (vessel: VesselPosition) => (isVesselHighlighted(vessel) ? 4.4 : 3.4),
-          getFillColor: (vessel: VesselPosition) =>
+          getAngle: (vessel: VesselPosition) => this.vesselIconAngle(vessel),
+          getSize: (vessel: VesselPosition) => (isVesselHighlighted(vessel) ? (this.compact ? 20 : 22) : (this.compact ? 16 : 18)),
+          getColor: (vessel: VesselPosition) =>
             isVesselHighlighted(vessel)
-              ? ([...VESSEL_HIGHLIGHT_RGB, 240] as any)
-              : ([...this.vesselColor(vessel), 240] as any),
-          getLineColor: this.isLightBasemap() ? [10, 25, 38, 230] : [248, 252, 255, 230],
-          lineWidthMinPixels: 1.2,
+              ? ([...VESSEL_HIGHLIGHT_RGB, 255] as any)
+              : ([...this.vesselColor(vessel), 255] as any),
+          sizeUnits: 'pixels',
+          billboard: true,
           parameters: { depthTest: false },
           onClick: (info: any) => this.handleVesselClick(info?.object as VesselPosition | undefined),
         }));
@@ -2183,14 +2180,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     return approach ? [42, 219, 246, 220] : [100, 207, 255, 180];
   }
 
-  private maritimeAreaFillColor(): number[] {
-    if (this.isLightBasemap()) return [42, 159, 211, 42];
-    return [22, 137, 198, 48];
-  }
-
   private maritimeAreaLineColor(): number[] {
-    if (this.isLightBasemap()) return [8, 110, 165, 132];
-    return [88, 218, 255, 130];
+    if (this.isLightBasemap()) return [8, 110, 165, 88];
+    return [88, 218, 255, 92];
   }
 
   private maritimeDensityColor(feature: any): number[] {
@@ -2208,6 +2200,35 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private vesselColor(vessel: VesselPosition): [number, number, number] {
     const kind = String(vessel?.vessel_type || 'other').toLowerCase();
     return VESSEL_TYPE_COLORS[kind] || VESSEL_TYPE_COLORS['other'];
+  }
+
+  private vesselIconAngle(vessel: VesselPosition): number {
+    const bearing = Number.isFinite(Number(vessel?.heading))
+      ? Number(vessel.heading)
+      : Number.isFinite(Number(vessel?.cog))
+        ? Number(vessel.cog)
+        : 0;
+    return -bearing;
+  }
+
+  private getVesselIconAtlas(): string {
+    if (this.vesselIconAtlas) return this.vesselIconAtlas;
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, 64, 64);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(32, 10);
+      ctx.lineTo(54, 52);
+      ctx.lineTo(10, 52);
+      ctx.closePath();
+      ctx.fill();
+    }
+    this.vesselIconAtlas = canvas.toDataURL();
+    return this.vesselIconAtlas;
   }
 
   private handleVesselClick(vessel: VesselPosition | undefined): void {

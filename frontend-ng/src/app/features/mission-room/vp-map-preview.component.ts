@@ -267,13 +267,13 @@ const ABIDJAN_CAMERA = {
 
           @if (vessels.length) {
             <ul class="vessel-legend" aria-label="Légende navires">
-              <li><span class="dot" [style.background]="vesselColor('cargo')"></span>Cargo</li>
-              <li><span class="dot" [style.background]="vesselColor('tanker')"></span>Tanker</li>
-              <li><span class="dot" [style.background]="vesselColor('roro')"></span>Ro-Ro</li>
-              <li><span class="dot" [style.background]="vesselColor('passenger')"></span>Passager</li>
-              <li><span class="dot" [style.background]="vesselColor('fishing')"></span>Pêche</li>
-              <li><span class="dot" [style.background]="vesselColor('other')"></span>Autre</li>
-              <li class="highlighted"><span class="dot" [style.background]="HIGHLIGHT_VIOLET"></span>Cargo lié projet</li>
+              <li [style.color]="vesselColor('cargo')"><span class="dot"></span>Cargo</li>
+              <li [style.color]="vesselColor('tanker')"><span class="dot"></span>Tanker</li>
+              <li [style.color]="vesselColor('roro')"><span class="dot"></span>Ro-Ro</li>
+              <li [style.color]="vesselColor('passenger')"><span class="dot"></span>Passager</li>
+              <li [style.color]="vesselColor('fishing')"><span class="dot"></span>Pêche</li>
+              <li [style.color]="vesselColor('other')"><span class="dot"></span>Autre</li>
+              <li class="highlighted" [style.color]="HIGHLIGHT_VIOLET"><span class="dot"></span>Cargo lié projet</li>
             </ul>
 
             @if (selectedVessel; as vessel) {
@@ -703,12 +703,24 @@ const ABIDJAN_CAMERA = {
         gap: 6px;
       }
       .vessel-legend .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-bottom: 9px solid currentColor;
+        border-radius: 0;
+        background: transparent !important;
+        color: inherit;
+      }
+      .vessel-legend li {
+        color: var(--mission-text-tertiary);
+      }
+      .vessel-legend li .dot {
+        color: inherit;
+        border-bottom-color: currentColor;
       }
       .vessel-legend .highlighted .dot {
-        box-shadow: 0 0 0 1px rgba(180, 136, 255, 0.55);
+        filter: drop-shadow(0 0 3px rgba(180, 136, 255, 0.75));
       }
       .vessel-tooltip {
         display: grid;
