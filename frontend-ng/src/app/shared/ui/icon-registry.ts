@@ -38,7 +38,9 @@ import {
   Download,
   Copy,
   Check,
+  CheckCircle,
   CheckCircle2,
+  Crosshair,
   X,
   XCircle,
   AlertTriangle,
@@ -231,7 +233,9 @@ const ICONS = {
   Download,
   Copy,
   Check,
+  CheckCircle,
   CheckCircle2,
+  Crosshair,
   X,
   XCircle,
   AlertTriangle,
@@ -389,6 +393,14 @@ const ICONS = {
   MapPin,
   Inbox,
   Camera,
+  // Aliases — sentinel-ci prompt_pack expects Lucide-style names that no
+  // longer exist as top-level exports in the bundled icon set. Map them to
+  // their visual equivalents so the chat-panel suggestion icons render
+  // without throwing ``icon has not been provided`` during change
+  // detection (which previously blocked the Quick Panel from opening on
+  // the cockpit because chat-overlay's @if (overlay.isOpen()) child
+  // template threw on mount, leaving ck-panel in its pre-open state).
+  Pulse: Activity,
 };
 
 /**
