@@ -29,6 +29,52 @@ import type {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (securityOnly) {
+      @if (securityPosture; as posture) {
+        <section class="vp-block vp-block-security" aria-label="Posture securitaire dual-axis">
+          <header class="vp-block-head">
+            <span class="vp-block-eyebrow">Posture securitaire</span>
+            <h2 class="vp-block-title">{{ posture['summary'] || 'Dual-axis interieur · exterieur' }}</h2>
+            @if (postureNextCouncil(posture); as council) {
+              <span class="vp-security-council" [attr.aria-label]="'Prochain conseil ' + council">{{ council }}</span>
+            }
+          </header>
+          <div class="vp-security-grid">
+            @for (axis of postureAxes(posture); track axis.key) {
+              <article class="vp-security-card" [class]="'tone-' + (axis.tone || 'monitoring')">
+                <header class="vp-security-card-head">
+                  <span class="vp-security-card-axis">{{ axis.label }}</span>
+                  <strong class="vp-security-card-level" [attr.data-tone]="axis.tone">{{ axis.level | uppercase }}</strong>
+                </header>
+                @if (axis.headline) {
+                  <p class="vp-security-card-headline">{{ axis.headline }}</p>
+                }
+                @if (axis.signals?.length) {
+                  <ul class="vp-security-card-signals" aria-label="Signaux">
+                    @for (signal of (axis.signals || []).slice(0, 3); track signal.id) {
+                      <li [class]="'tone-' + (signal.tone || 'monitoring')">
+                        <span class="vp-security-signal-label">{{ signal.label }}</span>
+                        @if (signal.summary) {
+                          <small class="vp-security-signal-summary">{{ signal.summary }}</small>
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
+              </article>
+            }
+          </div>
+          <div class="vp-security-actions">
+            <button type="button" class="vp-security-cta vp-security-cta-primary" (click)="securityPostureRequested.emit()">
+              Posture securitaire complete
+            </button>
+            <button type="button" class="vp-security-cta" (click)="securityCommuniqueRequested.emit()">
+              Préparer le communiqué Nord
+            </button>
+          </div>
+        </section>
+      }
+    } @else {
     <div class="vp-cockpit" aria-label="Cockpit Vice-Présidence">
       <section class="vp-block vp-block-status" aria-label="Posture nationale">
         <header class="vp-block-head">
@@ -86,10 +132,21 @@ import type {
       @if (securityPosture; as posture) {
         <section class="vp-block vp-block-security" aria-label="Posture securitaire dual-axis">
           <header class="vp-block-head">
-            <span class="vp-block-eyebrow">Posture securitaire</span>
-            <h2 class="vp-block-title">{{ posture['summary'] || 'Dual-axis interieur · exterieur' }}</h2>
-            @if (postureNextCouncil(posture); as council) {
-              <span class="vp-security-council" [attr.aria-label]="'Prochain conseil ' + council">{{ council }}</span>
+            <div class="vp-block-head-main">
+              <span class="vp-block-eyebrow">Posture securitaire</span>
+              <h2 class="vp-block-title">{{ posture['summary'] || 'Dual-axis interieur · exterieur' }}</h2>
+              @if (postureNextCouncil(posture); as council) {
+                <span class="vp-security-council" [attr.aria-label]="'Prochain conseil ' + council">{{ council }}</span>
+              }
+            </div>
+            @if (securityOsintBadges(posture).length) {
+              <div class="vp-osint-badges" aria-label="Sources OSINT securite">
+                @for (badge of securityOsintBadges(posture); track badge.key) {
+                  <span class="vp-osint-badge" [class.live]="badge.live" [class.baseline]="!badge.live">
+                    {{ badge.label }} · {{ badge.source_badge }}
+                  </span>
+                }
+              </div>
             }
           </header>
           <div class="vp-security-grid">
@@ -140,6 +197,7 @@ import type {
         />
       </section>
     </div>
+    }
   `,
   styles: [
     `
@@ -283,6 +341,38 @@ import type {
         display: grid;
         gap: var(--mission-space-4);
       }
+      .vp-block-head-main {
+        display: grid;
+        gap: var(--mission-space-2);
+        min-width: 0;
+      }
+      .vp-osint-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--mission-space-2);
+        justify-content: flex-end;
+      }
+      .vp-osint-badge {
+        padding: var(--mission-space-1) var(--mission-space-3);
+        border-radius: 999px;
+        border: 1px solid var(--mission-border);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: var(--mission-tracking-micro);
+        text-transform: uppercase;
+        color: var(--mission-text-tertiary);
+        white-space: nowrap;
+      }
+      .vp-osint-badge.live {
+        border-color: rgba(63, 209, 141, 0.45);
+        color: var(--mission-success, #63d18d);
+        background: rgba(63, 209, 141, 0.08);
+      }
+      .vp-osint-badge.baseline {
+        border-color: rgba(241, 180, 90, 0.32);
+        color: var(--mission-text-secondary);
+        background: rgba(241, 180, 90, 0.06);
+      }
       .vp-security-council {
         margin-left: auto;
         padding: var(--mission-space-1) var(--mission-space-3);
@@ -424,6 +514,7 @@ export class VpCockpitComponent {
   @Input() pressPreview: VpPressPreviewItem[] = [];
   @Input() pressHighlightId: string | null = null;
   @Input() securityPosture: Record<string, any> | null = null;
+  @Input() securityOnly = false;
 
   @Output() openMap = new EventEmitter<void>();
   @Output() mapZoneSelected = new EventEmitter<VpZoneScore>();
@@ -486,6 +577,33 @@ export class VpCockpitComponent {
     const time = council.time || '';
     const label = council.label || 'Prochain Conseil';
     return time ? `${time} — ${label}` : label;
+  }
+
+  securityOsintBadges(
+    posture: Record<string, any> | null,
+  ): Array<{ key: string; label: string; source_badge: string; live: boolean }> {
+    const sources = posture?.['osint_sources'];
+    if (!sources || typeof sources !== 'object') return [];
+    const badges: Array<{ key: string; label: string; source_badge: string; live: boolean }> = [];
+    const rss = sources['rss'];
+    if (rss?.source_badge) {
+      badges.push({
+        key: 'rss',
+        label: 'RSS securite',
+        source_badge: String(rss.source_badge),
+        live: Boolean(rss.live),
+      });
+    }
+    const cedeao = sources['cedeao_index'];
+    if (cedeao?.source_badge) {
+      badges.push({
+        key: 'cedeao',
+        label: 'Indice CEDEAO',
+        source_badge: String(cedeao.source_badge),
+        live: Boolean(cedeao.live),
+      });
+    }
+    return badges;
   }
 
   orderedStatusBar(): VpStatusBarItem[] {

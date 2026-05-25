@@ -1,0 +1,201 @@
+{
+  "captured_at": "2026-05-25T14:30:00",
+  "disclaimer": "ADS-B advisory only — snapshot scenario, aucune donnee operationnelle classifiee.",
+  "theater_label": "Theatre Sahel — axe Bamako/Ouagadougou/Niamey",
+  "live": false,
+  "source": "baseline_json",
+  "source_badge": "CACHE BASELINE",
+  "tracks": [
+    {
+      "id": "track-001",
+      "callsign": "FRA9201",
+      "kind": "C-130 (transport)",
+      "operator": "Vol logistique regional",
+      "altitude_ft": 22000,
+      "heading": 65,
+      "speed_kt": 280,
+      "longitude": -7.9892,
+      "latitude": 12.5391,
+      "origin": "Bamako (advisory)",
+      "destination": "Ouagadougou (advisory)",
+      "tone": "watch",
+      "military": true
+    },
+    {
+      "id": "track-002",
+      "callsign": "BFA1107",
+      "kind": "CN-235 (transport leger)",
+      "operator": "Vol logistique regional",
+      "altitude_ft": 18000,
+      "heading": 88,
+      "speed_kt": 245,
+      "longitude": -2.4308,
+      "latitude": 12.7619,
+      "origin": "Ouagadougou (advisory)",
+      "destination": "Niamey (advisory)",
+      "tone": "watch",
+      "military": true
+    },
+    {
+      "id": "track-003",
+      "callsign": "NIG3304",
+      "kind": "AT-6 Wolverine (appui)",
+      "operator": "Vol advisory",
+      "altitude_ft": 12000,
+      "heading": 215,
+      "speed_kt": 175,
+      "longitude": 2.1086,
+      "latitude": 13.5125,
+      "origin": "Niamey (advisory)",
+      "destination": "Tillaberi (advisory)",
+      "tone": "watch",
+      "military": true
+    },
+    {
+      "id": "track-004",
+      "callsign": "ECW0414",
+      "kind": "Vol logistique CEDEAO",
+      "operator": "Mission regionale",
+      "altitude_ft": 24000,
+      "heading": 145,
+      "speed_kt": 310,
+      "longitude": -3.9889,
+      "latitude": 11.8167,
+      "origin": "Bobo-Dioulasso (advisory)",
+      "destination": "Tamale (advisory)",
+      "tone": "stable",
+      "military": false
+    },
+    {
+      "id": "track-005",
+      "callsign": "FRA9220",
+      "kind": "C-130 (transport)",
+      "operator": "Vol logistique regional",
+      "altitude_ft": 21000,
+      "heading": 282,
+      "speed_kt": 275,
+      "longitude": -3.5644,
+      "latitude": 14.5089,
+      "origin": "Gao (advisory)",
+      "destination": "Bamako (advisory)",
+      "tone": "watch",
+      "military": true
+    },
+    {
+      "id": "track-006",
+      "callsign": "MAL5512",
+      "kind": "Helicoptere advisory",
+      "operator": "Vol terrain",
+      "altitude_ft": 4500,
+      "heading": 12,
+      "speed_kt": 105,
+      "longitude": -2.9650,
+      "latitude": 13.0428,
+      "origin": "Mopti (advisory)",
+      "destination": "Dori (advisory)",
+      "tone": "watch",
+      "military": true
+    },
+    {
+      "id": "track-007",
+      "callsign": "BFA1108",
+      "kind": "CN-235 (transport leger)",
+      "operator": "Vol logistique regional",
+      "altitude_ft": 17500,
+      "heading": 268,
+      "speed_kt": 235,
+      "longitude": -0.9656,
+      "latitude": 12.4789,
+      "origin": "Ouagadougou (advisory)",
+      "destination": "Bobo-Dioulasso (advisory)",
+      "tone": "stable",
+      "military": true
+    },
+    {
+      "id": "track-008",
+      "callsign": "NIG3315",
+      "kind": "AT-6 Wolverine (appui)",
+      "operator": "Vol advisory",
+      "altitude_ft": 9500,
+      "heading": 192,
+      "speed_kt": 170,
+      "longitude": 1.5483,
+      "latitude": 13.9892,
+      "origin": "Tillaberi (advisory)",
+      "destination": "Niamey (advisory)",
+      "tone": "watch",
+      "military": true
+    },
+    {
+      "id": "track-009",
+      "callsign": "ECW0418",
+      "kind": "Vol logistique CEDEAO",
+      "operator": "Mission regionale",
+      "altitude_ft": 23000,
+      "heading": 320,
+      "speed_kt": 295,
+      "longitude": -4.5650,
+      "latitude": 10.5567,
+      "origin": "Korhogo (advisory)",
+      "destination": "Bamako (advisory)",
+      "tone": "stable",
+      "military": false
+    },
+    {
+      "id": "track-010",
+      "callsign": "MAL5520",
+      "kind": "Helicoptere advisory",
+      "operator": "Vol terrain",
+      "altitude_ft": 3800,
+      "heading": 75,
+      "speed_kt": 95,
+      "longitude": -5.2767,
+      "latitude": 13.2456,
+      "origin": "Sikasso (advisory)",
+      "destination": "Segou (advisory)",
+      "tone": "watch",
+      "military": true
+    }
+  ],
+  "watch_zones": [
+    {
+      "id": "zone-sahel-liptako",
+      "name": "Liptako-Gourma",
+      "tone": "watch",
+      "centroid": [-0.2, 14.5],
+      "summary": "Zone tripoint Mali/Burkina/Niger — OSINT public ACLED-like."
+    },
+    {
+      "id": "zone-sahel-mali-burkina",
+      "name": "Frontiere Mali/Burkina",
+      "tone": "watch",
+      "centroid": [-3.8, 14.0],
+      "summary": "Axe Tominian-Yoro — surveillance regionale."
+    },
+    {
+      "id": "zone-sahel-tillaberi",
+      "name": "Region de Tillaberi (Niger)",
+      "tone": "watch",
+      "centroid": [1.45, 14.2],
+      "summary": "Zone Liptako Niger — flux humanitaires sous tension."
+    }
+  ],
+  "cedeao_bases": [
+    {
+      "id": "base-cedeao-abidjan",
+      "name": "Base logistique CEDEAO — Abidjan",
+      "tone": "stable",
+      "longitude": -4.0244,
+      "latitude": 5.3253,
+      "role": "Plateforme logistique regionale."
+    },
+    {
+      "id": "base-cedeao-corridor-mali",
+      "name": "Hub coordination CEDEAO — corridor Mali",
+      "tone": "watch",
+      "longitude": -5.6294,
+      "latitude": 9.4580,
+      "role": "Hub coordination corridor Korhogo-Bamako (advisory)."
+    }
+  ]
+}

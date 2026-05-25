@@ -21,6 +21,7 @@ from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.mission_room import (
     briefing_payload,
+    cedeao_index_payload_for_workspace,
     cockpit_payload,
     decisions_payload,
     draft_instruction_payload,
@@ -34,6 +35,7 @@ from app.services.mission_room import (
     overview_payload,
     projects_payload,
     search_payload,
+    security_monitor_payload,
     timeline_payload,
 )
 from app.services.macro_indicators import macro_indicators_payload
@@ -270,6 +272,27 @@ def situation_monitor(
     return payload
 
 
+@router.get("/security-monitor")
+def security_monitor(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = security_monitor_payload(workspace, db=db)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.security_monitor.viewed",
+        details={
+            "tracks": len((payload.get("theater_sahel") or {}).get("tracks") or []),
+            "social": len((payload.get("social_signals") or {}).get("tweets") or []),
+            "posture": (payload.get("security_posture") or {}).get("summary"),
+        },
+    )
+    return payload
+
+
 @router.get("/evidence-graph")
 def evidence_graph(
     workspace: Workspace = Depends(get_current_workspace),
@@ -400,6 +423,28 @@ def macro_indicators(
             "indicators": len(payload.get("indicators") or []),
             "source": payload.get("source"),
             "fetched_at": payload.get("fetched_at"),
+        },
+    )
+    return payload
+
+
+@router.get("/cedeao-index")
+def cedeao_index(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = cedeao_index_payload_for_workspace(workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.cedeao_index.viewed",
+        details={
+            "score": payload.get("score"),
+            "live": bool(payload.get("live")),
+            "source_badge": payload.get("source_badge"),
+            "advisory_only": True,
         },
     )
     return payload

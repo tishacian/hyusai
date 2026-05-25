@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "description": "Whitelist RSS securite francophone — Vague 2.2 OSINT live (demo-safe, pas de Telegram).",
+  "feeds": [
+    {
+      "id": "rfi-sahel",
+      "name": "RFI Afrique",
+      "url": "https://www.rfi.fr/fr/afrique/rss",
+      "language": "fr",
+      "category": "regional"
+    },
+    {
+      "id": "jeune-afrique-securite",
+      "name": "Jeune Afrique",
+      "url": "https://www.jeuneafrique.com/feed/",
+      "language": "fr",
+      "category": "regional"
+    },
+    {
+      "id": "abidjan-net-defense",
+      "name": "Abidjan.net",
+      "url": "https://news.abidjan.net/rss/",
+      "language": "fr",
+      "category": "ci-local"
+    },
+    {
+      "id": "fratmat-defense",
+      "name": "Fraternite Matin",
+      "url": "https://www.fratmat.info/feed",
+      "language": "fr",
+      "category": "ci-national"
+    }
+  ]
+}

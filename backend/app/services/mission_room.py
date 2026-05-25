@@ -154,6 +154,8 @@ Regles :
 NAVIGATION_ITEMS = [
     {"key": "cockpit", "label": "Cockpit", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
     {"key": "strategie", "label": "Carte", "glyph": "sliders", "variant": "territorial_action_map", "object": "Workbench"},
+    {"key": "securite", "label": "Securite", "glyph": "shield", "variant": "intelligence", "object": "Workbench"},
+    {"key": "reputation", "label": "Reputation", "glyph": "pulse", "variant": "intelligence", "object": "Run"},
     {"key": "agenda", "label": "Agenda", "glyph": "ledger", "variant": "government_mission_room", "object": "Workbench"},
     {"key": "presse", "label": "Presse", "glyph": "pulse", "variant": "intelligence", "object": "Run"},
     {"key": "decisions", "label": "Arbitrages", "glyph": "check", "variant": "executive_instruction_drafting", "object": "Review Queue"},
@@ -1653,6 +1655,41 @@ PRESENTATION_BEATS = [
     {"step": "04", "label": "Arbitrer", "sentence": "AYA propose les options et la fenetre de decision avant 15h00."},
 ]
 
+SECURITY_LIBRARY_ITEMS = [
+    {
+        "id": "lib-security-posture-sahel",
+        "title": "Note posture securite Sahel — 25 mai 2026",
+        "kind": "security_brief",
+        "collection": "sentinel-ci-security-briefs",
+        "summary": "Posture dual-axis interieur/exterieur, theatre Sahel et signaux OSINT publics avant Conseil Defense 15h.",
+        "sources": ["src-note-posture-sahel-2026-05-25"],
+    },
+    {
+        "id": "lib-conseil-defense-am",
+        "title": "Synthese Conseil Defense restreint — 08h30",
+        "kind": "security_brief",
+        "collection": "sentinel-ci-security-briefs",
+        "summary": "Revue matinale Sahel, bases CEDEAO en alerte standard et elements de langage pour le VP.",
+        "sources": ["src-conseil-defense-2026-05-25-am"],
+    },
+    {
+        "id": "lib-rumor-frontier-dossier",
+        "title": "Dossier rumeur frontiere Nord — chronologie OSINT",
+        "kind": "rumor_dossier",
+        "collection": "sentinel-ci-security-briefs",
+        "summary": "Chaine tweet → Telegram → blog → dements FANCI et Prefecture Nord, advisory only.",
+        "sources": ["src-rumor-frontier-nord-2026-05-25"],
+    },
+    {
+        "id": "lib-troops-sahel-snapshot",
+        "title": "Snapshot ADS-B advisory Sahel — 14h30",
+        "kind": "ads_b_advisory",
+        "collection": "sentinel-ci-security-briefs",
+        "summary": "Traces ADS-B advisory Bamako/Ouaga/Niamey, zones de surveillance et bases CEDEAO.",
+        "sources": ["src-troops-sahel-2026-05-25"],
+    },
+]
+
 LIBRARY_ITEMS = [
     {
         "id": "lib-briefing-template",
@@ -1859,6 +1896,110 @@ MAP_ZONES = [
 
 def _clone(value: Any) -> Any:
     return copy.deepcopy(value)
+
+
+def _security_live_osint_enabled(workspace: Workspace) -> bool:
+    """Guard rail: demo VP always baseline; live OSINT requires explicit feature flag."""
+    if str(workspace.mode or "").lower() == "demo":
+        return False
+    flags = (workspace.settings or {}).get("feature_flag") or {}
+    return bool(flags.get("security_live_osint", False))
+
+
+def _resolve_security_posture(workspace: Workspace) -> dict[str, Any]:
+    from app.services.intelligence.cedeao_index import cedeao_index_payload
+    from app.services.intelligence.rss_security import rss_security_payload
+
+    posture = _clone(SECURITY_POSTURE)
+    allow_live = _security_live_osint_enabled(workspace)
+    rss = rss_security_payload(allow_live=allow_live)
+    cedeao = cedeao_index_payload(allow_live=allow_live)
+
+    if cedeao:
+        components = cedeao.get("components") or {}
+        interior = posture.get("interior") or {}
+        exterior = posture.get("exterior") or {}
+        if components.get("unrest") is not None:
+            interior["score"] = int(round(float(components["unrest"])))
+        if components.get("information") is not None:
+            interior["trend"] = cedeao.get("trend") or interior.get("trend") or "stable"
+        if cedeao.get("score") is not None:
+            exterior["score"] = int(round(float(cedeao["score"])))
+            exterior["trend"] = cedeao.get("trend") or exterior.get("trend") or "stable"
+        posture["interior"] = interior
+        posture["exterior"] = exterior
+
+    if rss and rss.get("signals"):
+        exterior = posture.get("exterior") or {}
+        existing = list(exterior.get("signals") or [])
+        live_signals = []
+        for signal in rss["signals"][:3]:
+            live_signals.append(
+                {
+                    "id": signal.get("id") or f"sig-rss-{len(live_signals)}",
+                    "label": signal.get("label") or "Signal RSS securite",
+                    "tone": signal.get("tone") or "watch",
+                    "summary": signal.get("summary") or signal.get("label"),
+                    "sources": signal.get("sources") or ["src-rss-security-live"],
+                    "url": signal.get("url"),
+                    "feed_name": signal.get("feed_name"),
+                }
+            )
+        exterior["signals"] = live_signals + existing[: max(0, 3 - len(live_signals))]
+        posture["exterior"] = exterior
+
+    posture["osint_sources"] = {
+        "rss": {
+            "live": bool(rss and rss.get("live")),
+            "source_badge": (rss or {}).get("source_badge") or "CACHE BASELINE",
+            "source": (rss or {}).get("source") or "fixtures Python",
+            "fetched_at": (rss or {}).get("fetched_at"),
+        },
+        "cedeao_index": {
+            "live": bool(cedeao.get("live")),
+            "source_badge": cedeao.get("source_badge") or "CACHE BASELINE",
+            "source": cedeao.get("source") or "fixtures Python",
+            "fetched_at": cedeao.get("fetched_at"),
+            "score": cedeao.get("score"),
+            "delta_7d": cedeao.get("delta_7d"),
+        },
+    }
+    return posture
+
+
+def _resolve_troops_sahel(workspace: Workspace) -> dict[str, Any]:
+    from app.services.intelligence.adsb_sahel import adsb_sahel_payload
+
+    allow_live = _security_live_osint_enabled(workspace)
+    snapshot = adsb_sahel_payload(allow_live=allow_live)
+    return _clone(snapshot)
+
+
+def _security_osint_source_badges(workspace: Workspace) -> dict[str, Any]:
+    posture = _resolve_security_posture(workspace)
+    troops = _resolve_troops_sahel(workspace)
+    osint_sources = posture.get("osint_sources") or {}
+    return {
+        "rss_security": osint_sources.get("rss") or {"source_badge": "CACHE BASELINE", "live": False},
+        "adsb_sahel": {
+            "live": bool(troops.get("live")),
+            "source_badge": troops.get("source_badge") or "CACHE BASELINE",
+            "source": troops.get("source") or "fixtures Python",
+            "fetched_at": troops.get("fetched_at") or troops.get("captured_at"),
+        },
+        "cedeao_index": osint_sources.get("cedeao_index")
+        or {"source_badge": "CACHE BASELINE", "live": False},
+    }
+
+
+def cedeao_index_payload_for_workspace(workspace: Workspace) -> dict[str, Any]:
+    from app.services.intelligence.cedeao_index import cedeao_index_payload
+
+    allow_live = _security_live_osint_enabled(workspace)
+    payload = cedeao_index_payload(allow_live=allow_live)
+    payload["policy"] = "advisory_only"
+    payload["demo_mode"] = not allow_live
+    return payload
 
 
 def source_index() -> list[dict[str, Any]]:
@@ -2538,6 +2679,7 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
     api_by_view = {
         "cockpit": "/api/v1/mission-room/cockpit",
         "monitor": "/api/v1/mission-room/monitor",
+        "securite": "/api/v1/mission-room/cockpit",
         "briefing": "/api/v1/mission-room/briefing",
         "pilotage": "/api/v1/mission-room/projects",
         "agenda": "/api/v1/mission-room/timeline",
@@ -2546,6 +2688,7 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
         "projets": "/api/v1/mission-room/projects",
         "presse": "/api/v1/mission-room/news",
         "reputation": "/api/v1/mission-room/news",
+        "veille-sociale": "/api/v1/mission-room/cockpit",
         "veille": "/api/v1/mission-room/news",
         "decisions": "/api/v1/mission-room/decisions",
         "strategie": "/api/v1/mission-room/map",
@@ -2639,9 +2782,10 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
             "items": _clone(REPUTATION_DRILL["items"]),
             "aya_sentence": REPUTATION_DRILL["aya_sentence"],
         },
-        "security_posture": _clone(SECURITY_POSTURE),
+        "security_posture": _resolve_security_posture(workspace),
         "social_snapshot": _clone(SOCIAL_SNAPSHOT),
-        "troops_sahel": _clone(TROOPS_SAHEL),
+        "troops_sahel": _resolve_troops_sahel(workspace),
+        "security_osint_badges": _security_osint_source_badges(workspace),
         "rumor_frontier_trace": _clone(RUMOR_FRONTIER_TRACE),
         "media_sources": [
             {"label": "Presse nationale", "coverage": 72, "count": 45},
@@ -4129,8 +4273,12 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     }
     decision_queue = _decision_queue_payload()
     vp_story = _vp_story_context(agenda_day=agenda_day, news=news)
+    security_osint_badges = _security_osint_source_badges(workspace)
+    cedeao_index = cedeao_index_payload_for_workspace(workspace)
     return {
         **overview,
+        "security_osint_badges": security_osint_badges,
+        "cedeao_index": cedeao_index,
         "vp_status_bar": _vp_status_bar(overview, posture),
         "directive_of_day": vp_story["directive_of_day"],
         "fused_map_preview": fused_map_preview,
@@ -4168,6 +4316,7 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
         "decision_focus": _clone(DECISIONS[:2]),
         "messages": _clone(MESSAGES),
         "library": _clone(LIBRARY_ITEMS),
+        "security_documents": _clone(SECURITY_LIBRARY_ITEMS),
     }
 
 
@@ -4456,6 +4605,76 @@ def monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
             "visual": (visual.get("source_health") or {}).get("coverage_label") or "Flux visuels habilites",
             "map": (mapped.get("score_summary") or {}).get("top_zone", {}).get("name") if mapped.get("score_summary") else None,
         },
+        "sources": source_index(),
+    }
+
+
+def security_monitor_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dict[str, Any]:
+    """Full-screen Security Monitor — Sahel theater, ADS-B advisory and social/rumor cross-feed."""
+    mapped = map_payload(workspace, db=db)
+    troops = _clone(TROOPS_SAHEL)
+    social = _clone(SOCIAL_SNAPSHOT)
+    rumor = _clone(RUMOR_FRONTIER_TRACE)
+    posture = _clone(SECURITY_POSTURE)
+    tracks = troops.get("tracks") or []
+    tweets = social.get("tweets") or []
+    layers = [
+        {"key": "military-air", "label": "Trafic ADS-B advisory", "enabled": True, "count": len(tracks)},
+        {"key": "border-tension", "label": "Tension frontiere Nord", "enabled": True, "count": len(rumor.get("chain") or [])},
+        {"key": "social-geo", "label": "Pulsation sociale", "enabled": True, "count": len(tweets)},
+    ]
+    map_state = {
+        "preset": "sahel",
+        "zoom": "regional",
+        "active_layers": ["military-air", "border-tension", "regional-context"],
+        "focus": {"label": troops.get("theater_label"), "longitude": -2.0, "latitude": 13.5},
+    }
+    return {
+        "workspace": _workspace_meta(workspace),
+        "title": "Security Monitor — Theatre Sahel",
+        "summary": posture.get("summary"),
+        "route": f"{MISSION_ROOM_ROOT}/securite/monitor",
+        "security_posture": posture,
+        "map": mapped.get("map"),
+        "map_system": mapped.get("map_system"),
+        "map_state": map_state,
+        "zones": mapped.get("zones") or [],
+        "layers": layers,
+        "theater_sahel": troops,
+        "social_signals": social,
+        "rumor_thread": rumor,
+        "adsb_alerts": [
+            {
+                "id": track.get("id"),
+                "callsign": track.get("callsign"),
+                "kind": track.get("kind"),
+                "tone": track.get("tone") or "watch",
+                "summary": (
+                    f"{track.get('origin', '—')} → {track.get('destination', '—')} · "
+                    f"alt {track.get('altitude_ft', '—')} ft"
+                ),
+            }
+            for track in tracks[:8]
+        ],
+        "social_feed": [
+            {
+                "id": tweet.get("id"),
+                "handle": tweet.get("handle"),
+                "kind": tweet.get("kind"),
+                "sentiment": tweet.get("sentiment"),
+                "text": tweet.get("text"),
+                "engagement": tweet.get("engagement"),
+            }
+            for tweet in tweets[:6]
+        ],
+        "source_freshness": {
+            "adsb": f"Snapshot ADS-B advisory — {troops.get('captured_at', '14h30')}",
+            "social": f"Snapshot demo-safe — {social.get('captured_at', '14h25')}",
+            "rumor": "Dossier OSINT — dementi officiel 13h45",
+            "baseline": True,
+            "mode": "cache_baseline",
+        },
+        "disclaimer": troops.get("disclaimer"),
         "sources": source_index(),
     }
 
@@ -5257,6 +5476,7 @@ def library_payload(workspace: Workspace) -> dict[str, Any]:
             "sentinel-ci-visual-intelligence",
             SENTINEL_MARITIME_INTELLIGENCE_COLLECTION,
             SENTINEL_EVIDENCE_GRAPH_COLLECTION,
+            "sentinel-ci-security-briefs",
         ],
         "sources": source_index(),
     }
@@ -5875,6 +6095,9 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                 "storage_policy": "snapshot_only_no_continuous_recording",
                 "analysis_policy": "no_identification_no_biometrics",
                 "source_model": "live_webcam_embed_layer",
+            },
+            "feature_flag": {
+                "security_live_osint": False,
             },
             "connectors": {
                 "institutional_calendar": {

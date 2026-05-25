@@ -51,6 +51,10 @@ export interface TroopsSahelSnapshot {
   captured_at?: string;
   disclaimer?: string;
   theater_label?: string;
+  live?: boolean;
+  source_badge?: string;
+  source?: string;
+  fetched_at?: string;
   tracks?: TroopsTrack[];
   watch_zones?: TroopsWatchZone[];
   cedeao_bases?: TroopsCedeaoBase[];
@@ -62,30 +66,39 @@ export interface TroopsSahelSnapshot {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (open && snapshot) {
-      <div class="troops-drawer-root" role="dialog" aria-modal="true" aria-label="Theatre Sahel">
-        <button
-          type="button"
-          class="troops-drawer-backdrop"
-          aria-label="Fermer le theatre Sahel"
-          (click)="closed.emit()"
-        ></button>
-        <aside class="troops-drawer-panel">
+    @if (snapshot && (embedded || open)) {
+      <div [class]="embedded ? 'troops-embedded-root' : 'troops-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" aria-label="Theatre Sahel">
+        @if (!embedded) {
+          <button
+            type="button"
+            class="troops-drawer-backdrop"
+            aria-label="Fermer le theatre Sahel"
+            (click)="closed.emit()"
+          ></button>
+        }
+        <aside [class]="embedded ? 'troops-embedded-panel' : 'troops-drawer-panel'">
           <header class="troops-drawer-head">
             <div class="troops-drawer-head-copy">
               <span class="risk-pill warn">advisory only</span>
               <small class="publisher-badge">ADS-B advisory</small>
+              @if (snapshot.source_badge) {
+                <small class="publisher-badge" [class.live]="snapshot.live" [class.baseline]="!snapshot.live">
+                  {{ snapshot.source_badge }}
+                </small>
+              }
               <h2>{{ snapshot.theater_label || 'Theatre Sahel' }}</h2>
               <p class="troops-drawer-summary">{{ snapshot.disclaimer || defaultDisclaimer }}</p>
             </div>
-            <button
-              type="button"
-              class="troops-drawer-close"
-              aria-label="Fermer"
-              (click)="closed.emit()"
-            >
-              ×
-            </button>
+            @if (!embedded) {
+              <button
+                type="button"
+                class="troops-drawer-close"
+                aria-label="Fermer"
+                (click)="closed.emit()"
+              >
+                ×
+              </button>
+            }
           </header>
 
           <div class="troops-drawer-body">
@@ -337,6 +350,14 @@ export interface TroopsSahelSnapshot {
         letter-spacing: 0.06em;
         text-transform: uppercase;
       }
+      .publisher-badge.live {
+        border-color: rgba(63, 209, 141, 0.45);
+        color: var(--mission-success, #63d18d);
+      }
+      .publisher-badge.baseline {
+        border-color: rgba(241, 180, 90, 0.32);
+        color: var(--mission-text-secondary);
+      }
 
       .troops-stats {
         display: grid;
@@ -582,10 +603,22 @@ export interface TroopsSahelSnapshot {
       @media (prefers-reduced-motion: reduce) {
         .troops-drawer-panel { animation: none; }
       }
+      .troops-embedded-root { display: block; }
+      .troops-embedded-panel {
+        position: relative;
+        width: 100%;
+        max-height: none;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-lg);
+        background: rgba(8, 14, 20, 0.72);
+        box-shadow: none;
+        animation: none;
+      }
     `,
   ],
 })
 export class VpTroopsTheaterDrawerComponent {
+  @Input() embedded = false;
   @Input() open = false;
   @Input() snapshot: TroopsSahelSnapshot | null = null;
   @Output() closed = new EventEmitter<void>();
