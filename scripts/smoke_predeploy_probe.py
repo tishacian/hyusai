@@ -89,6 +89,49 @@ VOICE_PROMPTS = [
         "depends_on_redeploy": False,
         "note": "Substring 'prochaine reunion' presente avant Vague 1.",
     },
+    # ── S3 — Posture securitaire dual-axis (sentinel_ci_aya_security_v1) ──
+    {
+        "label": "S3.1 Posture securitaire",
+        "text": "AYA, montre-moi la posture securitaire du jour",
+        "expected": ["aya.show_security_posture"],
+        "depends_on_redeploy": True,
+        "note": "Pack S3 sentinel_ci_aya_security_v1, action aya.show_security_posture.",
+    },
+    {
+        "label": "S3.2 Pulsation sociale",
+        "text": "AYA, montre la pulsation sociale a Abidjan",
+        "expected": ["aya.show_social_pulse"],
+        "depends_on_redeploy": True,
+        "note": "Pack S3, action aya.show_social_pulse — snapshot demo-safe Twitter.",
+    },
+    {
+        "label": "S3.3 Rumeur frontiere",
+        "text": "AYA, d'ou vient la rumeur frontiere Nord ?",
+        "expected": ["aya.trace_rumor_origin"],
+        "depends_on_redeploy": True,
+        "note": "Pack S3, action aya.trace_rumor_origin — chaine tweet > telegram > démenti.",
+    },
+    {
+        "label": "S3.4 Troupes Sahel",
+        "text": "AYA, montre les mouvements de troupes au Sahel",
+        "expected": ["aya.show_troops_movement"],
+        "depends_on_redeploy": True,
+        "note": "Pack S3, action aya.show_troops_movement — ADS-B advisory only.",
+    },
+    {
+        "label": "S3.5 Drill reputation",
+        "text": "AYA, montre le drill de réputation 2 positifs 1 critique",
+        "expected": ["aya.show_reputation_drill"],
+        "depends_on_redeploy": True,
+        "note": "Pack S3, action aya.show_reputation_drill — score 72/100 + 2+/1-.",
+    },
+    {
+        "label": "S3.6 Communiqué sécurité",
+        "text": "AYA, prepare un communique de securite sur la rumeur Nord",
+        "expected": ["aya.draft_security_communique"],
+        "depends_on_redeploy": True,
+        "note": "Pack S3, action aya.draft_security_communique — reuse draft_response_email_v1.",
+    },
 ]
 
 

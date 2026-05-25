@@ -85,11 +85,21 @@ s["demo_time_context"] = {
     "timezone": "${DEMO_TZ}",
 }
 actions = dict(s.get("actions") or {})
+# S3 — clear any lingering security focus from a previous run so the dual-axis
+# briefing starts cold (no posture card pre-selected, no rumor dossier carried
+# over from a prior trace_rumor_origin invocation).
 actions["last_focus"] = None
 actions["awaiting"] = {}
 actions["current_meeting"] = None
 actions.pop("pending_agenda_patch", None)
-actions.setdefault("enabled_packs", ["global_voice_v1", "sentinel_ci_aya_v1"])
+# Always enable the S1/S2/S3 packs in order. We replace the list rather than
+# setdefault so a previous predemo run that pre-dates S3 still picks up the
+# security pack on the next reset.
+actions["enabled_packs"] = [
+    "global_voice_v1",
+    "sentinel_ci_aya_v1",
+    "sentinel_ci_aya_security_v1",
+]
 s["actions"] = actions
 print(json.dumps({"settings": s}))
 PYEOF
