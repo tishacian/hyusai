@@ -1250,11 +1250,17 @@ async def execute_flow_action(
                     "target_type": "social_pulse_snapshot",
                     "target_id": "social-snapshot-2026-05-25",
                     "draft_payload": {
+                        # `kind` + `mode` both carry the dedicated drawer key so the
+                        # frontend renders <app-vp-social-pulse-drawer> instead of
+                        # the generic markdown draft drawer (no more `## ##` dump).
                         "kind": "social_pulse_snapshot",
+                        "mode": "social_pulse_snapshot",
                         "target_type": "social_pulse_snapshot",
                         "target_id": "social-snapshot-2026-05-25",
                         "title": "Pulsation sociale — snapshot Abidjan 14h25",
                         "subject": "Pulsation sociale Abidjan — snapshot demo-safe",
+                        # body_markdown stays as a fallback for backend tests and
+                        # for clients that haven't shipped the dedicated drawer.
                         "body_markdown": "\n".join(body_lines),
                         "summary": (
                             f"{totals.get('tweets', 0)} tweets — "
@@ -1336,11 +1342,17 @@ async def execute_flow_action(
             _action_effect(
                 "assistant-draft-open",
                 {
-                    "target_type": "rumor_trace_dossier",
+                    "target_type": "rumor_trace_timeline",
                     "target_id": "rumor-frontier-nord-2026-05-25",
                     "draft_payload": {
-                        "kind": "rumor_trace_dossier",
-                        "target_type": "rumor_trace_dossier",
+                        # `kind` + `mode` both carry the dedicated drawer key so the
+                        # frontend renders <app-vp-rumor-trace-timeline> with the
+                        # vertical chronology + verdict bar instead of a markdown
+                        # chain dump. Aliases (rumor_trace_dossier, rumor_origin)
+                        # are still accepted by the drawer router for compat.
+                        "kind": "rumor_trace_timeline",
+                        "mode": "rumor_trace_timeline",
+                        "target_type": "rumor_trace_timeline",
                         "target_id": "rumor-frontier-nord-2026-05-25",
                         "title": trace.get("headline"),
                         "subject": "Rumeur frontière Nord — chaîne OSINT et démenti officiel",
@@ -1348,6 +1360,9 @@ async def execute_flow_action(
                         "summary": trace.get("summary"),
                         "origin": trace.get("origin"),
                         "chain": trace.get("chain") or [],
+                        "recommended_action": trace.get("recommended_action"),
+                        "aya_sentence": trace.get("aya_sentence"),
+                        "verdict_label": "DEMENTI OFFICIEL FANCI",
                         "sources": [
                             {"title": "Dossier rumeur frontière Nord", "id": "src-rumor-frontier-nord-2026-05-25"},
                         ],
@@ -1453,13 +1468,19 @@ async def execute_flow_action(
                     "target_type": "troops_sahel_snapshot",
                     "target_id": "troops-sahel-2026-05-25",
                     "draft_payload": {
+                        # `kind` + `mode` both carry the dedicated drawer key so the
+                        # frontend renders <app-vp-troops-theater-drawer> (table +
+                        # cards) instead of a markdown ADS-B list dump.
                         "kind": "troops_sahel_snapshot",
+                        "mode": "troops_sahel_snapshot",
                         "target_type": "troops_sahel_snapshot",
                         "target_id": "troops-sahel-2026-05-25",
                         "title": snapshot.get("theater_label"),
                         "subject": "Snapshot ADS-B advisory — théâtre Sahel",
                         "body_markdown": "\n".join(body_lines),
                         "disclaimer": snapshot.get("disclaimer"),
+                        "theater_label": snapshot.get("theater_label"),
+                        "captured_at": snapshot.get("captured_at"),
                         "tracks": snapshot.get("tracks") or [],
                         "watch_zones": snapshot.get("watch_zones") or [],
                         "cedeao_bases": snapshot.get("cedeao_bases") or [],

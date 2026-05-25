@@ -11,8 +11,24 @@ import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ToastrService } from 'ngx-toastr';
 import { ApiService } from '@app/core/api.service';
-import type { AssistantDraftOpenEffect } from '@app/core/assistant-effects.service';
+import {
+  AssistantEffectsService,
+  type AssistantDraftOpenEffect,
+} from '@app/core/assistant-effects.service';
 import { GlyphComponent } from '@app/shared/cockpit';
+import {
+  VpSocialPulseDrawerComponent,
+  type SocialSnapshot,
+} from '@app/features/mission-room/vp-social-pulse-drawer.component';
+import {
+  VpTroopsTheaterDrawerComponent,
+  type TroopsSahelSnapshot,
+  type TroopsTrack,
+} from '@app/features/mission-room/vp-troops-theater-drawer.component';
+import {
+  VpRumorTraceTimelineComponent,
+  type RumorTrace,
+} from '@app/features/mission-room/vp-rumor-trace-timeline.component';
 
 interface CitedPassage {
   page?: number;
@@ -38,6 +54,20 @@ interface DraftPayload {
   signed_url?: string;
   preview_url?: string;
   sources?: Array<string | { label?: string; title?: string; id?: string }>;
+  snapshot?: SocialSnapshot | Record<string, unknown> | null;
+  tracks?: TroopsTrack[];
+  watch_zones?: Array<Record<string, unknown>>;
+  cedeao_bases?: Array<Record<string, unknown>>;
+  disclaimer?: string;
+  theater_label?: string;
+  captured_at?: string;
+  origin?: string;
+  chain?: Array<Record<string, unknown>>;
+  spread?: Array<Record<string, unknown>>;
+  summary?: string;
+  recommended_action?: string;
+  aya_sentence?: string;
+  verdict_label?: string;
   metadata?: Record<string, unknown> & {
     document_url?: string;
     download_url?: string;
@@ -50,6 +80,8 @@ interface DraftPayload {
     filename?: string;
   };
 }
+
+type CustomDrawerMode = 'social_pulse' | 'troops_sahel' | 'rumor_trace' | null;
 
 interface DraftValidationResponse {
   status: string;
@@ -65,10 +97,37 @@ interface DraftValidationResponse {
 @Component({
   selector: 'app-assistant-draft-drawer',
   standalone: true,
-  imports: [CommonModule, GlyphComponent],
+  imports: [
+    CommonModule,
+    GlyphComponent,
+    VpSocialPulseDrawerComponent,
+    VpTroopsTheaterDrawerComponent,
+    VpRumorTraceTimelineComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (open()) {
+    @if (open() && customDrawerMode() === 'social_pulse') {
+      <app-vp-social-pulse-drawer
+        [open]="true"
+        [snapshot]="socialSnapshot()"
+        (closed)="cancel()"
+        (askAya)="askAyaAboutPayload()"
+      ></app-vp-social-pulse-drawer>
+    } @else if (open() && customDrawerMode() === 'troops_sahel') {
+      <app-vp-troops-theater-drawer
+        [open]="true"
+        [snapshot]="troopsSnapshot()"
+        (closed)="cancel()"
+        (trackSelected)="onTrackSelected($event)"
+      ></app-vp-troops-theater-drawer>
+    } @else if (open() && customDrawerMode() === 'rumor_trace') {
+      <app-vp-rumor-trace-timeline
+        [open]="true"
+        [trace]="rumorTrace()"
+        (closed)="cancel()"
+        (draftCommunique)="onDraftCommunique()"
+      ></app-vp-rumor-trace-timeline>
+    } @else if (open()) {
       <div class="draft-backdrop" (click)="cancel()" aria-hidden="true"></div>
       <aside
         class="draft-drawer"
@@ -440,6 +499,7 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastrService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly assistantEffects = inject(AssistantEffectsService);
 
   readonly open = signal(false);
   readonly submitting = signal(false);
@@ -451,10 +511,88 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   private static readonly STUB_PDF_MAX_BYTES = 2048;
   private readonly payload = signal<DraftPayload | null>(null);
 
+  readonly customDrawerMode = computed<CustomDrawerMode>(() => {
+    const payload = this.payload();
+    if (!payload) return null;
+    const tokens = [
+      payload.kind,
+      payload.mode,
+      payload.target_type,
+    ]
+      .map((value) => (value || '').toLowerCase())
+      .filter(Boolean);
+    if (tokens.some((token) => token.includes('social_pulse') || token.includes('social-pulse'))) {
+      return 'social_pulse';
+    }
+    if (tokens.some((token) => token.includes('troops_sahel') || token.includes('troops-sahel'))) {
+      return 'troops_sahel';
+    }
+    if (
+      tokens.some(
+        (token) =>
+          token.includes('rumor_trace')
+          || token.includes('rumor-trace')
+          || token.includes('rumor_dossier')
+          || token.includes('rumor_origin'),
+      )
+    ) {
+      return 'rumor_trace';
+    }
+    return null;
+  });
+
   readonly isDocumentPreview = computed(() => {
     const payload = this.payload();
     const kind = (payload?.kind || payload?.mode || '').toLowerCase();
     return kind === 'document_preview' || kind === 'preview' || kind === 'pdf_preview';
+  });
+
+  readonly socialSnapshot = computed<SocialSnapshot | null>(() => {
+    const payload = this.payload();
+    if (!payload) return null;
+    const snapshot = payload.snapshot as SocialSnapshot | undefined;
+    if (snapshot && typeof snapshot === 'object') return snapshot;
+    return null;
+  });
+
+  readonly troopsSnapshot = computed<TroopsSahelSnapshot | null>(() => {
+    const payload = this.payload();
+    if (!payload) return null;
+    if (
+      Array.isArray(payload.tracks)
+      || Array.isArray(payload.watch_zones)
+      || Array.isArray(payload.cedeao_bases)
+    ) {
+      return {
+        captured_at: payload.captured_at,
+        disclaimer: payload.disclaimer,
+        theater_label: payload.theater_label || payload.title,
+        tracks: payload.tracks || [],
+        watch_zones: (payload.watch_zones || []) as TroopsSahelSnapshot['watch_zones'],
+        cedeao_bases: (payload.cedeao_bases || []) as TroopsSahelSnapshot['cedeao_bases'],
+      };
+    }
+    const nested = payload.snapshot as TroopsSahelSnapshot | undefined;
+    if (nested && typeof nested === 'object' && Array.isArray(nested.tracks)) return nested;
+    return null;
+  });
+
+  readonly rumorTrace = computed<RumorTrace | null>(() => {
+    const payload = this.payload();
+    if (!payload) return null;
+    if (Array.isArray(payload.chain) || Array.isArray(payload.spread)) {
+      return {
+        headline: payload.title,
+        summary: payload.summary,
+        origin: payload.origin,
+        chain: (payload.chain || []) as RumorTrace['chain'],
+        spread: (payload.spread || []) as RumorTrace['spread'],
+        recommended_action: payload.recommended_action,
+        aya_sentence: payload.aya_sentence,
+        verdict_label: payload.verdict_label,
+      };
+    }
+    return null;
   });
 
   readonly documentUrl = computed<SafeResourceUrl | null>(() => {
@@ -698,5 +836,70 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
     this.open.set(false);
     this.payload.set(null);
     this.submitting.set(false);
+  }
+
+  askAyaAboutPayload(): void {
+    const payload = this.payload();
+    const mode = this.customDrawerMode();
+    let prompt = 'AYA, peux-tu approfondir ce dossier ?';
+    if (mode === 'social_pulse') {
+      prompt = 'AYA, peux-tu resumer la pulsation sociale et les signaux a surveiller ?';
+    } else if (mode === 'troops_sahel') {
+      prompt = 'AYA, lecture du theatre Sahel : ce que je dois retenir avant le Conseil 15h.';
+    } else if (mode === 'rumor_trace') {
+      prompt = 'AYA, prepare un communique souverain sur la rumeur frontiere Nord.';
+    } else if (payload?.title) {
+      prompt = `AYA, peux-tu approfondir le dossier "${payload.title}" ?`;
+    }
+    this.assistantEffects.dispatchPropose({
+      proposal_id: `aya-followup-${payload?.target_id || 's3'}`,
+      label: 'Demander a AYA',
+      prompt,
+    });
+    this.cancel();
+  }
+
+  onTrackSelected(track: TroopsTrack): void {
+    if (!track || (track.longitude === undefined && track.latitude === undefined)) return;
+    window.dispatchEvent(
+      new CustomEvent('agentium:map-command', {
+        detail: {
+          intent: 'highlight_track',
+          target: track.id || track.callsign,
+          map_state: {
+            highlight_track: track.id || track.callsign,
+            longitude: track.longitude,
+            latitude: track.latitude,
+          },
+        },
+      }),
+    );
+    this.toast.info(
+      `${track.callsign || 'Trace'} mis en surbrillance — ouvrez la vue Carte si besoin.`,
+      'ADS-B advisory',
+    );
+  }
+
+  onDraftCommunique(): void {
+    const payload = this.payload();
+    this.assistantEffects.dispatchPropose({
+      proposal_id: 'propose-security-communique',
+      label: 'Communique souverain',
+      prompt:
+        'AYA, redige le communique souverain frontiere Nord en citant le dementi FANCI et la Prefecture.',
+      confirm_action: 'aya.draft_security_communique',
+    });
+    this.cancel();
+    if (payload?.target_id) {
+      // hint for any listeners that the user closed the rumor drawer to draft
+      window.dispatchEvent(
+        new CustomEvent('agentium:assistant-followup', {
+          detail: {
+            origin: payload.target_id,
+            action: 'aya.draft_security_communique',
+          },
+        }),
+      );
+    }
   }
 }
