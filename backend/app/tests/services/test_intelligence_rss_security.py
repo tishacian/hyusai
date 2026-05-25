@@ -75,3 +75,57 @@ def test_rss_security_payload_respects_allow_live():
     intel_cache.cache_set(rss_security.CACHE_KEY, payload, 900)
     assert rss_security.rss_security_payload(allow_live=True) is not None
     assert rss_security.rss_security_payload(allow_live=False) is None
+
+
+def test_fetch_feed_returns_empty_on_network_failure(monkeypatch):
+    """Network errors must degrade silently to an empty article list."""
+
+    class _BoomClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def get(self, *_args, **_kwargs):
+            raise OSError("simulated DNS failure")
+
+    monkeypatch.setattr(rss_security.httpx, "Client", _BoomClient)
+    assert rss_security._fetch_feed("https://example.invalid/rss") == []
+
+
+def test_sync_rss_security_marks_baseline_when_all_feeds_fail(monkeypatch):
+    """When every feed fails we must emit a CACHE BASELINE payload (no live=true)."""
+    monkeypatch.setattr(rss_security, "_fetch_feed", lambda url, timeout=8.0: [])
+    monkeypatch.setattr(
+        rss_security,
+        "_load_feeds_config",
+        lambda: [
+            {"id": "feed-a", "name": "A", "url": "https://example.test/a"},
+            {"id": "feed-b", "name": "B", "url": "https://example.test/b"},
+        ],
+    )
+    payload = rss_security.sync_rss_security(force=True)
+    assert payload["live"] is False
+    assert payload["source_badge"] == "CACHE BASELINE"
+    assert payload["article_count"] == 0
+    assert payload["feeds_checked"] == 2
+
+
+def test_parse_rss_items_falls_back_to_xml_parser():
+    """The regex parser handles canonical RSS but the ElementTree fallback covers atypical formats."""
+    xml_no_item = """<?xml version='1.0'?>
+<rss version='2.0'><channel>
+<item>
+<title>Fallback parser test</title>
+<link>https://example.test/fallback</link>
+<description>Cas atypique sans body lisible regex.</description>
+<pubDate>Mon, 25 May 2026 13:00:00 GMT</pubDate>
+</item>
+</channel></rss>"""
+    items = rss_security._parse_rss_items(xml_no_item)
+    assert len(items) == 1
+    assert items[0]["title"] == "Fallback parser test"

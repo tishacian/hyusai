@@ -86,3 +86,59 @@ def test_adsb_sahel_payload_demo_forces_baseline(monkeypatch):
     baseline = adsb_sahel.adsb_sahel_payload(allow_live=False)
     assert baseline["live"] is False
     assert baseline["source_badge"] == "CACHE BASELINE"
+
+
+def test_fetch_hub_handles_5xx_and_network_errors(monkeypatch):
+    """Hub fetch must degrade to empty list on HTTP failure or network exception."""
+
+    class _ServerErrorClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def get(self, *_args, **_kwargs):
+            class _R:
+                status_code = 502
+                def json(self):
+                    return {}
+            return _R()
+
+    monkeypatch.setattr(adsb_sahel.httpx, "Client", _ServerErrorClient)
+    assert adsb_sahel._fetch_hub("Bamako", 12.0, -8.0, 200) == []
+
+    class _BoomClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def get(self, *_args, **_kwargs):
+            raise OSError("simulated timeout")
+
+    monkeypatch.setattr(adsb_sahel.httpx, "Client", _BoomClient)
+    assert adsb_sahel._fetch_hub("Bamako", 12.0, -8.0, 200) == []
+
+
+def test_baseline_payload_preserves_disclaimer_and_zones():
+    payload = adsb_sahel._baseline_payload()
+    assert payload["live"] is False
+    assert payload["source_badge"] == "CACHE BASELINE"
+    assert "advisory" in (payload.get("disclaimer") or "").lower()
+    assert payload["track_count"] >= 1
+    assert any(zone.get("name") for zone in (payload.get("watch_zones") or []))
+
+
+def test_normalize_track_handles_invalid_coordinates():
+    """Tracks missing or non-numeric lat/lon must be silently dropped."""
+    assert adsb_sahel._normalize_track({"flight": "X", "lat": None, "lon": -3.0}, index=0) is None
+    assert adsb_sahel._normalize_track({"flight": "X", "lat": "nope", "lon": -3.0}, index=0) is None
+    assert adsb_sahel._normalize_track({"flight": "X"}, index=0) is None

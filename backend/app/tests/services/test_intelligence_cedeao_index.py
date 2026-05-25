@@ -80,3 +80,44 @@ def test_cedeao_index_endpoint_payload_marks_demo_mode(db_session):
     assert payload["demo_mode"] is True
     assert payload["policy"] == "advisory_only"
     assert payload["source_badge"] == "CACHE BASELINE"
+
+
+def test_component_weights_sum_to_one():
+    """Composite weights must form a probability simplex (sum == 1.0)."""
+    total = sum(cedeao_index.COMPONENT_WEIGHTS.values())
+    assert abs(total - 1.0) < 1e-6
+
+
+def test_cedeao_index_baseline_score_is_stable_offline():
+    """Without any live RSS, the score must stay within the published baseline window."""
+    payload = cedeao_index.cedeao_index_payload(allow_live=False)
+    assert 40.0 <= payload["score"] <= 90.0
+    assert payload["unit"] == "/100"
+    assert payload["components"].keys() == cedeao_index.COMPONENT_WEIGHTS.keys()
+    assert len(payload["series"]) >= 7
+
+
+def test_resolve_security_posture_preserves_demo_signals(db_session):
+    """Demo mode must keep the fixed SECURITY_POSTURE signals intact and badges baseline."""
+    workspace = Workspace(
+        id="ws-resolve-demo",
+        slug="sentinel-ci-resolve",
+        name="SENTINEL-CI",
+        mode="demo",
+        settings={},
+    )
+    db_session.add(workspace)
+    db_session.commit()
+    posture = _resolve_security_posture(workspace)
+    interior_labels = [signal["label"] for signal in posture["interior"]["signals"]]
+    fixture_labels = [signal["label"] for signal in SECURITY_POSTURE["interior"]["signals"]]
+    assert interior_labels == fixture_labels
+    assert posture["osint_sources"]["rss"]["source_badge"] == "CACHE BASELINE"
+    assert posture["osint_sources"]["cedeao_index"]["source_badge"] == "CACHE BASELINE"
+
+
+def test_trend_direction_thresholds():
+    assert cedeao_index._trend_direction(1.0) == "up"
+    assert cedeao_index._trend_direction(-1.0) == "down"
+    assert cedeao_index._trend_direction(0.0) == "stable"
+    assert cedeao_index._trend_direction(0.4) == "stable"
