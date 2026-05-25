@@ -1154,19 +1154,19 @@ async def execute_flow_action(
         exterior = posture.get("exterior") or {}
         next_council = posture.get("next_council") or {}
         content = (
-            "Monsieur le Vice-Président, la posture securitaire est dual-axis. "
-            f"Interieur Nord : {interior.get('level', 'vigilance')} — {interior.get('headline', '')}. "
-            f"Exterieur Sahel : {exterior.get('level', 'elevee')} — {exterior.get('headline', '')}. "
-            f"Prochain {next_council.get('label', 'Conseil Defense')} a {next_council.get('time', '15:00')}."
+            "Monsieur le Vice-Président, la posture du jour est en vigilance intérieure "
+            f"et élevée sur l'axe Sahel. {interior.get('headline', '')} "
+            f"Je prépare la lecture pour le {next_council.get('label', 'Conseil Défense')} "
+            f"de {next_council.get('time', '15:00')}."
         )
         sources = [
             {
-                "title": "Note posture securite Sahel — 25 mai 2026",
+                "title": "Note posture sécurité Sahel — 25 mai 2026",
                 "kind": "security_brief",
                 "source_id": "src-note-posture-sahel-2026-05-25",
             },
             {
-                "title": "Synthese Conseil Defense restreint — 08h30",
+                "title": "Synthèse Conseil Défense restreint — 08h30",
                 "kind": "security_brief",
                 "source_id": "src-conseil-defense-2026-05-25-am",
             },
@@ -1211,17 +1211,17 @@ async def execute_flow_action(
 
         def _bucket_label(kind: str) -> str:
             return {
-                "officiel": "Comptes officiels",
+                "officiel": "Canaux vérifiés",
                 "citoyen": "Comptes citoyens (pseudonymisés)",
-                "rumeur": "Rumeur frontière Nord (pseudonymisés)",
+                "rumeur": "Rumeur frontière Nord (pseudonymisée)",
             }.get(kind, kind.title())
 
         body_lines = [
             "## Pulsation sociale — Abidjan, 14h25",
             "",
             (
-                f"Snapshot demo-safe : {totals.get('tweets', 0)} tweets sur la dernière heure — "
-                f"{totals.get('officiel', 0)} officiels, {totals.get('citoyen', 0)} citoyens "
+                f"Snapshot demo-safe : {totals.get('tweets', 0)} tweets sur la séquence du jour — "
+                f"{totals.get('officiel', 0)} canaux vérifiés, {totals.get('citoyen', 0)} citoyens "
                 f"pseudonymisés, {totals.get('rumeur', 0)} signaux rumeur frontière Nord."
             ),
             "",
@@ -1241,7 +1241,7 @@ async def execute_flow_action(
                     f"({engagement} eng. · {geo})"
                 )
             body_lines.append("")
-        body_lines.append("Démentis officiels en cours · advisory only — démo Sentinel-CI.")
+        body_lines.append("Démentis officiels visibles · advisory only — démo Sentinel-CI.")
 
         effects.append(
             _action_effect(
@@ -1264,9 +1264,9 @@ async def execute_flow_action(
                         "body_markdown": "\n".join(body_lines),
                         "summary": (
                             f"{totals.get('tweets', 0)} tweets — "
-                            f"{totals.get('officiel', 0)} officiels, "
+                            f"{totals.get('officiel', 0)} canaux vérifiés, "
                             f"{totals.get('citoyen', 0)} citoyens, "
-                            f"{totals.get('rumeur', 0)} rumeur frontiere."
+                            f"{totals.get('rumeur', 0)} rumeurs frontière."
                         ),
                         "snapshot": snapshot,
                         "sources": [
@@ -1278,11 +1278,12 @@ async def execute_flow_action(
             )
         )
         content = (
-            "Monsieur le Vice-Président, snapshot pulsation sociale Abidjan : "
-            f"{snapshot.get('totals', {}).get('tweets', 0)} tweets, "
-            f"{snapshot.get('totals', {}).get('officiel', 0)} comptes officiels, "
-            f"{snapshot.get('totals', {}).get('citoyen', 0)} citoyens pseudonymises et "
-            f"{snapshot.get('totals', {}).get('rumeur', 0)} signaux rumeur frontiere Nord."
+            "Monsieur le Vice-Président, j'affiche "
+            f"{snapshot.get('totals', {}).get('tweets', 0)} signaux publics sur la séquence du jour : "
+            f"{snapshot.get('totals', {}).get('officiel', 0)} canaux vérifiés, "
+            f"{snapshot.get('totals', {}).get('citoyen', 0)} citoyens pseudonymisés et "
+            f"{snapshot.get('totals', {}).get('rumeur', 0)} signaux rumeur frontière Nord. "
+            "Le volume reste maîtrisé après les démentis officiels."
         )
         sources = [
             {
@@ -1335,7 +1336,7 @@ async def execute_flow_action(
                 f"confiance {round(float(step.get('confidence', 0)) * 100)}%)"
             )
         chain_lines.append("")
-        chain_lines.append("Démentis officiels FANCI + Préfecture Nord publiés à 13h45 et 13h52.")
+        chain_lines.append("Démentis officiels FANCI + Préfecture Nord publiés à 13h46 et 13h52.")
         chain_lines.append("Advisory only — démo Sentinel-CI.")
 
         effects.append(
@@ -1362,7 +1363,7 @@ async def execute_flow_action(
                         "chain": trace.get("chain") or [],
                         "recommended_action": trace.get("recommended_action"),
                         "aya_sentence": trace.get("aya_sentence"),
-                        "verdict_label": "DEMENTI OFFICIEL FANCI",
+                        "verdict_label": "DÉMENTI OFFICIEL FANCI",
                         "sources": [
                             {"title": "Dossier rumeur frontière Nord", "id": "src-rumor-frontier-nord-2026-05-25"},
                         ],
@@ -1383,21 +1384,21 @@ async def execute_flow_action(
                 "assistant-propose",
                 {
                     "proposal_id": "propose-security-communique",
-                    "label": "Rediger un communique souverain démentant la rumeur ?",
-                    "prompt": "Souhaitez-vous que je redige le communique cabinet citant le démenti FANCI ?",
+                    "label": "Rédiger un communiqué souverain démentant la rumeur ?",
+                    "prompt": "Souhaitez-vous que je rédige le communiqué cabinet citant le démenti FANCI ?",
                     "confirm_action": "aya.draft_security_communique",
                     "decline_action": "voice.confirm_no",
                 },
             )
         )
         content = (
-            f"Monsieur le Vice-Président, {trace.get('summary', '')} "
-            f"Démenti FANCI publié a 13h46, Préfecture Nord a 13h52. "
-            "Souhaitez-vous que je redige le communique souverain ?"
+            "Monsieur le Vice-Président, la rumeur part d'un tweet citoyen à 11h42, "
+            "puis circule via Telegram et un blog avant le démenti FANCI de 13h46. "
+            "La Préfecture Nord confirme à 13h52 ; je peux préparer le communiqué."
         )
         sources = [
             {
-                "title": "Dossier rumeur frontiere Nord — OSINT et démentis",
+                "title": "Dossier rumeur frontière Nord — OSINT et démentis",
                 "kind": "rumor_dossier",
                 "source_id": "src-rumor-frontier-nord-2026-05-25",
             },
@@ -1451,14 +1452,14 @@ async def execute_flow_action(
             body_lines.append("### Zones de surveillance")
             for zone in snapshot.get("watch_zones") or []:
                 body_lines.append(
-                    f"- {zone.get('label', '—')} : {zone.get('summary', '')}"
+                    f"- {zone.get('label') or zone.get('name', '—')} : {zone.get('summary', '')}"
                 )
         if snapshot.get("cedeao_bases"):
             body_lines.append("")
             body_lines.append("### Bases CEDEAO en alerte standard")
             for base in snapshot.get("cedeao_bases") or []:
                 body_lines.append(
-                    f"- {base.get('label', '—')} ({base.get('country', '—')}) — {base.get('status', '—')}"
+                    f"- {base.get('label') or base.get('name', '—')} — {base.get('status') or base.get('role', 'alerte standard')}"
                 )
 
         effects.append(
@@ -1494,11 +1495,10 @@ async def execute_flow_action(
             )
         )
         content = (
-            f"Monsieur le Vice-Président, snapshot ADS-B advisory Sahel — "
-            f"{len(snapshot.get('tracks') or [])} traces, "
-            f"{len(snapshot.get('watch_zones') or [])} zones de surveillance, "
-            f"{len(snapshot.get('cedeao_bases') or [])} bases CEDEAO. "
-            "Lecture advisory only, en appui de la revue Sahel de 15h00."
+            "Monsieur le Vice-Président, j'affiche uniquement un snapshot ADS-B advisory : "
+            f"{len(snapshot.get('tracks') or [])} traces publiques sur Bamako, Ouagadougou, "
+            "Niamey et Abidjan. Aucun élément affiché ne constitue une donnée classifiée "
+            "ni une confirmation opérationnelle."
         )
         sources = [
             {
@@ -1507,7 +1507,7 @@ async def execute_flow_action(
                 "source_id": "src-troops-sahel-2026-05-25",
             },
             {
-                "title": "Note posture securite Sahel — 25 mai 2026",
+                "title": "Note posture sécurité Sahel — 25 mai 2026",
                 "kind": "security_brief",
                 "source_id": "src-note-posture-sahel-2026-05-25",
             },
@@ -1544,11 +1544,10 @@ async def execute_flow_action(
         positive_lines = [f"{item.get('title')}" for item in positive_items]
         critical_lines = [f"{item.get('title')}" for item in critical_items]
         content = (
-            f"Monsieur le Vice-Président, score réputation {drill.get('score')}/100 "
-            f"({'+' if (drill.get('delta') or 0) >= 0 else ''}{drill.get('delta')} pts). "
-            f"Positifs : {' ; '.join(positive_lines) or 'aucun'}. "
-            f"Critique : {' ; '.join(critical_lines) or 'aucune'}. "
-            f"{drill.get('aya_sentence', '')}"
+            f"Monsieur le Vice-Président, le score réputation est à {drill.get('score')}/100 "
+            f"cette semaine ({'+' if (drill.get('delta') or 0) >= 0 else ''}{drill.get('delta')} pts). "
+            "Deux lectures sont favorables, sur la séquence Nord et la réponse Nawa ; "
+            "la critique à surveiller porte sur le budget défense."
         )
         sources = [
             {
@@ -1591,21 +1590,27 @@ async def execute_flow_action(
                 draft = None
         if not draft or not isinstance(draft, dict):
             draft = {
-                "subject": "Communique souverain — frontiere Nord, démenti officiel",
+                "subject": "Communiqué de sécurité — frontière Nord, démenti officiel",
                 "to": ["Direction de la communication présidentielle", "Cellule veille SENTINEL-CI"],
                 "body_markdown": (
-                    "Le Cabinet du Vice-Président tient a confirmer le démenti officiel de la "
-                    "FANCI (13h46) et de la Préfecture Nord (13h52) concernant les rumeurs "
-                    "d'incursion frontaliere Nord. Les postes mixtes restent nominaux. "
-                    "Le Cabinet rappelle son engagement de transparence sur les signaux faibles "
-                    "et la posture de coordination CEDEAO active.\n\n"
-                    "Sources : Etat-Major FANCI ; Préfecture Nord ; Cellule veille SENTINEL-CI."
+                    "Le Cabinet du Vice-Président confirme que les informations circulant depuis "
+                    "la fin de matinée au sujet d'une incursion à la frontière Nord ont été "
+                    "officiellement démenties par la FANCI à 13h46, puis par la Préfecture Nord "
+                    "à 13h52. Les postes mixtes Bouna-Kong-Téhini sont signalés comme nominaux "
+                    "dans le cadre de la coordination habituelle.\n\n"
+                    "Le Cabinet appelle chacun à ne pas relayer de contenus non vérifiés et "
+                    "rappelle que la transparence institutionnelle reste la ligne de conduite : "
+                    "tout signal sérieux sera communiqué par les canaux publics compétents.\n\n"
+                    "Dans la perspective du Conseil Défense restreint de 15h00, une coordination "
+                    "CEDEAO demeure active sur le corridor Korhogo-Bamako. Cette note est un "
+                    "brouillon advisory soumis à validation humaine avant toute diffusion.\n\n"
+                    "Sources : État-Major FANCI ; Préfecture Nord ; Cellule veille SENTINEL-CI."
                 ),
                 "sources": [
                     {"title": "Démenti officiel FANCI", "source_id": "tweet-off-002"},
                     {"title": "Mise au point Préfecture Nord", "source_id": "tweet-off-005"},
                     {
-                        "title": "Dossier rumeur frontiere Nord",
+                        "title": "Dossier rumeur frontière Nord",
                         "source_id": "src-rumor-frontier-nord-2026-05-25",
                     },
                 ],
@@ -1622,14 +1627,15 @@ async def execute_flow_action(
                 },
             )
         )
-        subject = (draft or {}).get("subject") or "Communique souverain frontiere Nord"
+        subject = (draft or {}).get("subject") or "Communiqué de sécurité frontière Nord"
         content = (
-            f"Monsieur le Vice-Président, brouillon pret : **{subject}**. "
-            "Validation advisory requise avant diffusion."
+            f"Monsieur le Vice-Président, je prépare un brouillon cabinet : **{subject}**. "
+            "Il cite le démenti FANCI, la mise au point de la Préfecture Nord et reste soumis "
+            "à validation humaine avant diffusion."
         )
         sources = (draft or {}).get("sources") or [
             {
-                "title": "Dossier rumeur frontiere Nord",
+                "title": "Dossier rumeur frontière Nord",
                 "kind": "rumor_dossier",
                 "source_id": "src-rumor-frontier-nord-2026-05-25",
             },

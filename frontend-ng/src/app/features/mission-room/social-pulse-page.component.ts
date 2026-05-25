@@ -37,16 +37,16 @@ type SortKey = 'engagement' | 'time';
           <h1>Pulsation sociale · Abidjan</h1>
         </div>
         <button type="button" class="spp-export" (click)="exportCsv()">
-          Export CSV advisory
+          Exporter CSV advisory
         </button>
       </header>
 
       <div class="spp-toolbar">
         <label>
-          <span>Bucket</span>
+          <span>Périmètre</span>
           <select [(ngModel)]="bucketFilter">
             <option value="all">Tous</option>
-            <option value="officiel">Officiels</option>
+            <option value="officiel">Canaux vérifiés</option>
             <option value="citoyen">Citoyens</option>
             <option value="rumeur">Rumeur Nord</option>
           </select>
@@ -57,13 +57,13 @@ type SortKey = 'engagement' | 'time';
             <option value="all">Tous</option>
             <option value="positive">Positif</option>
             <option value="neutral">Neutre</option>
-            <option value="negative">Negatif</option>
+            <option value="negative">Négatif</option>
           </select>
         </label>
         <label>
-          <span>Periode</span>
+          <span>Période</span>
           <select [(ngModel)]="periodFilter">
-            <option value="all">Derniere heure</option>
+            <option value="all">Toute la séquence</option>
             <option value="morning">Matin (06h-12h)</option>
             <option value="midday">Midi (12h-15h)</option>
           </select>

@@ -41,7 +41,7 @@ type Phase = 'emergence' | 'amplification' | 'demente';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (trace && (embedded || open)) {
-      <div [class]="embedded ? 'rumor-embedded-root' : 'rumor-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" aria-label="Dossier rumeur frontiere Nord">
+      <div [class]="embedded ? 'rumor-embedded-root' : 'rumor-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" aria-label="Dossier rumeur frontière Nord">
         @if (!embedded) {
           <button
             type="button"
@@ -54,10 +54,10 @@ type Phase = 'emergence' | 'amplification' | 'demente';
           <header class="rumor-drawer-head">
             <div class="rumor-drawer-head-copy">
               <span class="risk-pill" [class.success]="hasOfficialDenial()" [class.warn]="!hasOfficialDenial()">
-                {{ hasOfficialDenial() ? 'demente officiel' : 'verification' }}
+                {{ hasOfficialDenial() ? 'démenti officiel' : 'vérification' }}
               </span>
               <small class="publisher-badge">Chronologie OSINT</small>
-              <h2>{{ trace.headline || 'Dossier rumeur frontiere Nord' }}</h2>
+              <h2>{{ trace.headline || 'Dossier rumeur frontière Nord' }}</h2>
               <p class="rumor-drawer-summary">{{ trace.summary || '' }}</p>
             </div>
             @if (!embedded) {
@@ -77,7 +77,7 @@ type Phase = 'emergence' | 'amplification' | 'demente';
               <section class="verdict-bar verdict-denied" aria-live="polite">
                 <span class="verdict-icon" aria-hidden="true">✓</span>
                 <div class="verdict-copy">
-                  <strong>{{ trace.verdict_label || 'DEMENTI OFFICIEL FANCI' }}</strong>
+                  <strong>{{ trace.verdict_label || 'DÉMENTI OFFICIEL FANCI' }}</strong>
                   <span>{{ deniedTimingLabel() }} — postes mixtes nominaux, advisory only.</span>
                 </div>
               </section>
@@ -85,8 +85,8 @@ type Phase = 'emergence' | 'amplification' | 'demente';
               <section class="verdict-bar verdict-pending" aria-live="polite">
                 <span class="verdict-icon" aria-hidden="true">!</span>
                 <div class="verdict-copy">
-                  <strong>RUMEUR EN COURS DE VERIFICATION</strong>
-                  <span>Aucun communique officiel detecte dans la chaine OSINT.</span>
+                  <strong>RUMEUR EN COURS DE VÉRIFICATION</strong>
+                  <span>Aucun communiqué officiel détecté dans la chaîne OSINT.</span>
                 </div>
               </section>
             }
@@ -97,13 +97,13 @@ type Phase = 'emergence' | 'amplification' | 'demente';
                 <p>{{ trace.origin || '—' }}</p>
               </div>
               <div>
-                <span class="eyebrow">Etapes</span>
-                <p>{{ steps().length }} signaux · {{ countByPhase('emergence') }} emergence · {{ countByPhase('amplification') }} amplification · {{ countByPhase('demente') }} demente</p>
+                <span class="eyebrow">Étapes</span>
+                <p>{{ steps().length }} signaux · {{ countByPhase('emergence') }} émergence · {{ countByPhase('amplification') }} amplification · {{ countByPhase('demente') }} démenti</p>
               </div>
             </section>
 
             <section class="rumor-timeline" aria-label="Chronologie OSINT">
-              <span class="eyebrow">Chaine de propagation</span>
+              <span class="eyebrow">Chaîne de propagation</span>
               <ol class="timeline">
                 @for (step of steps(); track stepKey(step, $index)) {
                   <li class="timeline-item" [attr.data-phase]="phaseFor(step)">
@@ -156,7 +156,7 @@ type Phase = 'emergence' | 'amplification' | 'demente';
 
           <footer class="rumor-drawer-foot">
             <button type="button" class="action-link primary" (click)="draftCommunique.emit()">
-              Preparer un communique
+              Préparer un communiqué
             </button>
             <button type="button" class="action-link muted" (click)="closed.emit()">
               Fermer
@@ -613,9 +613,9 @@ export class VpRumorTraceTimelineComponent {
 
   deniedTimingLabel(): string {
     const denied = this.steps().filter((step) => this.phaseFor(step) === 'demente');
-    if (!denied.length) return 'dementi officiel publie';
+    if (!denied.length) return 'démenti officiel publié';
     const first = denied[0]?.time;
-    return first ? `Dementi publie a ${first}` : 'Dementi officiel publie';
+    return first ? `Démenti publié à ${first}` : 'Démenti officiel publié';
   }
 
   countByPhase(phase: Phase): number {

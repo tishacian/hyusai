@@ -93,27 +93,27 @@ interface BucketDescriptor {
               <article class="stat-card">
                 <span class="stat-label">tweets</span>
                 <strong>{{ totals().tweets ?? tweets().length }}</strong>
-                <small>derniere heure</small>
+                <small>séquence jour</small>
               </article>
               <article class="stat-card">
-                <span class="stat-label">officiels</span>
+                <span class="stat-label">vérifiés</span>
                 <strong>{{ totals().officiel ?? bucketCount('officiel') }}</strong>
-                <small>verifies</small>
+                <small>institutionnel + presse</small>
               </article>
               <article class="stat-card">
                 <span class="stat-label">citoyens</span>
                 <strong>{{ totals().citoyen ?? bucketCount('citoyen') }}</strong>
-                <small>pseudonymises</small>
+                <small>pseudonymisés</small>
               </article>
               <article class="stat-card warn">
                 <span class="stat-label">rumeur</span>
                 <strong>{{ totals().rumeur ?? bucketCount('rumeur') }}</strong>
-                <small>frontiere Nord</small>
+                <small>frontière Nord</small>
               </article>
             </section>
 
-            <section class="social-sentiment" aria-label="Tonalite globale">
-              <span class="eyebrow">Tonalite globale</span>
+            <section class="social-sentiment" aria-label="Tonalité globale">
+              <span class="eyebrow">Tonalité globale</span>
               <div class="sentiment-bar" role="img" [attr.aria-label]="sentimentAriaLabel()">
                 <span class="sb-positive" [style.flex]="sentimentMix().positive"></span>
                 <span class="sb-neutral" [style.flex]="sentimentMix().neutral"></span>
@@ -122,12 +122,12 @@ interface BucketDescriptor {
               <ul class="sentiment-legend">
                 <li class="positive"><span>positif</span><strong>{{ sentimentMix().positive }}</strong></li>
                 <li class="neutral"><span>neutre</span><strong>{{ sentimentMix().neutral }}</strong></li>
-                <li class="negative"><span>negatif</span><strong>{{ sentimentMix().negative }}</strong></li>
+                <li class="negative"><span>négatif</span><strong>{{ sentimentMix().negative }}</strong></li>
                 <li class="engagement"><span>engagement</span><strong>{{ engagementTotal() }}</strong></li>
               </ul>
             </section>
 
-            <section class="social-cluster" aria-label="Cluster geographique">
+            <section class="social-cluster" aria-label="Cluster géographique">
               <span class="eyebrow">Cluster Abidjan · quartiers actifs</span>
               <svg class="cluster-svg" viewBox="0 0 320 140" preserveAspectRatio="none" aria-hidden="true">
                 <rect class="cluster-bg" x="0" y="0" width="320" height="140" rx="6"></rect>
@@ -205,7 +205,7 @@ interface BucketDescriptor {
 
           <footer class="social-drawer-foot">
             <button type="button" class="action-link primary" (click)="askAya.emit()">
-              Envoyer a AYA
+              Envoyer à AYA
             </button>
             <button type="button" class="action-link muted" (click)="closed.emit()">
               Fermer
@@ -674,9 +674,9 @@ export class VpSocialPulseDrawerComponent {
   });
 
   private readonly buckets: BucketDescriptor[] = [
-    { key: 'officiel', label: 'Comptes officiels', helper: 'verifies, lecture institutionnelle' },
-    { key: 'citoyen',  label: 'Comptes citoyens',  helper: 'pseudonymises, geolocalises Abidjan' },
-    { key: 'rumeur',   label: 'Rumeur frontiere Nord', helper: 'pseudonymises, surveillance OSINT' },
+    { key: 'officiel', label: 'Canaux vérifiés', helper: 'institutionnels + presse vérifiée' },
+    { key: 'citoyen',  label: 'Comptes citoyens',  helper: 'pseudonymisés, géolocalisés Abidjan' },
+    { key: 'rumeur',   label: 'Rumeur frontière Nord', helper: 'pseudonymisée, surveillance OSINT' },
   ];
 
   @HostListener('document:keydown.escape')
@@ -689,7 +689,7 @@ export class VpSocialPulseDrawerComponent {
   }
 
   headerTitle(): string {
-    const window = this.snapshot?.window_label || 'Pulsation sociale — derniere heure';
+    const window = this.snapshot?.window_label || 'Pulsation sociale — séquence 08h30-14h25';
     const captured = this.formatTime(this.snapshot?.captured_at);
     return captured ? `${window} (${captured})` : window;
   }
@@ -739,7 +739,7 @@ export class VpSocialPulseDrawerComponent {
 
   sentimentAriaLabel(): string {
     const mix = this.sentimentMix();
-    return `${mix.positive} positifs, ${mix.neutral} neutres, ${mix.negative} negatifs`;
+    return `${mix.positive} positifs, ${mix.neutral} neutres, ${mix.negative} négatifs`;
   }
 
   bucketsWithTweets(): { descriptor: BucketDescriptor; tweets: SocialTweet[] }[] {
@@ -774,7 +774,7 @@ export class VpSocialPulseDrawerComponent {
   sentimentLabel(sentiment?: string): string {
     const key = (sentiment || 'neutral').toLowerCase();
     if (key.includes('positi')) return 'positif';
-    if (key.includes('negati')) return 'negatif';
+    if (key.includes('negati')) return 'négatif';
     return 'neutre';
   }
 
@@ -793,7 +793,7 @@ export class VpSocialPulseDrawerComponent {
     const officiels = totals.officiel ?? this.bucketCount('officiel');
     const citoyens = totals.citoyen ?? this.bucketCount('citoyen');
     const rumeur = totals.rumeur ?? this.bucketCount('rumeur');
-    return `Snapshot demo-safe : ${total} tweets — ${officiels} officiels, ${citoyens} citoyens pseudonymises, ${rumeur} rumeur frontiere Nord.`;
+    return `Snapshot demo-safe : ${total} tweets — ${officiels} canaux vérifiés, ${citoyens} citoyens pseudonymisés, ${rumeur} rumeurs frontière Nord.`;
   }
 
   readonly clusterPoints = computed(() => {

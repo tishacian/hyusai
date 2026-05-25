@@ -1413,7 +1413,7 @@ export class MissionRailComponent {
   private readonly railLabelOverrides: Partial<Record<MissionView, string>> = {
     cockpit: 'Cockpit',
     strategie: 'Carte',
-    securite: 'Securite',
+    securite: 'Sécurité',
     reputation: 'Reputation',
     presse: 'Presse',
     decisions: 'Arbitrages',
@@ -1573,8 +1573,8 @@ export class MissionRailComponent {
         (voiceRequest)="openAssistantVoice($event)"
         (voiceListen)="openAssistantVoice('AYA, lis le briefing souverain en 60 secondes.')"
         (briefingRequest)="openZoneNordDossier()"
-        (securityPostureRequested)="openAssistant('AYA, montre-moi la posture securitaire du jour.')"
-        (securityCommuniqueRequested)="openAssistant('AYA, prepare un communique de securite sur la rumeur frontiere Nord.')"
+        (securityPostureRequested)="openAssistant('AYA, montre-moi la posture sécuritaire du jour.')"
+        (securityCommuniqueRequested)="openAssistant('AYA, prépare un communiqué de sécurité sur la rumeur Nord.')"
       />
     </ng-template>
 
@@ -2096,7 +2096,7 @@ export class MissionRailComponent {
     <ng-template #securiteView>
       <div class="securite-shell">
         <aside class="securite-council-bar" aria-live="polite">
-          <span class="eyebrow">Prochain arbitrage securitaire</span>
+          <span class="eyebrow">Prochain arbitrage sécuritaire</span>
           <strong>{{ securityCouncilLabel() }}</strong>
           <a routerLink="/hypervisor/mission-room/securite/monitor" class="inline-action">
             Ouvrir Security Monitor
@@ -2119,8 +2119,8 @@ export class MissionRailComponent {
             [arbitrationCards]="[]"
             [pressPreview]="[]"
             [securityPosture]="securityPosture()"
-            (securityPostureRequested)="openAssistant('AYA, montre-moi la posture securitaire du jour.')"
-            (securityCommuniqueRequested)="openAssistant('AYA, prepare un communique de securite sur la rumeur frontiere Nord.')"
+            (securityPostureRequested)="openAssistant('AYA, montre-moi la posture sécuritaire du jour.')"
+            (securityCommuniqueRequested)="openAssistant('AYA, prépare un communiqué de sécurité sur la rumeur Nord.')"
           />
 
           <section class="securite-stack">
@@ -2138,8 +2138,8 @@ export class MissionRailComponent {
         } @else {
           <section class="content-panel span-2 securite-documents">
             <span class="eyebrow">Collection sentinel-ci-security-briefs</span>
-            <h2>Documents securite · scope vigie</h2>
-            <p>Briefs posture Sahel, syntheses Conseil Defense et dossiers rumeur utilises par AYA S3.</p>
+            <h2>Documents sécurité · scope vigie</h2>
+            <p>Briefs posture Sahel, synthèses Conseil Défense et dossiers rumeur utilisés par AYA S3.</p>
             <div class="securite-doc-grid">
               @for (doc of securityDocuments(); track doc.id) {
                 <article class="securite-doc-card">
@@ -4848,7 +4848,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly fallbackNav: MissionNavigationItem[] = [
     { key: 'cockpit', label: 'Cockpit', glyph: 'ledger', route: '/hypervisor/mission-room/cockpit', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
     { key: 'strategie', label: 'Carte', glyph: 'sliders', route: '/hypervisor/mission-room/strategie', api: '/api/v1/mission-room/map', object: 'Workbench', workbench: 'Workbench' },
-    { key: 'securite', label: 'Securite', glyph: 'shield', route: '/hypervisor/mission-room/securite', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
+    { key: 'securite', label: 'Sécurité', glyph: 'shield', route: '/hypervisor/mission-room/securite', api: '/api/v1/mission-room/cockpit', object: 'Workbench', workbench: 'Workbench' },
     { key: 'reputation', label: 'Reputation', glyph: 'pulse', route: '/hypervisor/mission-room/reputation', api: '/api/v1/mission-room/news', object: 'Run', workbench: 'Run' },
     { key: 'agenda', label: 'Agenda', glyph: 'ledger', route: '/hypervisor/mission-room/agenda', api: '/api/v1/mission-room/timeline', object: 'Workbench', workbench: 'Workbench' },
     { key: 'presse', label: 'Presse', glyph: 'pulse', route: '/hypervisor/mission-room/presse', api: '/api/v1/mission-room/news', object: 'Run', workbench: 'Run' },
@@ -5356,7 +5356,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   securityCouncilLabel(): string {
     const council = (this.securityPosture()?.['next_council'] || {}) as Record<string, unknown>;
-    const label = String(council['label'] || 'Conseil Defense restreint');
+    const label = String(council['label'] || 'Conseil Défense restreint');
     const time = String(council['time'] || '15:00');
     return `${label} · ${time}`;
   }
@@ -5497,7 +5497,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       }));
     }
     return [
-      { zone: 'Nord', level: 'critique', bars: 4, summary: 'Incident frontiere · arbitrage attendu', tone: 'critical' },
+      { zone: 'Nord', level: 'critique', bars: 4, summary: 'Incident frontière · arbitrage attendu', tone: 'critical' },
       { zone: 'Ouest', level: 'surveillance', bars: 3, summary: 'Rumeur locale en progression', tone: 'elevated' },
       { zone: 'Centre', level: 'stable', bars: 2, summary: 'Projets sous controle', tone: 'stable' },
       { zone: 'Sud', level: 'operationnel', bars: 1, summary: 'Abidjan nominal', tone: 'stable' },
@@ -5590,7 +5590,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     }
     return [
       { key: 'ci', label: "Cote d'Ivoire", count: 3, top_signal: 'Article budget defense et rumeur sociale locale', signals: [] },
-      { key: 'cedeao', label: 'CEDEAO', count: 2, top_signal: 'Coordination frontiere Burkina', signals: [] },
+      { key: 'cedeao', label: 'CEDEAO', count: 2, top_signal: 'Coordination frontière Burkina', signals: [] },
       { key: 'africa', label: 'Afrique', count: 4, top_signal: 'Tensions regionales a surveiller', signals: [] },
       { key: 'world', label: 'Monde', count: 1, top_signal: 'Lecture diplomatique France-CI', signals: [] },
     ];

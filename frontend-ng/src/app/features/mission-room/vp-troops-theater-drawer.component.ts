@@ -67,12 +67,12 @@ export interface TroopsSahelSnapshot {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (snapshot && (embedded || open)) {
-      <div [class]="embedded ? 'troops-embedded-root' : 'troops-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" aria-label="Theatre Sahel">
+      <div [class]="embedded ? 'troops-embedded-root' : 'troops-drawer-root'" [attr.role]="embedded ? null : 'dialog'" [attr.aria-modal]="embedded ? null : 'true'" aria-label="Théâtre Sahel">
         @if (!embedded) {
           <button
             type="button"
             class="troops-drawer-backdrop"
-            aria-label="Fermer le theatre Sahel"
+            aria-label="Fermer le théâtre Sahel"
             (click)="closed.emit()"
           ></button>
         }
@@ -86,7 +86,7 @@ export interface TroopsSahelSnapshot {
                   {{ snapshot.source_badge }}
                 </small>
               }
-              <h2>{{ snapshot.theater_label || 'Theatre Sahel' }}</h2>
+              <h2>{{ snapshot.theater_label || 'Théâtre Sahel' }}</h2>
               <p class="troops-drawer-summary">{{ snapshot.disclaimer || defaultDisclaimer }}</p>
             </div>
             @if (!embedded) {
@@ -102,7 +102,7 @@ export interface TroopsSahelSnapshot {
           </header>
 
           <div class="troops-drawer-body">
-            <section class="troops-stats" aria-label="Indicateurs theatre">
+            <section class="troops-stats" aria-label="Indicateurs théâtre">
               <article class="stat-card">
                 <span class="stat-label">traces actives</span>
                 <strong>{{ tracks().length }}</strong>
@@ -126,7 +126,7 @@ export interface TroopsSahelSnapshot {
             </section>
 
             <section class="troops-section">
-              <span class="eyebrow">Trafic militaire (snapshot ADS-B)</span>
+              <span class="eyebrow">Traces aériennes advisory (snapshot ADS-B)</span>
               @if (tracks().length) {
                 <div class="track-table-wrap">
                   <table class="track-table">
@@ -216,7 +216,7 @@ export interface TroopsSahelSnapshot {
 
           <footer class="troops-drawer-foot">
             <span class="foot-disclaimer">
-              ADS-B public, advisory only · sources OSINT (ACLED-like, FlightRadar-like, OSINT public)
+              ADS-B public, advisory only · sources publiques et baseline démo
             </span>
             <button type="button" class="action-link muted" (click)="closed.emit()">
               Fermer
@@ -625,7 +625,7 @@ export class VpTroopsTheaterDrawerComponent {
   @Output() trackSelected = new EventEmitter<TroopsTrack>();
 
   readonly defaultDisclaimer =
-    'ADS-B advisory only — snapshot scenario, aucune donnee operationnelle classifiee.';
+    'ADS-B advisory only — snapshot scénario, aucune donnée opérationnelle classifiée.';
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
@@ -666,7 +666,7 @@ export class VpTroopsTheaterDrawerComponent {
 
   statusLabel(tone?: string): string {
     const key = (tone || 'stable').toLowerCase();
-    if (key === 'watch') return 'A suivre';
+    if (key === 'watch') return 'À suivre';
     if (key === 'critical') return 'Tendu';
     return 'Stable';
   }
@@ -679,8 +679,8 @@ export class VpTroopsTheaterDrawerComponent {
   alertLabel(zone: TroopsWatchZone): string {
     if (zone.alert_level) return zone.alert_level;
     const tone = (zone.tone || 'watch').toLowerCase();
-    if (tone === 'critical') return 'Niveau eleve';
+    if (tone === 'critical') return 'Niveau élevé';
     if (tone === 'stable')   return 'Niveau standard';
-    return 'A suivre';
+    return 'À suivre';
   }
 }

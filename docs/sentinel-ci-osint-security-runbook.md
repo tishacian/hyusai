@@ -165,7 +165,7 @@ Script Python autonome `scripts/probe_cedeao_index.py` (read-only, mirroring `te
 ```bash
 AGENTIUM_HOST=https://agentium.papai.ai \
 AGENTIUM_EMAIL=thibaud.ishacian@datategy.net \
-AGENTIUM_PASSWORD='ponfib-jaNca5-sisfoc' \
+AGENTIUM_PASSWORD='<mot-de-passe-test>' \
 WORKSPACE_SLUG=sentinel-ci \
 python3 scripts/probe_cedeao_index.py
 ```
@@ -211,8 +211,8 @@ Le probe valide le shape du payload (score 0-100, 4 composantes, badge `LIVE`/`C
 ### Risques juridiques / éthiques
 
 - **Aucune redistribution** du corps d'article RSS — seul le titre + URL est conservé en signal `sources`.
-- **ADS-B advisory-only** : le disclaimer `aucune donnee operationnelle classifiee` est inscrit dans le payload `troops_sahel.disclaimer` et le widget UI.
-- **Feeds Telegram non intégrés** en v2.2 (volonté explicite — risque de désinformation non maitrisée). Reste snapshot S3.
+- **ADS-B advisory-only** : le disclaimer `aucune donnée opérationnelle classifiée` est inscrit dans le payload `troops_sahel.disclaimer` et le widget UI.
+- **Feeds Telegram non intégrés** en v2.2 (volonté explicite — risque de désinformation non maîtrisée). Reste snapshot S3.
 - **Pas de profilage** ni d'enrichissement nominatif (RGPD / CDP-CI) — seules les zones géographiques et titres sont conservés.
 
 ## Coordonnées (v2.1)

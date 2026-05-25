@@ -140,7 +140,7 @@ import type {
               }
             </div>
             @if (securityOsintBadges(posture).length) {
-              <div class="vp-osint-badges" aria-label="Sources OSINT securite">
+              <div class="vp-osint-badges" aria-label="Sources OSINT sécurité">
                 @for (badge of securityOsintBadges(posture); track badge.key) {
                   <span class="vp-osint-badge" [class.live]="badge.live" [class.baseline]="!badge.live">
                     {{ badge.label }} · {{ badge.source_badge }}
@@ -589,7 +589,7 @@ export class VpCockpitComponent {
     if (rss?.source_badge) {
       badges.push({
         key: 'rss',
-        label: 'RSS securite',
+        label: 'RSS sécurité',
         source_badge: String(rss.source_badge),
         live: Boolean(rss.live),
       });

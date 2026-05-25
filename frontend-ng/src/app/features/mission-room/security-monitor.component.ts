@@ -47,18 +47,18 @@ interface SecurityMonitorPayload {
       <header class="sm-topbar">
         <div class="sm-brand">
           <a routerLink="/hypervisor/mission-room/securite" class="sm-back">
-            <span>← Securite</span>
+            <span>← Sécurité</span>
           </a>
           <span class="live-dot"></span>
           <strong>SENTINEL-CI</strong>
           <small>Security Monitor</small>
         </div>
         <div class="sm-status">
-          <span class="baseline-badge">CACHE BASELINE</span>
-          <b>{{ monitor()?.title || 'Theatre Sahel' }}</b>
+          <span class="baseline-badge" title="Mode démo reproductible">CACHE BASELINE</span>
+          <b>{{ monitor()?.title || 'Théâtre Sahel' }}</b>
         </div>
         <div class="sm-council">
-          <span>Conseil Defense restreint</span>
+          <span>Conseil Défense restreint</span>
           <strong>{{ councilTime() }}</strong>
         </div>
       </header>
@@ -66,7 +66,7 @@ interface SecurityMonitorPayload {
       <div class="sm-grid">
         <main class="sm-map-stage">
           <div class="stage-head">
-            <span class="eyebrow">Carte Sahel · ADS-B advisory + tension frontiere</span>
+            <span class="eyebrow">Carte Sahel · ADS-B advisory + tension frontière</span>
             <p>{{ monitor()?.summary || '' }}</p>
           </div>
           <app-workspace-map
@@ -96,7 +96,7 @@ interface SecurityMonitorPayload {
           </section>
 
           <section class="sm-panel sm-rumor-panel">
-            <span class="eyebrow">Fil rumeur frontiere Nord</span>
+            <span class="eyebrow">Fil rumeur frontière Nord</span>
             <app-vp-rumor-trace-timeline
               [embedded]="true"
               [open]="true"
