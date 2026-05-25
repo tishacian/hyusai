@@ -1520,6 +1520,7 @@ export class MissionRailComponent {
             @case ('decisions') { <ng-container *ngTemplateOutlet="decisionsView"></ng-container> }
             @case ('strategie') { <ng-container *ngTemplateOutlet="mapView"></ng-container> }
             @case ('recherche') { <ng-container *ngTemplateOutlet="searchView"></ng-container> }
+            @case ('reputation') { <ng-container *ngTemplateOutlet="reputationView"></ng-container> }
             @default { <ng-container *ngTemplateOutlet="cockpitView"></ng-container> }
           }
         }
@@ -4777,6 +4778,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     'decisions',
     'strategie',
     'recherche',
+    'reputation',
   ]);
 
   constructor() {
@@ -4796,7 +4798,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
         });
         return;
       }
-      if (['pilotage', 'projets', 'messages', 'bibliotheque', 'reputation', 'veille', 'assistant'].includes(view)) {
+      // 'reputation' used to be redirected to the cockpit, which broke the
+      // S3.5 `aya.show_reputation_drill` action (the reputation view template
+      // was already defined but unrouted). It is now a first-class view that
+      // renders the 2 positifs / 1 critique drill panel directly.
+      if (['pilotage', 'projets', 'messages', 'bibliotheque', 'veille', 'assistant'].includes(view)) {
         void this.router.navigate(['/hypervisor/mission-room/cockpit'], { replaceUrl: true });
       }
     });

@@ -1518,6 +1518,9 @@ async def execute_flow_action(
         # S3.5 — open the reputation view with the 2+ / 1- drill. The critical
         # item is the existing L'Inter critique (attention-inter-budget) so we
         # do not invent a press item.
+        # The frontend mission-room shell scrolls to the element whose `id`
+        # matches the `highlight` query param, so we anchor it on the
+        # `reputation-drill` panel id and add `drill=open` for explicit intent.
         from app.services.mission_room import REPUTATION_DRILL, _clone
 
         drill = _clone(REPUTATION_DRILL)
@@ -1526,7 +1529,12 @@ async def execute_flow_action(
                 "assistant-navigate",
                 {
                     "route": "/hypervisor/mission-room/reputation",
-                    "queryParams": {"focus": "drill"},
+                    "queryParams": {
+                        "focus": "drill",
+                        "drill": "open",
+                    },
+                    "highlight": "reputation-drill",
+                    "workspace": workspace.slug or "sentinel-ci",
                 },
             )
         )
