@@ -2132,23 +2132,84 @@ export class MissionRailComponent {
               [snapshot]="troopsSahel()"
             />
             <app-vp-rumor-trace-timeline
+              id="s3-rumor-trace"
               [embedded]="true"
               [open]="true"
               [trace]="rumorFrontierTrace()"
+              [focusStep]="selectedRumorStep()"
+              (draftCommunique)="openAssistant('AYA, prépare un communiqué de sécurité sur la rumeur Nord.')"
+              (showMap)="focusSecurityMapFromRumor()"
             />
           </section>
         } @else {
-          <section class="content-panel span-2 securite-documents">
-            <span class="eyebrow">Collection sentinel-ci-security-briefs</span>
-            <h2>Documents sécurité · scope vigie</h2>
-            <p>Briefs posture Sahel, synthèses Conseil Défense et dossiers rumeur utilisés par AYA S3.</p>
-            <div class="securite-doc-grid">
-              @for (doc of securityDocuments(); track doc.id) {
-                <article class="securite-doc-card">
-                  <span class="status-pill elevated">{{ doc.kind }}</span>
-                  <h3>{{ doc.title }}</h3>
-                  <p>{{ doc.summary }}</p>
-                  <small>{{ doc.collection }}</small>
+          <section class="content-panel span-2 securite-documents" id="security-doc-workbench">
+            <div class="panel-heading-row">
+              <div>
+                <span class="eyebrow">Collection sentinel-ci-security-briefs</span>
+                <h2>Documents sécurité · workbench vigie</h2>
+                <p>Briefs posture Sahel, synthèses Conseil Défense et dossiers rumeur utilisés par AYA S3.</p>
+              </div>
+              <span class="status-pill elevated">{{ securityDocuments().length }} sources indexées</span>
+            </div>
+            <div class="security-doc-workbench">
+              <nav class="securite-doc-list" aria-label="Documents sécurité S3">
+                @for (doc of securityDocuments(); track doc.id) {
+                  <button
+                    type="button"
+                    class="securite-doc-card"
+                    [class.active]="selectedSecurityDoc()?.id === doc.id"
+                    (click)="selectSecurityDoc(doc)"
+                  >
+                    <span class="status-pill elevated">{{ doc.kind }}</span>
+                    <strong>{{ doc.title }}</strong>
+                    <small>{{ doc.collection }}</small>
+                  </button>
+                }
+              </nav>
+
+              @if (selectedSecurityDoc(); as doc) {
+                <article class="security-doc-detail" aria-live="polite">
+                  <div class="panel-heading-row">
+                    <div>
+                      <span class="eyebrow">Document sélectionné</span>
+                      <h3>{{ doc.title }}</h3>
+                      <p>{{ doc.summary }}</p>
+                    </div>
+                    <span class="status-pill elevated">{{ doc.kind }}</span>
+                  </div>
+
+                  <div class="doc-context-grid">
+                    <article>
+                      <span>Dernière mise à jour</span>
+                      <strong>25 mai 2026 · matin</strong>
+                    </article>
+                    <article>
+                      <span>Usage démo S3</span>
+                      <strong>{{ securityDocUsage(doc) }}</strong>
+                    </article>
+                  </div>
+
+                  <section class="doc-excerpt">
+                    <span class="eyebrow">Extraits / citations</span>
+                    <p>{{ securityDocExcerpt(doc) }}</p>
+                  </section>
+
+                  <div class="source-row doc-source-row">
+                    @for (source of doc.sources || []; track source) {
+                      <app-mission-source-pill [label]="sourceLabel(source)" (click)="showSource(source)" />
+                    } @empty {
+                      <span class="doc-source-empty">Source indexée · extrait non disponible</span>
+                    }
+                  </div>
+
+                  <div class="doc-action-row">
+                    <button type="button" class="inline-action primary" (click)="runSecurityDocAction(doc)">
+                      {{ securityDocActionLabel(doc) }}
+                    </button>
+                    <button type="button" class="inline-action" (click)="openAssistant('AYA, résume le document sécurité ' + doc.title)">
+                      Résumer avec {{ assistantName() }}
+                    </button>
+                  </div>
                 </article>
               }
             </div>
@@ -2161,9 +2222,14 @@ export class MissionRailComponent {
       <section class="two-column">
         <app-mission-chart-panel eyebrow="E-Reputation" title="Sentiment medias" [value]="reputationValue()" [tall]="true">
           <svg class="line-chart big" viewBox="0 0 520 230" preserveAspectRatio="none">
+            <text class="chart-label" x="20" y="24">19 mai</text>
+            <text class="chart-label right" x="500" y="24">25 mai · {{ cockpit()?.reputation?.score || 72 }}%</text>
             <path class="line good" [attr.d]="trendPath(cockpit()?.reputation?.trend || [], 210, 32)"></path>
             <path class="line muted" d="M20 160 L500 160"></path>
+            <text class="chart-label muted-label" x="24" y="154">seuil neutre</text>
             <path class="line danger soft" d="M20 185 L130 195 L240 172 L340 202 L500 180"></path>
+            <circle class="chart-current-point" cx="500" cy="32" r="5"></circle>
+            <text class="chart-label current-label" x="430" y="50">+{{ cockpit()?.reputation?.delta || 4 }} pts</text>
           </svg>
         </app-mission-chart-panel>
         <article class="content-panel">
@@ -2200,37 +2266,80 @@ export class MissionRailComponent {
               Demander à {{ assistantName() }}
             </button>
           </div>
-          <div class="reputation-drill-grid">
-            @for (item of reputationDrillItems(); track item.id) {
-              <article
-                class="reputation-drill-card"
-                [class.positive]="item.kind === 'positif' || item.tone === 'positive'"
-                [class.critical]="item.kind === 'critique' || item.tone === 'negative'"
-              >
-                <header class="reputation-drill-head">
-                  <span class="reputation-drill-tag">
-                    {{ item.kind === 'critique' ? 'Critique' : 'Positif' }}
-                  </span>
-                  @if (item.engagement) {
-                    <small class="reputation-drill-engagement">{{ item.engagement }} eng.</small>
+          <section class="reputation-balance-band">
+            <div>
+              <span>Balance narrative</span>
+              <strong>{{ reputationNarrativeBalanceLabel() }}</strong>
+            </div>
+            <button type="button" class="inline-action" (click)="runReputationCouncilAction()">
+              Préparer un encart Conseil 15h
+            </button>
+          </section>
+          <div class="reputation-detail-layout">
+            <div class="reputation-drill-grid" aria-label="Signaux réputation">
+              @for (item of reputationDrillItems(); track item.id) {
+                <button
+                  type="button"
+                  class="reputation-drill-card"
+                  [class.positive]="item.kind === 'positif' || item.tone === 'positive'"
+                  [class.critical]="item.kind === 'critique' || item.tone === 'negative'"
+                  [class.active]="selectedReputationItem()?.id === item.id"
+                  (click)="selectReputationItem(item)"
+                >
+                  <header class="reputation-drill-head">
+                    <span class="reputation-drill-tag">
+                      {{ item.kind === 'critique' ? 'Critique' : 'Positif' }}
+                    </span>
+                    @if (item.engagement) {
+                      <small class="reputation-drill-engagement">{{ item.engagement }} eng.</small>
+                    }
+                  </header>
+                  <h3>{{ item.title }}</h3>
+                  @if (item.summary) {
+                    <p>{{ item.summary }}</p>
                   }
-                </header>
+                  <footer class="reputation-drill-foot">
+                    @if (item.source_label) {
+                      <span class="reputation-drill-source">{{ item.source_label }}</span>
+                    }
+                    @if (item.source_id) {
+                      <span class="reputation-drill-source">{{ sourceLabel(item.source_id) }}</span>
+                    }
+                  </footer>
+                </button>
+              }
+            </div>
+
+            @if (selectedReputationItem(); as item) {
+              <aside class="reputation-active-detail" aria-live="polite">
+                <span class="eyebrow">Signal actif</span>
                 <h3>{{ item.title }}</h3>
                 @if (item.summary) {
                   <p>{{ item.summary }}</p>
                 }
-                <footer class="reputation-drill-foot">
-                  @if (item.source_label) {
-                    <span class="reputation-drill-source">{{ item.source_label }}</span>
-                  }
+                <dl>
+                  <div><dt>Source</dt><dd>{{ item.source_label || sourceLabel(item.source_id || '') }}</dd></div>
+                  <div><dt>Engagement</dt><dd>{{ item.engagement || '—' }} interactions</dd></div>
+                  <div><dt>Risque</dt><dd>{{ reputationItemRiskLabel(item) }}</dd></div>
+                  <div><dt>Réponse</dt><dd>{{ reputationResponseLabel(item) }}</dd></div>
+                </dl>
+                <div class="doc-action-row">
+                  <button type="button" class="inline-action primary" (click)="runReputationCouncilAction()">
+                    Préparer réponse cabinet
+                  </button>
                   @if (item.source_id) {
-                    <app-mission-source-pill [label]="sourceLabel(item.source_id)" (click)="showSource(item.source_id)" />
+                    <button type="button" class="inline-action" (click)="showSource(item.source_id)">
+                      Voir source
+                    </button>
                   }
-                  @if (item.url) {
-                    <a class="reputation-drill-link" [href]="item.url" target="_blank" rel="noopener noreferrer">Voir l'article</a>
+                  <button type="button" class="inline-action" (click)="openReputationArticle(item)">
+                    {{ reputationArticleActionLabel(item) }}
+                  </button>
+                  @if (reputationExternalUrl(item); as externalUrl) {
+                    <a class="inline-action" [href]="externalUrl" target="_blank" rel="noopener noreferrer">Site source</a>
                   }
-                </footer>
-              </article>
+                </div>
+              </aside>
             }
           </div>
         </section>
@@ -4040,6 +4149,36 @@ export class MissionRailComponent {
         display: grid;
         gap: 12px;
       }
+      .reputation-balance-band {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid rgba(101, 214, 110, 0.28);
+        border-radius: var(--mission-radius);
+        background: linear-gradient(135deg, rgba(101, 214, 110, 0.10), rgba(8, 14, 20, 0.78));
+      }
+      .reputation-balance-band span,
+      .doc-context-grid span {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--mission-text-faint);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .reputation-balance-band strong {
+        color: var(--mission-text);
+        font-size: 14px;
+      }
+      .reputation-detail-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 0.42fr);
+        gap: 12px;
+        align-items: start;
+      }
       .reputation-drill-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4054,9 +4193,19 @@ export class MissionRailComponent {
         border: 1px solid var(--mission-border);
         background: var(--mission-inset);
         border-left: 3px solid var(--mission-border);
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        appearance: none;
+        font: inherit;
       }
       .reputation-drill-card.positive { border-left-color: rgba(101, 214, 110, 0.65); }
       .reputation-drill-card.critical { border-left-color: rgba(240, 100, 118, 0.65); }
+      .reputation-drill-card:hover,
+      .reputation-drill-card.active {
+        border-color: rgba(101, 214, 110, 0.42);
+        background: rgba(15, 111, 63, 0.10);
+      }
       .reputation-drill-head {
         display: flex;
         align-items: center;
@@ -4104,6 +4253,64 @@ export class MissionRailComponent {
         text-decoration: none;
       }
       .reputation-drill-link:hover { text-decoration: underline; }
+      .reputation-active-detail {
+        position: sticky;
+        top: 84px;
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius);
+        background: rgba(8, 14, 20, 0.78);
+      }
+      .reputation-active-detail h3 {
+        margin: 0;
+        font-size: 16px;
+        color: var(--mission-text);
+      }
+      .reputation-active-detail p {
+        margin: 0;
+        color: var(--mission-text-soft);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .reputation-active-detail dl {
+        margin: 0;
+        display: grid;
+        gap: 8px;
+      }
+      .reputation-active-detail dl div {
+        display: grid;
+        grid-template-columns: 82px minmax(0, 1fr);
+        gap: 10px;
+      }
+      .reputation-active-detail dt {
+        color: var(--mission-text-faint);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .reputation-active-detail dd {
+        margin: 0;
+        color: var(--mission-text-soft);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .chart-label {
+        fill: var(--mission-text-faint);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+      }
+      .chart-label.right { text-anchor: end; }
+      .chart-label.current-label { fill: var(--mission-trust); }
+      .chart-label.muted-label { fill: rgba(151, 185, 164, 0.5); }
+      .chart-current-point {
+        fill: var(--mission-trust);
+        stroke: rgba(4, 8, 13, 0.9);
+        stroke-width: 3px;
+      }
 
       .securite-shell { display: grid; gap: var(--mission-space-4); }
       .securite-council-bar {
@@ -4142,28 +4349,119 @@ export class MissionRailComponent {
         gap: var(--mission-space-4);
         align-items: start;
       }
-      .securite-doc-grid {
+      .security-doc-workbench {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: minmax(280px, 0.42fr) minmax(0, 1fr);
         gap: 12px;
         margin-top: 12px;
+        align-items: start;
+      }
+      .securite-doc-list {
+        display: grid;
+        gap: 10px;
       }
       .securite-doc-card {
+        display: grid;
+        gap: 8px;
         padding: 14px;
         border: 1px solid var(--mission-border);
         border-radius: var(--mission-radius-md);
         background: rgba(8, 14, 20, 0.55);
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        appearance: none;
+        font: inherit;
       }
-      .securite-doc-card h3 { margin: 8px 0; font-size: 15px; }
-      .securite-doc-card p { margin: 0; color: var(--mission-text-secondary); font-size: 13px; }
-      .securite-doc-card small { display: block; margin-top: 8px; color: var(--mission-text-secondary); }
+      .securite-doc-card:hover,
+      .securite-doc-card.active {
+        border-color: rgba(101, 214, 110, 0.42);
+        background: rgba(15, 111, 63, 0.11);
+      }
+      .securite-doc-card strong {
+        font-size: 14px;
+        line-height: 1.25;
+        color: var(--mission-text);
+      }
+      .securite-doc-card small {
+        color: var(--mission-text-secondary);
+        overflow-wrap: anywhere;
+      }
+      .security-doc-detail {
+        display: grid;
+        gap: 14px;
+        min-width: 0;
+        padding: 14px;
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: rgba(4, 8, 13, 0.55);
+      }
+      .security-doc-detail h3 {
+        margin: 0;
+        font-size: 18px;
+        color: var(--mission-text);
+      }
+      .security-doc-detail p {
+        margin: 0;
+        color: var(--mission-text-secondary);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .doc-context-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 0.45fr) minmax(0, 1fr);
+        gap: 10px;
+      }
+      .doc-context-grid article {
+        min-width: 0;
+        padding: 10px;
+        border: 1px solid rgba(151, 185, 164, 0.16);
+        border-radius: var(--mission-radius-sm);
+        background: var(--mission-inset);
+      }
+      .doc-context-grid strong {
+        display: block;
+        color: var(--mission-text);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+      .doc-excerpt {
+        padding: 12px;
+        border: 1px solid rgba(242, 140, 56, 0.24);
+        border-radius: var(--mission-radius-sm);
+        background: rgba(242, 140, 56, 0.07);
+      }
+      .doc-source-row { margin-top: 0; }
+      .doc-source-empty {
+        color: var(--mission-text-faint);
+        font-size: 12px;
+      }
+      .doc-action-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .inline-action.primary {
+        border-color: rgba(101, 214, 110, 0.42);
+        background: var(--sentinel-accent-soft);
+        color: var(--sentinel-accent-strong);
+      }
+      .securite-doc-card:focus-visible,
+      .reputation-drill-card:focus-visible,
+      .inline-action:focus-visible {
+        outline: 2px solid var(--sentinel-accent);
+        outline-offset: 2px;
+      }
 
       @media (max-width: 980px) {
+        .reputation-detail-layout,
         .reputation-drill-grid {
           grid-template-columns: 1fr;
         }
+        .reputation-active-detail { position: static; }
         .securite-stack,
-        .securite-doc-grid { grid-template-columns: 1fr; }
+        .security-doc-workbench,
+        .doc-context-grid { grid-template-columns: 1fr; }
       }
       .option-compare-head,
       .option-compare-row {
@@ -4790,6 +5088,9 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly pressArticleListRiskSort = signal(false);
   readonly morningHighlightDismissed = signal(this.readMorningDismissed());
   readonly s3FocusTarget = signal<string | null>(null);
+  readonly selectedSecurityDocId = signal<string | null>(null);
+  readonly selectedRumorStep = signal<number | null>(null);
+  readonly selectedReputationItemId = signal<string | null>(null);
   private readonly highlightQuery = toSignal(
     this.route.queryParamMap.pipe(map((params) => params.get('highlight'))),
     { initialValue: null as string | null },
@@ -4969,7 +5270,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     window.addEventListener('agentium:assistant-propose', this.assistantProposeListener);
     window.addEventListener('agentium:assistant-show-webcam', this.assistantShowWebcamListener);
     this.focusQuerySub = this.route.queryParamMap.subscribe((params) => {
-      this.armS3Focus(params.get('focus') || params.get('panel') || params.get('drill'));
+      this.applyS3QueryState(params);
     });
     this.loadAll();
     this.subscribeMaritimeTracking();
@@ -4993,6 +5294,35 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.maritimeVesselsSub = null;
     this.visualObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     this.visualObjectUrls.length = 0;
+  }
+
+  private applyS3QueryState(params: { get(name: string): string | null }): void {
+    const focus = params.get('focus');
+    const panel = params.get('panel');
+    const drill = params.get('drill');
+    const docId = params.get('doc');
+    const rumorStep = params.get('rumor_step');
+    const reputationItem = params.get('reputation_item');
+
+    if (docId) {
+      this.securiteTab.set('documents');
+      this.selectedSecurityDocId.set(docId);
+      this.scrollToElementId('security-doc-workbench', 'start');
+    }
+    if (panel === 'rumor' || rumorStep) {
+      this.securiteTab.set('vue');
+      const stepNumber = Number(rumorStep || 5);
+      this.selectedRumorStep.set(Number.isFinite(stepNumber) ? stepNumber : 5);
+      this.scrollToElementId('s3-rumor-trace', 'start');
+    }
+    if (drill === 'reputation') {
+      this.selectedReputationItemId.set(reputationItem || this.defaultReputationItemId());
+      this.scrollToElementId('reputation-drill', 'center');
+    } else if (reputationItem) {
+      this.selectedReputationItemId.set(reputationItem);
+      this.scrollToElementId('reputation-drill', 'center');
+    }
+    this.armS3Focus(focus || panel || drill);
   }
 
   private armS3Focus(rawFocus: string | null): void {
@@ -5021,6 +5351,15 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     }, 2200);
   }
 
+  private scrollToElementId(id: string, block: ScrollLogicalPosition = 'center'): void {
+    setTimeout(() => {
+      const target = document.getElementById(id);
+      if (!target) return;
+      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block });
+    }, 80);
+  }
+
   private subscribeMaritimeTracking(): void {
     if (this.maritimeVesselsSub) return;
     this.maritimeVesselsSub = this.maritimeTracking.getSnapshot().subscribe({
@@ -5043,11 +5382,23 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       next: ({ navigation, cockpit }) => {
         this.navigation.set(navigation);
         this.cockpit.set(cockpit);
+        this.ensureS3Defaults();
         this.loading.set(false);
         this.loadMissionRoomDetails();
       },
       error: () => this.loading.set(false),
     });
+  }
+
+  private ensureS3Defaults(): void {
+    if (!this.selectedSecurityDocId()) {
+      const firstDoc = this.securityDocuments()[0];
+      if (firstDoc) this.selectedSecurityDocId.set(firstDoc.id);
+    }
+    if (!this.selectedReputationItemId()) {
+      const defaultItemId = this.defaultReputationItemId();
+      if (defaultItemId) this.selectedReputationItemId.set(defaultItemId);
+    }
   }
 
   private loadMissionRoomDetails(): void {
@@ -5153,6 +5504,168 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   reputationDrillItems(): NonNullable<MissionCockpit['reputation']['items']> {
     return this.cockpit()?.reputation?.items || [];
+  }
+
+  selectedSecurityDoc(): NonNullable<MissionCockpit['security_documents']>[number] | null {
+    const docs = this.securityDocuments();
+    if (!docs.length) return null;
+    const selectedId = this.selectedSecurityDocId();
+    return docs.find((doc) => doc.id === selectedId) || docs[0] || null;
+  }
+
+  selectSecurityDoc(doc: NonNullable<MissionCockpit['security_documents']>[number]): void {
+    this.selectedSecurityDocId.set(doc.id);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { doc: doc.id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  securityDocUsage(doc: NonNullable<MissionCockpit['security_documents']>[number]): string {
+    const key = `${doc.id} ${doc.title} ${doc.kind}`.toLowerCase();
+    if (key.includes('conseil')) return 'Support de préparation cabinet avant la revue Sahel de 15h.';
+    if (key.includes('rumeur')) return 'Source de vérité S3.3 : chaîne OSINT, démenti FANCI et mise au point Préfecture.';
+    if (key.includes('ads') || key.includes('troupes')) return 'Contexte S3.4 : traces ADS-B advisory et théâtre Sahel.';
+    if (key.includes('posture') || key.includes('sahel')) return 'Alimente S3.1 : posture dual-axis et Conseil Défense 15h.';
+    return 'Document indexé pour les réponses AYA S3.';
+  }
+
+  securityDocActionLabel(doc: NonNullable<MissionCockpit['security_documents']>[number]): string {
+    const key = `${doc.id} ${doc.title} ${doc.kind}`.toLowerCase();
+    if (key.includes('conseil')) return 'Voir Conseil 15h';
+    if (key.includes('rumeur')) return 'Ouvrir timeline rumeur';
+    if (key.includes('ads') || key.includes('troupes')) return 'Ouvrir Security Monitor';
+    if (key.includes('posture') || key.includes('sahel')) return 'Demander la posture à AYA';
+    return 'Ouvrir avec AYA';
+  }
+
+  securityDocSourceLabels(doc: NonNullable<MissionCockpit['security_documents']>[number]): string[] {
+    return (doc.sources || []).map((source) => this.sourceLabel(source));
+  }
+
+  securityDocExcerpt(doc: NonNullable<MissionCockpit['security_documents']>[number]): string {
+    const sourceLabel = this.securityDocSourceLabels(doc)[0];
+    if (!sourceLabel) return 'Source indexée · extrait non disponible.';
+    return `${doc.summary} Source principale : ${sourceLabel}.`;
+  }
+
+  runSecurityDocAction(doc: NonNullable<MissionCockpit['security_documents']>[number]): void {
+    const key = `${doc.id} ${doc.title} ${doc.kind}`.toLowerCase();
+    if (key.includes('conseil')) {
+      this.securiteTab.set('vue');
+      this.armS3Focus('security_posture');
+      this.scrollToElementId('s3-security-posture', 'center');
+      return;
+    }
+    if (key.includes('rumeur')) {
+      this.securiteTab.set('vue');
+      this.selectedRumorStep.set(5);
+      this.scrollToElementId('s3-rumor-trace', 'start');
+      return;
+    }
+    if (key.includes('ads') || key.includes('troupes')) {
+      this.openSecurityMonitor();
+      return;
+    }
+    if (key.includes('posture') || key.includes('sahel')) {
+      this.openAssistant('AYA, montre-moi la posture sécuritaire du jour.');
+      return;
+    }
+    this.openAssistant(`AYA, résume le document sécurité ${doc.title}.`);
+  }
+
+  defaultReputationItemId(): string | null {
+    const items = this.reputationDrillItems();
+    return items.find((item) => item.kind === 'critique' || item.tone === 'negative')?.id || items[0]?.id || null;
+  }
+
+  selectedReputationItem(): NonNullable<MissionCockpit['reputation']['items']>[number] | null {
+    const items = this.reputationDrillItems();
+    if (!items.length) return null;
+    const selectedId = this.selectedReputationItemId() || this.defaultReputationItemId();
+    return items.find((item) => item.id === selectedId) || items[0] || null;
+  }
+
+  selectReputationItem(item: NonNullable<MissionCockpit['reputation']['items']>[number]): void {
+    this.selectedReputationItemId.set(item.id);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { drill: 'reputation', reputation_item: item.id },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  reputationItemRiskLabel(item: NonNullable<MissionCockpit['reputation']['items']>[number]): string {
+    if (item.kind === 'critique' || item.tone === 'negative') return 'Risque : cadrage budget défense avant Conseil 15h.';
+    if (/nawa/i.test(item.title)) return 'Opportunité : valoriser la réponse territoriale et cacao.';
+    return 'Opportunité : consolider la lecture Nord auprès des partenaires.';
+  }
+
+  reputationResponseLabel(item: NonNullable<MissionCockpit['reputation']['items']>[number]): string {
+    if (item.kind === 'critique' || item.tone === 'negative') return 'Réponse recommandée : encart sobre, chiffres prudents, validation cabinet.';
+    return 'Réponse recommandée : reprendre le signal positif sans triomphalisme.';
+  }
+
+  reputationNarrativeBalanceLabel(): string {
+    const positive = this.reputationDrillItems().filter((item) => item.kind !== 'critique' && item.tone !== 'negative').length;
+    const critical = this.reputationDrillItems().filter((item) => item.kind === 'critique' || item.tone === 'negative').length;
+    return `${positive} signaux positifs compensent ${critical} critique · budget défense relié au Conseil 15h.`;
+  }
+
+  runReputationCouncilAction(): void {
+    this.openAssistant('AYA, prépare un encart Conseil 15h sur la réputation et le budget défense.');
+  }
+
+  reputationArticleActionLabel(item: NonNullable<MissionCockpit['reputation']['items']>[number]): string {
+    if (item.kind === 'critique' || item.tone === 'negative') return "Ouvrir l'article interne";
+    return 'Ouvrir la note presse';
+  }
+
+  reputationExternalUrl(item: NonNullable<MissionCockpit['reputation']['items']>[number]): string | null {
+    const url = item.url || '';
+    if (!url || /\/example\//i.test(url) || /example\./i.test(url)) return null;
+    return url;
+  }
+
+  openReputationArticle(item: NonNullable<MissionCockpit['reputation']['items']>[number]): void {
+    const article = this.reputationArticleFor(item);
+    this.openPressArticle(article);
+  }
+
+  private reputationArticleFor(item: NonNullable<MissionCockpit['reputation']['items']>[number]): NewsSignal {
+    const linkedAttentionId = item.linked_attention_id || '';
+    const sourceId = item.source_id || '';
+    const match = this.allNewsSignals().find((signal) =>
+      signal.id === linkedAttentionId
+      || signal.id === sourceId
+      || signal.article_id === linkedAttentionId
+      || signal.sources?.includes(sourceId)
+      || signal.sources?.includes(linkedAttentionId),
+    );
+    if (match) return match;
+    const negative = item.kind === 'critique' || item.tone === 'negative';
+    return {
+      id: linkedAttentionId || item.id,
+      article_id: linkedAttentionId || item.id,
+      title: item.title,
+      risk_level: negative ? 'high' : 'medium',
+      sentiment: item.sentiment || (negative ? 'negative' : 'positive'),
+      summary: item.summary || 'Source presse indexée pour le drill réputation S3.',
+      source: item.source_label || sourceId || 'Source presse',
+      source_name: item.source_label || sourceId || 'Source presse',
+      source_category: 'presse',
+      sources: [sourceId || linkedAttentionId || item.id].filter(Boolean),
+      tags: ['reputation', 'sentinel-ci', negative ? 'critique' : 'positif'],
+      briefing_value: this.reputationResponseLabel(item),
+      why_it_matters: this.reputationItemRiskLabel(item),
+      recommended_action: negative
+        ? 'Préparer une réponse cabinet sobre avant le Conseil 15h.'
+        : 'Capitaliser sans surjouer : signal positif utile pour l’encart Conseil 15h.',
+      url: this.reputationExternalUrl(item),
+    };
   }
 
   newsAlerts(): NewsSignal[] {
@@ -5932,6 +6445,19 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       () => this.openAssistant('AYA, pourquoi la situation Nord est-elle tendue ?'),
       240,
     );
+  }
+
+  openSecurityMonitor(): void {
+    void this.router.navigate(['/hypervisor/mission-room/securite/monitor'], {
+      queryParams: { panel: 'satellite-imagery-rail' },
+    });
+  }
+
+  focusSecurityMapFromRumor(): void {
+    this.openDrillDownView('strategie', undefined, undefined, {
+      zone: 'zone-nord',
+      layers: 'border-tension,social-geo,military-air',
+    });
   }
 
   highlightedStrategicVesselMmsi(): string | null {

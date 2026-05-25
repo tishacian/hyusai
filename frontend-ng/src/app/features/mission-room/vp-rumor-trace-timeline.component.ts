@@ -33,6 +33,7 @@ export interface RumorTrace {
 }
 
 type Phase = 'emergence' | 'amplification' | 'demente';
+type TimelineFilter = Phase | 'all';
 
 @Component({
   selector: 'app-vp-rumor-trace-timeline',
@@ -106,43 +107,98 @@ type Phase = 'emergence' | 'amplification' | 'demente';
               </div>
             </section>
 
-            <section class="rumor-timeline" aria-label="Chronologie OSINT">
-              <span class="eyebrow">Chaîne de propagation</span>
-              <ol class="timeline">
-                @for (step of steps(); track stepKey(step, $index)) {
-                  <li class="timeline-item" [attr.data-phase]="phaseFor(step)">
-                    <span class="timeline-rail" aria-hidden="true"></span>
-                    <span class="timeline-dot" [class]="'phase-' + phaseFor(step)" aria-hidden="true">
-                      <span>{{ step.step ?? $index + 1 }}</span>
-                    </span>
-                    <article class="timeline-card" [class]="'phase-' + phaseFor(step)">
-                      <header>
-                        <span class="timeline-channel">
-                          <span class="channel-glyph" [class]="'glyph-' + glyphFor(step.channel)" aria-hidden="true">{{ channelLetter(step.channel) }}</span>
-                          {{ step.channel || '—' }}
-                        </span>
-                        @if (step.time) {
-                          <small class="timeline-time">{{ step.time }}</small>
-                        }
-                      </header>
-                      <strong class="timeline-actor">{{ step.actor || '—' }}</strong>
-                      <p class="timeline-signal">{{ step.signal || '' }}</p>
-                      <footer class="timeline-foot">
-                        @if (step.confidence !== undefined && step.confidence !== null) {
-                          <span class="confidence-chip" [class]="confidenceClass(step.confidence)">
-                            confiance {{ confidencePct(step.confidence) }}%
+            <section class="rumor-metrics" aria-label="Indicateurs de propagation">
+              <article>
+                <span>Durée</span>
+                <strong>{{ rumorDurationLabel() }}</strong>
+                <small>premier signal → mise au point</small>
+              </article>
+              <article>
+                <span>Pic relais</span>
+                <strong>{{ amplificationPeakLabel() }}</strong>
+                <small>avant démenti officiel</small>
+              </article>
+              <article>
+                <span>Démenti</span>
+                <strong>{{ denialGapLabel() }}</strong>
+                <small>temps jusqu'au premier démenti</small>
+              </article>
+            </section>
+
+            <section class="rumor-filter-bar" aria-label="Filtres chronologie">
+              <button type="button" [class.active]="activeFilter === 'all'" (click)="setFilter('all')">Tout</button>
+              <button type="button" [class.active]="activeFilter === 'emergence'" (click)="setFilter('emergence')">Origine</button>
+              <button type="button" [class.active]="activeFilter === 'amplification'" (click)="setFilter('amplification')">Amplification</button>
+              <button type="button" [class.active]="activeFilter === 'demente'" (click)="setFilter('demente')">Démentis officiels</button>
+            </section>
+
+            <section class="rumor-investigation-grid" aria-label="Analyse de propagation">
+              <div class="rumor-timeline" aria-label="Chronologie OSINT">
+                <span class="eyebrow">Chaîne de propagation</span>
+                <ol class="timeline">
+                  @for (step of visibleSteps(); track stepKey(step, $index)) {
+                    <li class="timeline-item" [attr.data-phase]="phaseFor(step)">
+                      <span class="timeline-rail" aria-hidden="true"></span>
+                      <span class="timeline-dot" [ngClass]="'phase-' + phaseFor(step)" aria-hidden="true">
+                        <span>{{ step.step ?? $index + 1 }}</span>
+                      </span>
+                      <button
+                        type="button"
+                        class="timeline-card"
+                        [ngClass]="'phase-' + phaseFor(step)"
+                        [class.active]="isSelectedStep(step, $index)"
+                        (click)="selectStep(step, $index)"
+                      >
+                        <header>
+                          <span class="timeline-channel">
+                            <span class="channel-glyph" [ngClass]="'glyph-' + glyphFor(step.channel)" aria-hidden="true">{{ channelLetter(step.channel) }}</span>
+                            {{ step.channel || '—' }}
                           </span>
-                        }
-                        @if (step.source_url) {
-                          <a class="timeline-source" [href]="step.source_url" target="_blank" rel="noopener noreferrer">Source</a>
-                        } @else if (step.source_id) {
-                          <span class="timeline-source-id">src · {{ step.source_id }}</span>
-                        }
-                      </footer>
-                    </article>
-                  </li>
-                }
-              </ol>
+                          @if (step.time) {
+                            <small class="timeline-time">{{ step.time }}</small>
+                          }
+                        </header>
+                        <strong class="timeline-actor">{{ step.actor || '—' }}</strong>
+                        <p class="timeline-signal">{{ step.signal || '' }}</p>
+                        <footer class="timeline-foot">
+                          @if (step.confidence !== undefined && step.confidence !== null) {
+                            <span class="confidence-chip" [ngClass]="confidenceClass(step.confidence)">
+                              confiance {{ confidencePct(step.confidence) }}%
+                            </span>
+                          }
+                          @if (step.source_id) {
+                            <span class="timeline-source-id">src · {{ step.source_id }}</span>
+                          }
+                        </footer>
+                      </button>
+                    </li>
+                  } @empty {
+                    <li class="timeline-empty">Aucun signal dans ce filtre.</li>
+                  }
+                </ol>
+              </div>
+
+              @if (selectedStep(); as active) {
+                <aside class="rumor-step-detail" aria-live="polite">
+                  <span class="eyebrow">Étape active</span>
+                  <h3>{{ phaseLabel(phaseFor(active)) }}</h3>
+                  <dl>
+                    <div><dt>Canal</dt><dd>{{ active.channel || '—' }}</dd></div>
+                    <div><dt>Acteur</dt><dd>{{ active.actor || '—' }}</dd></div>
+                    <div><dt>Heure</dt><dd>{{ active.time || '—' }}</dd></div>
+                    <div><dt>Confiance</dt><dd>{{ active.confidence !== undefined && active.confidence !== null ? confidencePct(active.confidence) + '%' : '—' }}</dd></div>
+                    <div><dt>Source</dt><dd>{{ active.source_id || 'source indexée · extrait non disponible' }}</dd></div>
+                  </dl>
+                  <p>{{ active.signal || 'Signal indexé sans extrait disponible.' }}</p>
+                  <div class="detail-callout">
+                    <strong>Effet narratif</strong>
+                    <span>{{ narrativeEffectFor(active) }}</span>
+                  </div>
+                  <button type="button" class="action-link primary compact" (click)="draftCommunique.emit()">
+                    {{ actionFor(active) }}
+                  </button>
+                </aside>
+              }
             </section>
 
             @if (trace.recommended_action || trace.aya_sentence) {
@@ -162,9 +218,18 @@ type Phase = 'emergence' | 'amplification' | 'demente';
             <button type="button" class="action-link primary" (click)="draftCommunique.emit()">
               Préparer un communiqué
             </button>
-            <button type="button" class="action-link muted" (click)="closed.emit()">
-              Fermer
-            </button>
+            @if (embedded) {
+              <button type="button" class="action-link muted" (click)="showMap.emit()">
+                Voir sur carte Nord
+              </button>
+              <button type="button" class="action-link muted" (click)="filterDenied()">
+                Filtrer démentis
+              </button>
+            } @else {
+              <button type="button" class="action-link muted" (click)="closed.emit()">
+                Fermer
+              </button>
+            }
           </footer>
         </aside>
       </div>
@@ -190,7 +255,7 @@ type Phase = 'emergence' | 'amplification' | 'demente';
       }
       .rumor-drawer-panel {
         position: relative;
-        width: min(620px, 100vw);
+        width: min(760px, 100vw);
         height: 100%;
         display: flex;
         flex-direction: column;
@@ -201,7 +266,15 @@ type Phase = 'emergence' | 'amplification' | 'demente';
       }
       @keyframes rumor-drawer-in {
         from { transform: translateX(16px); opacity: 0.6; }
-        to   { transform: translateX(0);    opacity: 1; }
+        to   { transform: translateX(0); opacity: 1; }
+      }
+      .rumor-embedded-root { display: block; }
+      .rumor-embedded-panel {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        animation: none;
       }
       .rumor-drawer-head {
         position: sticky;
@@ -241,14 +314,6 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         line-height: 1;
         cursor: pointer;
       }
-      .rumor-drawer-close:hover {
-        border-color: var(--sentinel-accent-muted);
-        color: var(--mission-text-primary);
-      }
-      .rumor-drawer-close:focus-visible {
-        outline: 2px solid var(--sentinel-accent);
-        outline-offset: 2px;
-      }
       .rumor-drawer-body {
         flex: 1 1 auto;
         overflow-y: auto;
@@ -265,28 +330,6 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         letter-spacing: 0.13em;
         text-transform: uppercase;
       }
-
-      .risk-pill {
-        display: inline-flex;
-        padding: 2px 8px;
-        border-radius: 999px;
-        border: 1px solid var(--mission-border);
-        font-family: var(--mission-font-mono);
-        font-size: 9px;
-        letter-spacing: var(--mission-tracking-micro);
-        text-transform: uppercase;
-        color: var(--mission-text-secondary);
-      }
-      .risk-pill.success {
-        border-color: rgba(63, 209, 141, 0.45);
-        background: var(--mission-success-soft);
-        color: var(--mission-success);
-      }
-      .risk-pill.warn {
-        border-color: rgba(242, 140, 56, 0.42);
-        background: var(--mission-orange-soft);
-        color: var(--mission-orange);
-      }
       .publisher-badge {
         display: inline-block;
         margin-left: 6px;
@@ -299,14 +342,19 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         letter-spacing: 0.06em;
         text-transform: uppercase;
       }
-
+      .verdict-bar,
+      .rumor-meta,
+      .rumor-step-detail,
+      .rumor-recommendation {
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: rgba(4, 8, 13, 0.55);
+      }
       .verdict-bar {
         display: flex;
         gap: var(--mission-space-3);
         align-items: center;
         padding: var(--mission-space-3) var(--mission-space-4);
-        border-radius: var(--mission-radius-md);
-        border: 1px solid var(--mission-border);
       }
       .verdict-bar.verdict-denied {
         border-color: rgba(63, 209, 141, 0.45);
@@ -328,14 +376,8 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         font-size: 14px;
         font-weight: 700;
       }
-      .verdict-denied .verdict-icon {
-        background: var(--mission-success);
-        color: #03130a;
-      }
-      .verdict-pending .verdict-icon {
-        background: var(--mission-orange);
-        color: #1a0d05;
-      }
+      .verdict-denied .verdict-icon { background: var(--mission-success); color: #03130a; }
+      .verdict-pending .verdict-icon { background: var(--mission-orange); color: #1a0d05; }
       .verdict-copy {
         display: grid;
         gap: 2px;
@@ -352,15 +394,15 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         color: var(--mission-text-secondary);
         font-size: var(--mission-text-sm);
       }
-
-      .rumor-meta {
+      .rumor-meta,
+      .rumor-metrics {
         display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--mission-space-3);
+      }
+      .rumor-meta {
         grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-        gap: var(--mission-space-4);
         padding: var(--mission-space-3);
-        border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius-sm);
-        background: rgba(4, 8, 13, 0.55);
       }
       .rumor-meta p {
         margin: 0;
@@ -368,8 +410,61 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         font-size: var(--mission-text-sm);
         line-height: var(--mission-lh-body);
       }
-
-      .rumor-timeline {
+      .rumor-metrics article {
+        min-width: 0;
+        padding: var(--mission-space-3);
+        border: 1px solid rgba(151, 185, 164, 0.16);
+        border-radius: var(--mission-radius-sm);
+        background: var(--mission-inset);
+      }
+      .rumor-metrics span,
+      .rumor-metrics small {
+        display: block;
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .rumor-metrics strong {
+        display: block;
+        margin: 5px 0;
+        color: var(--mission-text-primary);
+        font-size: 18px;
+      }
+      .rumor-filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .rumor-filter-bar button,
+      .action-link,
+      .timeline-card {
+        font: inherit;
+        cursor: pointer;
+      }
+      .rumor-filter-bar button {
+        min-height: 32px;
+        padding: 6px 11px;
+        border: 1px solid var(--mission-border);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--mission-text-secondary);
+      }
+      .rumor-filter-bar button.active {
+        border-color: rgba(101, 214, 110, 0.45);
+        background: var(--sentinel-accent-soft);
+        color: var(--sentinel-accent-strong);
+      }
+      .rumor-investigation-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.45fr);
+        gap: var(--mission-space-4);
+        align-items: start;
+      }
+      .rumor-timeline,
+      .timeline,
+      .rumor-step-detail {
         display: grid;
         gap: var(--mission-space-3);
       }
@@ -377,8 +472,6 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         list-style: none;
         margin: 0;
         padding: 0;
-        display: grid;
-        gap: var(--mission-space-3);
       }
       .timeline-item {
         position: relative;
@@ -411,11 +504,11 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         background: var(--mission-warning);
         box-shadow: 0 0 0 4px rgba(4, 10, 14, 0.97);
       }
-      .timeline-dot.phase-emergence    { background: var(--mission-orange); }
+      .timeline-dot.phase-emergence { background: var(--mission-orange); }
       .timeline-dot.phase-amplification { background: var(--mission-critical); }
-      .timeline-dot.phase-demente      { background: var(--mission-success); }
-
+      .timeline-dot.phase-demente { background: var(--mission-success); }
       .timeline-card {
+        width: 100%;
         display: grid;
         gap: var(--mission-space-2);
         padding: var(--mission-space-3);
@@ -423,14 +516,22 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         border-left-width: 3px;
         border-radius: var(--mission-radius-sm);
         background: rgba(4, 8, 13, 0.55);
+        color: inherit;
+        text-align: left;
       }
-      .timeline-card.phase-emergence    { border-left-color: var(--mission-orange); }
+      .timeline-card:hover,
+      .timeline-card.active {
+        border-color: rgba(101, 214, 110, 0.42);
+        background: rgba(15, 111, 63, 0.10);
+      }
+      .timeline-card.phase-emergence { border-left-color: var(--mission-orange); }
       .timeline-card.phase-amplification { border-left-color: var(--mission-critical); }
-      .timeline-card.phase-demente      { border-left-color: var(--mission-success); }
-
-      .timeline-card header {
+      .timeline-card.phase-demente { border-left-color: var(--mission-success); }
+      .timeline-card header,
+      .timeline-foot {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         justify-content: space-between;
         gap: var(--mission-space-2);
       }
@@ -456,12 +557,13 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         color: #04090c;
         background: rgba(151, 185, 164, 0.45);
       }
-      .channel-glyph.glyph-twitter  { background: #7dd3fc; }
+      .channel-glyph.glyph-twitter { background: #7dd3fc; }
       .channel-glyph.glyph-telegram { background: #93ef74; }
-      .channel-glyph.glyph-blog     { background: #f1b45a; }
-      .channel-glyph.glyph-cabinet  { background: #f06476; }
+      .channel-glyph.glyph-blog { background: #f1b45a; }
+      .channel-glyph.glyph-cabinet { background: #f06476; }
       .channel-glyph.glyph-prefecture { background: var(--mission-success); }
-      .timeline-time {
+      .timeline-time,
+      .timeline-source-id {
         color: var(--mission-text-tertiary);
         font-family: var(--mission-font-mono);
         font-size: 10px;
@@ -471,19 +573,13 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         font-size: var(--mission-text-sm);
         color: var(--mission-text-primary);
       }
-      .timeline-signal {
+      .timeline-signal,
+      .rumor-recommendation p,
+      .rumor-step-detail p {
         margin: 0;
         color: var(--mission-text-secondary);
         font-size: var(--mission-text-sm);
         line-height: var(--mission-lh-body);
-      }
-      .timeline-foot {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: var(--mission-space-2);
-        font-family: var(--mission-font-mono);
-        font-size: 10px;
       }
       .confidence-chip {
         padding: 1px 7px;
@@ -495,37 +591,69 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         border: 1px solid var(--mission-border);
         color: var(--mission-text-secondary);
       }
-      .confidence-chip.low {
-        border-color: rgba(242, 140, 56, 0.42);
-        background: var(--mission-orange-soft);
-        color: var(--mission-orange);
+      .confidence-chip.low { border-color: rgba(242, 140, 56, 0.42); background: var(--mission-orange-soft); color: var(--mission-orange); }
+      .confidence-chip.medium { border-color: rgba(241, 180, 90, 0.42); background: var(--mission-warning-soft); color: var(--mission-warning); }
+      .confidence-chip.high { border-color: rgba(63, 209, 141, 0.45); background: var(--mission-success-soft); color: var(--mission-success); }
+      .timeline-empty {
+        padding: var(--mission-space-3);
+        border: 1px dashed var(--mission-border);
+        border-radius: var(--mission-radius-sm);
+        color: var(--mission-text-secondary);
       }
-      .confidence-chip.medium {
-        border-color: rgba(241, 180, 90, 0.42);
-        background: var(--mission-warning-soft);
-        color: var(--mission-warning);
+      .rumor-step-detail {
+        position: sticky;
+        top: 84px;
+        padding: var(--mission-space-4);
       }
-      .confidence-chip.high {
-        border-color: rgba(63, 209, 141, 0.45);
-        background: var(--mission-success-soft);
-        color: var(--mission-success);
+      .rumor-step-detail h3 {
+        margin: 0;
+        color: var(--mission-text-primary);
+        font-size: 16px;
       }
-      .timeline-source {
-        color: var(--sentinel-accent-strong);
-        text-decoration: none;
+      .rumor-step-detail dl {
+        margin: 0;
+        display: grid;
+        gap: 8px;
       }
-      .timeline-source:hover { text-decoration: underline; }
-      .timeline-source-id {
+      .rumor-step-detail div {
+        display: grid;
+        grid-template-columns: 86px minmax(0, 1fr);
+        gap: 8px;
+      }
+      .rumor-step-detail dt {
         color: var(--mission-text-tertiary);
         font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
       }
-
+      .rumor-step-detail dd {
+        margin: 0;
+        min-width: 0;
+        color: var(--mission-text-secondary);
+        overflow-wrap: anywhere;
+      }
+      .detail-callout {
+        display: grid;
+        gap: 4px;
+        padding: var(--mission-space-3);
+        border-radius: var(--mission-radius-sm);
+        border: 1px solid rgba(242, 140, 56, 0.28);
+        background: rgba(242, 140, 56, 0.08);
+      }
+      .detail-callout strong {
+        color: var(--mission-orange);
+        font-size: 12px;
+      }
+      .detail-callout span {
+        color: var(--mission-text-secondary);
+        font-size: 13px;
+      }
       .rumor-recommendation {
         display: grid;
         gap: var(--mission-space-2);
         padding: var(--mission-space-4);
-        border: 1px solid rgba(101, 214, 110, 0.32);
-        border-radius: var(--mission-radius-md);
+        border-color: rgba(101, 214, 110, 0.32);
         background: var(--sentinel-accent-soft);
       }
       .rumor-recommendation blockquote {
@@ -536,13 +664,6 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         color: var(--mission-text-primary);
         font-style: italic;
       }
-      .rumor-recommendation p {
-        margin: 0;
-        color: var(--mission-text-secondary);
-        font-size: var(--mission-text-sm);
-        line-height: var(--mission-lh-body);
-      }
-
       .rumor-drawer-foot {
         display: flex;
         flex-wrap: wrap;
@@ -553,6 +674,7 @@ type Phase = 'emergence' | 'amplification' | 'demente';
       .action-link {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         min-height: 36px;
         padding: 8px 14px;
         border: 1px solid var(--mission-border);
@@ -560,8 +682,8 @@ type Phase = 'emergence' | 'amplification' | 'demente';
         background: var(--mission-inset);
         color: var(--mission-text-primary);
         font-size: var(--mission-text-sm);
-        cursor: pointer;
       }
+      .action-link.compact { width: 100%; }
       .action-link.primary {
         border-color: rgba(101, 214, 110, 0.42);
         background: var(--sentinel-accent-soft);
@@ -570,27 +692,26 @@ type Phase = 'emergence' | 'amplification' | 'demente';
       }
       .action-link.primary:hover { background: rgba(101, 214, 110, 0.18); }
       .action-link.muted { background: transparent; color: var(--mission-text-secondary); }
-      .action-link:focus-visible {
+      .rumor-drawer-close:hover,
+      .action-link:hover {
+        border-color: var(--sentinel-accent-muted);
+        color: var(--mission-text-primary);
+      }
+      .rumor-drawer-close:focus-visible,
+      .timeline-card:focus-visible,
+      .action-link:focus-visible,
+      .rumor-filter-bar button:focus-visible {
         outline: 2px solid var(--sentinel-accent);
         outline-offset: 2px;
       }
-
-      @media (max-width: 540px) {
-        .rumor-meta { grid-template-columns: 1fr; }
+      @media (max-width: 860px) {
+        .rumor-investigation-grid,
+        .rumor-meta,
+        .rumor-metrics { grid-template-columns: 1fr; }
+        .rumor-step-detail { position: static; }
       }
       @media (prefers-reduced-motion: reduce) {
         .rumor-drawer-panel { animation: none; }
-      }
-      .rumor-embedded-root { display: block; }
-      .rumor-embedded-panel {
-        position: relative;
-        width: 100%;
-        max-height: none;
-        border: none;
-        border-radius: 0;
-        background: transparent;
-        box-shadow: none;
-        animation: none;
       }
     `,
   ],
@@ -598,17 +719,81 @@ type Phase = 'emergence' | 'amplification' | 'demente';
 export class VpRumorTraceTimelineComponent {
   @Input() embedded = false;
   @Input() open = false;
-  @Input() trace: RumorTrace | null = null;
   @Output() closed = new EventEmitter<void>();
   @Output() draftCommunique = new EventEmitter<void>();
+  @Output() showMap = new EventEmitter<void>();
+
+  private _trace: RumorTrace | null = null;
+  private requestedFocusStep: number | string | null = null;
+  activeFilter: TimelineFilter = 'all';
+  private activeStepKey: string | null = null;
+
+  @Input()
+  set trace(value: RumorTrace | null) {
+    this._trace = value;
+    this.applyFocusStep();
+  }
+
+  get trace(): RumorTrace | null {
+    return this._trace;
+  }
+
+  @Input()
+  set focusStep(value: number | string | null | undefined) {
+    this.requestedFocusStep = value ?? null;
+    this.applyFocusStep();
+  }
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
-    if (this.open) this.closed.emit();
+    if (!this.embedded && this.open) this.closed.emit();
   }
 
   steps(): RumorChainStep[] {
     return this.trace?.chain || this.trace?.spread || [];
+  }
+
+  visibleSteps(): RumorChainStep[] {
+    const steps = this.steps();
+    if (this.activeFilter === 'all') return steps;
+    return steps.filter((step) => this.phaseFor(step) === this.activeFilter);
+  }
+
+  selectedStep(): RumorChainStep | null {
+    const steps = this.steps();
+    if (!steps.length) return null;
+    const active = this.activeStepKey
+      ? steps.find((step, index) => String(this.stepKey(step, index)) === this.activeStepKey)
+      : null;
+    if (active) return active;
+    return steps.find((step) => this.phaseFor(step) === 'demente') || steps[0] || null;
+  }
+
+  selectStep(step: RumorChainStep, visibleIndex: number): void {
+    const index = this.steps().indexOf(step);
+    this.activeStepKey = String(this.stepKey(step, index >= 0 ? index : visibleIndex));
+  }
+
+  isSelectedStep(step: RumorChainStep, visibleIndex: number): boolean {
+    const selected = this.selectedStep();
+    if (!selected) return false;
+    const index = this.steps().indexOf(step);
+    const selectedIndex = this.steps().indexOf(selected);
+    return String(this.stepKey(step, index >= 0 ? index : visibleIndex)) === String(this.stepKey(selected, selectedIndex));
+  }
+
+  setFilter(filter: TimelineFilter): void {
+    this.activeFilter = filter;
+    const selected = this.selectedStep();
+    const selectedStillVisible = selected ? this.visibleSteps().includes(selected) : false;
+    if (!selectedStillVisible) {
+      const first = this.visibleSteps()[0];
+      if (first) this.selectStep(first, 0);
+    }
+  }
+
+  filterDenied(): void {
+    this.setFilter('demente');
   }
 
   hasOfficialDenial(): boolean {
@@ -624,6 +809,20 @@ export class VpRumorTraceTimelineComponent {
 
   countByPhase(phase: Phase): number {
     return this.steps().filter((step) => this.phaseFor(step) === phase).length;
+  }
+
+  rumorDurationLabel(): string {
+    return this.durationBetween(this.steps()[0]?.time, this.steps()[this.steps().length - 1]?.time) || '—';
+  }
+
+  denialGapLabel(): string {
+    const firstDenial = this.steps().find((step) => this.phaseFor(step) === 'demente');
+    return this.durationBetween(this.steps()[0]?.time, firstDenial?.time) || '—';
+  }
+
+  amplificationPeakLabel(): string {
+    const count = this.countByPhase('amplification');
+    return count ? `${count} relais` : 'aucun pic';
   }
 
   phaseFor(step: RumorChainStep): Phase {
@@ -652,6 +851,26 @@ export class VpRumorTraceTimelineComponent {
       return 'amplification';
     }
     return 'emergence';
+  }
+
+  phaseLabel(phase: Phase): string {
+    if (phase === 'emergence') return 'Origine du signal';
+    if (phase === 'amplification') return 'Amplification publique';
+    return 'Démenti officiel';
+  }
+
+  narrativeEffectFor(step: RumorChainStep): string {
+    const phase = this.phaseFor(step);
+    if (phase === 'demente') return 'Stabilise la lecture cabinet : la rumeur est officiellement démentie et peut être traitée en communication maîtrisée.';
+    if (phase === 'amplification') return 'Montre où la rumeur a gagné en visibilité avant le démenti, sans valider le fond du récit.';
+    return 'Ancre l’origine dans un compte pseudonyme et évite de présenter la rumeur comme un fait établi.';
+  }
+
+  actionFor(step: RumorChainStep): string {
+    const phase = this.phaseFor(step);
+    if (phase === 'demente') return 'Préparer un communiqué';
+    if (phase === 'amplification') return 'Préparer réponse proportionnée';
+    return 'Cadrer origine';
   }
 
   glyphFor(channel?: string): string {
@@ -685,5 +904,31 @@ export class VpRumorTraceTimelineComponent {
 
   stepKey(step: RumorChainStep, index: number): string | number {
     return step.source_id || `${step.step ?? index}-${step.actor ?? 'step'}`;
+  }
+
+  private applyFocusStep(): void {
+    if (this.requestedFocusStep === null || this.requestedFocusStep === undefined || !this.steps().length) return;
+    const normalized = String(this.requestedFocusStep).trim();
+    const match = this.steps().find((step, index) => String(step.step ?? index + 1) === normalized);
+    if (!match) return;
+    const index = this.steps().indexOf(match);
+    this.activeStepKey = String(this.stepKey(match, index));
+  }
+
+  private durationBetween(start?: string, end?: string): string {
+    const startMinutes = this.timeToMinutes(start);
+    const endMinutes = this.timeToMinutes(end);
+    if (startMinutes === null || endMinutes === null || endMinutes < startMinutes) return '';
+    const delta = endMinutes - startMinutes;
+    const hours = Math.floor(delta / 60);
+    const minutes = delta % 60;
+    if (!hours) return `${minutes} min`;
+    return `${hours}h${String(minutes).padStart(2, '0')}`;
+  }
+
+  private timeToMinutes(value?: string): number | null {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(value || '');
+    if (!match) return null;
+    return Number(match[1]) * 60 + Number(match[2]);
   }
 }
