@@ -205,6 +205,42 @@ DEFAULT_RENDERER_LAYERS = [
         "payload": {"sources": ["action_plans", "scenario_engine"]},
         "sort_order": 60,
     },
+    # S3 — Posture securitaire dual-axis layers. Off by default; turned on via
+    # AYA actions aya.show_social_pulse / aya.show_troops_movement /
+    # aya.trace_rumor_origin which emit ``map_command`` set_layers commands.
+    {
+        "key": "social-geo",
+        "label": "Pulsation sociale Abidjan",
+        "short_label": "Social",
+        "deck_group": "social",
+        "tone": "cyan",
+        "kind": "social_signal",
+        "visible": False,
+        "payload": {"sources": ["social_snapshot_demo_safe"]},
+        "sort_order": 70,
+    },
+    {
+        "key": "military-air",
+        "label": "ADS-B advisory Sahel",
+        "short_label": "ADS-B",
+        "deck_group": "security",
+        "tone": "amber",
+        "kind": "ads_b_advisory",
+        "visible": False,
+        "payload": {"sources": ["ads_b_advisory_snapshot"]},
+        "sort_order": 72,
+    },
+    {
+        "key": "border-tension",
+        "label": "Tension frontiere Nord",
+        "short_label": "Frontiere",
+        "deck_group": "security",
+        "tone": "orange",
+        "kind": "border_tension",
+        "visible": False,
+        "payload": {"sources": ["rumor_dossier"]},
+        "sort_order": 74,
+    },
 ]
 
 MARITIME_PORTS = [
@@ -694,6 +730,9 @@ def _layer_registry(source_counts: dict[str, int]) -> list[dict[str, Any]]:
         "visual-streams": "Visuel",
         "maritime-traffic": "Maritime / douanes",
         "preventive-actions": "Actions",
+        "social-geo": "Securite / social",
+        "military-air": "Securite / Sahel",
+        "border-tension": "Securite / frontiere",
     }
     icons = {
         "territorial-risk": "target",
@@ -704,6 +743,9 @@ def _layer_registry(source_counts: dict[str, int]) -> list[dict[str, Any]]:
         "visual-streams": "camera",
         "maritime-traffic": "ship",
         "preventive-actions": "check",
+        "social-geo": "pulse",
+        "military-air": "plane",
+        "border-tension": "shield-alert",
     }
     registry = []
     for item in _layer_catalog(source_counts):
@@ -763,6 +805,18 @@ def _layer_tooltip(key: str) -> dict[str, str]:
             "title": "Actions preventives",
             "body": "Options advisory-only, a valider par le VP ou le cabinet.",
         },
+        "social-geo": {
+            "title": "Pulsation sociale Abidjan",
+            "body": "Tweets geolocalises Plateau / Cocody — snapshot demo-safe, handles pseudonymises.",
+        },
+        "military-air": {
+            "title": "ADS-B advisory Sahel",
+            "body": "Snapshot scenario sur axe Bamako / Ouaga / Niamey — advisory only, pas operationnel.",
+        },
+        "border-tension": {
+            "title": "Tension frontiere Nord",
+            "body": "Zones de rumeur OSINT — démentis officiels FANCI et Préfecture Nord references.",
+        },
     }.get(key, {"title": "Couche", "body": "Donnees workspace scopees."})
 
 
@@ -776,6 +830,9 @@ def _layer_confidence(key: str) -> int:
         "visual-streams": 62,
         "maritime-traffic": 66,
         "preventive-actions": 74,
+        "social-geo": 66,
+        "military-air": 62,
+        "border-tension": 74,
     }.get(key, 65)
 
 
@@ -789,6 +846,9 @@ def _layer_freshness() -> dict[str, str]:
         "visual-streams": "snapshot recent",
         "maritime-traffic": "snapshot demo-safe",
         "preventive-actions": "validation requise",
+        "social-geo": "snapshot demo-safe",
+        "military-air": "snapshot ADS-B advisory only",
+        "border-tension": "dossier rumeur démenti officiel",
     }
 
 
@@ -802,6 +862,9 @@ def _layer_source_kind(key: str) -> str:
         "visual-streams": "visual_intelligence",
         "maritime-traffic": "maritime_snapshot",
         "preventive-actions": "action_planner",
+        "social-geo": "social_snapshot",
+        "military-air": "ads_b_advisory",
+        "border-tension": "rumor_dossier",
     }.get(key, "workspace")
 
 
@@ -810,6 +873,17 @@ def _source_counts(zones: list[dict[str, Any]]) -> dict[str, int]:
         vessel_count = len(fetch_vessels_in_bbox(limit=500))
     except Exception:  # noqa: BLE001
         vessel_count = 0
+    # Use lazy imports to avoid circular dependency mission_room -> workspace_maps.
+    try:
+        from app.services.mission_room import SOCIAL_SNAPSHOT, TROOPS_SAHEL  # noqa: PLC0415
+
+        social_count = len((SOCIAL_SNAPSHOT or {}).get("tweets") or [])
+        tracks_count = len((TROOPS_SAHEL or {}).get("tracks") or [])
+        border_count = len([t for t in ((SOCIAL_SNAPSHOT or {}).get("tweets") or []) if t.get("kind") == "rumeur"])
+    except Exception:  # noqa: BLE001
+        social_count = 0
+        tracks_count = 0
+        border_count = 0
     return {
         "territorial-risk": len(zones),
         "open-intelligence": sum(len(zone.get("drivers") or zone.get("signals") or []) for zone in zones),
@@ -819,6 +893,9 @@ def _source_counts(zones: list[dict[str, Any]]) -> dict[str, int]:
         "visual-streams": 1,
         "maritime-traffic": len(MARITIME_PORTS) + len(MARITIME_EVENTS) + vessel_count,
         "preventive-actions": sum(len(zone.get("recommendations") or []) for zone in zones),
+        "social-geo": social_count,
+        "military-air": tracks_count,
+        "border-tension": border_count or 3,
     }
 
 
@@ -989,6 +1066,152 @@ def _event_points_geojson(zones: list[dict[str, Any]]) -> dict[str, Any]:
                 }
             )
     return {"type": "FeatureCollection", "features": features}
+
+
+def _s3_security_geojson_sources() -> dict[str, dict[str, Any]]:
+    """Demo-safe GeoJSON sources backing the S3 ``social-geo``, ``military-air``
+    and ``border-tension`` deck layers.
+
+    All inputs come from the static SENTINEL-CI fixtures (no live feed). The
+    helper is defensive against the structured fixtures being absent so the
+    map keeps rendering the base layers if the import fails.
+    """
+    social_points: dict[str, Any] = {"type": "FeatureCollection", "features": []}
+    military_points: dict[str, Any] = {"type": "FeatureCollection", "features": []}
+    border_polygons: dict[str, Any] = {"type": "FeatureCollection", "features": []}
+    try:
+        from app.services.mission_room import SOCIAL_SNAPSHOT, TROOPS_SAHEL  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return {
+            "social_geo": social_points,
+            "military_air": military_points,
+            "border_tension": border_polygons,
+        }
+
+    for tweet in (SOCIAL_SNAPSHOT or {}).get("tweets") or []:
+        geo = tweet.get("geo") or {}
+        longitude = geo.get("longitude")
+        latitude = geo.get("latitude")
+        if longitude is None or latitude is None:
+            continue
+        social_points["features"].append(
+            {
+                "type": "Feature",
+                "id": tweet.get("id"),
+                "geometry": {"type": "Point", "coordinates": [float(longitude), float(latitude)]},
+                "properties": {
+                    "id": tweet.get("id"),
+                    "kind": tweet.get("kind"),
+                    "handle": tweet.get("handle"),
+                    "sentiment": tweet.get("sentiment"),
+                    "engagement": tweet.get("engagement"),
+                    "label": geo.get("label"),
+                    "text": tweet.get("text"),
+                    "posted_at": tweet.get("posted_at"),
+                },
+            }
+        )
+
+    for track in (TROOPS_SAHEL or {}).get("tracks") or []:
+        longitude = track.get("longitude")
+        latitude = track.get("latitude")
+        if longitude is None or latitude is None:
+            continue
+        military_points["features"].append(
+            {
+                "type": "Feature",
+                "id": track.get("id"),
+                "geometry": {"type": "Point", "coordinates": [float(longitude), float(latitude)]},
+                "properties": {
+                    "id": track.get("id"),
+                    "callsign": track.get("callsign"),
+                    "kind": track.get("kind"),
+                    "operator": track.get("operator"),
+                    "altitude_ft": track.get("altitude_ft"),
+                    "heading": track.get("heading"),
+                    "speed_kt": track.get("speed_kt"),
+                    "tone": track.get("tone"),
+                    "origin": track.get("origin"),
+                    "destination": track.get("destination"),
+                    "advisory_only": True,
+                },
+            }
+        )
+
+    # Border-tension polygons cover the Bouna / Kong / Korhogo arc where the
+    # demo-safe rumor was geolocated. The polygons are intentionally coarse
+    # since they only carry the « rumor under démenti » signal, not any
+    # operational footprint.
+    border_polygons["features"] = [
+        {
+            "type": "Feature",
+            "id": "border-tension-bouna",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [-3.45, 9.05],
+                    [-2.55, 9.05],
+                    [-2.55, 9.65],
+                    [-3.45, 9.65],
+                    [-3.45, 9.05],
+                ]],
+            },
+            "properties": {
+                "id": "border-tension-bouna",
+                "label": "Zone Bouna — rumeur OSINT démentie",
+                "tone": "watch",
+                "source_id": "src-rumor-frontier-nord-2026-05-25",
+                "advisory_only": True,
+            },
+        },
+        {
+            "type": "Feature",
+            "id": "border-tension-kong",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [-5.10, 9.05],
+                    [-4.20, 9.05],
+                    [-4.20, 9.55],
+                    [-5.10, 9.55],
+                    [-5.10, 9.05],
+                ]],
+            },
+            "properties": {
+                "id": "border-tension-kong",
+                "label": "Zone Kong — rumeur OSINT démentie",
+                "tone": "watch",
+                "source_id": "src-rumor-frontier-nord-2026-05-25",
+                "advisory_only": True,
+            },
+        },
+        {
+            "type": "Feature",
+            "id": "border-tension-korhogo",
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [-6.10, 9.20],
+                    [-5.15, 9.20],
+                    [-5.15, 9.75],
+                    [-6.10, 9.75],
+                    [-6.10, 9.20],
+                ]],
+            },
+            "properties": {
+                "id": "border-tension-korhogo",
+                "label": "Zone Korhogo — surveillance Préfecture Nord",
+                "tone": "stable",
+                "source_id": "src-rumor-frontier-nord-2026-05-25",
+                "advisory_only": True,
+            },
+        },
+    ]
+    return {
+        "social_geo": social_points,
+        "military_air": military_points,
+        "border_tension": border_polygons,
+    }
 
 
 def _maritime_geojson_sources() -> dict[str, dict[str, Any]]:
@@ -1858,6 +2081,7 @@ def workspace_map_renderer_payload(map_row: WorkspaceMap, zones: list[dict[str, 
             "context_lines": {"type": "FeatureCollection", "features": line_features},
             "event_points": event_points,
             **maritime_sources,
+            **_s3_security_geojson_sources(),
         },
         "camera_presets": camera_presets,
         "visual_effects": {

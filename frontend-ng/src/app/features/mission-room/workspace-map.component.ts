@@ -1596,6 +1596,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const showVisual = this.isLayerActive('visual-streams');
     const showMaritime = this.isLayerActive('maritime-traffic');
     const showActions = this.isLayerActive('preventive-actions');
+    const showSocialGeo = this.isLayerActive('social-geo');
+    const showMilitaryAir = this.isLayerActive('military-air');
+    const showBorderTension = this.isLayerActive('border-tension');
+    const socialGeoSource = this.mapSystem?.['geojson_sources']?.social_geo;
+    const militaryAirSource = this.mapSystem?.['geojson_sources']?.military_air;
+    const borderTensionSource = this.mapSystem?.['geojson_sources']?.border_tension;
     const eventFeatures = eventPointsSource?.features || [];
     const cityFeatures = allCityFeatures
       .filter((feature: any) => {
@@ -1851,6 +1857,71 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           }));
         }
       }
+    }
+
+    // ----------------------------------------------------------------------
+    // S3 — Posture securitaire dual-axis deck layers.
+    // border-tension is rendered first so its polygons sit beneath the
+    // social-geo / military-air markers without occluding them.
+    // ----------------------------------------------------------------------
+    if (showBorderTension && borderTensionSource?.features?.length) {
+      layers.push(new GeoJsonLayer({
+        id: 'sentinel-border-tension',
+        data: borderTensionSource,
+        pickable: false,
+        filled: true,
+        stroked: true,
+        getFillColor: (feature: any) =>
+          feature.properties?.tone === 'watch' ? [241, 180, 90, 56] : [180, 195, 215, 46],
+        getLineColor: (feature: any) =>
+          feature.properties?.tone === 'watch' ? [241, 180, 90, 200] : [180, 195, 215, 180],
+        lineWidthMinPixels: 1.0,
+        lineWidthMaxPixels: 1.6,
+        parameters: { depthTest: false },
+      }));
+    }
+    if (showSocialGeo && socialGeoSource?.features?.length) {
+      layers.push(new ScatterplotLayer({
+        id: 'sentinel-social-geo',
+        data: socialGeoSource.features,
+        pickable: true,
+        stroked: true,
+        filled: true,
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        radiusUnits: 'pixels',
+        getRadius: (feature: any) => {
+          const engagement = Number(feature.properties?.engagement || 0);
+          return Math.max(5, Math.min(18, Math.sqrt(engagement) / 4));
+        },
+        getFillColor: (feature: any) => {
+          const sentiment = feature.properties?.sentiment;
+          if (sentiment === 'positive') return [99, 209, 141, 220];
+          if (sentiment === 'negative') return [240, 100, 118, 220];
+          return [156, 196, 230, 200];
+        },
+        getLineColor: (feature: any) =>
+          feature.properties?.kind === 'officiel' ? [255, 255, 255, 240] : [10, 25, 38, 180],
+        lineWidthMinPixels: (feature: any) => (feature.properties?.kind === 'officiel' ? 1.6 : 0.8),
+        parameters: { depthTest: false },
+      }));
+    }
+    if (showMilitaryAir && militaryAirSource?.features?.length) {
+      layers.push(new IconLayer({
+        id: 'sentinel-military-air',
+        data: militaryAirSource.features,
+        pickable: true,
+        iconAtlas: this.getVesselIconAtlas(),
+        iconMapping: VESSEL_ICON_MAPPING,
+        getIcon: () => 'triangle',
+        getPosition: (feature: any) => feature.geometry.coordinates,
+        getAngle: (feature: any) => Number(feature.properties?.heading || 0),
+        getSize: this.compact ? 12 : 14,
+        getColor: (feature: any) =>
+          feature.properties?.tone === 'watch' ? [241, 180, 90, 240] : [156, 196, 230, 230],
+        sizeUnits: 'pixels',
+        billboard: true,
+        parameters: { depthTest: false },
+      }));
     }
 
     const visibleEventPoints = eventFeatures.filter((feature: any) => {
