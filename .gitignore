@@ -50,6 +50,18 @@ pdfs/
 server.log
 uploads/
 
+# Local QA / demo capture artifacts
+docs/status-screenshots/
+scripts/playwright/docs/
+docs/~$*
+
+# One-off Playwright probes and capture retries used during live demo QA.
+# Durable QA harnesses should be named qa_*.mjs and reviewed before commit.
+scripts/playwright/probe_*.mjs
+scripts/playwright/debug_*.mjs
+scripts/playwright/capture_aya_screens.mjs
+scripts/playwright/capture_demo_screens*.mjs
+
 # Secrets
 */secrets/
 
