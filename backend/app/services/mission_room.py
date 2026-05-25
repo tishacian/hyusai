@@ -40,6 +40,7 @@ from app.services.visual_intelligence import (
     dashboard_payload as visual_dashboard_payload,
     ensure_visual_intelligence_seed,
 )
+from app.services.intelligence.satellite_imagery import resolve_satellite_scenes
 from app.services.demo_time_context import demo_time_context_defaults, resolve_demo_date
 from app.services.workspace_maps import (
     IVORY_COAST_BOUNDS,
@@ -3208,6 +3209,7 @@ def _intelligence_feeds_payload(
     visual: dict[str, Any],
     mapped: dict[str, Any],
     source_freshness: dict[str, Any],
+    satellite: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     map_system = mapped.get("map_system") or {}
     maritime = map_system.get("maritime_snapshot") or (news.get("maritime_intelligence") or {}).get("latest_observation") or {}
@@ -3218,15 +3220,18 @@ def _intelligence_feeds_payload(
     delayed_project = next((project for project in PROJECTS if int(project.get("delay_days") or 0) > 0), PROJECTS[0])
     news_alerts = news.get("executive_alerts") or news.get("signals") or _clone(NEWS_SIGNALS)
     maritime_signal = next((signal for signal in news_alerts if signal.get("id") == "news-maritime-001"), None)
+    satellite_scenes = (satellite or {}).get("scenes") or []
+    satellite_mode = str((satellite or {}).get("mode") or "cache_baseline").replace("_", " ")
     return [
         {
             "key": "satellite",
             "label": "Imagerie satellite",
-            "subtitle": "Couverture Nord · snapshot demo-safe",
-            "metric": "2 scenes / 24h",
+            "subtitle": "Couverture Nord + contexte Sahel · indicative",
+            "metric": f"{len(satellite_scenes) or 2} scenes · {satellite_mode}",
             "confidence": 68,
-            "freshness_at": "06:40",
+            "freshness_at": (satellite or {}).get("captured_at") or "06:40",
             "tone": "watch",
+            "route": f"{MISSION_ROOM_ROOT}/securite/monitor#satellite-imagery-rail",
         },
         {
             "key": "maritime-ais",
@@ -4263,7 +4268,8 @@ def cockpit_payload(workspace: Workspace, db: Optional[DBSession] = None) -> dic
     agenda_day = _agenda_day(overview, calendar_summary)
     fused_map_preview = _fused_map_preview(mapped, news, visual)
     arbitration_cards = _arbitration_cards_payload()
-    intelligence_feeds = _intelligence_feeds_payload(news, visual, mapped, source_freshness)
+    satellite = resolve_satellite_scenes(workspace)
+    intelligence_feeds = _intelligence_feeds_payload(news, visual, mapped, source_freshness, satellite)
     press_preview = _press_preview_payload(news, alerts)
     try:
         from app.services.demo_time_context import resolve_demo_time
@@ -4628,17 +4634,20 @@ def security_monitor_payload(workspace: Workspace, db: Optional[DBSession] = Non
     social = _clone(SOCIAL_SNAPSHOT)
     rumor = _clone(RUMOR_FRONTIER_TRACE)
     posture = _clone(SECURITY_POSTURE)
+    satellite = resolve_satellite_scenes(workspace)
     tracks = troops.get("tracks") or []
     tweets = social.get("tweets") or []
     layers = [
         {"key": "military-air", "label": "Traces ADS-B advisory", "enabled": True, "count": len(tracks)},
         {"key": "border-tension", "label": "Tension frontière Nord", "enabled": True, "count": len(rumor.get("chain") or [])},
         {"key": "social-geo", "label": "Pulsation sociale", "enabled": True, "count": len(tweets)},
+        {"key": "satellite-footprint", "label": "Empreintes satellite advisory", "enabled": True, "count": len(satellite.get("scenes") or [])},
     ]
     map_state = {
         "preset": "sahel",
         "zoom": "regional",
-        "active_layers": ["military-air", "border-tension", "regional-context"],
+        "basemap": "satellite",
+        "active_layers": ["military-air", "border-tension", "satellite-footprint", "regional-context"],
         "focus": {"label": troops.get("theater_label"), "longitude": -2.0, "latitude": 13.5},
     }
     return {
@@ -4652,6 +4661,7 @@ def security_monitor_payload(workspace: Workspace, db: Optional[DBSession] = Non
         "map_state": map_state,
         "zones": mapped.get("zones") or [],
         "layers": layers,
+        "satellite_imagery": satellite,
         "theater_sahel": troops,
         "social_signals": social,
         "rumor_thread": rumor,

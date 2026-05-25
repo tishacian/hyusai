@@ -241,6 +241,17 @@ DEFAULT_RENDERER_LAYERS = [
         "payload": {"sources": ["rumor_dossier"]},
         "sort_order": 74,
     },
+    {
+        "key": "satellite-footprint",
+        "label": "Empreintes satellite advisory",
+        "short_label": "Satellite",
+        "deck_group": "security",
+        "tone": "amber",
+        "kind": "satellite_scene",
+        "visible": False,
+        "payload": {"sources": ["satellite_baseline"]},
+        "sort_order": 76,
+    },
 ]
 
 MARITIME_PORTS = [
@@ -698,6 +709,25 @@ def _map_basemap_options() -> list[dict[str, Any]]:
             "theme": "positron",
             "style": carto_positron,
         },
+        {
+            "key": "satellite",
+            "label": "Satellite",
+            "description": "Imagerie ESRI World Imagery — fond contextuel indicatif.",
+            "provider": "esri_world_imagery",
+            "theme": "satellite",
+            "style": _basemap_style(
+                "esri-world-imagery",
+                ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+                {
+                    "raster-opacity": 0.88,
+                    "raster-brightness-min": 0.0,
+                    "raster-brightness-max": 0.92,
+                    "raster-saturation": -0.08,
+                    "raster-contrast": 0.08,
+                },
+                background="#0a0e12",
+            ),
+        },
     ]
 
 
@@ -733,6 +763,7 @@ def _layer_registry(source_counts: dict[str, int]) -> list[dict[str, Any]]:
         "social-geo": "Securite / social",
         "military-air": "Securite / Sahel",
         "border-tension": "Securite / frontiere",
+        "satellite-footprint": "Securite / satellite",
     }
     icons = {
         "territorial-risk": "target",
@@ -746,6 +777,7 @@ def _layer_registry(source_counts: dict[str, int]) -> list[dict[str, Any]]:
         "social-geo": "pulse",
         "military-air": "plane",
         "border-tension": "shield-alert",
+        "satellite-footprint": "image",
     }
     registry = []
     for item in _layer_catalog(source_counts):
@@ -817,6 +849,10 @@ def _layer_tooltip(key: str) -> dict[str, str]:
             "title": "Tension frontiere Nord",
             "body": "Zones de rumeur OSINT — démentis officiels FANCI et Préfecture Nord references.",
         },
+        "satellite-footprint": {
+            "title": "Empreintes satellite",
+            "body": "Scènes baseline indicatives — aucune détection automatique, advisory only.",
+        },
     }.get(key, {"title": "Couche", "body": "Donnees workspace scopees."})
 
 
@@ -833,6 +869,7 @@ def _layer_confidence(key: str) -> int:
         "social-geo": 66,
         "military-air": 62,
         "border-tension": 74,
+        "satellite-footprint": 68,
     }.get(key, 65)
 
 
@@ -849,6 +886,7 @@ def _layer_freshness() -> dict[str, str]:
         "social-geo": "snapshot demo-safe",
         "military-air": "snapshot ADS-B advisory only",
         "border-tension": "dossier rumeur démenti officiel",
+        "satellite-footprint": "baseline satellite demo",
     }
 
 
@@ -865,6 +903,7 @@ def _layer_source_kind(key: str) -> str:
         "social-geo": "social_snapshot",
         "military-air": "ads_b_advisory",
         "border-tension": "rumor_dossier",
+        "satellite-footprint": "satellite_baseline",
     }.get(key, "workspace")
 
 
@@ -896,6 +935,7 @@ def _source_counts(zones: list[dict[str, Any]]) -> dict[str, int]:
         "social-geo": social_count,
         "military-air": tracks_count,
         "border-tension": border_count or 3,
+        "satellite-footprint": 2,
     }
 
 
@@ -1079,13 +1119,16 @@ def _s3_security_geojson_sources() -> dict[str, dict[str, Any]]:
     social_points: dict[str, Any] = {"type": "FeatureCollection", "features": []}
     military_points: dict[str, Any] = {"type": "FeatureCollection", "features": []}
     border_polygons: dict[str, Any] = {"type": "FeatureCollection", "features": []}
+    satellite_footprints: dict[str, Any] = {"type": "FeatureCollection", "features": []}
     try:
         from app.services.mission_room import SOCIAL_SNAPSHOT, TROOPS_SAHEL  # noqa: PLC0415
+        from app.services.intelligence.satellite_imagery import load_satellite_baseline  # noqa: PLC0415
     except Exception:  # noqa: BLE001
         return {
             "social_geo": social_points,
             "military_air": military_points,
             "border_tension": border_polygons,
+            "satellite_footprint": satellite_footprints,
         }
 
     for tweet in (SOCIAL_SNAPSHOT or {}).get("tweets") or []:
@@ -1207,10 +1250,44 @@ def _s3_security_geojson_sources() -> dict[str, dict[str, Any]]:
             },
         },
     ]
+    try:
+        satellite_baseline = load_satellite_baseline()
+        for scene in satellite_baseline.get("scenes") or []:
+            bbox = scene.get("bbox") or []
+            if len(bbox) != 4:
+                continue
+            west, south, east, north = [float(value) for value in bbox]
+            satellite_footprints["features"].append(
+                {
+                    "type": "Feature",
+                    "id": scene.get("id"),
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [west, south],
+                            [east, south],
+                            [east, north],
+                            [west, north],
+                            [west, south],
+                        ]],
+                    },
+                    "properties": {
+                        "id": scene.get("id"),
+                        "label": scene.get("label"),
+                        "axis": scene.get("axis"),
+                        "tone": scene.get("tone") or "watch",
+                        "narrative_status": scene.get("narrative_status"),
+                        "advisory_only": True,
+                    },
+                }
+            )
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "social_geo": social_points,
         "military_air": military_points,
         "border_tension": border_polygons,
+        "satellite_footprint": satellite_footprints,
     }
 
 

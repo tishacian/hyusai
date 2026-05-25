@@ -484,8 +484,20 @@ def test_mission_room_security_monitor_payload(db_session):
     assert body["social_signals"]["tweets"]
     assert body["rumor_thread"]["chain"]
     assert body["source_freshness"]["baseline"] is True
-    assert {layer["key"] for layer in body["layers"]} == {"military-air", "border-tension", "social-geo"}
+    assert {layer["key"] for layer in body["layers"]} == {
+        "military-air",
+        "border-tension",
+        "social-geo",
+        "satellite-footprint",
+    }
     assert all(layer["enabled"] is True for layer in body["layers"])
+    assert body["map_state"]["basemap"] == "satellite"
+    assert "satellite-footprint" in body["map_state"]["active_layers"]
+    assert body["satellite_imagery"]["mode"] == "cache_baseline"
+    assert len(body["satellite_imagery"]["scenes"]) == 2
+    assert body["satellite_imagery"]["scenes"][0]["thumbnail_url"].startswith(
+        "/api/v1/mission-room/satellite/proxy"
+    )
     assert body["security_posture"]["next_council"]["time"] == "15:00"
     assert body["adsb_alerts"]
     assert body["social_feed"]
@@ -494,6 +506,39 @@ def test_mission_room_security_monitor_payload(db_session):
     audit = db_session.query(AuditLog).filter_by(event_type="mission_room.security_monitor.viewed").one()
     assert audit.workspace_id == workspace.id
     assert audit.details["tracks"] == len(body["theater_sahel"]["tracks"])
+
+
+def test_mission_room_satellite_scenes_and_proxy(db_session):
+    workspace = Workspace(id="workspace-sentinel", slug="sentinel-ci", name="SENTINEL-CI", mode="demo")
+    user = User(id="user-1", username="minister", email="minister@example.test", is_active=True)
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    scenes_response = client.get("/api/v1/mission-room/satellite/scenes")
+
+    assert scenes_response.status_code == 200
+    scenes = scenes_response.json()
+    assert scenes["mode"] == "cache_baseline"
+    assert len(scenes["scenes"]) == 2
+
+    image_response = client.get(
+        "/api/v1/mission-room/satellite/proxy",
+        params={"scene_id": scenes["scenes"][0]["id"], "variant": "thumbnail"},
+    )
+    assert image_response.status_code == 200
+    assert image_response.headers["content-type"] == "image/webp"
+    assert len(image_response.content) > 1000
+
+    missing_response = client.get(
+        "/api/v1/mission-room/satellite/proxy",
+        params={"scene_id": "unknown-scene", "variant": "thumbnail"},
+    )
+    assert missing_response.status_code == 404
+
+    audit_events = {audit.event_type for audit in db_session.query(AuditLog).all()}
+    assert "mission_room.satellite.scenes_viewed" in audit_events
+    assert "mission_room.satellite.asset_viewed" in audit_events
 
 
 def test_mission_room_vp_story_is_consistent_across_core_surfaces(db_session):

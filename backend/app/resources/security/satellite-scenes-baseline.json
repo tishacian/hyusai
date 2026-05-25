@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "captured_at": "2026-05-25T06:40:00Z",
+  "mode": "cache_baseline",
+  "provider": "sentinel2_cloudless_baseline",
+  "source_product": "Sentinel-2 cloudless mosaic baseline",
+  "disclaimer": "Imagerie indicative · corrélation OSINT · aucune interprétation automatique · non classifié",
+  "attribution": "Contains modified Copernicus Sentinel data via Sentinel-2 cloudless (EOX)",
+  "scenes": [
+    {
+      "id": "sat-scene-border-nord-bouna-kong",
+      "axis": "interieur",
+      "label": "Couloir frontière Nord — Bouna / Kong",
+      "bbox": [-5.1, 9.05, -2.55, 9.75],
+      "center": {"longitude": -3.82, "latitude": 9.4},
+      "zoom": 10,
+      "asset_key": "border-nord-bouna-kong-2026-05-25.webp",
+      "thumbnail_key": "border-nord-bouna-kong-2026-05-25-thumb.webp",
+      "resolution_m": 10,
+      "cloud_cover_pct": 12,
+      "narrative_status": "no_anomaly_confirmed",
+      "narrative_summary": "Scène matinale indicative — corrélation démenti officiel 13h46 · postes mixtes nominaux",
+      "linked_source_ids": ["src-rumor-frontier-nord-2026-05-25"],
+      "linked_layer_keys": ["border-tension"],
+      "tone": "watch"
+    },
+    {
+      "id": "sat-scene-sahel-liptako",
+      "axis": "exterieur",
+      "label": "Contexte Sahel — Liptako-Gourma",
+      "bbox": [-5.5, 11.0, 3.5, 15.5],
+      "center": {"longitude": -2.0, "latitude": 13.5},
+      "zoom": 6,
+      "asset_key": "sahel-liptako-context-2026-05-25.webp",
+      "thumbnail_key": "sahel-liptako-context-2026-05-25-thumb.webp",
+      "resolution_m": 10,
+      "cloud_cover_pct": 28,
+      "narrative_status": "context_only",
+      "narrative_summary": "Lecture contextuelle régionale · corrélation ADS-B advisory only",
+      "linked_source_ids": ["src-note-posture-sahel-2026-05-25"],
+      "linked_layer_keys": ["military-air"],
+      "tone": "watch"
+    }
+  ]
+}

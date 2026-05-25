@@ -38,6 +38,10 @@ from app.services.mission_room import (
     security_monitor_payload,
     timeline_payload,
 )
+from app.services.intelligence.satellite_imagery import (
+    get_scene_asset_bytes,
+    resolve_satellite_scenes,
+)
 from app.services.macro_indicators import macro_indicators_payload
 
 router = APIRouter()
@@ -291,6 +295,53 @@ def security_monitor(
         },
     )
     return payload
+
+
+@router.get("/satellite/scenes")
+def satellite_scenes(
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    payload = resolve_satellite_scenes(workspace)
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.satellite.scenes_viewed",
+        details={
+            "mode": payload.get("mode"),
+            "scenes": len(payload.get("scenes") or []),
+            "advisory_only": True,
+        },
+    )
+    return payload
+
+
+@router.get("/satellite/proxy")
+def satellite_proxy(
+    scene_id: str = Query(..., min_length=1, max_length=120),
+    variant: str = Query("asset", pattern="^(asset|thumbnail)$"),
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        content, content_type = get_scene_asset_bytes(scene_id, variant=variant)  # type: ignore[arg-type]
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Satellite scene not found") from exc
+    _audit(
+        db=db,
+        workspace=workspace,
+        user=user,
+        event_type="mission_room.satellite.asset_viewed",
+        details={"scene_id": scene_id, "variant": variant, "advisory_only": True},
+    )
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.get("/evidence-graph")

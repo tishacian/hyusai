@@ -1,18 +1,19 @@
 # SENTINEL-CI — Runbook OSINT Sécurité (Vague 2.2)
 
 > **Date** : 25 mai 2026  
-> **Périmètre** : RSS sécurité francophone, ADS-B Sahel, indice tension CEDEAO  
+> **Périmètre** : RSS sécurité francophone, ADS-B Sahel, indice tension CEDEAO, imagerie satellite baseline
 > **Statut** : post-démo VP — feature flag **off** par défaut sur le workspace demo
 
 ## Vue d'ensemble
 
-La Vague 2.2 ajoute trois pipelines OSINT backend alimentant le cockpit S3 (Posture sécuritaire, Troupes Sahel, indice CEDEAO) avec bascule transparente **LIVE** / **CACHE BASELINE**.
+La Vague 2.2 ajoute les pipelines OSINT backend alimentant le cockpit S3 (Posture sécuritaire, Troupes Sahel, indice CEDEAO) avec bascule transparente **LIVE** / **CACHE BASELINE**. L'imagerie satellite du Security Monitor reste en **CACHE BASELINE** sur le workspace démo.
 
 | Pipeline | Service | Cache Redis | Cadence scheduler | Fallback |
 |----------|---------|-------------|-------------------|----------|
 | RSS sécurité | `rss_security.py` | `intelligence:security:rss:v1` (15 min) | 15 min | fixtures `SECURITY_POSTURE` |
 | ADS-B Sahel | `adsb_sahel.py` | `intelligence:security:adsb:v1` (60 s) | 5 min | `resources/security/adsb-sahel-baseline.json` |
 | Indice CEDEAO | `cedeao_index.py` | `intelligence:security:cedeao:v1` (30 min) | 30 min | `sovereign-indicators-baseline.json` |
+| Imagerie satellite | `satellite_imagery.py` | — | baseline figé | `resources/security/satellite-scenes-baseline.json` |
 
 Si Redis est indisponible, un **cache mémoire process** prend le relais (`intelligence/cache.py`).
 
@@ -22,13 +23,15 @@ Si Redis est indisponible, un **cache mémoire process** prend le relais (`intel
 2. **`feature_flag.security_live_osint`** dans `workspace.settings` → **off** par défaut sur `sentinel-ci`.
 3. Feeds RSS **whitelistés** dans `resources/security/security-feeds.json` (pas de Telegram live).
 4. ADS-B porte le disclaimer **advisory only** — aucune donnée opérationnelle classifiée.
+5. Satellite porte le disclaimer **imagerie indicative** — aucune interprétation automatique, aucune preuve visuelle d'incursion.
 
 ### Activer le live (interne uniquement)
 
 ```json
 {
   "feature_flag": {
-    "security_live_osint": true
+    "security_live_osint": true,
+    "security_live_satellite": false
   }
 }
 ```
@@ -69,6 +72,8 @@ Composite 0–100 (4 composantes) :
 |-------|-------------|
 | `GET /api/v1/mission-room/cockpit` | Posture + troupes + badges OSINT |
 | `GET /api/v1/mission-room/cedeao-index` | Indice composite seul |
+| `GET /api/v1/mission-room/satellite/scenes` | Metadata des scènes satellite baseline |
+| `GET /api/v1/mission-room/satellite/proxy` | Image satellite authentifiée |
 
 Champs payload utiles :
 
@@ -76,6 +81,7 @@ Champs payload utiles :
 - `troops_sahel.source_badge` (`LIVE` | `CACHE BASELINE`)
 - `security_osint_badges` (cockpit)
 - `cedeao_index.score`, `delta_7d`, `components`
+- `security_monitor.satellite_imagery.mode`, `scenes`, `disclaimer`
 
 ## Scheduler
 
