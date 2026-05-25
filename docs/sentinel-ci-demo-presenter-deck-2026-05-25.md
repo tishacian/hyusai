@@ -306,6 +306,110 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ---
 
+## T.2 — Transition agenda → posture sécuritaire
+
+**Pivot** : la décision Option B est loggée, le **Conseil Défense restreint** est calé à **15h00**. Avant d'y entrer, le VP veut une lecture **dual-axis** : intérieur Nord / extérieur Sahel.
+
+**Cible S3** : six prompts, ~5-6 minutes, tout en advisory only, snapshots demo-safe (ADS-B, comptes citoyens pseudonymisés, dossier rumeur).
+
+**Ouverture S3** : cockpit en focus, AYA propose le bloc « Posture sécuritaire ».
+
+---
+
+## S3.1 — Posture sécuritaire dual-axis
+
+**Phrase AYA** : « AYA, montre-moi la posture sécuritaire du jour. »
+
+**Ce que le VP voit** : cockpit, bloc **Posture sécuritaire** mis en avant, deux cartes — **Intérieur** vigilance (rumeur Nord démentie) / **Extérieur** Sahel élevée (ADS-B activité soutenue) — pastille **15h00 · Conseil Défense restreint**.
+
+**Verdict** : **PASS**
+
+**Plan B clic** : Sidebar VP → chip **Posture sécuritaire** dans la barre de statut (ouvre directement le bloc).
+
+*Lecture dual-axis souveraine avant le Conseil 15h — aucune lecture renseignement classifié.*
+
+---
+
+## S3.2 — Pulsation sociale Abidjan
+
+**Phrase AYA** : « AYA, montre la pulsation sociale à Abidjan. »
+
+**Ce que le VP voit** : vue **Stratégie**, couche carte **social-geo** activée (points colorés par sentiment), drawer **Pulsation sociale** listant 18 tweets : **5 officiels** (Présidence CI, FANCI, RFI Sahel, Jeune Afrique, Préfecture Nord), **8 citoyens pseudonymisés** `@citoyen_***`, **5 signaux rumeur frontière** `@rumeur_***`.
+
+**Verdict** : **PASS**
+
+**Plan B clic** : Carte Stratégie → bouton couche **Pulsation sociale** → drawer presse rouvert sur le snapshot.
+
+*Demo-safe : pseudonymisation systématique des citoyens, comptes officiels = comptes institutionnels publics.*
+
+---
+
+## S3.3 — Trace de la rumeur frontière Nord
+
+**Phrase AYA** : « AYA, d'où vient la rumeur frontière Nord ? »
+
+**Ce que le VP voit** : carte zoomée Nord, couche **border-tension** orange sur Bouna / Kong / Korhogo, drawer **Trace OSINT** affichant la chaîne : tweet citoyen **11h42** → relai Telegram **12h08** → blog régional **12h48** → démentis FANCI **13h45** + Préfecture Nord **13h52**. Proposition AYA « Rédiger un communiqué ».
+
+**Verdict** : **PASS**
+
+**Plan B clic** : Drawer **Brouillons** → **Dossier rumeur frontière Nord** (la trace OSINT s'ouvre identique).
+
+*Chaîne OSINT auditée — la rumeur est tracée bout-en-bout jusqu'au démenti officiel.*
+
+---
+
+## S3.4 — Mouvements de troupes Sahel
+
+**Phrase AYA** : « AYA, montre les mouvements de troupes au Sahel. »
+
+**Ce que le VP voit** : carte avec couches **military-air** (triangles ADS-B) + **border-tension** actives, drawer **Snapshot ADS-B advisory** listant **10 traces** (axe Bamako / Ouagadougou / Niamey, C-130, CN-235, vols logistiques), **3 zones de surveillance** (Liptako-Gourma, frontière Mali / Burkina, région de Tillabéri), **2 bases CEDEAO** en alerte standard.
+
+**Verdict** : **PASS**
+
+**Plan B clic** : Carte Stratégie → bouton couche **Trafic militaire** → drawer presse rouvert sur le snapshot ADS-B.
+
+*Disclaimer porté par la légende : « ADS-B advisory only ». Aucune donnée opérationnelle classifiée.*
+
+---
+
+## S3.5 — Drill réputation 2 positifs / 1 critique
+
+**Phrase AYA** : « AYA, montre le drill de réputation 2 positifs et 1 critique. »
+
+**Ce que le VP voit** : vue **Réputation**, score **72 / 100** (**+4 pts**), trois cartes drill : **Jeune Afrique** « Gestion Nord saluée » (positif) — **Fraternité Matin** « Réponse rapide au Préfet Nawa » (positif) — **L'Inter** « Critique budget défense » (orange). CTA AYA : préparer un encart concis pour le Conseil 15h.
+
+**Verdict** : **PASS**
+
+**Plan B clic** : Sidebar → onglet **Réputation** → ancre **Drill 2+/1-** en bas de page.
+
+*Critique = vraie critique publique (article L'Inter déjà seedé en S1), pas inventée.*
+
+---
+
+## S3.6 — Communiqué sécurité (brouillon)
+
+**Phrase AYA** : « AYA, prépare un communiqué de sécurité sur la rumeur frontière Nord. »
+
+**Ce que le VP voit** : drawer **Brouillon communiqué souverain** — sujet « Communiqué — frontière Nord, démenti officiel », corps citant le démenti FANCI **13h46** et la mise au point Préfecture Nord **13h52**, mention **« Validation advisory requise avant diffusion »**.
+
+**Verdict** : **PASS**
+
+**Plan B clic** : Drawer **Brouillons** → **Nouveau communiqué** → template **Démenti rumeur Nord**.
+
+*Le Cabinet décide — le brouillon n'est jamais envoyé sans validation explicite.*
+
+---
+
+## Récap S3 — Posture sécuritaire
+
+**6 étapes** · ~5-6 minutes
+
+**Message clé** : posture dual-axis lue, rumeur démentie, communiqué prêt — avant le Conseil 15h.
+
+> « En six prompts, AYA a porté la lecture intérieure et extérieure, tracé la rumeur jusqu'au démenti, et préparé un brouillon souverain — sans jamais quitter le mode advisory. »
+
+---
+
 ## Ce qu'on a prouvé
 
 - **Cockpit souverain** — 8 KPIs, posture, terrain, presse en un écran
@@ -315,7 +419,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ## Plan B rapide
 
-Si AYA ne répond pas — 5 raccourcis sans voix (workspace `sentinel-ci`) :
+Si AYA ne répond pas — 10 raccourcis sans voix (workspace `sentinel-ci`) :
 
 | Sujet | Raccourci |
 |---|---|
@@ -324,5 +428,10 @@ Si AYA ne répond pas — 5 raccourcis sans voix (workspace `sentinel-ci`) :
 | **Agenda** | Sidebar Agenda → Préfet Nawa 11h |
 | **Réunion Nawa** | Agenda → **Démarrer la réunion** |
 | **Décisions** | Sidebar Arbitrages → registre décisions |
+| **Posture sécuritaire** | Sidebar VP → chip **Posture sécuritaire** dans la barre de statut |
+| **Pulsation sociale** | Carte Stratégie → couche **social-geo** → drawer pulsation |
+| **Rumeur Nord** | Drawer Brouillons → **Dossier rumeur frontière Nord** |
+| **Mouvements Sahel** | Carte Stratégie → couches **military-air** + **border-tension** |
+| **Drill réputation** | Sidebar → onglet **Réputation** → ancre Drill 2+/1- |
 
-¹ *Footnote* : si la phrase « situation au port » ne déclenche pas le panneau maritime à la voix, utiliser le clic Plan B — rebuild frontend requis pour le fix caméra S1.3.
+¹ *Footnote* : si la phrase « situation au port » ne déclenche pas le panneau maritime à la voix, utiliser le clic Plan B — rebuild frontend requis pour le fix caméra S1.3. Pour S3, tout est demo-safe (ADS-B advisory only, comptes citoyens pseudonymisés `@citoyen_***`, critique réputation = article L'Inter déjà seedé S1).

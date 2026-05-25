@@ -50,6 +50,21 @@
 | S2.8 | `AYA, décide option B.` | `valide l'option B` / `choisis l'option B` / `j'arbitre option B` | `aya.log_decision` — décision option B persistée (diversification anacarde). |
 | S2.9 | `AYA, qu'avons-nous décidé la dernière fois ?` | `rappelle-moi nos décisions` / `décisions passées` | `aya.recall_past_decisions` — top-5 décisions, nouvelle en tête. |
 
+## Tableau S3 — Posture sécuritaire dual-axis
+
+Pack additionnel `sentinel_ci_aya_security_v1` (activé via `workspace.settings.actions.enabled_packs`). Le scénario s'enchaîne après S2.7 (Décision Option B). Tous les signaux sont demo-safe : ADS-B advisory only, handles citoyens pseudonymisés (`@citoyen_***` / `@rumeur_***`), critique réputation = article L'Inter déjà publié (S1).
+
+| Étape | Prompt principal | Variante OK | Effet attendu |
+|---|---|---|---|
+| S3.1 | `AYA, montre-moi la posture sécuritaire du jour.` | `montre la posture sécuritaire` / `posture sécuritaire intérieur extérieur` / `posture sécurité dual-axis` / `show security posture` | `aya.show_security_posture` — cockpit, bloc « Posture sécuritaire » mis en avant (Intérieur vigilance / Extérieur Sahel élevée + pastille 15h00 Conseil Défense). |
+| S3.2 | `AYA, montre la pulsation sociale à Abidjan.` | `pulsation sociale Abidjan` / `montre les tweets du jour` / `snapshot Twitter Abidjan` / `show social pulse` | `aya.show_social_pulse` — couche carte `social-geo` activée + drawer liste tweets (officiels / citoyens / rumeur). |
+| S3.3 | `AYA, d'où vient la rumeur frontière Nord ?` | `trace la rumeur frontière Nord` / `chaîne OSINT rumeur Nord` / `qui a lancé la rumeur Bouna` / `trace rumor origin` | `aya.trace_rumor_origin` — zoom carte Nord, couche `border-tension`, drawer chaîne tweet → telegram → blog → démentis + proposition « Rédiger un communiqué ». |
+| S3.4 | `AYA, montre les mouvements de troupes au Sahel.` | `snapshot ADS-B Sahel` / `montre l'activité aérienne Sahel` / `troupes Bamako Ouaga Niamey` / `show troops movement` | `aya.show_troops_movement` — couches `military-air` + `border-tension` actives, drawer ADS-B advisory only. |
+| S3.5 | `AYA, montre le drill de réputation 2 positifs 1 critique.` | `drill réputation` / `réputation 2 positifs 1 critique` / `montre le détail réputation` / `show reputation drill` | `aya.show_reputation_drill` — vue Réputation, score 72/100, 3 cartes (Jeune Afrique, Fraternité Matin, L'Inter). |
+| S3.6 | `AYA, prépare un communiqué de sécurité sur la rumeur Nord.` | `rédige le communiqué démentant la rumeur Nord` / `prépare un communiqué FANCI sur la frontière` / `draft security communique` | `aya.draft_security_communique` — drawer brouillon communiqué (skill `draft_response_email_v1`), validation advisory. |
+
+Plan B clic par étape : voir `docs/sentinel-ci-demo-trame-s3-presenter-card-2026-05-25.docx`.
+
 ## À ne PAS dire (bloc rouge)
 
 - `OK` seul / `très bien` seul / `D'accord` seul → matche `voice.confirm_yes` (le guard `6335d460` désamorce les fillers > 4 tokens, mais un filler isolé reste piégeux). **Toujours enchaîner sur un verbe.**

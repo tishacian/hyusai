@@ -137,6 +137,32 @@ Cockpit → arbitrages : les 3 cartes droite ne plongent plus directement dans u
 
 ---
 
+## Scénario 3 — Posture sécuritaire dual-axis (S3.1 → S3.6)
+
+Pack additionnel `sentinel_ci_aya_security_v1` (opt-in via `workspace.settings.actions.enabled_packs`). S'enchaîne après S2.7 (Décision Option B) en cible vers le Conseil Défense restreint de 15h00.
+
+| ID | Phrase | Action AYA | Effet UI |
+|----|--------|------------|----------|
+| S3.1 | `AYA, montre-moi la posture sécuritaire du jour.` | `aya.show_security_posture` | Cockpit : bloc « Posture sécuritaire » (Intérieur vigilance / Extérieur Sahel élevée + pastille 15h00 Conseil Défense restreint). `last_focus = package-securite-dual`. |
+| S3.2 | `AYA, montre la pulsation sociale à Abidjan.` | `aya.show_social_pulse` | Stratégie : couche `social-geo` active, drawer pulsation (5 officiels + 8 citoyens pseudonymisés + 5 rumeur frontière). |
+| S3.3 | `AYA, d'où vient la rumeur frontière Nord ?` | `aya.trace_rumor_origin` | Stratégie : zoom Nord, couche `border-tension`, drawer chaîne OSINT (tweet 11h42 → Telegram 12h08 → blog 12h48 → démentis 13h45/13h52) + proposition « Rédiger un communiqué ». |
+| S3.4 | `AYA, montre les mouvements de troupes au Sahel.` | `aya.show_troops_movement` | Stratégie : couches `military-air` + `border-tension` actives, drawer snapshot ADS-B advisory only (10 traces + 3 zones surveillance + 2 bases CEDEAO). |
+| S3.5 | `AYA, montre le drill de réputation 2 positifs 1 critique.` | `aya.show_reputation_drill` | Réputation : score 72/100, 3 cartes (Jeune Afrique + Fraternité Matin + L'Inter), CTA AYA pour préparer un encart Conseil 15h. |
+| S3.6 | `AYA, prépare un communiqué de sécurité sur la rumeur Nord.` | `aya.draft_security_communique` | Drawer brouillon communiqué (skill `draft_response_email_v1` réutilisé), validation advisory requise. |
+
+Routes : `/hypervisor/mission-room/cockpit` (S3.1, retour S3.6), `/hypervisor/mission-room/strategie` (S3.2 → S3.4), `/hypervisor/mission-room/reputation` (S3.5).
+
+Plan B clic : voir `docs/sentinel-ci-demo-trame-s3-presenter-card-2026-05-25.docx`.
+
+Garde-fous démo-safe :
+
+- ADS-B = snapshot advisory only, callsigns + types validés à la main.
+- Comptes citoyens : pseudonymes `@citoyen_***` ; rumeur : `@rumeur_***`. Les 5 comptes officiels sont des comptes institutionnels publics (Présidence CI, FANCI, RFI Sahel, Jeune Afrique, Préfecture Nord).
+- Critique réputation = article L'Inter déjà publié et seedé en S1 (`attention-inter-budget`).
+- Brief Sahel = synthèse OSINT publique style ACLED, aucune claim renseignement militaire.
+
+---
+
 ## Références
 
 - Cheat-sheet phrases canoniques : [`sentinel-ci-presenter-cheatsheet.md`](./sentinel-ci-presenter-cheatsheet.md)
