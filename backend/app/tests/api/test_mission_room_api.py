@@ -320,6 +320,27 @@ def test_press_preview_falls_back_when_global_feed_is_not_ci():
     assert preview[0]["geography_tier"] == "ci"
 
 
+def test_press_preview_marks_concrete_ci_live_articles_with_region_iso():
+    preview = mission_room_service._press_preview_payload(
+        {},
+        [
+            {
+                "id": "press-live-ci-agri",
+                "title": "Appui aux filieres agricoles",
+                "source": "Cote d'Ivoire",
+                "risk_level": "medium",
+                "summary": "Le gouvernement renforce la production des agriculteurs.",
+                "geography_tier": "ci",
+                "country": "Cote d'Ivoire",
+                "tags": ["Côte d'Ivoire", "gouvernement"],
+            }
+        ],
+    )
+
+    assert preview[0]["id"] == "press-live-ci-agri"
+    assert preview[0]["region_iso"] == "CI"
+
+
 def test_press_preview_does_not_trust_weak_ci_classifier_without_ci_markers():
     preview = mission_room_service._press_preview_payload(
         {},

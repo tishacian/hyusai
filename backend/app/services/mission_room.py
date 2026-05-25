@@ -3443,6 +3443,17 @@ def _press_preview_is_concrete_ci(item: dict[str, Any]) -> bool:
     ) or any(token in _PRESS_CI_TAG_TOKENS for token in tags)
 
 
+def _press_preview_region_iso(alert: dict[str, Any]) -> str | None:
+    explicit = str(alert.get("region_iso") or alert.get("geo_iso") or "").upper()
+    if explicit:
+        return explicit
+    # geography_tier='ci' alone can come from weak classifiers; only expose
+    # region_iso when concrete CI markers are present in the article payload.
+    if _press_preview_is_concrete_ci(alert):
+        return "CI"
+    return None
+
+
 def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     candidates = list(alerts or _clone(NEWS_SIGNALS))
 
@@ -3453,6 +3464,7 @@ def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -
     preview: list[dict[str, Any]] = []
     for alert in candidates[:3]:
         risk = alert.get("risk_level") or "medium"
+        geo_tier = alert.get("geography_tier") or alert.get("geo_tier")
         preview.append(
             {
                 "id": alert.get("id") or f"press-{len(preview) + 1}",
@@ -3463,9 +3475,9 @@ def _press_preview_payload(news: dict[str, Any], alerts: list[dict[str, Any]]) -
                 "tone": "critical" if _risk_rank(risk) >= 3 else "watch",
                 "route": f"{MISSION_ROOM_ROOT}/presse?highlight={alert.get('id')}",
                 "summary": alert.get("summary") or alert.get("impact_ci") or alert.get("recommended_action"),
-                "geography_tier": alert.get("geography_tier") or alert.get("geo_tier"),
+                "geography_tier": geo_tier,
                 "geo_tier": alert.get("geo_tier") or alert.get("geography_tier"),
-                "region_iso": alert.get("region_iso"),
+                "region_iso": _press_preview_region_iso(alert),
                 "country": alert.get("country") or alert.get("zone"),
                 "publisher": alert.get("publisher") or alert.get("source"),
                 "tags": alert.get("tags") or [],
