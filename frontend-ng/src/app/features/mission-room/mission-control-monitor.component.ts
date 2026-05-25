@@ -105,7 +105,6 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   private readonly api = inject(ApiService);
   private readonly maritimeTracking = inject(MaritimeTrackingService);
   private clockTimer: ReturnType<typeof setInterval> | null = null;
-  private activePortWebcamObjectUrl: string | null = null;
   private readonly visualSourceObjectUrls = new Map<string, string>();
   private readonly visualSourceLoading = new Set<string>();
   private readonly showWebcamListener = (event: Event) => {
@@ -138,7 +137,6 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   ngOnDestroy(): void {
     if (this.clockTimer) clearInterval(this.clockTimer);
     window.removeEventListener('agentium:assistant-show-webcam', this.showWebcamListener);
-    if (this.activePortWebcamObjectUrl) URL.revokeObjectURL(this.activePortWebcamObjectUrl);
     for (const objectUrl of this.visualSourceObjectUrls.values()) {
       URL.revokeObjectURL(objectUrl);
     }
@@ -427,22 +425,6 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
         || `/api/v1/mission-room/webcams/proxy?source_id=${sourceId}`,
     );
     const name = String(detail['label'] || known?.name || sourceId);
-    this.activePortWebcam.set({
-      ...(known || {}),
-      id: sourceId,
-      name,
-      proxy_url: proxyUrl,
-      adapter: known?.adapter || 'http_image',
-      source_url: known?.source_url || proxyUrl,
-      attribution: detail['attribution'] || known?.attribution,
-      label_disclaimer: detail['label_disclaimer'] || known?.label_disclaimer,
-      metadata: {
-        ...(known?.metadata || {}),
-        preview_url: proxyUrl,
-        preferred_render: 'snapshot',
-      },
-    });
-    this.selectedVisualSourceId.set(sourceId);
     const source = known || {
       id: sourceId,
       name,
@@ -452,7 +434,6 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
       status: 'active',
       metadata: { preview_url: proxyUrl, preferred_render: 'snapshot' },
     };
-    this.selectVisualSource(source);
     this.activePortWebcam.set({
       ...(known || {}),
       id: sourceId,
@@ -468,6 +449,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
         preferred_render: 'snapshot',
       },
     });
+    this.selectVisualSource(source);
     this.syncActivePortWebcamPreview(sourceId);
   }
 
