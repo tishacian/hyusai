@@ -9,10 +9,11 @@
 
 ## TL;DR — lancer S1 webcam + PDF en 30 secondes
 
-1. Cockpit ouvert → cliquer **Zone Nord · Tendue** (chip rouge) → carte recentrée Nord.
-2. Dire **« AYA, montre le cargo Atlantic Trader. »** → vignette webcam APM Apapa + proposition PV.
-3. Dire **« AYA, ouvre le PV douanes. »** → drawer PDF page 2 surlignée.
-4. Plan B sans voix : cliquer **Port Vridi · webcam demo** (légende carte cockpit) ou **APM Apapa Gate #1** (FLUX TERRAIN).
+1. **Pre-flight** (~5 min avant VP) : `./scripts/qa_demo_gate.sh --with-reset` → exit 0 requis.
+2. Cockpit ouvert → cliquer **Zone Nord · Tendue** (chip rouge) → carte recentrée Nord.
+3. Dire **« AYA, montre le cargo Atlantic Trader. »** → vignette webcam APM Apapa + proposition PV.
+4. Dire **« AYA, ouvre le PV douanes. »** → drawer PDF page 2 surlignée.
+5. Clic alternatif : **Port Vridi · webcam demo** (légende carte cockpit), **clic pin MV Atlantic Trader**, ou **APM Apapa Gate #1** (FLUX TERRAIN).
 
 ---
 
@@ -22,9 +23,9 @@
 |--------|-----------|------------------------|------------------|
 | **1. Via AYA** | Bulle AYA ou micro | `AYA, montre le cargo Atlantic Trader.` | Panel maritime + événement `assistant-show-webcam` → source `apm-apapa-gate-1` |
 | **2. Via FLUX TERRAIN** | Carte → mode live → panneau **Flux terrain** (bas) | `AYA, montre la situation au port.` | Bascule mode maritime ; webcam APM dans la grille ; sidebar : **APM Apapa Gate #1 · Port Vridi (demo)** en tête avec badge **Port Vridi · cargo demo** |
-| **3. Via click cargo carte** | Cockpit → carte preview → clic pin violet **MV Atlantic Trader** | *(optionnel)* même phrase S1.4 | Vignette webcam sous la carte + navigation `/strategie?mode=live&panel=maritime&vessel=627012345` |
+| **3. Via click cargo carte** | Cockpit → carte preview → clic pin violet **MV Atlantic Trader** | *(optionnel)* même phrase S1.4 | Fiche navire + vignette webcam · navigation `/strategie?mode=live&panel=maritime&vessel=627012345` |
 
-**Plan B webcam** : bouton **Port Vridi · webcam demo** dans la légende carte cockpit (sans AYA).
+**Clic sans AYA** : bouton **Port Vridi · webcam demo** dans la légende carte cockpit · clic pin **MV Atlantic Trader** · **APM Apapa Gate #1** dans FLUX TERRAIN.
 
 ---
 
@@ -45,9 +46,10 @@
 | 0:00 | **S1.1** Brief | `AYA, c'est lundi matin. Qu'est-ce qui demande mon attention ?` | Cockpit auto-charge (5 blocs : posture, KPI, directive, carte, arbitrages) | sidebar **Cockpit** (URL : `/hypervisor/mission-room/cockpit`) — la vue **EST** le brief | AYA only pour la version vocale ; l'écran est lisible seul |
 | 0:30 | **S1.2** Pourquoi Nord tendue | `AYA, pourquoi la situation Nord est-elle tendue ?` | Navigation Carte · focus Korhogo/Poro · highlight Napié | cockpit → **chip Zone Nord · Tendue** (chip rouge) → carte recentrée | Clic **Ouvrir le dossier Zone Nord** (bannière AYA) |
 | 1:30 | **S1.3** Focus zone Nord + Napié | `AYA, focus sur la zone Nord et le projet Napié.` | Recadrage carte + surbrillance projet drones | cockpit → bouton **Brief opérationnel · Projet sensible Nord** → strategie?focus=zone-nord&highlight=proj-drone-centre-napie | Clic chip Zone Nord à nouveau |
-| 2:30 | **S1.4** Cargo Atlantic Trader | `AYA, montre le cargo Atlantic Trader.` | Vignette webcam APM Apapa + proposition PV | cockpit/strategie → **clic pin MV Atlantic Trader** sur carte preview **ou** bouton **Port Vridi · webcam demo** (légende carte) | FLUX TERRAIN → **APM Apapa Gate #1** en tête (carte live) |
-| 3:30 | **S1.5** PV douanes | `AYA, ouvre le PV douanes.` | Drawer PDF PV 18/05 · page 2 · citations OCR | strategie panel maritime → **clic chip PV douanes 18 mai** sous la fiche cargo (drawer document_preview, page 2) | Variante voix `pv douanes` ou accepter la proposition `propose-customs-pdf-show` |
-| 4:30 | **S1.6** Courrier dédouanement | `AYA, rédige le courrier de dédouanement pour Atlantic Trader.` | Drawer email `customs_derogation` advisory | drawer PV → **bouton « Préparer email dérogation »** (proposal `propose-customs-derogation`) | — |
+| 2:30 | **S1.4** Cargo Atlantic Trader | `AYA, montre le cargo Atlantic Trader.` | Vignette webcam APM Apapa + proposition PV | cockpit/strategie → **clic pin MV Atlantic Trader** sur carte preview **ou** bouton **Port Vridi · webcam demo** (légende carte) | FLUX TERRAIN → **APM Apapa Gate #1** |
+| 3:00 | **S1.5** Situation au port | `AYA, montre la situation au port.` | Panel maritime live · webcam APM · URL `panel=maritime&port=port-abidjan` | Même chemins clic que S1.4 (légende Port Vridi / pin vessel) | FLUX TERRAIN |
+| 3:30 | **S1.6** PV douanes | `AYA, ouvre le PV douanes.` | Drawer PDF PV 18/05 · page 2 · citations OCR | strategie panel maritime → **clic chip PV douanes 18 mai** sous la fiche cargo (drawer document_preview, page 2) | Variante voix `pv douanes` ou accepter la proposition `propose-customs-pdf-show` |
+| 4:30 | **S1.7** Courrier dédouanement | `AYA, rédige le courrier de dédouanement pour Atlantic Trader.` | Drawer email `customs_derogation` advisory | drawer PV → **bouton « Préparer email dérogation »** (proposal `propose-customs-derogation`) | — |
 
 **Phrase de clôture S1** : « En cinq minutes, AYA est passée du signal territorial à la preuve douanière, avec une proposition d'action sourcée — sans exécuter à ma place. »
 
@@ -94,6 +96,15 @@
 
 ## Routes à vérifier avant la démo
 
+Gate automatisé (100 % readiness) :
+
+```bash
+AGENTIUM_HOST=https://agentium.papai.ai \
+AGENTIUM_EMAIL=thibaud.ishacian@datategy.net \
+AGENTIUM_PASSWORD='***' \
+./scripts/qa_demo_gate.sh --with-reset
+```
+
 | Route | Attendu |
 |-------|---------|
 | `/hypervisor/mission-room/cockpit` | Cockpit 5 blocs · chips cliquables |
@@ -113,8 +124,9 @@ Récap couverture clic pour chaque action AYA mappée dans le walkthrough :
 | S1.2 | `aya.explain_why` (Nord) | Drill causal + carte Nord | Chip **Zone Nord · Tendue** | OK |
 | S1.3 | `aya.focus_zone_with_project` | Carte Nord + Napié | Bouton **Brief opérationnel · Projet sensible Nord** | OK |
 | S1.4 | `aya.show_vessel_evidence` | Webcam APM Apapa + propose PV | Pin MV Atlantic Trader / **Port Vridi · webcam demo** | OK |
-| S1.5 | `aya.show_customs_record` | Drawer PDF PV page 2 | Chip PV douanes (panel maritime) | OK |
-| S1.6 | `aya.draft_customs_email` | Drawer email customs | Bouton « Préparer email dérogation » (drawer PV) | OK |
+| S1.5 | `aya.show_maritime_traffic` | Panel maritime port Abidjan + webcam | Même clics S1.4 · FLUX TERRAIN | OK |
+| S1.6 | `aya.show_customs_record` | Drawer PDF PV page 2 | Chip PV douanes (panel maritime) | OK |
+| S1.7 | `aya.draft_customs_email` | Drawer email customs | Bouton « Préparer email dérogation » (drawer PV) | OK |
 | T.1  | `aya.open_next_meeting` | Agenda Nawa highlight | Sidebar Agenda → carte Nawa | OK |
 | S2.1 | `aya.summarize_last_exchanges` | Synthèse Nawa | Bouton **« Synthèse AYA »** sur agenda | OK |
 | S2.2 | `aya.recommend_cacao` | 3 options chiffrées | — | **AYA only** |

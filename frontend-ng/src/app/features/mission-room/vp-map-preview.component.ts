@@ -985,6 +985,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly cdr = inject(ChangeDetectorRef);
   private vesselsSub: Subscription | null = null;
+  private webcamLoadSub: Subscription | null = null;
   private activeWebcamObjectUrl: string | null = null;
   private readonly showWebcamListener = (event: Event) => {
     this.handleShowWebcamEvent(event as CustomEvent);
@@ -999,6 +1000,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.vesselsSub?.unsubscribe();
+    this.webcamLoadSub?.unsubscribe();
     this.revokeActiveWebcamObjectUrl();
     window.removeEventListener('agentium:assistant-show-webcam', this.showWebcamListener);
   }
@@ -1190,7 +1192,8 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   }
 
   webcamDisplayUrl(webcam: ActiveWebcam): string {
-    return this.activeWebcamImageUrl || this.withRelativeSnapshotCacheBust(webcam.proxy_url);
+    // Proxy URLs require JWT — never bind them directly to <img src>.
+    return this.activeWebcamImageUrl || '';
   }
 
   private loadWebcamPreview(rawUrl: string): void {
@@ -1201,16 +1204,20 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
       this.cdr.markForCheck();
       return;
     }
-    this.api.getBlob(path).subscribe({
+    if (this.webcamLoadSub) return;
+    this.activeWebcamImageUrl = null;
+    this.webcamLoadSub = this.api.getBlob(path).subscribe({
       next: (blob) => {
+        this.webcamLoadSub = null;
         this.revokeActiveWebcamObjectUrl();
         this.activeWebcamObjectUrl = URL.createObjectURL(blob);
         this.activeWebcamImageUrl = this.activeWebcamObjectUrl;
         this.cdr.markForCheck();
       },
       error: () => {
+        this.webcamLoadSub = null;
         this.revokeActiveWebcamObjectUrl();
-        this.activeWebcamImageUrl = this.withRelativeSnapshotCacheBust(rawUrl);
+        this.activeWebcamImageUrl = null;
         this.cdr.markForCheck();
       },
     });

@@ -170,6 +170,14 @@ const ATLANTIC_TRADER_MMSI = '627012345';
                 <span><i class="port"></i>ports</span>
                 <span><i class="vessel-cargo"></i>cargo</span>
                 <span><i class="vessel-tanker"></i>tanker</span>
+                <button
+                  type="button"
+                  class="legend-port-webcam"
+                  aria-label="Ouvrir la webcam port demo APM Apapa"
+                  (click)="openDemoPortWebcam($event)"
+                >
+                  Port Vridi · cargo demo
+                </button>
               </div>
             }
             @if (hasS3Legend()) {
@@ -765,6 +773,21 @@ const ATLANTIC_TRADER_MMSI = '627012345';
       .legend-section.maritime .vessel-tanker {
         border-bottom-color: #f97316;
       }
+      .legend-section.maritime .legend-port-webcam {
+        margin-left: 0.35rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 160, 67, 0.45);
+        background: rgba(255, 160, 67, 0.12);
+        color: rgba(255, 220, 170, 0.95);
+        font-size: 0.68rem;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .legend-section.maritime .legend-port-webcam:hover {
+        background: rgba(255, 160, 67, 0.22);
+      }
 
       .legend-section.security .s3-air {
         width: 0;
@@ -788,7 +811,6 @@ const ATLANTIC_TRADER_MMSI = '627012345';
         border-radius: 3px;
         background: rgba(241, 180, 90, 0.18);
       }
-
       .map-maritime-caption {
         position: absolute;
         left: 50%;
@@ -1811,89 +1833,6 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         parameters: { depthTest: false },
       }));
 
-      const vesselsRaw = (this.vessels || []).filter(
-        (vessel) => Number.isFinite(Number(vessel?.lat)) && Number.isFinite(Number(vessel?.lon)),
-      );
-      const vesselsData = this.spreadVesselPositions(vesselsRaw);
-      if (vesselsData.length) {
-        const highlightedMmsi = this.highlightedVesselMmsi;
-        const isVesselHighlighted = (vessel: VesselPosition) =>
-          Boolean(
-            (highlightedMmsi && vessel.mmsi === highlightedMmsi)
-              || vessel.linked_cargo_id
-              || vessel.highlight,
-          );
-        const atlanticTrader = vesselsData.find((vessel) => this.isAtlanticTrader(vessel));
-        const vesselIconAtlas = this.getVesselIconAtlas();
-        const highlightedVessels = vesselsData.filter(isVesselHighlighted);
-        if (highlightedVessels.length) {
-          layers.push(new IconLayer({
-            id: 'sentinel-vessels-halo',
-            data: highlightedVessels,
-            pickable: false,
-            iconAtlas: vesselIconAtlas,
-            iconMapping: VESSEL_ICON_MAPPING,
-            getIcon: () => 'triangle',
-            getPosition: (vessel: VesselPosition & { displayLon: number; displayLat: number }) =>
-              [vessel.displayLon, vessel.displayLat],
-            getAngle: (vessel: VesselPosition) => this.vesselIconAngle(vessel),
-            getSize: (vessel: VesselPosition) =>
-              this.vesselIconSize(isVesselHighlighted(vessel)) + (this.isAtlanticTrader(vessel) ? this.atlanticHaloBoost() : 8),
-            getColor: (vessel: VesselPosition) =>
-              ([...VESSEL_HIGHLIGHT_RGB, this.isAtlanticTrader(vessel) ? this.atlanticHaloAlpha() : 68] as any),
-            sizeUnits: 'pixels',
-            billboard: true,
-            parameters: { depthTest: false },
-          }));
-        }
-        layers.push(new IconLayer({
-          id: 'sentinel-vessels-icons',
-          data: vesselsData,
-          pickable: true,
-          iconAtlas: vesselIconAtlas,
-          iconMapping: VESSEL_ICON_MAPPING,
-          getIcon: () => 'triangle',
-          getPosition: (vessel: VesselPosition & { displayLon: number; displayLat: number }) =>
-            [vessel.displayLon, vessel.displayLat],
-          getAngle: (vessel: VesselPosition) => this.vesselIconAngle(vessel),
-          getSize: (vessel: VesselPosition) => this.vesselIconSize(isVesselHighlighted(vessel)),
-          getColor: (vessel: VesselPosition) =>
-            isVesselHighlighted(vessel)
-              ? ([...VESSEL_HIGHLIGHT_RGB, 255] as any)
-              : ([...this.vesselColor(vessel), 255] as any),
-          sizeUnits: 'pixels',
-          billboard: true,
-          parameters: { depthTest: false },
-          onClick: (info: any) => this.handleVesselClick(info?.object as VesselPosition | undefined),
-        }));
-        const labelFeatures = [
-          ...(atlanticTrader ? [atlanticTrader] : []),
-          ...highlightedVessels.filter((vessel) => !this.isAtlanticTrader(vessel)).slice(0, 3),
-        ];
-        if (labelFeatures.length) {
-          layers.push(new TextLayer({
-            id: 'sentinel-vessels-labels',
-            data: labelFeatures,
-            getPosition: (vessel: VesselPosition & { displayLon: number; displayLat: number }) =>
-              [vessel.displayLon, vessel.displayLat],
-            getText: (vessel: VesselPosition) =>
-              this.isAtlanticTrader(vessel) ? 'MV ATLANTIC TRADER' : (vessel.name || vessel.mmsi || ''),
-            getSize: this.isAtlanticTrader(labelFeatures[0]) ? 11 : (this.compact ? 9 : 10),
-            getColor: (vessel: VesselPosition) =>
-              this.isAtlanticTrader(vessel)
-                ? ([212, 195, 255, 245] as any)
-                : (this.isLightBasemap() ? [12, 36, 50, 240] : [248, 252, 255, 238]),
-            getPixelOffset: [0, -16],
-            getTextAnchor: 'middle',
-            getAlignmentBaseline: 'bottom',
-            fontSettings: { sdf: true, fontWeight: 700 },
-            outlineColor: this.isLightBasemap() ? [255, 255, 255, 232] : [4, 8, 13, 240],
-            outlineWidth: 3,
-            billboard: true,
-            parameters: { depthTest: false },
-          }));
-        }
-      }
     }
 
     // ----------------------------------------------------------------------
@@ -2203,7 +2142,104 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         parameters: { depthTest: false },
       }));
     }
+
+    // Vessel pins must be the topmost pickable deck layers so clicks on
+    // Atlantic Trader are not swallowed by zone polygons or Nord markers.
+    if (showMaritime) {
+      this.appendVesselDeckLayers(layers);
+    }
     return layers;
+  }
+
+  private appendVesselDeckLayers(layers: any[]): void {
+    const { IconLayer, TextLayer } = this.deckLayersModule || {};
+    if (!IconLayer || !TextLayer) return;
+
+    const vesselsRaw = (this.vessels || []).filter(
+      (vessel) => Number.isFinite(Number(vessel?.lat)) && Number.isFinite(Number(vessel?.lon)),
+    );
+    const vesselsData = this.spreadVesselPositions(vesselsRaw);
+    if (!vesselsData.length) return;
+
+    const highlightedMmsi = this.highlightedVesselMmsi;
+    const isVesselHighlighted = (vessel: VesselPosition) =>
+      Boolean(
+        (highlightedMmsi && vessel.mmsi === highlightedMmsi)
+          || vessel.linked_cargo_id
+          || vessel.highlight,
+      );
+    const atlanticTrader = vesselsData.find((vessel) => this.isAtlanticTrader(vessel));
+    const vesselIconAtlas = this.getVesselIconAtlas();
+    const highlightedVessels = vesselsData.filter(isVesselHighlighted);
+    if (highlightedVessels.length) {
+      layers.push(new IconLayer({
+        id: 'sentinel-vessels-halo',
+        data: highlightedVessels,
+        pickable: false,
+        iconAtlas: vesselIconAtlas,
+        iconMapping: VESSEL_ICON_MAPPING,
+        getIcon: () => 'triangle',
+        getPosition: (vessel: VesselPosition & { displayLon: number; displayLat: number }) =>
+          [vessel.displayLon, vessel.displayLat],
+        getAngle: (vessel: VesselPosition) => this.vesselIconAngle(vessel),
+        getSize: (vessel: VesselPosition) =>
+          this.vesselIconSize(isVesselHighlighted(vessel)) + (this.isAtlanticTrader(vessel) ? this.atlanticHaloBoost() : 8),
+        getColor: (vessel: VesselPosition) =>
+          ([...VESSEL_HIGHLIGHT_RGB, this.isAtlanticTrader(vessel) ? this.atlanticHaloAlpha() : 68] as any),
+        sizeUnits: 'pixels',
+        billboard: true,
+        parameters: { depthTest: false },
+      }));
+    }
+    layers.push(new IconLayer({
+      id: 'sentinel-vessels-icons',
+      data: vesselsData,
+      pickable: true,
+      iconAtlas: vesselIconAtlas,
+      iconMapping: VESSEL_ICON_MAPPING,
+      getIcon: () => 'triangle',
+      getPosition: (vessel: VesselPosition & { displayLon: number; displayLat: number }) =>
+        [vessel.displayLon, vessel.displayLat],
+      getAngle: (vessel: VesselPosition) => this.vesselIconAngle(vessel),
+      getSize: (vessel: VesselPosition) => this.vesselIconSize(isVesselHighlighted(vessel)),
+      getColor: (vessel: VesselPosition) =>
+        isVesselHighlighted(vessel)
+          ? ([...VESSEL_HIGHLIGHT_RGB, 255] as any)
+          : ([...this.vesselColor(vessel), 255] as any),
+      sizeUnits: 'pixels',
+      billboard: true,
+      parameters: { depthTest: false },
+      onClick: (info: any) => this.handleVesselClick(info?.object as VesselPosition | undefined, info),
+    }));
+    const labelFeatures = [
+      ...(atlanticTrader ? [atlanticTrader] : []),
+      ...highlightedVessels.filter((vessel) => !this.isAtlanticTrader(vessel)).slice(0, 3),
+    ];
+    if (labelFeatures.length) {
+      layers.push(new TextLayer({
+        id: 'sentinel-vessels-labels',
+        data: labelFeatures,
+        pickable: true,
+        getPosition: (vessel: VesselPosition & { displayLon: number; displayLat: number }) =>
+          [vessel.displayLon, vessel.displayLat],
+        getText: (vessel: VesselPosition) =>
+          this.isAtlanticTrader(vessel) ? 'MV ATLANTIC TRADER' : (vessel.name || vessel.mmsi || ''),
+        getSize: this.isAtlanticTrader(labelFeatures[0]) ? 11 : (this.compact ? 9 : 10),
+        getColor: (vessel: VesselPosition) =>
+          this.isAtlanticTrader(vessel)
+            ? ([212, 195, 255, 245] as any)
+            : (this.isLightBasemap() ? [12, 36, 50, 240] : [248, 252, 255, 238]),
+        getPixelOffset: [0, -16],
+        getTextAnchor: 'middle',
+        getAlignmentBaseline: 'bottom',
+        fontSettings: { sdf: true, fontWeight: 700 },
+        outlineColor: this.isLightBasemap() ? [255, 255, 255, 232] : [4, 8, 13, 240],
+        outlineWidth: 3,
+        billboard: true,
+        parameters: { depthTest: false },
+        onClick: (info: any) => this.handleVesselClick(info?.object as VesselPosition | undefined, info),
+      }));
+    }
   }
 
   private focusSelectedZone(): void {
@@ -2494,9 +2530,38 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     return this.vesselIconAtlas;
   }
 
-  private handleVesselClick(vessel: VesselPosition | undefined): void {
+  openDemoPortWebcam(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    const demoVessel = (this.vessels || []).find(
+      (vessel) =>
+        this.isAtlanticTrader(vessel)
+        || vessel.linked_cargo_id === 'cargo-abidjan-supply-001',
+    );
+    if (demoVessel) {
+      this.handleVesselClick(demoVessel);
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent('agentium:assistant-show-webcam', {
+        detail: {
+          source_id: 'apm-apapa-gate-1',
+          label: 'APM Apapa Gate Cam #1 (demo Abidjan)',
+          cargo_id: 'cargo-abidjan-supply-001',
+          vessel_mmsi: ATLANTIC_TRADER_MMSI,
+          vessel_name: 'MV ATLANTIC TRADER',
+        },
+      }),
+    );
+  }
+
+  private handleVesselClick(vessel: VesselPosition | undefined, info?: { stopPropagation?: () => void }): void {
     if (!vessel) return;
+    info?.stopPropagation?.();
+    this.briefOpen = false;
+    this.hoveredZoneId = null;
     this.vesselSelected.emit(vessel);
+    this.cdr.markForCheck();
   }
 
   private maritimePointColor(feature: any, alpha = 220): number[] {

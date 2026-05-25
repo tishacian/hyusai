@@ -107,6 +107,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
   private clockTimer: ReturnType<typeof setInterval> | null = null;
   private readonly visualSourceObjectUrls = new Map<string, string>();
   private readonly visualSourceLoading = new Set<string>();
+  private visualPreloadTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly showWebcamListener = (event: Event) => {
     this.handleShowWebcamEvent(event as CustomEvent<Record<string, unknown>>);
   };
@@ -130,12 +131,14 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
       if (source?.id && !this.selectedVisualSourceId()) {
         this.selectedVisualSourceId.set(source.id);
       }
-      if (source) this.loadVisualSourcePreview(source);
+      this.scheduleVisualPreloads();
     }
   }
 
   ngOnDestroy(): void {
     if (this.clockTimer) clearInterval(this.clockTimer);
+    if (this.visualPreloadTimer) clearTimeout(this.visualPreloadTimer);
+    this.visualPreloadTimer = null;
     window.removeEventListener('agentium:assistant-show-webcam', this.showWebcamListener);
     for (const objectUrl of this.visualSourceObjectUrls.values()) {
       URL.revokeObjectURL(objectUrl);
@@ -530,7 +533,9 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
       return this.withSnapshotCacheBust(rawUrl);
     }
-    this.loadVisualSourcePreview(source);
+    if (!this.isProxyPreviewUrl(rawUrl)) {
+      return this.withRelativeSnapshotCacheBust(rawUrl);
+    }
     return null;
   }
 
@@ -793,6 +798,16 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
     return path.startsWith('/mission-room/webcams/proxy');
   }
 
+  private scheduleVisualPreloads(): void {
+    if (this.visualPreloadTimer) clearTimeout(this.visualPreloadTimer);
+    const sources = this.visualSources()
+      .filter((source) => this.isDemoPortWebcam(source) || this.isProxyPreviewUrl(this.resolveVisualPreviewRawUrl(source) || ''))
+      .slice(0, 3);
+    sources.forEach((source, index) => {
+      this.visualPreloadTimer = setTimeout(() => this.loadVisualSourcePreview(source), index * 450);
+    });
+  }
+
   private loadVisualSourcePreview(source: any): void {
     const sourceId = source?.id;
     if (!sourceId || this.visualSourceLoading.has(sourceId)) return;
@@ -835,11 +850,8 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
       },
       error: () => {
         this.visualSourceLoading.delete(sourceId);
-        this.visualSourcePreviewUrls.update((urls) => ({
-          ...urls,
-          [sourceId]: this.withRelativeSnapshotCacheBust(rawUrl),
-        }));
-        this.syncActivePortWebcamPreview(sourceId);
+        // Auth-gated proxy URLs must not be used as <img src> (no JWT on img).
+        this.markVisualPreviewFailed(sourceId);
       },
     });
   }

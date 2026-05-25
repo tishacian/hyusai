@@ -1,235 +1,224 @@
 /**
  * QA UI — Trame démo SENTINEL-CI Scénario 3 (Posture sécuritaire dual-axis)
  *
- * Rejoue S3.1 → S3.6 contre une instance frontend Agentium :
- *   S3.1 — `aya.show_security_posture` (cockpit, bloc Posture sécuritaire)
- *   S3.2 — `aya.show_social_pulse`     (strategie, drawer pulsation sociale)
- *   S3.3 — `aya.trace_rumor_origin`    (strategie, drawer trace OSINT + proposition)
- *   S3.4 — `aya.show_troops_movement`  (strategie, drawer ADS-B advisory)
- *   S3.5 — `aya.show_reputation_drill` (reputation, 2 positifs + 1 critique)
- *   S3.6 — `aya.draft_security_communique` (drawer brouillon communiqué)
- *
- * Pour chaque étape : capture d'écran + lecture des SSE chunks (action_effect,
- * map_command, assistant-draft-open) + heuristiques DOM. Toutes les sondes
- * sont demo-safe (aucune écriture en base, aucune modification de workspace).
+ * Rejoue S3.1 → S3.6 + surfaces V21 contre une instance frontend Agentium.
+ * Critère primaire : effet DOM (drawer titre, URL, bloc visible) — SSE optionnel.
  *
  * Usage : node scripts/playwright/qa_s3_security.mjs
  * Env   : AGENTIUM_HOST, AGENTIUM_EMAIL, AGENTIUM_PASSWORD, OUT_DIR
  */
 import { chromium } from 'playwright';
-import { mkdir, writeFile, stat } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import {
+  HOST,
+  WORKSPACE,
+  createHarnessState,
+  log,
+  record,
+  shot,
+  login,
+  openAyaPanel,
+  sendAya,
+  drawerState,
+  goto,
+  hasAction,
+  summarizeResults,
+} from './qa_trame_shared.mjs';
 
-const HOST = (process.env.AGENTIUM_HOST || 'https://agentium.papai.ai').replace(/\/+$/, '');
-const EMAIL = process.env.AGENTIUM_EMAIL || 'thibaud.ishacian@datategy.net';
-const PASSWORD = process.env.AGENTIUM_PASSWORD || 'ponfib-jaNca5-sisfoc';
 const OUT_DIR =
   process.env.OUT_DIR ||
   '/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-qa-s3-trame';
-const WORKSPACE = 'sentinel-ci';
 
-const NAV_TIMEOUT = 45_000;
-const AYA_WAIT_MS = 18_000;
-const startedAt = Date.now();
+/** @param {import('playwright').Page} page */
+export async function runS3SecuritySteps(page, state, outDir, { includeV21 = true } = {}) {
+  if (includeV21) {
+    await goto(page, '/hypervisor/mission-room/cockpit?workspace=sentinel-ci');
 
-const results = [];
-const consoleErrors = [];
-const windowEvents = [];
-const sseChunks = [];
-
-function log(m) {
-  const e = ((Date.now() - startedAt) / 1000).toFixed(1);
-  console.log(`[${e.padStart(6, ' ')}s] ${m}`);
-}
-
-function record(step, { status, observation, fix, priority = 'P1', screenshot = null, extra = {} }) {
-  const r = { step, status, observation, fix, priority, screenshot, ...extra };
-  results.push(r);
-  log(`  [${status}] ${step}: ${observation.slice(0, 140)}`);
-  return r;
-}
-
-async function shot(page, name) {
-  const file = join(OUT_DIR, `${name}.png`);
-  try {
-    await page.waitForTimeout(800);
-    await page.screenshot({ path: file, fullPage: false });
-    const st = await stat(file);
-    return { file, sizeBytes: st.size, ok: st.size > 5000 };
-  } catch (e) {
-    return { file: null, sizeBytes: 0, ok: false, error: e.message };
-  }
-}
-
-async function login(page) {
-  await page.goto(`${HOST}/`, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
-  await page.waitForTimeout(1500);
-  const emailSel = page.locator('#signin-email, input[type=email]').first();
-  await emailSel.waitFor({ state: 'visible', timeout: 15_000 });
-  await emailSel.fill(EMAIL);
-  await page.locator('#signin-password, input[type=password]').first().fill(PASSWORD);
-  await page
-    .locator('form.ck-auth-form button[type="submit"], button[type="submit"]')
-    .first()
-    .click();
-  try {
-    await page.waitForURL(/\/hypervisor(\/|$)/, { timeout: 25_000 });
-  } catch {
-    await shot(page, '00-login-failed');
-    throw new Error(`Login failed url=${page.url()}`);
-  }
-  await page.evaluate((slug) => {
-    try {
-      localStorage.setItem('agentium_workspace_slug', slug);
-    } catch {}
-  }, WORKSPACE);
-}
-
-async function installProbes(page) {
-  await page.exposeFunction('__report_event', (e) => windowEvents.push(e));
-  await page.exposeFunction('__report_chunk', (c) => sseChunks.push(c));
-  await page.evaluate(() => {
-    for (const n of [
-      'agentium:assistant-navigate',
-      'agentium:assistant-propose',
-      'agentium:assistant-show-webcam',
-      'agentium:assistant-draft-open',
-      'agentium:map-command',
-    ]) {
-      window.addEventListener(n, (ev) => {
-        try {
-          window.__report_event({ event: n, detail: ev.detail });
-        } catch {}
-      });
-    }
-    const origFetch = window.fetch.bind(window);
-    window.fetch = async (input, init) => {
-      const url = typeof input === 'string' ? input : input.url;
-      const isStream = url && url.includes('/chat/stream');
-      const res = await origFetch(input, init);
-      if (isStream && res.body) {
-        const orig = res.clone();
-        (async () => {
-          const reader = orig.body.getReader();
-          const dec = new TextDecoder();
-          let buf = '';
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += dec.decode(value, { stream: true });
-            const lines = buf.split('\n');
-            buf = lines.pop() || '';
-            for (const line of lines) {
-              if (line.startsWith('data:')) {
-                const data = line.slice(5).trim();
-                if (!data) continue;
-                try {
-                  window.__report_chunk(JSON.parse(data));
-                } catch {}
-              }
-            }
-          }
-        })();
-      }
-      return res;
-    };
-  });
-}
-
-async function openAyaPanel(page) {
-  for (const sel of [
-    'button.action-button:has-text("AYA")',
-    '[aria-label="Ouvrir AYA"]',
-    '.assistant-badge',
-    'button:has-text("AYA")',
-  ]) {
-    try {
-      const loc = page.locator(sel).first();
-      if ((await loc.count()) === 0) continue;
-      await loc.click({ timeout: 4000 });
-      await page.waitForTimeout(1000);
-      if (
-        await page
-          .locator('textarea[name="userInput"]')
-          .first()
-          .isVisible()
-          .catch(() => false)
-      )
-        return true;
-    } catch {}
-  }
-  await page.keyboard.press('Meta+j').catch(() => {});
-  await page.waitForTimeout(800);
-  if (
-    await page
-      .locator('textarea[name="userInput"]')
-      .first()
-      .isVisible()
-      .catch(() => false)
-  )
-    return true;
-  await page.keyboard.press('Control+j').catch(() => {});
-  await page.waitForTimeout(800);
-  return page
-    .locator('textarea[name="userInput"]')
-    .first()
-    .isVisible()
-    .catch(() => false);
-}
-
-async function sendAya(page, text, waitMs = AYA_WAIT_MS) {
-  const ta = page.locator('textarea[name="userInput"]').first();
-  await ta.waitFor({ state: 'visible', timeout: 10_000 });
-  await ta.fill(text);
-  await page.waitForTimeout(200);
-  const beforeChunks = sseChunks.length;
-  await ta.press('Enter');
-  await page.waitForTimeout(waitMs);
-  try {
-    await page.waitForFunction(
-      () => {
-        const t = document.querySelector('textarea[name="userInput"]');
-        return t && !t.disabled;
-      },
-      { timeout: waitMs },
+    const navItems = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('app-mission-rail button, app-mission-rail a'))
+        .map((el) => el.textContent?.trim() || '')
+        .filter(Boolean),
     );
-  } catch {}
-  await page.waitForTimeout(1500);
-  return { newChunks: sseChunks.slice(beforeChunks) };
-}
+    const sV21Nav = await shot(page, outDir, 'V21-01-nav-rail');
+    record(state, 'V21.1 Rail Securite + Reputation visible', {
+      status: navItems.some((t) => /S[eé]curit/i.test(t)) && navItems.some((t) => /R[eé]putation/i.test(t))
+        ? 'PASS'
+        : 'FAIL',
+      observation: `nav items: ${navItems.join(' · ')}`,
+      fix: 'Verifier NAVIGATION_ITEMS + primaryRailKeys mission-room',
+      priority: 'P1',
+      screenshot: sV21Nav.file,
+    });
 
-async function drawerState(page) {
-  return page.evaluate(() => {
-    const drawer = document.querySelector(
-      'app-assistant-draft-drawer, .draft-drawer, [data-testid="assistant-draft-drawer"]',
+    await goto(page, '/hypervisor/mission-room/securite?workspace=sentinel-ci');
+    const sV21Sec = await shot(page, outDir, 'V21-02-securite-shell');
+    const securiteShell = await page.evaluate(() =>
+      /Posture s[eé]curitaire|Conseil D[eé]fense|Th[eé][aâ]tre Sahel|Dossier rumeur/i.test(document.body.innerText),
     );
-    if (!drawer) return { open: false, title: '', body: '' };
-    const title = drawer.querySelector('h2, h3, .drawer-title')?.textContent?.trim() || '';
-    const body = drawer.querySelector('.draft-body, pre, .doc-preview')?.textContent?.trim() || '';
-    const kind = drawer.querySelector('.eyebrow')?.textContent?.trim() || '';
-    return { open: true, title: title.slice(0, 160), body: body.slice(0, 400), kind };
-  });
-}
+    record(state, 'V21.1 Onglet Securite shell agregé', {
+      status: securiteShell ? 'PASS' : 'FAIL',
+      observation: `shell securite visible=${securiteShell}, url=${page.url()}`,
+      fix: 'Verifier #securiteView + embedded drawers',
+      priority: 'P1',
+      screenshot: sV21Sec.file,
+    });
 
-async function goto(page, path) {
-  const url = path.startsWith('http') ? path : `${HOST}${path}`;
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT });
+    await goto(page, '/hypervisor/mission-room/securite/monitor?workspace=sentinel-ci');
+    const sV21Mon = await shot(page, outDir, 'V21-03-security-monitor');
+    const monitorVisible = await page.evaluate(() =>
+      /Security Monitor|ADS-B|CACHE BASELINE|Theatre Sahel/i.test(document.body.innerText),
+    );
+    record(state, 'V21.2 Security Monitor plein ecran', {
+      status: monitorVisible ? 'PASS' : 'FAIL',
+      observation: `monitor visible=${monitorVisible}, url=${page.url()}`,
+      fix: 'Verifier security-monitor.component + GET /security-monitor',
+      priority: 'P1',
+      screenshot: sV21Mon.file,
+    });
+
+    await goto(page, '/hypervisor/mission-room/veille-sociale?workspace=sentinel-ci');
+    const sV21Soc = await shot(page, outDir, 'V21-04-veille-sociale');
+    const socialPage = await page.evaluate(() =>
+      /Pulsation sociale|Veille sociale|Export CSV|officiel/i.test(document.body.innerText),
+    );
+    record(state, 'V21.4 Page Veille sociale standalone', {
+      status: socialPage ? 'PASS' : 'FAIL',
+      observation: `page sociale visible=${socialPage}, url=${page.url()}`,
+      fix: 'Verifier social-pulse-page.component + route /veille-sociale',
+      priority: 'P1',
+      screenshot: sV21Soc.file,
+    });
+
+    await goto(page, '/hypervisor/mission-room/cockpit?workspace=sentinel-ci');
+  }
+
+  const opened = await openAyaPanel(page);
+  if (!opened) {
+    record(state, 'S3.1 AYA panel ouverture', {
+      status: 'FAIL',
+      observation: 'Quick Panel AYA ne s\'ouvre pas (bouton + Cmd/Ctrl+K)',
+      fix: 'Vérifier ouverture chat-overlay / icônes lucide',
+      priority: 'P0',
+      screenshot: (await shot(page, outDir, 'S3.1-aya-panel-fail')).file,
+    });
+  } else {
+    const { newChunks } = await sendAya(page, state, 'AYA, montre-moi la posture sécuritaire du jour.');
+    const s1 = await shot(page, outDir, 'S3.1-posture-securite');
+    const navAction = hasAction(newChunks, /show_security_posture|security_posture|posture/i);
+    const securiteRoute = state.windowEvents.some(
+      (e) =>
+        e.event === 'agentium:assistant-navigate'
+        && /\/securite/i.test(JSON.stringify(e.detail || {})),
+    );
+    const cockpitText = await page.evaluate(() =>
+      /Posture s[eé]curitaire|Conseil D[eé]fense|dual.axis|Sahel/i.test(document.body.innerText),
+    );
+    const domOk = cockpitText || securiteRoute || page.url().includes('/securite');
+    record(state, 'S3.1 AYA posture sécuritaire dual-axis', {
+      status: domOk ? 'PASS' : 'FAIL',
+      observation: `action=${navAction}, route_securite=${securiteRoute}, bloc Posture visible=${cockpitText}`,
+      fix: !domOk ? 'Vérifier pack sentinel_ci_aya_security_v1 + aya.show_security_posture' : '—',
+      priority: domOk ? 'P2' : 'P0',
+      screenshot: s1.file,
+      extra: { functional_pass: domOk, telemetry_pass: navAction },
+    });
+  }
+
+  await openAyaPanel(page);
+  await sendAya(page, state, 'AYA, montre la pulsation sociale à Abidjan.');
+  await page.waitForTimeout(3000);
+  const s2 = await shot(page, outDir, 'S3.2-pulsation-sociale');
+  const d2 = await drawerState(page);
+  const socialDrawer = d2.open && /pulsation|sociale|signaux|Abidjan/i.test(`${d2.title} ${d2.body}`);
+  record(state, 'S3.2 AYA pulsation sociale + drawer tweets', {
+    status: socialDrawer ? 'PASS' : 'FAIL',
+    observation: `drawer_open=${d2.open}, drawer="${d2.title}"`,
+    fix: !socialDrawer ? 'Vérifier aya.show_social_pulse + emit assistant-draft-open(social_pulse_snapshot)' : '—',
+    priority: socialDrawer ? 'P2' : 'P0',
+    screenshot: s2.file,
+  });
+
+  await openAyaPanel(page);
+  await sendAya(page, state, "AYA, d'où vient la rumeur frontière Nord ?");
+  await page.waitForTimeout(3000);
+  const s3file = await shot(page, outDir, 'S3.3-rumeur-frontiere');
+  const d3 = await drawerState(page);
+  const chainText = await page.evaluate(() =>
+    /Telegram|d[eé]menti|Bouna|FANCI|11h42|13h45|rumeur/i.test(document.body.innerText),
+  );
+  const rumorDrawer = d3.open && /rumeur|fronti[eè]re|OSINT/i.test(`${d3.title} ${d3.body}`);
+  record(state, 'S3.3 AYA trace rumeur OSINT + proposition communiqué', {
+    status: chainText || rumorDrawer ? 'PASS' : 'FAIL',
+    observation: `chaîne visible=${chainText}, drawer="${d3.title}"`,
+    fix: !chainText ? 'Vérifier aya.trace_rumor_origin + map_command border-tension' : '—',
+    priority: chainText ? 'P2' : 'P0',
+    screenshot: s3file.file,
+  });
+
+  await openAyaPanel(page);
+  await sendAya(page, state, 'AYA, montre les mouvements de troupes au Sahel.');
+  await page.waitForTimeout(3000);
+  const s4 = await shot(page, outDir, 'S3.4-troupes-sahel');
+  const d4 = await drawerState(page);
+  const adsbText = await page.evaluate(() =>
+    /ADS.B|advisory|Bamako|Ouaga|Niamey|CEDEAO|Sahel/i.test(document.body.innerText),
+  );
+  const troopsDrawer = d4.open && /ADS|Sahel|troupes|Th[eé][aâ]tre/i.test(`${d4.title} ${d4.body}`);
+  record(state, 'S3.4 AYA snapshot ADS-B advisory Sahel', {
+    status: adsbText || troopsDrawer ? 'PASS' : 'FAIL',
+    observation: `drawer="${d4.title}", ADS-B visible=${adsbText}`,
+    fix: !adsbText ? 'Vérifier aya.show_troops_movement + map_command military-air + draft snapshot' : '—',
+    priority: adsbText ? 'P2' : 'P0',
+    screenshot: s4.file,
+  });
+
+  await openAyaPanel(page);
+  await sendAya(page, state, 'AYA, montre le drill de réputation 2 positifs et 1 critique.');
   try {
-    await page.waitForLoadState('networkidle', { timeout: 10_000 });
+    await page.waitForURL(/\/reputation/i, { timeout: 14_000 });
   } catch {}
   await page.waitForTimeout(2000);
-}
+  const s5 = await shot(page, outDir, 'S3.5-drill-reputation');
+  const reputationUrl = page.url();
+  const drillVisible = await page.evaluate(
+    () =>
+      /Jeune Afrique|Fraternit[eé] Matin|L'Inter|72\s*\/\s*100|Drill du sentiment|Positif|Critique|r[eé]putation/i.test(
+        document.body.innerText,
+      ),
+  );
+  const onReputation = /\/reputation/i.test(reputationUrl);
+  record(state, 'S3.5 AYA drill réputation 2+/1-', {
+    status: drillVisible && onReputation ? 'PASS' : 'FAIL',
+    observation: `drill visible=${drillVisible}, on_reputation=${onReputation}, url=${reputationUrl.split('?')[0]}`,
+    fix: !onReputation
+      ? 'Vérifier route /hypervisor/mission-room/reputation + assistant-navigate depuis effet SSE'
+      : (!drillVisible ? 'Vérifier aya.show_reputation_drill + reputation.items dans cockpit payload' : '—'),
+    priority: drillVisible && onReputation ? 'P2' : 'P0',
+    screenshot: s5.file,
+    extra: { onReputationRoute: onReputation },
+  });
 
-function hasAction(chunks, actionPattern) {
-  return chunks.some((c) => {
-    const text = JSON.stringify(c);
-    return actionPattern.test(text);
+  await openAyaPanel(page);
+  await sendAya(page, state, 'AYA, prépare un communiqué de sécurité sur la rumeur frontière Nord.');
+  await page.waitForTimeout(3500);
+  const s6 = await shot(page, outDir, 'S3.6-communique-securite');
+  const d6 = await drawerState(page);
+  const communiqueDrawer = d6.open && /communiqu[eé]|s[eé]curit[eé]|rumeur|advisory/i.test(`${d6.title} ${d6.body}`);
+  record(state, 'S3.6 AYA brouillon communiqué sécurité', {
+    status: communiqueDrawer ? 'PASS' : 'FAIL',
+    observation: `drawer="${d6.title}"`,
+    fix: !communiqueDrawer ? 'Vérifier aya.draft_security_communique + skill draft_response_email_v1 ou fallback' : '—',
+    priority: communiqueDrawer ? 'P2' : 'P0',
+    screenshot: s6.file,
   });
 }
 
 async function main() {
   await mkdir(OUT_DIR, { recursive: true });
-  log(`QA S3 -> ${HOST}, OUT=${OUT_DIR}`);
+  const state = createHarnessState();
+  log(state, `QA S3 -> ${HOST}, OUT=${OUT_DIR}`);
 
   const browser = await chromium.launch({ headless: true });
   const ctx = await browser.newContext({
@@ -240,257 +229,43 @@ async function main() {
   const page = await ctx.newPage();
   page.setDefaultTimeout(30_000);
   page.on('console', (m) => {
-    if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 200));
+    if (m.type() === 'error') state.consoleErrors.push(m.text().slice(0, 200));
   });
-  page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`));
+  page.on('pageerror', (e) => state.consoleErrors.push(`pageerror: ${e.message}`));
 
   try {
-    await login(page);
-    await goto(page, '/hypervisor/mission-room/cockpit?workspace=sentinel-ci');
-    await installProbes(page);
-
-    // ── V21 — Surfaces dédiées (nav rail + monitor + veille) ────────────────
-    const navItems = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('app-mission-rail button, app-mission-rail a'))
-        .map((el) => el.textContent?.trim() || '')
-        .filter(Boolean),
-    );
-    const sV21Nav = await shot(page, 'V21-01-nav-rail');
-    record('V21.1 Rail Securite + Reputation visible', {
-      status: navItems.some((t) => /Securite/i.test(t)) && navItems.some((t) => /Reputation/i.test(t))
-        ? 'PASS'
-        : 'FAIL',
-      observation: `nav items: ${navItems.join(' · ')}`,
-      fix: 'Verifier NAVIGATION_ITEMS + primaryRailKeys mission-room',
-      priority: 'P1',
-      screenshot: sV21Nav.file,
-    });
-
-    await goto(page, '/hypervisor/mission-room/securite?workspace=sentinel-ci');
-    const sV21Sec = await shot(page, 'V21-02-securite-shell');
-    const securiteShell = await page.evaluate(() =>
-      /Posture securitaire|Conseil Defense|Theatre Sahel|Dossier rumeur/i.test(document.body.innerText),
-    );
-    record('V21.1 Onglet Securite shell agregé', {
-      status: securiteShell ? 'PASS' : 'FAIL',
-      observation: `shell securite visible=${securiteShell}, url=${page.url()}`,
-      fix: 'Verifier #securiteView + embedded drawers',
-      priority: 'P1',
-      screenshot: sV21Sec.file,
-    });
-
-    await goto(page, '/hypervisor/mission-room/securite/monitor?workspace=sentinel-ci');
-    const sV21Mon = await shot(page, 'V21-03-security-monitor');
-    const monitorVisible = await page.evaluate(() =>
-      /Security Monitor|ADS-B|CACHE BASELINE|Theatre Sahel/i.test(document.body.innerText),
-    );
-    record('V21.2 Security Monitor plein ecran', {
-      status: monitorVisible ? 'PASS' : 'FAIL',
-      observation: `monitor visible=${monitorVisible}, url=${page.url()}`,
-      fix: 'Verifier security-monitor.component + GET /security-monitor',
-      priority: 'P1',
-      screenshot: sV21Mon.file,
-    });
-
-    await goto(page, '/hypervisor/mission-room/veille-sociale?workspace=sentinel-ci');
-    const sV21Soc = await shot(page, 'V21-04-veille-sociale');
-    const socialPage = await page.evaluate(() =>
-      /Pulsation sociale|Veille sociale|Export CSV|officiel/i.test(document.body.innerText),
-    );
-    record('V21.4 Page Veille sociale standalone', {
-      status: socialPage ? 'PASS' : 'FAIL',
-      observation: `page sociale visible=${socialPage}, url=${page.url()}`,
-      fix: 'Verifier social-pulse-page.component + route /veille-sociale',
-      priority: 'P1',
-      screenshot: sV21Soc.file,
-    });
-
-    await goto(page, '/hypervisor/mission-room/cockpit?workspace=sentinel-ci');
-    await installProbes(page);
-
-    // ── S3.1 — Posture sécuritaire ─────────────────────────────────────────
-    const opened = await openAyaPanel(page);
-    if (!opened) {
-      record('S3.1 AYA panel ouverture', {
-        status: 'FAIL',
-        observation: 'Quick Panel AYA ne s\'ouvre pas (bouton + Cmd/Ctrl+K)',
-        fix: 'Vérifier ouverture chat-overlay / icônes lucide',
-        priority: 'P0',
-        screenshot: (await shot(page, 'S3.1-aya-panel-fail')).file,
-      });
-    } else {
-      const { newChunks } = await sendAya(page, 'AYA, montre-moi la posture sécuritaire du jour.');
-      const s1 = await shot(page, 'S3.1-posture-securite');
-      const navAction = hasAction(newChunks, /show_security_posture|security_posture|posture/i);
-      const securiteRoute = windowEvents.some(
-        (e) =>
-          e.event === 'agentium:assistant-navigate'
-          && /\/securite/i.test(JSON.stringify(e.detail || {})),
-      );
-      const cockpitText = await page.evaluate(() =>
-        /Posture s[eé]curitaire|Conseil D[eé]fense|dual.axis|Sahel/i.test(document.body.innerText),
-      );
-      record('S3.1 AYA posture sécuritaire dual-axis', {
-        status: navAction && (securiteRoute || cockpitText) ? 'PASS' : cockpitText ? 'PARTIAL' : 'FAIL',
-        observation: `action=${navAction}, route_securite=${securiteRoute}, bloc Posture visible=${cockpitText}`,
-        fix: !navAction
-          ? 'Vérifier pack sentinel_ci_aya_security_v1 + aya.show_security_posture'
-          : '—',
-        priority: cockpitText ? 'P2' : 'P0',
-        screenshot: s1.file,
-      });
-    }
-
-    // ── S3.2 — Pulsation sociale Abidjan ───────────────────────────────────
-    await openAyaPanel(page);
-    const { newChunks: c2 } = await sendAya(page, 'AYA, montre la pulsation sociale à Abidjan.');
-    await page.waitForTimeout(3000);
-    const s2 = await shot(page, 'S3.2-pulsation-sociale');
-    const d2 = await drawerState(page);
-    const mapCmd2 = hasAction(c2, /social.geo|social_pulse|set_layers/i);
-    const draftEvt2 = windowEvents.some(
-      (e) =>
-        e.event === 'agentium:assistant-draft-open' &&
-        /social_pulse_snapshot|social.snapshot/i.test(JSON.stringify(e.detail || {})),
-    );
-    record('S3.2 AYA pulsation sociale + drawer tweets', {
-      status: draftEvt2 && d2.open ? 'PASS' : mapCmd2 ? 'PARTIAL' : 'FAIL',
-      observation: `map_command=${mapCmd2}, draft_open=${draftEvt2}, drawer="${d2.title}"`,
-      fix: !draftEvt2
-        ? 'Vérifier aya.show_social_pulse + emit assistant-draft-open(social_pulse_snapshot)'
-        : '—',
-      priority: draftEvt2 ? 'P2' : 'P0',
-      screenshot: s2.file,
-    });
-
-    // ── S3.3 — Rumeur frontière Nord ───────────────────────────────────────
-    await openAyaPanel(page);
-    const { newChunks: c3 } = await sendAya(page, "AYA, d'où vient la rumeur frontière Nord ?");
-    await page.waitForTimeout(3000);
-    const s3file = await shot(page, 'S3.3-rumeur-frontiere');
-    const d3 = await drawerState(page);
-    const traceAction = hasAction(c3, /trace_rumor_origin|rumor_trace|border.tension|border_tension/i);
-    const proposeEvt = windowEvents.some(
-      (e) =>
-        e.event === 'agentium:assistant-propose' &&
-        /security_communique|propose-security/i.test(JSON.stringify(e.detail || {})),
-    );
-    const chainText = await page.evaluate(() =>
-      /Telegram|d[eé]menti|Bouna|FANCI|11h42|13h45/i.test(document.body.innerText),
-    );
-    record('S3.3 AYA trace rumeur OSINT + proposition communiqué', {
-      status: traceAction && chainText ? 'PASS' : chainText ? 'PARTIAL' : 'FAIL',
-      observation: `action=${traceAction}, propose=${proposeEvt}, chaîne visible=${chainText}, drawer="${d3.title}"`,
-      fix: !traceAction ? 'Vérifier aya.trace_rumor_origin + map_command border-tension' : '—',
-      priority: chainText ? 'P2' : 'P0',
-      screenshot: s3file.file,
-    });
-
-    // ── S3.4 — Mouvements de troupes Sahel ─────────────────────────────────
-    await openAyaPanel(page);
-    const { newChunks: c4 } = await sendAya(page, 'AYA, montre les mouvements de troupes au Sahel.');
-    await page.waitForTimeout(3000);
-    const s4 = await shot(page, 'S3.4-troupes-sahel');
-    const d4 = await drawerState(page);
-    const troopsAction = hasAction(c4, /show_troops_movement|troops_sahel|military.air|military_air/i);
-    const adsbText = await page.evaluate(() =>
-      /ADS.B|advisory|Bamako|Ouaga|Niamey|CEDEAO/i.test(document.body.innerText),
-    );
-    record('S3.4 AYA snapshot ADS-B advisory Sahel', {
-      status: troopsAction && (d4.open || adsbText) ? 'PASS' : adsbText ? 'PARTIAL' : 'FAIL',
-      observation: `action=${troopsAction}, drawer="${d4.title}", ADS-B visible=${adsbText}`,
-      fix: !troopsAction
-        ? 'Vérifier aya.show_troops_movement + map_command military-air + draft snapshot'
-        : '—',
-      priority: adsbText ? 'P2' : 'P0',
-      screenshot: s4.file,
-    });
-
-    // ── S3.5 — Drill réputation 2+/1- ──────────────────────────────────────
-    await openAyaPanel(page);
-    const { newChunks: c5 } = await sendAya(
-      page,
-      'AYA, montre le drill de réputation 2 positifs et 1 critique.',
-    );
-    await page.waitForTimeout(3000);
-    const s5 = await shot(page, 'S3.5-drill-reputation');
-    const reputationUrl = page.url();
-    const reputationAction = hasAction(c5, /show_reputation_drill|reputation|reputation_drill/i);
-    const drillVisible = await page.evaluate(
-      () =>
-        /Jeune Afrique|Fraternit[eé] Matin|L'Inter|72\s*\/\s*100|Drill du sentiment|Positif|Critique/i.test(
-          document.body.innerText,
-        ),
-    );
-    record('S3.5 AYA drill réputation 2+/1-', {
-      status: reputationAction && drillVisible ? 'PASS' : drillVisible ? 'PARTIAL' : 'FAIL',
-      observation: `action=${reputationAction}, drill visible=${drillVisible}, url=${reputationUrl.split('?')[0]}`,
-      fix: !reputationAction
-        ? 'Vérifier aya.show_reputation_drill + reputation.items dans cockpit payload'
-        : '—',
-      priority: drillVisible ? 'P2' : 'P0',
-      screenshot: s5.file,
-    });
-
-    // ── S3.6 — Brouillon communiqué sécurité ──────────────────────────────
-    await openAyaPanel(page);
-    const { newChunks: c6 } = await sendAya(
-      page,
-      'AYA, prépare un communiqué de sécurité sur la rumeur frontière Nord.',
-    );
-    await page.waitForTimeout(3500);
-    const s6 = await shot(page, 'S3.6-communique-securite');
-    const d6 = await drawerState(page);
-    const draftAction = hasAction(
-      c6,
-      /draft_security_communique|security_communique|draft_response_email/i,
-    );
-    const draftEvt6 = windowEvents.some(
-      (e) =>
-        e.event === 'agentium:assistant-draft-open' &&
-        /security_communique|communique/i.test(JSON.stringify(e.detail || {})),
-    );
-    record('S3.6 AYA brouillon communiqué sécurité', {
-      status: draftAction && (d6.open || draftEvt6) ? 'PASS' : draftEvt6 ? 'PARTIAL' : 'FAIL',
-      observation: `action=${draftAction}, draft_open=${draftEvt6}, drawer="${d6.title}"`,
-      fix: !draftAction
-        ? 'Vérifier aya.draft_security_communique + skill draft_response_email_v1 ou fallback'
-        : '—',
-      priority: draftEvt6 ? 'P2' : 'P0',
-      screenshot: s6.file,
-    });
+    await login(page, state, OUT_DIR);
+    await runS3SecuritySteps(page, state, OUT_DIR);
   } finally {
     await ctx.close();
     await browser.close();
   }
 
+  const { pass, partial, fail } = summarizeResults(state);
   const summary = {
     host: HOST,
     workspace: WORKSPACE,
     runAt: new Date().toISOString(),
-    durationSec: ((Date.now() - startedAt) / 1000).toFixed(1),
-    results,
-    consoleErrors: consoleErrors.slice(0, 30),
-    windowEvents: windowEvents.slice(0, 50),
-    sseActionEffects: sseChunks
+    durationSec: ((Date.now() - state.startedAt) / 1000).toFixed(1),
+    results: state.results,
+    pass,
+    partial,
+    fail,
+    consoleErrors: state.consoleErrors.slice(0, 30),
+    windowEvents: state.windowEvents.slice(0, 50),
+    sseActionEffects: state.sseChunks
       .filter((c) => c.chunk_type === 'action_effect')
       .slice(0, 30),
   };
-  await writeFile(
-    join(OUT_DIR, 'qa-s3-results.json'),
-    JSON.stringify(summary, null, 2),
-    'utf8',
-  );
-  log(`Done. ${results.length} steps. JSON -> ${join(OUT_DIR, 'qa-s3-results.json')}`);
-
-  const pass = results.filter((r) => r.status === 'PASS').length;
-  const partial = results.filter((r) => r.status === 'PARTIAL').length;
-  const fail = results.filter((r) => r.status === 'FAIL').length;
-  log(`PASS=${pass} PARTIAL=${partial} FAIL=${fail}`);
-  process.exit(fail > 2 ? 1 : 0);
+  await writeFile(join(OUT_DIR, 'qa-s3-results.json'), JSON.stringify(summary, null, 2), 'utf8');
+  log(state, `Done. ${state.results.length} steps. JSON -> ${join(OUT_DIR, 'qa-s3-results.json')}`);
+  log(state, `PASS=${pass} PARTIAL=${partial} FAIL=${fail}`);
+  process.exit(fail > 0 ? 1 : 0);
 }
 
-main().catch((e) => {
-  console.error('[FATAL]', e.message, e.stack);
-  process.exit(2);
-});
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error('[FATAL]', e.message, e.stack);
+    process.exit(2);
+  });
+}

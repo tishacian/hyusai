@@ -69,7 +69,11 @@ export class AssistantEffectsService {
   handleActionEffect(payload: Record<string, unknown>): void {
     const kind = String(payload['kind'] || payload['effect'] || payload['type'] || '').toLowerCase();
     if (kind.includes('navigate')) {
-      this.dispatchNavigate(this.normalizeNavigate(payload));
+      const effect = this.normalizeNavigate(payload);
+      // Always route via the root Router so navigation works from standalone
+      // shells (e.g. Security Monitor) where MissionRoom is not mounted.
+      void this.navigate(effect);
+      this.dispatchNavigate(effect);
       return;
     }
     if (kind.includes('propose')) {

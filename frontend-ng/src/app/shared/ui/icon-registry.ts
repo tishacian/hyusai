@@ -156,6 +156,7 @@ import {
   FileCode,
   FileJson,
   FilePlus,
+  Files,
   Cog,
   ChartArea,
   ArrowUpRightFromCircle,
@@ -351,6 +352,7 @@ const ICONS = {
   FileCode,
   FileJson,
   FilePlus,
+  Files,
   Cog,
   ChartArea,
   ArrowUpRightFromCircle,
@@ -393,14 +395,20 @@ const ICONS = {
   MapPin,
   Inbox,
   Camera,
-  // Aliases — sentinel-ci prompt_pack expects Lucide-style names that no
-  // longer exist as top-level exports in the bundled icon set. Map them to
-  // their visual equivalents so the chat-panel suggestion icons render
-  // without throwing ``icon has not been provided`` during change
-  // detection (which previously blocked the Quick Panel from opening on
-  // the cockpit because chat-overlay's @if (overlay.isOpen()) child
-  // template threw on mount, leaving ck-panel in its pre-open state).
+  // Aliases — sentinel-ci prompt_pack + chat-panel use Lucide-style kebab
+  // names. Map them so suggestion icons render without throwing during
+  // change detection (which previously blocked the Quick Panel on cockpit).
   Pulse: Activity,
+  pulse: Activity,
+  'check-circle': CheckCircle,
+  'shield-check': ShieldCheck,
+  'message-square': MessageSquare,
+  newspaper: Newspaper,
+  crosshair: Crosshair,
+  layers: Layers,
+  files: Files,
+  'file-search': FileSearch,
+  Y: CheckCircle2,
 };
 
 /**

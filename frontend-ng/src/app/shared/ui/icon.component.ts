@@ -41,8 +41,27 @@ import { LucideAngularModule } from 'lucide-angular';
   `,
 })
 export class IconComponent {
-  @Input({ required: true }) name!: string;
+  @Input({ required: true }) set name(value: string) {
+    this.iconName = this.normalizeIconName(value);
+  }
+  get name(): string {
+    return this.iconName;
+  }
   @Input() size: number = 18;
   @Input() strokeWidth: number = 1.75;
   @Input() ariaLabel: string | null = null;
+
+  private iconName = 'sparkles';
+
+  private normalizeIconName(raw: string): string {
+    const trimmed = (raw || 'sparkles').trim();
+    if (!trimmed) return 'sparkles';
+    if (trimmed.length === 1) return 'sparkles';
+    const aliases: Record<string, string> = {
+      pulse: 'activity',
+      'check-circle': 'check-circle-2',
+      Y: 'check-circle-2',
+    };
+    return aliases[trimmed] || trimmed;
+  }
 }

@@ -143,6 +143,7 @@ import type {
       <section class="vp-block vp-block-terrain" aria-label="Carte et arbitrages">
         <app-vp-map-preview
           [context]="mapPreview"
+          [vesselsEnabled]="true"
           (openMap)="openMap.emit()"
           (zoneSelected)="mapZoneSelected.emit($event)"
           (vesselSelected)="mapVesselSelected.emit($event)"

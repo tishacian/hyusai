@@ -40,7 +40,7 @@
     "phrase": "AYA, montre le drill de réputation 2 positifs et 1 critique.",
     "expected_action": "aya.show_reputation_drill",
     "matched_action": "aya.show_reputation_drill",
-    "confidence": 0.85,
+    "confidence": 1.06,
     "verdict": "PASS",
     "reason": "matched"
   },
@@ -94,7 +94,7 @@
     "phrase": "AYA, montre le drill de réputation 2 positifs 1 critique",
     "expected_action": "aya.show_reputation_drill",
     "matched_action": "aya.show_reputation_drill",
-    "confidence": 0.85,
+    "confidence": 0.9,
     "verdict": "PASS",
     "reason": "matched"
   },

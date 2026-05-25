@@ -4845,8 +4845,12 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly assistantNavigateListener = (event: Event) => {
     const detail = (event as CustomEvent<AssistantNavigateEffect>).detail;
     if (!detail?.route) return;
-    this.assistantEffects.navigate(detail);
+    // Router navigation is handled globally in AssistantEffectsService so
+    // assistant-navigate still works from routes outside MissionRoom (S3.4→S3.5).
     this.applyAssistantFocus(detail);
+    if (detail.route.includes('/reputation') || detail.highlight === 'reputation-drill') {
+      setTimeout(() => this.scrollToHighlight(), 220);
+    }
   };
   private readonly assistantProposeListener = (event: Event) => {
     const detail = (event as CustomEvent<AssistantProposeEffect>).detail;
@@ -6009,14 +6013,17 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       vessel.mmsi === '627012345'
       || vessel.linked_cargo_id === 'cargo-abidjan-supply-001'
       || /atlantic trader/i.test(vessel.name || '');
+    const cargoId =
+      vessel.linked_cargo_id
+      || (isDemoCargo ? 'cargo-abidjan-supply-001' : undefined);
     if (isDemoCargo) {
       window.dispatchEvent(
         new CustomEvent('agentium:assistant-show-webcam', {
           detail: {
             source_id: vessel.recommended_webcam_source_id || 'apm-apapa-gate-1',
-            vessel_mmsi: vessel.mmsi,
-            vessel_name: vessel.name,
-            cargo_id: vessel.linked_cargo_id || 'cargo-abidjan-supply-001',
+            vessel_mmsi: vessel.mmsi || '627012345',
+            vessel_name: vessel.name || 'MV ATLANTIC TRADER',
+            cargo_id: cargoId,
           },
         }),
       );
@@ -6028,7 +6035,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       zone: 'zone-sud',
     };
     if (vessel.mmsi) queryParams['vessel'] = vessel.mmsi;
-    if (vessel.linked_cargo_id) queryParams['cargo'] = vessel.linked_cargo_id;
+    if (cargoId) queryParams['cargo'] = cargoId;
     void this.router.navigate(['/hypervisor/mission-room/strategie'], { queryParams });
   }
 
