@@ -4819,6 +4819,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       entities: article.entities,
       viewpoint: article.viewpoint,
       zone: article.zone,
+      sentiment: article.sentiment,
+      confidence: article.confidence,
+      source_count: article.source_count,
+      velocity: article.velocity,
     };
   }
 

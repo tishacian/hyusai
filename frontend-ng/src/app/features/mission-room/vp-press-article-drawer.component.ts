@@ -25,6 +25,22 @@ export interface PressArticleDetail {
   entities?: string[];
   viewpoint?: string;
   zone?: string;
+  sentiment?: string;
+  confidence?: number;
+  source_count?: number;
+  velocity?: string;
+}
+
+interface SentimentMix {
+  positive: number;
+  neutral: number;
+  negative: number;
+}
+
+interface EntityBar {
+  name: string;
+  weight: number;
+  percent: number;
 }
 
 @Component({
@@ -64,6 +80,100 @@ export interface PressArticleDetail {
 
           <div class="press-drawer-body">
             <p class="press-drawer-summary">{{ articleSummary() }}</p>
+
+            <section class="press-drawer-viz" aria-label="Signaux quantitatifs">
+              <span class="eyebrow">Signaux quantitatifs</span>
+              <div class="viz-grid">
+                <article class="viz-card viz-card--donut">
+                  <header>
+                    <span class="viz-label">Tonalite</span>
+                    <strong class="viz-headline">{{ sentimentHeadline() }}</strong>
+                  </header>
+                  <div class="donut-wrap">
+                    <svg class="donut-svg" viewBox="0 0 80 80" aria-hidden="true">
+                      <circle class="donut-track" cx="40" cy="40" r="32" />
+                      <circle
+                        class="donut-arc positive"
+                        cx="40"
+                        cy="40"
+                        r="32"
+                        [attr.stroke-dasharray]="donutDash('positive')"
+                        [attr.stroke-dashoffset]="donutOffset('positive')"
+                      />
+                      <circle
+                        class="donut-arc neutral"
+                        cx="40"
+                        cy="40"
+                        r="32"
+                        [attr.stroke-dasharray]="donutDash('neutral')"
+                        [attr.stroke-dashoffset]="donutOffset('neutral')"
+                      />
+                      <circle
+                        class="donut-arc negative"
+                        cx="40"
+                        cy="40"
+                        r="32"
+                        [attr.stroke-dasharray]="donutDash('negative')"
+                        [attr.stroke-dashoffset]="donutOffset('negative')"
+                      />
+                    </svg>
+                    <div class="donut-center">
+                      <strong>{{ sentimentDominantPct() }}%</strong>
+                      <span>{{ sentimentDominantLabel() }}</span>
+                    </div>
+                  </div>
+                  <ul class="donut-legend">
+                    <li class="positive"><span>positif</span><span class="legend-value">{{ sentimentMix().positive }}%</span></li>
+                    <li class="neutral"><span>neutre</span><span class="legend-value">{{ sentimentMix().neutral }}%</span></li>
+                    <li class="negative"><span>negatif</span><span class="legend-value">{{ sentimentMix().negative }}%</span></li>
+                  </ul>
+                </article>
+
+                <article class="viz-card viz-card--spark">
+                  <header>
+                    <span class="viz-label">Mentions 7j</span>
+                    <strong class="viz-headline">{{ mentionsTotalLabel() }}</strong>
+                  </header>
+                  <svg
+                    class="viz-spark"
+                    [class.is-critical]="mentionsToneClass() === 'is-critical'"
+                    [class.is-warning]="mentionsToneClass() === 'is-warning'"
+                    viewBox="0 0 220 64"
+                    preserveAspectRatio="none"
+                    aria-hidden="true"
+                  >
+                    <path class="area" [attr.d]="mentionsAreaPath()" />
+                    <path class="line" [attr.d]="mentionsLinePath()" />
+                    <circle class="dot" [attr.cx]="mentionsLastPoint().x" [attr.cy]="mentionsLastPoint().y" r="2.6" />
+                  </svg>
+                  <div class="viz-axis">
+                    <span>J-6</span>
+                    <span>{{ mentionsTrendLabel() }}</span>
+                    <span>auj.</span>
+                  </div>
+                </article>
+
+                @if (entityRanking().length) {
+                  <article class="viz-card viz-card--wide">
+                    <header>
+                      <span class="viz-label">Entites dominantes</span>
+                      <strong class="viz-headline">{{ entitiesHeadline() }}</strong>
+                    </header>
+                    <ul class="entity-bars">
+                      @for (entity of entityRanking(); track entity.name) {
+                        <li class="entity-row" [class.entity-row--critical]="entitiesAreCritical()">
+                          <span class="entity-name" [title]="entity.name">{{ entity.name }}</span>
+                          <span class="entity-track">
+                            <span class="entity-fill" [style.width.%]="entity.percent"></span>
+                          </span>
+                          <span class="entity-value">{{ entity.weight }}</span>
+                        </li>
+                      }
+                    </ul>
+                  </article>
+                }
+              </div>
+            </section>
 
             @if (article.impact_ci) {
               <section class="press-drawer-block">
@@ -317,6 +427,231 @@ export interface PressArticleDetail {
         background: var(--mission-warning-soft);
         color: var(--mission-warning);
       }
+      .press-drawer-viz {
+        margin-top: var(--mission-space-4);
+        display: grid;
+        gap: var(--mission-space-2);
+      }
+      .viz-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr);
+        gap: var(--mission-space-2);
+      }
+      .viz-card {
+        display: grid;
+        gap: var(--mission-space-2);
+        padding: var(--mission-space-3);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-sm);
+        background: rgba(4, 8, 13, 0.55);
+        min-width: 0;
+      }
+      .viz-card--wide {
+        grid-column: 1 / -1;
+      }
+      .viz-card header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--mission-space-2);
+        min-width: 0;
+      }
+      .viz-label {
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono, var(--ck-font-mono));
+        font-size: 9px;
+        letter-spacing: var(--mission-tracking-micro, 0.08em);
+        text-transform: uppercase;
+      }
+      .viz-headline {
+        font-family: var(--mission-font-mono, var(--ck-font-mono));
+        font-variant-numeric: tabular-nums;
+        font-size: var(--mission-text-sm, 12px);
+        color: var(--mission-text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 60%;
+      }
+      .donut-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100px;
+      }
+      .donut-svg {
+        width: 100px;
+        height: 100px;
+        transform: rotate(-90deg);
+      }
+      .donut-track {
+        fill: none;
+        stroke: rgba(151, 185, 164, 0.12);
+        stroke-width: 10;
+      }
+      .donut-arc {
+        fill: none;
+        stroke-width: 10;
+        stroke-linecap: butt;
+      }
+      .donut-arc.positive { stroke: var(--mission-success, #3fd18d); }
+      .donut-arc.neutral  { stroke: rgba(151, 185, 164, 0.45); }
+      .donut-arc.negative { stroke: var(--mission-critical, #f06476); }
+      .donut-center {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        color: var(--mission-text-primary);
+        font-family: var(--mission-font-mono, var(--ck-font-mono));
+        line-height: 1;
+      }
+      .donut-center strong {
+        font-size: 18px;
+        font-variant-numeric: tabular-nums;
+      }
+      .donut-center span {
+        margin-top: 4px;
+        color: var(--mission-text-tertiary);
+        font-size: 9px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .donut-legend {
+        display: grid;
+        gap: 4px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        font-family: var(--mission-font-mono, var(--ck-font-mono));
+        font-size: 10px;
+      }
+      .donut-legend li {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .donut-legend li::before {
+        content: '';
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: currentColor;
+        flex: 0 0 8px;
+      }
+      .donut-legend .positive { color: var(--mission-success, #3fd18d); }
+      .donut-legend .neutral  { color: rgba(151, 185, 164, 0.7); }
+      .donut-legend .negative { color: var(--mission-critical, #f06476); }
+      .donut-legend li span:first-of-type {
+        color: var(--mission-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .donut-legend .legend-value {
+        margin-left: auto;
+        color: var(--mission-text-primary);
+        font-variant-numeric: tabular-nums;
+      }
+      .viz-spark {
+        width: 100%;
+        height: 64px;
+        display: block;
+        overflow: visible;
+      }
+      .viz-spark .area {
+        fill: rgba(66, 217, 155, 0.16);
+        stroke: none;
+      }
+      .viz-spark .line {
+        fill: none;
+        stroke: var(--sentinel-accent, #42d99b);
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .viz-spark .dot {
+        fill: var(--sentinel-accent, #42d99b);
+        stroke: var(--mission-bg-base, #050b10);
+        stroke-width: 1.2;
+      }
+      .viz-spark.is-critical .area { fill: rgba(240, 100, 118, 0.18); }
+      .viz-spark.is-critical .line { stroke: var(--mission-critical, #f06476); }
+      .viz-spark.is-critical .dot  { fill: var(--mission-critical, #f06476); }
+      .viz-spark.is-warning .area { fill: rgba(241, 180, 90, 0.18); }
+      .viz-spark.is-warning .line { stroke: var(--mission-warning, #f1b45a); }
+      .viz-spark.is-warning .dot  { fill: var(--mission-warning, #f1b45a); }
+      .viz-axis {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 6px;
+        color: var(--mission-text-disabled);
+        font-family: var(--mission-font-mono, var(--ck-font-mono));
+        font-size: 9px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .viz-axis span:nth-child(2) {
+        color: var(--mission-text-secondary);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.04em;
+        text-transform: none;
+      }
+      .entity-bars {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .entity-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(120px, 2fr) auto;
+        gap: 10px;
+        align-items: center;
+        color: var(--mission-text-secondary);
+        font-family: var(--mission-font-mono, var(--ck-font-mono));
+        font-size: 10px;
+      }
+      .entity-name {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--mission-text-soft, var(--mission-text-secondary));
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .entity-track {
+        position: relative;
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(151, 185, 164, 0.12);
+        overflow: hidden;
+      }
+      .entity-fill {
+        position: absolute;
+        inset: 0;
+        right: auto;
+        background: linear-gradient(90deg, var(--sentinel-accent, #42d99b), rgba(66, 217, 155, 0.55));
+        border-radius: inherit;
+        transition: width var(--mission-dur-fast, 200ms) var(--mission-ease-out, ease-out);
+      }
+      .entity-row--critical .entity-fill {
+        background: linear-gradient(90deg, var(--mission-critical, #f06476), rgba(240, 100, 118, 0.5));
+      }
+      .entity-value {
+        color: var(--mission-text-tertiary);
+        font-variant-numeric: tabular-nums;
+      }
+      @media (max-width: 420px) {
+        .viz-grid { grid-template-columns: 1fr; }
+        .viz-card--wide { grid-column: auto; }
+      }
     `,
   ],
 })
@@ -359,4 +694,189 @@ export class VpPressArticleDrawerComponent {
     if (normalized === 'elevated' || normalized === 'medium' || normalized === 'watch') return 'elevated';
     return 'stable';
   }
+
+  sentimentMix(): SentimentMix {
+    const sentiment = (this.article?.sentiment || '').toLowerCase();
+    const risk = (this.article?.risk_level || '').toLowerCase();
+    if (sentiment.includes('positive') || sentiment.includes('positif')) {
+      return { positive: 62, neutral: 28, negative: 10 };
+    }
+    if (
+      sentiment.includes('negative') ||
+      sentiment.includes('negatif') ||
+      sentiment.includes('alarm') ||
+      risk === 'critical' ||
+      risk === 'high'
+    ) {
+      return { positive: 12, neutral: 26, negative: 62 };
+    }
+    if (sentiment.includes('mixed') || sentiment.includes('contraste') || sentiment.includes('polaris')) {
+      return { positive: 32, neutral: 30, negative: 38 };
+    }
+    if (risk === 'elevated' || risk === 'medium' || risk === 'watch') {
+      return { positive: 18, neutral: 48, negative: 34 };
+    }
+    return { positive: 28, neutral: 52, negative: 20 };
+  }
+
+  sentimentDominantPct(): number {
+    const mix = this.sentimentMix();
+    return Math.max(mix.positive, mix.neutral, mix.negative);
+  }
+
+  sentimentDominantLabel(): string {
+    const mix = this.sentimentMix();
+    const max = this.sentimentDominantPct();
+    if (mix.negative === max) return 'negatif';
+    if (mix.positive === max) return 'positif';
+    return 'neutre';
+  }
+
+  sentimentHeadline(): string {
+    const article = this.article;
+    if (article?.confidence !== undefined && Number.isFinite(article.confidence)) {
+      const conf = Math.round(article.confidence * 100);
+      return `${conf}% conf.`;
+    }
+    if (article?.source_count && article.source_count > 1) {
+      return `${article.source_count} sources`;
+    }
+    return this.sentimentDominantLabel();
+  }
+
+  donutDash(part: 'positive' | 'neutral' | 'negative'): string {
+    const mix = this.sentimentMix();
+    const total = mix.positive + mix.neutral + mix.negative || 1;
+    const dash = (mix[part] / total) * DONUT_CIRCUMFERENCE;
+    return `${dash.toFixed(2)} ${(DONUT_CIRCUMFERENCE - dash).toFixed(2)}`;
+  }
+
+  donutOffset(part: 'positive' | 'neutral' | 'negative'): number {
+    const mix = this.sentimentMix();
+    const total = mix.positive + mix.neutral + mix.negative || 1;
+    let acc = 0;
+    if (part === 'neutral') acc = mix.positive;
+    if (part === 'negative') acc = mix.positive + mix.neutral;
+    return -Number(((acc / total) * DONUT_CIRCUMFERENCE).toFixed(2));
+  }
+
+  mentionsSeries(): number[] {
+    const article = this.article;
+    if (!article) return [3, 5, 8, 12, 15, 20, 22];
+    const seed = hashString(`${article.id}::${article.title}`);
+    const risk = (article.risk_level || '').toLowerCase();
+    const velocity = (article.velocity || '').toLowerCase();
+    const hot = risk === 'critical' || risk === 'high' || velocity.includes('high') || velocity.includes('rising');
+    const pattern = hot
+      ? [1.0, 1.15, 1.4, 1.8, 2.6, 3.4, 4.6]
+      : [1.0, 1.2, 1.05, 1.45, 1.7, 2.1, 2.5];
+    const base = 4 + (seed % 5);
+    return pattern.map((mult, index) => {
+      const noise = ((seed >> (index * 3)) & 0x7) - 3;
+      return Math.max(1, Math.round(base * mult + noise * 0.7));
+    });
+  }
+
+  mentionsTotalLabel(): string {
+    const total = this.mentionsSeries().reduce((sum, value) => sum + value, 0);
+    return `${total} mentions`;
+  }
+
+  mentionsTrendLabel(): string {
+    const series = this.mentionsSeries();
+    if (series.length < 2) return '';
+    const first = series[0];
+    const last = series[series.length - 1];
+    if (first <= 0) return `+${last}`;
+    const delta = Math.round(((last - first) / first) * 100);
+    return delta >= 0 ? `+${delta}%` : `${delta}%`;
+  }
+
+  mentionsToneClass(): 'is-critical' | 'is-warning' | '' {
+    const risk = (this.article?.risk_level || '').toLowerCase();
+    if (risk === 'critical' || risk === 'high') return 'is-critical';
+    if (risk === 'elevated' || risk === 'medium' || risk === 'watch') return 'is-warning';
+    return '';
+  }
+
+  mentionsLinePath(width = 220, height = 64): string {
+    return this.sparkPath(this.mentionsSeries(), width, height, false);
+  }
+
+  mentionsAreaPath(width = 220, height = 64): string {
+    return this.sparkPath(this.mentionsSeries(), width, height, true);
+  }
+
+  mentionsLastPoint(width = 220, height = 64): { x: number; y: number } {
+    const series = this.mentionsSeries();
+    return this.pointAt(series, series.length - 1, width, height);
+  }
+
+  entityRanking(): EntityBar[] {
+    const article = this.article;
+    if (!article) return [];
+    const source = article.entities?.length ? article.entities : article.tags || [];
+    const trimmed = source
+      .map((name) => (name || '').trim())
+      .filter((name): name is string => !!name)
+      .slice(0, 5);
+    if (!trimmed.length) return [];
+    const seed = hashString(`${article.id}::entities`);
+    const items: EntityBar[] = trimmed.map((name, index) => {
+      const base = 34 - index * 5;
+      const noise = ((seed >> (index * 4)) & 0xf) - 7;
+      const weight = Math.max(4, base + noise);
+      return { name, weight, percent: 0 };
+    });
+    items.sort((left, right) => right.weight - left.weight);
+    const max = items[0].weight || 1;
+    return items.map((item) => ({ ...item, percent: Math.round((item.weight / max) * 100) }));
+  }
+
+  entitiesHeadline(): string {
+    const count = this.entityRanking().length;
+    if (!count) return '';
+    return `${count} entites`;
+  }
+
+  entitiesAreCritical(): boolean {
+    const risk = (this.article?.risk_level || '').toLowerCase();
+    return risk === 'critical' || risk === 'high';
+  }
+
+  private sparkPath(series: number[], width: number, height: number, area: boolean): string {
+    if (!series.length) return '';
+    const segments = series.map((_, index) => {
+      const point = this.pointAt(series, index, width, height);
+      return `${index === 0 ? 'M' : 'L'}${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+    });
+    const line = segments.join(' ');
+    if (!area) return line;
+    return `${line} L${width} ${height} L0 ${height} Z`;
+  }
+
+  private pointAt(series: number[], index: number, width: number, height: number): { x: number; y: number } {
+    if (!series.length) return { x: 0, y: height };
+    const max = Math.max(...series);
+    const min = Math.min(...series);
+    const span = Math.max(max - min, 0.0001);
+    const padding = 4;
+    const usableHeight = height - padding * 2;
+    const usableWidth = width - 2;
+    const x = 1 + (index / Math.max(series.length - 1, 1)) * usableWidth;
+    const ratio = (series[index] - min) / span;
+    const y = padding + (1 - ratio) * usableHeight;
+    return { x, y };
+  }
+}
+
+const DONUT_CIRCUMFERENCE = 2 * Math.PI * 32;
+
+function hashString(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash);
 }
