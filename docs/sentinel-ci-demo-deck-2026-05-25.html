@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="author" content="Datategy · Plateforme Agentium">
+  <title>SENTINEL-CI · Démo Vice-Président</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+  <link rel="stylesheet" href="https://unpkg.com/reveal.js@^5/dist/reset.css">
+  <link rel="stylesheet" href="https://unpkg.com/reveal.js@^5/dist/reveal.css">
+  <style>
+    .reveal .sourceCode {  /* see #7635 */
+      overflow: visible;
+    }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/reveal.js@^5/dist/theme/white.css" id="theme">
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+
+<section id="title-slide">
+  <h1 class="title">SENTINEL-CI · Démo Vice-Président</h1>
+  <p class="subtitle">Cockpit gouvernance Côte d’Ivoire · narrative
+Napié + Préfet Nawa</p>
+  <p class="author">Datategy · Plateforme Agentium</p>
+  <p class="date">Lundi 25 mai 2026 · 09h00 (Abidjan)</p>
+</section>
+
+<section>
+<section id="sentinel-ci-démo-vice-président"
+class="title-slide slide level1">
+<h1>SENTINEL-CI · Démo Vice-Président</h1>
+<p>Cockpit gouvernance souveraine Côte d’Ivoire</p>
+<p><strong>Narratives</strong> : Drill Nord / Centre Drones Napié —
+Préfet de Nawa / diversification cacao</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<tbody>
+<tr>
+<td>Date</td>
+<td>Lundi 25 mai 2026 · 09h00 Abidjan</td>
+</tr>
+<tr>
+<td>Interlocuteur</td>
+<td>Vice-Président de la République</td>
+</tr>
+<tr>
+<td>URL</td>
+<td><code>https://agentium.papai.ai</code> · workspace
+<code>sentinel-ci</code></td>
+</tr>
+<tr>
+<td>HEAD prod</td>
+<td><code>9d0f8012</code> (commit walkthrough enrichi)</td>
+</tr>
+<tr>
+<td>Smoke probe post-deploy</td>
+<td><strong>20 / 20 PASS</strong> (6 vocal + 14 API non-régression)</td>
+</tr>
+<tr>
+<td>Audit clic</td>
+<td><strong>13 / 15 PASS</strong> · 2 actions <code>[AYA only]</code>
+(<code>recommend_cacao</code>, <code>draft_strategic_report</code>)</td>
+</tr>
+<tr>
+<td>Pack résolveur</td>
+<td><code>sentinel_ci_aya_v1</code> · seuil
+<code>min_confidence = 0.78</code></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="sommaire" class="slide level2">
+<h2>Sommaire</h2>
+<ol type="1">
+<li><strong>Bloc 1 — Ouverture cockpit</strong> (3 slides · ~1 min)</li>
+<li><strong>Bloc 2 — Scénario 1 · Drill Nord / Centre Drones
+Napié</strong> (6 étapes + récap · ~5 min)</li>
+<li><strong>Bloc 3 — Transition agenda</strong> (1 slide · ~1 min)</li>
+<li><strong>Bloc 4 — Scénario 2 · Préfet Nawa / diversification
+cacao</strong> (9 étapes + récap · ~7 min)</li>
+<li><strong>Bloc 5 — Récap, plan B URL, bonus 8 KPIs souverains</strong>
+(3 slides · ~1 min)</li>
+<li><strong>Annexe</strong> — Smoke probe complet · liens trame /
+walkthrough / cheatsheet</li>
+</ol>
+<p><strong>Durée totale cible</strong> : ~13 min (5 + 1 + 7).
+<strong>Mode</strong> : <code>advisory-only</code> · toute écriture
+passe par proposition + validation Cabinet.</p>
+</section>
+<section class="slide level2">
+
+</section></section>
+<section>
+<section id="bloc-1-ouverture-cockpit" class="title-slide slide level1">
+<h1>Bloc 1 — Ouverture cockpit</h1>
+
+</section>
+<section id="état-du-jour-posture-nationale" class="slide level2">
+<h2>1.1 État du jour · POSTURE NATIONALE</h2>
+<p><strong>Écran</strong> :
+<code>/hypervisor/mission-room/cockpit</code></p>
+<ul>
+<li>Chip <strong>Zone Nord · Tendue</strong> en tête de barre statut
+(pulse)</li>
+<li>Bannière AYA : <em>« Priorité absolue ce matin : la Zone Nord.
+»</em></li>
+<li>Boutons CTA : <code>Écouter le briefing AYA</code> ·
+<code>Ouvrir le dossier Zone Nord</code></li>
+<li>Carte fusionnée Territoire / signaux + badge
+<code>16 NAVIRES AIS · ABIDJAN / VRIDI</code></li>
+<li>Hero presse Napié visible bas-droite</li>
+</ul>
+<p><code>Action AYA implicite : aya.priority_summary</code> (la vue
+<strong>est</strong> le brief)
+<code>Plan B clic : pas nécessaire — la page d'accueil porte le message.</code>
+<code>Status : [PASS post-deploy]</code></p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/01-cockpit-main.png"
+alt="Cockpit complet · 5 blocs souverains" />
+<figcaption aria-hidden="true">Cockpit complet · 5 blocs
+souverains</figcaption>
+</figure>
+</section>
+<section id="kpis-macro-souverains" class="slide level2">
+<h2>1.2 8 KPIs Macro souverains</h2>
+<p><strong>Bloc INDICATEURS MACRO</strong> · visible lorsque le panneau
+AYA est ouvert (grille souveraine compressée).</p>
+<table>
+<thead>
+<tr>
+<th>KPI</th>
+<th>Valeur démo</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cacao</td>
+<td>4 095 000 FCFA / t</td>
+<td>Osiris seed</td>
+</tr>
+<tr>
+<td>Anacarde</td>
+<td>825 FCFA / kg</td>
+<td>Osiris seed</td>
+</tr>
+<tr>
+<td>Brent</td>
+<td>78.5 USD / bbl</td>
+<td>Osiris seed</td>
+</tr>
+<tr>
+<td>Réserves BCEAO</td>
+<td>4.2 mois</td>
+<td>Osiris seed</td>
+</tr>
+<tr>
+<td>Tension régionale CEDEAO</td>
+<td>72.0 / 100</td>
+<td>Osiris seed</td>
+</tr>
+<tr>
+<td>Sentiment opinion CI</td>
+<td>58.0 / 100</td>
+<td>Osiris seed</td>
+</tr>
+<tr>
+<td>Croissance PIB</td>
+<td>6.02 %</td>
+<td>Banque mondiale</td>
+</tr>
+<tr>
+<td>Inflation</td>
+<td>3.45 %</td>
+<td>Banque mondiale</td>
+</tr>
+</tbody>
+</table>
+<p><code>Status : [PASS post-deploy]</code> —
+<code>vp_status_bar[0].id</code> non-null (Vague 3 polish déployée).</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/13-aya-chat-empty.png"
+alt="8 KPIs souverains visibles avec panneau AYA ouvert" />
+<figcaption aria-hidden="true">8 KPIs souverains visibles avec panneau
+AYA ouvert</figcaption>
+</figure>
+</section>
+<section id="sujets-à-arbitrer" class="slide level2">
+<h2>1.3 Sujets à arbitrer</h2>
+<p><strong>Colonne droite cockpit · 3 cartes badge
+<code>AYA PRÊT</code></strong></p>
+<ol type="1">
+<li><strong>Article L’Inter — critique budget défense</strong> ·
+14h00</li>
+<li><strong>Zone Nord — retard chantier Napié + cargo bloqué</strong> ·
+15h00 <em>(fil rouge S1)</em></li>
+<li><strong>Ambassadeur de France — déjeuner</strong> · 13h00</li>
+</ol>
+<p>Clic sur une carte →
+<code>/decisions?highlight=&lt;card-id&gt;</code> (vue liste + détail).
+Depuis là : <code>Voir l'article</code> ·
+<code>Ouvrir le dossier Zone Nord</code> ·
+<code>Arbitrer les options</code>.</p>
+<p><code>Status : [PASS post-deploy]</code> — drill-down arbitrages
+câblé (commit <code>21f74531</code>).</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/05-cockpit-arbitrages.png"
+alt="3 sujets à arbitrer · badge AYA PRÊT" />
+<figcaption aria-hidden="true">3 sujets à arbitrer · badge AYA
+PRÊT</figcaption>
+</figure>
+</section>
+<section class="slide level2">
+
+</section></section>
+<section>
+<section id="bloc-2-scénario-1-drill-nord-centre-drones-napié"
+class="title-slide slide level1">
+<h1>Bloc 2 — Scénario 1 · Drill Nord / Centre Drones Napié</h1>
+<p>Durée cible : 5 min · 6 étapes · fil rouge <strong>Centre
+International de Formation aux Métiers des Drones, Napié (Poro)</strong>
+— chantier ~120 j de retard, composants Aerostar Dynamics bloqués à
+Vridi.</p>
+</section>
+<section id="s1.1-pourquoi-le-nord-est-tendu" class="slide level2">
+<h2>S1.1 · Pourquoi le Nord est tendu</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, pourquoi la situation Nord est-elle tendue ?</code></p>
+<p><strong>Plan B clic</strong> : Cockpit → chip rouge <strong>Zone Nord
+· Tendue</strong> (header) → carte recentrée Nord + prompt
+<code>explain_why</code> injecté.</p>
+<p><strong>Effet attendu</strong> : - Drill causal niveau 1 (narratif
+Napié / Aerostar / Vridi / 120 j) - Navigation Stratégie · focus zone
+Nord - Bouton <strong>Ouvrir le dossier Zone Nord</strong> (bannière
+AYA)</p>
+<p><code>Action : aya.explain_why</code>
+<code>Resolver : conf 0.95 (canonique) · seuil 0.78</code>
+<code>Status : [PASS post-deploy]</code></p>
+</section>
+<section id="s1.2-montre-le-pv-douanes" class="slide level2">
+<h2>S1.2 · Montre le PV douanes</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, ouvre le PV douanes.</code></p>
+<p><strong>Plan B clic</strong> : Stratégie panel maritime → chip
+<strong>PV douanes 18 mai</strong> sous la fiche cargo → drawer
+<code>document_preview</code>, page 2 OCR surlignée.</p>
+<p><strong>Effet attendu</strong> : - Drawer
+<code>document_preview</code> · target
+<code>proces-verbal-douanes-non-conformite-2026-05-18</code> - Page 2
+surlignée (passages OCR cités) - Bouton <strong>Télécharger
+PDF</strong></p>
+<p><code>Action : aya.show_customs_record</code>
+<code>Resolver : conf 1.04 (probe post-deploy)</code>
+<code>Status : [PASS post-deploy]</code></p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/15-drawer-pv-douanes.png"
+alt="Drawer PV douanes · page 2 OCR" />
+<figcaption aria-hidden="true">Drawer PV douanes · page 2
+OCR</figcaption>
+</figure>
+<blockquote>
+<p><em>Légende : capture pré-deploy montre fallback
+<code>workspace_map_not_found</code>. Post-deploy HEAD
+<code>9d0f8012</code> : le drawer s’ouvre correctement (probe
+<code>aya.show_customs_record</code> PASS conf 1.04).</em></p>
+</blockquote>
+</section>
+<section id="s1.3-focus-zone-nord-projet-napié" class="slide level2">
+<h2>S1.3 · Focus zone Nord + projet Napié</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, focus sur la zone Nord et le projet Napié.</code></p>
+<p><strong>Plan B clic</strong> : Cockpit → bouton <strong>Brief
+opérationnel · Projet sensible Nord</strong> →
+<code>/strategie?focus=zone-nord&amp;highlight=proj-drone-centre-napie</code>.</p>
+<p><strong>Effet attendu</strong> : - Recadrage carte Korhogo / Poro -
+Surbrillance projet <code>proj-drone-centre-napie</code> (Centre Drones,
+100 M USD) - Étiquette projet ouverte avec lien article Abidjan.net
+(juillet 2025)</p>
+<p><code>Action : aya.focus_zone_with_project</code>
+<code>Resolver : conf 0.88 (probe post-deploy)</code>
+<code>Status : [PASS post-deploy]</code></p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/06-carte-fullscreen.png"
+alt="Carte plein écran · zone Nord" />
+<figcaption aria-hidden="true">Carte plein écran · zone
+Nord</figcaption>
+</figure>
+</section>
+<section id="s1.4-cargo-mv-atlantic-trader" class="slide level2">
+<h2>S1.4 · Cargo MV Atlantic Trader</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, montre le cargo Atlantic Trader.</code></p>
+<p><strong>Plan B clic</strong> : Carte preview cockpit → <strong>clic
+pin violet MV Atlantic Trader</strong> <em>(ou)</em> bouton <strong>Port
+Vridi · webcam demo</strong> (légende carte) <em>(ou)</em> FLUX TERRAIN
+→ <strong>APM Apapa Gate #1</strong> (badge
+<code>Port Vridi · cargo demo</code>).</p>
+<p><strong>Effet attendu</strong> : - Vignette webcam <strong>APM Apapa
+Gate #1</strong> (snapshot live) - Panel maritime · AIS pin · cargo
+<code>cargo-abidjan-supply-001</code> (composants Aerostar Dynamics) -
+Proposition AYA : <em>« Voir le PV des douanes ? »</em> → enchaîne
+S1.2</p>
+<p><code>Action : aya.show_vessel_evidence</code>
+<code>Resolver : conf 1.05 (probe post-deploy — variante</code>explique
+le cargo<code>)</code> <code>Status : [PASS post-deploy]</code> · 16
+vessels AIS confirmés · webcam APM 200 image/jpeg</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/04-cockpit-carte.png"
+alt="Carte cockpit · 16 NAVIRES AIS · ABIDJAN / VRIDI" />
+<figcaption aria-hidden="true">Carte cockpit · 16 NAVIRES AIS · ABIDJAN
+/ VRIDI</figcaption>
+</figure>
+</section>
+<section id="s1.5-situation-au-port-vue-densemble-maritime"
+class="slide level2">
+<h2>S1.5 · Situation au port (vue d’ensemble maritime)</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, montre la situation au port.</code> <em>(action nouvelle —
+commit <code>6335d460</code>)</em></p>
+<p><strong>Plan B clic</strong> : Stratégie → bouton <strong>Mode live ·
+Maritime</strong> → grille webcams + panel AIS Vridi.</p>
+<p><strong>Effet attendu</strong> : - Vue port Abidjan (map zoomée
+Vridi) - Panel maritime ouvert · liste 16 navires - Webcam APM Apapa en
+tête de la grille</p>
+<p><code>Action : aya.show_maritime_traffic</code>
+<code>Resolver : conf 1.05 (probe post-deploy)</code>
+<code>Status : [PASS post-deploy]</code> — action vague-1.5 confirmée
+déployée</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/12-flux-terrain-webcams.png"
+alt="FLUX TERRAIN · grille webcams Mission Control" />
+<figcaption aria-hidden="true">FLUX TERRAIN · grille webcams Mission
+Control</figcaption>
+</figure>
+</section>
+<section id="s1.6-mail-dérogation-douanière" class="slide level2">
+<h2>S1.6 · Mail dérogation douanière</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, rédige le courrier de dédouanement pour Atlantic Trader.</code></p>
+<p><strong>Plan B clic</strong> : Drawer PV douanes → bouton
+<strong>Préparer email dérogation</strong> (proposal
+<code>propose-customs-derogation</code>).</p>
+<p><strong>Effet attendu</strong> : - Drawer email
+<code>customs_derogation</code> · advisory-only - Destinataire :
+Direction Générale des Douanes (DGD Abidjan) - Corps pré-rédigé :
+distingue cargo drones ≠ lot non conforme · cite Abidjan.net + PV 18/05
+- Bandeau <strong>« Proposition Cabinet — aucun envoi automatique
+»</strong></p>
+<p><code>Action : aya.draft_customs_email</code>
+<code>Resolver : conf 0.94 (probe post-deploy)</code>
+<code>Status : [PASS post-deploy]</code></p>
+</section>
+<section id="récap-s1-drill-nord-verdict-6-6" class="slide level2">
+<h2>Récap S1 · Drill Nord — verdict 6 / 6</h2>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>#</th>
+<th>Étape</th>
+<th>Action AYA</th>
+<th>Probe post-deploy</th>
+<th>Plan B clic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>S1.1</td>
+<td>Pourquoi Nord tendue</td>
+<td><code>aya.explain_why</code></td>
+<td><code>[PASS]</code></td>
+<td>Chip Zone Nord</td>
+</tr>
+<tr>
+<td>S1.2</td>
+<td>PV douanes</td>
+<td><code>aya.show_customs_record</code></td>
+<td><code>[PASS]</code> conf 1.04</td>
+<td>Chip PV (panel maritime)</td>
+</tr>
+<tr>
+<td>S1.3</td>
+<td>Focus Nord + Napié</td>
+<td><code>aya.focus_zone_with_project</code></td>
+<td><code>[PASS]</code> conf 0.88</td>
+<td>Bouton Brief opérationnel</td>
+</tr>
+<tr>
+<td>S1.4</td>
+<td>Cargo Atlantic Trader</td>
+<td><code>aya.show_vessel_evidence</code></td>
+<td><code>[PASS]</code> conf 1.05</td>
+<td>Pin carte / Webcam demo</td>
+</tr>
+<tr>
+<td>S1.5</td>
+<td>Situation au port</td>
+<td><code>aya.show_maritime_traffic</code></td>
+<td><code>[PASS]</code> conf 1.05 (NOUVEAU)</td>
+<td>Mode live maritime</td>
+</tr>
+<tr>
+<td>S1.6</td>
+<td>Mail dérogation</td>
+<td><code>aya.draft_customs_email</code></td>
+<td><code>[PASS]</code> conf 0.94</td>
+<td>Bouton drawer PV</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Verdict S1 : 6 / 6 PASS post-deploy · 6 / 6 plan B clic
+confirmé</strong></p>
+<blockquote>
+<p><em>« En cinq minutes, AYA est passée du signal territorial à la
+preuve douanière, avec une proposition d’action sourcée — sans exécuter
+à la place du Cabinet. »</em></p>
+</blockquote>
+</section>
+<section class="slide level2">
+
+</section></section>
+<section>
+<section id="bloc-3-transition-lagenda-reprend-le-fil"
+class="title-slide slide level1">
+<h1>Bloc 3 — Transition · L’agenda reprend le fil</h1>
+
+</section>
+<section id="t.1-prochain-rendez-vous" class="slide level2">
+<h2>T.1 · Prochain rendez-vous</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, quel est mon prochain rendez-vous ?</code></p>
+<p><strong>Plan B clic</strong> : Sidebar <strong>Agenda</strong> →
+carte <strong>Préfet Nawa · 11h00 Soubré</strong> dans la timeline du 25
+mai.</p>
+<p><strong>Effet attendu</strong> : - Navigation
+<code>/hypervisor/mission-room/agenda</code> - Highlight event
+<code>evt-prefet-nawa</code> (id
+<code>5f3ccd49-9877-445a-a385-cabf61a784b4</code>) - Drawer détail ·
+participants Cabinet · contexte rapport préfectoral 10/05</p>
+<p><code>Action : aya.open_next_meeting</code>
+<code>Resolver : conf 0.89 (smoke probe)</code>
+<code>Status : [PASS post-deploy]</code></p>
+<figure>
+<img data-src="status-screenshots/2026-05-25-demo-eve/08-agenda.png"
+alt="Agenda · 6 events du 25/05 · Préfet Nawa 11h" />
+<figcaption aria-hidden="true">Agenda · 6 events du 25/05 · Préfet Nawa
+11h</figcaption>
+</figure>
+</section>
+<section class="slide level2">
+
+</section></section>
+<section>
+<section id="bloc-4-scénario-2-préfet-nawa-diversification-cacao"
+class="title-slide slide level1">
+<h1>Bloc 4 — Scénario 2 · Préfet Nawa / diversification cacao</h1>
+<p>Durée cible : 7 min · 9 étapes · enjeu <strong>diversification cacao
++ transformation locale</strong> · le VP prépare l’arbitrage avant la
+rencontre du Préfet de Nawa à Soubré (11h00).</p>
+</section>
+<section id="s2.1-résume-nos-derniers-échanges" class="slide level2">
+<h2>S2.1 · Résume nos derniers échanges</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, donne-moi le résumé du rapport préfet.</code></p>
+<p><strong>Plan B clic</strong> : Agenda → event Nawa → bouton <strong>«
+Synthèse AYA »</strong> (chip dans
+<code>agenda-timeline-panel</code>).</p>
+<p><strong>Effet attendu</strong> : - Synthèse inline structurée ·
+région Nawa / Soubré · filière cacao - Proposition automatique : <em>«
+Préconisations cacao ? »</em> - Awaiting bucket workspace ·
+<code>key=cacao_summary</code></p>
+<p><code>Action : aya.summarize_last_exchanges</code>
+<code>Resolver : conf 0.92 (QA S2 post-deploy)</code>
+<code>Status : [PASS post-deploy]</code></p>
+</section>
+<section id="s2.2-résume-le-rapport-préfet-nawa" class="slide level2">
+<h2>S2.2 · Résume le rapport Préfet Nawa</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, résume le rapport Préfet Nawa.</code></p>
+<p><strong>Pas de plan B clic dédié</strong> — la trame s’appuie sur
+S2.1 / chip Synthèse AYA pour la lecture inline. Document complet ~70
+p. (<code>report-prefet-nawa-2026-05-10</code>).</p>
+<p><strong>Effet attendu</strong> : - Même handler que S2.1, mais
+déclenche le skill <code>summarize_long_document_v1</code> (lecture
+longue) - Synthèse texte structurée (pas de drawer
+<code>document_preview</code> ici) - Sources citées en bas de bulle</p>
+<p><code>Action : aya.summarize_last_exchanges</code> <em>(handler
+intègre <code>summarize_long_document_v1</code>)</em>
+<code>Resolver : conf 0.91 (QA S2 post-deploy)</code>
+<code>Status : [PASS post-deploy]</code> · <code>[AYA only]</code>
+<em>(synthèse inline, pas de drawer)</em></p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/09-agenda-meeting-detail.png"
+alt="Agenda detail · Préfet Nawa · ordre du jour vierge" />
+<figcaption aria-hidden="true">Agenda detail · Préfet Nawa · ordre du
+jour vierge</figcaption>
+</figure>
+</section>
+<section id="s2.3-recommande-un-plan-cacao" class="slide level2">
+<h2>S2.3 · Recommande un plan cacao</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, donne-moi des préconisations sur le cacao.</code></p>
+<p><strong>Pas de plan B clic en démo</strong> — skill
+<code>generate_recommendations_v1</code> invoqué par AYA. <em>(Backlog
+post-démo : tuile « Préconisations cacao » sur la fiche event.)</em></p>
+<p><strong>Effet attendu</strong> : - Navigation
+<code>/hypervisor/mission-room/decisions?focus=package-cacao-diversification</code>
+- 3 leviers chiffrés : 1. <strong>Petite industrie
+transformation</strong> ~4,2 Mds FCFA · 78 % conf. 2.
+<strong>Coopérative régionale</strong> 3. <strong>Plan mixte
+PPP</strong> - Sources : guide diversification anacarde · Banque
+mondiale · EUDR - Awaiting bucket : <code>strategic_report</code> armé
+(préparation S2.4)</p>
+<p><code>Action : aya.recommend_cacao</code>
+<code>Resolver : conf 1.06 (probe post-deploy)</code>
+<code>Status : [PASS post-deploy]</code> · <code>[AYA only]</code></p>
+</section>
+<section id="s2.4-génère-le-rapport-stratégique-complet"
+class="slide level2">
+<h2>S2.4 · Génère le rapport stratégique complet</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, génère le rapport complet.</code></p>
+<p><strong>Pas de plan B clic en démo</strong> — skill
+<code>draft_strategic_report</code> invoqué par AYA. <em>(Backlog :
+action « Générer rapport » dans
+<code>/decisions?focus=package-cacao-diversification</code>.)</em></p>
+<p><strong>Effet attendu</strong> : - Drawer PDF stratégique cacao · ~12
+pages · WeasyPrint synchrone (~1.2 s) - URL signée ObjectStore · bouton
+<strong>Télécharger</strong> -
+<code>audit_event = report.strategic.generated</code> - Bandeau advisory
+<code>requires_validation=true</code></p>
+<p><code>Action : aya.draft_strategic_report</code>
+<code>Resolver : conf 1.04 (smoke probe)</code>
+<code>Status : [PASS post-deploy]</code> · <code>[AYA only]</code></p>
+<blockquote>
+<p><em>Note narratif : le PDF stratégique fait 12 p. (~15 KB) — c’est
+une <strong>synthèse cacao</strong>, pas le rapport préfet de 70
+p. Aligner la phrase de présentation : « rapport de diversification
+cacao prêt pour validation advisory ».</em></p>
+</blockquote>
+</section>
+<section id="s2.5-mets-à-jour-lodj-cacao" class="slide level2">
+<h2>S2.5 · Mets à jour l’ODJ : cacao</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, ajoute le point cacao à l'ordre du jour.</code></p>
+<p><strong>Plan B clic</strong> : Agenda → event Préfet Nawa → page
+meeting → <strong>form « Proposer un point ODJ »</strong> (champ titre +
+bouton <strong>Proposer modification</strong>). Endpoint :
+<code>POST /api/v1/meetings/{event_id}/agenda-patch</code>.</p>
+<p><strong>Effet attendu</strong> : - Drawer
+<code>calendar_agenda_patch</code> · target <code>evt-prefet-nawa</code>
+- Proposition d’item <em>« Point cacao — diversification anacarde
+(proposition AYA) »</em> - <code>pending_agenda_patch</code> staged ·
+awaiting <code>calendar_agenda_patch</code> - Bannière orange <strong>«
+Modification ODJ proposée · AYA »</strong> sur la fiche event -
+<strong>PAS</strong> d’écriture immédiate sur
+<code>evt-prefet-nawa.metadata.agenda_items</code> (garde de
+confirmation)</p>
+<p><code>Action : aya.update_meeting_agenda</code>
+<code>Resolver : conf 0.92 (probe post-deploy)</code>
+<code>Status : [PASS post-deploy]</code></p>
+</section>
+<section id="s2.6-valide-la-proposition-odj" class="slide level2">
+<h2>S2.6 · Valide la proposition ODJ</h2>
+<p><strong>Phrase AYA</strong> : <code>Oui, valide.</code></p>
+<p><strong>Plan B clic</strong> : Bannière orange <strong>« Modification
+ODJ proposée · AYA »</strong> → bouton <strong>Valider
+modification</strong> (sur la fiche event ou page meeting). Endpoint :
+<code>POST /api/v1/meetings/{event_id}/agenda-patch/confirm</code>.</p>
+<p><strong>Effet attendu</strong> : - Resolver brut matche
+<code>voice.confirm_yes</code> (conf 0.88) - Traduction via awaiting
+bucket : <code>voice.confirm_yes → aya.confirm_agenda_patch</code> -
+Patch appliqué · <code>evt-prefet-nawa.metadata.agenda_items</code> mis
+à jour - Badge <strong>« Ajouté par AYA »</strong> · historique
+versionné - <code>pending_agenda_patch = null</code> (cleared)</p>
+<p><code>Actions : voice.confirm_yes → aya.confirm_agenda_patch</code>
+<code>Resolver : conf 0.88 + awaiting bucket</code>
+<code>Status : [PASS post-deploy]</code> — guard
+<code>_CONFIRM_MAX_TOKENS=4</code> actif (<code>6335d460</code>)</p>
+<blockquote>
+<p><em>Garde-fou : ne jamais dire « OK » seul. Toujours « Oui, valide. »
+ou enchaîner sur un verbe.</em></p>
+</blockquote>
+</section>
+<section id="s2.7-démarre-la-réunion" class="slide level2">
+<h2>S2.7 · Démarre la réunion</h2>
+<p><strong>Phrase AYA</strong> : <code>AYA, démarre la réunion.</code>
+<em>(variante : <code>commence la réunion</code>)</em></p>
+<p><strong>Plan B clic</strong> : Agenda → event Préfet Nawa → bouton
+<strong>« Démarrer la réunion »</strong> sur la card. Endpoint :
+<code>POST /api/v1/meetings/{event_id}/start</code>.</p>
+<p><strong>Effet attendu</strong> : - Navigation
+<code>/hypervisor/mission-room/agenda/meeting/5f3ccd49…</code> -
+<code>actions.current_meeting = evt-prefet-nawa</code> persisté - UI
+bascule en <strong>mode meeting live</strong> · chronométrage · ODJ
+vertical - Bandeau <em>« Mode meeting live · chaque arbitrage sera loggé
+dans le registre des décisions »</em></p>
+<p><code>Action : aya.start_meeting</code>
+<code>Resolver : conf 1.02 (probe post-deploy, variante</code>commence
+la réunion<code>)</code> <code>Status : [PASS post-deploy]</code></p>
+</section>
+<section id="s2.8-acte-décision-option-b" class="slide level2">
+<h2>S2.8 · Acte décision option B</h2>
+<p><strong>Phrase AYA</strong> : <code>AYA, décide option B.</code>
+<em>(variantes : <code>valide l'option B</code>,
+<code>j'arbitre option B</code>)</em></p>
+<p><strong>Plan B clic</strong> : Meeting view → clic point ODJ
+<strong>« Cacao »</strong> → clic carte <strong>Option B</strong> →
+bouton <strong>Décider</strong> → modal rationale → <strong>Logger la
+décision</strong>. Endpoint :
+<code>POST /api/v1/meetings/{event_id}/decisions</code>.</p>
+<p><strong>Effet attendu</strong> : - Modal rationale · choix
+<code>option B = Diversification anacarde</code> - Décision persistée ·
+registre <code>meeting_decisions</code> -
+<code>source_refs = [sentinel-ci-anacarde-diversification-v1, report-prefet-nawa-2026-05-10]</code>
+- Frame SSE <code>assistant-navigate ?decision=&lt;id&gt;</code></p>
+<p><code>Action : aya.log_decision</code>
+<code>Resolver : conf 0.89 (probe post-deploy)</code>
+<code>Status : [PASS post-deploy]</code></p>
+</section>
+<section id="s2.9-rappelle-les-décisions-passées" class="slide level2">
+<h2>S2.9 · Rappelle les décisions passées</h2>
+<p><strong>Phrase AYA</strong> :
+<code>AYA, qu'avons-nous décidé la dernière fois ?</code></p>
+<p><strong>Plan B clic</strong> : Sidebar <strong>Arbitrages</strong> →
+bloc <strong>« Arbitrages loggés en mode meeting »</strong>
+<em>(ou)</em> meeting view → décisions inline.</p>
+<p><strong>Effet attendu</strong> : - Liste antéchronologique top-5
+décisions cacao - La décision du jour (S2.8) en tête - 2 historiques de
+runs précédents (<code>2026-05-24T10:53</code>, <code>09:35</code>,
+<code>06:50</code>) - Pas de side-effect navigation (réponse texte
+uniquement)</p>
+<p><code>Action : aya.recall_past_decisions</code>
+<code>Resolver : conf 1.06 (probe post-deploy)</code>
+<code>Status : [PASS post-deploy]</code></p>
+</section>
+<section id="récap-s2-préfet-nawa-verdict-9-9" class="slide level2">
+<h2>Récap S2 · Préfet Nawa — verdict 9 / 9</h2>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>#</th>
+<th>Étape</th>
+<th>Action AYA</th>
+<th>Probe post-deploy</th>
+<th>Plan B clic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>S2.1</td>
+<td>Résume derniers échanges</td>
+<td><code>aya.summarize_last_exchanges</code></td>
+<td><code>[PASS]</code> conf 0.92</td>
+<td>Bouton Synthèse AYA</td>
+</tr>
+<tr>
+<td>S2.2</td>
+<td>Résume rapport Nawa (~70p)</td>
+<td><code>aya.summarize_last_exchanges</code></td>
+<td><code>[PASS]</code> conf 0.91</td>
+<td><code>[AYA only]</code></td>
+</tr>
+<tr>
+<td>S2.3</td>
+<td>Préconisations cacao</td>
+<td><code>aya.recommend_cacao</code></td>
+<td><code>[PASS]</code> conf 1.06</td>
+<td><code>[AYA only]</code></td>
+</tr>
+<tr>
+<td>S2.4</td>
+<td>Rapport stratégique PDF</td>
+<td><code>aya.draft_strategic_report</code></td>
+<td><code>[PASS]</code> conf 1.04</td>
+<td><code>[AYA only]</code></td>
+</tr>
+<tr>
+<td>S2.5</td>
+<td>Ajout point ODJ cacao</td>
+<td><code>aya.update_meeting_agenda</code></td>
+<td><code>[PASS]</code> conf 0.92</td>
+<td>Form « Proposer un point »</td>
+</tr>
+<tr>
+<td>S2.6</td>
+<td>Validation ODJ</td>
+<td><code>voice.confirm_yes → aya.confirm_agenda_patch</code></td>
+<td><code>[PASS]</code> conf 0.88</td>
+<td>Bouton « Valider modification »</td>
+</tr>
+<tr>
+<td>S2.7</td>
+<td>Démarre la réunion</td>
+<td><code>aya.start_meeting</code></td>
+<td><code>[PASS]</code> conf 1.02</td>
+<td>Bouton « Démarrer la réunion »</td>
+</tr>
+<tr>
+<td>S2.8</td>
+<td>Décide option B</td>
+<td><code>aya.log_decision</code></td>
+<td><code>[PASS]</code> conf 0.89</td>
+<td>Modal Décider</td>
+</tr>
+<tr>
+<td>S2.9</td>
+<td>Rappelle décisions passées</td>
+<td><code>aya.recall_past_decisions</code></td>
+<td><code>[PASS]</code> conf 1.06</td>
+<td>Sidebar Arbitrages</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Verdict S2 : 9 / 9 PASS post-deploy · 6 / 9 plan B clic
+confirmé · 3 / 9 <code>[AYA only]</code> (S2.2, S2.3, S2.4)</strong></p>
+<blockquote>
+<p><em>« De la lecture d’un rapport de 70 pages à la décision loggée en
+réunion — AYA a accompagné tout le cycle, avec traçabilité et validation
+à chaque étape d’écriture. »</em></p>
+</blockquote>
+</section>
+<section class="slide level2">
+
+</section></section>
+<section>
+<section id="bloc-5-récap-global-plan-b-bonus"
+class="title-slide slide level1">
+<h1>Bloc 5 — Récap global, plan B, bonus</h1>
+
+</section>
+<section id="récap-global-16-16-étapes-pass-post-deploy"
+class="slide level2">
+<h2>Récap global · 16 / 16 étapes PASS post-deploy</h2>
+<table>
+<thead>
+<tr>
+<th>Bloc</th>
+<th>Étapes</th>
+<th>PASS</th>
+<th><code>[AYA only]</code></th>
+<th>Plan B clic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>S1 — Drill Nord</strong></td>
+<td>6</td>
+<td>6 / 6</td>
+<td>0</td>
+<td>6 / 6</td>
+</tr>
+<tr>
+<td><strong>T — Transition</strong></td>
+<td>1</td>
+<td>1 / 1</td>
+<td>0</td>
+<td>1 / 1</td>
+</tr>
+<tr>
+<td><strong>S2 — Préfet Nawa</strong></td>
+<td>9</td>
+<td>9 / 9</td>
+<td>3 (S2.2, S2.3, S2.4)</td>
+<td>6 / 9</td>
+</tr>
+<tr>
+<td><strong>Total démo</strong></td>
+<td><strong>16</strong></td>
+<td><strong>16 / 16</strong></td>
+<td><strong>3</strong></td>
+<td><strong>13 / 16</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Smoke probe pré-démo</strong> : 20 / 20 PASS (6 vocal + 14
+API non-régression). <strong>Probes ciblés post-deploy</strong> : 11 /
+11 PASS (<code>show_maritime_traffic</code>,
+<code>show_vessel_evidence</code>, <code>update_meeting_agenda</code>,
+<code>show_customs_record</code>, <code>start_meeting</code>,
+<code>focus_zone_with_project</code>, <code>draft_customs_email</code>,
+<code>recommend_cacao</code>, <code>log_decision</code>,
+<code>recall_past_decisions</code>, <code>voice.confirm_yes</code>).</p>
+<blockquote>
+<p><em>Verdict opérationnel : <code>Go</code> plein écran. Pas de P0.
+WARN unique documenté : volumétrie PDF stratégique (12 p. ~15 KB vs 70
+p. annoncés au brief initial — aligner verbalement « synthèse cacao
+»).</em></p>
+</blockquote>
+</section>
+<section id="plan-b-url-raccourcis-directs" class="slide level2">
+<h2>Plan B URL · raccourcis directs</h2>
+<p>Si AYA ne répond pas ou si une route ne se charge pas, taper l’URL en
+direct (workspace <code>sentinel-ci</code>) :</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Sujet</th>
+<th>URL directe</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cockpit</td>
+<td><code>/hypervisor/mission-room/cockpit</code></td>
+</tr>
+<tr>
+<td>Stratégie · carte plein écran</td>
+<td><code>/hypervisor/mission-room/strategie</code></td>
+</tr>
+<tr>
+<td>Stratégie · focus Nord + Napié</td>
+<td><code>/hypervisor/mission-room/strategie?focus=zone-nord&amp;highlight=proj-drone-centre-napie</code></td>
+</tr>
+<tr>
+<td>Stratégie · maritime live</td>
+<td><code>/hypervisor/mission-room/strategie?mode=live&amp;panel=maritime</code></td>
+</tr>
+<tr>
+<td>Stratégie · MV Atlantic Trader</td>
+<td><code>/hypervisor/mission-room/strategie?mode=live&amp;panel=maritime&amp;vessel=627012345</code></td>
+</tr>
+<tr>
+<td>Presse</td>
+<td><code>/hypervisor/mission-room/presse</code></td>
+</tr>
+<tr>
+<td>Agenda</td>
+<td><code>/hypervisor/mission-room/agenda</code></td>
+</tr>
+<tr>
+<td>Meeting live Préfet Nawa</td>
+<td><code>/hypervisor/mission-room/agenda/meeting/evt-prefet-nawa</code></td>
+</tr>
+<tr>
+<td>Décisions · package cacao</td>
+<td><code>/hypervisor/mission-room/decisions?focus=package-cacao-diversification</code></td>
+</tr>
+<tr>
+<td>Monitor (FLUX TERRAIN)</td>
+<td><code>/hypervisor/mission-room/monitor</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Endpoints REST clic-équivalents</strong> : -
+<code>POST /api/v1/meetings/{event_id}/start</code> -
+<code>POST /api/v1/meetings/{event_id}/agenda-patch</code> -
+<code>POST /api/v1/meetings/{event_id}/agenda-patch/confirm</code> -
+<code>POST /api/v1/meetings/{event_id}/decisions</code></p>
+</section>
+<section id="bonus-8-kpis-osiris-démo-safe" class="slide level2">
+<h2>Bonus · 8 KPIs Osiris démo-safe</h2>
+<p>Valeurs cohérentes pour la démo (figées dans le seed Osiris CI) — à
+citer si le VP regarde le bloc INDICATEURS MACRO :</p>
+<table>
+<thead>
+<tr>
+<th>KPI</th>
+<th>Valeur</th>
+<th>Tendance démo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Cacao</strong></td>
+<td>4 095 000 FCFA / t</td>
+<td><code>-0.4 %</code></td>
+</tr>
+<tr>
+<td><strong>Anacarde</strong></td>
+<td>825 FCFA / kg</td>
+<td><code>-0.8 %</code></td>
+</tr>
+<tr>
+<td><strong>Brent</strong></td>
+<td>78.5 USD / bbl</td>
+<td>stable</td>
+</tr>
+<tr>
+<td><strong>Spread souverain CI</strong></td>
+<td>+15 bps</td>
+<td>légère tension</td>
+</tr>
+<tr>
+<td><strong>Réserves BCEAO</strong></td>
+<td>4.2 mois</td>
+<td>confortable</td>
+</tr>
+<tr>
+<td><strong>Tension régionale CEDEAO</strong></td>
+<td>72 / 100</td>
+<td>surveillance</td>
+</tr>
+<tr>
+<td><strong>Sentiment opinion CI</strong></td>
+<td>58 / 100</td>
+<td>favorable</td>
+</tr>
+<tr>
+<td><strong>Port Abidjan</strong></td>
+<td>12 400 TEU</td>
+<td>nominal</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><em>Anchor narratif : la baisse cacao -0.4 % et anacarde -0.8 % donne
+du sens à la conversation diversification du S2.</em></p>
+</blockquote>
+</section>
+<section class="slide level2">
+
+</section></section>
+<section>
+<section id="annexe" class="title-slide slide level1">
+<h1>Annexe</h1>
+
+</section>
+<section id="a.1-smoke-probe-complet-sortie-tabulaire"
+class="slide level2">
+<h2>A.1 · Smoke probe complet (sortie tabulaire)</h2>
+<p><strong>Run</strong> : <code>2026-05-25 07:08:20 +0200</code> · host
+<code>https://agentium.papai.ai</code> · workspace
+<code>sentinel-ci</code> · timeout 8s.</p>
+<h3 id="smoke-vocal-post-apiv1actionsresolve-6-6">Smoke vocal — POST
+<code>/api/v1/actions/resolve</code> (6 / 6)</h3>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+</colgroup>
+<thead>
+<tr>
+<th>#</th>
+<th>PASS</th>
+<th>Prompt</th>
+<th>Attendu</th>
+<th>Obtenu</th>
+<th>Conf</th>
+<th>ms</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>PASS</td>
+<td><code>AYA</code></td>
+<td><code>aya.acknowledge_presence</code></td>
+<td><code>aya.acknowledge_presence</code></td>
+<td>0.99</td>
+<td>189</td>
+</tr>
+<tr>
+<td>2</td>
+<td>PASS</td>
+<td><code>AYA, donne-moi le brief</code></td>
+<td><code>priority_summary</code></td>
+<td><code>aya.priority_summary</code></td>
+<td>0.85</td>
+<td>200</td>
+</tr>
+<tr>
+<td>3</td>
+<td>PASS</td>
+<td><code>pv douanes</code></td>
+<td><code>aya.show_customs_record</code></td>
+<td><code>aya.show_customs_record</code></td>
+<td>1.01</td>
+<td>285</td>
+</tr>
+<tr>
+<td>4</td>
+<td>PASS</td>
+<td><code>resume Prefet Nawa</code></td>
+<td><code>aya.summarize_last_exchanges</code></td>
+<td><code>aya.summarize_last_exchanges</code></td>
+<td>1.02</td>
+<td>117</td>
+</tr>
+<tr>
+<td>5</td>
+<td>PASS</td>
+<td><code>genere le rapport complet</code></td>
+<td><code>aya.draft_strategic_report</code></td>
+<td><code>aya.draft_strategic_report</code></td>
+<td>1.04</td>
+<td>106</td>
+</tr>
+<tr>
+<td>6</td>
+<td>PASS</td>
+<td><code>ouvre la prochaine reunion</code></td>
+<td><code>aya.open_next_meeting</code></td>
+<td><code>aya.open_next_meeting</code></td>
+<td>0.89</td>
+<td>126</td>
+</tr>
+</tbody>
+</table>
+<h3 id="api-non-régression-14-14">API non-régression (14 / 14)</h3>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>PASS</th>
+<th>Check</th>
+<th>Obtenu</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PASS</td>
+<td><code>cockpit.date_label</code></td>
+<td><code>Lundi 25 Mai 2026</code></td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>vp_status_bar[0].key</code></td>
+<td><code>zone-nord-tension</code></td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>vp_status_bar[0].pulse</code></td>
+<td><code>True</code></td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>vp_status_bar[0].id</code> (Vague 3)</td>
+<td><code>zone-nord-tension</code> (non-null)</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>press_preview[0]</code> CI-first</td>
+<td>« Côte d’Ivoire — lancement … »</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>agenda_day.events</code> premiers 4 sur 25/05</td>
+<td>4 / 4</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>maritime/vessels</code> count</td>
+<td>16</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td>MV Atlantic Trader <code>linked_cargo_id</code></td>
+<td><code>cargo-abidjan-supply-001</code></td>
+</tr>
+<tr>
+<td>PASS</td>
+<td>MV Atlantic Trader <code>recommended_webcam_source_id</code></td>
+<td><code>apm-apapa-gate-1</code></td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>webcams/proxy</code> GET <code>apm-apapa-gate-1</code></td>
+<td><code>200 image/jpeg</code></td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>webcams/proxy</code> HEAD (Vague 3)</td>
+<td><code>200</code></td>
+</tr>
+<tr>
+<td>PASS</td>
+<td>manifest <code>aya.acknowledge_presence</code></td>
+<td><code>True</code></td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>calendar/events</code> 2026-05-25</td>
+<td>6</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>calendar/events</code> 2026-05-26</td>
+<td>2</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Total</strong> : 20 / 20 PASS · 100 %.</p>
+<h3 id="probes-ciblés-post-deploy-11-11">Probes ciblés post-deploy (11 /
+11)</h3>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>PASS</th>
+<th>Prompt</th>
+<th>Action obtenue</th>
+<th>Conf</th>
+<th>ms</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PASS</td>
+<td><code>montre la situation au port</code></td>
+<td><code>aya.show_maritime_traffic</code></td>
+<td>1.05</td>
+<td>116</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>explique le cargo Atlantic Trader</code></td>
+<td><code>aya.show_vessel_evidence</code></td>
+<td>1.05</td>
+<td>141</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>ajoute le point cacao a l'ODJ</code></td>
+<td><code>aya.update_meeting_agenda</code></td>
+<td>0.92</td>
+<td>110</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>ouvre le PV douanes</code></td>
+<td><code>aya.show_customs_record</code></td>
+<td>1.04</td>
+<td>121</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>commence la reunion</code></td>
+<td><code>aya.start_meeting</code></td>
+<td>1.02</td>
+<td>112</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>focus sur la zone Nord et le projet Napie</code></td>
+<td><code>aya.focus_zone_with_project</code></td>
+<td>0.88</td>
+<td>181</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>redige le courrier de dedouanement</code></td>
+<td><code>aya.draft_customs_email</code></td>
+<td>0.94</td>
+<td>115</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>preconisations sur le cacao</code></td>
+<td><code>aya.recommend_cacao</code></td>
+<td>1.06</td>
+<td>113</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>decide option B</code></td>
+<td><code>aya.log_decision</code></td>
+<td>0.89</td>
+<td>105</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>qu'avons-nous decide la derniere fois ?</code></td>
+<td><code>aya.recall_past_decisions</code></td>
+<td>1.06</td>
+<td>187</td>
+</tr>
+<tr>
+<td>PASS</td>
+<td><code>Oui, valide.</code></td>
+<td><code>voice.confirm_yes</code></td>
+<td>0.88</td>
+<td>115</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="a.2-sources-de-vérité-head-prod-confirmé"
+class="slide level2">
+<h2>A.2 · Sources de vérité · HEAD prod confirmé</h2>
+<ul>
+<li><strong>Trame narrative</strong> : <a
+href="demo-aya-storytelling-trame.md"><code>docs/demo-aya-storytelling-trame.md</code></a></li>
+<li><strong>Walkthrough opérationnel</strong> : <a
+href="sentinel-ci-demo-walkthrough-2026-05-25.md"><code>docs/sentinel-ci-demo-walkthrough-2026-05-25.md</code></a>
+(avec colonne « Chemin clic alternatif »)</li>
+<li><strong>Cheatsheet présentateur</strong> : <a
+href="sentinel-ci-presenter-cheatsheet.md"><code>docs/sentinel-ci-presenter-cheatsheet.md</code></a></li>
+<li><strong>QA post-deploy S1</strong> : <a
+href="sentinel-ci-qa-postdeploy-s1-2026-05-24.md"><code>docs/sentinel-ci-qa-postdeploy-s1-2026-05-24.md</code></a>
+(6 PASS / 1 WARN)</li>
+<li><strong>QA post-deploy S2</strong> : <a
+href="sentinel-ci-qa-postdeploy-s2-2026-05-24.md"><code>docs/sentinel-ci-qa-postdeploy-s2-2026-05-24.md</code></a>
+(9 PASS / 1 WARN)</li>
+<li><strong>Pack résolveur backend</strong> :
+<code>backend/app/services/actions/registry.py</code> (manifests
+<code>aya.*</code>, lignes 274-1041)</li>
+<li><strong>Pack handlers backend</strong> :
+<code>backend/app/services/actions/executor.py</code> (handlers +
+awaiting bucket)</li>
+</ul>
+<p><strong>HEAD prod confirmé</strong> : <code>9d0f8012</code> —
+<em>Update demo walkthrough with click-path alternatives</em></p>
+<table>
+<colgroup>
+<col style="width: 100%" />
+</colgroup>
+<thead>
+<tr>
+<th>Commits déployés (top 10 sur <code>demo/agentic</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>9d0f8012</code> Update demo walkthrough with click-path
+alternatives</td>
+</tr>
+<tr>
+<td><code>21f74531</code> Wire agenda actions and arbitrage drill-down
+to UI clicks</td>
+</tr>
+<tr>
+<td><code>86355ad7</code> Add click-path endpoints for agenda patch +
+meeting start</td>
+</tr>
+<tr>
+<td><code>fa8eae27</code> Add 8 sovereign KPIs to cockpit macro
+indicators block</td>
+</tr>
+<tr>
+<td><code>57258579</code> Fix maritime overlay: auto-enable layer on
+async vessel arrival</td>
+</tr>
+<tr>
+<td><code>e31dab21</code> Add practical demo walkthrough with UI
+clicks</td>
+</tr>
+<tr>
+<td><code>3509e03d</code> Fix cockpit click targets + webcam port entry
+for demo S1</td>
+</tr>
+<tr>
+<td><code>e6e20200</code> Add press drill-down: article drawer + full
+list + clickable brief items</td>
+</tr>
+<tr>
+<td><code>c14fa2ed</code> Load maritime webcam snapshots with auth</td>
+</tr>
+<tr>
+<td><code>7df0599c</code> Fix maritime port action browser effects</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="a.3-conseil-présentateur-3-ouvertures-3-clôtures"
+class="slide level2">
+<h2>A.3 · Conseil présentateur · 3 ouvertures + 3 clôtures</h2>
+<h3 id="phrases-douverture">3 phrases d’ouverture</h3>
+<ol type="1">
+<li><em>« Monsieur le Vice-Président, voici SENTINEL-CI : un cockpit
+souverain de gouvernance, opéré en mode advisory — AYA propose, le
+Cabinet décide. »</em></li>
+<li><em>« En treize minutes, deux postures complémentaires : ce matin
+réactif sur le Nord, ce midi proactif sur la diversification cacao avec
+le Préfet de Nawa. »</em></li>
+<li><em>« Toutes les sources sont citées, toutes les écritures (agenda,
+décisions, emails) passent par une validation explicite — rien ne sort
+sans votre accord. »</em></li>
+</ol>
+<h3 id="phrases-de-clôture">3 phrases de clôture</h3>
+<ol type="1">
+<li><em>« Nord qualifié · Nawa arbitré · décision option B loggée et
+mémorisée — la prochaine échéance est le Conseil de 15h. »</em></li>
+<li><em>« SENTINEL-CI ne remplace pas l’exécutif. Il accélère la lecture
+du réel, relie les signaux aux preuves, et prépare les arbitrages sous
+contrôle Cabinet. »</em></li>
+<li><em>« Plateforme Agentium : action pack
+<code>sentinel_ci_aya_v1</code> isolé, déployable workspace par
+workspace, héritage transverse sans pollution des autres clients
+souverains. »</em></li>
+</ol>
+</section>
+<section id="a.4-garde-fous-présentateur-rappel" class="slide level2">
+<h2>A.4 · Garde-fous présentateur (rappel)</h2>
+<ul>
+<li><strong>Toujours</strong> démarrer par un verbe d’action ou «
+<strong>AYA, …</strong> ».</li>
+<li><strong>Jamais</strong> dire « OK » seul / « D’accord » seul → match
+<code>voice.confirm_yes</code> accidentel (guard
+<code>_CONFIRM_MAX_TOKENS=4</code> actif, mais filler isolé reste
+piégeux).</li>
+<li><strong>Toujours</strong> dire et écrire <strong>« Monsieur le
+Vice-Président »</strong> (jamais « M. le Vice-Président » — TTS
+prononce « M » comme la lettre).</li>
+<li>Si AYA répond hors-sujet : recommencer avec la forme canonique du
+cheatsheet (verbe pivot : <code>pourquoi</code>, <code>montre</code>,
+<code>rédige</code>, <code>démarre</code>, <code>décide</code>,
+<code>résume</code>).</li>
+<li>En cas de doute UI : URL directe (voir slide « Plan B URL »).</li>
+</ul>
+</section>
+<section id="fin-go-démo-vp" class="slide level2">
+<h2>Fin · <code>Go</code> démo VP</h2>
+<p><code>HEAD prod 9d0f8012</code> · <code>Smoke 20/20 PASS</code> ·
+<code>Probes ciblés 11/11 PASS</code> ·
+<code>Audit 16/16 étapes</code></p>
+<p><strong>Datategy · Plateforme Agentium</strong></p>
+</section></section>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/reveal.js@^5/dist/reveal.js"></script>
+
+  <!-- reveal.js plugins -->
+  <script src="https://unpkg.com/reveal.js@^5/plugin/notes/notes.js"></script>
+  <script src="https://unpkg.com/reveal.js@^5/plugin/search/search.js"></script>
+  <script src="https://unpkg.com/reveal.js@^5/plugin/zoom/zoom.js"></script>
+
+  <script>
+
+      // Full list of configuration options available at:
+      // https://revealjs.com/config/
+      Reveal.initialize({
+        // Display controls in the bottom right corner
+        controls: true,
+
+        // Help the user learn the controls by providing hints, for example by
+        // bouncing the down arrow when they first encounter a vertical slide
+        controlsTutorial: true,
+
+        // Determines where controls appear, "edges" or "bottom-right"
+        controlsLayout: 'bottom-right',
+
+        // Visibility rule for backwards navigation arrows; "faded", "hidden"
+        // or "visible"
+        controlsBackArrows: 'faded',
+
+        // Display a presentation progress bar
+        progress: true,
+
+        // Display the page number of the current slide
+        slideNumber: false,
+
+        // 'all', 'print', or 'speaker'
+        showSlideNumber: 'all',
+
+        // Add the current slide number to the URL hash so that reloading the
+        // page/copying the URL will return you to the same slide
+        hash: true,
+
+        // Start with 1 for the hash rather than 0
+        hashOneBasedIndex: false,
+
+        // Flags if we should monitor the hash and change slides accordingly
+        respondToHashChanges: true,
+
+        // Push each slide change to the browser history
+        history: false,
+
+        // Enable keyboard shortcuts for navigation
+        keyboard: true,
+
+        // Enable the slide overview mode
+        overview: true,
+
+        // Disables the default reveal.js slide layout (scaling and centering)
+        // so that you can use custom CSS layout
+        disableLayout: false,
+
+        // Vertical centering of slides
+        center: true,
+
+        // Enables touch navigation on devices with touch input
+        touch: true,
+
+        // Loop the presentation
+        loop: false,
+
+        // Change the presentation direction to be RTL
+        rtl: false,
+
+        // see https://revealjs.com/vertical-slides/#navigation-mode
+        navigationMode: 'default',
+
+        // Randomizes the order of slides each time the presentation loads
+        shuffle: false,
+
+        // Turns fragments on and off globally
+        fragments: true,
+
+        // Flags whether to include the current fragment in the URL,
+        // so that reloading brings you to the same fragment position
+        fragmentInURL: true,
+
+        // Flags if the presentation is running in an embedded mode,
+        // i.e. contained within a limited portion of the screen
+        embedded: false,
+
+        // Flags if we should show a help overlay when the questionmark
+        // key is pressed
+        help: true,
+
+        // Flags if it should be possible to pause the presentation (blackout)
+        pause: true,
+
+        // Flags if speaker notes should be visible to all viewers
+        showNotes: false,
+
+        // Global override for autoplaying embedded media (null/true/false)
+        autoPlayMedia: null,
+
+        // Global override for preloading lazy-loaded iframes (null/true/false)
+        preloadIframes: null,
+
+        // Number of milliseconds between automatically proceeding to the
+        // next slide, disabled when set to 0, this value can be overwritten
+        // by using a data-autoslide attribute on your slides
+        autoSlide: 0,
+
+        // Stop auto-sliding after user input
+        autoSlideStoppable: true,
+
+        // Use this method for navigation when auto-sliding
+        autoSlideMethod: null,
+
+        // Specify the average time in seconds that you think you will spend
+        // presenting each slide. This is used to show a pacing timer in the
+        // speaker view
+        defaultTiming: null,
+
+        // Enable slide navigation via mouse wheel
+        mouseWheel: false,
+
+        // The display mode that will be used to show slides
+        display: 'block',
+
+        // Hide cursor if inactive
+        hideInactiveCursor: true,
+
+        // Time before the cursor is hidden (in ms)
+        hideCursorTime: 5000,
+
+        // Opens links in an iframe preview overlay
+        previewLinks: false,
+
+        // Transition style (none/fade/slide/convex/concave/zoom)
+        transition: 'fade',
+
+        // Transition speed (default/fast/slow)
+        transitionSpeed: 'default',
+
+        // Transition style for full page slide backgrounds
+        // (none/fade/slide/convex/concave/zoom)
+        backgroundTransition: 'fade',
+
+        // Number of slides away from the current that are visible
+        viewDistance: 3,
+
+        // Number of slides away from the current that are visible on mobile
+        // devices. It is advisable to set this to a lower number than
+        // viewDistance in order to save resources.
+        mobileViewDistance: 2,
+
+        // reveal.js plugins
+        plugins: [
+          RevealNotes,
+          RevealSearch,
+          RevealZoom
+        ]
+      });
+    </script>
+    </body>
+</html>
