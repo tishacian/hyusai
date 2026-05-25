@@ -1,0 +1,76 @@
+{
+  "host": "https://agentium.papai.ai",
+  "out_dir": "/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-postdeploy",
+  "started_at": "2026-05-25T05:54:05.851Z",
+  "ended_at": "2026-05-25T05:55:27.361Z",
+  "results": [
+    {
+      "name": "16-aya-port-webcam",
+      "file": "/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-postdeploy/16-aya-port-webcam.png",
+      "sizeBytes": 688173,
+      "ok": true,
+      "slot": "S1.5 situation au port"
+    },
+    {
+      "name": "17-aya-vessel-cargo",
+      "file": "/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-postdeploy/17-aya-vessel-cargo.png",
+      "sizeBytes": 502626,
+      "ok": true,
+      "slot": "S1.4 cargo MV Atlantic Trader"
+    },
+    {
+      "name": "18-aya-mail-derogation",
+      "file": "/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-postdeploy/18-aya-mail-derogation.png",
+      "sizeBytes": 330028,
+      "ok": true,
+      "slot": "S1.6 mail derogation douanes (AYA prompt direct)"
+    },
+    {
+      "name": "19-aya-focus-nord-napie",
+      "file": "/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-postdeploy/19-aya-focus-nord-napie.png",
+      "sizeBytes": 356951,
+      "ok": true,
+      "slot": "S1.3 focus zone Nord + Napie"
+    },
+    {
+      "name": "20-aya-rapport-strategique",
+      "file": "/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-postdeploy/20-aya-rapport-strategique.png",
+      "sizeBytes": 344485,
+      "ok": true,
+      "slot": "S2.4 package decisions cacao"
+    },
+    {
+      "name": "21-aya-odj-cacao",
+      "file": "/Users/thib/Developer/PAPAI/omnirag/docs/status-screenshots/2026-05-25-postdeploy/21-aya-odj-cacao.png",
+      "sizeBytes": 70363,
+      "ok": true,
+      "slot": "S2.5 meeting Prefet Nawa + ODJ"
+    }
+  ],
+  "console_errors": [
+    {
+      "url": "https://agentium.papai.ai/hypervisor/mission-room/strategie?mode=live&panel=maritime",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "url": "https://agentium.papai.ai/hypervisor/mission-room/strategie?mode=live&panel=maritime&vessel=627012345",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "url": "https://agentium.papai.ai/hypervisor/mission-room/cockpit",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "url": "https://agentium.papai.ai/hypervisor/mission-room/strategie?focus=zone-nord&highlight=proj-drone-centre-napie",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "url": "https://agentium.papai.ai/hypervisor/mission-room/decisions?focus=package-cacao-diversification",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "url": "https://agentium.papai.ai/hypervisor/mission-room/agenda/meeting/evt-prefet-nawa",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ]
+}
