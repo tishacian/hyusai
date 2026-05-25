@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="pandoc">
+  <meta name="author" content="Datategy · Plateforme Agentium">
+  <title>SENTINEL-CI · Briefing démo</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+  <link rel="stylesheet" href="https://unpkg.com/reveal.js@^5/dist/reset.css">
+  <link rel="stylesheet" href="https://unpkg.com/reveal.js@^5/dist/reveal.css">
+  <style>
+    .reveal .sourceCode {  /* see #7635 */
+      overflow: visible;
+    }
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/reveal.js@^5/dist/theme/black.css" id="theme">
+  <style>
+    /* SENTINEL-CI / Agentium · dark cockpit override */
+    :root {
+      --sentinel-bg: #0a1118;
+      --sentinel-bg-card: #0f1822;
+      --sentinel-bg-table-a: #0d151e;
+      --sentinel-bg-table-b: #121c28;
+      --sentinel-bg-table-header: #122a1f;
+      --sentinel-border: #1f2937;
+      --sentinel-accent: #3ee68a;
+      --sentinel-accent-dim: #2ba666;
+      --sentinel-warn: #f59e0b;
+      --sentinel-critical: #ef4444;
+      --sentinel-violet: #a78bfa;
+      --sentinel-text: #e2e8f0;
+      --sentinel-text-muted: #94a3b8;
+      --sentinel-text-dim: #64748b;
+    }
+    html, body, .reveal { background: var(--sentinel-bg) !important; }
+    .reveal { color: var(--sentinel-text); font-family: "Inter", "Helvetica Neue", "Calibri", sans-serif; }
+    .reveal .slides { color: var(--sentinel-text); }
+    .reveal h1, .reveal h2, .reveal h3, .reveal h4 {
+      color: var(--sentinel-accent);
+      text-transform: none;
+      font-family: "Inter", "Helvetica Neue", "Calibri", sans-serif;
+      letter-spacing: -0.01em;
+    }
+    .reveal h1 { font-size: 1.5em; font-weight: 700; line-height: 1.15; }
+    .reveal h2 { font-size: 1.25em; font-weight: 700; border-bottom: 1px solid var(--sentinel-border); padding-bottom: 0.2em; line-height: 1.2; }
+    .reveal h3 { font-size: 1.05em; font-weight: 600; }
+    .reveal .subtitle, .reveal .author, .reveal .date {
+      color: var(--sentinel-text-muted);
+      font-style: italic;
+      font-weight: 400;
+    }
+    .reveal p, .reveal li { color: var(--sentinel-text); line-height: 1.45; }
+    .reveal strong { color: var(--sentinel-accent); font-weight: 600; }
+    .reveal em { color: var(--sentinel-text-muted); }
+    .reveal blockquote {
+      background: var(--sentinel-bg-card);
+      border-left: 3px solid var(--sentinel-violet);
+      color: var(--sentinel-text-muted);
+      font-style: italic;
+      padding: 0.6em 1em;
+      box-shadow: none;
+      margin: 0.6em auto;
+      width: 88%;
+    }
+    .reveal table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.7em;
+    }
+    .reveal table th {
+      background: var(--sentinel-bg-table-header);
+      color: var(--sentinel-accent);
+      font-weight: 700;
+      text-align: left;
+      padding: 0.5em 0.7em;
+      border: 1px solid var(--sentinel-border);
+    }
+    .reveal table td {
+      background: var(--sentinel-bg-table-a);
+      color: var(--sentinel-text);
+      padding: 0.45em 0.7em;
+      border: 1px solid var(--sentinel-border);
+    }
+    .reveal table tr:nth-child(even) td { background: var(--sentinel-bg-table-b); }
+    .reveal section img {
+      border: 1px solid var(--sentinel-border);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+      border-radius: 4px;
+      max-height: 55vh;
+    }
+    .reveal section p > em:only-child {
+      color: var(--sentinel-text-muted);
+      font-size: 0.75em;
+      font-style: italic;
+    }
+    .reveal .slide-number { color: var(--sentinel-text-muted); }
+    .reveal .progress { color: var(--sentinel-accent); }
+    .reveal #title-slide h1.title { font-size: 1.7em; color: var(--sentinel-accent); }
+    .reveal .slides > section::before {
+      content: "";
+      position: absolute;
+      top: -0.4em;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--sentinel-accent) 0%, var(--sentinel-violet) 100%);
+      opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+
+<section id="title-slide">
+  <h1 class="title">SENTINEL-CI · Briefing démo</h1>
+  <p class="subtitle">25 mai 2026 · Monsieur le Vice-Président</p>
+  <p class="author">Datategy · Plateforme Agentium</p>
+  <p class="date">Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris</p>
+</section>
+
+<section id="le-fil-de-la-matinée" class="slide level2">
+<h2>Le fil de la matinée</h2>
+<ul>
+<li><strong>13 min</strong> · <strong>2 scénarios</strong> · Nord puis
+Nawa</li>
+<li><strong>AYA propose</strong> · le Cabinet décide</li>
+<li>Mode <strong>advisory-only</strong> : aucun envoi automatique</li>
+</ul>
+</section>
+<section id="règles-dor" class="slide level2">
+<h2>3 règles d’or</h2>
+<ol type="1">
+<li>Commencer chaque demande par un <strong>verbe</strong> ou «
+<strong>AYA,</strong> »</li>
+<li>Ne jamais dire « <strong>OK</strong> » seul — enchaîner sur un
+verbe</li>
+<li>Si AYA hésite, reformuler avec la <strong>phrase exacte</strong> du
+slide</li>
+</ol>
+<p><strong>Attention</strong> : toujours écrire « Monsieur le
+Vice-Président » (avec trait d’union et accent).</p>
+</section>
+<section id="s1.0-ouverture-cockpit" class="slide level2">
+<h2>S1.0 — Ouverture cockpit</h2>
+<p><strong>Ce qu’on montre</strong> : Posture nationale, chip Zone Nord
+· Tendue, indicateurs macro, directive AYA du matin.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, c’est lundi matin. Qu’est-ce
+qui demande mon attention ? »</p>
+<p><strong>Plan B clic</strong> : Sidebar Cockpit — l’écran porte déjà
+le message.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/01-cockpit-main.png"
+alt="Cockpit Mission Room · posture et indicateurs" />
+<figcaption aria-hidden="true">Cockpit Mission Room · posture et
+indicateurs</figcaption>
+</figure>
+<p><em>Cockpit au chargement — Zone Nord en tête, KPI macro
+visibles.</em></p>
+</section>
+<section id="s1.1-pourquoi-le-nord-est-tendu" class="slide level2">
+<h2>S1.1 — Pourquoi le Nord est tendu</h2>
+<p><strong>Ce qu’on montre</strong> : Drill causal niveau 1 — lien
+tension Nord, projet Napié, retard chantier.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, pourquoi la situation Nord
+est-elle tendue ? »</p>
+<p><strong>Plan B clic</strong> : Chip rouge <strong>Zone Nord ·
+Tendue</strong> dans la barre statut.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/04-cockpit-carte.png"
+alt="Carte cockpit · zone Nord" />
+<figcaption aria-hidden="true">Carte cockpit · zone Nord</figcaption>
+</figure>
+<p><em>Focus territorial — lecture Nord en un coup d’œil.</em></p>
+</section>
+<section id="s1.2-pv-douanes" class="slide level2">
+<h2>S1.2 — PV douanes</h2>
+<p><strong>Ce qu’on montre</strong> : Drawer document — PV douanes 18
+mai, page 2 surlignée.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, ouvre le PV douanes. »</p>
+<p><strong>Plan B clic</strong> : Accepter « Voir le PV ? » ou chip
+<strong>PV douanes 18 mai</strong>.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/15-drawer-pv-douanes.png"
+alt="Drawer PV douanes · page 2 OCR" />
+<figcaption aria-hidden="true">Drawer PV douanes · page 2
+OCR</figcaption>
+</figure>
+<p><em>Preuve documentaire — effet collatéral sur le cargo
+drones.</em></p>
+</section>
+<section id="s1.3-focus-carte-nord-napié" class="slide level2">
+<h2>S1.3 — Focus carte Nord + Napié</h2>
+<p><strong>Ce qu’on montre</strong> : Recadrage carte Korhogo / Poro,
+surbrillance Centre Drones Napié.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, focus sur la zone Nord et le
+projet Napié. »</p>
+<p><strong>Plan B clic</strong> : Bouton <strong>Brief opérationnel ·
+Projet sensible Nord</strong>.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-postdeploy/19-aya-focus-nord-napie.png"
+alt="Carte stratégie · focus Nord et Napié" />
+<figcaption aria-hidden="true">Carte stratégie · focus Nord et
+Napié</figcaption>
+</figure>
+<p><em>Projet sensible — retard ~120 jours sur le chantier.</em></p>
+</section>
+<section id="s1.4-cargo-atlantic-trader-webcam-port"
+class="slide level2">
+<h2>S1.4 — Cargo Atlantic Trader + webcam port</h2>
+<p><strong>Ce qu’on montre</strong> : Vignette webcam port, fiche cargo
+MV Atlantic Trader, proposition PV.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, montre le cargo Atlantic
+Trader. »</p>
+<p><strong>Plan B clic</strong> : Pin <strong>MV Atlantic
+Trader</strong> ou <strong>Port Vridi · webcam demo</strong>.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-postdeploy/17-aya-vessel-cargo.png"
+alt="Cargo Atlantic Trader · webcam APM Apapa" />
+<figcaption aria-hidden="true">Cargo Atlantic Trader · webcam APM
+Apapa</figcaption>
+</figure>
+<p><em>Composants Aerostar bloqués au port d’Abidjan.</em></p>
+</section>
+<section id="s1.5-situation-au-port" class="slide level2">
+<h2>S1.5 — Situation au port</h2>
+<p><strong>Ce qu’on montre</strong> : Vue port Abidjan, panel maritime,
+trafic et webcams Vridi.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, montre la situation au port.
+»</p>
+<p><strong>Plan B clic</strong> : FLUX TERRAIN → <strong>APM Apapa Gate
+#1</strong> en tête.</p>
+<p><strong>À faire</strong> : étape optionnelle si le temps manque —
+passer à S1.6.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-postdeploy/16-aya-port-webcam.png"
+alt="Vue port · webcam et trafic maritime" />
+<figcaption aria-hidden="true">Vue port · webcam et trafic
+maritime</figcaption>
+</figure>
+<p><em>Lecture terrain live — port Vridi et activité maritime.</em></p>
+</section>
+<section id="s1.6-mail-dérogation-douanes" class="slide level2">
+<h2>S1.6 — Mail dérogation douanes</h2>
+<p><strong>Ce qu’on montre</strong> : Drawer email pré-rédigé —
+dérogation douanière, bandeau advisory-only.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, rédige le courrier de
+dédouanement pour Atlantic Trader. »</p>
+<p><strong>Plan B clic</strong> : Drawer PV → bouton <strong>Préparer
+email dérogation</strong>.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-postdeploy/18-aya-mail-derogation.png"
+alt="Courrier dédouanement · proposition Cabinet" />
+<figcaption aria-hidden="true">Courrier dédouanement · proposition
+Cabinet</figcaption>
+</figure>
+<p><em>Proposition sourcée — aucun envoi automatique.</em></p>
+</section>
+<section id="récap-s1-nord-napié" class="slide level2">
+<h2>Récap S1 — Nord / Napié</h2>
+<p><strong>6 étapes</strong> · ~5 minutes</p>
+<p><strong>Message clé</strong> : retard Napié → cargo bloqué →
+dérogation prête</p>
+<blockquote>
+<p>« En cinq minutes, AYA est passée du signal territorial à la preuve
+douanière, avec une proposition d’action sourcée — sans exécuter à ma
+place. »</p>
+</blockquote>
+</section>
+<section id="transition-agenda-préfet-nawa-11h" class="slide level2">
+<h2>Transition — Agenda Préfet Nawa 11h</h2>
+<p><strong>Ce qu’on montre</strong> : Timeline du 25 mai, événement
+Préfet Nawa 11h00 Soubré.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, quel est mon prochain
+rendez-vous ? »</p>
+<p><strong>Plan B clic</strong> : Sidebar <strong>Agenda</strong> →
+carte <strong>Préfet Nawa · 11h00</strong>.</p>
+<figure>
+<img data-src="status-screenshots/2026-05-25-demo-eve/08-agenda.png"
+alt="Agenda institutionnel · rendez-vous Nawa" />
+<figcaption aria-hidden="true">Agenda institutionnel · rendez-vous
+Nawa</figcaption>
+</figure>
+<p><em>Du réactif (Nord) au proactif (réunion territoriale).</em></p>
+</section>
+<section id="s2.1-contexte-échanges" class="slide level2">
+<h2>S2.1 — Contexte échanges</h2>
+<p><strong>Ce qu’on montre</strong> : Synthèse inline des derniers
+échanges Préfet Nawa — filière cacao.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, donne-moi le résumé du rapport
+préfet. »</p>
+<p><strong>Plan B clic</strong> : Agenda → événement Nawa → bouton
+<strong>Synthèse AYA</strong>.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/09-agenda-meeting-detail.png"
+alt="Fiche événement Nawa · contexte réunion" />
+<figcaption aria-hidden="true">Fiche événement Nawa · contexte
+réunion</figcaption>
+</figure>
+<p><em>Préparation réunion — enjeu diversification cacao.</em></p>
+</section>
+<section id="s2.2-rapport-préfet-nawa" class="slide level2">
+<h2>S2.2 — Rapport Préfet Nawa</h2>
+<p><strong>Ce qu’on montre</strong> : Lecture longue du rapport
+préfectoral — synthèse structurée en chat.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, résume le rapport Préfet Nawa.
+»</p>
+<p><strong>Plan B clic</strong> : <strong>voix AYA uniquement</strong> —
+reformuler si besoin : « résume Préfet Nawa ».</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/14-aya-chat-prompt.png"
+alt="Chat AYA · synthèse rapport" />
+<figcaption aria-hidden="true">Chat AYA · synthèse rapport</figcaption>
+</figure>
+<p><em>Corpus dense — AYA condense sans remplacer la lecture.</em></p>
+</section>
+<section id="s2.3-recommandation-cacao" class="slide level2">
+<h2>S2.3 — Recommandation cacao</h2>
+<p><strong>Ce qu’on montre</strong> : Trois options chiffrées —
+transformation, coopérative, partenariat public-privé.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, donne-moi des préconisations
+sur le cacao. »</p>
+<p><strong>Plan B clic</strong> : <strong>voix AYA uniquement</strong> —
+reformuler : « recommandations cacao ».</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/14-aya-chat-prompt.png"
+alt="Chat AYA · préconisations diversification" />
+<figcaption aria-hidden="true">Chat AYA · préconisations
+diversification</figcaption>
+</figure>
+<p><em>Options sourcées — le Cabinet arbitre ensuite.</em></p>
+</section>
+<section id="s2.4-rapport-stratégique" class="slide level2">
+<h2>S2.4 — Rapport stratégique</h2>
+<p><strong>Ce qu’on montre</strong> : Drawer PDF synthèse cacao —
+livrable téléchargeable.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, génère le rapport complet.
+»</p>
+<p><strong>Attention</strong> : dire « <strong>synthèse cacao</strong> »
+à l’oral, pas « 70 pages ».</p>
+<p><strong>Plan B clic</strong> : <strong>voix AYA uniquement</strong> —
+reformuler : « génère le rapport stratégique ».</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-postdeploy/20-aya-rapport-strategique.png"
+alt="Drawer rapport stratégique cacao" />
+<figcaption aria-hidden="true">Drawer rapport stratégique
+cacao</figcaption>
+</figure>
+<p><em>Livrable prêt pour la réunion — preuve traçable.</em></p>
+</section>
+<section id="s2.5-modifier-lordre-du-jour" class="slide level2">
+<h2>S2.5 — Modifier l’ordre du jour</h2>
+<p><strong>Ce qu’on montre</strong> : Proposition d’ajout du point cacao
+à l’ODJ — en attente de validation.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, ajoute le point cacao à
+l’ordre du jour. »</p>
+<p><strong>Plan B clic</strong> : Fiche réunion → <strong>Proposer un
+point ODJ</strong> ou bouton <strong>+ Point</strong>.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-postdeploy/21-aya-odj-cacao.png"
+alt="Ordre du jour · point cacao proposé" />
+<figcaption aria-hidden="true">Ordre du jour · point cacao
+proposé</figcaption>
+</figure>
+<p><em>Modification staged — validation Cabinet requise.</em></p>
+</section>
+<section id="s2.6-valider-la-modification" class="slide level2">
+<h2>S2.6 — Valider la modification</h2>
+<p><strong>Ce qu’on montre</strong> : Patch ODJ appliqué — badge «
+Ajouté par AYA ».</p>
+<p><strong>Ce qu’on dit</strong> : « Oui, valide. »</p>
+<p><strong>Plan B clic</strong> : Bannière orange → bouton
+<strong>Valider modification</strong>.</p>
+<p><strong>Attention</strong> : ne pas dire « OK » seul — dire « Oui,
+valide » en entier.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-postdeploy/21-aya-odj-cacao.png"
+alt="Validation ODJ · badge AYA" />
+<figcaption aria-hidden="true">Validation ODJ · badge AYA</figcaption>
+</figure>
+<p><em>Écriture agenda confirmée par le Cabinet.</em></p>
+</section>
+<section id="s2.7-démarrer-la-réunion" class="slide level2">
+<h2>S2.7 — Démarrer la réunion</h2>
+<p><strong>Ce qu’on montre</strong> : Vue meeting live — chrono, ordre
+du jour vertical, options A/B/C.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, démarre la réunion. »</p>
+<p><strong>Plan B clic</strong> : Fiche Nawa → bouton <strong>Démarrer
+la réunion</strong>.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/09-agenda-meeting-detail.png"
+alt="Vue réunion · ODJ et options" />
+<figcaption aria-hidden="true">Vue réunion · ODJ et options</figcaption>
+</figure>
+<p><em>Mode meeting — arbitrage en direct devant Monsieur le
+Vice-Président.</em></p>
+</section>
+<section id="s2.8-acter-loption-b" class="slide level2">
+<h2>S2.8 — Acter l’option B</h2>
+<p><strong>Ce qu’on montre</strong> : Décision loggée — option B
+diversification anacarde, registre mis à jour.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, décide option B. »</p>
+<p><strong>Plan B clic</strong> : Point ODJ Cacao → carte <strong>Option
+B</strong> → <strong>Décider</strong> → <strong>Logger la
+décision</strong>.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/09-agenda-meeting-detail.png"
+alt="Arbitrage option B · décision enregistrée" />
+<figcaption aria-hidden="true">Arbitrage option B · décision
+enregistrée</figcaption>
+</figure>
+<p><em>Décision persistée — traçabilité institutionnelle.</em></p>
+</section>
+<section id="s2.9-rappeler-les-décisions" class="slide level2">
+<h2>S2.9 — Rappeler les décisions</h2>
+<p><strong>Ce qu’on montre</strong> : Panneau décisions — dernière
+arbitrage Nawa en tête de liste.</p>
+<p><strong>Ce qu’on dit</strong> : « AYA, qu’avons-nous décidé la
+dernière fois ? »</p>
+<p><strong>Plan B clic</strong> : Sidebar <strong>Arbitrages</strong> →
+bloc décisions loggées.</p>
+<figure>
+<img
+data-src="status-screenshots/2026-05-25-demo-eve/05-cockpit-arbitrages.png"
+alt="Mémoire institutionnelle · décisions passées" />
+<figcaption aria-hidden="true">Mémoire institutionnelle · décisions
+passées</figcaption>
+</figure>
+<p><em>Rappel immédiat — aucune décision perdue.</em></p>
+</section>
+<section id="récap-s2-nawa-cacao" class="slide level2">
+<h2>Récap S2 — Nawa / cacao</h2>
+<p><strong>9 étapes</strong> · ~7 minutes</p>
+<p><strong>Message clé</strong> : diversification cacao arbitrée et
+loggée</p>
+<blockquote>
+<p>« De la lecture d’un rapport dense à la décision loggée en réunion —
+AYA a accompagné tout le cycle, avec traçabilité et validation à chaque
+étape d’écriture. »</p>
+</blockquote>
+</section>
+<section id="ce-quon-a-prouvé" class="slide level2">
+<h2>Ce qu’on a prouvé</h2>
+<ul>
+<li><strong>Cockpit souverain</strong> — posture, terrain, presse en un
+écran</li>
+<li><strong>AYA actionnable</strong> — propose, ne décide pas à la place
+du Cabinet</li>
+<li><strong>Preuves traçables</strong> — PV douanes, rapport préfet,
+sources citées</li>
+<li><strong>Décisions mémorisées</strong> — arbitrages loggés et
+rappelables</li>
+</ul>
+</section>
+<section id="plan-b-rapide" class="slide level2">
+<h2>Plan B rapide</h2>
+<p>Si AYA ne répond pas — 5 raccourcis sans voix (workspace
+<code>sentinel-ci</code>) :</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th>Sujet</th>
+<th>Raccourci</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Agenda</strong></td>
+<td>Sidebar Agenda → Préfet Nawa 11h</td>
+</tr>
+<tr>
+<td><strong>Carte Nord</strong></td>
+<td>Chip <strong>Zone Nord · Tendue</strong> ou Brief opérationnel
+Nord</td>
+</tr>
+<tr>
+<td><strong>Presse</strong></td>
+<td>Sidebar Presse → article Napié</td>
+</tr>
+<tr>
+<td><strong>Décisions</strong></td>
+<td>Sidebar Arbitrages → registre décisions</td>
+</tr>
+<tr>
+<td><strong>Réunion Nawa</strong></td>
+<td>Agenda → <strong>Démarrer la réunion</strong></td>
+</tr>
+</tbody>
+</table>
+</section>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/reveal.js@^5/dist/reveal.js"></script>
+
+  <!-- reveal.js plugins -->
+  <script src="https://unpkg.com/reveal.js@^5/plugin/notes/notes.js"></script>
+  <script src="https://unpkg.com/reveal.js@^5/plugin/search/search.js"></script>
+  <script src="https://unpkg.com/reveal.js@^5/plugin/zoom/zoom.js"></script>
+
+  <script>
+
+      // Full list of configuration options available at:
+      // https://revealjs.com/config/
+      Reveal.initialize({
+        // Display controls in the bottom right corner
+        controls: true,
+
+        // Help the user learn the controls by providing hints, for example by
+        // bouncing the down arrow when they first encounter a vertical slide
+        controlsTutorial: true,
+
+        // Determines where controls appear, "edges" or "bottom-right"
+        controlsLayout: 'bottom-right',
+
+        // Visibility rule for backwards navigation arrows; "faded", "hidden"
+        // or "visible"
+        controlsBackArrows: 'faded',
+
+        // Display a presentation progress bar
+        progress: true,
+
+        // Display the page number of the current slide
+        slideNumber: false,
+
+        // 'all', 'print', or 'speaker'
+        showSlideNumber: 'all',
+
+        // Add the current slide number to the URL hash so that reloading the
+        // page/copying the URL will return you to the same slide
+        hash: true,
+
+        // Start with 1 for the hash rather than 0
+        hashOneBasedIndex: false,
+
+        // Flags if we should monitor the hash and change slides accordingly
+        respondToHashChanges: true,
+
+        // Push each slide change to the browser history
+        history: false,
+
+        // Enable keyboard shortcuts for navigation
+        keyboard: true,
+
+        // Enable the slide overview mode
+        overview: true,
+
+        // Disables the default reveal.js slide layout (scaling and centering)
+        // so that you can use custom CSS layout
+        disableLayout: false,
+
+        // Vertical centering of slides
+        center: true,
+
+        // Enables touch navigation on devices with touch input
+        touch: true,
+
+        // Loop the presentation
+        loop: false,
+
+        // Change the presentation direction to be RTL
+        rtl: false,
+
+        // see https://revealjs.com/vertical-slides/#navigation-mode
+        navigationMode: 'default',
+
+        // Randomizes the order of slides each time the presentation loads
+        shuffle: false,
+
+        // Turns fragments on and off globally
+        fragments: true,
+
+        // Flags whether to include the current fragment in the URL,
+        // so that reloading brings you to the same fragment position
+        fragmentInURL: true,
+
+        // Flags if the presentation is running in an embedded mode,
+        // i.e. contained within a limited portion of the screen
+        embedded: false,
+
+        // Flags if we should show a help overlay when the questionmark
+        // key is pressed
+        help: true,
+
+        // Flags if it should be possible to pause the presentation (blackout)
+        pause: true,
+
+        // Flags if speaker notes should be visible to all viewers
+        showNotes: false,
+
+        // Global override for autoplaying embedded media (null/true/false)
+        autoPlayMedia: null,
+
+        // Global override for preloading lazy-loaded iframes (null/true/false)
+        preloadIframes: null,
+
+        // Number of milliseconds between automatically proceeding to the
+        // next slide, disabled when set to 0, this value can be overwritten
+        // by using a data-autoslide attribute on your slides
+        autoSlide: 0,
+
+        // Stop auto-sliding after user input
+        autoSlideStoppable: true,
+
+        // Use this method for navigation when auto-sliding
+        autoSlideMethod: null,
+
+        // Specify the average time in seconds that you think you will spend
+        // presenting each slide. This is used to show a pacing timer in the
+        // speaker view
+        defaultTiming: null,
+
+        // Enable slide navigation via mouse wheel
+        mouseWheel: false,
+
+        // The display mode that will be used to show slides
+        display: 'block',
+
+        // Hide cursor if inactive
+        hideInactiveCursor: true,
+
+        // Time before the cursor is hidden (in ms)
+        hideCursorTime: 5000,
+
+        // Opens links in an iframe preview overlay
+        previewLinks: false,
+
+        // Transition style (none/fade/slide/convex/concave/zoom)
+        transition: 'slide',
+
+        // Transition speed (default/fast/slow)
+        transitionSpeed: 'default',
+
+        // Transition style for full page slide backgrounds
+        // (none/fade/slide/convex/concave/zoom)
+        backgroundTransition: 'fade',
+
+        // Number of slides away from the current that are visible
+        viewDistance: 3,
+
+        // Number of slides away from the current that are visible on mobile
+        // devices. It is advisable to set this to a lower number than
+        // viewDistance in order to save resources.
+        mobileViewDistance: 2,
+
+        // reveal.js plugins
+        plugins: [
+          RevealNotes,
+          RevealSearch,
+          RevealZoom
+        ]
+      });
+    </script>
+    </body>
+</html>
