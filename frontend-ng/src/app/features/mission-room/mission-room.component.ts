@@ -136,6 +136,13 @@ interface AgendaSubItem {
   notes?: string;
 }
 
+interface AgendaPendingPatch {
+  event_id?: string;
+  agenda_items?: AgendaSubItem[];
+  proposed_at?: string;
+  proposed_via?: string;
+}
+
 interface AgendaItem {
   id?: string;
   date?: string;
@@ -1517,7 +1524,7 @@ export class MissionRailComponent {
         (mapZoneSelected)="openMapZoneDrillDown($event)"
         (mapVesselSelected)="openCockpitVesselDrillDown($event)"
         (statusBarSelected)="openStatusBarDrillDown($event)"
-        (arbitrationSelected)="selectArbitrationCard($event)"
+        (arbitrationSelected)="openArbitrationFromCockpit($event)"
         (pressSelected)="openPressPreviewItem($event)"
         (voiceRequest)="openAssistantVoice($event)"
         (voiceListen)="openAssistantVoice('AYA, lis le briefing souverain en 60 secondes.')"
@@ -1785,6 +1792,35 @@ export class MissionRailComponent {
             <span class="eyebrow">Detail evenement</span>
             <h2>{{ event.title }}</h2>
             <p>{{ event.description || 'Evenement consolide depuis le canal agenda institutionnel habilite.' }}</p>
+
+            @if (agendaPendingPatch(); as pending) {
+              <div class="agenda-pending-banner" role="status" aria-live="polite">
+                <div class="agenda-pending-copy">
+                  <span class="eyebrow">Modification ODJ proposee · AYA</span>
+                  <strong>{{ agendaPendingPatchTitle() }}</strong>
+                  <p>{{ pending.agenda_items?.length || 0 }} point(s) en attente de validation.</p>
+                </div>
+                <div class="agenda-pending-actions">
+                  <button
+                    type="button"
+                    class="action-button primary compact"
+                    [disabled]="agendaPatchSubmitting()"
+                    (click)="confirmAgendaPendingPatch()"
+                  >
+                    Valider modification
+                  </button>
+                  <button
+                    type="button"
+                    class="action-button compact"
+                    [disabled]="agendaPatchSubmitting()"
+                    (click)="rejectAgendaPendingPatch()"
+                  >
+                    Rejeter
+                  </button>
+                </div>
+              </div>
+            }
+
             <dl>
               <div><dt>Horaire</dt><dd>{{ event.time }} - {{ event.end_time || '—' }}</dd></div>
               <div><dt>Lieu</dt><dd>{{ event.location || 'A confirmer' }}</dd></div>
@@ -2114,7 +2150,15 @@ export class MissionRailComponent {
             <span class="eyebrow">Detail arbitrage</span>
             <h2>{{ card.title }}</h2>
             <p>{{ card.summary }}</p>
+            <dl class="arbitration-meta">
+              <div><dt>Domaine</dt><dd>{{ card.domain_label || card.domain || '—' }}</dd></div>
+              <div><dt>Statut</dt><dd>{{ card.status_label || '—' }}</dd></div>
+              <div><dt>Echeance</dt><dd>{{ card.deadline || '—' }}</dd></div>
+            </dl>
             <div class="card-actions">
+              <button type="button" class="inline-action primary" (click)="openArbitrationDetailDrillDown(card)">
+                {{ arbitrationDrillLabel(card) }}
+              </button>
               <button type="button" class="inline-action" (click)="openAssistant('AYA, explique les options pour ' + card.title)">
                 Demander a {{ assistantName() }}
               </button>
@@ -2125,7 +2169,7 @@ export class MissionRailComponent {
           } @else {
             <span class="eyebrow">Detail arbitrage</span>
             <h2>Selectionnez un sujet</h2>
-            <p>Choisissez une carte pour afficher le detail et preparer la validation advisory.</p>
+            <p>Choisissez une carte ci-dessus pour afficher le detail, l echeance et les options d arbitrage.</p>
           }
         </article>
 
@@ -2444,6 +2488,27 @@ export class MissionRailComponent {
         text-decoration: none;
         cursor: pointer;
       }
+      .inline-action.primary {
+        border-color: var(--mission-border-strong);
+        background: var(--mission-accent-wash);
+        color: var(--mission-accent);
+        font-weight: 650;
+      }
+      .arbitration-meta {
+        margin: 14px 0;
+        display: grid;
+        gap: 4px;
+      }
+      .arbitration-meta div {
+        display: grid;
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 12px;
+        padding: 6px 0;
+        border-top: 1px solid var(--mission-border);
+        font-size: 12px;
+      }
+      .arbitration-meta dt { color: var(--mission-text-muted); }
+      .arbitration-meta dd { color: var(--mission-text); margin: 0; }
       .action-button.primary {
         border-color: var(--mission-border-strong);
         background: var(--mission-accent-wash);
@@ -3249,6 +3314,35 @@ export class MissionRailComponent {
         gap: 12px;
         padding: 9px 0;
         border-top: 1px solid var(--mission-border);
+      }
+      .agenda-pending-banner {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        margin: 12px 0 16px;
+        padding: 10px 12px;
+        border: 1px solid rgba(242, 140, 56, 0.42);
+        border-radius: var(--mission-radius);
+        background: var(--agentium-aya-soft, rgba(242, 140, 56, 0.08));
+      }
+      .agenda-pending-copy strong {
+        display: block;
+        margin-top: 2px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--mission-text-primary);
+      }
+      .agenda-pending-copy p {
+        margin: 4px 0 0;
+        color: var(--mission-text-soft);
+        font-size: 12px;
+      }
+      .agenda-pending-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 160px;
       }
       .agenda-actions {
         display: grid;
@@ -4336,6 +4430,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly selectedArbitrationCard = signal<VpArbitrationCard | null>(null);
   readonly selectedSource = signal<SourceRef | null>(null);
   readonly selectedAgendaEvent = signal<AgendaItem | null>(null);
+  readonly agendaPendingPatch = signal<AgendaPendingPatch | null>(null);
+  readonly agendaPatchSubmitting = signal(false);
   readonly draft = signal<DraftInstruction | null>(null);
   readonly meetingDecisionsLog = signal<MeetingDecisionLogEntry[]>([]);
   readonly mapCommandState = signal<Record<string, unknown> | null>(null);
@@ -5320,7 +5416,40 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   selectArbitrationCard(card: VpArbitrationCard): void {
+    // Pure selection: surface the card in the right-hand detail panel of the
+    // decisions/arbitrages view without immediately drilling into the source
+    // surface. The deep drill is exposed as an explicit click via
+    // ``openArbitrationDetailDrillDown``.
     this.selectedArbitrationCard.set(card);
+  }
+
+  /**
+   * Cockpit entry point — never drills directly into a press article or zone
+   * dossier. Always lands on ``/decisions`` (the list+detail arbitrages view)
+   * so the user keeps the context of *which* item they picked among the day's
+   * arbitrages before going deeper.
+   */
+  openArbitrationFromCockpit(card: VpArbitrationCard): void {
+    this.selectedArbitrationCard.set(card);
+    this.openDrillDownView('decisions', card.id);
+  }
+
+  arbitrationDrillLabel(card: VpArbitrationCard): string {
+    const pressLike = card.domain === 'PRESSE' || card.drill_down?.view === 'presse';
+    if (pressLike) return 'Voir l article';
+    const nordLike =
+      card.domain === 'DEFENSE'
+      || card.domain_label === 'Defense'
+      || `${card.id} ${card.title}`.toLowerCase().includes('nord');
+    if (nordLike) return 'Ouvrir le dossier Zone Nord';
+    return 'Arbitrer les options';
+  }
+
+  /**
+   * Explicit drill-down from the arbitrage detail panel — opens the press
+   * article drawer, the Zone Nord dossier, or the configured drill route.
+   */
+  openArbitrationDetailDrillDown(card: VpArbitrationCard): void {
     const pressLike = card.domain === 'PRESSE' || card.drill_down?.view === 'presse';
     if (pressLike) {
       const article = this.allNewsSignals().find((signal) => signal.id === card.id);
@@ -5953,6 +6082,56 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   selectAgendaEvent(event: AgendaItem): void {
     this.selectedAgendaEvent.set(event);
+    if (event?.id) this.refreshAgendaPendingPatch(event.id);
+    else this.agendaPendingPatch.set(null);
+  }
+
+  private refreshAgendaPendingPatch(eventId: string): void {
+    this.api
+      .get<{ pending_agenda_patch?: AgendaPendingPatch | null }>(
+        `/meetings/${eventId}/agenda-patch`,
+      )
+      .pipe(catchError(() => of<{ pending_agenda_patch?: AgendaPendingPatch | null } | null>(null)))
+      .subscribe((response) => {
+        this.agendaPendingPatch.set(response?.pending_agenda_patch || null);
+      });
+  }
+
+  confirmAgendaPendingPatch(): void {
+    const event = this.selectedAgendaEvent();
+    const pending = this.agendaPendingPatch();
+    if (!event?.id || !pending || this.agendaPatchSubmitting()) return;
+    this.agendaPatchSubmitting.set(true);
+    this.api
+      .post<{ agenda_items?: AgendaSubItem[] }>(
+        `/meetings/${event.id}/agenda-patch/confirm`,
+        {},
+      )
+      .pipe(catchError(() => of<{ agenda_items?: AgendaSubItem[] } | null>(null)))
+      .subscribe((response) => {
+        this.agendaPatchSubmitting.set(false);
+        this.agendaPendingPatch.set(null);
+        if (response?.agenda_items) {
+          const updated: AgendaItem = {
+            ...event,
+            metadata: { ...(event.metadata || {}), agenda_items: response.agenda_items },
+          };
+          this.selectedAgendaEvent.set(updated);
+        }
+        this.loadAll();
+      });
+  }
+
+  rejectAgendaPendingPatch(): void {
+    this.agendaPendingPatch.set(null);
+  }
+
+  agendaPendingPatchTitle(): string {
+    const items = this.agendaPendingPatch()?.agenda_items || [];
+    const first = items[0];
+    if (!first) return 'Modification ODJ proposee';
+    const more = items.length > 1 ? ` (+${items.length - 1})` : '';
+    return `${first.title || 'Point sans titre'}${more}`;
   }
 
   agendaDayLabel(): string {
@@ -6112,7 +6291,16 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   startMeeting(event: AgendaItem): void {
     if (!event.id) return;
-    void this.router.navigate(['/hypervisor/mission-room/agenda/meeting', event.id]);
+    const eventId = event.id;
+    // Mirror ``aya.start_meeting`` server-side so a follow-up voice
+    // ``aya.log_decision`` finds an active meeting. The navigation runs
+    // regardless so the meeting view always opens.
+    this.api
+      .post(`/meetings/${eventId}/start`, {})
+      .pipe(catchError(() => of(null)))
+      .subscribe(() => {
+        void this.router.navigate(['/hypervisor/mission-room/agenda/meeting', eventId]);
+      });
   }
 
   createDraft(targetId: string, targetType: string): void {

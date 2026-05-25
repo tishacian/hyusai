@@ -59,10 +59,18 @@ interface MeetingDecision {
   status?: string;
 }
 
+interface PendingAgendaPatch {
+  event_id?: string;
+  agenda_items?: MeetingAgendaItem[];
+  proposed_at?: string;
+  proposed_via?: string;
+}
+
 interface MeetingPayload {
   event?: MeetingEvent | null;
   agenda_items?: MeetingAgendaItem[];
   decisions?: MeetingDecision[];
+  pending_agenda_patch?: PendingAgendaPatch | null;
 }
 
 @Component({
@@ -97,6 +105,60 @@ interface MeetingPayload {
         </div>
       } @else {
         <main class="meeting-main">
+          @if (pendingPatch(); as pending) {
+            <aside class="pending-patch-banner" aria-label="Modification ODJ proposee par AYA">
+              <div class="pending-patch-copy">
+                <span class="eyebrow">Modification ODJ proposee · AYA</span>
+                <strong>{{ pendingPatchTitle(pending) }}</strong>
+                <p>
+                  {{ pending.agenda_items?.length || 0 }} point(s) en attente de validation. Validez ou
+                  rejetez avant le demarrage de la reunion.
+                </p>
+              </div>
+              <div class="pending-patch-actions">
+                <button
+                  type="button"
+                  class="action-button primary"
+                  [disabled]="patchSubmitting()"
+                  (click)="confirmPendingPatch()"
+                >
+                  Valider modification
+                </button>
+                <button
+                  type="button"
+                  class="action-button ghost"
+                  [disabled]="patchSubmitting()"
+                  (click)="rejectPendingPatch()"
+                >
+                  Rejeter
+                </button>
+              </div>
+            </aside>
+          }
+
+          <section class="agenda-propose" aria-label="Proposer un point ODJ">
+            <header>
+              <span class="eyebrow">Proposer un point ODJ</span>
+              <small>Memes effets que la voix « AYA, ajoute le point ... »</small>
+            </header>
+            <div class="agenda-propose-row">
+              <input
+                type="text"
+                [(ngModel)]="proposeAgendaTitle"
+                placeholder="Ex. Point cacao - diversification anacarde"
+                aria-label="Intitule du point a ajouter"
+              />
+              <button
+                type="button"
+                class="action-button"
+                [disabled]="!proposeAgendaTitle.trim() || patchSubmitting()"
+                (click)="proposeAgendaPatch()"
+              >
+                Proposer modification
+              </button>
+            </div>
+          </section>
+
           <ol class="agenda-list" aria-label="Ordre du jour">
             @for (item of agendaItems(); track item.id || item.title; let idx = $index) {
               <li
@@ -321,6 +383,69 @@ interface MeetingPayload {
       .meeting-main {
         display: grid;
         gap: var(--mission-space-3);
+      }
+      .pending-patch-banner {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--mission-space-3);
+        align-items: center;
+        padding: var(--mission-space-3) var(--mission-space-4);
+        border: 1px solid rgba(242, 140, 56, 0.42);
+        border-radius: var(--mission-radius-md);
+        background: var(--agentium-aya-soft, rgba(242, 140, 56, 0.08));
+      }
+      .pending-patch-copy strong {
+        display: block;
+        margin-top: var(--mission-space-1);
+        font-size: var(--mission-text-base);
+        font-weight: 600;
+        letter-spacing: var(--mission-tracking-tight);
+        color: var(--mission-text-primary);
+      }
+      .pending-patch-copy p {
+        margin: var(--mission-space-1) 0 0;
+        color: var(--mission-text-secondary);
+        font-size: var(--mission-text-xs);
+        line-height: var(--mission-lh-body);
+      }
+      .pending-patch-actions {
+        display: flex;
+        flex-direction: column;
+        gap: var(--mission-space-2);
+        min-width: 180px;
+      }
+      .agenda-propose {
+        display: grid;
+        gap: var(--mission-space-2);
+        padding: var(--mission-space-3) var(--mission-space-4);
+        border: 1px dashed var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: rgba(4, 8, 13, 0.32);
+      }
+      .agenda-propose header { display: grid; gap: 2px; }
+      .agenda-propose header small {
+        color: var(--mission-text-tertiary);
+        font-size: var(--mission-text-xs);
+      }
+      .agenda-propose-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--mission-space-2);
+        align-items: center;
+      }
+      .agenda-propose input {
+        padding: 8px var(--mission-space-3);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-sm);
+        background: var(--mission-inset);
+        color: inherit;
+        font: inherit;
+        font-size: var(--mission-text-sm);
+      }
+      .agenda-propose input:focus {
+        outline: none;
+        border-color: var(--sentinel-accent);
+        box-shadow: 0 0 0 1px var(--sentinel-accent);
       }
       .agenda-list {
         margin: 0;
@@ -693,8 +818,11 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
   readonly pendingItem = signal<MeetingAgendaItem | null>(null);
   readonly decideModalOpen = signal(false);
   readonly submitting = signal(false);
+  readonly pendingPatch = signal<PendingAgendaPatch | null>(null);
+  readonly patchSubmitting = signal(false);
 
   rationaleText = '';
+  proposeAgendaTitle = '';
 
   private chronoTick = signal(0);
   private chronoTimer: ReturnType<typeof setInterval> | null = null;
@@ -876,6 +1004,7 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
       this.agendaItems.set([]);
       this.decisions.set([]);
       this.activeIndex.set(0);
+      this.pendingPatch.set(null);
       return;
     }
     this.event.set(payload.event);
@@ -883,6 +1012,7 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
     const decisions = payload.decisions || [];
     this.agendaItems.set(items);
     this.decisions.set(decisions);
+    this.pendingPatch.set(payload.pending_agenda_patch ?? null);
     if (items.length) {
       const firstUndecided = items.findIndex(
         (item) =>
@@ -891,5 +1021,77 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
       );
       this.activeIndex.set(firstUndecided >= 0 ? firstUndecided : 0);
     }
+  }
+
+  pendingPatchTitle(pending: PendingAgendaPatch): string {
+    const items = pending.agenda_items || [];
+    const first = items[0];
+    if (!first) return 'Nouvelle modification ODJ';
+    const more = items.length > 1 ? ` (+${items.length - 1})` : '';
+    return `${first.title || 'Point sans titre'}${more}`;
+  }
+
+  proposeAgendaPatch(): void {
+    const eventId = this.event()?.id;
+    const title = this.proposeAgendaTitle.trim();
+    if (!eventId || !title || this.patchSubmitting()) return;
+    this.patchSubmitting.set(true);
+    const slug = title
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 40) || `point-${Date.now()}`;
+    const item = {
+      id: `agenda-${slug}`,
+      title,
+      order: this.agendaItems().length + 1,
+      priority: 'high',
+      owner_proposer: 'VP',
+      decision_required: true,
+      source: 'vp',
+      source_label: 'Ajouté par VP (clic)',
+    };
+    this.api
+      .post<{ pending_agenda_patch?: PendingAgendaPatch | null }>(
+        `/meetings/${eventId}/agenda-patch`,
+        { agenda_items: [item] },
+      )
+      .pipe(catchError(() => of<{ pending_agenda_patch?: PendingAgendaPatch | null } | null>(null)))
+      .subscribe((response) => {
+        this.patchSubmitting.set(false);
+        this.proposeAgendaTitle = '';
+        if (response?.pending_agenda_patch) {
+          this.pendingPatch.set(response.pending_agenda_patch);
+        }
+      });
+  }
+
+  confirmPendingPatch(): void {
+    const eventId = this.event()?.id;
+    if (!eventId || this.patchSubmitting()) return;
+    this.patchSubmitting.set(true);
+    this.api
+      .post<MeetingPayload>(`/meetings/${eventId}/agenda-patch/confirm`, {})
+      .pipe(catchError(() => of<MeetingPayload | null>(null)))
+      .subscribe((payload) => {
+        this.patchSubmitting.set(false);
+        if (payload?.event) {
+          this.event.set(payload.event);
+          this.agendaItems.set(
+            payload.agenda_items || payload.event.metadata?.agenda_items || [],
+          );
+          this.pendingPatch.set(null);
+        } else {
+          this.refresh();
+        }
+      });
+  }
+
+  rejectPendingPatch(): void {
+    // Local-only dismiss for the demo: the pending patch sits in workspace
+    // settings; clearing the banner avoids confusion without re-PATCH plumbing.
+    this.pendingPatch.set(null);
   }
 }
