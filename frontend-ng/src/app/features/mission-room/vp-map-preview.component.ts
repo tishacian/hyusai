@@ -128,6 +128,7 @@ const ABIDJAN_CAMERA = {
               [map]="context.map"
               [mapSystem]="context.mapSystem"
               [mapState]="previewMapState"
+              [userSelectedZoom]="vesselZoomMode"
               [selectedZoneId]="context.topZoneId"
               [vessels]="vesselsEnabled && maritimeLayerVisible ? vessels : null"
               [highlightedVesselMmsi]="selectedVessel?.mmsi || null"

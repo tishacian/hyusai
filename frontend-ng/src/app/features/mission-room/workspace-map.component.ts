@@ -1017,6 +1017,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   @Input() vessels: VesselPosition[] | null = null;
   /** When set, only the vessel matching this MMSI is highlighted (halo + larger pin). */
   @Input() highlightedVesselMmsi: string | null = null;
+  /**
+   * When the cockpit preview user picks Abidjan zoom, skip automatic
+   * national fitBounds from bootstrap / vessel layer refresh.
+   */
+  @Input() userSelectedZoom: 'abidjan' | 'country' | null = null;
   @Output() zoneSelected = new EventEmitter<any>();
   @Output() evidenceAction = new EventEmitter<{ action: string; zone: any }>();
   @Output() vesselSelected = new EventEmitter<VesselPosition>();
@@ -1043,6 +1048,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private deckOverlay: any;
   private deckLayersModule: any;
   private focusMarker: any | null = null;
+  /** Applied on first map load when external state arrives before MapLibre init. */
+  private pendingExternalMapState: Record<string, any> | null = null;
 
   get layerControls(): MapLayerControl[] {
     const catalog = this.mapSystem?.['layer_registry'] || this.mapSystem?.['layer_catalog'];
@@ -1144,6 +1151,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       this.updateDeckLayers();
     }
     if (changes['mapState'] && this.mapState) {
+      this.applyExternalMapState(this.mapState);
+    }
+    if (changes['userSelectedZoom'] && this.userSelectedZoom === 'abidjan' && this.mapState) {
       this.applyExternalMapState(this.mapState);
     }
     if (changes['selectedZoneId'] && !changes['selectedZoneId'].firstChange) {
@@ -1291,15 +1301,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       });
       this.mapInstance.on('load', () => {
         this.mapInstance.addControl(this.deckOverlay);
-        this.fitCountry(0);
-        setTimeout(() => {
-          this.mapInstance?.resize?.();
-          this.fitCountry(220);
-        }, 80);
-        this.mapInstance.once?.('idle', () => {
-          this.mapInstance?.resize?.();
-          this.fitCountry(0);
-        });
+        this.finishMapBootstrap();
       });
       this.mapInstance.on('moveend', () => this.updateDeckLayers());
       this.mapInstance.on('error', () => this.enableFallback());
@@ -1407,7 +1409,48 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     }
   }
 
+  private shouldPreserveUserZoom(): boolean {
+    return this.userSelectedZoom === 'abidjan';
+  }
+
+  private finishMapBootstrap(): void {
+    if (this.shouldPreserveUserZoom()) {
+      const state = this.mapState || this.pendingExternalMapState;
+      if (state) {
+        this.applyExternalMapState(state);
+      }
+      this.mapInstance?.resize?.();
+      this.updateDeckLayers();
+      return;
+    }
+    this.fitCountry(0);
+    setTimeout(() => {
+      this.mapInstance?.resize?.();
+      if (!this.shouldPreserveUserZoom()) {
+        this.fitCountry(220);
+      } else if (this.mapState || this.pendingExternalMapState) {
+        this.applyExternalMapState(this.mapState || this.pendingExternalMapState!);
+      }
+    }, 80);
+    this.mapInstance.once?.('idle', () => {
+      this.mapInstance?.resize?.();
+      if (!this.shouldPreserveUserZoom()) {
+        this.fitCountry(0);
+        return;
+      }
+      const state = this.mapState || this.pendingExternalMapState;
+      if (state) {
+        this.applyExternalMapState(state);
+      }
+    });
+  }
+
   private applyExternalMapState(state: Record<string, any>): void {
+    if (!this.mapInstance) {
+      this.pendingExternalMapState = state;
+      return;
+    }
+    this.pendingExternalMapState = null;
     const activeLayers = Array.isArray(state['active_layers']) ? state['active_layers'].map(String) : [];
     if (activeLayers.length) {
       this.activeLayerKeys.clear();
@@ -1461,7 +1504,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   private fitCountry(duration = 320): void {
-    if (!this.mapInstance) return;
+    if (!this.mapInstance || this.shouldPreserveUserZoom()) return;
     const bounds = this.mapSystem?.['renderer_config']?.bounds || [[-8.65, 4.2], [-2.45, 10.75]];
     const preset = this.mapSystem?.['default_map_state']?.camera || this.mapSystem?.['camera_presets']?.country;
     try {
