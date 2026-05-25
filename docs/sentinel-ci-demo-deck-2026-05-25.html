@@ -33,6 +33,147 @@
     .display.math{display: block; text-align: center; margin: 0.5rem auto;}
   </style>
   <link rel="stylesheet" href="https://unpkg.com/reveal.js@^5/dist/theme/black.css" id="theme">
+  <style>
+    /* SENTINEL-CI / Agentium · dark cockpit override */
+    :root {
+      --sentinel-bg: #0a1118;
+      --sentinel-bg-card: #0f1822;
+      --sentinel-bg-table-a: #0d151e;
+      --sentinel-bg-table-b: #121c28;
+      --sentinel-bg-table-header: #122a1f;
+      --sentinel-border: #1f2937;
+      --sentinel-accent: #3ee68a;
+      --sentinel-accent-dim: #2ba666;
+      --sentinel-warn: #f59e0b;
+      --sentinel-critical: #ef4444;
+      --sentinel-violet: #a78bfa;
+      --sentinel-text: #e2e8f0;
+      --sentinel-text-muted: #94a3b8;
+      --sentinel-text-dim: #64748b;
+    }
+    html, body, .reveal { background: var(--sentinel-bg) !important; }
+    .reveal { color: var(--sentinel-text); font-family: "Inter", "Helvetica Neue", "Calibri", sans-serif; }
+    .reveal .slides { color: var(--sentinel-text); }
+    .reveal h1, .reveal h2, .reveal h3, .reveal h4 {
+      color: var(--sentinel-accent);
+      text-transform: none;
+      font-family: "Inter", "Helvetica Neue", "Calibri", sans-serif;
+      letter-spacing: -0.01em;
+    }
+    .reveal h1 { font-size: 1.5em; font-weight: 700; line-height: 1.15; }
+    .reveal h2 { font-size: 1.25em; font-weight: 700; border-bottom: 1px solid var(--sentinel-border); padding-bottom: 0.2em; line-height: 1.2; }
+    .reveal h3 { font-size: 1.05em; font-weight: 600; }
+    .reveal .subtitle, .reveal .author, .reveal .date {
+      color: var(--sentinel-text-muted);
+      font-style: italic;
+      font-weight: 400;
+    }
+    .reveal p, .reveal li { color: var(--sentinel-text); line-height: 1.45; }
+    .reveal strong { color: var(--sentinel-accent); font-weight: 600; }
+    .reveal em { color: var(--sentinel-text-muted); }
+    .reveal a { color: var(--sentinel-accent); border-bottom: 1px dotted var(--sentinel-accent-dim); }
+    .reveal a:hover { color: #82ffba; }
+    .reveal code {
+      background: rgba(62, 230, 138, 0.08);
+      color: var(--sentinel-accent);
+      padding: 0.05em 0.35em;
+      border-radius: 3px;
+      font-family: "Menlo", "Consolas", monospace;
+      font-size: 0.85em;
+    }
+    .reveal pre code { background: var(--sentinel-bg-card); color: var(--sentinel-text); padding: 0.8em; border-left: 3px solid var(--sentinel-accent); }
+    .reveal blockquote {
+      background: var(--sentinel-bg-card);
+      border-left: 3px solid var(--sentinel-violet);
+      color: var(--sentinel-text-muted);
+      font-style: italic;
+      padding: 0.6em 1em;
+      box-shadow: none;
+      margin: 0.6em auto;
+      width: 88%;
+    }
+    .reveal table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.7em;
+      background: transparent;
+      box-shadow: 0 1px 0 var(--sentinel-border);
+    }
+    .reveal table th {
+      background: var(--sentinel-bg-table-header);
+      color: var(--sentinel-accent);
+      font-weight: 700;
+      text-align: left;
+      padding: 0.5em 0.7em;
+      border: 1px solid var(--sentinel-border);
+      text-transform: none;
+    }
+    .reveal table td {
+      background: var(--sentinel-bg-table-a);
+      color: var(--sentinel-text);
+      padding: 0.45em 0.7em;
+      border: 1px solid var(--sentinel-border);
+    }
+    .reveal table tr:nth-child(even) td { background: var(--sentinel-bg-table-b); }
+    .reveal table code { background: rgba(62, 230, 138, 0.10); }
+    .reveal section img {
+      background: transparent;
+      border: 1px solid var(--sentinel-border);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+      border-radius: 4px;
+      max-height: 60vh;
+    }
+    .reveal section figcaption,
+    .reveal section p > em:only-child {
+      color: var(--sentinel-text-muted);
+      font-size: 0.75em;
+      font-style: italic;
+    }
+    .reveal .slide-number {
+      background: transparent;
+      color: var(--sentinel-text-muted);
+      font-family: "Inter", sans-serif;
+    }
+    .reveal .progress { color: var(--sentinel-accent); }
+    /* Title slide */
+    .reveal #title-slide h1.title {
+      font-size: 1.7em;
+      color: var(--sentinel-accent);
+      letter-spacing: -0.01em;
+      margin-bottom: 0.5em;
+      line-height: 1.1;
+    }
+    .reveal #title-slide .subtitle {
+      font-size: 0.9em;
+      color: var(--sentinel-text);
+      font-style: italic;
+      line-height: 1.3;
+      margin-bottom: 1.2em;
+    }
+    .reveal #title-slide .author,
+    .reveal #title-slide .date {
+      color: var(--sentinel-text-muted);
+      font-size: 0.7em;
+      font-style: normal;
+      margin: 0.15em 0;
+    }
+    /* Top accent bar on every slide */
+    .reveal .slides > section::before {
+      content: "";
+      position: absolute;
+      top: -0.4em;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--sentinel-accent) 0%, var(--sentinel-violet) 100%);
+      opacity: 0.85;
+    }
+    /* Badge tokens — recoloured via the inline script at the bottom of body */
+    .sentinel-badge-pass { color: var(--sentinel-accent); font-weight: 700; }
+    .sentinel-badge-warn { color: var(--sentinel-warn); font-weight: 700; }
+    .sentinel-badge-fail { color: var(--sentinel-critical); font-weight: 700; }
+    .sentinel-badge-aya { color: var(--sentinel-violet); font-weight: 700; }
+  </style>
 </head>
 <body>
   <div class="reveal">
@@ -1578,6 +1719,43 @@ cheatsheet (verbe pivot : <code>pourquoi</code>, <code>montre</code>,
           RevealZoom
         ]
       });
+    </script>
+    <script>
+      // SENTINEL-CI · post-render polish — colour-code verdict badges in tables / text.
+      (function () {
+        var rules = [
+          { re: /\[PASS\]/g, cls: 'sentinel-badge-pass' },
+          { re: /\[WARN\]/g, cls: 'sentinel-badge-warn' },
+          { re: /\[FAIL\]/g, cls: 'sentinel-badge-fail' },
+          { re: /\[CRITICAL\]/g, cls: 'sentinel-badge-fail' },
+          { re: /\[AYA only\]/g, cls: 'sentinel-badge-aya' }
+        ];
+        function paint(node) {
+          if (node.nodeType === 3) { // text node
+            var text = node.nodeValue;
+            for (var i = 0; i < rules.length; i++) {
+              if (rules[i].re.test(text)) {
+                var span = document.createElement('span');
+                var html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                for (var j = 0; j < rules.length; j++) {
+                  html = html.replace(rules[j].re, function (m) {
+                    return '<span class="' + rules[j].cls + '">' + m + '</span>';
+                  });
+                }
+                span.innerHTML = html;
+                node.parentNode.replaceChild(span, node);
+                return;
+              }
+            }
+          } else if (node.nodeType === 1 && node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE') {
+            var children = Array.prototype.slice.call(node.childNodes);
+            for (var k = 0; k < children.length; k++) {
+              paint(children[k]);
+            }
+          }
+        }
+        paint(document.querySelector('.reveal .slides') || document.body);
+      })();
     </script>
     </body>
 </html>
