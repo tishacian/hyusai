@@ -92,7 +92,24 @@ interface DraftValidationResponse {
         @if (isDocumentPreview()) {
           <section class="doc-preview ck-scroll" aria-label="Aperçu document">
             @if (previewLoading()) {
-              <p class="doc-fallback">Chargement de l'aperçu PDF…</p>
+              <p class="doc-fallback doc-loading">Chargement de l'aperçu PDF…</p>
+            } @else if (useCitationPreview() && citedPassages().length) {
+              <section class="doc-citation-preview ck-scroll" aria-label="Extrait OCR document">
+                <span class="eyebrow">Aperçu document · extrait OCR</span>
+                @for (passage of citedPassages(); track $index) {
+                  <article class="citation-page">
+                    @if (passage.page) {
+                      <strong>Page {{ passage.page }}</strong>
+                    }
+                    @if (passage.label) {
+                      <em>{{ passage.label }}</em>
+                    }
+                    @if (passage.text) {
+                      <p>« {{ passage.text }} »</p>
+                    }
+                  </article>
+                }
+              </section>
             } @else if (documentUrl(); as url) {
               <iframe
                 class="doc-frame"
@@ -239,7 +256,7 @@ interface DraftValidationResponse {
         min-height: 360px;
         border: 1px solid var(--mission-border);
         border-radius: var(--mission-radius-md);
-        background: var(--mission-inset);
+        background: #fff;
       }
       .doc-fallback {
         margin: 0;
@@ -248,6 +265,47 @@ interface DraftValidationResponse {
         border-radius: var(--mission-radius-md);
         color: var(--mission-text-secondary);
         font-size: var(--mission-text-sm);
+      }
+      .doc-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 360px;
+      }
+      .doc-citation-preview {
+        min-height: 360px;
+        padding: var(--mission-space-4);
+        border: 1px solid var(--mission-border);
+        border-radius: var(--mission-radius-md);
+        background: var(--mission-surface-1);
+        overflow: auto;
+      }
+      .citation-page {
+        margin-top: var(--mission-space-3);
+        padding: var(--mission-space-3);
+        border-left: 3px solid var(--sentinel-accent-muted);
+        background: var(--mission-inset);
+        border-radius: var(--mission-radius-sm);
+      }
+      .citation-page strong {
+        display: block;
+        margin-bottom: var(--mission-space-1);
+        font-family: var(--mission-font-mono);
+        font-size: 11px;
+        color: var(--sentinel-accent);
+      }
+      .citation-page em {
+        display: block;
+        margin-bottom: var(--mission-space-2);
+        font-style: normal;
+        color: var(--mission-text-secondary);
+        font-size: var(--mission-text-xs);
+      }
+      .citation-page p {
+        margin: 0;
+        font-size: var(--mission-text-sm);
+        line-height: var(--mission-lh-body);
+        color: var(--mission-text-primary);
       }
       .cited-passages {
         padding: var(--mission-space-3);
@@ -431,7 +489,11 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   readonly submitting = signal(false);
   readonly previewLoading = signal(false);
   readonly previewError = signal<string | null>(null);
+  readonly useCitationPreview = signal(false);
   private readonly previewBlobUrl = signal<string | null>(null);
+
+  /** PDF stubs below this size are treated as degraded placeholders. */
+  private static readonly STUB_PDF_MAX_BYTES = 2048;
   private readonly payload = signal<DraftPayload | null>(null);
 
   readonly isDocumentPreview = computed(() => {
@@ -513,31 +575,63 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
   private loadDocumentPreview(): void {
     this.revokePreviewBlobUrl();
     this.previewError.set(null);
+    this.useCitationPreview.set(false);
     if (!this.isDocumentPreview()) {
       this.previewLoading.set(false);
       return;
     }
     const href = this.rawDocumentHref();
     if (!href) {
+      if (this.citedPassages().length) {
+        this.useCitationPreview.set(true);
+      } else {
+        this.previewError.set(
+          'Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document.',
+        );
+      }
       this.previewLoading.set(false);
       return;
     }
-    const { path, fragment } = this.splitDocumentHref(href);
+    const { path } = this.splitDocumentHref(href);
     this.previewLoading.set(true);
     this.api.getBlob(path).subscribe({
       next: (blob) => {
         this.revokePreviewBlobUrl();
-        const objectUrl = `${URL.createObjectURL(blob)}${fragment}`;
+        if (this.shouldUseCitationPreview(blob)) {
+          if (this.citedPassages().length) {
+            this.useCitationPreview.set(true);
+            this.previewLoading.set(false);
+            return;
+          }
+          this.previewError.set(
+            'Document PDF indisponible — utilisez le bouton « Télécharger » ou consultez les passages cités.',
+          );
+          this.previewLoading.set(false);
+          return;
+        }
+        // Blob URLs must not carry #page fragments — Chrome PDF viewer renders a blank frame.
+        const objectUrl = URL.createObjectURL(blob);
         this.previewBlobUrl.set(objectUrl);
         this.previewLoading.set(false);
       },
       error: () => {
         this.previewLoading.set(false);
+        if (this.citedPassages().length) {
+          this.useCitationPreview.set(true);
+          return;
+        }
         this.previewError.set(
           'Aperçu indisponible — utilisez le bouton « Télécharger » pour ouvrir le document.',
         );
       },
     });
+  }
+
+  private shouldUseCitationPreview(blob: Blob): boolean {
+    if (blob.size < AssistantDraftDrawerComponent.STUB_PDF_MAX_BYTES) return true;
+    const type = (blob.type || '').toLowerCase();
+    if (type && type !== 'application/pdf' && type !== 'application/octet-stream') return true;
+    return false;
   }
 
   private splitDocumentHref(href: string): { path: string; fragment: string } {
@@ -651,6 +745,7 @@ export class AssistantDraftDrawerComponent implements OnInit, OnDestroy {
     this.revokePreviewBlobUrl();
     this.previewLoading.set(false);
     this.previewError.set(null);
+    this.useCitationPreview.set(false);
     this.open.set(false);
     this.payload.set(null);
     this.submitting.set(false);
