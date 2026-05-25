@@ -437,6 +437,14 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert body["maritime"]["active_evidence"]["type"] == "maritime"
     assert body["maritime"]["active_evidence"]["map_focus"]["active_layers"][-1] == "maritime-traffic"
     assert [layer["key"] for layer in body["layers"]] == ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"]
+    assert body["layers"][-1]["enabled"] is False
+    assert [layer["key"] for layer in body["map_system"]["layer_catalog"]] == ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"]
+    assert "maritime-traffic" not in body["map_system"]["default_map_state"]["active_layers"]
+    assert any(layer["key"] == "visual-streams" for layer in body["layers"])
+
+    audit = db_session.query(AuditLog).filter_by(event_type="mission_room.monitor.viewed").one()
+    assert audit.workspace_id == workspace.id
+    assert audit.details["posture"] == body["posture"]["label"]
 
 
 def test_mission_room_security_monitor_payload(db_session):
@@ -455,14 +463,16 @@ def test_mission_room_security_monitor_payload(db_session):
     assert body["social_signals"]["tweets"]
     assert body["rumor_thread"]["chain"]
     assert body["source_freshness"]["baseline"] is True
-    assert body["layers"][-1]["enabled"] is False
-    assert [layer["key"] for layer in body["map_system"]["layer_catalog"]] == ["territorial-risk", "open-intelligence", "visual-streams", "maritime-traffic"]
-    assert "maritime-traffic" not in body["map_system"]["default_map_state"]["active_layers"]
-    assert any(layer["key"] == "visual-streams" for layer in body["layers"])
+    assert {layer["key"] for layer in body["layers"]} == {"military-air", "border-tension", "social-geo"}
+    assert all(layer["enabled"] is True for layer in body["layers"])
+    assert body["security_posture"]["next_council"]["time"] == "15:00"
+    assert body["adsb_alerts"]
+    assert body["social_feed"]
+    assert body["disclaimer"]
 
-    audit = db_session.query(AuditLog).filter_by(event_type="mission_room.monitor.viewed").one()
+    audit = db_session.query(AuditLog).filter_by(event_type="mission_room.security_monitor.viewed").one()
     assert audit.workspace_id == workspace.id
-    assert audit.details["posture"] == body["posture"]["label"]
+    assert audit.details["tracks"] == len(body["theater_sahel"]["tracks"])
 
 
 def test_mission_room_vp_story_is_consistent_across_core_surfaces(db_session):
