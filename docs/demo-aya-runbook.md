@@ -88,7 +88,7 @@ poetry run pytest \
 
 ## 2. Trame S1 — chaîne causale (≈5 minutes)
 
-| t (s) | Prompt VP | Action AYA | Effet UI attendu |
+| t (s) | Prompt Vice Premier Ministre | Action AYA | Effet UI attendu |
 |------|-----------|------------|------------------|
 | 0    | Ouvrir le cockpit Mission Room |  | Sparkline macro (Phase B), KPIs |
 | 25   | « Pourquoi la situation Nord est-elle tendue ? » | `aya.explain_why` (caused_by) | navigation `strategie` focus zone-nord + project |
@@ -107,7 +107,7 @@ poetry run pytest \
 
 ## 3. Trame S2 — meeting live (≈7 minutes)
 
-| t (s) | Prompt VP | Action AYA | Effet UI attendu |
+| t (s) | Prompt Vice Premier Ministre | Action AYA | Effet UI attendu |
 |------|-----------|------------|------------------|
 | 0    | « Quel est mon prochain RDV ? » | `aya.open_next_meeting` | navigation `agenda`, highlight Préfet Nawa |
 | 30   | « Résumé du rapport préfet » | `aya.summarize_last_exchanges` | synthèse + proposal "Préconisations cacao ?" |

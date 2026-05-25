@@ -172,7 +172,7 @@ Aux latitudes CI (4°–11° N), l'écart Mercator vs équirectangulaire est < 0
 | 1 | Endpoint `/calendar/events` : appliquer `date_from` / `date_to`. Actuellement les paramètres semblent ignorés (renvoie les 16 events quelle que soit la fenêtre). | 15 min | Évite des payloads inutiles côté UI et nettoie l'API publique. |
 | 2 | Smoke visuel manuel de l'overlay vessels (Lundi matin 30 min avant démo) : vue pays, toggle Abidjan, click MV Atlantic Trader, halo violet. | 5 min | Le tsc est vert mais aucun navigateur n'a validé le rendu après refactor. |
 | 3 | Ajouter un `aria-pressed` sur le toggle « Zoom Abidjan / Vue pays » de l'overlay vessels. | 5 min | Conformité WCAG AA — le bouton change d'état. |
-| 4 | `voice_demo_script.prompt` est neutre (« situation Nord ») ; envisager une variante 25 mai « Pourquoi la tension Nord ce matin ? » pour matcher l'intro VP. | 10 min | Renforce l'effet « le VP arrive au cockpit ». |
+| 4 | `voice_demo_script.prompt` est neutre (« situation Nord ») ; envisager une variante 25 mai « Pourquoi la tension Nord ce matin ? » pour matcher l'intro Vice Premier Ministre. | 10 min | Renforce l'effet « le Vice Premier Ministre arrive au cockpit ». |
 | 5 | Vérifier que les 5 sources webcam apparaissent dans le `assistant-effects` côté front (drop-down sélecteur manuel) — actuellement on n'a confirmé que l'auto-select. | 10 min | Sécurise le fallback démo si une webcam tombe. |
 
 ---

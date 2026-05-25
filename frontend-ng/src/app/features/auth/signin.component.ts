@@ -115,7 +115,7 @@ function isMfa(r: LoginResponse): r is MfaChallengeResponse {
             <span class="ck-btn-spinner" aria-hidden="true"></span>
             <span>SIGNING IN…</span>
           } @else {
-            <span>{{ sentinelCiLogin() ? 'CONNEXION VP' : 'SIGN IN' }}</span>
+            <span>{{ sentinelCiLogin() ? 'CONNEXION VPM' : 'SIGN IN' }}</span>
             <span class="ck-btn-chevron" aria-hidden="true">→</span>
           }
         </button>

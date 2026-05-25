@@ -379,7 +379,7 @@ SENTINEL_AYA_ACTIONS = (
     ActionManifest(
         action_id="aya.priority_summary",
         label="Priority briefing",
-        description="Summarize cockpit priorities for the Vice-President.",
+        description="Summarize cockpit priorities for the Vice Premier Ministre.",
         surfaces=("chat", "voice", "ui", "flow"),
         phrases=(
             "resume des priorites",
@@ -479,7 +479,7 @@ SENTINEL_AYA_ACTIONS = (
             "navires abidjan",
             "cargaison abidjan",
             "maritime abidjan",
-            # Trame S1 / VP filler — "OK, très bien, montre la situation au
+            # Trame S1 / Vice Premier Ministre filler — "OK, très bien, montre la situation au
             # port" must route to the Abidjan port view (cargo + AIS +
             # webcam) instead of falling back to the ``voice.confirm_yes``
             # stub. The matcher strips ``ok`` / ``aya`` wake-word noise so

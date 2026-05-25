@@ -189,5 +189,5 @@ def cedeao_index_payload(*, allow_live: bool = True) -> dict[str, Any]:
         },
         "component_weights": COMPONENT_WEIGHTS,
         "series": series,
-        "attribution": "Baseline demo — reproductible VP.",
+        "attribution": "Baseline demo — reproductible Vice Premier Ministre.",
     }

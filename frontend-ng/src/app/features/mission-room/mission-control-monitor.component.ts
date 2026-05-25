@@ -245,7 +245,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
 
   decisionSentence(): any {
     return this.monitor?.decision_sentence || {
-      text: 'Monsieur le Vice-Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
+      text: 'Monsieur le Vice Premier Ministre, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
       deadline: 'avant Conseil 15h00',
       generated_by: this.assistantName,
     };
@@ -657,7 +657,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
 
   prepareActiveEvidenceArbitrage(): void {
     const evidence = this.activeEvidence();
-    const prompt = `AYA, prepare un arbitrage VP pour ${evidence?.title || 'la preuve active'} avec option recommandee et deadline.`;
+    const prompt = `AYA, prepare un arbitrage Vice Premier Ministre pour ${evidence?.title || 'la preuve active'} avec option recommandee et deadline.`;
     this.assistantPrompt.emit(prompt);
   }
 
@@ -940,7 +940,7 @@ export class MissionControlMonitorComponent implements OnInit, OnChanges, OnDest
       });
     }
     const webcamHint = vessel.recommended_webcam_source_id || linkedCargo
-      ? 'Ouvrir la webcam port et qualifier le PV douanes avant arbitrage VP.'
+      ? 'Ouvrir la webcam port et qualifier le PV douanes avant arbitrage Vice Premier Ministre.'
       : 'Surveiller le trafic portuaire et croiser avec agenda economique.';
     return {
       id: `vessel-${vessel.mmsi}`,

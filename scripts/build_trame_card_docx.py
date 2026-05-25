@@ -60,7 +60,7 @@ SCENARIO_1 = (
             "id": "S1.1",
             "title": "Brief lundi matin",
             "say": "AYA, c'est lundi matin. Qu'est-ce qui demande mon attention ?",
-            "reply": "« Monsieur le Vice-Président, la zone Nord est tendue : projet drone Napié, retard cargo, dédouanement à Vridi. »",
+            "reply": "« Monsieur le Vice Premier Ministre, la zone Nord est tendue : projet drone Napié, retard cargo, dédouanement à Vridi. »",
             "screen": "Navigation Stratégie, focus Zone Nord, projet drones Napié mis en évidence.",
             "plan_b": "Sidebar gauche → chip « Zone Nord · Tendue » (la carte se cale sur la zone-nord).",
         },
@@ -293,7 +293,7 @@ def build_document(output_path: Path) -> Path:
     for section in document.sections:
         _set_margins(section)
 
-    title = document.add_heading("SENTINEL-CI — Carte de trame VP · 25 mai 2026", level=1)
+    title = document.add_heading("SENTINEL-CI — Carte de trame Vice Premier Ministre · 25 mai 2026", level=1)
     _tighten(title, before=0, after=4)
 
     sub = document.add_paragraph()

@@ -1,10 +1,10 @@
-# Rapport Prefet de la region de Nawa au Vice-President
+# Rapport Prefet de la region de Nawa au Vice Premier Ministre
 
 **Document**: report-prefet-nawa-2026-05-10
 **Source**: src-prefet-nawa-report-001
 **Envoye le**: 2026-05-10
 **Auteur**: Prefet de Nawa
-**Destinataire**: Vice-President
+**Destinataire**: Vice Premier Ministre
 **Pages**: 70
 
 ## Resume executif

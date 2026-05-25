@@ -1,6 +1,6 @@
 # SENTINEL-CI — Backlog post-démo (Vague 4)
 
-> Date cible d'implémentation : à partir de S+1 de la démo VP du **lundi 25 mai 2026**.
+> Date cible d'implémentation : à partir de S+1 de la démo Vice Premier Ministre du **lundi 25 mai 2026**.
 > Tous les items sont **spec uniquement** — chaque item fait 1 à 3 jours-homme.
 > Sources :
 > - QA prod 2026-05-24 : [docs/sentinel-ci-qa-prod-2026-05-24.md](sentinel-ci-qa-prod-2026-05-24.md)
@@ -54,7 +54,7 @@
 ## Item 4.2 — Variantes `voice_demo_script.prompt` matin / midi / soir bilingues
 
 **Effort** : ~0,5 j.
-**Bénéfice** : renforcer l'effet « le VP arrive au cockpit » selon l'heure réelle (ou simulée via `SENTINEL_DEMO_TIME`) et offrir un fallback EN pour les démos bilingues investisseurs. Couvre directement le polish #4 du rapport QA prod.
+**Bénéfice** : renforcer l'effet « le Vice Premier Ministre arrive au cockpit » selon l'heure réelle (ou simulée via `SENTINEL_DEMO_TIME`) et offrir un fallback EN pour les démos bilingues investisseurs. Couvre directement le polish #4 du rapport QA prod.
 **Fichier(s) cible(s)** :
 
 - `backend/app/services/mission_room.py:706-716` (`VOICE_DEMO_SCRIPT` constant actuel)
@@ -338,7 +338,7 @@
 ## Item 4.7 — Champ `surface_intent` sur `ActionManifest`
 
 **Effort** : ~0,5 j (champ + remplissage du pack sentinel + tests + préparation router LLM).
-**Bénéfice** : préparer l'arrivée d'un layer LLM optionnel post-résolveur substring/fuzzy/embedding. Le LLM router prendra en input la query + la liste des actions matchées par le résolveur déterministe, et utilisera `surface_intent` pour désambiguïser entre actions qui partagent un même pivot lexical mais expriment des **intentions VP différentes** (« briefing » vs « drill » vs « mutate »).
+**Bénéfice** : préparer l'arrivée d'un layer LLM optionnel post-résolveur substring/fuzzy/embedding. Le LLM router prendra en input la query + la liste des actions matchées par le résolveur déterministe, et utilisera `surface_intent` pour désambiguïser entre actions qui partagent un même pivot lexical mais expriment des **intentions Vice Premier Ministre différentes** (« briefing » vs « drill » vs « mutate »).
 **Fichier(s) cible(s)** :
 
 - `backend/app/services/actions/registry.py:33-60` (`ActionManifest` dataclass)
@@ -353,7 +353,7 @@
 1. Étendre `ActionManifest` avec un champ optionnel `surface_intent: Literal["briefing", "drill", "propose", "confirm", "mutate"] | None = None`. Sémantique :
    - `briefing` : action qui restitue un état (priorités, prochain RDV, résumé). Aucune mutation.
    - `drill` : action qui **navigue** dans une chaîne causale ou un graphe d'évidence (explain_why, show_vessel_evidence, show_customs_record).
-   - `propose` : action qui prépare un brouillon que le VP peut accepter / refuser (propose_customs_email, recommend_cacao, draft_strategic_report, update_meeting_agenda en mode propose).
+   - `propose` : action qui prépare un brouillon que le Vice Premier Ministre peut accepter / refuser (propose_customs_email, recommend_cacao, draft_strategic_report, update_meeting_agenda en mode propose).
    - `confirm` : action de confirmation explicite d'une proposition pendante (confirm_agenda_patch).
    - `mutate` : action qui modifie un état persistant (log_decision, start_meeting, schedule_meeting, action_plan_create/cancel/complete).
 2. Remplir le champ pour les 25 manifests du pack `sentinel_ci_aya_v1`. Mapping recommandé :

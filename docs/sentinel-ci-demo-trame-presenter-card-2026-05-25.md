@@ -8,7 +8,7 @@
 
 | # | Phrase à dire à AYA (verbatim) | Intent matché | Conf | Réponse AYA (vocal résumé + effet UI) | OK |
 |---|---|---|---|---|---|
-| **S1.1** | `AYA, c'est lundi matin. Qu'est-ce qui demande mon attention ?` | `aya.explain_why` | 0.875 | « Monsieur le Vice-Président, [chaîne causale Nord — Napié / Aerostar / Vridi / 120 j] ». Navigation **Stratégie** + focus zone-nord + highlight `proj-drone-centre-napie`. | ☐ |
+| **S1.1** | `AYA, c'est lundi matin. Qu'est-ce qui demande mon attention ?` | `aya.explain_why` | 0.875 | « Monsieur le Vice Premier Ministre, [chaîne causale Nord — Napié / Aerostar / Vridi / 120 j] ». Navigation **Stratégie** + focus zone-nord + highlight `proj-drone-centre-napie`. | ☐ |
 | **S1.3** | `AYA, pourquoi la situation Nord est-elle tendue ?` | `aya.explain_why` | 1.06 | Drill causal niveau 1 (zone-Nord ← Napié). Navigation `/strategie?focus=zone-nord`, highlight projet drones. Si drill se prolonge sur le cargo, vignette webcam APM Apapa + proposition « Voir le PV douanes lié ? ». | ☐ |
 | **S1.4** | `AYA, ouvre le PV douanes.` | `aya.show_customs_record` | 1.04 | « Page 2 du PV douanes du 18 mai : la non-conformité vise un autre cargo, MV Atlantic Trader bloqué par effet collatéral. ». Drawer **document_preview** PV PDF page 2 (OCR surligné) + proposition « Préparer email dérogation ? ». | ☐ |
 | **S1.5** | `AYA, montre le cargo Atlantic Trader.` | `aya.show_vessel_evidence` | 0.905 | « MV Atlantic Trader (IMO 9876543) en attente de dédouanement à Vridi. Voir le PV douanes lié ? ». Navigation `/strategie?mode=live&panel=maritime&vessel=mv-atlantic-trader`, AIS pin highlight `cargo-abidjan-supply-001`, vignette webcam APM Apapa, proposition `propose-customs-pdf-show`. | ☐ |

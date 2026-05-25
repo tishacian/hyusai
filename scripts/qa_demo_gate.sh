@@ -74,7 +74,7 @@ if [[ "$WITH_RESET" -eq 1 ]]; then
     fail "predemo_reset failed"
   fi
 else
-  say "Step 0 — predemo_reset (skipped; pass --with-reset to run <2h before VP)"
+  say "Step 0 — predemo_reset (skipped; pass --with-reset to run <2h before Vice Premier Ministre)"
   record_step "predemo_reset" "SKIP" "use --with-reset before demo"
 fi
 

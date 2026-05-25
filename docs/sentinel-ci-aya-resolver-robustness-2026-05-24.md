@@ -157,7 +157,7 @@ la branche `demo/agentic` (pas pushé) :
   `qu'est-ce qui touche napié` ajoutés.
 - ✓ **Reconnaissance du nom AYA** (point 1 de la mission) :
   - Nouveau manifest `aya.acknowledge_presence` (direct-safe) qui répond
-    « Je suis là, M. le Vice Président, à votre écoute. » et émet
+    « Je suis là, M. le Vice Premier Ministre, à votre écoute. » et émet
     l'effet UI `assistant-acknowledge`.
   - `_strip_wake_word` dans `resolver` : « AYA, … », « …, AYA », « pourquoi
     AYA situation au nord » sont normalisés AVANT le scoring de manifest,

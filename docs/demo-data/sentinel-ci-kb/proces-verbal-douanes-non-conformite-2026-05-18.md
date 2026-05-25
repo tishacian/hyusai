@@ -92,7 +92,7 @@ Douanes.
    national douanier.
 4. Levee du couloir d'entree Vridi des regularisation effective.
 
-**Voie de saisine**: Cabinet Vice-Presidence ou ministere de l'Economie
+**Voie de saisine**: Cabinet Vice Premier Ministre ou ministere de l'Economie
 peut adresser une demande motivee de **derogation operationnelle** pour
 la cargaison drones Centre Formation Napié (MV ATLANTIC TRADER /
 cargo-abidjan-supply-001 / proj-drone-centre-napie), justifiee par:

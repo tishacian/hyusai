@@ -23,7 +23,7 @@ import type { VpArbitrationCard } from './vp-cockpit.types';
         <div class="arb-empty" role="status">
           <span class="arb-empty-icon" aria-hidden="true">○</span>
           <strong>File d'arbitrages vide</strong>
-          <small>AYA pousse les sujets dès qu'un dossier requiert un arbitrage VP.</small>
+          <small>AYA pousse les sujets dès qu'un dossier requiert un arbitrage Vice Premier Ministre.</small>
         </div>
       } @else {
         <ul class="arb-cards" role="list">

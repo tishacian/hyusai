@@ -16,7 +16,7 @@
 | S2 (Préfet Nawa, 9 étapes + T.1) | **10 PASS / 10** (avec 1 WARN PDF) | 10 PASS / 10 |
 | Bugs 1/2/3/4 corrigés | **0 / 4 déployés** — tous reproductibles | 4 / 4 (sauf #3 à valider visuellement) |
 | Edge cases (6) | 6 / 6 conformes à la doctrine cheatsheet | 6 / 6 |
-| Narrative finale (Konaté/Burkina dans tier_1+tier_2+vp_story+aya_recommendation+attention_required) | **0 hit narratif** (1 hit isolé `messages[0].from = "Gen. Konate"`, hors narratif VP) | identique |
+| Narrative finale (Konaté/Burkina dans tier_1+tier_2+vp_story+aya_recommendation+attention_required) | **0 hit narratif** (1 hit isolé `messages[0].from = "Gen. Konate"`, hors narratif Vice Premier Ministre) | identique |
 
 **Décision finale : `GO_AFTER_DEPLOY`.**
 
@@ -35,7 +35,7 @@ Stats détaillées : **15 PASS_NOW · 4 PASS_AFTER_DEPLOY · 1 WARN (PDF S2.4) �
 | Sonde déterministe | Réponse prod aujourd'hui | Interprétation |
 |---|---|---|
 | `POST /actions/resolve` `"OK, très bien, tu peux me montrer la situation au port, s'il te plaît ?"` | action = `voice.confirm_yes` conf **0.875** | **`6335d460` NON déployé** (le guard `_CONFIRM_MAX_TOKENS = 4` + `aya.show_maritime_traffic` ne sont pas en prod) |
-| `GET /mission-room/cockpit` — grep narrative | 8 hits `M. le Vice` / 0 hit `Monsieur le Vice-Président` | **`6335d460` NON déployé** (strings TTS non patchées) |
+| `GET /mission-room/cockpit` — grep narrative | 8 hits `M. le Vice` / 0 hit `Monsieur le Vice Premier Ministre` | **`6335d460` NON déployé** (strings TTS non patchées) |
 | `POST /actions/resolve` `"AYA, explique le cargo Atlantic Trader"` | `matched=false`, conf 0.0 (no_match) | **`e40432b2` NON déployé** (phrase non ajoutée au pack S1.4) |
 | `POST /actions/resolve` `"AYA, montre la situation au port."` | `matched=false`, conf 0.0 (no_match) | corrobore : action `aya.show_maritime_traffic` absente du pack prod |
 | `GET /mission-room/cockpit` `aya_recommendation.prompt` | « AYA, pourquoi la situation Nord est-elle tendue ? » | cohérent avec tip prod **≥ `d452e001`** (Vague 1 `09188fa6` + polish `d1490f18` déjà déployés, confirmés par smokes du 24/05) |
@@ -44,7 +44,7 @@ Stats détaillées : **15 PASS_NOW · 4 PASS_AFTER_DEPLOY · 1 WARN (PDF S2.4) �
 |---|---|---|---|
 | `bd5e1b70` | doc QA S1 | aucun | non poussé — neutre |
 | `e40432b2` | backend (registry phrases + ODJ paramétrable) | + 3 phrases sur `aya.show_vessel_evidence` (« explique le cargo », « explique cette cargaison », « explique Atlantic Trader ») + parsing topic ODJ | **NON déployé** |
-| `6335d460` | backend (guard confirm `_CONFIRM_MAX_TOKENS`, branche défensive `voice_confirm_yes`, pack `aya.show_maritime_traffic`, replace « M. le Vice » → « Monsieur le Vice-Président ») + frontend (`chat-panel.component.ts` forwarding map_command + open panel immédiat) | bloque les 4 bugs | **NON déployé** |
+| `6335d460` | backend (guard confirm `_CONFIRM_MAX_TOKENS`, branche défensive `voice_confirm_yes`, pack `aya.show_maritime_traffic`, replace « M. le Vice » → « Monsieur le Vice Premier Ministre ») + frontend (`chat-panel.component.ts` forwarding map_command + open panel immédiat) | bloque les 4 bugs | **NON déployé** |
 | `bf4909ca` | doc cheatsheet | aucun | non poussé — neutre |
 
 **Verdict §2** : aucune des fixes demo-eve n'est en prod ; les 4 commits doivent être poussés et redéployés (back+front) avant 09h00.
@@ -110,7 +110,7 @@ Ordre joué : T.1 → S2.1 → … → S2.9 dans la même session (workspace buc
 | **1** | Stub « confirm proposal » sur fillers polis longs | 3 prompts longs polis testés via `/actions/resolve`. (a) `"OK, très bien, tu peux me montrer la situation au port, s'il te plaît ?"` → **`voice.confirm_yes` conf 0.875** ; (b) `"D'accord AYA, montre-moi la situation au port s'il te plaît."` → **`voice.confirm_yes` conf 0.89** ; (c) `"Très bien, peux-tu m'ouvrir la vue du port d'Abidjan ?"` → `no_match` (pas de stub mais pas non plus la bonne action) | bug **reproductible 2/3** aujourd'hui (variantes a et b). Le guard `_CONFIRM_MAX_TOKENS = 4` n'est pas appliqué en prod. Après deploy `6335d460`, (a) et (b) doivent matcher `aya.show_maritime_traffic`. | **FAIL_NOW → PASS_AFTER_DEPLOY** |
 | **2** | Zoom Zone Nord ne se déclenche pas | Re-run S1.3 et capture frame `map_command` : backend émet bien `intent=focus_zone target=zone-nord camera={lon:-5.65, lat:9.15, zoom:6.95}` avec map_slug `sentinel-ci-strategic-map`. | Backend OK aujourd'hui (confirmé en QA S1 du 24/05 aussi). Le bug est côté frontend (`chat-panel.component.ts` ne forwardait pas le chunk `map_command` jusqu'au map renderer). | **PASS_NOW (API)** / **PASS_AFTER_DEPLOY (UI rendering)** |
 | **3** | Délai click → ouverture panneau AYA | Non mesurable via API (UI seulement : timing entre click bulle AYA et ouverture du drawer panneau). | À valider **manuellement** par le présentateur après deploy front : cliquer la bulle AYA → le panneau doit apparaître < 100 ms (vs ~500-1500 ms aujourd'hui), avec rafraîchissement du contenu en arrière-plan. | **UNMEASURABLE — PASS_AFTER_DEPLOY (à valider visuellement)** |
-| **4** | « M. le Vice Président » bafouille TTS (« M » lu comme la lettre) | Grep sur cockpit (`/mission-room/cockpit`) + tous les `final_text` SSE du run S1+S2. Cockpit blob : **8 hits `M. le Vice` / 0 hit `Monsieur le Vice-Président`**. S1+S2 SSE final_text : **26 hits `M. le Vice President` / 0 hit `Monsieur le Vice-Président`** (et 26 hits `Vice President` sans accent ni tiret). | Strings backend non patchées aujourd'hui. La fix `6335d460` est un sed global registry + executor + cockpit feed → tous les hits doivent disparaître après deploy. | **FAIL_NOW → PASS_AFTER_DEPLOY** |
+| **4** | « M. le Vice Premier Ministre » bafouille TTS (« M » lu comme la lettre) | Grep sur cockpit (`/mission-room/cockpit`) + tous les `final_text` SSE du run S1+S2. Cockpit blob : **8 hits `M. le Vice` / 0 hit `Monsieur le Vice Premier Ministre`**. S1+S2 SSE final_text : **26 hits `M. le Vice Premier Ministre` / 0 hit `Monsieur le Vice Premier Ministre`** (et 26 hits `Vice Premier Ministre` sans accent ni tiret). | Strings backend non patchées aujourd'hui. La fix `6335d460` est un sed global registry + executor + cockpit feed → tous les hits doivent disparaître après deploy. | **FAIL_NOW → PASS_AFTER_DEPLOY** |
 
 **Verdict §5** : 0 / 4 bugs déployés ; **4 / 4 reproduits aujourd'hui** (bug #3 par déduction UI) ; **4 / 4 corrigés à HEAD `6335d460`** (bug #3 confiance commit + à valider visuellement après deploy).
 
@@ -142,11 +142,11 @@ Ordre joué : T.1 → S2.1 → … → S2.9 dans la même session (workspace buc
 | 0 occurrence Konaté / Burkina dans `vp_story` | 0 hit `Konaté` / 0 hit `Burkina` | **PASS** |
 | 0 occurrence Konaté / Burkina dans `aya_recommendation` | 0 hit | **PASS** |
 | 0 occurrence Konaté / Burkina dans `attention_required` | 0 hit | **PASS** |
-| Hit Konaté isolé dans le cockpit ? | **1 hit** : `messages[0].from = "Gen. Konate"` (sender d'un message d'inbox seed) | **PASS_MINEUR** — hors narratif VP, pas exposé sauf si la VP ouvre l'inbox messages ; pas dans la trame |
+| Hit Konaté isolé dans le cockpit ? | **1 hit** : `messages[0].from = "Gen. Konate"` (sender d'un message d'inbox seed) | **PASS_MINEUR** — hors narratif Vice Premier Ministre, pas exposé sauf si la Vice Premier Ministre ouvre l'inbox messages ; pas dans la trame |
 | `vp_story` mentionne Napié | 9 hits Napié, 8 hits Nawa, 6 hits Préfet, 26 hits cacao | **PASS** |
 | `aya_recommendation.prompt` cohérent avec ouverture S1 | `"AYA, pourquoi la situation Nord est-elle tendue ?"` | **PASS** |
 | `attention_required` mentionne Napié / cacao | 2 hits Napié (cacao pas surfacé ici — c'est porté par `vp_story`) | **PASS** |
-| `actions.last_focus` cohérent avec dernière action S2.9 | `cargo-abidjan-supply-001` (dernier focus posé par S1.4 ; S2.7-S2.9 ne touchent pas `last_focus`) | **PASS_MINEUR** — cohérent avec un VP qui termine sur le drill cargo S1 ; à reset par `predemo_reset.sh` |
+| `actions.last_focus` cohérent avec dernière action S2.9 | `cargo-abidjan-supply-001` (dernier focus posé par S1.4 ; S2.7-S2.9 ne touchent pas `last_focus`) | **PASS_MINEUR** — cohérent avec un Vice Premier Ministre qui termine sur le drill cargo S1 ; à reset par `predemo_reset.sh` |
 | Strings `M. le Vice` toujours présents (preuve bug #4 non déployé) | 8 hits cockpit + 26 hits S1+S2 final_text | rappel : disparaît après deploy `6335d460` |
 
 **Verdict §7** : narratif propre côté tiers/vp_story/aya_recommendation/attention_required. 1 hit Konaté isolé, hors trame, non bloquant.
@@ -173,7 +173,7 @@ Ordre joué : T.1 → S2.1 → … → S2.9 dans la même session (workspace buc
 | S1.5 « montre la situation au port » → AYA répond par un texte demo-safe mais carte / drawer ne bougent pas | Deploy `6335d460` raté ou rollback | Dire **« AYA, montre le cargo Atlantic Trader. »** (S1.4 canonique) — ouvre directement drawer maritime + AIS + webcam APM Apapa. Le narratif « voilà ce qui arrive au port » est porté par S1.4. Sauter S1.5 sans flag visible. |
 | S1.3 « focus zone Nord et projet Napié » → la carte ne bouge pas (icône load mais pas de recentrage) | Frontend `chat-panel.component.ts` non redéployé (bug #2 frontend) | Cliquer manuellement la zone Nord sur la carte cockpit (le clic UI fait fonctionner le focus). Continuer le drill via S1.2 (PV douanes) qui ouvre toujours son drawer. |
 | Pendant un filler poli involontaire (« OK… ») la dernière proposition awaiting se valide toute seule | `_CONFIRM_MAX_TOKENS=4` guard non déployé (bug #1) | Toujours commencer par un verbe (cheatsheet règle d'or n°1). Si un filler vient — dire immédiatement le verbe à la suite : « OK, montre la situation au port. » (la longueur > 4 tokens désamorce le confirm sans deploy non plus, déjà OK). |
-| TTS prononce « M » comme la lettre au lieu de « Monsieur » | Strings non patchées (bug #4) | Inaudible-élégant : la TTS dit « èm-le-Vice-Président ». Aucune action — la voix dit la bonne idée même mal prononcée. Briefer la VP en amont. |
+| TTS prononce « M » comme la lettre au lieu de « Monsieur » | Strings non patchées (bug #4) | Inaudible-élégant : la TTS dit « èm-le-Vice Premier Ministre ». Aucune action — la voix dit la bonne idée même mal prononcée. Briefer la Vice Premier Ministre en amont. |
 | S2.6 « Oui, valide » ne déclenche rien (`voice.confirm_yes` → no_op) | Pas de `pending_agenda_patch` staged (S2.5 non joué ou awaiting expiré 20 min) | Redire S2.5 (« AYA, ajoute le point cacao à l'ordre du jour. ») puis enchaîner « Oui, valide. » dans les 20 min. |
 | S2.4 « génère le rapport complet » → drawer ouvre mais PDF vide / 404 | Service de génération PDF down ou objet store cassé | Aller à `https://agentium.papai.ai/api/v1/mission-room/reports/sentinel-ci/strategic-cacao_diversification-da95677bd29a.pdf` directement dans un onglet (URL servable identifiée). À défaut, faire S2.3 (préconisations cacao) + S2.5 (patch ODJ) + S2.7 (start) — narratif tient sans le PDF. |
 | Réponse longue/hésitante sans `action_effect` (drawer ne s'ouvre pas) | Resolver no_match → fallback RAG ~10 s | Recommencer avec la forme **canonique** de la cheatsheet (colonne « Prompt principal »). Si 2 essais ratés : passer à l'étape suivante. |
@@ -206,7 +206,7 @@ Format : `tag | prompt | action attendue → action obtenue | conf | date`.
 
 ### Bugs / sondes deploy
 - `DEPLOY-1 | "OK, très bien, tu peux me montrer la situation au port, s'il te plaît ?" | aya.show_maritime_traffic → voice.confirm_yes | 0.875 | 6335d460 NON déployé`
-- `DEPLOY-2 | grep "M. le Vice" / "Monsieur le Vice-Président" sur cockpit | 0 / 0 (8 / 0) | 6335d460 NON déployé`
+- `DEPLOY-2 | grep "M. le Vice" / "Monsieur le Vice Premier Ministre" sur cockpit | 0 / 0 (8 / 0) | 6335d460 NON déployé`
 - `DEPLOY-3 | "AYA, explique le cargo Atlantic Trader" | aya.show_vessel_evidence → null | 0.0 | e40432b2 NON déployé`
 - `BUG1-a | "OK, très bien, tu peux me montrer la situation au port, s'il te plaît ?" | aya.show_maritime_traffic → voice.confirm_yes | 0.875 | reproductible`
 - `BUG1-b | "D'accord AYA, montre-moi la situation au port s'il te plaît." | aya.show_maritime_traffic → voice.confirm_yes | 0.89 | reproductible`
@@ -225,7 +225,7 @@ Format : `tag | prompt | action attendue → action obtenue | conf | date`.
 
 ---
 
-## 11. Side-effects laissés par ce QA (à reset avant la VP)
+## 11. Side-effects laissés par ce QA (à reset avant la Vice Premier Ministre)
 
 | Champ | Valeur post-QA | Action de reset |
 |---|---|---|

@@ -61,6 +61,8 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert [item["key"] for item in navigation.json()["items"]] == [
         "cockpit",
         "strategie",
+        "securite",
+        "reputation",
         "agenda",
         "presse",
         "decisions",
@@ -68,6 +70,8 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert [item["label"] for item in navigation.json()["items"]] == [
         "Cockpit",
         "Carte",
+        "Securite",
+        "Reputation",
         "Agenda",
         "Presse",
         "Arbitrages",
@@ -81,7 +85,7 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
         "alerting",
         "decision",
     }
-    assert cockpit_body["decision_sentence"]["text"].startswith("Monsieur le Vice-Président")
+    assert cockpit_body["decision_sentence"]["text"].startswith("Monsieur le Vice Premier Ministre")
     assert cockpit_body["vp_story"]["scenario_id"] == "sentinel-ci-vp-morning-zone-nord-v1"
     assert cockpit_body["vp_story"]["assistant"] == "AYA"
     assert cockpit_body["vp_story"]["anchors"]["priority_zone"] == "Zone Nord"
@@ -419,11 +423,11 @@ def test_mission_room_monitor_seeds_visual_context_and_is_audited(db_session):
     assert body["posture"]["label"] in {"stable", "monitoring", "elevated", "critical"}
     assert body["scenario"]["id"] == "scenario-crise-nationale"
     assert body["scenario"]["title"] == "Crise nationale"
-    assert body["decision_sentence"]["text"].startswith("Monsieur le Vice-Président")
+    assert body["decision_sentence"]["text"].startswith("Monsieur le Vice Premier Ministre")
     assert len(body["attention_required"]) == 3
     assert body["attention_required"][0]["deadline"] == "14:00"
     assert body["voice_demo_script"]["target_latency_s"] == 6
-    assert len(body["executive_decision_packages"]) == 4
+    assert len(body["executive_decision_packages"]) == 5
     # The root cause (chantier Napié + cargo bloqué) must lead the recommended option,
     # with CEDEAO/regional coordination repositioned as a secondary signal in support.
     assert body["executive_decision_packages"][0]["recommended_option"].startswith("Priorisation dedouanement cargo Napie")

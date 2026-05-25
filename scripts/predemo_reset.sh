@@ -214,7 +214,7 @@ SEED = [
      "description": "Suite au rapport du 10 mai : filiere cacao, infrastructures et diversification regionale.",
      "start_at": "2026-05-25T11:00:00", "end_at": "2026-05-25T12:00:00",
      "location": "Soubre (capitale regionale)",
-     "participants": ["VP", "Prefet de Nawa", "AYA"],
+     "participants": ["Vice Premier Ministre", "Prefet de Nawa", "AYA"],
      "category": "territorial", "priority": "high",
      "context_ref": "report-prefet-nawa-2026-05-10"},
     {"seed_id": "evt-point-presse","title": "Point presse hebdomadaire",
@@ -251,7 +251,7 @@ SEED = [
      "description": "Lecture des signaux faibles presse et diplomatie regionale.",
      "start_at": "2026-05-26T14:00:00", "end_at": "2026-05-26T14:45:00",
      "location": "Bureau Ministre",
-     "participants": ["M. le Vice-President", "AYA", "Cellule veille"],
+     "participants": ["Monsieur le Vice Premier Ministre", "AYA", "Cellule veille"],
      "category": "intelligence", "priority": "high"},
 ]
 ok = 0

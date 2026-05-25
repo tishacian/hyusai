@@ -6,7 +6,7 @@ Two flows:
    (~70 pages) and copy it into the workspace object store so AYA can
    reference it with a signed URL in the demo S2 flow.
 
-2. **Runtime, user-initiated**: when the VP asks AYA "Genere le rapport
+2. **Runtime, user-initiated**: when the Vice Premier Ministre asks AYA "Genere le rapport
    complet" we call :func:`generate_strategic_report` which produces a
    cacao diversification PDF on the fly.
 

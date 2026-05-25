@@ -975,7 +975,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   /**
    * Local visibility flag for the maritime AIS overlay layer. Defaults
    * to ``true`` so the SENTINEL-CI demo opens with the 16 vessels
-   * visible. The VP can toggle the layer off via the legend chip
+   * visible. The Vice Premier Ministre can toggle the layer off via the legend chip
    * "Maritime · AIS · n navires" without affecting the map zoom.
    */
   maritimeLayerVisible = true;

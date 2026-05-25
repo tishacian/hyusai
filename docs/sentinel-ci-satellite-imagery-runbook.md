@@ -6,7 +6,7 @@
 
 ## Objectif
 
-Le Security Monitor S3 affiche deux scènes satellite cohérentes avec la trame VP :
+Le Security Monitor S3 affiche deux scènes satellite cohérentes avec la trame Vice Premier Ministre :
 
 | Scène | Axe | Message autorisé |
 |-------|-----|------------------|
@@ -46,7 +46,7 @@ Attribution affichée : `Contains modified Copernicus Sentinel data via Sentinel
 
 Gate de confirmation non validée au 25 mai 2026. Décision d'implémentation actuelle :
 
-- Live jamais activé sur le workspace de démo VP.
+- Live jamais activé sur le workspace de démo Vice Premier Ministre.
 - QA et screenshots gate uniquement sur baseline figé.
 - Pas de détection automatique ni de claim visuelle.
 - Fallback prévu vers baseline si une future API live échoue.

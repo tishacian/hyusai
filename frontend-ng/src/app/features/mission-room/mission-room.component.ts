@@ -1109,7 +1109,7 @@ export class MissionSourcePillComponent {
       </a>
 
       <nav class="mission-nav">
-        <span class="rail-section-label">Parcours VP</span>
+        <span class="rail-section-label">Parcours VPM</span>
         @for (item of visibleItems(); track item.key) {
           <a
             [routerLink]="item.route"
@@ -1507,10 +1507,10 @@ export class MissionRailComponent {
             <header class="mission-hero">
               <div class="hero-copy">
                 <div class="hero-meta">
-                  <span class="eyebrow">Mission Room · Vice-Presidence</span>
+                  <span class="eyebrow">Mission Room · Vice Premier Ministre</span>
                   <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
                 </div>
-                <h1>{{ cockpit()?.title || 'Bonjour, Monsieur le Vice-Président.' }}</h1>
+                <h1>{{ cockpit()?.title || 'Bonjour, Monsieur le Vice Premier Ministre.' }}</h1>
                 <p>
                   <span>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</span>
                   <span class="hero-dot"></span>
@@ -4814,7 +4814,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   searchQueryValue = '';
   newAgendaTitle = '';
   newAgendaStart = '2026-04-15T09:45';
-  newAgendaLocation = 'Cabinet vice-presidence';
+  newAgendaLocation = 'Cabinet Vice Premier Ministre';
   private readonly visualObjectUrls: string[] = [];
   private readonly calendarUpdateListener = () => this.loadAll(false);
   private readonly workspaceActionUpdateListener = () => this.loadAll(false);
@@ -5363,7 +5363,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   decisionSentence60(): NonNullable<MissionCockpit['decision_sentence']> {
     return this.cockpit()?.decision_sentence || {
       label: 'Sentence du jour',
-      text: 'Monsieur le Vice-Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
+      text: 'Monsieur le Vice Premier Ministre, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.',
       deadline: 'avant Conseil 15h00',
       generated_by: this.assistantName(),
     };
@@ -6515,7 +6515,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const zone = event?.zone;
     const title = zone?.popup_brief?.title || zone?.name || 'la zone sélectionnée';
     if (event?.action === 'arbitrage') {
-      this.openAssistant(`AYA, prépare un arbitrage VP pour ${title} avec options, sources et échéance.`);
+      this.openAssistant(`AYA, prépare un arbitrage Vice Premier Ministre pour ${title} avec options, sources et échéance.`);
       return;
     }
     if (event?.action === 'maritime') {
@@ -6738,11 +6738,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   agendaSubItemSourceLabel(item: AgendaSubItem): string {
     const raw = (item.source_label || item.source || '').trim().toLowerCase();
-    if (!raw) return 'Ajouté par VP';
+    if (!raw) return 'Ajouté par Vice Premier Ministre';
     if (raw.includes('aya') || raw.includes('assistant')) return 'Ajouté par AYA';
     if (raw.includes('brief') || raw.includes('prefet') || raw.includes('préfet')) return 'Importé du brief préfet';
-    if (raw.includes('vp') || raw.includes('cabinet')) return 'Ajouté par VP';
-    return item.source_label || item.source || 'Ajouté par VP';
+    if (raw.includes('vp') || raw.includes('cabinet')) return 'Ajouté par Vice Premier Ministre';
+    return item.source_label || item.source || 'Ajouté par Vice Premier Ministre';
   }
 
   agendaSubItemSourceClass(item: AgendaSubItem): string {
@@ -6761,7 +6761,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       title: 'Nouveau point',
       order: existing.length + 1,
       source: 'vp',
-      source_label: 'Ajouté par VP',
+      source_label: 'Ajouté par Vice Premier Ministre',
     };
     this.patchAgendaSubItems(event, [...existing, next]);
   }

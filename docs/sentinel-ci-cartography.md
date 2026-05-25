@@ -12,7 +12,7 @@ La carte SENTINEL-CI est une surface de situation ministerielle, pas un SIG tech
 
 La carte reste une primitive Agentium : elle est servie par le workspace, controlee par IAM, pilotable par AYA et auditee via les commandes carte. Elle reprend les bons patterns Worldmonitor sans copier son produit : registre de couches, fraicheur, time range, points sourcés, tooltips, commandes et fallback propre. La V3 ajoute la boucle Mission President `Explorer -> Comprendre -> Decider` et relie la carte au graphe de preuves OSINT du workspace.
 
-## Coherence Narrative VP
+## Coherence Narrative Vice Premier Ministre
 
 La carte ne porte pas un scenario autonome. Elle consomme le `vp_story` unique expose par `mission_room.py`, partage par cockpit, presse/news, briefing, timeline/agenda, carte et monitor. Les ancres narratives canoniques sont :
 

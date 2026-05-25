@@ -2,7 +2,7 @@
 
 **Durée totale** : ~12 minutes (5 min S1 + 2 min transition + 7 min S2)  
 **Date simulée** : lundi 25 mai 2026, 10h30 (Abidjan)  
-**Interlocuteur** : Vice-Président de la République  
+**Interlocuteur** : Vice Premier Ministre de la République
 **Assistant** : AYA — cockpit souverain, mode **advisory-only**
 
 > Toute action à effet de bord (email, écriture agenda, décision loggée) passe par une
@@ -15,7 +15,7 @@
 
 ### Mise en scène
 
-Le VP ouvre **SENTINEL-CI** le matin du 25 mai. AYA a déjà consolidé la nuit : signaux presse,
+Le Vice Premier Ministre ouvre **SENTINEL-CI** le matin du 25 mai. AYA a déjà consolidé la nuit : signaux presse,
 agenda du jour, tension territoriale, indicateurs macro et dossiers en attente d'arbitrage.
 
 **Écran d'ouverture** : Cockpit Mission Room (`/hypervisor/mission-room/cockpit`).
@@ -28,7 +28,7 @@ agenda du jour, tension territoriale, indicateurs macro et dossiers en attente d
 - La **carte + strip d'arbitrages** : lecture terrain en un coup d'œil
 - **Une alerte presse hero** : signal open intelligence du jour
 
-**Phrase d'ouverture suggérée (VP ou présentateur) :**
+**Phrase d'ouverture suggérée (Vice Premier Ministre ou présentateur) :**
 
 > « AYA, c'est lundi matin. Qu'est-ce qui demande mon attention en priorité ? »
 
@@ -58,7 +58,7 @@ Le fil rouge est un **projet public réel** : le [Centre International de Format
 
 ### Trame pas-à-pas
 
-| # | Moment | Prompt VP | Ce qu'AYA fait | Ce qu'on montre |
+| # | Moment | Prompt Vice Premier Ministre | Ce qu'AYA fait | Ce qu'on montre |
 |---|--------|-----------|----------------|-----------------|
 | 1 | **Accroche** | « Pourquoi la situation Nord est-elle tendue ? » | Drill causal niveau 1 | Navigation **Stratégie**, focus zone Nord + projet Napié |
 | 2 | **Profondeur** | « Et pourquoi ce projet est en retard ? » | Drill causal niveau 2 | Evidence graph : lien projet → cargo |
@@ -142,14 +142,14 @@ préfectoral du 10 mai (cacao, infrastructures, diversification).
 
 ### Arc narratif
 
-Le VP se prépare à rencontrer le Préfet de Nawa. Enjeu : **diversification cacao** et
+Le Vice Premier Ministre se prépare à rencontrer le Préfet de Nawa. Enjeu : **diversification cacao** et
 transformation locale — un dossier de fond, pas une urgence presse. AYA doit **lire un corpus
 dense**, **proposer des options sourcées**, **enrichir l'ODJ**, **tenir la réunion en live**
 et **logger la décision** pour la retrouver plus tard.
 
 ### Trame pas-à-pas
 
-| # | Moment | Prompt VP | Ce qu'AYA fait | Ce qu'on montre |
+| # | Moment | Prompt Vice Premier Ministre | Ce qu'AYA fait | Ce qu'on montre |
 |---|--------|-----------|----------------|-----------------|
 | 1 | **Synthèse** | « Résumé du rapport préfet » | RAG sur rapport ~70p | Synthèse structurée + proposition « Préconisations cacao ? » |
 | 2 | **Options** | « Oui » | Recommandations sourcées | 3 options (transformation, coopérative, PPP) — guide anacarde, Banque mondiale, EUDR |
@@ -172,7 +172,7 @@ et **logger la décision** pour la retrouver plus tard.
 | **Document Intelligence** | Rapport Préfet Nawa (`sentinel-ci-ministerial-briefs`), synthèse RAG |
 | **Knowledge Guides** | Guide diversification anacarde, recommandations groundées |
 | **Génération documentaire** | PDF WeasyPrint ~70p, CLI `build_sentinel_reports`, endpoint `/reports/generate` |
-| **Agenda éditable** | PATCH `metadata.agenda_items`, historique, badges source (AYA / VP / brief) |
+| **Agenda éditable** | PATCH `metadata.agenda_items`, historique, badges source (AYA / Vice Premier Ministre / brief) |
 | **Meeting live** | `vp-meeting` : ODJ, options A/B/C, chrono, modal décision |
 | **Registre décisions** | Model `MeetingDecision`, API `/meetings/{id}/decisions`, decisions-log |
 | **Mémoire institutionnelle** | `recall_past_decisions`, RAG sur décisions passées |

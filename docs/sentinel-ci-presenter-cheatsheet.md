@@ -1,12 +1,12 @@
 % SENTINEL-CI — Cheat-sheet présentateur AYA
-% Démo Vice-Président — Lundi 25 mai 2026, 09h00
-% Source de vérité : trame démo VP validée en QA
+% Démo Vice Premier Ministre — Lundi 25 mai 2026, 09h00
+% Source de vérité : trame démo Vice Premier Ministre validée en QA
 
 ## En-tête
 
 - **Objectif** : garder des phrases copy-paste, stables en salle, qui ouvrent les bons écrans sans improvisation.
 - **URL** : `https://agentium.papai.ai/hypervisor/mission-room/cockpit` — **workspace** `sentinel-ci` — **profil** `vigie_executive` — **compte** `thibaud.ishacian@datategy.net`.
-- **Pré-requis prod** : build du matin déployé avant passage VP, avec scénario port, Nawa et S3 chargés.
+- **Pré-requis prod** : build du matin déployé avant passage Vice Premier Ministre, avec scénario port, Nawa et S3 chargés.
 - **Règles d'or** :
   1. Démarrer chaque demande par un **verbe d'action** (« pourquoi », « montre », « rédige », « démarre », « décide », « résume ») ou par « **AYA, …** ».
   2. **Ne jamais** ouvrir une phrase nouvelle par un filler poli isolé (« OK… », « OK très bien… », « D'accord… »). Si filler, **enchaîner immédiatement** sur le verbe (« OK, montre la situation au port »).
@@ -16,7 +16,7 @@
 
 | Code | Prompt | Effet |
 |---|---|---|
-| W.1 | `AYA` | `aya.acknowledge_presence` — « Je suis là, Monsieur le Vice-Président, à votre écoute. » |
+| W.1 | `AYA` | `aya.acknowledge_presence` — « Je suis là, Monsieur le Vice Premier Ministre, à votre écoute. » |
 | W.2 | `AYA, <suite>` | wake-word retiré avant scoring ; la suite est routée normalement. |
 
 ## Tableau S1 — Drill causal Nord
@@ -70,7 +70,7 @@ Plan B clic par étape : voir `docs/sentinel-ci-demo-trame-s3-presenter-card-202
 - `OK` seul / `très bien` seul / `D'accord` seul → peut être interprété comme une validation. **Toujours enchaîner sur un verbe.**
 - Ultra-courts ambigus (`le rapport`, `la décision`, `option B` seul, `cacao` à sec hors S2.3, `Préfet` seul, `Napié` seul) → `no_match` puis fallback RAG long.
 - Anglicismes hors pack (`forecast cocoa`, `show port view`, `show me the cargo`, `what's happening up north`) → `no_match`. Anglicismes **couverts** : `morning briefing`, `next meeting`, `start meeting`, `customs report`, `draft a customs email`, `why is the north tense`, `cacao diversification recommendations`, `show the port situation`.
-- `M. le Vice Président` / `M. le Vice-Président` → désormais **toujours** dire et écrire **« Monsieur le Vice-Président »** (TTS sinon prononce « M » comme la lettre).
+- `M. le Vice Premier Ministre` → désormais **toujours** dire et écrire **« Monsieur le Vice Premier Ministre »** (TTS sinon prononce « M » comme la lettre).
 - `AYA, explique le cargo Atlantic Trader` → en cas de doute, préférer la forme canonique S1.4 (`montre le cargo Atlantic Trader`).
 
 ## Plan B vocal

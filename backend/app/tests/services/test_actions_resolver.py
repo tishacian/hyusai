@@ -190,7 +190,7 @@ def test_voice_confirm_yes_without_awaiting_returns_graceful_message(db_session)
         )
     )
     assert "execution demo en attente de binding" not in (result.get("content") or "").lower()
-    assert "Monsieur le Vice-Président" in (result.get("content") or "")
+    assert "Monsieur le Vice Premier Ministre" in (result.get("content") or "")
 
 
 def test_awaiting_yes_routes_to_draft_customs_email(db_session):

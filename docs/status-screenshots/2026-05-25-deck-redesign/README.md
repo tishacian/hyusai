@@ -1,7 +1,7 @@
-# SENTINEL-CI Démo VP · pptx redesign (25 mai 2026)
+# SENTINEL-CI Démo Vice Premier Ministre · pptx redesign (25 mai 2026)
 
 Avant / après du polish design appliqué au deck
-`docs/sentinel-ci-demo-deck-2026-05-25.pptx` pour la démo VP du 25 mai 2026.
+`docs/sentinel-ci-demo-deck-2026-05-25.pptx` pour la démo Vice Premier Ministre du 25 mai 2026.
 
 ## Approche
 

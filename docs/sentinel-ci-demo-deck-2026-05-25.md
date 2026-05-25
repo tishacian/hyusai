@@ -1,11 +1,11 @@
 ---
-title: "SENTINEL-CI · Démo Vice-Président"
+title: "SENTINEL-CI · Démo Vice Premier Ministre"
 subtitle: "Cockpit gouvernance Côte d'Ivoire · narrative Napié + Préfet Nawa"
 author: "Datategy · Plateforme Agentium"
 date: "Lundi 25 mai 2026 · 09h00 (Abidjan)"
 ---
 
-# SENTINEL-CI · Démo Vice-Président
+# SENTINEL-CI · Démo Vice Premier Ministre
 
 Cockpit gouvernance souveraine Côte d'Ivoire
 
@@ -14,7 +14,7 @@ Cockpit gouvernance souveraine Côte d'Ivoire
 | | |
 |---|---|
 | Date | Lundi 25 mai 2026 · 09h00 Abidjan |
-| Interlocuteur | Vice-Président de la République |
+| Interlocuteur | Vice Premier Ministre de la République |
 | URL | `https://agentium.papai.ai` · workspace `sentinel-ci` |
 | HEAD prod | `9d0f8012` (commit walkthrough enrichi) |
 | Smoke probe post-deploy | **20 / 20 PASS** (6 vocal + 14 API non-régression) |
@@ -262,7 +262,7 @@ Durée cible : 5 min · 6 étapes · fil rouge **Centre International de Formati
 
 # Bloc 4 — Scénario 2 · Préfet Nawa / diversification cacao
 
-Durée cible : 7 min · 9 étapes · enjeu **diversification cacao + transformation locale** · le VP prépare l'arbitrage avant la rencontre du Préfet de Nawa à Soubré (11h00).
+Durée cible : 7 min · 9 étapes · enjeu **diversification cacao + transformation locale** · le Vice Premier Ministre prépare l'arbitrage avant la rencontre du Préfet de Nawa à Soubré (11h00).
 
 ---
 
@@ -508,7 +508,7 @@ Si AYA ne répond pas ou si une route ne se charge pas, taper l'URL en direct (w
 
 ## Bonus · 8 KPIs Osiris démo-safe
 
-Valeurs cohérentes pour la démo (figées dans le seed Osiris CI) — à citer si le VP regarde le bloc INDICATEURS MACRO :
+Valeurs cohérentes pour la démo (figées dans le seed Osiris CI) — à citer si le Vice Premier Ministre regarde le bloc INDICATEURS MACRO :
 
 | KPI | Valeur | Tendance démo |
 |---|---|---|
@@ -614,7 +614,7 @@ Valeurs cohérentes pour la démo (figées dans le seed Osiris CI) — à citer 
 
 ### 3 phrases d'ouverture
 
-1. *« Monsieur le Vice-Président, voici SENTINEL-CI : un cockpit souverain de gouvernance, opéré en mode advisory — AYA propose, le Cabinet décide. »*
+1. *« Monsieur le Vice Premier Ministre, voici SENTINEL-CI : un cockpit souverain de gouvernance, opéré en mode advisory — AYA propose, le Cabinet décide. »*
 2. *« En treize minutes, deux postures complémentaires : ce matin réactif sur le Nord, ce midi proactif sur la diversification cacao avec le Préfet de Nawa. »*
 3. *« Toutes les sources sont citées, toutes les écritures (agenda, décisions, emails) passent par une validation explicite — rien ne sort sans votre accord. »*
 
@@ -630,13 +630,13 @@ Valeurs cohérentes pour la démo (figées dans le seed Osiris CI) — à citer 
 
 - **Toujours** démarrer par un verbe d'action ou « **AYA, …** ».
 - **Jamais** dire « OK » seul / « D'accord » seul → match `voice.confirm_yes` accidentel (guard `_CONFIRM_MAX_TOKENS=4` actif, mais filler isolé reste piégeux).
-- **Toujours** dire et écrire **« Monsieur le Vice-Président »** (jamais « M. le Vice-Président » — TTS prononce « M » comme la lettre).
+- **Toujours** dire et écrire **« Monsieur le Vice Premier Ministre »** (jamais « M. le Vice Premier Ministre » — TTS prononce « M » comme la lettre).
 - Si AYA répond hors-sujet : recommencer avec la forme canonique du cheatsheet (verbe pivot : `pourquoi`, `montre`, `rédige`, `démarre`, `décide`, `résume`).
 - En cas de doute UI : URL directe (voir slide « Plan B URL »).
 
 ---
 
-## Fin · `Go` démo VP
+## Fin · `Go` démo Vice Premier Ministre
 
 `HEAD prod 9d0f8012` · `Smoke 20/20 PASS` · `Probes ciblés 11/11 PASS` · `Audit 16/16 étapes`
 

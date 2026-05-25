@@ -72,7 +72,7 @@ Diversifier **d'abord par anacarde transformee** :
 ## Validation requise
 
 Guide **advisory-only**. Toute decision cabinet ou ministerielle doit
-etre arbitree par le Vice-President, le ministre de l'Economie et le
+etre arbitree par le Vice Premier Ministre, le ministre de l'Economie et le
 ministre de l'Agriculture, sur la base d'un dossier complet et de
 sources actualisees.
 

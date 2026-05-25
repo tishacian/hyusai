@@ -2,7 +2,7 @@
 
 **Date** : 25 mai 2026, 08h30 - 09h30 (Abidjan)
 **Lieu** : Salle du Conseil — Plateau
-**Participants** : Vice-Président, Directeur de cabinet, Conseiller sécurité, Chef d'État-Major (FANCI), Directeur DGD (douanes)
+**Participants** : Vice Premier Ministre, Directeur de cabinet, Conseiller sécurité, Chef d'État-Major (FANCI), Directeur DGD (douanes)
 **Document** : synthèse pour archivage cabinet et préparation revue 15h00
 
 ---

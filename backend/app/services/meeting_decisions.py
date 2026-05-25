@@ -21,7 +21,7 @@ from app.services.audit_logger import emit_audit_event
 def _actor(user: Optional[User]) -> tuple[Optional[str], str]:
     if not user:
         return None, "Cabinet"
-    label = (user.email or user.username or "VP")
+    label = (user.email or user.username or "Vice Premier Ministre")
     return user.id, label
 
 

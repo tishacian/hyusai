@@ -1,8 +1,8 @@
 # Note de posture sécurité — théâtre Sahel
 
 **Date** : 25 mai 2026, 10h00 (Abidjan)
-**Auteur** : Conseiller sécurité, Cabinet du Vice-Président
-**Distribution** : VP, Directeur de cabinet, Cellule veille SENTINEL-CI
+**Auteur** : Conseiller sécurité, Cabinet du Vice Premier Ministre
+**Distribution** : Vice Premier Ministre, Directeur de cabinet, Cellule veille SENTINEL-CI
 **Classification** : Advisory only — sources OSINT publiques (ACLED-like)
 
 ---

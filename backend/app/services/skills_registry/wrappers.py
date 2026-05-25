@@ -616,7 +616,7 @@ async def _summarize_long_document_v1(payload: Dict[str, Any], ctx: Optional[Dic
     ]
     key_topics = [topic for topic in focus_topics if topic.lower() in report_text.lower()] or focus_topics
     summary_lines = [
-        "Monsieur le Vice-Président, synthese des derniers echanges avec le Prefet de Nawa (rapport du 10 mai, ~70 pages) :",
+        "Monsieur le Vice Premier Ministre, synthese des derniers echanges avec le Prefet de Nawa (rapport du 10 mai, ~70 pages) :",
         "- Contexte : region Nawa / Soubre, filiere cacao dominante, pression sur prix FCFA et infrastructures.",
         "- Points saillants : besoin de sechoirs, routes secondaires, electrifiation et diversification cultures.",
         "- Risques : volatilite prix export, dependance monoculture, fenetre climatique.",
@@ -693,7 +693,7 @@ async def _draft_email_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]]
                 "Le retard actuel (de l'ordre de 120 jours sur la sequence ouverture du centre) impacte le "
                 "calendrier de demarrage des formations FAA et la perception institutionnelle du projet sur zone.\n\n"
                 "Merci de me confirmer la fenetre de dedouanement envisagee.\n\n"
-                "Bien cordialement,\nCabinet Vice-Presidence"
+                "Bien cordialement,\nCabinet Vice Premier Ministre"
             ),
             "sources": [
                 {"source_id": "src-maritime-paa-001"},
@@ -741,7 +741,7 @@ async def _draft_email_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]]
                 "anticipe du cargo MV Atlantic Trader sous reserve des controles physiques habituels.\n\n"
                 "Demande advisory soumise a validation Cabinet et a confirmation du ministere de l'Economie "
                 "avant transmission officielle.\n\n"
-                "Bien cordialement,\nCabinet Vice-Presidence"
+                "Bien cordialement,\nCabinet Vice Premier Ministre"
             ),
             "sources": [
                 {
@@ -768,7 +768,7 @@ async def _draft_email_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]]
             "status": "draft",
             "template_kind": template_kind,
             "subject": "Rapport strategique - Diversification cacao region Nawa (anacarde transformee)",
-            "recipient": "Cabinet Vice-Presidence + Ministere Economie + Ministere Agriculture",
+            "recipient": "Cabinet Vice Premier Ministre + Ministere Economie + Ministere Agriculture",
             "body_markdown": (
                 "# Rapport strategique - Diversification cacao region Nawa\n\n"
                 "## Synthese executive\n"
@@ -868,7 +868,7 @@ async def _update_meeting_agenda_v1(payload: Dict[str, Any], ctx: Optional[Dict[
 
     Phase H: produces a confirmation-drawer payload first (no DB write).
     Actual write happens through the calendar PATCH endpoint after the
-    Vice-President confirms.
+    Vice Premier Ministre confirms.
     """
     from app.models.workspace import Workspace
     from app.services.workspace_calendar import list_events, serialize_event
@@ -945,7 +945,7 @@ async def _schedule_meeting_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, 
             "time": str(slot.get("start", "")).split("T")[-1][:5] if isinstance(slot.get("start"), str) else "16:30",
             "location": "Ministere de l'Economie — Plateau",
             "duration_min": int(payload.get("duration_min") or 45),
-            "participants": ["VP", "Ministre de l'Economie", "AYA"],
+            "participants": ["Vice Premier Ministre", "Ministre de l'Economie", "AYA"],
             "topic": payload.get("topic") or "Diversification cacao",
         }
         return {

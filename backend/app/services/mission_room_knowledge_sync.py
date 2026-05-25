@@ -310,7 +310,7 @@ def _fixture_documents(db: DBSession, workspace: Workspace) -> dict[str, dict[st
 
     return {
         "sentinel-ci-ministerial-briefs": {
-            "briefing-quotidien.md": _payload_markdown("Briefing quotidien vice-presidence", briefing),
+            "briefing-quotidien.md": _payload_markdown("Briefing quotidien Vice Premier Ministre", briefing),
             "agenda-et-echeances.md": _payload_markdown("Agenda ministeriel et echeances", timeline),
             "decisions-cabinet.md": _payload_markdown("Decisions et actions cabinet", decisions),
             "sources-qualifiees.md": _source_markdown(),

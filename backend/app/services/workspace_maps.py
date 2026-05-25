@@ -835,7 +835,7 @@ def _layer_tooltip(key: str) -> dict[str, str]:
         },
         "preventive-actions": {
             "title": "Actions preventives",
-            "body": "Options advisory-only, a valider par le VP ou le cabinet.",
+            "body": "Options advisory-only, a valider par le Vice Premier Ministre ou le cabinet.",
         },
         "social-geo": {
             "title": "Pulsation sociale Abidjan",

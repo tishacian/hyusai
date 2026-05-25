@@ -1,6 +1,6 @@
 # Sources OSINT économiques pour SENTINEL-CI — 8 KPIs cockpit
 
-> Cible : **lundi 25 mai 2026**, dém VP Côte d'Ivoire.
+> Cible : **lundi 25 mai 2026**, dém Vice Premier Ministre Côte d'Ivoire.
 > Périmètre : enrichir le cockpit gouvernemental avec **8 indicateurs économiques publics**, regroupés en **4 prismes** (Matières premières · Finances publiques · Contexte régional & médias · Opérationnel portuaire).
 > Référentiel code : `/Users/thib/Developer/PAPAI/osiris` (Next.js, lecture seule).
 
@@ -31,7 +31,7 @@
 
 ### KPI 1 — Cours du cacao (CFA/tonne · prisme matières premières)
 
-- **Affichage VP** : `Cacao 4 250 000 CFA/t · +2,3 % 7j · ICCO`
+- **Affichage Vice Premier Ministre** : `Cacao 4 250 000 CFA/t · +2,3 % 7j · ICCO`
 - **Narratif S2 Nawa** : « -5 % sur la fève = ~12 Md CFA recettes État menacées + tension cocotiers Sud-Ouest ».
 - **Source osiris** : non trouvée (osiris ne couvre pas les commodités africaines).
 - **Alternative publique recommandée** :
@@ -54,7 +54,7 @@
 
 ### KPI 2 — Cours anacarde (CFA/kg · prisme matières premières)
 
-- **Affichage VP** : `Anacarde 850 CFA/kg · -1,1 % 7j · CCA`
+- **Affichage Vice Premier Ministre** : `Anacarde 850 CFA/kg · -1,1 % 7j · CCA`
 - **Narratif S1 Nord** : « campagne 2026 : -8 % depuis avril, pression sur Korhogo/Bouna/Ouangolodougou ».
 - **Source osiris** : non trouvée (`Grep cashew|anacarde` zéro résultat).
 - **Alternative publique** :
@@ -75,7 +75,7 @@
 
 ### KPI 3 — Brent (USD/baril · prisme matières premières)
 
-- **Affichage VP** : `Brent 78,5 $/bbl · -0,4 % 24h · Yahoo`
+- **Affichage Vice Premier Ministre** : `Brent 78,5 $/bbl · -0,4 % 24h · Yahoo`
 - **Narratif** : « +5 % en 7j = +12 % FOB diesel pour CI, importateur net produits raffinés ».
 - **Source osiris** : ✅ `src/app/api/markets/route.ts:11` (`OIL_TICKERS = ['CL=F','BZ=F']`), fetcher v8 lignes 17-43, fallback v6 lignes 46-65, `OIL_NAMES` ligne 105 (`'BZ=F': 'Brent Crude'`).
 - **Alternative** : **EIA** (`https://api.eia.gov/v2/petroleum/pri/spt/data/?series=PET.RBRTE.D`, clé gratuite) si Yahoo durcit ses CGU.
@@ -103,7 +103,7 @@
 
 ### KPI 4 — Spread souverain CI (bps · prisme finances publiques)
 
-- **Affichage VP** : `Spread CI 612 bps · +18 30j · World Bank GEM`
+- **Affichage Vice Premier Ministre** : `Spread CI 612 bps · +18 30j · World Bank GEM`
 - **Narratif** : « +50 bps depuis février = renchérissement service de la dette, signal marchés ».
 - **Source osiris** : non trouvée (les hits `spread`/`sovereign` sont uniquement CSS et ssrf-guard, faux positifs).
 - **Alternative publique** :
@@ -128,7 +128,7 @@
 
 ### KPI 5 — Réserves BCEAO (mois d'imports · prisme finances publiques)
 
-- **Affichage VP** : `Réserves BCEAO 4,8 mois · -0,1 30j · BCEAO`
+- **Affichage Vice Premier Ministre** : `Réserves BCEAO 4,8 mois · -0,1 30j · BCEAO`
 - **Narratif** : « zone UEMOA, plancher prudentiel 3 mois, marge de manœuvre 1,8 mois ».
 - **Source osiris** : non trouvée.
 - **Alternative publique** :
@@ -150,7 +150,7 @@
 
 ### KPI 6 — Indice contexte régional CEDEAO (0-100 · prisme contexte)
 
-- **Affichage VP** : `Indice CEDEAO 64/100 ↗ · composite ouvert`
+- **Affichage Vice Premier Ministre** : `Indice CEDEAO 64/100 ↗ · composite ouvert`
 - **Narratif** : « stabilité régionale, coopération transfrontalière (composite ACLED + GDELT + UNHCR) — présenté comme indicateur de coopération, pas de menace ».
 - **Source osiris** : ✅ **gabarit** `src/app/api/country-risk/route.ts:5-26` (`RISK_FACTORS` table) + `:60-99` (composition + boost externe USGS). Aucun pays CEDEAO listé, à étendre.
 - **Alternative publique** :
@@ -181,7 +181,7 @@
 
 ### KPI 7 — Baromètre média francophone (0-100 · prisme contexte)
 
-- **Affichage VP** : `Baromètre média 71/100 → · 5 sources FR`
+- **Affichage Vice Premier Ministre** : `Baromètre média 71/100 → · 5 sources FR`
 - **Narratif** : « tonalité moyenne presse francophone Afrique de l'Ouest sur les 7 derniers jours ».
 - **Source osiris** : ✅ **directement portable** `src/app/api/news/route.ts:80-100` (parseur RSS regex sans dépendance lourde) + `:58-65` (`scoreRisk()`) + `:102-159` (orchestration `Promise.allSettled`).
 - **Alternative publique** :
@@ -217,7 +217,7 @@
 
 ### KPI 8 — Trafic Port d'Abidjan (TEU/jour · prisme opérationnel)
 
-- **Affichage VP** : `Trafic 8 240 TEU/j · -3,2 % 7j · PAA`
+- **Affichage Vice Premier Ministre** : `Trafic 8 240 TEU/j · -3,2 % 7j · PAA`
 - **Narratif** : « activité corridor Abidjan-Ouagadougou, indicateur quasi-temps-réel de la vitalité éco ».
 - **Source osiris** : non trouvée (Abidjan **absent** de la liste de 50 ports dans `src/app/api/maritime/route.ts:9-54`, dataset statique uniquement).
 - **Alternative publique** :
@@ -335,7 +335,7 @@
 
 - Whitelist feeds : `backend/app/resources/security/security-feeds.json` (RFI, Jeune Afrique, Abidjan.net, Fraternité Matin — **pas de Telegram live**)
 - Feature flag : `workspace.settings.feature_flag.security_live_osint` (off par défaut demo)
-- Mode demo VP : force baseline pour reproductibilité trame S3
+- Mode demo Vice Premier Ministre : force baseline pour reproductibilité trame S3
 
 ### Mapping osiris → Vague 2.2
 

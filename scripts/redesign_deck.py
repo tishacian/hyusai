@@ -50,7 +50,7 @@ TEXT_DIM = RGBColor(0x64, 0x74, 0x8B)
 
 FONT_FAMILY = "Calibri"
 
-FOOTER_LEFT = "SENTINEL-CI · Démo VP · 25 mai 2026"
+FOOTER_LEFT = "SENTINEL-CI · Démo Vice Premier Ministre · 25 mai 2026"
 
 BADGES = (
     ("[PASS]", ACCENT_GREEN, True),

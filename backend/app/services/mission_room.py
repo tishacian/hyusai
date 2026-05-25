@@ -67,12 +67,12 @@ SENTINEL_KNOWLEDGE_GUIDES = (
         "title": "Guide AYA - Mission Room SENTINEL-CI",
         "markdown": """# Guide AYA - Mission Room SENTINEL-CI
 
-AYA agit comme adjoint souverain du Vice-Président. Elle s'adresse a l'utilisateur par "Monsieur le Vice-Président" et repond en priorisant : quoi faire, quand agir, pourquoi cette action est justifiee, et quelles sources brutes ou consolidees soutiennent la recommandation.
+AYA agit comme adjoint souverain du Vice Premier Ministre. Elle s'adresse a l'utilisateur par "Monsieur le Vice Premier Ministre" et repond en priorisant : quoi faire, quand agir, pourquoi cette action est justifiee, et quelles sources brutes ou consolidees soutiennent la recommandation.
 
 Principes d'interpretation :
 - Distinguer les trois strates : Monitoring, Information & alerting, Decision & action.
 - Ton attendu : formel, direct, phrases courtes, style briefing gouvernemental.
-- Commencer les reponses de synthese par "Monsieur le Vice-Président," quand la formulation reste naturelle.
+- Commencer les reponses de synthese par "Monsieur le Vice Premier Ministre," quand la formulation reste naturelle.
 - Ne jamais traiter un guide comme une preuve brute : citer les articles, evenements agenda, zones, observations visuelles, projets ou actions sources.
 - Les actions avec effet de bord restent advisory-only tant qu'elles ne sont pas confirmees.
 - Les rumeurs doivent etre qualifiees par origine, propagation, zone, confiance et action recommandee.
@@ -468,7 +468,7 @@ NEWS_SIGNALS = [
         "impact_ci": "Impact interieur : anticiper congestion, retards douaniers ou perception de rupture logistique autour du port.",
         "impact_international": "Impact international : surveiller perception investisseurs, chaines logistiques et partenaires commerciaux.",
         "why_it_matters": "Le port d'Abidjan est un signal economique et securitaire ; un incident ou retard visible peut devenir sujet presse, douanes et cabinet.",
-        "recommended_action": "Demander une confirmation douanes/port avant 12h00, puis preparer une note VP si le signal se confirme.",
+        "recommended_action": "Demander une confirmation douanes/port avant 12h00, puis preparer une note Vice Premier Ministre si le signal se confirme.",
         "briefing_value": "Ajoute une preuve maritime au brief : port, douanes, flux economiques et communication gouvernementale.",
         "confidence": 0.66,
         "source_count": 3,
@@ -503,7 +503,7 @@ SENTINEL_NEWS_FEEDS = [
 ]
 
 GEOGRAPHIC_PRIORITY_ORDER = [
-    ("ci", "Cote d'Ivoire", "Priorite absolue pour le vice-president et le pilotage interieur."),
+    ("ci", "Cote d'Ivoire", "Priorite absolue pour le Vice Premier Ministre et le pilotage interieur."),
     ("cedeao", "CEDEAO / voisins immediats", "Effets transfrontaliers, perception regionale et coordination diplomatique."),
     ("africa", "Afrique", "Contexte continental utile aux arbitrages et aux messages publics."),
     ("world", "Monde", "Europe, Asie, USA et partenaires internationaux a garder en contrepoint."),
@@ -592,7 +592,7 @@ MARITIME_EVENTS = [
         "severity": "elevated",
         "domain": "customs",
         "summary": "Activite portuaire a rapprocher d'une actualite douanes/logistique avant toute communication economique.",
-        "recommended_action": "Verifier aupres du Port et des Douanes avant 12h00 ; preparer une note VP si congestion ou inspection sensible se confirme.",
+        "recommended_action": "Verifier aupres du Port et des Douanes avant 12h00 ; preparer une note Vice Premier Ministre si congestion ou inspection sensible se confirme.",
         "decision_deadline": "12:00",
         "source_type": "rss+api_ready",
         "source_refs": ["src-maritime-paa-001", "src-maritime-marinelink-001", "src-marinetraffic-context-001"],
@@ -682,7 +682,7 @@ DECISIONS = [
 
 DECISION_SENTENCE = {
     "label": "Sentence du jour",
-    "text": "Monsieur le Vice-Président, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.",
+    "text": "Monsieur le Vice Premier Ministre, votre priorité absolue ce matin est la Zone Nord. Tout le reste peut attendre.",
     "generated_by": SENTINEL_ASSISTANT_NAME,
     "refresh_policy": "mise a jour horaire ou nouvelle alerte critique",
     "deadline": "avant Conseil 15h00",
@@ -758,7 +758,7 @@ TERRITORIAL_LIVE_STATUS = [
 VOICE_DEMO_SCRIPT = {
     "prompt": "AYA, pourquoi la situation Nord est-elle tendue ?",
     "answer": (
-        "Monsieur le Vice-Président, la tension Nord remonte au retard du chantier "
+        "Monsieur le Vice Premier Ministre, la tension Nord remonte au retard du chantier "
         "Centre International Formation Drones — Napié (Poro) : 120 jours de "
         "décalage, composants Aerostar Dynamics bloqués au port d'Abidjan "
         "sur cargo MV Atlantic Trader (effet collatéral PV douanes 18 mai). "
@@ -1046,7 +1046,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@JeuneAfrique",
             "author": "Jeune Afrique",
             "verified": True,
-            "text": "Lecture favorable : la réponse rapide de la Vice-Présidence sur le dossier Nawa marque un précédent en matière de continuité gouvernementale.",
+            "text": "Lecture favorable : la réponse rapide du Cabinet du Vice Premier Ministre sur le dossier Nawa marque un précédent en matière de continuité gouvernementale.",
             "language": "fr",
             "sentiment": "positive",
             "engagement": 540,
@@ -1483,7 +1483,7 @@ TROOPS_SAHEL = {
 }
 
 # ----------------------------------------------------------------------------
-# Reputation drill VP : 2 items positifs + 1 critique sourcée (article L'Inter
+# Reputation drill Vice Premier Ministre : 2 items positifs + 1 critique sourcée (article L'Inter
 # déjà seedé S1, attention-inter-budget). Garantit que l'item critique reste
 # une critique réelle déjà publique, pas une invention.
 # ----------------------------------------------------------------------------
@@ -1504,7 +1504,7 @@ REPUTATION_DRILL = {
             "kind": "positif",
             "tone": "positive",
             "title": "Lecture favorable de Jeune Afrique sur la séquence Nord",
-            "summary": "L'article 'Côte d'Ivoire — la nouvelle main du Cabinet' souligne la coordination du Vice-Président sur la séquence Nord.",
+            "summary": "L'article 'Côte d'Ivoire — la nouvelle main du Cabinet' souligne la coordination du Vice Premier Ministre sur la séquence Nord.",
             "source_label": "Jeune Afrique — 22 mai 2026",
             "source_id": "src-press-jeune-afrique-001",
             "url": "https://www.jeuneafrique.com/example/cabinet-cote-divoire-mai-2026",
@@ -1516,7 +1516,7 @@ REPUTATION_DRILL = {
             "kind": "positif",
             "tone": "positive",
             "title": "Réponse rapide au Préfet de Nawa",
-            "summary": "La presse régionale (Fraternité Matin, AIP) souligne la rapidité de la réponse VP au rapport préfet sur la diversification cacao.",
+            "summary": "La presse régionale (Fraternité Matin, AIP) souligne la rapidité de la réponse Vice Premier Ministre au rapport préfet sur la diversification cacao.",
             "source_label": "Fraternité Matin — 23 mai 2026",
             "source_id": "src-press-fratmat-nawa-001",
             "url": "https://www.fratmat.info/example/reponse-vp-nawa-mai-2026",
@@ -1537,7 +1537,7 @@ REPUTATION_DRILL = {
             "linked_attention_id": "attention-inter-budget",
         },
     ],
-    "aya_sentence": "Monsieur le Vice-Président, la semaine reste favorable. Je vous propose de capitaliser sur les deux signaux positifs en préparant un encart concis pour le Conseil 15h.",
+    "aya_sentence": "Monsieur le Vice Premier Ministre, la semaine reste favorable. Je vous propose de capitaliser sur les deux signaux positifs en préparant un encart concis pour le Conseil 15h.",
 }
 
 # ----------------------------------------------------------------------------
@@ -1623,7 +1623,7 @@ RUMOR_FRONTIER_TRACE = {
         "FANCI et Préfecture, ouvrir la coordination CEDEAO comme suite logique."
     ),
     "aya_sentence": (
-        "Monsieur le Vice-Président, la rumeur est démentie depuis 13h46. Je vous propose un "
+        "Monsieur le Vice Premier Ministre, la rumeur est démentie depuis 13h46. Je vous propose un "
         "communiqué court qui s'appuie sur le démenti FANCI et la mise au point de la Préfecture."
     ),
 }
@@ -1670,7 +1670,7 @@ SECURITY_LIBRARY_ITEMS = [
         "title": "Synthèse Conseil Défense restreint — 08h30",
         "kind": "security_brief",
         "collection": "sentinel-ci-security-briefs",
-        "summary": "Revue matinale Sahel, bases CEDEAO en alerte standard et éléments de langage pour le VP.",
+        "summary": "Revue matinale Sahel, bases CEDEAO en alerte standard et éléments de langage pour le Vice Premier Ministre.",
         "sources": ["src-conseil-defense-2026-05-25-am"],
     },
     {
@@ -1694,7 +1694,7 @@ SECURITY_LIBRARY_ITEMS = [
 LIBRARY_ITEMS = [
     {
         "id": "lib-briefing-template",
-        "title": "Modele briefing vice-presidence",
+        "title": "Modele briefing Vice Premier Ministre",
         "kind": "template",
         "collection": "sentinel-ci-ministerial-briefs",
         "summary": "Structure priorites, risques, decisions attendues, actions et sources.",
@@ -1900,7 +1900,7 @@ def _clone(value: Any) -> Any:
 
 
 def _security_live_osint_enabled(workspace: Workspace) -> bool:
-    """Guard rail: demo VP always baseline; live OSINT requires explicit feature flag."""
+    """Guard rail: demo Vice Premier Ministre always baseline; live OSINT requires explicit feature flag."""
     if str(workspace.mode or "").lower() == "demo":
         return False
     flags = (workspace.settings or {}).get("feature_flag") or {}
@@ -2271,7 +2271,7 @@ def _maritime_intelligence_payload(feed_rows: list[dict[str, Any]], signals: lis
         "prompts": [
             "AYA, quel est le risque autour du port d'Abidjan ?",
             "AYA, relie cette actualite douanes au trafic maritime.",
-            "AYA, prepare une note pour Monsieur le Vice-Président avant le point economie.",
+            "AYA, prepare une note pour Monsieur le Vice Premier Ministre avant le point economie.",
         ],
     }
 
@@ -2729,7 +2729,7 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
 def overview_payload(workspace: Workspace) -> dict[str, Any]:
     return {
         "workspace": _workspace_meta(workspace),
-        "title": "Bonjour, Monsieur le Vice-Président.",
+        "title": "Bonjour, Monsieur le Vice Premier Ministre.",
         "date_label": demo_time_context_defaults(workspace)["label"],
         "mode": "demo",
         "briefing_status": "ready",
@@ -2796,7 +2796,7 @@ def overview_payload(workspace: Workspace) -> dict[str, Any]:
         ],
         "latest_alerts": _clone(NEWS_SIGNALS),
         "keywords": [
-            {"label": "Vice-presidence CI", "count": 340, "delta": 12},
+            {"label": "Vice Premier Ministre CI", "count": 340, "delta": 12},
             {"label": "Coordination nationale", "count": 280, "delta": 8},
             {"label": "Sahel CI", "count": 195, "delta": 24},
             {"label": "Continuite gouvernementale", "count": 120, "delta": -5},
@@ -3635,7 +3635,7 @@ def _demo_narrative_payload() -> dict[str, Any]:
             {
                 "phase": "explorer",
                 "focus_widget": "aya_banner",
-                "prompt": "AYA oriente le VP vers la Zone Nord et les indicateurs de posture avant le Conseil.",
+                "prompt": "AYA oriente le Vice Premier Ministre vers la Zone Nord et les indicateurs de posture avant le Conseil.",
             },
             {
                 "phase": "comprendre",
@@ -3684,7 +3684,7 @@ def _vp_story_context(
     agenda_day: Optional[dict[str, Any]] = None,
     news: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Single VP scenario shared by cockpit, agenda, briefing and press views."""
+    """Single Vice Premier Ministre scenario shared by cockpit, agenda, briefing and press views."""
     news_context = news or {"geo_sections": _news_geo_sections(_clone(NEWS_SIGNALS))}
     return {
         "scenario_id": VP_SCENARIO_ID,
@@ -4397,7 +4397,7 @@ def briefing_payload(workspace: Workspace, db: Optional[DBSession] = None) -> di
     ]
     return {
         "workspace": _workspace_meta(workspace),
-        "title": "Briefing quotidien vice-présidence",
+        "title": "Briefing quotidien Vice Premier Ministre",
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "sections": sections,
         "vp_story": vp_story,
@@ -5097,7 +5097,7 @@ def _worldmonitor_principles_payload() -> dict[str, Any]:
         "evidence_popup": True,
         "live_docks": "reduced",
         "decision_contract": "que faire, quand, avec quelle preuve",
-        "sentinel_difference": "moins de couches, plus d'arbitrage vice-presidentiel",
+        "sentinel_difference": "moins de couches, plus d'arbitrage cabinet",
     }
 
 
@@ -5178,7 +5178,7 @@ def _cross_source_signals(
             "score": maritime_score,
             "source_keys": ["maritime_intelligence", "port_abidjan_rss", "marinetraffic_context"],
             "related_zone": "zone-sud",
-            "action_prompt": maritime_observation.get("recommended_action") or "Verifier Port + Douanes puis preparer une note VP si le signal se confirme.",
+            "action_prompt": maritime_observation.get("recommended_action") or "Verifier Port + Douanes puis preparer une note Vice Premier Ministre si le signal se confirme.",
         },
         {
             "id": "social-rumor-origin",
@@ -5799,7 +5799,7 @@ def _ensure_target(db: DBSession, workspace: Workspace) -> None:
         "AIS",
         "congestion portuaire",
         "presidence",
-        "vice-presidence",
+        "vice-premier-ministre",
         "securite",
         "rumeur",
         "reseaux sociaux",
@@ -6206,7 +6206,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
                         "interrupt_on_user_speech": True,
                     },
                     "response_style": {
-                        "address_as": "Monsieur le Vice-Président",
+                        "address_as": "Monsieur le Vice Premier Ministre",
                         "tone": "formel",
                         "format": "brief_gouvernemental_court",
                         "max_bullets": 4,
@@ -6380,7 +6380,7 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
             "variant": "government_mission_room",
         },
         {
-            "name": "Briefing Quotidien Vice-Presidence",
+            "name": "Briefing Quotidien Vice Premier Ministre",
             "objective": "Produire un briefing sourcé : priorites, risques, decisions attendues, actions et elements de langage.",
             "capability_slug": "ministerial_daily_briefing",
             "skill_slugs": ["ministerial_briefing_v1", "calendar_daily_summary_v1", "action_plan_status_v1", "llm_rag_answer_v1", "audit_log_v1"],

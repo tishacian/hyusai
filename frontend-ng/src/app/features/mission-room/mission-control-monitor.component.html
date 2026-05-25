@@ -81,7 +81,7 @@
     <div class="decision-banner" [class.open]="decisionBannerOpen()">
       <button type="button" (click)="toggleDecisionBanner()">
         <span>{{ decisionSentence().label || 'Sentence du jour' }}</span>
-        <strong>{{ decisionBannerOpen() ? decisionSentence().text : 'Priorite VP · ' + (decisionSentence().deadline || 'aujourd’hui') }}</strong>
+        <strong>{{ decisionBannerOpen() ? decisionSentence().text : 'Priorite VPM · ' + (decisionSentence().deadline || 'aujourd’hui') }}</strong>
         <small>{{ decisionBannerOpen() ? (decisionSentence().deadline + ' · ' + (decisionSentence().generated_by || assistantName)) : 'ouvrir' }}</small>
       </button>
     </div>

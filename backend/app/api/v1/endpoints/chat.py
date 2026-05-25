@@ -367,7 +367,7 @@ def _vigie_executive_quick_reply(
     sources_catalog = news.get("sources") or cockpit.get("sources") or source_index()
     source_lookup = {str(item.get("id")): item for item in sources_catalog if item.get("id")}
 
-    lines = ["Monsieur le Vice-Président, trois signaux méritent une attention cabinet aujourd'hui :"]
+    lines = ["Monsieur le Vice Premier Ministre, trois signaux méritent une attention cabinet aujourd'hui :"]
     if alerts:
         for idx, alert in enumerate(alerts, start=1):
             title = alert.get("title") or "Signal à qualifier"

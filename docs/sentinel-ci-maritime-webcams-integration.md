@@ -1,6 +1,6 @@
 # SENTINEL-CI — Intégration maritime / AIS & webcams publiques
 
-> **Statut** : livré pour la démo VP lundi 25 mai 2026.
+> **Statut** : livré pour la démo Vice Premier Ministre lundi 25 mai 2026.
 > **Périmètre** : ajouter dans le cockpit SENTINEL-CI une couche **navires AIS** centrée
 > sur Abidjan / Vridi (ancrant `MV Atlantic Trader`), et **enrichir le pack visual_intelligence**
 > avec des webcams **port / météo / trafic** publiques.
@@ -278,7 +278,7 @@ que le worker n'est pas démarré.
 
 ### Scénario S1 (Nord — cargo bloqué)
 
-Quand le VP demande **« Pourquoi cette cargaison est-elle bloquée ? »**, l'effet UI peut
+Quand le Vice Premier Ministre demande **« Pourquoi cette cargaison est-elle bloquée ? »**, l'effet UI peut
 maintenant :
 
 1. Appeler `GET /api/v1/mission-room/maritime/vessels/627012345`
@@ -425,7 +425,7 @@ export cacao).
 
 ## 8. Itération webcams port — audit + proxy + auto-sélection (24 mai 2026)
 
-> **Patch C** : couche webcam port renforcée pour la démo VP du lundi 25 mai —
+> **Patch C** : couche webcam port renforcée pour la démo Vice Premier Ministre du lundi 25 mai —
 > 4 sources solides (APM Apapa ×2, PAA aérienne, VesselFinder), un proxy
 > snapshot serveur pour neutraliser le CSP `frame-ancestors 'self'` d'APM,
 > et l'auto-sélection de la webcam port quand AYA drill sur `MV Atlantic Trader`.
@@ -600,7 +600,7 @@ Deux handlers émettent désormais l'effet :
   navigation maritime + map command. On y ajoute le `assistant-show-webcam`
   pointant sur la webcam APM Apapa gate #1 avec le cycle complet.
 * `aya.explain_why` (drill causal) **quand `next_focus == "cargo-abidjan-supply-001"`**.
-  Ce point d'entrée est emprunté quand le VP demande « Pourquoi cette
+  Ce point d'entrée est emprunté quand le Vice Premier Ministre demande « Pourquoi cette
   cargaison est-elle bloquée ? » et que le graph cause-conséquence pose le
   cargo comme nœud courant.
 
@@ -625,7 +625,7 @@ Forme du chunk emis (spread d'`_action_effect`) :
 ### 8.7 Workflow narratif S1 (chat → effet → UI)
 
 ```
-VP: « Pourquoi cette cargaison est-elle bloquée ? »
+Vice Premier Ministre: « Pourquoi cette cargaison est-elle bloquée ? »
   → aya.explain_why (target = cargo-abidjan-supply-001)
   → emit chunk action_effect{ assistant-navigate → /strategie }
   → emit chunk action_effect{ assistant-show-webcam → apm-apapa-gate-1 }

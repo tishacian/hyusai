@@ -96,7 +96,7 @@ import type {
         </section>
       }
     } @else {
-    <div class="vp-cockpit" aria-label="Cockpit Vice-Présidence">
+    <div class="vp-cockpit" aria-label="Cockpit Vice Premier Ministre">
       <section class="vp-block vp-block-status" aria-label="Posture nationale">
         <header class="vp-block-head">
           <span class="vp-block-eyebrow">Posture nationale</span>

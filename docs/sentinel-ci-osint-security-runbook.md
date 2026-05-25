@@ -2,7 +2,7 @@
 
 > **Date** : 25 mai 2026  
 > **Périmètre** : RSS sécurité francophone, ADS-B Sahel, indice tension CEDEAO, imagerie satellite baseline
-> **Statut** : post-démo VP — feature flag **off** par défaut sur le workspace demo
+> **Statut** : post-démo Vice Premier Ministre — feature flag **off** par défaut sur le workspace demo
 
 ## Vue d'ensemble
 
@@ -19,7 +19,7 @@ Si Redis est indisponible, un **cache mémoire process** prend le relais (`intel
 
 ## Guard rails demo-safe
 
-1. **`workspace.mode == "demo"`** → force toujours baseline (reproductibilité VP).
+1. **`workspace.mode == "demo"`** → force toujours baseline (reproductibilité Vice Premier Ministre).
 2. **`feature_flag.security_live_osint`** dans `workspace.settings` → **off** par défaut sur `sentinel-ci`.
 3. Feeds RSS **whitelistés** dans `resources/security/security-feeds.json` (pas de Telegram live).
 4. ADS-B porte le disclaimer **advisory only** — aucune donnée opérationnelle classifiée.

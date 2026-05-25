@@ -1,6 +1,6 @@
 # Smoke runbook SENTINEL-CI · lundi 25 mai 2026
 
-**Cible** : démo Vice-Président · `https://agentium.papai.ai/hypervisor/mission-room/cockpit`
+**Cible** : démo Vice Premier Ministre · `https://agentium.papai.ai/hypervisor/mission-room/cockpit`
 **Workspace** : `sentinel-ci` · profil assistant `vigie_executive`
 **Compte** : `thibaud.ishacian@datategy.net`
 **Fenêtre** : 08h30 → 09h00 (H-1h démo). Lecture 3 min, exécution 25 min.
@@ -37,7 +37,7 @@ Dire **textuellement** chaque prompt, vérifier l'action déclenchée + le paylo
 
 | # | Prompt à dire | Action attendue | Vérification UI / SSE | OK |
 |---|---|---|---|---|
-| 1 | « **AYA** » (seul) | `aya.acknowledge_presence` | Réponse courte « Je suis là, M. le Vice-Président, à votre écoute. » · pas de fallback RAG · pas de drawer | ☐ |
+| 1 | « **AYA** » (seul) | `aya.acknowledge_presence` | Réponse courte « Je suis là, Monsieur le Vice Premier Ministre, à votre écoute. » · pas de fallback RAG · pas de drawer | ☐ |
 | 2 | « **AYA, donne-moi le brief** » | `aya.priority_summary` ou `aya.focus_zone_with_project` ou `aya.explain_why` | Narrative **Centre International Formation Drones — Napié** · 0 occurrence Konaté · cargo MV Atlantic Trader cité | ☐ |
 | 3 | « **pv douanes** » | `aya.show_customs_record` | Drawer PV douanes du **18 mai** · pas la fiche navire · citations OCR p.2 | ☐ |
 | 4 | « **résume Préfet Nawa** » | `aya.summarize_last_exchanges` (skill `summarize_long_document_v1`) | Drawer document_preview rapport Préfet Nawa (≈ 70 p.) · synthèse cacao / diversification / infrastructures | ☐ |
@@ -55,7 +55,7 @@ Dire **textuellement** chaque prompt, vérifier l'action déclenchée + le paylo
 | A. Visuel | 1, 2, 3, 4, 5, 6 | 7, 8, 9, 10 | |
 | B. Vocal | 1, 3, 5, 6 | 2, 4 (les drills causaux ont des fallbacks PV / RAG) | |
 
-**Règle** : ≥ 1 rouge → `No-go` (basculer sur la trame chat dégradée, prévenir VP). Tous verts ou seulement orange → `Go`. À la moindre incertitude sur l'overlay vessels (item 5/6) ou la chaîne PV douanes (B-3) → `Dégradé` : on présente sans la carte, on enchaîne S2 directement.
+**Règle** : ≥ 1 rouge → `No-go` (basculer sur la trame chat dégradée, prévenir Vice Premier Ministre). Tous verts ou seulement orange → `Go`. À la moindre incertitude sur l'overlay vessels (item 5/6) ou la chaîne PV douanes (B-3) → `Dégradé` : on présente sans la carte, on enchaîne S2 directement.
 
 | Décision finale | ☐ Go | ☐ Dégradé | ☐ No-go |
 |---|---|---|---|

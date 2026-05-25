@@ -37,7 +37,7 @@ Aucun élément terrain n'a confirmé la rumeur. Les postes mixtes sont nominaux
 - **Sources démenti** : `@FANCIofficiel` (officiel, vérifié), `@PrefectureNord` (officiel, vérifié), confirmation cellule terrain via canal interne SENTINEL-CI.
 - **Cellule terrain** : aucun incident remonte sur les postes mixtes Bouna / Kong / Téhini entre 06h00 et 14h00.
 
-## 5. Recommandation pour le VP
+## 5. Recommandation pour le Vice Premier Ministre
 
 1. **Communiqué court souverain** : rappeler que la rumeur est démentie officiellement, citer les sources FANCI et Préfecture.
 2. **Communication préventive** : préparer un message de réassurance pour les communautés locales du Nord, sans mentionner les comptes pseudonymes ni amplifier la rumeur initiale.

@@ -1,6 +1,6 @@
 ---
 title: "SENTINEL-CI · Briefing démo"
-subtitle: "25 mai 2026 · Monsieur le Vice-Président"
+subtitle: "25 mai 2026 · Monsieur le Vice Premier Ministre"
 author: "Datategy · Plateforme Agentium"
 date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 ---
@@ -17,7 +17,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 2. Ne jamais dire « **OK** » seul — enchaîner sur un verbe (« Oui, valide »)
 3. Si AYA hésite, reformuler avec la **phrase exacte** du slide
 
-**Attention** : toujours écrire « Monsieur le Vice-Président » (avec trait d'union et accent).
+**Attention** : toujours écrire « Monsieur le Vice Premier Ministre ».
 
 ---
 
@@ -25,7 +25,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, c'est lundi matin. Qu'est-ce qui demande mon attention ? » *(optionnel — l'écran est déjà le brief)*
 
-**Ce que le VP voit** : posture nationale, chip **Zone Nord · Tendue**, **8 indicateurs** (PIB, inflation, chômage, cacao, anacarde, Brent, réserves BCEAO, tension CEDEAO), directive AYA du matin, carte et arbitrages.
+**Ce que le Vice Premier Ministre voit** : posture nationale, chip **Zone Nord · Tendue**, **8 indicateurs** (PIB, inflation, chômage, cacao, anacarde, Brent, réserves BCEAO, tension CEDEAO), directive AYA du matin, carte et arbitrages.
 
 **Verdict** : **PASS**
 
@@ -41,7 +41,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : *(silence — lecture visuelle)*
 
-**Ce que le VP voit** : mini-carte cockpit, région **Nord 72 % tendue**, badge **16 navires AIS · Abidjan / Vridi**, chip rouge **Zone Nord · Tendue** pulsante.
+**Ce que le Vice Premier Ministre voit** : mini-carte cockpit, région **Nord 72 % tendue**, badge **16 navires AIS · Abidjan / Vridi**, chip rouge **Zone Nord · Tendue** pulsante.
 
 **Verdict** : **PASS**
 
@@ -57,7 +57,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, pourquoi la situation Nord est-elle tendue ? »
 
-**Ce que le VP voit** : drill causal — réponse AYA citant **Centre Drones Napié**, retard **~120 jours**, composants **Aerostar** bloqués à **Vridi** ; carte recentrée Korhogo / Poro.
+**Ce que le Vice Premier Ministre voit** : drill causal — réponse AYA citant **Centre Drones Napié**, retard **~120 jours**, composants **Aerostar** bloqués à **Vridi** ; carte recentrée Korhogo / Poro.
 
 **Verdict** : **PASS**
 
@@ -73,7 +73,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, ouvre le PV douanes. »
 
-**Ce que le VP voit** : drawer **PV douanes 18 mai** — PDF page 2 visible (pas d'écran noir), passage OCR surligné sur l'effet collatéral cargo drones.
+**Ce que le Vice Premier Ministre voit** : drawer **PV douanes 18 mai** — PDF page 2 visible (pas d'écran noir), passage OCR surligné sur l'effet collatéral cargo drones.
 
 **Verdict** : **PASS**
 
@@ -89,7 +89,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, montre le cargo Atlantic Trader. »
 
-**Ce que le VP voit** : pin **MV Atlantic Trader** sur carte maritime, triangles AIS, vignette webcam **APM Apapa**, proposition d'ouverture du PV.
+**Ce que le Vice Premier Ministre voit** : pin **MV Atlantic Trader** sur carte maritime, triangles AIS, vignette webcam **APM Apapa**, proposition d'ouverture du PV.
 
 **Verdict** : **PASS**
 
@@ -105,7 +105,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, montre la situation au port. »
 
-**Ce que le VP voit** : vue port Abidjan, panneau maritime, trafic AIS, grille **Flux terrain** avec webcam **APM Apapa Gate #1** en tête.
+**Ce que le Vice Premier Ministre voit** : vue port Abidjan, panneau maritime, trafic AIS, grille **Flux terrain** avec webcam **APM Apapa Gate #1** en tête.
 
 **Verdict** : **PASS** *(Plan B si voix sans effet — rebuild frontend requis¹)*
 
@@ -121,7 +121,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, rédige le courrier de dédouanement pour Atlantic Trader. »
 
-**Ce que le VP voit** : drawer email pré-rédigé — dérogation douanière, destinataire DGD Abidjan, bandeau **advisory-only** (aucun envoi automatique).
+**Ce que le Vice Premier Ministre voit** : drawer email pré-rédigé — dérogation douanière, destinataire DGD Abidjan, bandeau **advisory-only** (aucun envoi automatique).
 
 **Verdict** : **PASS**
 
@@ -137,7 +137,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : *(secours sans voix)*
 
-**Ce que le VP voit** : même parcours Nord entièrement rejouable à la souris — chip zone, pin cargo, drawer PV, email.
+**Ce que le Vice Premier Ministre voit** : même parcours Nord entièrement rejouable à la souris — chip zone, pin cargo, drawer PV, email.
 
 **Verdict** : **PASS** *(clic équivalent sur 6/6 étapes S1)*
 
@@ -172,7 +172,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, quel est mon prochain rendez-vous ? »
 
-**Ce que le VP voit** : bascule **Agenda** — timeline du 25 mai, événement **Préfet Nawa 11h00 Soubré** surligné ; fil presse disponible en sidebar.
+**Ce que le Vice Premier Ministre voit** : bascule **Agenda** — timeline du 25 mai, événement **Préfet Nawa 11h00 Soubré** surligné ; fil presse disponible en sidebar.
 
 **Verdict** : **PASS**
 
@@ -188,7 +188,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, donne-moi le résumé du rapport préfet. »
 
-**Ce que le VP voit** : synthèse structurée inline (~70 pages condensées), enjeux cacao / Nawa / Soubré, proposition **Préconisations cacao ?**
+**Ce que le Vice Premier Ministre voit** : synthèse structurée inline (~70 pages condensées), enjeux cacao / Nawa / Soubré, proposition **Préconisations cacao ?**
 
 **Verdict** : **PASS**
 
@@ -204,7 +204,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, donne-moi des préconisations sur le cacao. »
 
-**Ce que le VP voit** : **3 options chiffrées** — transformation (~4,2 Mds FCFA), coopérative régionale, partenariat public-privé ; sources citées.
+**Ce que le Vice Premier Ministre voit** : **3 options chiffrées** — transformation (~4,2 Mds FCFA), coopérative régionale, partenariat public-privé ; sources citées.
 
 **Verdict** : **PASS** *(AYA only — pas de bouton clic équivalent)*
 
@@ -220,7 +220,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, génère le rapport complet. »
 
-**Ce que le VP voit** : drawer PDF **synthèse cacao** (~12 p.) — livrable téléchargeable, URL signée, bandeau advisory.
+**Ce que le Vice Premier Ministre voit** : drawer PDF **synthèse cacao** (~12 p.) — livrable téléchargeable, URL signée, bandeau advisory.
 
 **Verdict** : **PASS** *(dire « synthèse cacao » à l'oral, pas « 70 pages »)*
 
@@ -236,7 +236,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, ajoute le point cacao à l'ordre du jour. »
 
-**Ce que le VP voit** : proposition d'ajout **Point cacao · diversification anacarde** — bannière orange « Modification ODJ proposée · AYA », en attente de validation.
+**Ce que le Vice Premier Ministre voit** : proposition d'ajout **Point cacao · diversification anacarde** — bannière orange « Modification ODJ proposée · AYA », en attente de validation.
 
 **Verdict** : **PASS**
 
@@ -252,7 +252,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « Oui, valide. »
 
-**Ce que le VP voit** : patch ODJ appliqué — badge **Ajouté par AYA** sur le point cacao.
+**Ce que le Vice Premier Ministre voit** : patch ODJ appliqué — badge **Ajouté par AYA** sur le point cacao.
 
 **Verdict** : **PASS**
 
@@ -268,7 +268,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, démarre la réunion. »
 
-**Ce que le VP voit** : vue **meeting live** — chrono, ordre du jour vertical avec point cacao, options **A / B / C** visibles.
+**Ce que le Vice Premier Ministre voit** : vue **meeting live** — chrono, ordre du jour vertical avec point cacao, options **A / B / C** visibles.
 
 **Verdict** : **PASS**
 
@@ -276,7 +276,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ![Vue réunion · ODJ et options](status-screenshots/2026-05-25-qa-trame/S2-15-meeting-live.png)
 
-*Mode meeting — arbitrage en direct devant Monsieur le Vice-Président.*
+*Mode meeting — arbitrage en direct devant Monsieur le Vice Premier Ministre.*
 
 ---
 
@@ -284,7 +284,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, décide option B. »
 
-**Ce que le VP voit** : décision **option B diversification anacarde** loggée — modal rationale, registre mis à jour.
+**Ce que le Vice Premier Ministre voit** : décision **option B diversification anacarde** loggée — modal rationale, registre mis à jour.
 
 **Verdict** : **PASS**
 
@@ -308,7 +308,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ## T.2 — Transition agenda → posture sécuritaire
 
-**Pivot** : la décision Option B est loggée, le **Conseil Défense restreint** est calé à **15h00**. Avant d'y entrer, le VP veut une lecture **dual-axis** : intérieur Nord / extérieur Sahel.
+**Pivot** : la décision Option B est loggée, le **Conseil Défense restreint** est calé à **15h00**. Avant d'y entrer, le Vice Premier Ministre veut une lecture **dual-axis** : intérieur Nord / extérieur Sahel.
 
 **Cible S3** : six prompts, ~5-6 minutes, tout en advisory only, snapshots demo-safe (ADS-B, comptes citoyens pseudonymisés, dossier rumeur).
 
@@ -320,11 +320,11 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, montre-moi la posture sécuritaire du jour. »
 
-**Ce que le VP voit** : cockpit, bloc **Posture sécuritaire** mis en avant, deux cartes — **Intérieur** vigilance (rumeur Nord démentie) / **Extérieur** Sahel élevée (ADS-B activité soutenue) — pastille **15h00 · Conseil Défense restreint**.
+**Ce que le Vice Premier Ministre voit** : cockpit, bloc **Posture sécuritaire** mis en avant, deux cartes — **Intérieur** vigilance (rumeur Nord démentie) / **Extérieur** Sahel élevée (ADS-B activité soutenue) — pastille **15h00 · Conseil Défense restreint**.
 
 **Verdict** : **PASS**
 
-**Plan B clic** : Sidebar VP → chip **Posture sécuritaire** dans la barre de statut (ouvre directement le bloc).
+**Plan B clic** : Sidebar Vice Premier Ministre → chip **Posture sécuritaire** dans la barre de statut (ouvre directement le bloc).
 
 *Lecture dual-axis souveraine avant le Conseil 15h — aucune lecture renseignement classifié.*
 
@@ -334,7 +334,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, montre la pulsation sociale à Abidjan. »
 
-**Ce que le VP voit** : vue **Veille sociale**, drawer **Pulsation sociale** listant 18 tweets : **5 canaux vérifiés** (Présidence CI, FANCI, RFI Sahel, Jeune Afrique, Préfecture Nord), **8 citoyens pseudonymisés** `@citoyen_***`, **5 signaux rumeur frontière** `@rumeur_***`.
+**Ce que le Vice Premier Ministre voit** : vue **Veille sociale**, drawer **Pulsation sociale** listant 18 tweets : **5 canaux vérifiés** (Présidence CI, FANCI, RFI Sahel, Jeune Afrique, Préfecture Nord), **8 citoyens pseudonymisés** `@citoyen_***`, **5 signaux rumeur frontière** `@rumeur_***`.
 
 **Verdict** : **PASS**
 
@@ -348,7 +348,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, d'où vient la rumeur frontière Nord ? »
 
-**Ce que le VP voit** : carte zoomée Nord, couche **border-tension** orange sur Bouna / Kong / Korhogo, drawer **Trace OSINT** affichant la chaîne : tweet citoyen **11h42** → relais Telegram **12h08** → blog régional **12h48** → démenti FANCI **13h46** + Préfecture Nord **13h52**. Proposition AYA « Rédiger un communiqué ».
+**Ce que le Vice Premier Ministre voit** : carte zoomée Nord, couche **border-tension** orange sur Bouna / Kong / Korhogo, drawer **Trace OSINT** affichant la chaîne : tweet citoyen **11h42** → relais Telegram **12h08** → blog régional **12h48** → démenti FANCI **13h46** + Préfecture Nord **13h52**. Proposition AYA « Rédiger un communiqué ».
 
 **Verdict** : **PASS**
 
@@ -362,7 +362,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, montre les mouvements de troupes au Sahel. »
 
-**Ce que le VP voit** : carte avec couches **military-air** (triangles ADS-B) + **border-tension** actives, drawer **Snapshot ADS-B advisory** listant **10 traces** (axe Bamako / Ouagadougou / Niamey, C-130, CN-235, vols logistiques), **3 zones de surveillance** (Liptako-Gourma, frontière Mali / Burkina, région de Tillabéri), **2 bases CEDEAO** en alerte standard.
+**Ce que le Vice Premier Ministre voit** : carte avec couches **military-air** (triangles ADS-B) + **border-tension** actives, drawer **Snapshot ADS-B advisory** listant **10 traces** (axe Bamako / Ouagadougou / Niamey, C-130, CN-235, vols logistiques), **3 zones de surveillance** (Liptako-Gourma, frontière Mali / Burkina, région de Tillabéri), **2 bases CEDEAO** en alerte standard.
 
 **Verdict** : **PASS**
 
@@ -376,7 +376,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, montre le drill de réputation 2 positifs et 1 critique. »
 
-**Ce que le VP voit** : vue **Réputation**, score **72 / 100** (**+4 pts**), trois cartes drill : **Jeune Afrique** « Lecture favorable de la séquence Nord » (positif) — **Fraternité Matin** « Réponse rapide au Préfet Nawa » (positif) — **L'Inter** « Critique budget défense » (orange). CTA AYA : préparer un encart concis pour le Conseil 15h.
+**Ce que le Vice Premier Ministre voit** : vue **Réputation**, score **72 / 100** (**+4 pts**), trois cartes drill : **Jeune Afrique** « Lecture favorable de la séquence Nord » (positif) — **Fraternité Matin** « Réponse rapide au Préfet Nawa » (positif) — **L'Inter** « Critique budget défense » (orange). CTA AYA : préparer un encart concis pour le Conseil 15h.
 
 **Verdict** : **PASS**
 
@@ -390,7 +390,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 **Phrase AYA** : « AYA, prépare un communiqué de sécurité sur la rumeur Nord. »
 
-**Ce que le VP voit** : drawer **Brouillon communiqué souverain** — sujet « Communiqué de sécurité — frontière Nord, démenti officiel », corps citant le démenti FANCI **13h46**, la mise au point Préfecture Nord **13h52** et la coordination CEDEAO, mention **« Validation advisory requise avant diffusion »**.
+**Ce que le Vice Premier Ministre voit** : drawer **Brouillon communiqué souverain** — sujet « Communiqué de sécurité — frontière Nord, démenti officiel », corps citant le démenti FANCI **13h46**, la mise au point Préfecture Nord **13h52** et la coordination CEDEAO, mention **« Validation advisory requise avant diffusion »**.
 
 **Verdict** : **PASS**
 
@@ -412,7 +412,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ## S3.V21.1 — Onglet Sécurité (rail principal)
 
-**Ce que le VP voit** : rail Cockpit · Carte · **Sécurité** · **Réputation** · Agenda · Presse · Arbitrages. Vue Sécurité avec posture dual-axis, théâtre Sahel et rumeur inline, barre sticky Conseil Défense 15h00.
+**Ce que le Vice Premier Ministre voit** : rail Cockpit · Carte · **Sécurité** · **Réputation** · Agenda · Presse · Arbitrages. Vue Sécurité avec posture dual-axis, théâtre Sahel et rumeur inline, barre sticky Conseil Défense 15h00.
 
 **Plan B clic** : Rail gauche → **Sécurité**.
 
@@ -420,7 +420,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ## S3.V21.2 — Security Monitor plein écran
 
-**Ce que le VP voit** : `/hypervisor/mission-room/securite/monitor` — carte Sahel (military-air + border-tension), alertes ADS-B, fil rumeur, signaux sociaux, badge **CACHE BASELINE**.
+**Ce que le Vice Premier Ministre voit** : `/hypervisor/mission-room/securite/monitor` — carte Sahel (military-air + border-tension), alertes ADS-B, fil rumeur, signaux sociaux, badge **CACHE BASELINE**.
 
 **Plan B clic** : Onglet Sécurité → **Ouvrir Security Monitor**.
 
@@ -428,7 +428,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ## S3.V21.3 — Réputation rail + Veille sociale
 
-**Ce que le VP voit** : Réputation dans le rail principal (drill 2+/1-). Page **Veille sociale** `/veille-sociale` avec filtres, tri et export CSV advisory.
+**Ce que le Vice Premier Ministre voit** : Réputation dans le rail principal (drill 2+/1-). Page **Veille sociale** `/veille-sociale` avec filtres, tri et export CSV advisory.
 
 **Plan B clic** : URL `/hypervisor/mission-room/veille-sociale` ou AYA pulsation sociale.
 
@@ -436,7 +436,7 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ## S3.V21.4 — Documents security-briefs
 
-**Ce que le VP voit** : collection `sentinel-ci-security-briefs` dans scope vigie, onglet **Documents** du shell Sécurité (briefs Sahel, Conseil Défense, dossier rumeur, ADS-B).
+**Ce que le Vice Premier Ministre voit** : collection `sentinel-ci-security-briefs` dans scope vigie, onglet **Documents** du shell Sécurité (briefs Sahel, Conseil Défense, dossier rumeur, ADS-B).
 
 **Plan B clic** : Sécurité → onglet **Documents**.
 
@@ -460,7 +460,7 @@ Si AYA ne répond pas — 10 raccourcis sans voix (workspace `sentinel-ci`) :
 | **Agenda** | Sidebar Agenda → Préfet Nawa 11h |
 | **Réunion Nawa** | Agenda → **Démarrer la réunion** |
 | **Décisions** | Sidebar Arbitrages → registre décisions |
-| **Posture sécuritaire** | Sidebar VP → chip **Posture sécuritaire** dans la barre de statut |
+| **Posture sécuritaire** | Sidebar Vice Premier Ministre → chip **Posture sécuritaire** dans la barre de statut |
 | **Pulsation sociale** | Carte Stratégie → couche **social-geo** → drawer pulsation |
 | **Rumeur Nord** | Drawer Brouillons → **Dossier rumeur frontière Nord** |
 | **Mouvements Sahel** | Carte Stratégie → couches **military-air** + **border-tension** |

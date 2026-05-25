@@ -1,4 +1,4 @@
-# SENTINEL-CI — Guide pas-à-pas démo VP (25 mai 2026)
+# SENTINEL-CI — Guide pas-à-pas démo Vice Premier Ministre (25 mai 2026)
 
 **Durée** : ~13 min (S1 5 min + transition 1 min + S2 7 min)  
 **URL** : `https://agentium.papai.ai/hypervisor/mission-room/cockpit?workspace=sentinel-ci`  
@@ -9,7 +9,7 @@
 
 ## TL;DR — lancer S1 webcam + PDF en 30 secondes
 
-1. **Pre-flight** (~5 min avant VP) : `./scripts/qa_demo_gate.sh --with-reset` → exit 0 requis.
+1. **Pre-flight** (~5 min avant Vice Premier Ministre) : `./scripts/qa_demo_gate.sh --with-reset` → exit 0 requis.
 2. Cockpit ouvert → cliquer **Zone Nord · Tendue** (chip rouge) → carte recentrée Nord.
 3. Dire **« AYA, montre le cargo Atlantic Trader. »** → vignette webcam APM Apapa + proposition PV.
 4. Dire **« AYA, ouvre le PV douanes. »** → drawer PDF page 2 surlignée.

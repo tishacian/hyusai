@@ -58,7 +58,7 @@ SCENARIO_3 = (
             "id": "S3.1",
             "title": "Posture sécuritaire du jour",
             "say": "AYA, montre-moi la posture sécuritaire du jour.",
-            "reply": "« Monsieur le Vice-Président, posture en vigilance intérieure et élevée sur l'axe Sahel. La rumeur frontière Nord est démentie ; je prépare la lecture pour le Conseil Défense de 15h00. »",
+            "reply": "« Monsieur le Vice Premier Ministre, posture en vigilance intérieure et élevée sur l'axe Sahel. La rumeur frontière Nord est démentie ; je prépare la lecture pour le Conseil Défense de 15h00. »",
             "screen": "Onglet Sécurité (rail principal) : posture dual-axis promue, barre sticky Conseil Défense 15h00, théâtre Sahel ADS-B et chronologie rumeur inline.",
             "plan_b": "Rail gauche → onglet Sécurité (ou cockpit → chip Posture sécuritaire).",
         },
@@ -66,7 +66,7 @@ SCENARIO_3 = (
             "id": "S3.2",
             "title": "Pulsation sociale Abidjan",
             "say": "AYA, montre la pulsation sociale à Abidjan.",
-            "reply": "« Monsieur le Vice-Président, j'affiche 18 signaux publics sur la séquence du jour : canaux vérifiés, citoyens pseudonymisés et rumeurs suivies. Le volume reste maîtrisé après les démentis officiels. »",
+            "reply": "« Monsieur le Vice Premier Ministre, j'affiche 18 signaux publics sur la séquence du jour : canaux vérifiés, citoyens pseudonymisés et rumeurs suivies. Le volume reste maîtrisé après les démentis officiels. »",
             "screen": "Page Veille sociale (/veille-sociale) : feed scrollable avec filtres périmètre/sentiment, tri engagement et export CSV advisory.",
             "plan_b": "URL directe /hypervisor/mission-room/veille-sociale ou drawer pulsation depuis AYA.",
         },
@@ -74,7 +74,7 @@ SCENARIO_3 = (
             "id": "S3.3",
             "title": "Trace de la rumeur frontière",
             "say": "AYA, d'où vient la rumeur frontière Nord ?",
-            "reply": "« Monsieur le Vice-Président, la rumeur part d'un tweet citoyen à 11h42, circule via Telegram et un blog, puis la FANCI dément à 13h46. La Préfecture Nord confirme à 13h52 ; je peux préparer le communiqué. »",
+            "reply": "« Monsieur le Vice Premier Ministre, la rumeur part d'un tweet citoyen à 11h42, circule via Telegram et un blog, puis la FANCI dément à 13h46. La Préfecture Nord confirme à 13h52 ; je peux préparer le communiqué. »",
             "screen": "Carte zoomée sur le Nord, couche border-tension orange, drawer « Trace OSINT » avec la chaîne tweet → telegram → blog → démentis. Proposition AYA « Rédiger un communiqué ».",
             "plan_b": "Drawer Brouillons → « Dossier rumeur frontière Nord » (la trace OSINT s'ouvre identique).",
         },
@@ -82,7 +82,7 @@ SCENARIO_3 = (
             "id": "S3.4",
             "title": "Mouvements de troupes Sahel",
             "say": "AYA, montre les mouvements de troupes au Sahel.",
-            "reply": "« Monsieur le Vice-Président, j'affiche uniquement un snapshot ADS-B advisory : 10 traces publiques sur Bamako, Ouagadougou, Niamey et Abidjan. Aucun élément affiché ne constitue une confirmation opérationnelle. »",
+            "reply": "« Monsieur le Vice Premier Ministre, j'affiche uniquement un snapshot ADS-B advisory : 10 traces publiques sur Bamako, Ouagadougou, Niamey et Abidjan. Aucun élément affiché ne constitue une confirmation opérationnelle. »",
             "screen": "Security Monitor plein écran (/securite/monitor) : carte Sahel military-air + border-tension, alertes ADS-B, fil rumeur et signaux sociaux.",
             "plan_b": "Onglet Sécurité → lien « Ouvrir Security Monitor » ou URL /hypervisor/mission-room/securite/monitor.",
         },
@@ -90,7 +90,7 @@ SCENARIO_3 = (
             "id": "S3.5",
             "title": "Drill réputation 2 positifs / 1 critique",
             "say": "AYA, montre le drill de réputation 2 positifs et 1 critique.",
-            "reply": "« Monsieur le Vice-Président, le score réputation est à 72 sur 100 cette semaine. Deux lectures sont favorables, sur la séquence Nord et la réponse Nawa ; la critique à surveiller porte sur le budget défense. »",
+            "reply": "« Monsieur le Vice Premier Ministre, le score réputation est à 72 sur 100 cette semaine. Deux lectures sont favorables, sur la séquence Nord et la réponse Nawa ; la critique à surveiller porte sur le budget défense. »",
             "screen": "Vue Réputation (rail principal), score 72 affiché, trois cartes drill : 2 vertes + 1 orange, lien direct vers l'article L'Inter.",
             "plan_b": "Rail gauche → onglet Réputation → ancre « Drill 2+/1- » en bas de page.",
         },
@@ -98,7 +98,7 @@ SCENARIO_3 = (
             "id": "S3.6",
             "title": "Communiqué sécurité (préparation)",
             "say": "AYA, prépare un communiqué de sécurité sur la rumeur Nord.",
-            "reply": "« Monsieur le Vice-Président, je prépare un brouillon cabinet citant le démenti FANCI, la mise au point de la Préfecture Nord et la coordination CEDEAO. Le texte reste advisory et devra être validé avant diffusion. »",
+            "reply": "« Monsieur le Vice Premier Ministre, je prépare un brouillon cabinet citant le démenti FANCI, la mise au point de la Préfecture Nord et la coordination CEDEAO. Le texte reste advisory et devra être validé avant diffusion. »",
             "screen": "Drawer brouillon communiqué (subject, body), boutons Valider / Modifier / Annuler, mention « Validation advisory requise ».",
             "plan_b": "Drawer Brouillons → « Nouveau communiqué » → template « Démenti rumeur Nord ».",
         },
@@ -196,7 +196,7 @@ def build_document(output_path: Path) -> Path:
     for section in document.sections:
         _set_margins(section)
 
-    title = document.add_heading("SENTINEL-CI — Carte de trame VP, Scénario 3 · 25 mai 2026", level=1)
+    title = document.add_heading("SENTINEL-CI — Carte de trame Vice Premier Ministre, Scénario 3 · 25 mai 2026", level=1)
     _tighten(title, before=0, after=4)
 
     sub = document.add_paragraph()

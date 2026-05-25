@@ -1048,10 +1048,10 @@ export class VpMeetingComponent implements OnInit, OnDestroy {
       title,
       order: this.agendaItems().length + 1,
       priority: 'high',
-      owner_proposer: 'VP',
+      owner_proposer: 'Vice Premier Ministre',
       decision_required: true,
       source: 'vp',
-      source_label: 'Ajouté par VP (clic)',
+      source_label: 'Ajouté par Vice Premier Ministre (clic)',
     };
     this.api
       .post<{ pending_agenda_patch?: PendingAgendaPatch | null }>(

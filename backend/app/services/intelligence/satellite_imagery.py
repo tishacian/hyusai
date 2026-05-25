@@ -1,6 +1,6 @@
 """Demo-safe satellite imagery fixtures for SENTINEL-CI Security Monitor.
 
-The VP demo must stay reproducible and advisory-only. Live EO providers are
+The Vice Premier Ministre demo must stay reproducible and advisory-only. Live EO providers are
 therefore intentionally gated out for demo workspaces; this module currently
 serves a fixed baseline package plus authenticated local assets.
 """
@@ -45,7 +45,7 @@ def should_use_live_satellite(workspace: Workspace) -> bool:
 
     The live Copernicus/Sentinel Hub implementation is deliberately not wired
     here yet. This guard exists so future Option C work cannot accidentally
-    affect the VP demo.
+    affect the Vice Premier Ministre demo.
     """
 
     if _workspace_mode(workspace) == "demo":
