@@ -33,6 +33,7 @@ logger = get_logger(__name__)
 
 
 SENTINEL_CUSTOMS_RECORDS_COLLECTION = "sentinel-ci-customs-records"
+SENTINEL_SECURITY_BRIEFS_COLLECTION = "sentinel-ci-security-briefs"
 
 
 COLLECTION_DEFS: dict[str, dict[str, str]] = {
@@ -67,6 +68,10 @@ COLLECTION_DEFS: dict[str, dict[str, str]] = {
     SENTINEL_CUSTOMS_RECORDS_COLLECTION: {
         "name": "SENTINEL-CI Customs Records",
         "description": "OCR-extracted customs procès-verbaux and supporting documents used by AYA show_customs_record.",
+    },
+    SENTINEL_SECURITY_BRIEFS_COLLECTION: {
+        "name": "SENTINEL-CI Security Briefs",
+        "description": "Security posture briefs, Sahel OSINT notes, defense council syntheses and rumor dossiers used by AYA S3 actions (security posture, troops Sahel, rumor trace).",
     },
 }
 
@@ -238,6 +243,7 @@ def _external_demo_documents() -> dict[str, dict[str, str]]:
         "sentinel-ci-ministerial-briefs": {},
         "sentinel-ci-projects": {},
         SENTINEL_CUSTOMS_RECORDS_COLLECTION: {},
+        SENTINEL_SECURITY_BRIEFS_COLLECTION: {},
     }
     report_path = repo_root / "docs" / "demo-data" / "sentinel-ci-kb" / "rapport-prefet-nawa-2026-05-10.md"
     if report_path.exists():
@@ -257,6 +263,18 @@ def _external_demo_documents() -> dict[str, dict[str, str]]:
     )
     if drone_napie_path.exists():
         docs["sentinel-ci-projects"]["abidjan-net-drone-centre-napie-2025-07-16.md"] = drone_napie_path.read_text(encoding="utf-8")
+    # S3 security briefs (note Sahel + Conseil Defense 08h30 + dossier rumeur
+    # frontiere Nord). These three markdown documents back the AYA actions
+    # aya.show_security_posture / aya.show_troops_movement / aya.trace_rumor_origin
+    # and the cockpit security_posture block.
+    for filename in (
+        "note-posture-securite-sahel-2026-05-25.md",
+        "synthese-conseil-defense-2026-05-25-am.md",
+        "dossier-rumeur-frontiere-nord-2026-05-25.md",
+    ):
+        path = repo_root / "docs" / "demo-data" / "sentinel-ci-kb" / filename
+        if path.exists():
+            docs[SENTINEL_SECURITY_BRIEFS_COLLECTION][filename] = path.read_text(encoding="utf-8")
     return docs
 
 
@@ -351,6 +369,28 @@ def _fixture_documents(db: DBSession, workspace: Workspace) -> dict[str, dict[st
         },
         SENTINEL_CUSTOMS_RECORDS_COLLECTION: {
             **(_external_demo_documents().get(SENTINEL_CUSTOMS_RECORDS_COLLECTION) or {}),
+        },
+        SENTINEL_SECURITY_BRIEFS_COLLECTION: {
+            "security-posture-snapshot.md": _payload_markdown(
+                "Snapshot posture securitaire dual-axis",
+                {
+                    "security_posture": cockpit.get("security_posture") or {},
+                    "reputation": cockpit.get("reputation") or {},
+                },
+            ),
+            "social-snapshot-abidjan.md": _payload_markdown(
+                "Pulsation sociale Abidjan — snapshot demo-safe",
+                cockpit.get("social_snapshot") or {},
+            ),
+            "troops-sahel-ads-b.md": _payload_markdown(
+                "Snapshot ADS-B advisory Sahel",
+                cockpit.get("troops_sahel") or {},
+            ),
+            "rumor-frontier-trace.md": _payload_markdown(
+                "Chaine rumeur frontiere Nord — OSINT et démentis",
+                cockpit.get("rumor_frontier_trace") or {},
+            ),
+            **(_external_demo_documents().get(SENTINEL_SECURITY_BRIEFS_COLLECTION) or {}),
         },
     }
 
