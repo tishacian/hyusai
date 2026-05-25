@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Whitelist RSS securite francophone — Vague 2.2 OSINT live (demo-safe, pas de Telegram).",
+  "description": "Whitelist RSS sécurité francophone — Vague 2.2 OSINT live (demo-safe, pas de Telegram).",
   "feeds": [
     {
       "id": "rfi-sahel",
@@ -25,7 +25,7 @@
     },
     {
       "id": "fratmat-defense",
-      "name": "Fraternite Matin",
+      "name": "Fraternité Matin",
       "url": "https://www.fratmat.info/feed",
       "language": "fr",
       "category": "ci-national"

@@ -263,21 +263,21 @@ SOURCES = [
     },
     {
         "id": "src-note-posture-sahel-2026-05-25",
-        "label": "Note posture securite Sahel — 25 mai 2026",
+        "label": "Note posture sécurité Sahel — 25 mai 2026",
         "kind": "security_brief",
         "confidence": 0.78,
         "age": "ce matin",
     },
     {
         "id": "src-conseil-defense-2026-05-25-am",
-        "label": "Synthese Conseil Defense restreint — 08h30",
+        "label": "Synthèse Conseil Défense restreint — 08h30",
         "kind": "security_brief",
         "confidence": 0.82,
         "age": "ce matin",
     },
     {
         "id": "src-rumor-frontier-nord-2026-05-25",
-        "label": "Dossier rumeur frontiere Nord — chronologie OSINT et démentis",
+        "label": "Dossier rumeur frontière Nord — chronologie OSINT et démentis",
         "kind": "rumor_dossier",
         "confidence": 0.74,
         "age": "ce midi",
@@ -845,49 +845,49 @@ EXECUTIVE_DECISION_PACKAGES = [
     },
     {
         "id": "package-securite-dual",
-        "label": "Posture securitaire",
-        "title": "Posture securitaire dual-axis — interieur et exterieur",
+        "label": "Posture sécuritaire",
+        "title": "Posture sécuritaire dual-axis — intérieur et extérieur",
         "decision": (
-            "Confirmer la posture securitaire combinee : vigilance frontiere Nord apres rumeur "
-            "OSINT démentie a 13h45, et surveillance ADS-B advisory sur le theatre Sahel "
-            "(Bamako/Ouaga/Niamey) avant le Conseil Defense de 15h00."
+            "Confirmer la posture sécuritaire combinée : vigilance frontière Nord après rumeur "
+            "OSINT démentie à 13h46, et lecture ADS-B advisory sur le théâtre Sahel "
+            "(Bamako/Ouaga/Niamey) avant le Conseil Défense de 15h00."
         ),
         "recommended_option": (
-            "Maintenir la posture VIGILANCE en interieur + ELEVEE en exterieur Sahel, "
-            "communiquer le démenti officiel de la rumeur frontiere Nord, et préparer "
+            "Maintenir la posture VIGILANCE en intérieur + ÉLEVÉE en extérieur Sahel, "
+            "communiquer le démenti officiel de la rumeur frontière Nord, et préparer "
             "un point Conseil 15h00 sur la coordination CEDEAO."
         ),
-        "why_now": "Le Conseil Defense restreint 15h00 attend une posture consolidee.",
+        "why_now": "Le Conseil Défense restreint 15h00 attend une posture consolidée.",
         "deadline": "15:00",
-        "owner": "Conseiller securite",
+        "owner": "Conseiller sécurité",
         "confidence": 0.81,
         "status": "decision_required",
         "tone": "elevated",
         "sources": [
-            "Note posture securite Sahel",
-            "Synthese Conseil Defense 08h30",
-            "Dossier rumeur frontiere Nord",
+            "Note posture sécurité Sahel",
+            "Synthèse Conseil Défense 08h30",
+            "Dossier rumeur frontière Nord",
             "Pulsation sociale Abidjan",
         ],
-        "cta": "Ouvrir la posture securitaire",
+        "cta": "Ouvrir la posture sécuritaire",
     },
 ]
 
 # ---------------------------------------------------------------------------
-# S3 — Posture securitaire dual-axis
+# S3 — Posture sécuritaire dual-axis
 #
 # Scenario 3 fixtures: interior Nord/Abidjan + exterior Sahel theater snapshot
 # used by the ``aya_security_v1`` action pack and the cockpit ``security_posture``
 # block. Everything below is demo-safe seed data (no live feed): Twitter handles
 # are pseudonymised, ADS-B callsigns are advisory-only, the reputation drill
-# reuses the L'Inter critique already seeded in S1, and the rumeur frontiere
+# reuses the L'Inter critique already seeded in S1, and the rumeur frontière
 # chain matches the dossier_rumeur_frontiere_nord_2026-05-25.md KB document.
 # ---------------------------------------------------------------------------
 
 SECURITY_POSTURE = {
-    "summary": "Posture dual-axis VIGILANCE interieur · ELEVEE exterieur Sahel.",
+    "summary": "Posture dual-axis : vigilance intérieure · Sahel élevé.",
     "next_council": {
-        "label": "Conseil Defense restreint — revue Sahel",
+        "label": "Conseil Défense restreint — revue Sahel",
         "time": "15:00",
         "date": "2026-05-25",
         "event_seed_id": "evt-revue-sahel",
@@ -895,54 +895,54 @@ SECURITY_POSTURE = {
     },
     "interior": {
         "axis": "interieur",
-        "label": "Interieur (Nord + Abidjan)",
+        "label": "Intérieur (Nord + Abidjan)",
         "level": "vigilance",
         "tone": "elevated",
         "score": 64,
         "trend": "stable",
-        "headline": "Frontiere Nord — rumeur OSINT démentie a 13h45, posture nominale rétablie.",
+        "headline": "Frontière Nord — rumeur OSINT démentie à 13h46, posture nominale rétablie.",
         "signals": [
             {
                 "id": "sig-interior-nord-rumor",
-                "label": "Rumeur frontiere Nord (Bouna/Kong)",
+                "label": "Rumeur frontière Nord (Bouna/Kong)",
                 "tone": "watch",
-                "summary": "Tweet d'un compte citoyen, repris sur Telegram et un blog regional, démenti officiel publié a 13h45.",
+                "summary": "Tweet d'un compte citoyen, repris sur Telegram et un blog régional, démenti officiel publié à 13h46.",
                 "sources": ["src-rumor-frontier-nord-2026-05-25"],
             },
             {
                 "id": "sig-interior-abidjan-mood",
                 "label": "Climat social Abidjan (Plateau · Cocody)",
                 "tone": "stable",
-                "summary": "Pulsation sociale neutre : 11 tweets neutres, 3 positifs, 2 inquiets sur la circulation.",
+                "summary": "Pulsation sociale mesurée : 4 signaux positifs, 10 neutres, 4 critiques ou rumeur, sans emballement après les démentis.",
                 "sources": ["src-social-snapshot-2026-05-25"],
             },
             {
                 "id": "sig-interior-nord-trafic",
                 "label": "Trafic axe Korhogo — Ferké",
                 "tone": "stable",
-                "summary": "Postes mixtes nominaux, pas de signalement d'incident terrain dans les dernieres 6 heures.",
+                "summary": "Postes mixtes nominaux, pas de signalement d'incident terrain dans les dernières 6 heures.",
                 "sources": ["src-cabinet-brief-001"],
             },
         ],
         "actions_recommended": [
             "Confirmer le démenti officiel sur les canaux institutionnels",
-            "Préparer 3 elements de langage courts pour le Conseil 15h",
+            "Préparer 3 éléments de langage courts pour le Conseil 15h",
         ],
     },
     "exterior": {
         "axis": "exterieur",
-        "label": "Exterieur (theatre Sahel)",
+        "label": "Extérieur (théâtre Sahel)",
         "level": "elevee",
         "tone": "watch",
         "score": 74,
         "trend": "up",
-        "headline": "Theatre Sahel : activite ADS-B advisory soutenue sur l'axe Bamako/Ouaga/Niamey.",
+        "headline": "Théâtre Sahel : activité ADS-B advisory soutenue sur l'axe Bamako/Ouaga/Niamey.",
         "signals": [
             {
                 "id": "sig-exterior-sahel-ads-b",
-                "label": "Activite ADS-B advisory (Bamako/Ouaga/Niamey)",
+                "label": "Activité ADS-B advisory (Bamako/Ouaga/Niamey)",
                 "tone": "watch",
-                "summary": "10 traces ADS-B advisory (snapshot 14h30) — callsigns militaires et logistiques regionaux.",
+                "summary": "10 traces ADS-B advisory (snapshot 14h30) — callsigns logistiques régionaux et publics.",
                 "sources": ["src-troops-sahel-2026-05-25"],
             },
             {
@@ -956,37 +956,37 @@ SECURITY_POSTURE = {
                 "id": "sig-exterior-osint-sahel",
                 "label": "OSINT public Sahel (ACLED-like)",
                 "tone": "watch",
-                "summary": "3 zones de surveillance active : Liptako-Gourma, frontiere Mali/Burkina, region de Tillaberi.",
+                "summary": "3 zones de surveillance active : Liptako-Gourma, frontière Mali/Burkina, région de Tillabéri.",
                 "sources": ["src-note-posture-sahel-2026-05-25"],
             },
         ],
         "actions_recommended": [
             "Présenter la lecture OSINT publique en ouverture du Conseil 15h",
-            "Confirmer la posture advisory-only sur les flux ADS-B regionaux",
+            "Confirmer la posture advisory-only sur les flux ADS-B régionaux",
         ],
     },
 }
 
 # ----------------------------------------------------------------------------
 # Snapshot Twitter figé (demo-safe). Les comptes officiels sont des comptes
-# institutionnels publics; les comptes citoyens sont pseudonymises @citoyen_***
-# et les comptes rumeur frontiere sont en @rumeur_*** pour eviter toute
-# confusion avec de vrais individus. Geocoordonnees centrees Abidjan
-# (Plateau / Cocody) + 3 points Bouna/Korhogo pour la rumeur frontiere.
+# institutionnels publics; les comptes citoyens sont pseudonymisés @citoyen_***
+# et les comptes rumeur frontière sont en @rumeur_*** pour éviter toute
+# confusion avec de vrais individus. Géocoordonnées centrées Abidjan
+# (Plateau / Cocody) + 3 points Bouna/Korhogo pour la rumeur frontière.
 # ----------------------------------------------------------------------------
 
 SOCIAL_SNAPSHOT = {
     "captured_at": "2026-05-25T14:25:00",
-    "window_label": "Pulsation sociale — derniere heure",
+    "window_label": "Pulsation sociale — séquence 08h30-14h25",
     "city_focus": "Abidjan",
     "totals": {
         "tweets": 18,
         "officiel": 5,
         "citoyen": 8,
         "rumeur": 5,
-        "engagement_total": 6420,
-        "sentiment_positive": 6,
-        "sentiment_neutral": 8,
+        "engagement_total": 5992,
+        "sentiment_positive": 4,
+        "sentiment_neutral": 10,
         "sentiment_negative": 4,
     },
     "tweets": [
@@ -997,7 +997,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@PresidenceCI",
             "author": "Présidence de la République de Côte d'Ivoire",
             "verified": True,
-            "text": "Le Conseil Défense restreint se tiendra a 15h pour revue de la coordination CEDEAO et de la posture régionale.",
+            "text": "Le Conseil Défense restreint se tiendra à 15h00 pour revue de la coordination CEDEAO et de la posture régionale.",
             "language": "fr",
             "sentiment": "neutral",
             "engagement": 1240,
@@ -1013,7 +1013,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@FANCIofficiel",
             "author": "Forces Armées Nationales de Côte d'Ivoire",
             "verified": True,
-            "text": "Démenti officiel : aucune incursion confirmée a la frontière Nord. Les postes mixtes sont nominaux. Source : Etat-Major.",
+            "text": "Démenti officiel : aucune incursion confirmée à la frontière Nord. Les postes mixtes sont nominaux. Source : État-Major.",
             "language": "fr",
             "sentiment": "neutral",
             "engagement": 1850,
@@ -1045,7 +1045,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@JeuneAfrique",
             "author": "Jeune Afrique",
             "verified": True,
-            "text": "Gestion souveraine saluée : la réponse rapide de la Vice-Présidence sur le dossier Nawa marque un précédent en matière de continuité gouvernementale.",
+            "text": "Lecture favorable : la réponse rapide de la Vice-Présidence sur le dossier Nawa marque un précédent en matière de continuité gouvernementale.",
             "language": "fr",
             "sentiment": "positive",
             "engagement": 540,
@@ -1061,7 +1061,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@PrefectureNord",
             "author": "Préfecture de la région Nord (officiel)",
             "verified": True,
-            "text": "Mise au point : la rumeur circulant sur les axes Bouna-Kong est sans fondement. Postes mixtes nominaux. Communiqué a suivre.",
+            "text": "Mise au point : la rumeur circulant sur les axes Bouna-Kong est sans fondement. Postes mixtes nominaux. Communiqué à suivre.",
             "language": "fr",
             "sentiment": "neutral",
             "engagement": 410,
@@ -1078,7 +1078,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@citoyen_plateau_01",
             "author": "Citoyen pseudonymisé",
             "verified": False,
-            "text": "Beaucoup de circulation au Plateau ce matin, mais tout reste calme. RAS coté sécurité.",
+            "text": "Beaucoup de circulation au Plateau ce matin, mais tout reste calme. RAS côté sécurité.",
             "language": "fr",
             "sentiment": "neutral",
             "engagement": 24,
@@ -1110,7 +1110,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@citoyen_vridi_18",
             "author": "Citoyen pseudonymisé",
             "verified": False,
-            "text": "Le port de Vridi reprend une activité normale, ca fait plaisir. Hâte que le cargo bloqué soit dédouané.",
+            "text": "Le port de Vridi reprend une activité normale, ça fait plaisir. Hâte que le cargo bloqué soit dédouané.",
             "language": "fr",
             "sentiment": "positive",
             "engagement": 38,
@@ -1142,7 +1142,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@citoyen_yopougon_44",
             "author": "Citoyen pseudonymisé",
             "verified": False,
-            "text": "RAS coté Yopougon ce matin, ambiance habituelle. Marché de Niangon ouvert normalement.",
+            "text": "RAS côté Yopougon ce matin, ambiance habituelle. Marché de Niangon ouvert normalement.",
             "language": "fr",
             "sentiment": "neutral",
             "engagement": 12,
@@ -1158,7 +1158,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@citoyen_treichville_09",
             "author": "Citoyen pseudonymisé",
             "verified": False,
-            "text": "Bonne nouvelle pour la filière cacao d'après ce que j'ai lu. Espérons que les éleveurs et planteurs en profitent.",
+            "text": "Bonne nouvelle pour la filière cacao d'après ce que j'ai lu. Espérons que les planteurs et coopératives en profitent.",
             "language": "fr",
             "sentiment": "positive",
             "engagement": 28,
@@ -1174,7 +1174,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@citoyen_abobo_31",
             "author": "Citoyen pseudonymisé",
             "verified": False,
-            "text": "Tensions sur l'axe Anyama-Abobo : on dirait que ca se calme depuis le contrôle. Patience.",
+            "text": "Tensions sur l'axe Anyama-Abobo : on dirait que ça se calme depuis le contrôle. Patience.",
             "language": "fr",
             "sentiment": "neutral",
             "engagement": 35,
@@ -1190,9 +1190,9 @@ SOCIAL_SNAPSHOT = {
             "handle": "@citoyen_plateau_56",
             "author": "Citoyen pseudonymisé",
             "verified": False,
-            "text": "Je me demande pourquoi le budget défense est si critiqué, on devrait plutôt parler des résultats du Cabinet sur le Nord.",
+            "text": "Le débat sur le budget défense mérite d'être clarifié, mais les résultats du Cabinet sur le Nord comptent aussi.",
             "language": "fr",
-            "sentiment": "negative",
+            "sentiment": "neutral",
             "engagement": 47,
             "retweets": 9,
             "likes": 26,
@@ -1200,14 +1200,14 @@ SOCIAL_SNAPSHOT = {
             "posted_at": "2026-05-25T11:30:00",
             "tags": ["citoyen", "réputation", "budget-defense"],
         },
-        # --- 5 rumeur frontiere Nord (pseudonymises @rumeur_***) -----------
+# --- 5 rumeur frontière Nord (pseudonymisés @rumeur_***) -----------
         {
             "id": "tweet-rum-001",
             "kind": "rumeur",
             "handle": "@rumeur_nord_001",
             "author": "Compte pseudonyme — non vérifié",
             "verified": False,
-            "text": "Mouvements suspects vers la frontière Nord ce matin... a vérifier. Source un proche posté la-bas.",
+            "text": "Mouvements suspects vers la frontière Nord ce matin... à vérifier. Source indirecte, non confirmée.",
             "language": "fr",
             "sentiment": "negative",
             "engagement": 215,
@@ -1223,7 +1223,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@rumeur_telegram_relai",
             "author": "Canal Telegram relai (pseudonyme)",
             "verified": False,
-            "text": "Une source me confirme des bruits dans la zone Kong. Personne ne dit rien officiellement. #FrontiereNord",
+            "text": "Une source indirecte évoque des bruits dans la zone Kong. Rien d'officiel pour l'instant. #FrontiereNord",
             "language": "fr",
             "sentiment": "negative",
             "engagement": 312,
@@ -1239,7 +1239,7 @@ SOCIAL_SNAPSHOT = {
             "handle": "@rumeur_blog_relai",
             "author": "Blog régional (pseudonyme)",
             "verified": False,
-            "text": "Article publié : 'Tensions Nord — ce que cachent les autorités'. A lire et partager. Pas de source primaire.",
+            "text": "Article publié : 'Tensions Nord — ce que cachent les autorités'. À lire avec prudence : pas de source primaire.",
             "language": "fr",
             "sentiment": "negative",
             "engagement": 188,
@@ -1255,9 +1255,9 @@ SOCIAL_SNAPSHOT = {
             "handle": "@rumeur_nord_022",
             "author": "Compte pseudonyme — non vérifié",
             "verified": False,
-            "text": "Trafic militaire inhabituel vers Bouna d'après mes contacts. Le gouvernement doit s'exprimer.",
+            "text": "Mouvements inhabituels non vérifiés vers Bouna selon des contacts locaux. Une clarification officielle est attendue.",
             "language": "fr",
-            "sentiment": "negative",
+            "sentiment": "neutral",
             "engagement": 156,
             "retweets": 58,
             "likes": 49,
@@ -1285,17 +1285,17 @@ SOCIAL_SNAPSHOT = {
 }
 
 # ----------------------------------------------------------------------------
-# Snapshot ADS-B advisory du theatre Sahel. Callsigns + types militaires
+# Snapshot ADS-B advisory du théâtre Sahel. Callsigns + types militaires
 # plausibles (C-130, CN-235, AT-6, vols logistiques regionaux). Le disclaimer
-# « ADS-B advisory only » est porté par la legende cote front et par la
-# couche `military-air` dans workspace_maps.py. Aucune donnee operationnelle
-# classifiee — snapshot fige scenario.
+# « ADS-B advisory only » est porté par la légende côté front et par la
+# couche `military-air` dans workspace_maps.py. Aucune donnée opérationnelle
+# classifiée — snapshot figé scénario.
 # ----------------------------------------------------------------------------
 
 TROOPS_SAHEL = {
     "captured_at": "2026-05-25T14:30:00",
-    "disclaimer": "ADS-B advisory only — snapshot scenario, aucune donnee operationnelle classifiee.",
-    "theater_label": "Theatre Sahel — axe Bamako/Ouagadougou/Niamey",
+    "disclaimer": "ADS-B advisory only — snapshot scénario, aucune donnée opérationnelle classifiée.",
+    "theater_label": "Théâtre Sahel — axe Bamako/Ouagadougou/Niamey",
     "tracks": [
         {
             "id": "track-001",
@@ -1482,28 +1482,28 @@ TROOPS_SAHEL = {
 }
 
 # ----------------------------------------------------------------------------
-# Reputation drill VP : 2 items positifs + 1 critique sourcee (article L'Inter
-# deja seede S1, attention-inter-budget). Garantit que l'item critique reste
-# une critique reelle deja publique, pas une invention.
+# Reputation drill VP : 2 items positifs + 1 critique sourcée (article L'Inter
+# déjà seedé S1, attention-inter-budget). Garantit que l'item critique reste
+# une critique réelle déjà publique, pas une invention.
 # ----------------------------------------------------------------------------
 
 REPUTATION_DRILL = {
     "score": 72,
     "delta": 4,
     "period_label": "Cette semaine — 19-25 mai 2026",
-    "sentiment_overall": "Plutot positif (72/100)",
+    "sentiment_overall": "Plutôt positif (72/100)",
     "summary": (
-        "La tonalite hebdomadaire reste favorable : 2 signaux positifs marques "
-        "(presse internationale + reactivite Nawa) viennent compenser une critique "
-        "ciblee de L'Inter sur le budget defense."
+        "La tonalité hebdomadaire reste favorable : 2 signaux positifs marqués "
+        "(presse internationale + réactivité Nawa) viennent compenser une critique "
+        "ciblée de L'Inter sur le budget défense."
     ),
     "items": [
         {
             "id": "rep-pos-jeune-afrique",
             "kind": "positif",
             "tone": "positive",
-            "title": "Gestion Nord saluée par Jeune Afrique",
-            "summary": "L'article 'Côte d'Ivoire — la nouvelle main du Cabinet' salue la coordination du Vice-Président sur la séquence Nord.",
+            "title": "Lecture favorable de Jeune Afrique sur la séquence Nord",
+            "summary": "L'article 'Côte d'Ivoire — la nouvelle main du Cabinet' souligne la coordination du Vice-Président sur la séquence Nord.",
             "source_label": "Jeune Afrique — 22 mai 2026",
             "source_id": "src-press-jeune-afrique-001",
             "url": "https://www.jeuneafrique.com/example/cabinet-cote-divoire-mai-2026",
@@ -1527,7 +1527,7 @@ REPUTATION_DRILL = {
             "kind": "critique",
             "tone": "negative",
             "title": "Critique sur le budget défense (L'Inter)",
-            "summary": "L'Inter publie une tribune critique sur la ventilation du budget défense. Réponse cabinet recommandée avant 14h.",
+            "summary": "L'Inter publie une tribune critique sur la ventilation du budget défense. Réponse cabinet recommandée cette semaine.",
             "source_label": "L'Inter — 25 mai 2026",
             "source_id": "src-press-ci-local-001",
             "url": "https://www.linter.ci/example/budget-defense-mai-2026",
@@ -1536,23 +1536,23 @@ REPUTATION_DRILL = {
             "linked_attention_id": "attention-inter-budget",
         },
     ],
-    "aya_sentence": "Monsieur le Vice-Président, la semaine reste favorable. Je vous propose de capitaliser sur les deux signaux positifs en preparant un encart concis pour le Conseil 15h.",
+    "aya_sentence": "Monsieur le Vice-Président, la semaine reste favorable. Je vous propose de capitaliser sur les deux signaux positifs en préparant un encart concis pour le Conseil 15h.",
 }
 
 # ----------------------------------------------------------------------------
-# Trace evidence-graph de la rumeur frontiere Nord — chaine source primaire
+# Trace evidence-graph de la rumeur frontière Nord — chaîne source primaire
 # vers démenti officiel : tweet citoyen pseudonyme -> relai Telegram ->
-# blog regional -> démenti FANCI/Prefecture. Sert au handler aya.trace_rumor_origin
-# et au dossier KB associe.
+# blog régional -> démenti FANCI/Préfecture. Sert au handler aya.trace_rumor_origin
+# et au dossier KB associé.
 # ----------------------------------------------------------------------------
 
 RUMOR_FRONTIER_TRACE = {
-    "headline": "Rumeur frontiere Nord — chaine OSINT et démenti officiel",
+    "headline": "Rumeur frontière Nord — chaîne OSINT et démenti officiel",
     "summary": (
-        "Le signal initial est un tweet d'un compte citoyen pseudonyme posté a 11h42 "
-        "depuis la zone Bouna. Il est repris sur un canal Telegram regional a 12h08, "
-        "puis sur un blog local a 12h48. La FANCI et la Préfecture Nord démentent "
-        "officiellement la rumeur a partir de 13h46."
+        "Le signal initial est un tweet d'un compte citoyen pseudonyme posté à 11h42 "
+        "depuis la zone Bouna. Il est repris sur un canal Telegram régional à 12h08, "
+        "puis sur un blog local à 12h48. La FANCI et la Préfecture Nord démentent "
+        "officiellement la rumeur à partir de 13h46."
     ),
     "origin": "Tweet citoyen pseudonyme — secteur Bouna",
     "chain": [
@@ -1562,7 +1562,7 @@ RUMOR_FRONTIER_TRACE = {
             "time": "11:42",
             "actor": "@rumeur_nord_001",
             "kind": "tweet_origine",
-            "signal": "Tweet citoyen pseudonyme — 'mouvements suspects vers la frontiere Nord'",
+            "signal": "Tweet citoyen pseudonyme — 'mouvements suspects vers la frontière Nord'",
             "confidence": 0.32,
             "source_id": "tweet-rum-001",
         },
@@ -1572,7 +1572,7 @@ RUMOR_FRONTIER_TRACE = {
             "time": "12:08",
             "actor": "@rumeur_telegram_relai",
             "kind": "relai_telegram",
-            "signal": "Canal Telegram regional reprend la rumeur avec hashtag #FrontiereNord",
+            "signal": "Canal Telegram régional reprend la rumeur avec hashtag #FrontiereNord",
             "confidence": 0.45,
             "source_id": "tweet-rum-002",
         },
@@ -1618,12 +1618,12 @@ RUMOR_FRONTIER_TRACE = {
         },
     ],
     "recommended_action": (
-        "Préparer un communique souverain bref : rappeler le démenti officiel, citer les sources "
+        "Préparer un communiqué souverain bref : rappeler le démenti officiel, citer les sources "
         "FANCI et Préfecture, ouvrir la coordination CEDEAO comme suite logique."
     ),
     "aya_sentence": (
         "Monsieur le Vice-Président, la rumeur est démentie depuis 13h46. Je vous propose un "
-        "communique court qui s'appuie sur le démenti FANCI et la mise au point de la Préfecture."
+        "communiqué court qui s'appuie sur le démenti FANCI et la mise au point de la Préfecture."
     ),
 }
 
@@ -1658,26 +1658,26 @@ PRESENTATION_BEATS = [
 SECURITY_LIBRARY_ITEMS = [
     {
         "id": "lib-security-posture-sahel",
-        "title": "Note posture securite Sahel — 25 mai 2026",
+        "title": "Note posture sécurité Sahel — 25 mai 2026",
         "kind": "security_brief",
         "collection": "sentinel-ci-security-briefs",
-        "summary": "Posture dual-axis interieur/exterieur, theatre Sahel et signaux OSINT publics avant Conseil Defense 15h.",
+        "summary": "Posture dual-axis intérieur/extérieur, théâtre Sahel et signaux OSINT publics avant Conseil Défense 15h.",
         "sources": ["src-note-posture-sahel-2026-05-25"],
     },
     {
         "id": "lib-conseil-defense-am",
-        "title": "Synthese Conseil Defense restreint — 08h30",
+        "title": "Synthèse Conseil Défense restreint — 08h30",
         "kind": "security_brief",
         "collection": "sentinel-ci-security-briefs",
-        "summary": "Revue matinale Sahel, bases CEDEAO en alerte standard et elements de langage pour le VP.",
+        "summary": "Revue matinale Sahel, bases CEDEAO en alerte standard et éléments de langage pour le VP.",
         "sources": ["src-conseil-defense-2026-05-25-am"],
     },
     {
         "id": "lib-rumor-frontier-dossier",
-        "title": "Dossier rumeur frontiere Nord — chronologie OSINT",
+        "title": "Dossier rumeur frontière Nord — chronologie OSINT",
         "kind": "rumor_dossier",
         "collection": "sentinel-ci-security-briefs",
-        "summary": "Chaine tweet → Telegram → blog → dements FANCI et Prefecture Nord, advisory only.",
+        "summary": "Chaîne tweet → Telegram → blog → démentis FANCI et Préfecture Nord, advisory only.",
         "sources": ["src-rumor-frontier-nord-2026-05-25"],
     },
     {
@@ -2861,18 +2861,18 @@ def _vp_status_bar(overview: dict[str, Any], posture: dict[str, Any]) -> list[di
             "detail": f"{posture.get('score', 72)}/100",
             "tone": posture.get("label") or "elevated",
         },
-        {"id": "deadline", "key": "deadline", "label": "Decision avant", "value": "15h00", "detail": "Revue Sahel · Conseil Defense", "tone": "critical"},
+        {"id": "deadline", "key": "deadline", "label": "Décision avant", "value": "15h00", "detail": "Revue Sahel · Conseil Défense", "tone": "critical"},
         {
             "id": "posture-securite",
             "key": "posture-securite",
-            "label": "Posture securite",
+            "label": "Posture sécurité",
             "value": "VIG/ELEV",
-            "detail": "Interieur vigilance · exterieur elevee Sahel",
+            "detail": "Intérieur vigilance · extérieur élevé Sahel",
             "tone": "elevated",
-            "tooltip": "Posture dual-axis — frontiere Nord vigilance (rumeur démentie 13h46), theatre Sahel surveillance ADS-B advisory.",
+            "tooltip": "Posture dual-axis — frontière Nord vigilance (rumeur démentie 13h46), théâtre Sahel surveillance ADS-B advisory.",
         },
         {"id": "arbitrages", "key": "arbitrages", "label": "Arbitrages ouverts", "value": "3", "detail": "validation humaine", "tone": "watch"},
-        {"id": "presse", "key": "presse", "label": "Alertes presse", "value": str(kpis.get("press_alerts", 16)), "detail": "qualifiees par AYA", "tone": "critical"},
+        {"id": "presse", "key": "presse", "label": "Alertes presse", "value": str(kpis.get("press_alerts", 16)), "detail": "qualifiées par AYA", "tone": "critical"},
         {"id": "agenda", "key": "agenda", "label": "Rendez-vous", "value": str(kpis.get("meetings", 4)), "detail": "aujourd'hui", "tone": "stable"},
         {"id": "flux", "key": "flux", "label": "Flux temps reel", "value": "8", "detail": "presse · carte · agenda · visuel", "tone": "stable"},
     ]
@@ -4619,8 +4619,8 @@ def security_monitor_payload(workspace: Workspace, db: Optional[DBSession] = Non
     tracks = troops.get("tracks") or []
     tweets = social.get("tweets") or []
     layers = [
-        {"key": "military-air", "label": "Trafic ADS-B advisory", "enabled": True, "count": len(tracks)},
-        {"key": "border-tension", "label": "Tension frontiere Nord", "enabled": True, "count": len(rumor.get("chain") or [])},
+        {"key": "military-air", "label": "Traces ADS-B advisory", "enabled": True, "count": len(tracks)},
+        {"key": "border-tension", "label": "Tension frontière Nord", "enabled": True, "count": len(rumor.get("chain") or [])},
         {"key": "social-geo", "label": "Pulsation sociale", "enabled": True, "count": len(tweets)},
     ]
     map_state = {
@@ -4631,7 +4631,7 @@ def security_monitor_payload(workspace: Workspace, db: Optional[DBSession] = Non
     }
     return {
         "workspace": _workspace_meta(workspace),
-        "title": "Security Monitor — Theatre Sahel",
+        "title": "Security Monitor — Théâtre Sahel",
         "summary": posture.get("summary"),
         "route": f"{MISSION_ROOM_ROOT}/securite/monitor",
         "security_posture": posture,
@@ -4670,7 +4670,7 @@ def security_monitor_payload(workspace: Workspace, db: Optional[DBSession] = Non
         "source_freshness": {
             "adsb": f"Snapshot ADS-B advisory — {troops.get('captured_at', '14h30')}",
             "social": f"Snapshot demo-safe — {social.get('captured_at', '14h25')}",
-            "rumor": "Dossier OSINT — dementi officiel 13h45",
+            "rumor": "Dossier OSINT — démenti officiel 13h46",
             "baseline": True,
             "mode": "cache_baseline",
         },
