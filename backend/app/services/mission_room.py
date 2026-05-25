@@ -1313,7 +1313,7 @@ def _news_geo_sections(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "label": label,
                 "description": description,
                 "count": len(scoped),
-                "signals": scoped[:4],
+                "signals": scoped[:30],
             }
         )
     return sections
@@ -1446,6 +1446,7 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
         "workspace": _workspace_meta(workspace),
         "signals": fallback_signals,
         "executive_alerts": fallback_signals,
+        "all_signals": fallback_signals,
         "summary": "Lecture double : politique interieure ivoirienne prioritaire, avec contrepoint CEDEAO/Afrique/monde pour anticiper perception et diplomatie.",
         "briefing_note": {
             "headline": "Veille ouverte qualifiee CI + international",
@@ -1531,7 +1532,7 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
 
     dynamic_sources: list[dict[str, Any]] = []
     alerts: list[dict[str, Any]] = []
-    for idx, article in enumerate(ranked[:5]):
+    for idx, article in enumerate(ranked[:30]):
         source_id = f"src-live-news-{idx + 1}"
         title = _short_text(article.get("title") or "Signal de veille", 110)
         summary = _short_text(article.get("summary") or title)
@@ -1574,6 +1575,8 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
                 "confidence": confidence,
                 "source_count": 1,
                 "url": article.get("url"),
+                "published_at": article.get("published_at"),
+                "tags": (article.get("entities") or [])[:6],
                 "run_id": latest_run.id if latest_run else None,
                 "entities": article.get("entities") or [],
             }
@@ -1597,6 +1600,7 @@ def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> di
         "workspace": _workspace_meta(workspace),
         "signals": alerts[:3],
         "executive_alerts": alerts[:3],
+        "all_signals": alerts,
         "summary": synthesis.get("summary") or fallback["summary"],
         "briefing_note": {
             "headline": "Brief presse et signaux faibles",

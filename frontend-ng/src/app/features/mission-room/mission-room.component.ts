@@ -25,6 +25,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 import { MissionControlMonitorComponent } from './mission-control-monitor.component';
 import { WorkspaceMapComponent } from './workspace-map.component';
 import { VpCockpitComponent } from './vp-cockpit.component';
+import { VpPressArticleDrawerComponent, type PressArticleDetail } from './vp-press-article-drawer.component';
 import type {
   VpAgendaTimeline,
   VpAgendaTimelineEvent,
@@ -259,6 +260,7 @@ interface NewsSignal {
   url?: string | null;
   run_id?: string | null;
   entities?: string[];
+  published_at?: string | null;
 }
 
 interface NewsSourceHealth {
@@ -680,6 +682,7 @@ interface MissionMonitor {
 interface MissionNews {
   summary: string;
   signals: NewsSignal[];
+  all_signals?: NewsSignal[];
   executive_alerts?: NewsSignal[];
   briefing_note?: NewsBriefingNote;
   source_health?: NewsSourceHealth;
@@ -1428,6 +1431,7 @@ export class MissionRailComponent {
     MissionControlMonitorComponent,
     WorkspaceMapComponent,
     VpCockpitComponent,
+    VpPressArticleDrawerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -1489,6 +1493,14 @@ export class MissionRailComponent {
         }
       </main>
     </section>
+
+    <app-vp-press-article-drawer
+      [open]="!!selectedPressArticle()"
+      [article]="selectedPressArticleDetail()"
+      [newsLabRoute]="systemRouteFor('veille')"
+      [configRoute]="pressConfigRoute()"
+      (closed)="closePressArticle()"
+    />
 
     <ng-template #cockpitView>
       <app-vp-cockpit
@@ -1909,6 +1921,17 @@ export class MissionRailComponent {
           <span class="eyebrow">Alerte presse</span>
           <h2>{{ news()?.briefing_note?.headline || 'Synthese executive' }}</h2>
           <p>{{ news()?.summary }}</p>
+          @if (briefPriorityItems().length) {
+            <ul class="brief-priority-list">
+              @for (bullet of briefPriorityItems(); track bullet) {
+                <li>
+                  <button type="button" class="brief-priority-item" (click)="openBriefBullet(bullet)">
+                    {{ bullet }}
+                  </button>
+                </li>
+              }
+            </ul>
+          }
         </article>
 
         <div class="news-geo-tabs span-2">
@@ -1920,21 +1943,58 @@ export class MissionRailComponent {
           }
         </div>
 
-        <div class="executive-alert-grid span-2 compact-news-list">
-          @for (signal of filteredNewsAlerts(); track signal.id) {
-            <article
-              class="content-panel executive-alert-card compact"
-              [class.highlighted]="highlightTarget() === signal.id || highlightTarget() === 'attention-inter-budget'"
-              [attr.id]="signal.id"
-            >
-              <div class="panel-heading-row">
-                <span class="status-pill" [class]="signal.risk_level">{{ ministerialRisk(signal.risk_level) }}</span>
-                <small>{{ signal.viewpoint || signal.zone || signal.source }}</small>
-              </div>
-              <h3>{{ signal.title }}</h3>
-              <p>{{ signal.briefing_value || signal.impact_ci || signal.summary }}</p>
-            </article>
-          }
+        @if (pressArticleListOpen()) {
+          <div class="press-full-list span-2" role="region" aria-label="Liste complete des articles">
+            @for (signal of displayedPressArticles(); track signal.id) {
+              <button
+                type="button"
+                class="content-panel executive-alert-card compact press-article-card press-list-row"
+                [class.highlighted]="selectedPressArticle()?.id === signal.id"
+                (click)="openPressArticle(signal)"
+              >
+                <div class="panel-heading-row">
+                  <span class="status-pill" [class]="signal.risk_level">{{ ministerialRisk(signal.risk_level) }}</span>
+                  <small>{{ signal.source_name || signal.viewpoint || signal.zone || signal.source }}</small>
+                </div>
+                <h3>{{ signal.title }}</h3>
+                <p>{{ signal.briefing_value || signal.impact_ci || signal.summary }}</p>
+                @if (signal.source_name) {
+                  <span class="publisher-badge">{{ signal.source_name }}</span>
+                }
+              </button>
+            }
+          </div>
+        } @else {
+          <div class="executive-alert-grid span-2 compact-news-list">
+            @for (signal of heroNewsAlerts(); track signal.id) {
+              <button
+                type="button"
+                class="content-panel executive-alert-card compact press-article-card"
+                [class.highlighted]="highlightTarget() === signal.id || highlightTarget() === 'attention-inter-budget'"
+                [attr.id]="signal.id"
+                (click)="openPressArticle(signal)"
+              >
+                <div class="panel-heading-row">
+                  <span class="status-pill" [class]="signal.risk_level">{{ ministerialRisk(signal.risk_level) }}</span>
+                  <small>{{ signal.source_name || signal.viewpoint || signal.zone || signal.source }}</small>
+                </div>
+                <h3>{{ signal.title }}</h3>
+                <p>{{ signal.briefing_value || signal.impact_ci || signal.summary }}</p>
+                @if (signal.source_name) {
+                  <span class="publisher-badge">{{ signal.source_name }}</span>
+                }
+              </button>
+            }
+          </div>
+        }
+
+        <div class="press-drill-footer span-2">
+          <button type="button" class="press-see-all" (click)="togglePressArticleList()">
+            {{ pressArticleListOpen() ? 'Revenir a la synthese' : 'Voir tous les articles (' + regionArticleCount() + ')' }}
+          </button>
+          <button type="button" class="press-kpi-link" (click)="openPressArticleList({ sortByRisk: true })">
+            {{ pressKpiLabel() }}
+          </button>
         </div>
 
         <article class="content-panel">
@@ -4101,6 +4161,101 @@ export class MissionRailComponent {
       .draft-sidebar { position: sticky; top: 12px; }
       .compact-news-list { grid-template-columns: 1fr !important; }
       .executive-alert-card.compact p { margin-bottom: 0; }
+      .press-article-card {
+        width: 100%;
+        text-align: left;
+        cursor: pointer;
+        appearance: none;
+        font: inherit;
+        color: inherit;
+        transition:
+          border-color var(--mission-dur-fast, 120ms) ease,
+          box-shadow var(--mission-dur-fast, 120ms) ease;
+      }
+      .press-article-card:hover,
+      .press-article-card:focus-visible {
+        border-color: rgba(66, 217, 155, 0.42);
+        outline: none;
+      }
+      .press-article-card:focus-visible {
+        box-shadow: 0 0 0 2px rgba(66, 217, 155, 0.24);
+      }
+      .publisher-badge {
+        display: inline-flex;
+        margin-top: 8px;
+        padding: 3px 8px;
+        border: 1px solid rgba(66, 217, 155, 0.22);
+        border-radius: 999px;
+        color: var(--mission-accent);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .brief-priority-list {
+        display: grid;
+        gap: 8px;
+        margin: 14px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+      .brief-priority-item {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid rgba(66, 217, 155, 0.18);
+        border-radius: 7px;
+        background: rgba(22, 58, 42, 0.28);
+        color: var(--mission-text-soft);
+        text-align: left;
+        font: inherit;
+        line-height: 1.45;
+        cursor: pointer;
+      }
+      .brief-priority-item:hover,
+      .brief-priority-item:focus-visible {
+        border-color: rgba(66, 217, 155, 0.42);
+        color: var(--mission-text);
+        outline: none;
+      }
+      .press-drill-footer {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .press-see-all,
+      .press-kpi-link {
+        border: 0;
+        background: transparent;
+        color: var(--mission-accent);
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      .press-kpi-link {
+        color: var(--mission-text-muted);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        text-decoration: none;
+      }
+      .press-kpi-link:hover,
+      .press-see-all:hover {
+        color: var(--mission-text);
+      }
+      .press-full-list {
+        display: grid;
+        gap: 10px;
+        max-height: min(62vh, 720px);
+        overflow-y: auto;
+        padding-right: 4px;
+      }
+      .press-list-row h3 {
+        margin: 0;
+        font-size: 15px;
+      }
       @media (max-width: 1200px) {
         .mission-shell { grid-template-columns: 200px minmax(0, 1fr); }
         .mission-main { padding: 24px; }
@@ -4174,6 +4329,9 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly activePortWebcam = signal<Record<string, unknown> | null>(null);
   readonly visualCaptureImages = signal<Record<string, string>>({});
   readonly activeNewsGeoTier = signal<'ci' | 'cedeao' | 'africa' | 'world'>('ci');
+  readonly selectedPressArticle = signal<NewsSignal | null>(null);
+  readonly pressArticleListOpen = signal(false);
+  readonly pressArticleListRiskSort = signal(false);
   readonly morningHighlightDismissed = signal(this.readMorningDismissed());
   private readonly highlightQuery = toSignal(
     this.route.queryParamMap.pipe(map((params) => params.get('highlight'))),
@@ -4474,6 +4632,130 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     return payload?.executive_alerts?.length ? payload.executive_alerts : payload?.signals || [];
   }
 
+  allNewsSignals(): NewsSignal[] {
+    const payload = this.news();
+    const primary = payload?.all_signals?.length
+      ? payload.all_signals
+      : payload?.executive_alerts?.length
+        ? payload.executive_alerts
+        : payload?.signals || [];
+    const sectionSignals = (payload?.geo_sections || []).flatMap((section) => section.signals || []);
+    const merged = new Map<string, NewsSignal>();
+    for (const signal of [...primary, ...sectionSignals]) {
+      if (signal?.id) merged.set(signal.id, signal);
+    }
+    return [...merged.values()];
+  }
+
+  briefPriorityItems(): string[] {
+    return (this.news()?.briefing_note?.bullets || []).slice(0, 3);
+  }
+
+  heroNewsAlerts(): NewsSignal[] {
+    return this.regionArticles().slice(0, 1);
+  }
+
+  regionArticleCount(): number {
+    return this.regionArticles().length;
+  }
+
+  displayedPressArticles(): NewsSignal[] {
+    const articles = this.regionArticles();
+    if (!this.pressArticleListRiskSort()) return articles;
+    return [...articles].sort(
+      (left, right) => this.pressRiskRank(right.risk_level) - this.pressRiskRank(left.risk_level),
+    );
+  }
+
+  pressKpiLabel(): string {
+    const health = this.news()?.source_health;
+    const analyzed = health?.analyzed || this.kpiNumber('analyzed_articles') || this.allNewsSignals().length;
+    const highRisk = health?.high_risk
+      || this.allNewsSignals().filter((signal) => this.pressRiskRank(signal.risk_level) >= 3).length;
+    return `${analyzed} articles analyses · ${highRisk} signaux haut risque`;
+  }
+
+  selectedPressArticleDetail(): PressArticleDetail | null {
+    const article = this.selectedPressArticle();
+    if (!article) return null;
+    return {
+      id: article.id,
+      title: article.title,
+      summary: article.summary,
+      briefing_value: article.briefing_value,
+      impact_ci: article.impact_ci,
+      why_it_matters: article.why_it_matters,
+      source: article.source,
+      source_name: article.source_name,
+      risk_level: article.risk_level,
+      url: article.url,
+      tags: article.tags,
+      published_at: article.published_at,
+      entities: article.entities,
+      viewpoint: article.viewpoint,
+      zone: article.zone,
+    };
+  }
+
+  pressConfigRoute(): string | null {
+    const route = this.systemRouteFor('veille');
+    return route ? `${route}?facet=intelligence&panel=config` : null;
+  }
+
+  openPressArticle(article: NewsSignal): void {
+    this.selectedPressArticle.set(article);
+  }
+
+  closePressArticle(): void {
+    this.selectedPressArticle.set(null);
+  }
+
+  togglePressArticleList(): void {
+    this.pressArticleListOpen.update((open) => !open);
+    if (!this.pressArticleListOpen()) {
+      this.pressArticleListRiskSort.set(false);
+    }
+  }
+
+  openPressArticleList(options?: { sortByRisk?: boolean }): void {
+    this.pressArticleListRiskSort.set(!!options?.sortByRisk);
+    this.pressArticleListOpen.set(true);
+    this.closePressArticle();
+  }
+
+  openBriefBullet(bullet: string): void {
+    const match = this.matchBriefBulletArticle(bullet);
+    if (match) {
+      this.openPressArticle(match);
+      return;
+    }
+    this.openPressArticleList({ sortByRisk: true });
+  }
+
+  matchBriefBulletArticle(bullet: string): NewsSignal | null {
+    const normalizedBullet = bullet.toLowerCase();
+    const articles = this.allNewsSignals();
+    let best: NewsSignal | null = null;
+    let bestScore = 0;
+    for (const article of articles) {
+      const titleWords = article.title.toLowerCase().split(/\s+/).filter((word) => word.length > 4);
+      const score = titleWords.filter((word) => normalizedBullet.includes(word)).length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = article;
+      }
+    }
+    if (best && bestScore >= 2) return best;
+    return articles.find((article) => this.pressRiskRank(article.risk_level) >= 3) || articles[0] || null;
+  }
+
+  private pressRiskRank(level?: string): number {
+    const normalized = (level || '').toLowerCase();
+    if (normalized === 'critical' || normalized === 'high') return 3;
+    if (normalized === 'medium' || normalized === 'elevated' || normalized === 'watch') return 2;
+    return 1;
+  }
+
   maritimeIntelligence(): MaritimeIntelligence | null {
     return this.news()?.maritime_intelligence || this.monitor()?.maritime || null;
   }
@@ -4512,14 +4794,25 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   setNewsGeoTier(key: 'ci' | 'cedeao' | 'africa' | 'world'): void {
     this.activeNewsGeoTier.set(key);
+    this.pressArticleListOpen.set(false);
+    this.pressArticleListRiskSort.set(false);
+    this.closePressArticle();
+  }
+
+  regionArticles(): NewsSignal[] {
+    const tier = this.activeNewsGeoTier();
+    const direct = this.allNewsSignals().filter((signal) => this.newsGeoTier(signal) === tier);
+    const section = (this.news()?.geo_sections || []).find((item) => item.key === tier);
+    const sectionSignals = section?.signals || [];
+    const merged = new Map<string, NewsSignal>();
+    for (const signal of [...direct, ...sectionSignals]) {
+      if (signal?.id) merged.set(signal.id, signal);
+    }
+    return [...merged.values()].slice(0, 30);
   }
 
   filteredNewsAlerts(): NewsSignal[] {
-    const tier = this.activeNewsGeoTier();
-    const direct = this.newsAlerts().filter((signal) => this.newsGeoTier(signal) === tier);
-    const section = (this.news()?.geo_sections || []).find((item) => item.key === tier);
-    const sectionSignals = section?.signals || [];
-    return (direct.length ? direct : sectionSignals).slice(0, 4);
+    return this.regionArticles().slice(0, 4);
   }
 
   newsGeoTier(signal: NewsSignal): 'ci' | 'cedeao' | 'africa' | 'world' {
@@ -5014,6 +5307,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   openPressPreviewItem(item: VpPressPreviewItem): void {
     const drill = this.resolvePressPreviewDrillDown(item);
+    const article = this.allNewsSignals().find((signal) => signal.id === item.id);
+    if (article && this.currentView() === 'presse') {
+      this.openPressArticle(article);
+      return;
+    }
     this.navigateDrillDown(drill, item.id);
   }
 
@@ -5241,6 +5539,13 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private scrollToHighlight(): void {
     const target = this.highlightTarget();
     if (!target) return;
+    if (this.currentView() === 'presse') {
+      const article = this.allNewsSignals().find((signal) => signal.id === target);
+      if (article) {
+        this.openPressArticle(article);
+        return;
+      }
+    }
     setTimeout(() => {
       const element = document.getElementById(target)
         || document.querySelector(`[id="${target}"]`)
