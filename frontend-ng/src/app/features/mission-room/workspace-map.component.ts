@@ -54,9 +54,9 @@ type BasemapOption = {
 
 /** Color table used by both the deck.gl vessel layer and the legend. */
 const VESSEL_TYPE_COLORS: Record<string, [number, number, number]> = {
-  cargo: [63, 182, 138],
-  container: [63, 182, 138],
-  tanker: [242, 180, 61],
+  cargo: [34, 197, 94],
+  container: [34, 197, 94],
+  tanker: [249, 115, 22],
   roro: [113, 181, 242],
   passenger: [157, 124, 240],
   fishing: [148, 164, 182],
@@ -65,9 +65,13 @@ const VESSEL_TYPE_COLORS: Record<string, [number, number, number]> = {
 };
 /** Violet highlight reserved for vessels linked to a tracked project / cargo. */
 const VESSEL_HIGHLIGHT_RGB: [number, number, number] = [180, 136, 255];
+const ZONE_STROKE_RGB: [number, number, number] = [62, 230, 138];
+const ZONE_STROKE_ALPHA = 89;
 const VESSEL_ICON_MAPPING = {
   triangle: { x: 0, y: 0, width: 64, height: 64, mask: true, anchorY: 64 },
+  diamond: { x: 64, y: 0, width: 64, height: 64, mask: true, anchorY: 32 },
 } as const;
+const ATLANTIC_TRADER_MMSI = '627012345';
 
 @Component({
   selector: 'app-workspace-map',
@@ -145,26 +149,33 @@ const VESSEL_ICON_MAPPING = {
           <button type="button" aria-label="Zoom arrière" (click)="zoomOut()">−</button>
           <button type="button" aria-label="Vue pays" (click)="resetCountry()">⌂</button>
         </div>
-        @if (!legendOpen) {
+        @if (!legendOpen && !isLayerActive('maritime-traffic')) {
           <button type="button" class="map-legend-toggle" (click)="toggleLegend(); $event.stopPropagation()">Niveaux</button>
         }
-        @if (legendOpen) {
-          <div class="map-legend">
-            <strong>Niveaux</strong>
-            <span><i class="stable"></i>stable</span>
-            <span><i class="monitoring"></i>surveillance</span>
-            <span><i class="elevated"></i>élevé</span>
-            <span><i class="critical"></i>critique</span>
+        @if (legendOpen || isLayerActive('maritime-traffic')) {
+          <div class="map-legend-bar">
+            @if (legendOpen) {
+              <div class="legend-section niveaux">
+                <strong>Niveaux</strong>
+                <span><i class="stable"></i>stable</span>
+                <span><i class="monitoring"></i>surveillance</span>
+                <span><i class="elevated"></i>élevé</span>
+                <span><i class="critical"></i>critique</span>
+              </div>
+            }
+            @if (isLayerActive('maritime-traffic')) {
+              <div class="legend-section maritime">
+                <strong>Maritime</strong>
+                <span><i class="corridor"></i>corridor</span>
+                <span><i class="port"></i>ports</span>
+                <span><i class="vessel-cargo"></i>cargo</span>
+                <span><i class="vessel-tanker"></i>tanker</span>
+              </div>
+            }
           </div>
         }
-        @if (isLayerActive('maritime-traffic')) {
-          <div class="map-maritime-legend">
-            <strong>Maritime</strong>
-            <span><i class="corridor"></i>corridor</span>
-            <span><i class="port"></i>ports</span>
-            <span><i class="density"></i>densité</span>
-            <span><i class="alert"></i>alerte</span>
-          </div>
+        @if (isLayerActive('maritime-traffic') && !compact && !previewMode) {
+          <div class="map-maritime-caption">Corridor maritime · Golfe de Guinée</div>
         }
         @if (briefOpen && selectedBriefZone(); as zone) {
           <article class="map-brief-popup" (click)="$event.stopPropagation()">
@@ -238,12 +249,15 @@ const VESSEL_ICON_MAPPING = {
         min-height: 360px;
         height: 100%;
         overflow: hidden;
-        border: 1px solid rgba(101, 214, 110, 0.28);
-        border-radius: 10px;
+        border: 1px solid rgba(62, 230, 138, 0.22);
+        border-radius: 12px;
         background:
           radial-gradient(circle at 58% 44%, rgba(101, 214, 110, 0.055), transparent 34%),
           linear-gradient(135deg, rgba(4, 8, 12, 0.98), rgba(9, 14, 20, 0.97));
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 24px 70px rgba(0,0,0,0.22);
+        box-shadow:
+          inset 0 1px 12px rgba(0, 0, 0, 0.28),
+          inset 0 0 0 1px rgba(255,255,255,0.03),
+          0 24px 70px rgba(0,0,0,0.22);
       }
 
       .workspace-map::after {
@@ -294,9 +308,9 @@ const VESSEL_ICON_MAPPING = {
 
       .workspace-map.preview-mode .map-control-panel,
       .workspace-map.preview-mode .map-reset,
-      .workspace-map.preview-mode .map-legend,
+      .workspace-map.preview-mode .map-legend-bar,
       .workspace-map.preview-mode .map-legend-toggle,
-      .workspace-map.preview-mode .map-maritime-legend,
+      .workspace-map.preview-mode .map-maritime-caption,
       .workspace-map.preview-mode .map-compass,
       .workspace-map.preview-mode .map-zoom-controls,
       .workspace-map.preview-mode .map-hud,
@@ -312,13 +326,13 @@ const VESSEL_ICON_MAPPING = {
 
       .workspace-map.compact .map-control-panel,
       .workspace-map.compact .map-reset,
-      .workspace-map.compact .map-legend,
-      .workspace-map.compact .map-maritime-legend,
+      .workspace-map.compact .map-legend-bar,
+      .workspace-map.compact .map-maritime-caption,
       .workspace-map.compact .map-compass,
       .workspace-map.preview-mode .map-control-panel,
       .workspace-map.preview-mode .map-reset,
-      .workspace-map.preview-mode .map-legend,
-      .workspace-map.preview-mode .map-maritime-legend,
+      .workspace-map.preview-mode .map-legend-bar,
+      .workspace-map.preview-mode .map-maritime-caption,
       .workspace-map.preview-mode .map-compass,
       .workspace-map.preview-mode .map-zoom-controls,
       .workspace-map.preview-mode .map-brief-popup {
@@ -395,12 +409,13 @@ const VESSEL_ICON_MAPPING = {
         display: grid;
         gap: 9px;
         padding: 11px;
-        border: 1px solid rgba(148, 197, 229, 0.22);
+        border: 1px solid rgba(62, 230, 138, 0.18);
         border-radius: 14px;
-        background: rgba(2, 5, 8, 0.92);
+        background: rgba(10, 17, 24, 0.88);
         box-shadow: 0 18px 42px rgba(0, 0, 0, 0.40), inset 0 0 0 1px rgba(255,255,255,0.035);
-        backdrop-filter: blur(10px) saturate(1.05);
+        backdrop-filter: blur(12px) saturate(1.05);
         pointer-events: auto;
+        z-index: 6;
       }
 
       .map-control-panel.collapsed {
@@ -478,9 +493,9 @@ const VESSEL_ICON_MAPPING = {
         min-height: 31px;
         padding: 7px 10px;
         border-radius: 999px;
-        border: 1px solid rgba(148, 197, 229, 0.18);
-        background: rgba(11, 20, 31, 0.88);
-        color: rgba(207, 239, 255, 0.70);
+        border: 1px solid rgba(62, 230, 138, 0.22);
+        background: rgba(10, 17, 24, 0.88);
+        color: rgba(196, 206, 218, 0.82);
         font: 750 9px/1 var(--mission-mono, monospace);
         letter-spacing: 0.10em;
         text-transform: uppercase;
@@ -490,15 +505,15 @@ const VESSEL_ICON_MAPPING = {
 
       .basemap-switch button.active,
       .map-reset:hover {
-        border-color: rgba(148, 197, 229, 0.54);
-        background: rgba(10, 34, 49, 0.82);
-        color: rgba(232, 247, 255, 0.92);
-        box-shadow: 0 0 18px rgba(79, 178, 229, 0.13);
+        border-color: rgba(62, 230, 138, 0.48);
+        background: rgba(62, 230, 138, 0.12);
+        color: rgba(244, 247, 251, 0.96);
+        box-shadow: 0 0 18px rgba(62, 230, 138, 0.14);
       }
 
       .basemap-switch button:hover,
       .layer-toggle:hover {
-        border-color: rgba(148, 197, 229, 0.56);
+        border-color: rgba(62, 230, 138, 0.38);
         color: rgba(245, 251, 255, 0.95);
       }
 
@@ -656,21 +671,107 @@ const VESSEL_ICON_MAPPING = {
         background: rgba(101, 214, 110, 0.12);
       }
 
-      .map-legend {
+      .map-legend-bar {
         position: absolute;
         left: 50%;
-        right: auto;
-        bottom: 56px;
-        top: auto;
+        bottom: 14px;
         transform: translateX(-50%);
         z-index: 5;
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 8px 11px;
-        border: 1px solid rgba(148, 197, 229, 0.16);
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 14px 18px;
+        max-width: calc(100% - 32px);
+        padding: 10px 16px;
+        border: 1px solid rgba(62, 230, 138, 0.16);
         border-radius: 999px;
-        background: rgba(2, 6, 10, 0.94);
+        background: rgba(10, 17, 24, 0.85);
+        backdrop-filter: blur(12px);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+        pointer-events: none;
+      }
+
+      .legend-section {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .legend-section + .legend-section {
+        padding-left: 14px;
+        border-left: 1px solid rgba(62, 230, 138, 0.14);
+      }
+
+      .legend-section strong {
+        color: rgba(196, 206, 218, 0.78);
+        font: 800 9px/1 var(--mission-mono, monospace);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .legend-section span {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: rgba(196, 206, 218, 0.72);
+        font: 700 11px/1 var(--mission-mono, monospace);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .legend-section i {
+        display: inline-block;
+        flex-shrink: 0;
+      }
+
+      .legend-section .stable { width: 8px; height: 8px; border-radius: 999px; background: #166534; box-shadow: 0 0 6px rgba(22, 101, 52, 0.5); }
+      .legend-section .monitoring { width: 8px; height: 8px; border-radius: 999px; background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.4); }
+      .legend-section .elevated { width: 8px; height: 8px; border-radius: 999px; background: #f97316; box-shadow: 0 0 6px rgba(249, 115, 22, 0.4); }
+      .legend-section .critical { width: 8px; height: 8px; border-radius: 999px; background: #dc2626; box-shadow: 0 0 8px rgba(220, 38, 38, 0.55); }
+
+      .legend-section.maritime .corridor {
+        width: 18px;
+        height: 2px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(62, 230, 138, 0.25), rgba(62, 230, 138, 0.85));
+      }
+      .legend-section.maritime .port {
+        width: 7px;
+        height: 7px;
+        transform: rotate(45deg);
+        background: #f59e0b;
+        border-radius: 1px;
+      }
+      .legend-section.maritime .vessel-cargo,
+      .legend-section.maritime .vessel-tanker {
+        width: 0;
+        height: 0;
+        border-left: 5px solid transparent;
+        border-right: 5px solid transparent;
+        border-bottom: 10px solid #22c55e;
+        background: transparent;
+      }
+      .legend-section.maritime .vessel-tanker {
+        border-bottom-color: #f97316;
+      }
+
+      .map-maritime-caption {
+        position: absolute;
+        left: 50%;
+        bottom: 58px;
+        transform: translateX(-50%);
+        z-index: 4;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(10, 17, 24, 0.72);
+        color: rgba(196, 206, 218, 0.62);
+        font: 700 10px/1 var(--mission-mono, monospace);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        pointer-events: none;
         backdrop-filter: blur(8px);
       }
 
@@ -701,100 +802,11 @@ const VESSEL_ICON_MAPPING = {
       }
 
       .workspace-map.basemap-contours .map-control-panel,
-      .workspace-map.basemap-contours .map-legend,
+      .workspace-map.basemap-contours .map-legend-bar,
       .workspace-map.basemap-contours .map-brief-popup,
       .workspace-map.basemap-contours .map-hud,
       .workspace-map.basemap-contours .map-attribution {
         background: rgba(6, 14, 22, 0.92);
-      }
-
-      .map-legend span {
-        display: flex;
-        align-items: center;
-        gap: 7px;
-        color: rgba(213, 229, 242, 0.72);
-        font-size: 11px;
-        line-height: 1;
-      }
-
-      .map-legend strong {
-        color: rgba(148, 197, 229, 0.86);
-        font: 800 9px/1 var(--mission-mono, monospace);
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-      }
-
-      .map-legend i {
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        display: inline-block;
-      }
-
-      .map-legend .stable { background: #76dfa6; }
-      .map-legend .monitoring { background: #8fd2ff; }
-      .map-legend .elevated { background: #f1ce71; }
-      .map-legend .critical { background: #f27f8b; }
-
-      .map-maritime-legend {
-        position: absolute;
-        right: 18px;
-        bottom: 58px;
-        z-index: 5;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        max-width: calc(100% - 36px);
-        padding: 8px 11px;
-        border: 1px solid rgba(80, 184, 238, 0.20);
-        border-radius: 999px;
-        background: rgba(2, 6, 10, 0.92);
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
-        backdrop-filter: blur(8px);
-        pointer-events: none;
-      }
-
-      .map-maritime-legend strong {
-        color: rgba(148, 197, 229, 0.86);
-        font: 800 9px/1 var(--mission-mono, monospace);
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-      }
-
-      .map-maritime-legend span {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        color: rgba(213, 229, 242, 0.72);
-        font-size: 11px;
-        line-height: 1;
-        white-space: nowrap;
-      }
-
-      .map-maritime-legend i {
-        width: 18px;
-        height: 3px;
-        display: inline-block;
-        border-radius: 999px;
-      }
-
-      .map-maritime-legend .corridor { background: #65cdf5; }
-      .map-maritime-legend .port {
-        width: 8px;
-        height: 8px;
-        background: #ffb15f;
-      }
-      .map-maritime-legend .density {
-        width: 10px;
-        height: 10px;
-        background: rgba(103, 206, 255, 0.46);
-        box-shadow: 0 0 0 5px rgba(103, 206, 255, 0.12);
-      }
-      .map-maritime-legend .alert {
-        width: 8px;
-        height: 8px;
-        background: #ff7f67;
-        box-shadow: 0 0 0 5px rgba(255, 127, 103, 0.14);
       }
 
       .map-brief-popup {
@@ -1054,6 +1066,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private focusMarker: any | null = null;
   /** Applied on first map load when external state arrives before MapLibre init. */
   private pendingExternalMapState: Record<string, any> | null = null;
+  private hoveredZoneId: string | null = null;
+  private zonePulsePhase = 0;
+  private atlanticPulsePhase = 0;
+  private zonePulseTimer: ReturnType<typeof setInterval> | null = null;
+  private atlanticPulseTimer: ReturnType<typeof setInterval> | null = null;
 
   get layerControls(): MapLayerControl[] {
     const catalog = this.mapSystem?.['layer_registry'] || this.mapSystem?.['layer_catalog'];
@@ -1167,6 +1184,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   ngOnDestroy(): void {
+    if (this.zonePulseTimer) clearInterval(this.zonePulseTimer);
+    if (this.atlanticPulseTimer) clearInterval(this.atlanticPulseTimer);
     try {
       this.deckOverlay?.finalize?.();
       this.mapInstance?.remove?.();
@@ -1208,9 +1227,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   zoneFill(zone: MapZone): string {
-    if (zone.tone === 'critical') return '#ef6f7d';
-    if (zone.tone === 'watch') return '#edc765';
-    return '#69d89b';
+    if (zone.tone === 'critical') return '#dc2626';
+    if (zone.tone === 'watch') return '#f59e0b';
+    return '#166534';
   }
 
   zonePulseRadius(zone: MapZone): number {
@@ -1306,6 +1325,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       this.mapInstance.on('load', () => {
         this.mapInstance.addControl(this.deckOverlay);
         this.finishMapBootstrap();
+        this.startMapPulseAnimations();
       });
       this.mapInstance.on('moveend', () => this.updateDeckLayers());
       this.mapInstance.on('error', () => this.enableFallback());
@@ -1481,7 +1501,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         zoom: camera?.['zoom'] ?? (this.compact ? 5.15 : 6.0),
         pitch: 0,
         bearing: 0,
-        duration: Math.max(0, Math.min(requestedDuration, 320)),
+        duration: Math.max(0, Math.min(requestedDuration, 400)),
       });
     }
     this.updateDeckLayers();
@@ -1633,20 +1653,30 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         pickable: true,
         filled: true,
         stroked: true,
-        getFillColor: (feature: any) => this.deckColor(
-          feature.properties?.tone,
-          feature.properties?.id === this.selectedZoneId,
-          feature.properties?.id === this.selectedZoneId ? 72 : (showTerritory ? 42 : 22),
-        ),
-        getLineColor: (feature: any) => this.deckLineColor(
-          feature.properties?.tone,
-          feature.properties?.id === this.selectedZoneId,
-          feature.properties?.id === this.selectedZoneId ? 210 : 120,
-        ),
-        lineWidthMinPixels: 1,
-        lineWidthMaxPixels: 2,
+        getFillColor: (feature: any) => {
+          const zoneId = feature.properties?.id;
+          const tone = feature.properties?.tone;
+          const selected = zoneId === this.selectedZoneId;
+          const hovered = zoneId === this.hoveredZoneId;
+          return this.deckColor(tone, selected, hovered, zoneId);
+        },
+        getLineColor: (feature: any) => {
+          const zoneId = feature.properties?.id;
+          const tone = feature.properties?.tone;
+          const selected = zoneId === this.selectedZoneId;
+          const hovered = zoneId === this.hoveredZoneId;
+          return this.deckLineColor(tone, selected, hovered);
+        },
+        lineWidthMinPixels: 0.75,
+        lineWidthMaxPixels: selectedOrTopZoneMarkers.length ? 1.5 : 1.1,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitDeckZone(info.object?.properties?.id),
+        onHover: (info: any) => {
+          const nextId = info.object?.properties?.id || null;
+          if (nextId === this.hoveredZoneId) return;
+          this.hoveredZoneId = nextId;
+          this.updateDeckLayers();
+        },
       }));
     }
 
@@ -1675,26 +1705,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           stroked: true,
           getFillColor: [0, 0, 0, 0],
           getLineColor: this.maritimeAreaLineColor(),
-          lineWidthMinPixels: 0.65,
-          lineWidthMaxPixels: 1.1,
-          parameters: { depthTest: false },
-        }));
-      }
-      const densityFeatures = maritimeDensitySource?.features || [];
-      if (densityFeatures.length) {
-        layers.push(new ScatterplotLayer({
-          id: 'sentinel-maritime-density',
-          data: densityFeatures,
-          pickable: false,
-          stroked: false,
-          filled: true,
-          getPosition: (feature: any) => feature.geometry.coordinates,
-          radiusUnits: 'meters',
-          getRadius: (feature: any) => Math.max(7000, Math.min(22000, (feature.properties?.score || 52) * 260)),
-          getFillColor: (feature: any) => {
-            const base = this.maritimeDensityColor(feature);
-            return [base[0], base[1], base[2], Math.min(base[3] as number, 28)];
-          },
+          lineWidthMinPixels: 0.55,
+          lineWidthMaxPixels: 0.85,
           parameters: { depthTest: false },
         }));
       }
@@ -1705,48 +1717,37 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         filled: false,
         stroked: true,
         getLineColor: (feature: any) => this.maritimeRouteColor(feature),
-        getLineWidth: (feature: any) => feature.properties?.visual_role === 'port_approach' ? 2800 : 2200,
-        lineWidthMinPixels: 0.95,
-        lineWidthMaxPixels: 2.35,
+        getLineWidth: (feature: any) => feature.properties?.visual_role === 'port_approach' ? 2400 : 1800,
+        lineWidthMinPixels: 0.75,
+        lineWidthMaxPixels: 1.8,
         parameters: { depthTest: false },
       }));
       const maritimeFeatures = maritimePointsSource?.features || [];
-      layers.push(new ScatterplotLayer({
-        id: 'sentinel-maritime-rings',
-        data: maritimeFeatures,
-        pickable: false,
-        stroked: true,
-        filled: true,
-        getPosition: (feature: any) => feature.geometry.coordinates,
-        radiusUnits: 'pixels',
-        getRadius: (feature: any) => Math.max(10, Math.min(25, (feature.properties?.score || feature.properties?.weight || 48) / 3.4)),
-        getFillColor: (feature: any) => this.maritimePointColor(feature, 26),
-        getLineColor: (feature: any) => this.maritimePointColor(feature, 174),
-        lineWidthMinPixels: 1.25,
-        parameters: { depthTest: false },
-      }));
-      layers.push(new ScatterplotLayer({
-        id: 'sentinel-maritime-points',
-        data: maritimeFeatures,
+      const portFeatures = maritimeFeatures.filter((feature: any) => feature.properties?.kind === 'port');
+      layers.push(new IconLayer({
+        id: 'sentinel-maritime-ports',
+        data: portFeatures,
         pickable: true,
+        iconAtlas: this.getVesselIconAtlas(),
+        iconMapping: VESSEL_ICON_MAPPING,
+        getIcon: () => 'diamond',
         getPosition: (feature: any) => feature.geometry.coordinates,
-        radiusUnits: 'pixels',
-        getRadius: (feature: any) => feature.properties?.kind === 'port' ? 7 : 5.6,
-        getFillColor: (feature: any) => this.maritimePointColor(feature, 238),
-        getLineColor: (feature: any) => this.isLightBasemap() ? [8, 26, 38, 228] : [245, 252, 255, 230],
-        lineWidthMinPixels: 1.45,
+        getSize: this.compact ? 10 : 12,
+        getColor: (feature: any) => this.maritimePointColor(feature, 230),
+        sizeUnits: 'pixels',
+        billboard: true,
         parameters: { depthTest: false },
         onClick: (info: any) => this.emitMaritimeEvidence(info.object),
       }));
-      const maritimeLabelFeatures = maritimeFeatures.filter((feature: any) => feature.properties?.kind === 'port').slice(0, 2);
+      const maritimeLabelFeatures = portFeatures.slice(0, 2);
       layers.push(new TextLayer({
         id: 'sentinel-maritime-labels',
         data: maritimeLabelFeatures,
         getPosition: (feature: any) => feature.geometry.coordinates,
-        getText: (feature: any) => feature.properties?.name || '',
-        getSize: this.compact ? 9 : 11,
+        getText: (feature: any) => (feature.properties?.name || '').toUpperCase(),
+        getSize: this.compact ? 9 : 10,
         getColor: this.isLightBasemap() ? [10, 25, 38, 242] : [240, 250, 255, 244],
-        getPixelOffset: [0, -25],
+        getPixelOffset: [0, -16],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'bottom',
         fontSettings: { sdf: true },
@@ -1756,11 +1757,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         parameters: { depthTest: false },
       }));
 
-      // AIS vessel positions rendered natively by deck.gl so they inherit
-      // MapLibre's Mercator projection — no HTML overlay drift on pan/zoom.
-      const vesselsData = (this.vessels || []).filter(
+      const vesselsRaw = (this.vessels || []).filter(
         (vessel) => Number.isFinite(Number(vessel?.lat)) && Number.isFinite(Number(vessel?.lon)),
       );
+      const vesselsData = this.spreadVesselPositions(vesselsRaw);
       if (vesselsData.length) {
         const highlightedMmsi = this.highlightedVesselMmsi;
         const isVesselHighlighted = (vessel: VesselPosition) =>
@@ -1769,22 +1769,29 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
               || vessel.linked_cargo_id
               || vessel.highlight,
           );
+        const atlanticTrader = vesselsData.find((vessel) => this.isAtlanticTrader(vessel));
         const vesselIconAtlas = this.getVesselIconAtlas();
-        layers.push(new IconLayer({
-          id: 'sentinel-vessels-halo',
-          data: vesselsData.filter(isVesselHighlighted),
-          pickable: false,
-          iconAtlas: vesselIconAtlas,
-          iconMapping: VESSEL_ICON_MAPPING,
-          getIcon: () => 'triangle',
-          getPosition: (vessel: VesselPosition) => [Number(vessel.lon), Number(vessel.lat)],
-          getAngle: (vessel: VesselPosition) => this.vesselIconAngle(vessel),
-          getSize: this.compact ? 30 : 34,
-          getColor: [...VESSEL_HIGHLIGHT_RGB, 72] as any,
-          sizeUnits: 'pixels',
-          billboard: true,
-          parameters: { depthTest: false },
-        }));
+        const highlightedVessels = vesselsData.filter(isVesselHighlighted);
+        if (highlightedVessels.length) {
+          layers.push(new IconLayer({
+            id: 'sentinel-vessels-halo',
+            data: highlightedVessels,
+            pickable: false,
+            iconAtlas: vesselIconAtlas,
+            iconMapping: VESSEL_ICON_MAPPING,
+            getIcon: () => 'triangle',
+            getPosition: (vessel: VesselPosition & { displayLon: number; displayLat: number }) =>
+              [vessel.displayLon, vessel.displayLat],
+            getAngle: (vessel: VesselPosition) => this.vesselIconAngle(vessel),
+            getSize: (vessel: VesselPosition) =>
+              this.vesselIconSize(isVesselHighlighted(vessel)) + (this.isAtlanticTrader(vessel) ? this.atlanticHaloBoost() : 8),
+            getColor: (vessel: VesselPosition) =>
+              ([...VESSEL_HIGHLIGHT_RGB, this.isAtlanticTrader(vessel) ? this.atlanticHaloAlpha() : 68] as any),
+            sizeUnits: 'pixels',
+            billboard: true,
+            parameters: { depthTest: false },
+          }));
+        }
         layers.push(new IconLayer({
           id: 'sentinel-vessels-icons',
           data: vesselsData,
@@ -1792,9 +1799,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           iconAtlas: vesselIconAtlas,
           iconMapping: VESSEL_ICON_MAPPING,
           getIcon: () => 'triangle',
-          getPosition: (vessel: VesselPosition) => [Number(vessel.lon), Number(vessel.lat)],
+          getPosition: (vessel: VesselPosition & { displayLon: number; displayLat: number }) =>
+            [vessel.displayLon, vessel.displayLat],
           getAngle: (vessel: VesselPosition) => this.vesselIconAngle(vessel),
-          getSize: (vessel: VesselPosition) => (isVesselHighlighted(vessel) ? (this.compact ? 20 : 22) : (this.compact ? 16 : 18)),
+          getSize: (vessel: VesselPosition) => this.vesselIconSize(isVesselHighlighted(vessel)),
           getColor: (vessel: VesselPosition) =>
             isVesselHighlighted(vessel)
               ? ([...VESSEL_HIGHLIGHT_RGB, 255] as any)
@@ -1804,19 +1812,27 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           parameters: { depthTest: false },
           onClick: (info: any) => this.handleVesselClick(info?.object as VesselPosition | undefined),
         }));
-        const labelFeatures = vesselsData.filter(isVesselHighlighted).slice(0, 4);
+        const labelFeatures = [
+          ...(atlanticTrader ? [atlanticTrader] : []),
+          ...highlightedVessels.filter((vessel) => !this.isAtlanticTrader(vessel)).slice(0, 3),
+        ];
         if (labelFeatures.length) {
           layers.push(new TextLayer({
             id: 'sentinel-vessels-labels',
             data: labelFeatures,
-            getPosition: (vessel: VesselPosition) => [Number(vessel.lon), Number(vessel.lat)],
-            getText: (vessel: VesselPosition) => vessel.name || vessel.mmsi || '',
-            getSize: this.compact ? 9 : 10,
-            getColor: this.isLightBasemap() ? [12, 36, 50, 240] : [248, 252, 255, 238],
-            getPixelOffset: [0, -14],
+            getPosition: (vessel: VesselPosition & { displayLon: number; displayLat: number }) =>
+              [vessel.displayLon, vessel.displayLat],
+            getText: (vessel: VesselPosition) =>
+              this.isAtlanticTrader(vessel) ? 'MV ATLANTIC TRADER' : (vessel.name || vessel.mmsi || ''),
+            getSize: this.isAtlanticTrader(labelFeatures[0]) ? 11 : (this.compact ? 9 : 10),
+            getColor: (vessel: VesselPosition) =>
+              this.isAtlanticTrader(vessel)
+                ? ([212, 195, 255, 245] as any)
+                : (this.isLightBasemap() ? [12, 36, 50, 240] : [248, 252, 255, 238]),
+            getPixelOffset: [0, -16],
             getTextAnchor: 'middle',
             getAlignmentBaseline: 'bottom',
-            fontSettings: { sdf: true },
+            fontSettings: { sdf: true, fontWeight: 700 },
             outlineColor: this.isLightBasemap() ? [255, 255, 255, 232] : [4, 8, 13, 240],
             outlineWidth: 3,
             billboard: true,
@@ -1872,7 +1888,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getSourcePosition: (item: any) => item.source,
         getTargetPosition: (item: any) => item.target,
         getSourceColor: [95, 235, 166, 178],
-        getTargetColor: (item: any) => this.deckColor(item.tone, false, 210),
+        getTargetColor: (item: any) => this.deckColor(item.tone, false, false, undefined, 40),
         getWidth: (item: any) => Math.max(1, Math.round((item.level || 30) / 24)),
         parameters: { depthTest: false },
       }));
@@ -1917,8 +1933,18 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getPosition: (feature: any) => feature.geometry.coordinates,
         radiusUnits: 'pixels',
         getRadius: (feature: any) => Math.max(14, Math.min(28, (feature.properties?.level || 20) / 3.2)),
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 24),
-        getLineColor: (feature: any) => this.deckLineColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 170),
+        getFillColor: (feature: any) => this.deckColor(
+          feature.properties?.tone,
+          feature.properties?.zone_id === this.selectedZoneId,
+          feature.properties?.zone_id === this.hoveredZoneId,
+          feature.properties?.zone_id,
+          -18,
+        ),
+        getLineColor: (feature: any) => this.deckLineColor(
+          feature.properties?.tone,
+          feature.properties?.zone_id === this.selectedZoneId,
+          feature.properties?.zone_id === this.hoveredZoneId,
+        ),
         lineWidthMinPixels: 1.2,
         parameters: { depthTest: false },
       }));
@@ -1929,7 +1955,13 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         getPosition: (feature: any) => feature.geometry.coordinates,
         radiusUnits: 'pixels',
         getRadius: (feature: any) => Math.max(5, Math.min(12, (feature.properties?.level || 20) / 8)),
-        getFillColor: (feature: any) => this.deckColor(feature.properties?.tone, feature.properties?.zone_id === this.selectedZoneId, 226),
+        getFillColor: (feature: any) => this.deckColor(
+          feature.properties?.tone,
+          feature.properties?.zone_id === this.selectedZoneId,
+          feature.properties?.zone_id === this.hoveredZoneId,
+          feature.properties?.zone_id,
+          80,
+        ),
         getLineColor: [250, 254, 255, 238],
         lineWidthMinPixels: 1.8,
         parameters: { depthTest: false },
@@ -1961,12 +1993,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         id: 'sentinel-labels',
         data: selectedOrTopZoneMarkers,
         getPosition: (feature: any) => feature.geometry.coordinates,
-        getText: (feature: any) => feature.properties?.name || '',
-        getSize: this.compact ? 10 : 12,
+        getText: (feature: any) => (feature.properties?.name || '').toUpperCase(),
+        getSize: this.compact ? 10 : 11,
         getColor: this.isLightBasemap() ? [8, 28, 42, 245] : [246, 251, 255, 238],
         getTextAnchor: 'middle',
         getAlignmentBaseline: 'center',
-        fontSettings: { sdf: true },
+        fontSettings: { sdf: true, fontWeight: 700 },
         outlineColor: this.isLightBasemap() ? [255, 255, 255, 235] : [4, 8, 13, 232],
         outlineWidth: 3,
         billboard: true,
@@ -2032,7 +2064,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       zoom: this.compact ? 5.15 : preset.zoom,
       pitch: 0,
       bearing: 0,
-      duration: Math.max(0, Math.min(Number(preset.duration_ms || 260), 320)),
+      duration: Math.max(0, Math.min(Number(preset.duration_ms || 260), 400)),
     });
     this.updateDeckLayers();
   }
@@ -2121,16 +2153,88 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     });
   }
 
-  private deckColor(tone: string, selected = false, alpha = 120): number[] {
-    const base = tone === 'critical' ? [255, 68, 82] : tone === 'watch' ? [250, 176, 34] : [58, 218, 128];
-    return [...base, selected ? Math.max(alpha, 174) : alpha];
+  private deckColor(tone: string, selected = false, hovered = false, zoneId?: string, alphaBoost = 0): number[] {
+    let alpha = this.zoneFillAlpha(tone) + alphaBoost;
+    if (zoneId === 'zone-nord' || (tone === 'critical' && zoneId !== 'zone-sud')) {
+      const pulse = 0.88 + 0.12 * Math.sin(this.zonePulsePhase * Math.PI * 2);
+      alpha = Math.round(alpha * pulse);
+    }
+    if (selected) alpha = Math.min(255, alpha + 36);
+    if (hovered) alpha = Math.min(255, alpha + 28);
+    return [...this.zoneFillRgb(tone), Math.max(0, Math.min(255, alpha))];
   }
 
-  private deckLineColor(tone: string, selected = false, fallbackAlpha?: number): number[] {
-    const alpha = fallbackAlpha ?? (selected ? 255 : 186);
-    if (tone === 'critical') return [255, 104, 116, alpha];
-    if (tone === 'watch') return [255, 210, 82, alpha];
-    return [104, 238, 164, alpha];
+  private deckLineColor(tone: string, selected = false, hovered = false): number[] {
+    if (tone === 'critical') {
+      const glow = selected ? 255 : hovered ? 220 : 200;
+      return [248, 113, 113, glow];
+    }
+    const alpha = selected ? 120 : hovered ? 105 : ZONE_STROKE_ALPHA;
+    return [ZONE_STROKE_RGB[0], ZONE_STROKE_RGB[1], ZONE_STROKE_RGB[2], alpha];
+  }
+
+  private zoneFillRgb(tone: string): [number, number, number] {
+    if (tone === 'critical') return [220, 38, 38];
+    if (tone === 'watch' || tone === 'elevated' || tone === 'monitoring') return [245, 158, 11];
+    return [22, 101, 52];
+  }
+
+  private zoneFillAlpha(tone: string): number {
+    if (tone === 'critical') return Math.round(0.28 * 255);
+    if (tone === 'watch' || tone === 'elevated' || tone === 'monitoring') return Math.round(0.20 * 255);
+    return Math.round(0.18 * 255);
+  }
+
+  private startMapPulseAnimations(): void {
+    if (this.previewMode) return;
+    if (this.zonePulseTimer) clearInterval(this.zonePulseTimer);
+    if (this.atlanticPulseTimer) clearInterval(this.atlanticPulseTimer);
+    this.zonePulseTimer = setInterval(() => {
+      this.zonePulsePhase = (this.zonePulsePhase + 0.34) % 1;
+      this.updateDeckLayers();
+    }, 3000);
+    this.atlanticPulseTimer = setInterval(() => {
+      this.atlanticPulsePhase = (this.atlanticPulsePhase + 0.5) % 1;
+      this.updateDeckLayers();
+    }, 2000);
+  }
+
+  private isAtlanticTrader(vessel: VesselPosition): boolean {
+    return vessel.mmsi === ATLANTIC_TRADER_MMSI || /atlantic trader/i.test(vessel.name || '');
+  }
+
+  private atlanticHaloAlpha(): number {
+    return Math.round(52 + 36 * Math.sin(this.atlanticPulsePhase * Math.PI * 2));
+  }
+
+  private atlanticHaloBoost(): number {
+    return Math.round(6 + 5 * Math.sin(this.atlanticPulsePhase * Math.PI * 2));
+  }
+
+  private vesselIconSize(highlighted: boolean): number {
+    const zoom = Number(this.mapInstance?.getZoom?.() || 6);
+    const base = Math.max(12, Math.min(22, 3.5 + zoom * 1.05));
+    return highlighted ? base + 3 : base;
+  }
+
+  private spreadVesselPositions(
+    vessels: VesselPosition[],
+  ): Array<VesselPosition & { displayLon: number; displayLat: number }> {
+    const cells = new Map<string, number>();
+    return vessels.map((vessel) => {
+      const lon = Number(vessel.lon);
+      const lat = Number(vessel.lat);
+      const key = `${lon.toFixed(3)},${lat.toFixed(3)}`;
+      const index = cells.get(key) || 0;
+      cells.set(key, index + 1);
+      const angle = index * 1.15;
+      const offset = index ? 0.0024 * index : 0;
+      return {
+        ...vessel,
+        displayLon: lon + offset * Math.cos(angle),
+        displayLat: lat + offset * Math.sin(angle),
+      };
+    });
   }
 
   private countryFillColor(): number[] {
@@ -2171,18 +2275,17 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   private maritimeRouteColor(feature: any): number[] {
-    const status = String(feature?.properties?.status || '');
     const role = String(feature?.properties?.visual_role || feature?.properties?.render_tone || '');
-    const approach = role === 'port_approach' || role === 'maritime_approach' || status === 'watch';
+    const corridor = role === 'maritime_corridor' || role === 'maritime_approach';
     if (this.isLightBasemap()) {
-      return approach ? [0, 132, 178, 214] : [12, 103, 158, 172];
+      return corridor ? [22, 163, 74, 180] : [62, 230, 138, 150];
     }
-    return approach ? [42, 219, 246, 220] : [100, 207, 255, 180];
+    return corridor ? [62, 230, 138, 210] : [62, 230, 138, 140];
   }
 
   private maritimeAreaLineColor(): number[] {
-    if (this.isLightBasemap()) return [8, 110, 165, 88];
-    return [88, 218, 255, 92];
+    if (this.isLightBasemap()) return [62, 230, 138, 72];
+    return [62, 230, 138, 68];
   }
 
   private maritimeDensityColor(feature: any): number[] {
@@ -2214,16 +2317,23 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private getVesselIconAtlas(): string {
     if (this.vesselIconAtlas) return this.vesselIconAtlas;
     const canvas = document.createElement('canvas');
-    canvas.width = 64;
+    canvas.width = 128;
     canvas.height = 64;
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      ctx.clearRect(0, 0, 64, 64);
+      ctx.clearRect(0, 0, 128, 64);
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
       ctx.moveTo(32, 10);
       ctx.lineTo(54, 52);
       ctx.lineTo(10, 52);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(96, 12);
+      ctx.lineTo(108, 32);
+      ctx.lineTo(96, 52);
+      ctx.lineTo(84, 32);
       ctx.closePath();
       ctx.fill();
     }
@@ -2254,8 +2364,24 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   private deckTooltip(info: any): any {
-    const properties = info?.object?.properties || info?.object;
-    if (!properties) return null;
+    const raw = info?.object;
+    if (!raw) return null;
+    if (raw.mmsi || raw.vessel_type) {
+      const vessel = raw as VesselPosition;
+      const speedKn = Number.isFinite(Number(vessel.sog)) ? `${Math.round(Number(vessel.sog))} kn` : '';
+      const typeLabel = String(vessel.vessel_type || 'navire');
+      const meta = [typeLabel, speedKn].filter(Boolean).join(' · ');
+      return {
+        html: `
+          <div class="sentinel-map-tooltip vessel">
+            <strong>${this.escapeTooltip(vessel.name || vessel.mmsi)}</strong>
+            ${meta ? `<small>${this.escapeTooltip(meta)}</small>` : ''}
+          </div>
+        `,
+        style: this.tooltipStyle(),
+      };
+    }
+    const properties = raw.properties || raw;
     const title = properties.title || properties.name || properties.zone_name || properties.label;
     if (!title) return null;
     const summary = properties.summary || properties.role || properties.kind || properties.source_label || '';
@@ -2274,17 +2400,22 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
           ${meta ? `<small>${this.escapeTooltip(meta)}</small>` : ''}
         </div>
       `,
-      style: {
-        backgroundColor: 'rgba(5, 10, 15, 0.94)',
-        border: '1px solid rgba(141, 214, 255, 0.42)',
-        borderRadius: '10px',
-        boxShadow: '0 18px 34px rgba(0,0,0,0.35)',
-        color: '#f7fbff',
-        fontFamily: 'Inter, system-ui, sans-serif',
-        maxWidth: '320px',
-        padding: '12px 14px',
-        pointerEvents: 'none',
-      },
+      style: this.tooltipStyle(),
+    };
+  }
+
+  private tooltipStyle(): Record<string, string | number> {
+    return {
+      backgroundColor: 'rgba(10, 17, 24, 0.94)',
+      border: '1px solid rgba(62, 230, 138, 0.28)',
+      borderRadius: '8px',
+      boxShadow: '0 14px 28px rgba(0,0,0,0.38)',
+      color: '#f4f7fb',
+      fontFamily: 'var(--mission-font-mono, Inter, system-ui, sans-serif)',
+      fontSize: '11px',
+      maxWidth: '240px',
+      padding: '8px 10px',
+      pointerEvents: 'none',
     };
   }
 

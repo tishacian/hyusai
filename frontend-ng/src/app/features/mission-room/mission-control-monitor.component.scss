@@ -362,6 +362,27 @@
   display: block;
   height: 100%;
   min-height: 0;
+  border: 1px solid rgba(62, 230, 138, 0.18);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 12px rgba(0, 0, 0, 0.24);
+}
+
+.compact-command {
+  border-color: rgba(62, 230, 138, 0.32) !important;
+  background: rgba(10, 17, 24, 0.82) !important;
+  color: var(--mission-text-primary, var(--mc-text)) !important;
+  font-family: var(--mission-font-mono, var(--ck-font-mono));
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.compact-command:hover {
+  border-color: rgba(62, 230, 138, 0.52) !important;
+  background: rgba(62, 230, 138, 0.12) !important;
+  color: var(--mission-text-primary, var(--mc-text)) !important;
+  transform: translateY(-1px);
 }
 
 .decision-banner {

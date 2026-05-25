@@ -67,9 +67,9 @@ const DEFAULT_WEBCAM_CYCLE: WebcamCycleEntry[] = [
 ];
 
 const VESSEL_TYPE_COLORS: Record<string, string> = {
-  cargo: '#3FB68A',
-  container: '#3FB68A',
-  tanker: '#F2B43D',
+  cargo: '#22C55E',
+  container: '#22C55E',
+  tanker: '#F97316',
   roro: '#71B5F2',
   passenger: '#9D7CF0',
   fishing: '#94A4B6',
@@ -204,7 +204,7 @@ const ABIDJAN_CAMERA = {
             (click)="openDemoPortWebcam($event)"
           >
             <span class="legend-dot port-dot" aria-hidden="true"></span>
-            Port Vridi · webcam demo
+            Port Vridi · cargo demo
           </button>
         }
       </footer>
@@ -397,8 +397,8 @@ const ABIDJAN_CAMERA = {
       .map-canvas-wrap {
         min-height: 0;
         height: 100%;
-        border: 1px solid var(--mission-border);
-        border-radius: var(--mission-radius-md);
+        border: 1px solid rgba(62, 230, 138, 0.2);
+        border-radius: 12px;
         overflow: hidden;
         padding: 0;
         width: 100%;
@@ -408,21 +408,24 @@ const ABIDJAN_CAMERA = {
         color: inherit;
         text-align: left;
         cursor: pointer;
+        box-shadow: inset 0 1px 14px rgba(0, 0, 0, 0.32);
         transition:
           border-color var(--mission-dur-fast) var(--mission-ease-out),
           box-shadow var(--mission-dur-fast) var(--mission-ease-out);
       }
       .map-canvas-wrap:hover {
-        border-color: var(--sentinel-accent-muted);
-        box-shadow: 0 0 0 1px rgba(101, 214, 110, 0.18);
+        border-color: rgba(62, 230, 138, 0.38);
+        box-shadow:
+          inset 0 1px 14px rgba(0, 0, 0, 0.32),
+          0 0 0 1px rgba(62, 230, 138, 0.12);
       }
       .legend-item.port-webcam {
-        border-color: rgba(180, 136, 255, 0.42);
-        background: rgba(180, 136, 255, 0.08);
+        border-color: rgba(62, 230, 138, 0.32);
+        background: rgba(62, 230, 138, 0.08);
       }
       .legend-dot.port-dot {
-        background: #b488ff;
-        box-shadow: 0 0 0 2px rgba(180, 136, 255, 0.24);
+        background: var(--sentinel-accent);
+        box-shadow: 0 0 0 2px rgba(62, 230, 138, 0.24);
       }
       .map-canvas-wrap app-workspace-map {
         display: block;
@@ -460,44 +463,56 @@ const ABIDJAN_CAMERA = {
       .vessel-count-chip {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        padding: 4px 9px;
+        gap: 7px;
+        padding: 5px 11px;
         border-radius: 999px;
-        border: 1px solid rgba(180, 136, 255, 0.45);
-        background: rgba(4, 8, 13, 0.82);
-        color: #d2c3ff;
-        font-family: var(--mission-font-mono);
-        font-size: 10px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-      .vessel-count-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: #B488FF;
-        box-shadow: 0 0 4px rgba(180, 136, 255, 0.85);
-      }
-      .vessel-zoom-toggle {
-        appearance: none;
-        padding: 4px 9px;
-        border-radius: 999px;
-        border: 1px solid var(--mission-border);
-        background: rgba(4, 8, 13, 0.82);
+        border: 1px solid rgba(62, 230, 138, 0.28);
+        background: rgba(10, 17, 24, 0.88);
         color: var(--mission-text-secondary);
         font-family: var(--mission-font-mono);
         font-size: 10px;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        backdrop-filter: blur(8px);
+      }
+      .vessel-count-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--sentinel-accent);
+        box-shadow: 0 0 0 0 rgba(101, 214, 110, 0.5);
+        animation: vessel-live-pulse 2s ease-in-out infinite;
+      }
+      @keyframes vessel-live-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(101, 214, 110, 0.45); }
+        50% { box-shadow: 0 0 0 5px rgba(101, 214, 110, 0); }
+      }
+      .vessel-zoom-toggle {
+        appearance: none;
+        padding: 5px 11px;
+        border-radius: 999px;
+        border: 1px solid rgba(62, 230, 138, 0.22);
+        background: rgba(10, 17, 24, 0.88);
+        color: var(--mission-text-tertiary);
+        font-family: var(--mission-font-mono);
+        font-size: 10px;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
         cursor: pointer;
+        backdrop-filter: blur(8px);
         transition:
           border-color var(--mission-dur-fast) var(--mission-ease-out),
-          color var(--mission-dur-fast) var(--mission-ease-out);
+          color var(--mission-dur-fast) var(--mission-ease-out),
+          background var(--mission-dur-fast) var(--mission-ease-out);
       }
-      .vessel-zoom-toggle:hover,
+      .vessel-zoom-toggle:hover {
+        border-color: rgba(62, 230, 138, 0.42);
+        color: var(--mission-text-secondary);
+      }
       .vessel-zoom-toggle[aria-pressed='true'] {
-        border-color: rgba(180, 136, 255, 0.55);
-        color: #d2c3ff;
+        border-color: rgba(62, 230, 138, 0.48);
+        background: rgba(62, 230, 138, 0.14);
+        color: var(--mission-text-primary);
       }
       .vessel-zoom-toggle:focus-visible {
         outline: 2px solid var(--sentinel-accent);
@@ -690,11 +705,11 @@ const ABIDJAN_CAMERA = {
         padding: 0;
         display: flex;
         flex-wrap: wrap;
-        gap: var(--mission-space-2) var(--mission-space-3);
+        gap: var(--mission-space-2) var(--mission-space-4);
         font-family: var(--mission-font-mono);
-        font-size: 10px;
+        font-size: 11px;
         color: var(--mission-text-tertiary);
-        letter-spacing: 0.06em;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
       }
       .vessel-legend li {
@@ -707,7 +722,7 @@ const ABIDJAN_CAMERA = {
         height: 0;
         border-left: 5px solid transparent;
         border-right: 5px solid transparent;
-        border-bottom: 9px solid currentColor;
+        border-bottom: 10px solid currentColor;
         border-radius: 0;
         background: transparent !important;
         color: inherit;
@@ -765,7 +780,7 @@ const ABIDJAN_CAMERA = {
         padding: var(--mission-space-2);
         border-radius: var(--mission-radius-sm);
         background: rgba(8, 14, 20, 0.78);
-        border: 1px solid rgba(180, 136, 255, 0.45);
+        border: 1px solid rgba(62, 230, 138, 0.38);
         box-shadow: 0 6px 18px rgba(8, 12, 18, 0.55);
       }
       .vessel-webcam-head {
@@ -775,7 +790,7 @@ const ABIDJAN_CAMERA = {
         gap: 6px;
       }
       .vessel-webcam-head .eyebrow {
-        color: #d2c3ff;
+        color: var(--sentinel-accent);
       }
       .webcam-close,
       .webcam-drawer-close {
@@ -822,8 +837,8 @@ const ABIDJAN_CAMERA = {
         font-family: var(--mission-font-mono);
         font-size: 10px;
         text-align: left;
-        color: var(--mission-text-secondary);
-        letter-spacing: 0.04em;
+        color: var(--sentinel-accent);
+        letter-spacing: 0.08em;
         text-transform: uppercase;
       }
       .webcam-disclaimer {
