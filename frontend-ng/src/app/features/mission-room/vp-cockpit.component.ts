@@ -87,7 +87,7 @@ import type {
         <section class="vp-block vp-block-security" aria-label="Posture securitaire dual-axis">
           <header class="vp-block-head">
             <span class="vp-block-eyebrow">Posture securitaire</span>
-            <h2 class="vp-block-title">{{ posture.summary || 'Dual-axis interieur · exterieur' }}</h2>
+            <h2 class="vp-block-title">{{ posture['summary'] || 'Dual-axis interieur · exterieur' }}</h2>
             @if (postureNextCouncil(posture); as council) {
               <span class="vp-security-council" [attr.aria-label]="'Prochain conseil ' + council">{{ council }}</span>
             }
