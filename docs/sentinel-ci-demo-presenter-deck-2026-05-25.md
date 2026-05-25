@@ -410,6 +410,38 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 
 ---
 
+## S3.V21.1 — Onglet Securite (rail principal)
+
+**Ce que le VP voit** : rail Cockpit · Carte · **Securite** · **Reputation** · Agenda · Presse · Arbitrages. Vue Securite avec posture dual-axis, theatre Sahel et rumeur inline, barre sticky Conseil Defense 15h00.
+
+**Plan B clic** : Rail gauche → **Securite**.
+
+---
+
+## S3.V21.2 — Security Monitor plein ecran
+
+**Ce que le VP voit** : `/hypervisor/mission-room/securite/monitor` — carte Sahel (military-air + border-tension), alertes ADS-B, fil rumeur, signaux sociaux, badge **CACHE BASELINE**.
+
+**Plan B clic** : Onglet Securite → **Ouvrir Security Monitor**.
+
+---
+
+## S3.V21.3 — Reputation rail + Veille sociale
+
+**Ce que le VP voit** : Reputation dans le rail principal (drill 2+/1-). Page **Veille sociale** `/veille-sociale` avec filtres, tri et export CSV advisory.
+
+**Plan B clic** : URL `/hypervisor/mission-room/veille-sociale` ou AYA pulsation sociale.
+
+---
+
+## S3.V21.4 — Documents security-briefs
+
+**Ce que le VP voit** : collection `sentinel-ci-security-briefs` dans scope vigie, onglet **Documents** du shell Securite (briefs Sahel, Conseil Defense, dossier rumeur, ADS-B).
+
+**Plan B clic** : Securite → onglet **Documents**.
+
+---
+
 ## Ce qu'on a prouvé
 
 - **Cockpit souverain** — 8 KPIs, posture, terrain, presse en un écran

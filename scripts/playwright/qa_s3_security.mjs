@@ -249,6 +249,65 @@ async function main() {
     await goto(page, '/hypervisor/mission-room/cockpit?workspace=sentinel-ci');
     await installProbes(page);
 
+    // ── V21 — Surfaces dédiées (nav rail + monitor + veille) ────────────────
+    const navItems = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('app-mission-rail button, app-mission-rail a'))
+        .map((el) => el.textContent?.trim() || '')
+        .filter(Boolean),
+    );
+    const sV21Nav = await shot(page, 'V21-01-nav-rail');
+    record('V21.1 Rail Securite + Reputation visible', {
+      status: navItems.some((t) => /Securite/i.test(t)) && navItems.some((t) => /Reputation/i.test(t))
+        ? 'PASS'
+        : 'FAIL',
+      observation: `nav items: ${navItems.join(' · ')}`,
+      fix: 'Verifier NAVIGATION_ITEMS + primaryRailKeys mission-room',
+      priority: 'P1',
+      screenshot: sV21Nav.file,
+    });
+
+    await goto(page, '/hypervisor/mission-room/securite?workspace=sentinel-ci');
+    const sV21Sec = await shot(page, 'V21-02-securite-shell');
+    const securiteShell = await page.evaluate(() =>
+      /Posture securitaire|Conseil Defense|Theatre Sahel|Dossier rumeur/i.test(document.body.innerText),
+    );
+    record('V21.1 Onglet Securite shell agregé', {
+      status: securiteShell ? 'PASS' : 'FAIL',
+      observation: `shell securite visible=${securiteShell}, url=${page.url()}`,
+      fix: 'Verifier #securiteView + embedded drawers',
+      priority: 'P1',
+      screenshot: sV21Sec.file,
+    });
+
+    await goto(page, '/hypervisor/mission-room/securite/monitor?workspace=sentinel-ci');
+    const sV21Mon = await shot(page, 'V21-03-security-monitor');
+    const monitorVisible = await page.evaluate(() =>
+      /Security Monitor|ADS-B|CACHE BASELINE|Theatre Sahel/i.test(document.body.innerText),
+    );
+    record('V21.2 Security Monitor plein ecran', {
+      status: monitorVisible ? 'PASS' : 'FAIL',
+      observation: `monitor visible=${monitorVisible}, url=${page.url()}`,
+      fix: 'Verifier security-monitor.component + GET /security-monitor',
+      priority: 'P1',
+      screenshot: sV21Mon.file,
+    });
+
+    await goto(page, '/hypervisor/mission-room/veille-sociale?workspace=sentinel-ci');
+    const sV21Soc = await shot(page, 'V21-04-veille-sociale');
+    const socialPage = await page.evaluate(() =>
+      /Pulsation sociale|Veille sociale|Export CSV|officiel/i.test(document.body.innerText),
+    );
+    record('V21.4 Page Veille sociale standalone', {
+      status: socialPage ? 'PASS' : 'FAIL',
+      observation: `page sociale visible=${socialPage}, url=${page.url()}`,
+      fix: 'Verifier social-pulse-page.component + route /veille-sociale',
+      priority: 'P1',
+      screenshot: sV21Soc.file,
+    });
+
+    await goto(page, '/hypervisor/mission-room/cockpit?workspace=sentinel-ci');
+    await installProbes(page);
+
     // ── S3.1 — Posture sécuritaire ─────────────────────────────────────────
     const opened = await openAyaPanel(page);
     if (!opened) {
@@ -263,12 +322,17 @@ async function main() {
       const { newChunks } = await sendAya(page, 'AYA, montre-moi la posture sécuritaire du jour.');
       const s1 = await shot(page, 'S3.1-posture-securite');
       const navAction = hasAction(newChunks, /show_security_posture|security_posture|posture/i);
+      const securiteRoute = windowEvents.some(
+        (e) =>
+          e.event === 'agentium:assistant-navigate'
+          && /\/securite/i.test(JSON.stringify(e.detail || {})),
+      );
       const cockpitText = await page.evaluate(() =>
         /Posture s[eé]curitaire|Conseil D[eé]fense|dual.axis|Sahel/i.test(document.body.innerText),
       );
       record('S3.1 AYA posture sécuritaire dual-axis', {
-        status: navAction && cockpitText ? 'PASS' : cockpitText ? 'PARTIAL' : 'FAIL',
-        observation: `action=${navAction}, bloc Posture sécuritaire visible=${cockpitText}`,
+        status: navAction && (securiteRoute || cockpitText) ? 'PASS' : cockpitText ? 'PARTIAL' : 'FAIL',
+        observation: `action=${navAction}, route_securite=${securiteRoute}, bloc Posture visible=${cockpitText}`,
         fix: !navAction
           ? 'Vérifier pack sentinel_ci_aya_security_v1 + aya.show_security_posture'
           : '—',
