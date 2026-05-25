@@ -91,3 +91,73 @@ def test_meeting_unknown_event_returns_404(db_session):
     client = _client(db_session, workspace, user)
     response = client.get("/api/v1/meetings/does-not-exist")
     assert response.status_code == 404
+
+
+def test_meeting_start_sets_current_meeting(db_session):
+    workspace, user, event = _seed(db_session)
+    client = _client(db_session, workspace, user)
+
+    response = client.post(f"/api/v1/meetings/{event.id}/start")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["event"]["id"] == event.id
+    assert body["current_meeting"] == event.id
+
+    # Workspace settings record the active meeting so a follow-up
+    # ``aya.log_decision`` voice command finds the right event.
+    db_session.refresh(workspace)
+    assert (workspace.settings or {}).get("actions", {}).get("current_meeting") == event.id
+
+
+def test_meeting_agenda_patch_propose_then_confirm(db_session):
+    workspace, user, event = _seed(db_session)
+    client = _client(db_session, workspace, user)
+
+    # No pending patch initially.
+    initial = client.get(f"/api/v1/meetings/{event.id}/agenda-patch").json()
+    assert initial["pending_agenda_patch"] is None
+
+    proposed_items = [
+        {
+            "id": "agenda-cacao-diversification",
+            "title": "Point cacao - diversification anacarde (clic UI)",
+            "decision_required": True,
+        }
+    ]
+    propose = client.post(
+        f"/api/v1/meetings/{event.id}/agenda-patch",
+        json={"agenda_items": proposed_items},
+    )
+    assert propose.status_code == 200, propose.text
+    pending = propose.json()["pending_agenda_patch"]
+    assert pending and pending["agenda_items"][0]["id"] == "agenda-cacao-diversification"
+
+    # The detail endpoint surfaces the pending patch so the meeting view can
+    # display the validate banner.
+    detail = client.get(f"/api/v1/meetings/{event.id}").json()
+    assert detail["pending_agenda_patch"]["event_id"] == event.id
+
+    confirm = client.post(
+        f"/api/v1/meetings/{event.id}/agenda-patch/confirm",
+        json={},
+    )
+    assert confirm.status_code == 200, confirm.text
+    body = confirm.json()
+    assert body["pending_agenda_patch"] is None
+    assert body["agenda_items"][0]["id"] == "agenda-cacao-diversification"
+
+    # Pending patch cleared after confirm.
+    cleared = client.get(f"/api/v1/meetings/{event.id}/agenda-patch").json()
+    assert cleared["pending_agenda_patch"] is None
+
+
+def test_meeting_agenda_patch_confirm_without_pending_returns_400(db_session):
+    workspace, user, event = _seed(db_session)
+    client = _client(db_session, workspace, user)
+
+    response = client.post(
+        f"/api/v1/meetings/{event.id}/agenda-patch/confirm",
+        json={},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "no_pending_agenda_patch"
