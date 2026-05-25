@@ -14,240 +14,301 @@ date: "Lundi 25 mai 2026 · 09h00 Abidjan · 11h00 Paris"
 ## 3 règles d'or
 
 1. Commencer chaque demande par un **verbe** ou « **AYA,** »
-2. Ne jamais dire « **OK** » seul — enchaîner sur un verbe
+2. Ne jamais dire « **OK** » seul — enchaîner sur un verbe (« Oui, valide »)
 3. Si AYA hésite, reformuler avec la **phrase exacte** du slide
 
 **Attention** : toujours écrire « Monsieur le Vice-Président » (avec trait d'union et accent).
 
-## S1.0 — Ouverture cockpit
+---
 
-**Ce qu'on montre** : Posture nationale, chip Zone Nord · Tendue, indicateurs macro, directive AYA du matin.
+## S1.1 — Cockpit macro KPIs
 
-**Ce qu'on dit** : « AYA, c'est lundi matin. Qu'est-ce qui demande mon attention ? »
+**Phrase AYA** : « AYA, c'est lundi matin. Qu'est-ce qui demande mon attention ? » *(optionnel — l'écran est déjà le brief)*
 
-**Plan B clic** : Sidebar Cockpit — l'écran porte déjà le message.
+**Ce que le VP voit** : posture nationale, chip **Zone Nord · Tendue**, **8 indicateurs** (PIB, inflation, chômage, cacao, anacarde, Brent, réserves BCEAO, tension CEDEAO), directive AYA du matin, carte et arbitrages.
 
-![Cockpit Mission Room · posture et indicateurs](status-screenshots/2026-05-25-demo-eve/01-cockpit-main.png)
+**Verdict** : **PASS**
 
-*Cockpit au chargement — Zone Nord en tête, KPI macro visibles.*
+**Plan B clic** : Sidebar **Cockpit** — la vue porte déjà le message.
 
-## S1.1 — Pourquoi le Nord est tendu
+![8 KPIs macro + posture nationale](status-screenshots/2026-05-25-demo-eve/13-aya-chat-empty.png)
 
-**Ce qu'on montre** : Drill causal niveau 1 — lien tension Nord, projet Napié, retard chantier.
+*Panel AYA ouvert — grille souveraine des 8 indicateurs visible à gauche.*
 
-**Ce qu'on dit** : « AYA, pourquoi la situation Nord est-elle tendue ? »
+---
 
-**Plan B clic** : Chip rouge **Zone Nord · Tendue** dans la barre statut.
+## S1.2 — Carte zone Nord tendue
 
-![Carte cockpit · zone Nord](status-screenshots/2026-05-25-demo-eve/04-cockpit-carte.png)
+**Phrase AYA** : *(silence — lecture visuelle)*
 
-*Focus territorial — lecture Nord en un coup d'œil.*
+**Ce que le VP voit** : mini-carte cockpit, région **Nord 72 % tendue**, badge **16 navires AIS · Abidjan / Vridi**, chip rouge **Zone Nord · Tendue** pulsante.
 
-## S1.2 — PV douanes
+**Verdict** : **PASS**
 
-**Ce qu'on montre** : Drawer document — PV douanes 18 mai, page 2 surlignée.
+**Plan B clic** : Clic chip **Zone Nord · Tendue** → recentrage carte Nord.
 
-**Ce qu'on dit** : « AYA, ouvre le PV douanes. »
+![Carte fusionnée · zone Nord tendue](status-screenshots/2026-05-25-demo-eve/04-cockpit-carte.png)
 
-**Plan B clic** : Accepter « Voir le PV ? » ou chip **PV douanes 18 mai**.
+*Lecture territoriale immédiate — Nord en tête avant toute question à AYA.*
 
-![Drawer PV douanes · page 2 OCR](status-screenshots/2026-05-25-demo-eve/15-drawer-pv-douanes.png)
+---
 
-*Preuve documentaire — effet collatéral sur le cargo drones.*
+## S1.3 — Pourquoi le Nord est tendu
 
-## S1.3 — Focus carte Nord + Napié
+**Phrase AYA** : « AYA, pourquoi la situation Nord est-elle tendue ? »
 
-**Ce qu'on montre** : Recadrage carte Korhogo / Poro, surbrillance Centre Drones Napié.
+**Ce que le VP voit** : drill causal — réponse AYA citant **Centre Drones Napié**, retard **~120 jours**, composants **Aerostar** bloqués à **Vridi** ; carte recentrée Korhogo / Poro.
 
-**Ce qu'on dit** : « AYA, focus sur la zone Nord et le projet Napié. »
+**Verdict** : **PASS**
 
-**Plan B clic** : Bouton **Brief opérationnel · Projet sensible Nord**.
+**Plan B clic** : Chip **Zone Nord · Tendue** ou bouton **Ouvrir le dossier Zone Nord**.
 
-![Carte stratégie · focus Nord et Napié](status-screenshots/2026-05-25-postdeploy/19-aya-focus-nord-napie.png)
+![Drill Nord · réponse AYA + focus carte](status-screenshots/2026-05-25-qa-trame/S1-02-nord-tendue.png)
 
-*Projet sensible — retard ~120 jours sur le chantier.*
+*Chaîne causale Napie → cargo — narrative souveraine, pas de fallback générique.*
 
-## S1.4 — Cargo Atlantic Trader + webcam port
+---
 
-**Ce qu'on montre** : Vignette webcam port, fiche cargo MV Atlantic Trader, proposition PV.
+## S1.4 — PV douanes (preuve documentaire)
 
-**Ce qu'on dit** : « AYA, montre le cargo Atlantic Trader. »
+**Phrase AYA** : « AYA, ouvre le PV douanes. »
 
-**Plan B clic** : Pin **MV Atlantic Trader** ou **Port Vridi · webcam demo**.
+**Ce que le VP voit** : drawer **PV douanes 18 mai** — PDF page 2 visible (pas d'écran noir), passage OCR surligné sur l'effet collatéral cargo drones.
 
-![Cargo Atlantic Trader · webcam APM Apapa](status-screenshots/2026-05-25-postdeploy/17-aya-vessel-cargo.png)
+**Verdict** : **PASS**
 
-*Composants Aerostar bloqués au port d'Abidjan.*
+**Plan B clic** : Accepter « Voir le PV ? » après S1.5, ou chip **PV douanes 18 mai** sous la fiche cargo.
 
-## S1.5 — Situation au port
+![Drawer PV douanes · page 2 OCR](status-screenshots/2026-05-25-qa-trame/S1-03-pv-douanes.png)
 
-**Ce qu'on montre** : Vue port Abidjan, panel maritime, trafic et webcams Vridi.
+*Preuve traçable — document lisible dans le drawer Cabinet.*
 
-**Ce qu'on dit** : « AYA, montre la situation au port. »
+---
 
-**Plan B clic** : FLUX TERRAIN → **APM Apapa Gate #1** en tête.
+## S1.5 — Cargo Atlantic Trader
 
-**À faire** : étape optionnelle si le temps manque — passer à S1.6.
+**Phrase AYA** : « AYA, montre le cargo Atlantic Trader. »
 
-![Vue port · webcam et trafic maritime](status-screenshots/2026-05-25-postdeploy/16-aya-port-webcam.png)
+**Ce que le VP voit** : pin **MV Atlantic Trader** sur carte maritime, triangles AIS, vignette webcam **APM Apapa**, proposition d'ouverture du PV.
+
+**Verdict** : **PASS**
+
+**Plan B clic** : Clic pin **MV Atlantic Trader** sur la carte, ou bouton **Port Vridi · webcam demo** (légende carte).
+
+![Cargo Atlantic Trader · AIS + webcam](status-screenshots/2026-05-25-qa-trame/S1-04-atlantic-trader.png)
+
+*Lien maritime visible — composants Aerostar au port d'Abidjan.*
+
+---
+
+## S1.6 — Situation au port
+
+**Phrase AYA** : « AYA, montre la situation au port. »
+
+**Ce que le VP voit** : vue port Abidjan, panneau maritime, trafic AIS, grille **Flux terrain** avec webcam **APM Apapa Gate #1** en tête.
+
+**Verdict** : **PASS** *(Plan B si voix sans effet — rebuild frontend requis¹)*
+
+**Plan B clic** : **Flux terrain** → **APM Apapa Gate #1**, ou bouton **Port Vridi · webcam demo**.
+
+![Situation port · webcam Flux terrain](status-screenshots/2026-05-25-qa-trame/S1-05-situation-port.png)
 
 *Lecture terrain live — port Vridi et activité maritime.*
 
-## S1.6 — Mail dérogation douanes
+---
 
-**Ce qu'on montre** : Drawer email pré-rédigé — dérogation douanière, bandeau advisory-only.
+## S1.7 — Courrier dédouanement
 
-**Ce qu'on dit** : « AYA, rédige le courrier de dédouanement pour Atlantic Trader. »
+**Phrase AYA** : « AYA, rédige le courrier de dédouanement pour Atlantic Trader. »
+
+**Ce que le VP voit** : drawer email pré-rédigé — dérogation douanière, destinataire DGD Abidjan, bandeau **advisory-only** (aucun envoi automatique).
+
+**Verdict** : **PASS**
 
 **Plan B clic** : Drawer PV → bouton **Préparer email dérogation**.
 
-![Courrier dédouanement · proposition Cabinet](status-screenshots/2026-05-25-postdeploy/18-aya-mail-derogation.png)
+![Courrier dédouanement · proposition Cabinet](status-screenshots/2026-05-25-qa-trame/S1-06-courrier-dedouanement.png)
 
-*Proposition sourcée — aucun envoi automatique.*
+*Proposition sourcée — le Cabinet valide avant tout envoi.*
+
+---
+
+## S1.8 — Plan B clics (S1)
+
+**Phrase AYA** : *(secours sans voix)*
+
+**Ce que le VP voit** : même parcours Nord entièrement rejouable à la souris — chip zone, pin cargo, drawer PV, email.
+
+**Verdict** : **PASS** *(clic équivalent sur 6/6 étapes S1)*
+
+**Plan B clic** :
+
+| Étape | Raccourci clic |
+|---|---|
+| Nord tendue | Chip **Zone Nord · Tendue** |
+| Focus Napié | **Brief opérationnel · Projet sensible Nord** |
+| Cargo | Pin **MV Atlantic Trader** |
+| Port | **Flux terrain → APM Apapa Gate #1** |
+| PV | Chip **PV douanes 18 mai** |
+| Email | **Préparer email dérogation** (drawer PV) |
+
+![Plan B · clic chip Zone Nord](status-screenshots/2026-05-25-qa-trame/planB-zone-nord.png)
+
+*Secours présentateur — zéro blocage si AYA hésite.*
+
+---
 
 ## Récap S1 — Nord / Napié
 
-**6 étapes** · ~5 minutes
+**7 étapes** · ~5 minutes
 
 **Message clé** : retard Napié → cargo bloqué → dérogation prête
 
 > « En cinq minutes, AYA est passée du signal territorial à la preuve douanière, avec une proposition d'action sourcée — sans exécuter à ma place. »
 
-## Transition — Agenda Préfet Nawa 11h
+---
 
-**Ce qu'on montre** : Timeline du 25 mai, événement Préfet Nawa 11h00 Soubré.
+## T.1 — Transition cockpit → agenda
 
-**Ce qu'on dit** : « AYA, quel est mon prochain rendez-vous ? »
+**Phrase AYA** : « AYA, quel est mon prochain rendez-vous ? »
+
+**Ce que le VP voit** : bascule **Agenda** — timeline du 25 mai, événement **Préfet Nawa 11h00 Soubré** surligné ; fil presse disponible en sidebar.
+
+**Verdict** : **PASS**
 
 **Plan B clic** : Sidebar **Agenda** → carte **Préfet Nawa · 11h00**.
 
-![Agenda institutionnel · rendez-vous Nawa](status-screenshots/2026-05-25-demo-eve/08-agenda.png)
+![Agenda · prochain RDV Nawa](status-screenshots/2026-05-25-qa-trame/S2-09-agenda.png)
 
 *Du réactif (Nord) au proactif (réunion territoriale).*
 
-## S2.1 — Contexte échanges
+---
 
-**Ce qu'on montre** : Synthèse inline des derniers échanges Préfet Nawa — filière cacao.
+## S2.1 — Résumé rapport Préfet Nawa
 
-**Ce qu'on dit** : « AYA, donne-moi le résumé du rapport préfet. »
+**Phrase AYA** : « AYA, donne-moi le résumé du rapport préfet. »
+
+**Ce que le VP voit** : synthèse structurée inline (~70 pages condensées), enjeux cacao / Nawa / Soubré, proposition **Préconisations cacao ?**
+
+**Verdict** : **PASS**
 
 **Plan B clic** : Agenda → événement Nawa → bouton **Synthèse AYA**.
 
-![Fiche événement Nawa · contexte réunion](status-screenshots/2026-05-25-demo-eve/09-agenda-meeting-detail.png)
+![Chat AYA · résumé Préfet Nawa](status-screenshots/2026-05-25-qa-trame/S2-10-resume-nawa.png)
 
-*Préparation réunion — enjeu diversification cacao.*
+*Corpus dense lu par AYA — le Cabinet garde la main.*
 
-## S2.2 — Rapport Préfet Nawa
+---
 
-**Ce qu'on montre** : Lecture longue du rapport préfectoral — synthèse structurée en chat.
+## S2.2 — Préconisations cacao
 
-**Ce qu'on dit** : « AYA, résume le rapport Préfet Nawa. »
+**Phrase AYA** : « AYA, donne-moi des préconisations sur le cacao. »
 
-**Plan B clic** : **voix AYA uniquement** — reformuler si besoin : « résume Préfet Nawa ».
+**Ce que le VP voit** : **3 options chiffrées** — transformation (~4,2 Mds FCFA), coopérative régionale, partenariat public-privé ; sources citées.
 
-![Chat AYA · synthèse rapport](status-screenshots/2026-05-25-demo-eve/14-aya-chat-prompt.png)
+**Verdict** : **PASS** *(AYA only — pas de bouton clic équivalent)*
 
-*Corpus dense — AYA condense sans remplacer la lecture.*
+**Plan B clic** : Reformuler : « recommandations cacao » ou « diversification cacao ».
 
-## S2.3 — Recommandation cacao
-
-**Ce qu'on montre** : Trois options chiffrées — transformation, coopérative, partenariat public-privé.
-
-**Ce qu'on dit** : « AYA, donne-moi des préconisations sur le cacao. »
-
-**Plan B clic** : **voix AYA uniquement** — reformuler : « recommandations cacao ».
-
-![Chat AYA · préconisations diversification](status-screenshots/2026-05-25-demo-eve/14-aya-chat-prompt.png)
+![Préconisations cacao · 3 leviers](status-screenshots/2026-05-25-qa-trame/S2-11-preconisations.png)
 
 *Options sourcées — le Cabinet arbitre ensuite.*
 
-## S2.4 — Rapport stratégique
+---
 
-**Ce qu'on montre** : Drawer PDF synthèse cacao — livrable téléchargeable.
+## S2.3 — Rapport stratégique
 
-**Ce qu'on dit** : « AYA, génère le rapport complet. »
+**Phrase AYA** : « AYA, génère le rapport complet. »
 
-**Attention** : dire « **synthèse cacao** » à l'oral, pas « 70 pages ».
+**Ce que le VP voit** : drawer PDF **synthèse cacao** (~12 p.) — livrable téléchargeable, URL signée, bandeau advisory.
 
-**Plan B clic** : **voix AYA uniquement** — reformuler : « génère le rapport stratégique ».
+**Verdict** : **PASS** *(dire « synthèse cacao » à l'oral, pas « 70 pages »)*
 
-![Drawer rapport stratégique cacao](status-screenshots/2026-05-25-postdeploy/20-aya-rapport-strategique.png)
+**Plan B clic** : Reformuler : « génère le rapport stratégique » *(AYA only)*.
+
+![Drawer rapport stratégique cacao](status-screenshots/2026-05-25-qa-trame/S2-12-rapport-strategique.png)
 
 *Livrable prêt pour la réunion — preuve traçable.*
 
-## S2.5 — Modifier l'ordre du jour
+---
 
-**Ce qu'on montre** : Proposition d'ajout du point cacao à l'ODJ — en attente de validation.
+## S2.4 — Patch ordre du jour
 
-**Ce qu'on dit** : « AYA, ajoute le point cacao à l'ordre du jour. »
+**Phrase AYA** : « AYA, ajoute le point cacao à l'ordre du jour. »
+
+**Ce que le VP voit** : proposition d'ajout **Point cacao · diversification anacarde** — bannière orange « Modification ODJ proposée · AYA », en attente de validation.
+
+**Verdict** : **PASS**
 
 **Plan B clic** : Fiche réunion → **Proposer un point ODJ** ou bouton **+ Point**.
 
-![Ordre du jour · point cacao proposé](status-screenshots/2026-05-25-postdeploy/21-aya-odj-cacao.png)
+![ODJ · point cacao proposé](status-screenshots/2026-05-25-qa-trame/S2-13-odj-patch.png)
 
-*Modification staged — validation Cabinet requise.*
+*Écriture staged — validation Cabinet requise.*
 
-## S2.6 — Valider la modification
+---
 
-**Ce qu'on montre** : Patch ODJ appliqué — badge « Ajouté par AYA ».
+## S2.5 — Valider l'ODJ
 
-**Ce qu'on dit** : « Oui, valide. »
+**Phrase AYA** : « Oui, valide. »
+
+**Ce que le VP voit** : patch ODJ appliqué — badge **Ajouté par AYA** sur le point cacao.
+
+**Verdict** : **PASS**
 
 **Plan B clic** : Bannière orange → bouton **Valider modification**.
 
-**Attention** : ne pas dire « OK » seul — dire « Oui, valide » en entier.
+![Validation ODJ · badge AYA](status-screenshots/2026-05-25-qa-trame/S2-14-odj-validate.png)
 
-![Validation ODJ · badge AYA](status-screenshots/2026-05-25-postdeploy/21-aya-odj-cacao.png)
+*Confirmation explicite — AYA ne décide pas seule.*
 
-*Écriture agenda confirmée par le Cabinet.*
+---
 
-## S2.7 — Démarrer la réunion
+## S2.6 — Réunion live
 
-**Ce qu'on montre** : Vue meeting live — chrono, ordre du jour vertical, options A/B/C.
+**Phrase AYA** : « AYA, démarre la réunion. »
 
-**Ce qu'on dit** : « AYA, démarre la réunion. »
+**Ce que le VP voit** : vue **meeting live** — chrono, ordre du jour vertical avec point cacao, options **A / B / C** visibles.
+
+**Verdict** : **PASS**
 
 **Plan B clic** : Fiche Nawa → bouton **Démarrer la réunion**.
 
-![Vue réunion · ODJ et options](status-screenshots/2026-05-25-demo-eve/09-agenda-meeting-detail.png)
+![Vue réunion · ODJ et options](status-screenshots/2026-05-25-qa-trame/S2-15-meeting-live.png)
 
 *Mode meeting — arbitrage en direct devant Monsieur le Vice-Président.*
 
-## S2.8 — Acter l'option B
+---
 
-**Ce qu'on montre** : Décision loggée — option B diversification anacarde, registre mis à jour.
+## S2.7 — Décision option B
 
-**Ce qu'on dit** : « AYA, décide option B. »
+**Phrase AYA** : « AYA, décide option B. »
+
+**Ce que le VP voit** : décision **option B diversification anacarde** loggée — modal rationale, registre mis à jour.
+
+**Verdict** : **PASS**
 
 **Plan B clic** : Point ODJ Cacao → carte **Option B** → **Décider** → **Logger la décision**.
 
-![Arbitrage option B · décision enregistrée](status-screenshots/2026-05-25-demo-eve/09-agenda-meeting-detail.png)
+![Arbitrage option B · décision enregistrée](status-screenshots/2026-05-25-qa-trame/S2-16-decision-b.png)
 
 *Décision persistée — traçabilité institutionnelle.*
 
-## S2.9 — Rappeler les décisions
-
-**Ce qu'on montre** : Panneau décisions — dernière arbitrage Nawa en tête de liste.
-
-**Ce qu'on dit** : « AYA, qu'avons-nous décidé la dernière fois ? »
-
-**Plan B clic** : Sidebar **Arbitrages** → bloc décisions loggées.
-
-![Mémoire institutionnelle · décisions passées](status-screenshots/2026-05-25-demo-eve/05-cockpit-arbitrages.png)
-
-*Rappel immédiat — aucune décision perdue.*
+---
 
 ## Récap S2 — Nawa / cacao
 
-**9 étapes** · ~7 minutes
+**7 étapes** · ~7 minutes
 
 **Message clé** : diversification cacao arbitrée et loggée
 
 > « De la lecture d'un rapport dense à la décision loggée en réunion — AYA a accompagné tout le cycle, avec traçabilité et validation à chaque étape d'écriture. »
 
+---
+
 ## Ce qu'on a prouvé
 
-- **Cockpit souverain** — posture, terrain, presse en un écran
+- **Cockpit souverain** — 8 KPIs, posture, terrain, presse en un écran
 - **AYA actionnable** — propose, ne décide pas à la place du Cabinet
 - **Preuves traçables** — PV douanes, rapport préfet, sources citées
 - **Décisions mémorisées** — arbitrages loggés et rappelables
@@ -258,8 +319,10 @@ Si AYA ne répond pas — 5 raccourcis sans voix (workspace `sentinel-ci`) :
 
 | Sujet | Raccourci |
 |---|---|
-| **Agenda** | Sidebar Agenda → Préfet Nawa 11h |
 | **Carte Nord** | Chip **Zone Nord · Tendue** ou Brief opérationnel Nord |
-| **Presse** | Sidebar Presse → article Napié |
-| **Décisions** | Sidebar Arbitrages → registre décisions |
+| **Cargo / port** | Pin **MV Atlantic Trader** ou **Flux terrain → APM Apapa** |
+| **Agenda** | Sidebar Agenda → Préfet Nawa 11h |
 | **Réunion Nawa** | Agenda → **Démarrer la réunion** |
+| **Décisions** | Sidebar Arbitrages → registre décisions |
+
+¹ *Footnote* : si la phrase « situation au port » ne déclenche pas le panneau maritime à la voix, utiliser le clic Plan B — rebuild frontend requis pour le fix caméra S1.3.
