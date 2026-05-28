@@ -54,6 +54,7 @@ export const FR_DICT = {
   'titlebar.theme.light': 'Thème : Clair · cliquer → Sombre',
   'titlebar.theme.dark': 'Thème : Sombre · cliquer → Système',
   'titlebar.theme.system': 'Thème : Système · cliquer → Clair',
+  'titlebar.theme.locked': 'Thème : Sombre verrouillé',
   'titlebar.workspace': 'Workspace',
 
   // --- Side rail / primary navigation ------------------------------
@@ -220,6 +221,7 @@ export const EN_DICT: Partial<Record<I18nKey, string>> & Record<string, string> 
   'titlebar.theme.light': 'Theme: Light · click → Dark',
   'titlebar.theme.dark': 'Theme: Dark · click → System',
   'titlebar.theme.system': 'Theme: System · click → Light',
+  'titlebar.theme.locked': 'Theme: Dark locked',
   'titlebar.workspace': 'Workspace',
 
   // --- Side rail / primary navigation ------------------------------

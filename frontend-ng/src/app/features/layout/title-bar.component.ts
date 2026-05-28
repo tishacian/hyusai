@@ -115,10 +115,9 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
         <app-icon name="message-square" [size]="14" />
       </button>
 
-      <!-- Theme cycle: light → dark → system → … -->
+      <!-- Theme indicator: dark mode is pinned until light contrast is demo-safe. -->
       <button
         type="button"
-        (click)="cycleTheme()"
         [style.background]="'transparent'"
         [style.border]="'1px solid var(--ck-stroke-2)'"
         [style.borderRadius.px]="4"
@@ -128,8 +127,9 @@ import { ChatOverlayService } from '@app/features/chat/chat-overlay.service';
         [style.alignItems]="'center'"
         [style.justifyContent]="'center'"
         [style.color]="'var(--ck-fg-2)'"
-        [style.cursor]="'pointer'"
+        [style.cursor]="'default'"
         [title]="themeTooltip()"
+        [attr.aria-label]="themeTooltip()"
       >
         <ck-glyph [name]="themeGlyph()" [size]="14" />
       </button>
@@ -479,26 +479,19 @@ export class TitleBarComponent {
   }
 
   readonly themeGlyph = computed(() => {
-    const mode = this.themeService.mode();
-    if (mode === 'light') return 'crosshair' as const;
-    if (mode === 'dark') return 'pulse' as const;
-    return 'orbit' as const;
+    this.themeService.mode();
+    return 'pulse' as const;
   });
 
   readonly themeTooltip = computed(() => {
-    const mode = this.themeService.mode();
+    this.themeService.mode();
     // Read the i18n locale signal so the tooltip re-renders on flip.
     this.i18n.locale();
-    if (mode === 'light') return this.i18n.t('titlebar.theme.light');
-    if (mode === 'dark')  return this.i18n.t('titlebar.theme.dark');
-    return this.i18n.t('titlebar.theme.system');
+    return this.i18n.t('titlebar.theme.locked');
   });
 
   cycleTheme(): void {
-    const m = this.themeService.mode();
-    if (m === 'light') this.themeService.setMode('dark');
-    else if (m === 'dark') this.themeService.setMode('system');
-    else this.themeService.setMode('light');
+    this.themeService.setMode('dark');
   }
 
   setLocale(locale: Locale): void {
