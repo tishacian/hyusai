@@ -1,7 +1,8 @@
 """Document ingestion and indexing service"""
 import asyncio
 import numpy as np
-from typing import List, Dict, Optional, Callable
+from pathlib import Path
+from typing import Any, List, Dict, Optional, Callable
 from app.services.document_parser.factory import DocumentParserFactory
 from app.services.embedding.embedder import Embedder
 from app.services.vector_db.factory import VectorDBFactory
@@ -37,6 +38,25 @@ def _chunk_extra_metadata(chunk: Dict) -> Dict:
         for key, value in chunk.items()
         if key not in _RESERVED_CHUNK_METADATA_KEYS and value is not None
     }
+
+
+def _document_extra_metadata(file_path: str, parsed_filename: str | None, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    direct = kwargs.get("document_metadata")
+    if isinstance(direct, dict):
+        return {str(key): value for key, value in direct.items() if value is not None}
+
+    by_name = kwargs.get("document_metadata_by_name")
+    if not isinstance(by_name, dict):
+        return {}
+
+    candidates = [Path(file_path).name]
+    if parsed_filename:
+        candidates.append(str(parsed_filename))
+    for candidate in candidates:
+        metadata = by_name.get(candidate)
+        if isinstance(metadata, dict):
+            return {str(key): value for key, value in metadata.items() if value is not None}
+    return {}
 
 
 def _persist_table_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
@@ -241,6 +261,7 @@ class DocumentService:
                 extract_keywords_language=keyword_language,
                 count_tokens=True,
             )
+            extra_document_meta = _document_extra_metadata(file_path, parsed_doc.filename, kwargs)
 
             # Generate embeddings for chunks
             chunk_texts = [chunk["content"] for chunk in parsed_doc.chunks]
@@ -289,6 +310,7 @@ class DocumentService:
                     # title surfaced from embedded metadata rather than
                     # derived from filename heuristics).
                     **document_meta,
+                    **extra_document_meta,
                 })
                 chunk_ids.append(f"{parsed_doc.id}_chunk_{i}")
             
@@ -392,6 +414,7 @@ class DocumentService:
                     extract_keywords_language=keyword_language,
                     count_tokens=True,
                 )
+                extra_document_meta = _document_extra_metadata(file_path, parsed_doc.filename, kwargs)
 
                 # Step 2: Generate embeddings for chunks (async batch)
                 chunk_texts = [chunk["content"] for chunk in parsed_doc.chunks]
@@ -413,6 +436,7 @@ class DocumentService:
                         **_chunk_extra_metadata(chunk),
                         **{k: v for k, v in parsed_doc.metadata.items() if v is not None},
                         **document_meta,
+                        **extra_document_meta,
                     })
                     chunk_ids.append(f"{parsed_doc.id}_chunk_{i}")
                 

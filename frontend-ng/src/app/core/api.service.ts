@@ -6,11 +6,26 @@ export interface CapturePlanRequest {
   objective: string;
   title?: string | null;
   expert_profile?: string | null;
-  duration_minutes?: number;
+  duration_minutes?: number | null;
   context_id?: string | null;
   system_id?: string | null;
   knowledge_refs?: string[];
   voice_runtime?: string;
+  plan_mode?: 'ai_plan' | 'provided_plan' | 'free_conversation' | 'plan_build' | string;
+  capture_domain?: string | null;
+  provided_plan_text?: string | null;
+}
+
+export interface CaptureQualityBacklog {
+  imprecisions: Array<Record<string, unknown>>;
+  contradictions: Array<Record<string, unknown>>;
+  open_questions: Array<Record<string, unknown>>;
+  defer_weak_contradictions?: boolean;
+}
+
+export interface PlanDialogueTurnRequest {
+  text?: string;
+  confirm_finalize?: boolean;
 }
 
 export interface CaptureTurnRequest {
@@ -353,8 +368,102 @@ export class ApiService {
     return this.post('/knowledge-capture/plans', body);
   }
 
-  listCaptureSessions(status?: string): Observable<unknown> {
-    return this.get('/knowledge-capture/sessions', status ? { status } : undefined);
+  listCaptureSessions(status?: string, domain?: string, systemId?: string | null): Observable<unknown> {
+    const params: Record<string, string> = {};
+    if (status) params['status'] = status;
+    if (domain) params['domain'] = domain;
+    if (systemId) params['system_id'] = systemId;
+    return this.get('/knowledge-capture/sessions', Object.keys(params).length ? params : undefined);
+  }
+
+  getCaptureQualityBacklog(sessionId: string): Observable<CaptureQualityBacklog> {
+    return this.get<CaptureQualityBacklog>(`/knowledge-capture/sessions/${sessionId}/quality-backlog`);
+  }
+
+  deferCaptureQualityItem(
+    sessionId: string,
+    body: { item_id: string; bucket: string; deferred_reason?: string },
+  ): Observable<CaptureQualityBacklog> {
+    return this.post<CaptureQualityBacklog>(`/knowledge-capture/sessions/${sessionId}/quality/defer`, body);
+  }
+
+  patchCaptureSessionFlags(
+    sessionId: string,
+    body: {
+      defer_weak_contradictions?: boolean;
+      capture_domain?: string;
+      focused_quality_question_id?: string | null;
+      focused_quality_evaluation_id?: string | null;
+    },
+  ): Observable<unknown> {
+    return this.patch(`/knowledge-capture/sessions/${sessionId}/flags`, body);
+  }
+
+  planDialogueTurn(sessionId: string, body: PlanDialogueTurnRequest): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/plan/dialogue-turn`, body);
+  }
+
+  finalizeCapturePlan(sessionId: string): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/plan/finalize`);
+  }
+
+  getCapturePlanTopics(sessionId: string): Observable<unknown> {
+    return this.get(`/knowledge-capture/sessions/${sessionId}/plan/topics`);
+  }
+
+  updateCapturePlanTopics(sessionId: string, topics: Record<string, unknown>[]): Observable<unknown> {
+    return this.patch(`/knowledge-capture/sessions/${sessionId}/plan/topics`, { topics });
+  }
+
+  validateCapturePlanTopics(sessionId: string): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/plan/validate-topics`);
+  }
+
+  getCaptureHintQueue(sessionId: string, subtopicId?: string): Observable<unknown> {
+    const params = subtopicId ? { subtopic_id: subtopicId } : undefined;
+    return this.get(`/knowledge-capture/sessions/${sessionId}/hint-queue`, params);
+  }
+
+  pauseCaptureSession(sessionId: string): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/pause`);
+  }
+
+  resumeCaptureSession(sessionId: string): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/resume`);
+  }
+
+  getCaptureClosureSheet(sessionId: string): Observable<{
+    markdown: string;
+    topics?: string[];
+    captured_facts?: unknown[];
+    unresolved?: Array<{ bucket?: string; label?: string; status?: string }>;
+  }> {
+    return this.get(`/knowledge-capture/sessions/${sessionId}/closure-sheet`);
+  }
+
+  applyCaptureSessionClosure(
+    sessionId: string,
+    body: { action: 'finish' | 'extend' | 'schedule'; extension_minutes?: number },
+  ): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/closure`, body);
+  }
+
+  extendCaptureSession(sessionId: string, extensionMinutes = 15): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/extend`, {
+      action: 'extend',
+      extension_minutes: extensionMinutes,
+    });
+  }
+
+  exportCaptureProposal(
+    sessionId: string,
+    body: { executive_summary?: string; proposal_id?: string },
+  ): Observable<{ markdown: string }> {
+    return this.post<{ markdown: string }>(`/knowledge-capture/sessions/${sessionId}/proposal/export`, body);
+  }
+
+  publishCaptureProposal(proposalId: string): Observable<unknown> {
+    return this.post(`/knowledge-capture/proposals/${proposalId}/publish`);
   }
 
   updateCapturePlan(sessionId: string, plan: Record<string, unknown>): Observable<unknown> {
@@ -410,8 +519,11 @@ export class ApiService {
     return this.post(`/knowledge-capture/sessions/${sessionId}/proposal`);
   }
 
-  listCaptureProposals(status?: string): Observable<unknown> {
-    return this.get('/knowledge-capture/proposals', status ? { status } : undefined);
+  listCaptureProposals(status?: string, systemId?: string | null): Observable<unknown> {
+    const params: Record<string, string> = {};
+    if (status) params['status'] = status;
+    if (systemId) params['system_id'] = systemId;
+    return this.get('/knowledge-capture/proposals', Object.keys(params).length ? params : undefined);
   }
 
   reviewCaptureProposal(proposalId: string, body: ProposalReviewRequest): Observable<unknown> {

@@ -213,6 +213,10 @@ def ingested_key(collection: KnowledgeCollection, filename: str) -> str:
     return get_object_store().key(collection.artifact_prefix, "ingested", text_name)
 
 
+def document_manifest_key(collection: KnowledgeCollection) -> str:
+    return get_object_store().key(collection.artifact_prefix, "metadata", "document-manifest.json")
+
+
 def serialize_job(job: WorkerJob) -> dict[str, Any]:
     result = job.result or {}
     return {

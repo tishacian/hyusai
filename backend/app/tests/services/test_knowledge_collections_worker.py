@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,7 @@ from app.models.workspace import Workspace
 from app.services.knowledge_collections import (
     create_collection,
     create_worker_job,
+    document_manifest_key,
     original_key,
     update_job,
 )
@@ -78,6 +80,10 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
         kind="document_ingest_index",
     )
     get_object_store().write_bytes(original_key(collection, "manual.txt"), b"hello world")
+    get_object_store().write_text(
+        document_manifest_key(collection),
+        json.dumps({"manual.txt": {"project_code": "BBA120", "source_family": "operating_manual"}}),
+    )
     db_session.commit()
 
     class FakeParser:
@@ -95,6 +101,7 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
 
         async def ingest_documents_batch(self, paths, **_kwargs):
             assert self.cleared is True
+            assert _kwargs["document_metadata_by_name"]["manual.txt"]["project_code"] == "BBA120"
             return {
                 "total": len(paths),
                 "successful": len(paths),

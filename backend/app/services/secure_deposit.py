@@ -34,6 +34,7 @@ from app.services.audit_logger import emit_audit_event
 from app.services.knowledge_collections import (
     create_or_get_collection,
     create_worker_job,
+    document_manifest_key,
     original_key,
     update_collection_status,
 )
@@ -86,6 +87,7 @@ _WORKER_PROMOTION_EXTENSIONS = (
 )
 _BULK_PROMOTION_MAX_FILES = 50
 _BULK_PROMOTION_MAX_DOCUMENTS = 200
+_ANDRITZ_PROJECT_RE = re.compile(r"(?<![A-Z0-9])([A-Z]{3})[\s_-]?(\d{2,4})(?![A-Z0-9])", re.IGNORECASE)
 
 
 def enabled_workspace_slugs() -> set[str]:
@@ -420,7 +422,61 @@ def _archive_document_name(member_path: PurePosixPath, used: set[str]) -> str:
     return _unique_archive_name(flattened, used)
 
 
-def _read_supported_archive_documents(path: Path) -> list[dict[str, Any]]:
+def _extract_andritz_project_reference(*values: str | None) -> dict[str, str]:
+    for value in values:
+        for match in _ANDRITZ_PROJECT_RE.finditer(str(value or "")):
+            buyer = match.group(1).upper()
+            position = match.group(2)
+            return {
+                "project_code": f"{buyer}{position}",
+                "initial_buyer_code": buyer,
+                "project_position": position,
+                "project_reference_kind": "andritz_project",
+            }
+    return {}
+
+
+def _classify_archive_source_family(path: str, extension: str | None = None) -> str:
+    haystack = path.replace("_", " ").replace("-", " ").lower()
+    ext = (extension or PurePosixPath(path).suffix.lstrip(".")).lower()
+    if any(token in haystack for token in ("spare part", "parts list", "spareparts")):
+        return "spare_parts_list"
+    if any(token in haystack for token in ("commissioning", "check list", "checklist")):
+        return "commissioning"
+    if any(token in haystack for token in ("safety", "declaration of conformity", "certif", "conformity")):
+        return "safety"
+    if any(token in haystack for token in ("annex", "annexe", "annexes")):
+        return "annex"
+    if any(token in haystack for token in ("maintenance", "service manual", "manuel de service")):
+        return "maintenance"
+    if any(token in haystack for token in ("operating manual", "operator manual", "user manual", "users manual", "user's manual", "manual")):
+        return "operating_manual"
+    if ext in {"html", "htm"}:
+        return "html_manual"
+    return "unknown"
+
+
+def _archive_document_metadata(
+    *,
+    deposit_filename: str | None,
+    archive_path: str | None,
+    document_name: str,
+    extension: str | None,
+) -> dict[str, Any]:
+    archive_name = PurePosixPath(str(deposit_filename or "")).name if deposit_filename else None
+    metadata: dict[str, Any] = {
+        "source_origin": "secure_deposit",
+        "source_family": _classify_archive_source_family(" ".join([archive_path or "", document_name]), extension),
+        "archive_name": archive_name,
+        "source_deposit_path": deposit_filename,
+        "inner_document_path": archive_path,
+    }
+    if archive_path:
+        metadata.update(_extract_andritz_project_reference(deposit_filename, archive_path, document_name))
+    return {key: value for key, value in metadata.items() if value is not None}
+
+
+def _read_supported_archive_documents(path: Path, *, deposit_filename: str | None = None) -> list[dict[str, Any]]:
     max_files = max(1, int(settings.secure_deposit_archive_promotion_max_files or 50))
     documents: list[dict[str, Any]] = []
     used_names: set[str] = set()
@@ -446,12 +502,19 @@ def _read_supported_archive_documents(path: Path) -> list[dict[str, Any]]:
                     detail=f"Archive contains more than {max_files} supported documents",
                 )
             document_name = _archive_document_name(member_path, used_names)
+            archive_path = member_path.as_posix()
             documents.append(
                 {
-                    "archive_path": member_path.as_posix(),
+                    "archive_path": archive_path,
                     "filename": document_name,
                     "extension": ext,
                     "size_bytes": int(info.file_size or 0),
+                    "metadata": _archive_document_metadata(
+                        deposit_filename=deposit_filename or path.name,
+                        archive_path=archive_path,
+                        document_name=document_name,
+                        extension=ext,
+                    ),
                     "content": archive.read(info),
                 }
             )
@@ -1177,7 +1240,10 @@ def promote_files_to_collection_batch(
 
         if extension == "zip":
             try:
-                archive_documents = _read_supported_archive_documents(source_path)
+                archive_documents = _read_supported_archive_documents(
+                    source_path,
+                    deposit_filename=deposit_file.filename,
+                )
             except HTTPException as exc:
                 skipped.append(
                     {
@@ -1208,6 +1274,12 @@ def promote_files_to_collection_batch(
                             "filename": _single_document_name(deposit_file),
                             "extension": extension,
                             "size_bytes": int(deposit_file.size_bytes or 0),
+                            "metadata": _archive_document_metadata(
+                                deposit_filename=deposit_file.filename,
+                                archive_path=None,
+                                document_name=_single_document_name(deposit_file),
+                                extension=extension,
+                            ),
                             "source_path": source_path,
                         }
                     ],
@@ -1234,6 +1306,15 @@ def promote_files_to_collection_batch(
     store = get_object_store()
     document_names = list(collection.document_names or [])
     document_name_set = set(document_names)
+    manifest_key = document_manifest_key(collection)
+    document_manifest: dict[str, Any] = {}
+    if store.exists(manifest_key):
+        try:
+            loaded_manifest = json.loads(store.read_bytes(manifest_key).decode("utf-8"))
+            if isinstance(loaded_manifest, dict):
+                document_manifest = loaded_manifest
+        except Exception:
+            document_manifest = {}
 
     promoted_payload: list[dict[str, Any]] = []
     for item in selected:
@@ -1248,12 +1329,16 @@ def promote_files_to_collection_batch(
             if document_name not in document_name_set:
                 document_names.append(document_name)
                 document_name_set.add(document_name)
+            document_metadata = dict(document.get("metadata") or {})
+            if document_metadata:
+                document_manifest[document_name] = document_metadata
             item_documents.append(
                 {
                     "document_name": document_name,
                     "archive_path": document.get("archive_path"),
                     "extension": document.get("extension") or item["extension"],
                     "size_bytes": int(document.get("size_bytes") or deposit_file.size_bytes or 0),
+                    "metadata": document_metadata,
                 }
             )
         promoted_payload.append(
@@ -1266,6 +1351,7 @@ def promote_files_to_collection_batch(
                 "documents": item_documents,
             }
         )
+    store.write_text(manifest_key, json.dumps(document_manifest, ensure_ascii=True, indent=2, sort_keys=True))
 
     update_collection_status(
         db,
@@ -1380,7 +1466,7 @@ def _promote_archive_file_to_collection(
     collection_slug: str,
 ) -> DepositFile:
     archive_path = staged_file_path(deposit_file)
-    documents = _read_supported_archive_documents(archive_path)
+    documents = _read_supported_archive_documents(archive_path, deposit_filename=deposit_file.filename)
 
     collection = create_or_get_collection(
         db,
@@ -1393,19 +1479,33 @@ def _promote_archive_file_to_collection(
     store = get_object_store()
     existing_names = list(collection.document_names or [])
     extracted_manifest: list[dict[str, Any]] = []
+    manifest_key = document_manifest_key(collection)
+    document_manifest: dict[str, Any] = {}
+    if store.exists(manifest_key):
+        try:
+            loaded_manifest = json.loads(store.read_bytes(manifest_key).decode("utf-8"))
+            if isinstance(loaded_manifest, dict):
+                document_manifest = loaded_manifest
+        except Exception:
+            document_manifest = {}
     for document in documents:
         filename = str(document["filename"])
         store.write_bytes(original_key(collection, filename), document["content"])
         if filename not in existing_names:
             existing_names.append(filename)
+        document_metadata = dict(document.get("metadata") or {})
+        if document_metadata:
+            document_manifest[filename] = document_metadata
         extracted_manifest.append(
             {
                 "archive_path": document["archive_path"],
                 "filename": filename,
                 "extension": document["extension"],
                 "size_bytes": document["size_bytes"],
+                "metadata": document_metadata,
             }
         )
+    store.write_text(manifest_key, json.dumps(document_manifest, ensure_ascii=True, indent=2, sort_keys=True))
 
     update_collection_status(
         db,

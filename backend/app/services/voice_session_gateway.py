@@ -22,7 +22,13 @@ from app.models.expert_capture import ExpertCaptureSession
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.audit_logger import emit_audit_event
-from app.services.knowledge_capture import append_turn, get_session
+from app.services.knowledge_capture import (
+    _retrieve_context_chunks,
+    append_turn,
+    get_session,
+    process_capture_partial_hints,
+    process_conversation_step,
+)
 from app.services.voice_runtime import (
     VoiceProviderError,
     get_voice_runtime_provider,
@@ -48,6 +54,7 @@ class VoiceSessionState:
     question_id: Optional[str] = None
     retrieval_event_id: Optional[str] = None
     interruption_of_event_id: Optional[str] = None
+    last_proposal_id: Optional[str] = None
     content_type: str = "audio/webm"
     turn_started_at: Optional[float] = None
     endpoint_at: Optional[float] = None
@@ -312,6 +319,65 @@ class VoiceSessionGateway:
             duration_ms=int(payload.get("duration_ms") or payload.get("latency_ms") or 0),
         )
         await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
+        capture_session = self._capture_session(db, workspace.id, state.session_id)
+        if capture_session and text.strip():
+            await self._maybe_push_capture_hints(
+                websocket,
+                db,
+                user=user,
+                workspace=workspace,
+                state=state,
+                capture_session=capture_session,
+                partial_text=text,
+            )
+
+    async def _maybe_push_capture_hints(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        capture_session: ExpertCaptureSession,
+        partial_text: str,
+    ) -> None:
+        if len(partial_text.split()) < 6:
+            return
+        chunks, metadatas, _scores = _retrieve_context_chunks(
+            db,
+            workspace_id=workspace.id,
+            workspace_slug=workspace.slug,
+            session=capture_session,
+            query=partial_text,
+            top_k=4,
+        )
+        result = process_capture_partial_hints(
+            db,
+            workspace_id=workspace.id,
+            session_id=capture_session.id,
+            partial_text=partial_text,
+            retrieval_chunks=chunks,
+            retrieval_metadatas=metadatas,
+            client_turn_id=state.client_turn_id,
+            actor_user_id=user.id,
+        )
+        for hint in result.get("hints") or []:
+            hint_events = state.oracle.emit_hint(
+                str(hint.get("hint") or ""),
+                turn_id=state.client_turn_id or str(uuid.uuid4()),
+                subtopic_id=hint.get("subtopic_id"),
+                kb_excerpt=hint.get("kb_excerpt"),
+                oracle_id=hint.get("oracle_id"),
+            )
+            await self._emit_oracle_events(
+                websocket,
+                db,
+                user=user,
+                workspace=workspace,
+                state=state,
+                events=hint_events,
+            )
 
     async def _handle_text_final(
         self,
@@ -454,23 +520,60 @@ class VoiceSessionGateway:
         capture_session = self._capture_session(db, workspace.id, state.session_id)
         if capture_session and text:
             turn_started = time.perf_counter()
-            result = append_turn(
-                db,
-                workspace_id=workspace.id,
-                session_id=capture_session.id,
-                speaker="expert",
-                text=text,
-                question_id=state.question_id,
-                client_turn_id=state.client_turn_id,
-                retrieval_event_id=state.retrieval_event_id,
-                interruption_of_event_id=state.interruption_of_event_id,
-                turn_kind="correction" if state.interruption_of_event_id else "answer",
-                actor_user_id=user.id,
-                text_partials=state.text_partials[-5:],
-                latency_ms=latency,
-            )
+            if state.mode == "conversation_only":
+                result = process_conversation_step(
+                    db,
+                    workspace_id=workspace.id,
+                    session_id=capture_session.id,
+                    client_turn_id=state.client_turn_id,
+                    text=text,
+                    question_id=state.question_id,
+                    retrieval_event_id=state.retrieval_event_id,
+                    interruption_of_event_id=state.interruption_of_event_id,
+                    last_proposal_id=state.last_proposal_id,
+                    actor_user_id=user.id,
+                    actor_label=self._actor_label(user),
+                )
+                proposal_payload = result.get("proposal") if isinstance(result.get("proposal"), dict) else None
+                if proposal_payload and proposal_payload.get("id"):
+                    state.last_proposal_id = str(proposal_payload["id"])
+            else:
+                result = append_turn(
+                    db,
+                    workspace_id=workspace.id,
+                    session_id=capture_session.id,
+                    speaker="expert",
+                    text=text,
+                    question_id=state.question_id,
+                    client_turn_id=state.client_turn_id,
+                    retrieval_event_id=state.retrieval_event_id,
+                    interruption_of_event_id=state.interruption_of_event_id,
+                    turn_kind="correction" if state.interruption_of_event_id else "answer",
+                    actor_user_id=user.id,
+                    text_partials=state.text_partials[-5:],
+                    latency_ms=latency,
+                )
             turn_to_prompt_ms = int((time.perf_counter() - turn_started) * 1000)
             self._merge_capture_metrics(db, workspace.id, capture_session.id, {**latency, "turn_end_to_prompt": turn_to_prompt_ms})
+            if state.mode == "conversation_only":
+                await self._send(
+                    websocket,
+                    state,
+                    "conversation.step",
+                    {
+                        "turn_id": state.client_turn_id,
+                        "intent": result.get("intent"),
+                        "confidence": result.get("confidence"),
+                        "action_taken": result.get("action_taken"),
+                        "session": result.get("session"),
+                        "proposal": result.get("proposal"),
+                        "requires_confirmation": result.get("requires_confirmation"),
+                        "confirmation_target": result.get("confirmation_target"),
+                        "closure_sheet": result.get("closure_sheet"),
+                        "next_prompt": result.get("next_prompt"),
+                        "next_question_id": result.get("next_question_id"),
+                    },
+                )
             await self._send(
                 websocket,
                 state,
@@ -480,6 +583,19 @@ class VoiceSessionGateway:
                     "evaluation": result.get("evaluation"),
                     "next_question_id": result.get("next_question_id"),
                     "session": result.get("session"),
+                    "proposal": result.get("proposal"),
+                    "conversation_step": {
+                        "intent": result.get("intent"),
+                        "confidence": result.get("confidence"),
+                        "action_taken": result.get("action_taken"),
+                        "requires_confirmation": result.get("requires_confirmation"),
+                        "confirmation_target": result.get("confirmation_target"),
+                        "closure_sheet": result.get("closure_sheet"),
+                        "next_prompt": result.get("next_prompt"),
+                        "next_question_id": result.get("next_question_id"),
+                    }
+                    if state.mode == "conversation_only"
+                    else None,
                 },
             )
             if state.tandem_oracle_enabled:
@@ -647,6 +763,10 @@ class VoiceSessionGateway:
             db.commit()
         except Exception:
             db.rollback()
+
+    @staticmethod
+    def _actor_label(user: User) -> str:
+        return user.email or user.username or user.id
 
     def _authenticate(
         self,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import tempfile
 from pathlib import Path
@@ -15,6 +16,7 @@ from app.models.workspace import Workspace
 from app.services.document_parser.factory import DocumentParserFactory
 from app.services.knowledge_collections import (
     create_worker_job,
+    document_manifest_key,
     ingested_key,
     original_key,
     update_collection_status,
@@ -28,6 +30,25 @@ from app.services.document_intelligence import clear_collection_document_facts
 from app.services.ocr import resolve_ocr_config_for_workspace
 
 logger = get_logger(__name__)
+
+
+def _load_document_metadata_manifest(collection: KnowledgeCollection) -> dict[str, dict]:
+    store = get_object_store()
+    key = document_manifest_key(collection)
+    if not store.exists(key):
+        return {}
+    try:
+        payload = json.loads(store.read_bytes(key).decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("document ingest worker could not read document metadata manifest", collection_id=collection.id, error=str(exc))
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        str(name): dict(metadata)
+        for name, metadata in payload.items()
+        if isinstance(metadata, dict)
+    }
 
 
 async def _materialize_ingested_text(
@@ -73,6 +94,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
 
         store = get_object_store()
         file_names = list(collection.document_names or [])
+        document_metadata_by_name = _load_document_metadata_manifest(collection)
         if not file_names:
             prefix = store.key(collection.artifact_prefix, "original")
             file_names = [Path(k).name for k in store.list_keys(prefix)]
@@ -122,6 +144,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             workspace_id=workspace.id,
             collection_id=collection.id,
             collection_slug=collection.slug,
+            document_metadata_by_name=document_metadata_by_name,
         )
         chunk_count = await doc_service.get_document_count()
         documents = await doc_service.list_documents()

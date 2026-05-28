@@ -14,6 +14,8 @@ from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.models.secure_deposit import DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.services.knowledge_collections import document_manifest_key
+from app.services.object_store import get_object_store
 from app.services.secure_deposit import (
     authenticate_link,
     build_deposit_archive,
@@ -544,6 +546,15 @@ async def test_promote_zip_queues_collection_ingest(db_session, monkeypatch, tmp
         / "original"
         / "Manual_BBA120__Declaration__Declaration.pdf"
     ).read_bytes() == b"%PDF declaration"
+    manifest = json.loads(get_object_store().read_bytes(document_manifest_key(collection)).decode("utf-8"))
+    chapter_metadata = manifest["Manual_BBA120__Operator manual__Chapter 01.pdf"]
+    assert chapter_metadata["project_code"] == "BBA120"
+    assert chapter_metadata["initial_buyer_code"] == "BBA"
+    assert chapter_metadata["project_position"] == "120"
+    assert chapter_metadata["project_reference_kind"] == "andritz_project"
+    assert chapter_metadata["source_family"] == "operating_manual"
+    assert chapter_metadata["archive_name"] == "Manual_BBA120.zip"
+    assert chapter_metadata["inner_document_path"] == "Manual_BBA120/Operator manual/Chapter 01.pdf"
 
 
 @pytest.mark.asyncio

@@ -22,6 +22,7 @@ export type VoiceSessionEventType =
   | 'text.final'
   | 'translation.partial'
   | 'translation.final'
+  | 'conversation.step'
   | 'evaluation.delta'
   | 'prompt.next'
   | 'barge_in'

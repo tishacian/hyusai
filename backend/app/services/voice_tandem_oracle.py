@@ -137,6 +137,56 @@ class VoiceTandemOracle:
         self._last_partial_at = time.perf_counter()
         return self._signal_events(signal, event_type="oracle.delta", previous=previous)
 
+    def emit_hint(
+        self,
+        hint_text: str,
+        *,
+        turn_id: str,
+        subtopic_id: str | None = None,
+        sources: Iterable[Dict[str, Any]] | None = None,
+        kb_excerpt: str | None = None,
+        oracle_id: str | None = None,
+    ) -> list[Dict[str, Any]]:
+        """Surface a non-vocal capture hint (no next_prompt injection)."""
+        normalized = " ".join(str(hint_text or "").split())
+        if not normalized:
+            return []
+        self._partial_seq += 1
+        previous = self._active_signal
+        signal = VoiceOracleSignal(
+            oracle_id=oracle_id or str(uuid.uuid4()),
+            turn_id=turn_id,
+            partial_seq=self._partial_seq,
+            action="hint",
+            content=normalized[:80],
+            confidence=0.78,
+            reason="capture_hint",
+            sources=list(sources or []),
+            supersedes=previous.oracle_id if previous else None,
+            micro_turn=VoiceMicroTurn(
+                turn_id=turn_id,
+                partial_seq=self._partial_seq,
+                duration_ms=0,
+                text=normalized,
+                input_state={"transcript_state": "partial"},
+                output_state={"oracle_state": "hint", "subtopic_id": subtopic_id, "kb_excerpt": kb_excerpt},
+            ),
+        )
+        self._active_signal = signal
+        events = self._signal_events(signal, event_type="oracle.action", previous=previous)
+        events.append(
+            {
+                "type": "capture.hint_pushed",
+                "payload": {
+                    **signal.as_payload(),
+                    "hint": normalized[:80],
+                    "subtopic_id": subtopic_id,
+                    "kb_excerpt": kb_excerpt,
+                },
+            }
+        )
+        return events
+
     def commit_final(
         self,
         text: str,
@@ -254,6 +304,9 @@ class VoiceTandemOracle:
         if next_prompt:
             return "next_prompt"
         verdict = str((evaluation or {}).get("verdict") or "").lower()
+        action = str((evaluation or {}).get("action") or "").lower()
+        if action == "hint":
+            return "hint"
         if verdict in {"sufficient", "accepted", "complete"}:
             return "capture_fact"
         if verdict in {"needs_followup", "needs_more_detail", "insufficient"}:
