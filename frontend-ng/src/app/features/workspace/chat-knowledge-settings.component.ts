@@ -646,7 +646,7 @@ interface AssistantProfileDraft {
                         <select class="ag-select" [(ngModel)]="profile.ambiguity_policy" [disabled]="!canEdit()">
                           <option value="ask_when_metric_unclear">Ask when metric unclear</option>
                           <option value="answer_with_assumptions">Answer with assumptions</option>
-                          <option value="evidence_gap">Evidence gap first</option>
+                          <option value="evidence_gap">Say when sources are insufficient</option>
                         </select>
                         <app-icon name="chevron-down" [size]="14" class="ag-select-chevron" />
                       </span>
@@ -1033,7 +1033,7 @@ interface AssistantProfileDraft {
         <section class="t-card t-elevated rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5">
             <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Voice interaction</p>
-            <h3 class="text-base font-semibold text-white mt-1">Voice loop defaults</h3>
+            <h3 class="text-base font-semibold text-white mt-1">Voice conversation defaults</h3>
             <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
               These settings make voice-to-voice a reusable workspace capability. Assistant profiles may override them
               in JSON, while demo mode only changes what users see.
@@ -1081,7 +1081,7 @@ interface AssistantProfileDraft {
                 <input type="checkbox" [(ngModel)]="voiceLoopDraft.auto_rearm_after_tts" [disabled]="!canEdit()" />
                 <span>
                   <strong>Rearm after spoken answer</strong>
-                  <small>Reopen the microphone after TTS plus cooldown in Session loop.</small>
+                  <small>Reopen the microphone after TTS plus cooldown in conversation mode.</small>
                 </span>
               </label>
               <label class="voice-toggle-row">
@@ -1143,7 +1143,7 @@ interface AssistantProfileDraft {
               </div>
               <p class="mt-3 text-xs text-gray-500 leading-relaxed">
                 Profiles can override this with <span class="font-mono text-gray-300">voice_loop</span>. Example:
-                AYA can keep the same Session loop while changing only command wording or default mode.
+                AYA can keep the same voice conversation while changing only command wording or default mode.
               </p>
             </div>
 
@@ -1981,7 +1981,7 @@ export class ChatKnowledgeSettingsComponent {
   readonly ragModes: RagMode[] = ['auto', 'naive', 'hybrid', 'hah', 'chah'];
   readonly voiceModeOptions: { value: VoiceLoopDefaultMode; label: string; icon: string; help: string }[] = [
     { value: 'batch', label: 'Batch', icon: 'mic', help: 'Push-to-talk voice turn.' },
-    { value: 'session_loop', label: 'Session loop', icon: 'waves', help: 'Hands-free Agentium loop.' },
+    { value: 'session_loop', label: 'Conversation', icon: 'waves', help: 'Hands-free voice conversation.' },
     { value: 'realtime', label: 'Realtime', icon: 'radio', help: 'WebRTC lane when enabled.' },
   ];
   assistantProfileDefault = '';
@@ -2167,7 +2167,13 @@ export class ChatKnowledgeSettingsComponent {
   addPrompt(): void {
     this.chatDraft.prompt_pack = [
       ...this.chatDraft.prompt_pack,
-      { icon: 'file-search', label: 'Sourced answer', prompt: 'Answer with citations from the selected Knowledge source.', scope_key: '', context_mode: 'any' },
+      {
+        icon: 'search',
+        label: 'Poser une question',
+        prompt: 'Que disent les documents sélectionnés sur [votre sujet] ? Cite les sources utilisées.',
+        scope_key: '',
+        context_mode: 'any',
+      },
     ];
   }
 
@@ -2546,7 +2552,7 @@ export class ChatKnowledgeSettingsComponent {
       '',
       '## Evidence policy',
       '- Prefer answers with citations to raw documents.',
-      '- If the guide clarifies vocabulary but the source document lacks a value, report the evidence gap.',
+      '- If the guide clarifies vocabulary but the source document is not enough to answer, say so clearly.',
     ].join('\n');
   }
 
@@ -3150,30 +3156,30 @@ export class ChatKnowledgeSettingsComponent {
     const label = sourceLabel || 'workspace Knowledge';
     return [
       {
+        icon: 'search',
+        label: 'Poser une question',
+        prompt: `Que disent les documents ${label} sur [votre sujet] ? Cite les sources utilisées.`,
+        scope_key: '',
+        context_mode: 'any',
+      },
+      {
         icon: 'file-search',
-        label: 'Find a value',
-        prompt: `In ${label}, find the value of a business parameter and cite the file, page/sheet, and row or section used.`,
+        label: 'Retrouver un passage',
+        prompt: `Retrouve dans ${label} le passage, la procédure ou la section qui explique [votre sujet].`,
         scope_key: '',
         context_mode: 'any',
       },
       {
-        icon: 'binary',
-        label: 'Cited answer',
-        prompt: `Answer using ${label} only, with citations for every factual claim.`,
+        icon: 'split',
+        label: 'Comparer',
+        prompt: `Compare les informations disponibles dans ${label} sur [votre sujet].`,
         scope_key: '',
         context_mode: 'any',
       },
       {
-        icon: 'layers',
-        label: 'Locate the table',
-        prompt: `Find the table or section in ${label} that defines a parameter, then explain how to read it.`,
-        scope_key: '',
-        context_mode: 'any',
-      },
-      {
-        icon: 'shield-check',
-        label: 'Evidence gap',
-        prompt: `Check whether ${label} contains enough evidence to answer the question, and say what is missing if it does not.`,
+        icon: 'list-checks',
+        label: 'Résumer',
+        prompt: `Résume les points clés trouvés dans ${label} sur [votre sujet], avec les sources utiles.`,
         scope_key: '',
         context_mode: 'any',
       },

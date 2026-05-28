@@ -69,7 +69,7 @@ export interface SharedVoiceOracleStep {
           (click)="transportChange.emit('backend_ws')"
           [title]="sessionButtonTitle"
         >
-          Session loop
+          Conversation
         </button>
         <button
           type="button"
@@ -82,7 +82,7 @@ export interface SharedVoiceOracleStep {
       </div>
 
       @if (transport === 'backend_ws') {
-        <div class="voice-loop-actions" title="Start or pause a hands-free Agentium voice session. The microphone rearms after the spoken answer.">
+        <div class="voice-loop-actions" title="Start, pause or stop the voice conversation. The microphone can reopen after the spoken answer.">
           @if (!conversationActive) {
             <button
               type="button"
@@ -91,7 +91,7 @@ export interface SharedVoiceOracleStep {
               (click)="startConversation.emit()"
             >
               <app-icon name="play" [size]="12" />
-              Start conversation
+              Start
             </button>
           } @else {
             <button
@@ -124,10 +124,10 @@ export interface SharedVoiceOracleStep {
 
       <span class="tandem-oracle-pill" [title]="tandemOracleHint">
         <app-icon name="activity" [size]="12" />
-        Tandem oracle
+        Live context
         <span
           class="control-info-dot"
-          title="Fast voice loop plus background Knowledge oracle. It can update context while the conversation continues."
+          title="Background Knowledge search can refresh context while the conversation continues."
         >
           <app-icon name="info" [size]="10" />
         </span>

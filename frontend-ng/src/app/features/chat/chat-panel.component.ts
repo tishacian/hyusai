@@ -3,11 +3,13 @@ import {
   ChangeDetectorRef,
   Component,
   DestroyRef,
+  ElementRef,
   computed,
   effect,
   inject,
   input,
   signal,
+  ViewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -372,7 +374,7 @@ const STEP_ICONS: Record<string, string> = {
         </div>
       }
 
-      @if (!executiveMode() || traceOpen()) {
+      @if (showAdvancedChatControls()) {
       <!-- Toolbar -->
       <div class="chat-control-bar">
         <div class="chat-control-main">
@@ -534,7 +536,7 @@ const STEP_ICONS: Record<string, string> = {
       </div>
       }
 
-      @if (!executiveMode() || traceOpen()) {
+      @if (showAdvancedChatControls()) {
       <app-voice-controls
         [runtimeOptions]="voiceControlRuntimeOptions()"
         [provider]="voiceProvider()"
@@ -591,7 +593,7 @@ const STEP_ICONS: Record<string, string> = {
       }
       }
 
-      @if ((!executiveMode() || traceOpen()) && effectiveChatActions().length) {
+      @if (showAdvancedChatControls() && effectiveChatActions().length) {
         <div class="action-surface-bar">
           <span class="action-surface-label">
             <app-icon name="zap" [size]="12" />
@@ -656,7 +658,7 @@ const STEP_ICONS: Record<string, string> = {
                 </button>
               }
             </div>
-            @if (effectiveChatActions().length) {
+            @if (!isDemoMode() && effectiveChatActions().length) {
               <div class="mt-4 flex max-w-2xl flex-wrap items-center justify-center gap-2">
                 @for (action of effectiveChatActions().slice(0, 4); track action.action_id) {
                   <button
@@ -688,7 +690,7 @@ const STEP_ICONS: Record<string, string> = {
           } @else {
             <!-- Assistant bubble with reasoning trail -->
             <div class="flex flex-col gap-2">
-              @if (msg.decisionSteps && msg.decisionSteps.length > 0) {
+              @if (!isDemoMode() && msg.decisionSteps && msg.decisionSteps.length > 0) {
                 <div class="ml-0 space-y-1.5">
                   <button
                     type="button"
@@ -905,7 +907,7 @@ const STEP_ICONS: Record<string, string> = {
               <!-- Missing-citations banner: model cited [N] but the retrieval
                    returned fewer (or zero) chunks. Surface it so operators
                    do not mistake disabled grey chips for a styling bug. -->
-              @if (missingCitations(msg); as missing) {
+              @if (!isDemoMode() && missingCitations(msg); as missing) {
                 @if (missing.length > 0) {
                   <div
                     class="ml-0 mt-1 flex items-start gap-2 rounded-md px-3 py-2 text-[11px] bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/25"
@@ -1007,10 +1009,10 @@ const STEP_ICONS: Record<string, string> = {
               }
 
               <!-- Task summary -->
-              @if (msg.decisionSteps && msg.decisionSteps.length > 0) {
+              @if (!isDemoMode() && msg.decisionSteps && msg.decisionSteps.length > 0) {
                 <div
                   class="ml-0 mt-1 rounded-md px-3 py-2 bg-gradient-to-r from-brand-500/5 to-violet-500/5 ring-1 ring-brand-500/15 flex items-center gap-3 text-[11px] text-gray-700 dark:text-gray-300"
-                  [class.hidden]="executiveMode() && !traceOpen()"
+                  [class.hidden]="isDemoMode() || (executiveMode() && !traceOpen())"
                 >
                   <app-icon name="circle-dot" [size]="11" class="text-brand-400 shrink-0" />
                   <span class="font-medium">
@@ -1088,22 +1090,24 @@ const STEP_ICONS: Record<string, string> = {
                 >
                   <app-icon name="copy" [size]="12" />
                 </button>
-                <button
-                  type="button"
-                  class="p-1 rounded hover:bg-white/5 transition flex items-center gap-1"
-                  title="Fact-check with LLM-as-Judge"
-                  [disabled]="evaluatingId() === msg.id"
-                  (click)="factCheck(msg)"
-                >
-                  @if (evaluatingId() === msg.id) {
-                    <app-icon name="loader-2" [size]="12" class="animate-spin" />
-                    <span>Scoring…</span>
-                  } @else {
-                    <app-icon name="shield-check" [size]="12" />
-                    <span>Fact-check</span>
-                  }
-                </button>
-                @if (msg.evaluation) {
+                @if (!isDemoMode()) {
+                  <button
+                    type="button"
+                    class="p-1 rounded hover:bg-white/5 transition flex items-center gap-1"
+                    title="Fact-check with LLM-as-Judge"
+                    [disabled]="evaluatingId() === msg.id"
+                    (click)="factCheck(msg)"
+                  >
+                    @if (evaluatingId() === msg.id) {
+                      <app-icon name="loader-2" [size]="12" class="animate-spin" />
+                      <span>Scoring…</span>
+                    } @else {
+                      <app-icon name="shield-check" [size]="12" />
+                      <span>Fact-check</span>
+                    }
+                  </button>
+                }
+                @if (!isDemoMode() && msg.evaluation) {
                   <span class="ml-auto font-mono text-[10px] text-emerald-400"
                     >Score {{ msg.evaluation.composite_score.toFixed(1) }}</span
                   >
@@ -1138,7 +1142,7 @@ const STEP_ICONS: Record<string, string> = {
         <!-- Live streaming -->
         @if (streaming()) {
           <div class="flex flex-col gap-2">
-            @if (liveSteps().length > 0) {
+            @if (!isDemoMode() && liveSteps().length > 0) {
               <div class="space-y-1">
                 @for (step of liveSteps(); track step.id) {
                   <div
@@ -1896,6 +1900,8 @@ const STEP_ICONS: Record<string, string> = {
   `],
 })
 export class ChatPanelComponent {
+  @ViewChild('inputEl') private inputEl?: ElementRef<HTMLTextAreaElement>;
+
   /**
    * System id to scope the chat to. Optional since Vague D / D0 — the
    * `/chat` workspace surface mounts this component in *Quick ask* mode
@@ -1957,7 +1963,10 @@ export class ChatPanelComponent {
 	  readonly voiceNotice = signal<string | null>(null);
 	  readonly voiceOracleStage = signal<VoiceOracleStage>('idle');
 	  readonly voiceOracleMessage = signal('Batch mode: no persistent voice session is open.');
-	  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
+  readonly showAdvancedChatControls = computed(() =>
+    !this.isDemoMode() && (!this.executiveMode() || this.traceOpen()),
+  );
   readonly chatRuntimeLabel = computed(() =>
     this.isDemoMode() ? 'managed runtime' : this.settings.settings().defaultModel || '—',
   );
@@ -2085,6 +2094,7 @@ export class ChatPanelComponent {
   readonly emptyTitle = computed(() => {
     const configured = this.workspaceChatConfig().title;
     if (configured) return configured;
+    if (this.isDemoMode()) return 'Rechercher dans les connaissances';
     if (this.executiveMode()) return `Interroger ${this.assistantLabel()}`;
     if (this.activeAssistantProfile()) return `Ask ${this.assistantLabel()}`;
     return 'Start a conversation';
@@ -2092,6 +2102,12 @@ export class ChatPanelComponent {
   readonly emptySubtitle = computed(() => {
     const configured = this.workspaceChatConfig().subtitle;
     if (configured) return configured;
+    if (this.isDemoMode()) {
+      const label = this.scopeLabel(this.activeKnowledgeScope());
+      return label && label !== 'workspace'
+        ? `Posez une question sur ${label}. La réponse cite les sources utilisées.`
+        : 'Posez une question sur les documents du workspace. La réponse cite les sources utilisées.';
+    }
     if (this.executiveMode()) return 'Posez une question sur les signaux, projets, sources et décisions attendues.';
     if (this.contextId() && this.sessionDocsMode() === 'replace') {
       return 'Ask a sourced question grounded only in the documents uploaded for this session.';
@@ -2107,6 +2123,12 @@ export class ChatPanelComponent {
   readonly inputPlaceholder = computed(() => {
     const configured = this.workspaceChatConfig().placeholder;
     if (configured) return configured;
+    if (this.isDemoMode()) {
+      const label = this.scopeLabel(this.activeKnowledgeScope());
+      return label && label !== 'workspace'
+        ? `Posez votre question sur ${label}...`
+        : 'Posez votre question sur les documents...';
+    }
     if (this.executiveMode()) return `Interroger ${this.assistantLabel()} sur les sources du workspace...`;
     if (this.contextId() && this.sessionDocsMode() === 'replace') {
       return 'Ask about the uploaded session documents...';
@@ -2119,7 +2141,7 @@ export class ChatPanelComponent {
     }
     return 'Ask a workspace question…';
   });
-  readonly sendLabel = computed(() => this.executiveMode() ? 'Interroger' : 'Send');
+  readonly sendLabel = computed(() => this.isDemoMode() || this.executiveMode() ? 'Interroger' : 'Send');
 
   readonly ragModeHint = computed(() => {
     const slug = this.ragModeOverride();
@@ -2997,7 +3019,9 @@ export class ChatPanelComponent {
 
   useSuggestion(s: SuggestionCard): void {
     this.userInput = s.prompt;
-    this.send();
+    this.voiceOracleMessage.set('Question prête. Complétez si besoin, puis envoyez.');
+    this.cdr.markForCheck();
+    window.setTimeout(() => this.inputEl?.nativeElement.focus(), 0);
   }
 
   stageActionPrompt(action: ActionManifest): void {
@@ -3061,31 +3085,101 @@ export class ChatPanelComponent {
         if (contextMode === 'replace' || contextMode === 'combine' || contextMode === 'any') {
           card.context_mode = contextMode;
         }
-        return [card];
+        return [this.normalizeSuggestionCard(card)];
       });
+  }
+
+  private normalizeSuggestionCard(card: SuggestionCard): SuggestionCard {
+    const label = card.label.trim().toLowerCase();
+    const prompt = card.prompt.trim().toLowerCase();
+    const keepScope = {
+      scope_key: card.scope_key,
+      knowledge_scope: card.knowledge_scope,
+      source_key: card.source_key,
+      context_mode: card.context_mode,
+    };
+    if (
+      label === 'find a value' ||
+      prompt.includes('find the value of a business parameter') ||
+      label === 'find evidence'
+    ) {
+      return {
+        ...keepScope,
+        icon: 'search',
+        label: 'Poser une question',
+        prompt: 'Que disent les documents sur [votre sujet] ? Cite les sources utilisées.',
+      };
+    }
+    if (
+      label === 'evidence gap' ||
+      prompt.includes('what is missing') ||
+      prompt.includes('missing evidence') ||
+      label === 'check confidence'
+    ) {
+      return {
+        ...keepScope,
+        icon: 'shield-check',
+        label: 'Vérifier les sources',
+        prompt: 'Réponds à la question avec les documents disponibles. Si aucun passage ne répond clairement, indique-le simplement.',
+      };
+    }
+    if (
+      label === 'locate the table' ||
+      prompt.includes('find the table or section') ||
+      label === 'ready for knowledge'
+    ) {
+      return {
+        ...keepScope,
+        icon: 'file-search',
+        label: 'Retrouver un passage',
+        prompt: 'Retrouve le passage, la procédure ou la section qui explique [votre sujet], avec le document source.',
+      };
+    }
+    if (
+      label === 'cited answer' ||
+      label === 'sourced answer' ||
+      label === 'answer with sources' ||
+      prompt.includes('citations for every factual claim')
+    ) {
+      return {
+        ...keepScope,
+        icon: 'book-open',
+        label: 'Réponse sourcée',
+        prompt: 'Réponds à ma question uniquement avec les documents sélectionnés et cite les sources utiles.',
+      };
+    }
+    if (label === 'find mismatch' || label === 'compare sources') {
+      return {
+        ...keepScope,
+        icon: 'split',
+        label: 'Comparer',
+        prompt: 'Compare les informations disponibles sur [votre sujet] et indique les sources utilisées.',
+      };
+    }
+    return card;
   }
 
   private workspaceSuggestions(): SuggestionCard[] {
     return [
       {
+        icon: 'search',
+        label: 'Poser une question',
+        prompt: 'Que disent les documents du workspace sur [votre sujet] ? Cite les sources utilisées.',
+      },
+      {
         icon: 'file-search',
-        label: 'Find evidence',
-        prompt: 'Find the most relevant workspace sources for this question and cite the documents used.',
+        label: 'Retrouver un passage',
+        prompt: 'Retrouve le passage, la procédure ou la section qui explique [votre sujet].',
       },
       {
-        icon: 'binary',
-        label: 'Answer with sources',
-        prompt: 'Answer using only indexed workspace knowledge, then list the exact sources that support the answer.',
+        icon: 'split',
+        label: 'Comparer',
+        prompt: 'Compare les informations disponibles sur [votre sujet] dans les documents.',
       },
       {
-        icon: 'compass',
-        label: 'Compare sources',
-        prompt: 'Compare the available sources on this topic and highlight any mismatch or missing evidence.',
-      },
-      {
-        icon: 'shield-check',
-        label: 'Check confidence',
-        prompt: 'State what is confirmed by the sources, what is uncertain, and what should be verified next.',
+        icon: 'list-checks',
+        label: 'Résumer',
+        prompt: 'Résume les points clés sur [votre sujet] avec les sources utiles.',
       },
     ];
   }
@@ -3094,24 +3188,24 @@ export class ChatPanelComponent {
     const sourceLabel = this.scopeLabel(this.activeKnowledgeScope());
     return [
       {
+        icon: 'search',
+        label: 'Poser une question',
+        prompt: `Que disent les documents ${sourceLabel} sur [votre sujet] ? Cite les sources utilisées.`,
+      },
+      {
         icon: 'file-search',
-        label: 'Find a value',
-        prompt: `In ${sourceLabel}, find the value of a business parameter and cite the file, page/sheet, and row or section used.`,
+        label: 'Retrouver un passage',
+        prompt: `Retrouve dans ${sourceLabel} le passage, la procédure ou la section qui explique [votre sujet].`,
       },
       {
-        icon: 'binary',
-        label: 'Cited answer',
-        prompt: `Answer using ${sourceLabel} only, with citations for every factual claim.`,
+        icon: 'split',
+        label: 'Comparer',
+        prompt: `Compare les informations disponibles dans ${sourceLabel} sur [votre sujet].`,
       },
       {
-        icon: 'layers',
-        label: 'Locate the table',
-        prompt: `Find the table or section in ${sourceLabel} that defines a parameter, then explain how to read it.`,
-      },
-      {
-        icon: 'shield-check',
-        label: 'Evidence gap',
-        prompt: `Check whether ${sourceLabel} contains enough evidence to answer the question, and say what is missing if it does not.`,
+        icon: 'list-checks',
+        label: 'Résumer',
+        prompt: `Résume les points clés trouvés dans ${sourceLabel} sur [votre sujet], avec les sources utiles.`,
       },
     ];
   }
@@ -3121,28 +3215,28 @@ export class ChatPanelComponent {
     const sourceLabel = this.scopeLabel(this.activeKnowledgeScope());
     return [
       {
-        icon: 'file-search',
-        label: 'Summarize upload',
+        icon: 'list-checks',
+        label: 'Résumer les fichiers',
         prompt: mode === 'combine'
-          ? `Summarize the uploaded documents and compare them with ${sourceLabel}, citing both when used.`
-          : 'Summarize the uploaded documents and cite the exact file names used.',
+          ? `Résume les fichiers ajoutés et complète avec ${sourceLabel} si utile, en citant les sources.`
+          : 'Résume les fichiers ajoutés et cite les noms de fichiers utilisés.',
       },
       {
-        icon: 'binary',
-        label: 'Extract facts',
-        prompt: 'Extract the key facts from the uploaded documents and include source references for each fact.',
+        icon: 'search',
+        label: 'Question aux fichiers',
+        prompt: 'Réponds à ma question à partir des fichiers ajoutés, avec les sources utiles.',
       },
       {
-        icon: 'compass',
-        label: 'Find mismatch',
+        icon: 'split',
+        label: 'Comparer',
         prompt: mode === 'combine'
-          ? `Identify any mismatch between the uploaded documents and ${sourceLabel}.`
-          : 'Identify contradictions, missing values, or uncertainty inside the uploaded documents.',
+          ? `Compare les fichiers ajoutés avec ${sourceLabel} sur [votre sujet].`
+          : 'Compare les informations disponibles dans les fichiers ajoutés sur [votre sujet].',
       },
       {
-        icon: 'shield-check',
-        label: 'Ready for Knowledge',
-        prompt: 'Assess whether the uploaded documents contain reviewable knowledge that should be promoted or captured.',
+        icon: 'file-text',
+        label: 'Préparer une note',
+        prompt: 'Prépare une note courte à partir des fichiers ajoutés, avec les sources à vérifier.',
       },
     ];
   }
