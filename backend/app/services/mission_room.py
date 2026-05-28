@@ -2815,23 +2815,22 @@ def _agenda_items_from_calendar(workspace: Workspace, db: Optional[DBSession]) -
     if not db:
         return _clone(AGENDA)
     # Filter the calendar window on the workspace demo date so the cockpit
-    # surfaces today + tomorrow (J / J+1) and not stale events from past
-    # demos. Without this filter, ``events[:8]`` keeps the oldest events
-    # in chronological order — for SENTINEL-CI, that means the 15-16
-    # April events instead of the 25-26 May 2026 fixtures.
+    # surfaces today through J+2 and not stale events from past demos.
+    # ``list_calendar_events`` rolls SENTINEL-CI seed fixtures onto the
+    # current Africa/Abidjan day before applying the window.
     today = resolve_demo_date(workspace)
     start = datetime.combine(today, time.min)
-    end = datetime.combine(today + timedelta(days=1), time.max)
-    events = list_calendar_events(db, workspace, start=start, end=end)
+    end = datetime.combine(today + timedelta(days=2), time.max)
+    events = list_calendar_events(db, workspace, start=start, end=end, status="scheduled")
     if not events:
         # Fall back to the full window if nothing matches the demo day
         # (eg. the workspace was seeded against another fixture set).
-        events = list_calendar_events(db, workspace)
+        events = list_calendar_events(db, workspace, status="scheduled")
     if not events:
         return _clone(AGENDA)
     return [
         {
-            **serialize_calendar_event(event),
+            **serialize_calendar_event(event, workspace=workspace),
             "sources": ["src-agenda-jour-015"],
         }
         for event in events[:8]

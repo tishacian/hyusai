@@ -39,7 +39,47 @@ interface MacroIndicatorsResponse {
   fetched_at?: string;
 }
 
-const SOVEREIGN_FALLBACK: MacroIndicator[] = [
+const MACRO_ANCHOR_DATE = '2026-05-25';
+const MACRO_TIMEZONE = 'Africa/Abidjan';
+
+function currentAbidjanDateKey(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: MACRO_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '01';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function rollSeriesDates(series: MacroIndicatorPoint[]): MacroIndicatorPoint[] {
+  const datedPoints = series
+    .map((point) => point.date)
+    .filter((value): value is string => !!value && /^\d{4}-\d{2}-\d{2}$/.test(value))
+    .sort();
+  if (datedPoints[datedPoints.length - 1] !== MACRO_ANCHOR_DATE) return series;
+  const today = new Date(`${currentAbidjanDateKey()}T12:00:00`);
+  const anchor = new Date(`${MACRO_ANCHOR_DATE}T12:00:00`);
+  const shiftDays = Math.round((today.getTime() - anchor.getTime()) / 86_400_000);
+  if (!shiftDays) return series;
+  return series.map((point) => {
+    if (!point.date || point.year) return point;
+    const shifted = new Date(`${point.date}T12:00:00`);
+    if (Number.isNaN(shifted.getTime())) return point;
+    shifted.setDate(shifted.getDate() + shiftDays);
+    return { ...point, date: shifted.toISOString().slice(0, 10) };
+  });
+}
+
+function rollIndicatorDates(indicators: MacroIndicator[]): MacroIndicator[] {
+  return indicators.map((indicator) => ({
+    ...indicator,
+    series: rollSeriesDates(indicator.series || []),
+  }));
+}
+
+const SOVEREIGN_FALLBACK: MacroIndicator[] = rollIndicatorDates([
   {
     key: 'cacao',
     label: 'Cacao',
@@ -176,7 +216,7 @@ const SOVEREIGN_FALLBACK: MacroIndicator[] = [
       { date: '2026-05-25', value: 12400 },
     ],
   },
-];
+]);
 
 const FALLBACK_INDICATORS: MacroIndicator[] = [
   {
@@ -714,7 +754,7 @@ export class VpMacroIndicatorsComponent implements OnInit {
         ...indicator,
         current: Number(indicator.current ?? (indicator as { value?: number }).value),
         series: Array.isArray(indicator.series)
-          ? indicator.series
+          ? rollSeriesDates(indicator.series)
           : ((indicator as { sparkline?: number[] }).sparkline || []).map((value, index) => ({
               date: `p${index}`,
               value,

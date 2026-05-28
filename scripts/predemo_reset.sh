@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Pre-demo reset — SENTINEL-CI / AYA  (Lundi 25 Mai 2026, 10h30 Africa/Abidjan)
+# Pre-demo reset — SENTINEL-CI / AYA  (date courante Africa/Abidjan)
 #
 # Purpose: prepare the production workspace at https://agentium.papai.ai for a
 # clean run of the demo trame (docs/demo-aya-storytelling-trame.md). Run this
@@ -9,7 +9,7 @@
 # What it does (in this order):
 #   1. Login via Keycloak realm "papai-org" → grab a 2h JWT.
 #   2. PATCH /api/v1/auth/workspaces/sentinel-ci
-#      a. Bump settings.demo_time_context to 2026-05-25 / 10:30 (Africa/Abidjan).
+#      a. Bump settings.demo_time_context to the current Africa/Abidjan day.
 #      b. Reset settings.actions.last_focus / awaiting / current_meeting /
 #         pending_agenda_patch so the explain_why drill restarts at zone-nord.
 #   2b. Purge debug / legacy calendar events via admin DELETE
@@ -17,9 +17,8 @@
 #      Never touches events from DEMO_DATE onward.
 #   3. Reseed the SENTINEL-CI calendar:
 #      a. Cancel every existing event (workspace-scoped).
-#      b. POST 6 events on 2026-05-25 and 2 events on 2026-05-26 with the
-#         required ``seed_id`` and ``context_ref`` metadata. The evt-prefet-nawa
-#         event (11:00) carries context_ref=report-prefet-nawa-2026-05-10.
+#      b. POST the canonical seed events. Runtime APIs roll these fixtures onto
+#         the current Africa/Abidjan day and J+1/J+2 for presentation.
 #   4. (Optional) Generate the strategic cacao PDF via POST /reports/generate
 #      so the object store has a fresh artifact for S2.3.
 #   5. (Optional, post-deploy) Call the admin reseed/rebuild endpoints if the
@@ -40,10 +39,10 @@ AGENTIUM_HOST="${AGENTIUM_HOST:-https://agentium.papai.ai}"
 WORKSPACE_SLUG="${WORKSPACE_SLUG:-sentinel-ci}"
 AGENTIUM_EMAIL="${AGENTIUM_EMAIL:-thibaud.ishacian@datategy.net}"
 AGENTIUM_PASSWORD="${AGENTIUM_PASSWORD:-ponfib-jaNca5-sisfoc}"
-DEMO_DATE="${DEMO_DATE:-2026-05-25}"
-DEMO_TIME="${DEMO_TIME:-10:30:00}"
-DEMO_LABEL="${DEMO_LABEL:-Lundi 25 Mai 2026}"
 DEMO_TZ="${DEMO_TZ:-Africa/Abidjan}"
+DEMO_DATE="${DEMO_DATE:-$(TZ="${DEMO_TZ}" date +%F)}"
+DEMO_TIME="${DEMO_TIME:-$(TZ="${DEMO_TZ}" date +%H:%M:%S)}"
+DEMO_LABEL="${DEMO_LABEL:-$(DEMO_DATE="${DEMO_DATE}" python3 -c 'import datetime, os; months=["Janvier","Fevrier","Mars","Avril","Mai","Juin","Juillet","Aout","Septembre","Octobre","Novembre","Decembre"]; days=["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]; d=datetime.date.fromisoformat(os.environ["DEMO_DATE"]); print(f"{days[d.weekday()]} {d.day} {months[d.month-1]} {d.year}")')}"
 export AGENTIUM_HOST WORKSPACE_SLUG AGENTIUM_EMAIL AGENTIUM_PASSWORD DEMO_DATE DEMO_TIME DEMO_LABEL DEMO_TZ
 
 say() { printf "\n\033[1;36m▶ %s\033[0m\n" "$*"; }
@@ -78,7 +77,7 @@ with urllib.request.urlopen(req, timeout=30) as resp:
     workspace = json.load(resp)
 s = dict(workspace.get("settings") or {})
 s["demo_time_context"] = {
-    "mode": "fixed",
+    "mode": "rolling",
     "current_date": "${DEMO_DATE}",
     "current_time": "${DEMO_TIME}",
     "label": "${DEMO_LABEL}",

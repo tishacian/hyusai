@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, time, timedelta
+from types import SimpleNamespace
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -18,6 +19,7 @@ from app.services.demo_time_context import resolve_demo_date, resolve_demo_time
 
 DEFAULT_TIMEZONE = "Africa/Abidjan"
 DEFAULT_SOURCE_LABEL = "Agenda institutionnel"
+SENTINEL_CALENDAR_ANCHOR_DATE = date(2026, 5, 25)
 
 
 SENTINEL_CALENDAR_SEED = [
@@ -124,6 +126,43 @@ def _parse_dt(value: str | datetime) -> datetime:
     return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
 
 
+def _is_sentinel_seed(event: WorkspaceCalendarEvent) -> bool:
+    metadata = event.meta_data or {}
+    return metadata.get("seed") == "sentinel-ci" or str(metadata.get("seed_id") or "").startswith("evt-")
+
+
+def _display_window(
+    event: WorkspaceCalendarEvent,
+    workspace: Optional[Workspace] = None,
+) -> tuple[datetime, datetime, int]:
+    if workspace is None or not _is_sentinel_seed(event):
+        return event.start_at, event.end_at, 0
+    delta = resolve_demo_date(workspace) - SENTINEL_CALENDAR_ANCHOR_DATE
+    if not delta.days:
+        return event.start_at, event.end_at, 0
+    return event.start_at + delta, event.end_at + delta, delta.days
+
+
+def _event_for_analysis(event: WorkspaceCalendarEvent, workspace: Workspace) -> Any:
+    start_at, end_at, _ = _display_window(event, workspace)
+    return SimpleNamespace(
+        id=event.id,
+        title=event.title,
+        description=event.description,
+        start_at=start_at,
+        end_at=end_at,
+        timezone=event.timezone,
+        location=event.location,
+        participants=event.participants or [],
+        category=event.category,
+        priority=event.priority,
+        status=event.status,
+        source_kind=event.source_kind,
+        source_label=event.source_label,
+        meta_data=event.meta_data or {},
+    )
+
+
 def _calendar_settings(workspace: Workspace) -> dict[str, Any]:
     return dict((workspace.settings or {}).get("calendar") or {})
 
@@ -170,16 +209,22 @@ def ensure_calendar_seed(db: DBSession, workspace: Workspace) -> int:
     return added
 
 
-def serialize_event(event: WorkspaceCalendarEvent) -> dict[str, Any]:
+def serialize_event(event: WorkspaceCalendarEvent, *, workspace: Optional[Workspace] = None) -> dict[str, Any]:
+    start_at, end_at, shift_days = _display_window(event, workspace)
+    metadata = dict(event.meta_data or {})
+    if shift_days:
+        metadata["simulation_date_shift_days"] = shift_days
+        metadata["simulated_from_date"] = event.start_at.date().isoformat()
+        metadata["simulated_to_date"] = start_at.date().isoformat()
     return {
         "id": event.id,
         "title": event.title,
         "description": event.description,
-        "start_at": event.start_at.isoformat(),
-        "end_at": event.end_at.isoformat(),
-        "date": event.start_at.date().isoformat(),
-        "time": event.start_at.strftime("%H:%M"),
-        "end_time": event.end_at.strftime("%H:%M"),
+        "start_at": start_at.isoformat(),
+        "end_at": end_at.isoformat(),
+        "date": start_at.date().isoformat(),
+        "time": start_at.strftime("%H:%M"),
+        "end_time": end_at.strftime("%H:%M"),
         "timezone": event.timezone,
         "location": event.location,
         "participants": event.participants or [],
@@ -189,7 +234,7 @@ def serialize_event(event: WorkspaceCalendarEvent) -> dict[str, Any]:
         "status": event.status,
         "source_kind": event.source_kind,
         "source_label": event.source_label,
-        "metadata": event.meta_data or {},
+        "metadata": metadata,
     }
 
 
@@ -213,13 +258,22 @@ def list_events(
     status: Optional[str] = None,
 ) -> list[WorkspaceCalendarEvent]:
     query = db.query(WorkspaceCalendarEvent).filter(WorkspaceCalendarEvent.workspace_id == workspace.id)
-    if start:
-        query = query.filter(WorkspaceCalendarEvent.end_at >= start.replace(tzinfo=None))
-    if end:
-        query = query.filter(WorkspaceCalendarEvent.start_at <= end.replace(tzinfo=None))
     if status:
         query = query.filter(WorkspaceCalendarEvent.status == status)
-    return query.order_by(WorkspaceCalendarEvent.start_at.asc()).all()
+    rows = query.order_by(WorkspaceCalendarEvent.start_at.asc()).all()
+    start_value = start.replace(tzinfo=None) if start else None
+    end_value = end.replace(tzinfo=None) if end else None
+    if start_value or end_value:
+        filtered: list[WorkspaceCalendarEvent] = []
+        for event in rows:
+            display_start, display_end, _ = _display_window(event, workspace)
+            if start_value and display_end < start_value:
+                continue
+            if end_value and display_start > end_value:
+                continue
+            filtered.append(event)
+        rows = filtered
+    return sorted(rows, key=lambda event: _display_window(event, workspace)[0])
 
 
 def create_event(
@@ -385,16 +439,20 @@ def summary_payload(db: DBSession, workspace: Workspace, *, day: Optional[date] 
     end = start + timedelta(days=1)
     events = list_events(db, workspace, start=start, end=end)
     active = [event for event in events if event.status != "cancelled"]
+    active_for_analysis = [_event_for_analysis(event, workspace) for event in active]
     try:
         from app.services.action_plans import list_action_items
 
         action_items = list_action_items(db, workspace, include_cancelled=False)
     except Exception:
         action_items = []
-    analysis = analyze_calendar(active, action_items=action_items, day=day)
+    analysis = analyze_calendar(active_for_analysis, action_items=action_items, day=day)
     conflicts = analysis["conflicts"]
     now_time = resolve_demo_time(workspace)
-    next_event = next((event for event in active if event.start_at.time() >= now_time), active[0] if active else None)
+    next_event = next(
+        (event for event in active if _display_window(event, workspace)[0].time() >= now_time),
+        active[0] if active else None,
+    )
     payload = {
         "date": day.isoformat(),
         "connector": {
@@ -404,7 +462,7 @@ def summary_payload(db: DBSession, workspace: Workspace, *, day: Optional[date] 
             "status": "connected",
             "write_policy": calendar_write_policy(workspace),
         },
-        "events": [serialize_event(event) for event in events],
+        "events": [serialize_event(event, workspace=workspace) for event in events],
         "count": len(active),
         "conflicts": conflicts,
         "free_slots": _clean_slots(analysis["free_slots"]),
@@ -413,8 +471,8 @@ def summary_payload(db: DBSession, workspace: Workspace, *, day: Optional[date] 
         "decision_deadlines": analysis["decision_deadlines"],
         "conflict_score": analysis["conflict_score"],
         "status": analysis["status"],
-        "next_event": serialize_event(next_event) if next_event else None,
-        "summary": _summary_text(active, conflicts),
+        "next_event": serialize_event(next_event, workspace=workspace) if next_event else None,
+        "summary": _summary_text(active_for_analysis, conflicts),
     }
     return payload
 
@@ -478,7 +536,7 @@ def handle_calendar_chat_action(
         return {
             "action": "calendar_create_event",
             "applied": True,
-            "event": serialize_event(event),
+            "event": serialize_event(event, workspace=workspace),
             "content": f"Evenement ajoute a l'agenda institutionnel : **{event.title}**, {event.start_at.strftime('%d/%m a %H:%M')}, {event.location or 'lieu a confirmer'}.",
         }
     if any(word in lower for word in ("deplace", "déplace", "reprogramme", "modifie", "avance", "repousse")):
@@ -510,7 +568,7 @@ def handle_calendar_chat_action(
         return {
             "action": "calendar_update_event",
             "applied": True,
-            "event": serialize_event(updated),
+            "event": serialize_event(updated, workspace=workspace),
             "content": f"Agenda mis a jour : **{updated.title}** est maintenant positionne a {updated.start_at.strftime('%H:%M')}.",
         }
     if any(word in lower for word in ("annule", "annuler", "supprime", "retire")):
@@ -530,7 +588,7 @@ def handle_calendar_chat_action(
         return {
             "action": "calendar_cancel_event",
             "applied": True,
-            "event": serialize_event(cancelled),
+            "event": serialize_event(cancelled, workspace=workspace),
             "content": f"Evenement annule : **{cancelled.title}**.",
         }
     if any(word in lower for word in ("resume", "résume", "synthese", "synthèse", "conflit", "journee", "journée")):

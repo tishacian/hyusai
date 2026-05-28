@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pre-deploy smoke probe for the Sentinel-CI demo (lundi 25 mai 2026).
+"""Pre-deploy smoke probe for the Sentinel-CI demo.
 
 Read-only probe. It logs in to ``agentium.papai.ai``, exercises the 6 voice
 prompts of the lundi-matin runbook against ``POST /api/v1/actions/resolve``
@@ -30,13 +30,40 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 HOST = os.environ.get("AGENTIUM_HOST", "https://agentium.papai.ai").rstrip("/")
 WORKSPACE = os.environ.get("WORKSPACE_SLUG", "sentinel-ci")
 EMAIL = os.environ.get("AGENTIUM_EMAIL", "thibaud.ishacian@datategy.net")
 PASSWORD = os.environ.get("AGENTIUM_PASSWORD", "ponfib-jaNca5-sisfoc")
 TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", "8.0"))
+DEMO_TZ = os.environ.get("DEMO_TZ", "Africa/Abidjan")
+MONTHS_FR = (
+    "Janvier",
+    "Fevrier",
+    "Mars",
+    "Avril",
+    "Mai",
+    "Juin",
+    "Juillet",
+    "Aout",
+    "Septembre",
+    "Octobre",
+    "Novembre",
+    "Decembre",
+)
+WEEKDAYS_FR = ("Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche")
+
+
+def _demo_today() -> date:
+    return datetime.now(ZoneInfo(DEMO_TZ)).date()
+
+
+def _demo_label() -> str:
+    day = _demo_today()
+    return f"{WEEKDAYS_FR[day.weekday()]} {day.day} {MONTHS_FR[day.month - 1]} {day.year}"
 
 
 # Voice prompts to probe. ``expected`` is a list of acceptable action_ids
@@ -233,13 +260,14 @@ def probe_api_checks(jwt: str) -> list[dict[str, Any]]:
     cockpit_ok = code == 200 and isinstance(cockpit, dict)
 
     date_label = cockpit.get("date_label") if cockpit_ok else None
+    expected_date_label = _demo_label()
     checks.append({
         "name": "cockpit.date_label",
-        "expected": "Lundi 25 Mai 2026",
+        "expected": expected_date_label,
         "got": date_label,
         "http": code,
-        "depends_on_redeploy": False,
-        "pass": date_label == "Lundi 25 Mai 2026",
+        "depends_on_redeploy": True,
+        "pass": date_label == expected_date_label,
     })
 
     sb = (cockpit.get("vp_status_bar") if cockpit_ok else None) or []
@@ -288,14 +316,17 @@ def probe_api_checks(jwt: str) -> list[dict[str, Any]]:
     ad = cockpit.get("agenda_day") if cockpit_ok else None
     ad_events = (ad or {}).get("events") if ad else []
     first_dates = [str(e.get("date") or e.get("start_at") or "")[:10] for e in (ad_events or [])][:4]
-    on_25 = sum(1 for d in first_dates if d == "2026-05-25")
+    today = _demo_today()
+    today_key = today.isoformat()
+    tomorrow_key = (today + timedelta(days=1)).isoformat()
+    on_today = sum(1 for d in first_dates if d == today_key)
     checks.append({
-        "name": "agenda_day.events first 4 dates on 2026-05-25",
-        "expected": "all 4 on 2026-05-25",
+        "name": "agenda_day.events first 4 dates on demo day",
+        "expected": f"all 4 on {today_key}",
         "got": ",".join(first_dates) or "(empty)",
         "http": code,
         "depends_on_redeploy": True,
-        "pass": on_25 >= 3 and bool(ad_events),
+        "pass": on_today >= 3 and bool(ad_events),
     })
 
     # ── maritime vessels ───────────────────────────────────────────────────
@@ -363,26 +394,26 @@ def probe_api_checks(jwt: str) -> list[dict[str, Any]]:
         "pass": has_ack,
     })
 
-    # ── calendar events: 6 on 25/05 + 2 on 26/05 ───────────────────────────
+    # ── calendar events: 6 on J + 2 on J+1 ─────────────────────────────────
     code_c, cal = _get_json(jwt, "/calendar/events")
     events = (cal or {}).get("events") if isinstance(cal, dict) else (cal if isinstance(cal, list) else [])
-    n25 = sum(1 for e in (events or []) if str(e.get("start_at") or "")[:10] == "2026-05-25")
-    n26 = sum(1 for e in (events or []) if str(e.get("start_at") or "")[:10] == "2026-05-26")
+    n_today = sum(1 for e in (events or []) if str(e.get("start_at") or "")[:10] == today_key)
+    n_tomorrow = sum(1 for e in (events or []) if str(e.get("start_at") or "")[:10] == tomorrow_key)
     checks.append({
-        "name": "calendar/events on 2026-05-25",
+        "name": "calendar/events on demo day",
         "expected": ">= 6",
-        "got": n25,
+        "got": n_today,
         "http": code_c,
-        "depends_on_redeploy": False,
-        "pass": n25 >= 6,
+        "depends_on_redeploy": True,
+        "pass": n_today >= 6,
     })
     checks.append({
-        "name": "calendar/events on 2026-05-26",
+        "name": "calendar/events on demo day + 1",
         "expected": ">= 2",
-        "got": n26,
+        "got": n_tomorrow,
         "http": code_c,
-        "depends_on_redeploy": False,
-        "pass": n26 >= 2,
+        "depends_on_redeploy": True,
+        "pass": n_tomorrow >= 2,
     })
 
     return checks

@@ -98,7 +98,7 @@ def meeting_detail(
     decisions = list_decisions_for_event(db, workspace, event.id)
     metadata = event.meta_data or {}
     return {
-        "event": serialize_event(event),
+        "event": serialize_event(event, workspace=workspace),
         "agenda_items": list(metadata.get("agenda_items") or []),
         "decisions": [serialize_decision(item) for item in decisions],
         "decision_count": len(decisions),
@@ -166,7 +166,7 @@ def meeting_start(
         actor=_actor_label(user),
         details={"event_id": event.id, "surface": "ui"},
     )
-    return {"event": serialize_event(event), "current_meeting": event.id}
+    return {"event": serialize_event(event, workspace=workspace), "current_meeting": event.id}
 
 
 @router.get("/{event_id}/agenda-patch")
@@ -261,7 +261,7 @@ def meeting_agenda_patch_confirm(
         details={"event_id": event.id, "items": len(items), "surface": "ui"},
     )
     return {
-        "event": serialize_event(updated),
+        "event": serialize_event(updated, workspace=workspace),
         "agenda_items": list((updated.meta_data or {}).get("agenda_items") or []),
         "pending_agenda_patch": None,
     }

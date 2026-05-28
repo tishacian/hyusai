@@ -1512,7 +1512,7 @@ export class MissionRailComponent {
                 </div>
                 <h1>{{ cockpit()?.title || 'Bonjour, Monsieur le Vice Premier Ministre.' }}</h1>
                 <p>
-                  <span>{{ cockpit()?.date_label || 'Mercredi 15 Avril 2026' }}</span>
+                  <span>{{ cockpit()?.date_label || currentAbidjanDateLabel() }}</span>
                   <span class="hero-dot"></span>
                   <span>Vision executive consolidee</span>
                 </p>
@@ -2181,7 +2181,7 @@ export class MissionRailComponent {
                   <div class="doc-context-grid">
                     <article>
                       <span>Dernière mise à jour</span>
-                      <strong>25 mai 2026 · matin</strong>
+                      <strong>{{ currentAbidjanSessionLabel() }}</strong>
                     </article>
                     <article>
                       <span>Usage démo S3</span>
@@ -2222,8 +2222,8 @@ export class MissionRailComponent {
       <section class="two-column">
         <app-mission-chart-panel eyebrow="E-Reputation" title="Sentiment medias" [value]="reputationValue()" [tall]="true">
           <svg class="line-chart big" viewBox="0 0 520 230" preserveAspectRatio="none">
-            <text class="chart-label" x="20" y="24">19 mai</text>
-            <text class="chart-label right" x="500" y="24">25 mai · {{ cockpit()?.reputation?.score || 72 }}%</text>
+            <text class="chart-label" x="20" y="24">{{ reputationTrendStartLabel() }}</text>
+            <text class="chart-label right" x="500" y="24">{{ currentAbidjanShortDateLabel() }} · {{ cockpit()?.reputation?.score || 72 }}%</text>
             <path class="line good" [attr.d]="trendPath(cockpit()?.reputation?.trend || [], 210, 32)"></path>
             <path class="line muted" d="M20 160 L500 160"></path>
             <text class="chart-label muted-label" x="24" y="154">seuil neutre</text>
@@ -5042,6 +5042,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   private readonly chat = inject(ChatOverlayService);
   private readonly assistantEffects = inject(AssistantEffectsService);
   private readonly maritimeTracking = inject(MaritimeTrackingService);
+  private readonly abidjanTimeZone = 'Africa/Abidjan';
   protected readonly workspace = inject(WorkspaceService);
   /**
    * AIS vessel positions fed into the strategic <app-workspace-map>.
@@ -5059,6 +5060,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   );
 
   readonly loading = signal(true);
+  readonly abidjanNow = signal(new Date());
   readonly navigation = signal<MissionNavigation | null>(null);
   readonly cockpit = signal<MissionCockpit | null>(null);
   readonly briefing = signal<MissionBriefing | null>(null);
@@ -5111,12 +5113,30 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.route.queryParamMap.pipe(map((params) => params.get('focus'))),
     { initialValue: null as string | null },
   );
+  private readonly abidjanFullDateFormatter = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: this.abidjanTimeZone,
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+  private readonly abidjanShortDateFormatter = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: this.abidjanTimeZone,
+    day: '2-digit',
+    month: 'short',
+  });
+  private readonly abidjanHourFormatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: this.abidjanTimeZone,
+    hour: '2-digit',
+    hour12: false,
+  });
 
   searchQueryValue = '';
   newAgendaTitle = '';
-  newAgendaStart = '2026-04-15T09:45';
+  newAgendaStart = this.defaultAgendaStartValue();
   newAgendaLocation = 'Cabinet Vice Premier Ministre';
   private readonly visualObjectUrls: string[] = [];
+  private abidjanClockTimer: ReturnType<typeof setInterval> | null = null;
   private readonly calendarUpdateListener = () => this.loadAll(false);
   private readonly workspaceActionUpdateListener = () => this.loadAll(false);
   private focusQuerySub: Subscription | null = null;
@@ -5195,6 +5215,14 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     securite: this.securityPosture() ? 1 : 0,
     reputation: this.reputationDrillItems().length || 0,
   }));
+  readonly currentAbidjanDateLabel = computed(() => this.capitalizeDateLabel(this.abidjanFullDateFormatter.format(this.abidjanNow())));
+  readonly currentAbidjanShortDateLabel = computed(() => this.abidjanShortDateFormatter.format(this.abidjanNow()).replace(/\.$/, ''));
+  readonly currentAbidjanSessionLabel = computed(() => {
+    const hour = Number(this.abidjanHourFormatter.format(this.abidjanNow()));
+    const part = hour < 12 ? 'matin' : hour < 18 ? 'apres-midi' : 'soir';
+    return `${this.currentAbidjanDateLabel()} · ${part}`;
+  });
+  readonly reputationTrendStartLabel = computed(() => this.formatRelativeAbidjanDate(-6));
   readonly ayaRailState = computed<'listening' | 'ready'>(() => (this.cockpit()?.briefing_status || '').toLowerCase().includes('ecoute') ? 'listening' : 'ready');
   readonly ayaRailStateLabel = computed(() => {
     const status = (this.cockpit()?.briefing_status || '').toLowerCase();
@@ -5274,6 +5302,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     });
     this.loadAll();
     this.subscribeMaritimeTracking();
+    this.abidjanClockTimer = setInterval(() => this.abidjanNow.set(new Date()), 30_000);
     setTimeout(() => this.scrollToHighlight(), 120);
     this.applyMapQueryState();
   }
@@ -5292,6 +5321,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.s3FocusTimer = null;
     this.maritimeVesselsSub?.unsubscribe();
     this.maritimeVesselsSub = null;
+    if (this.abidjanClockTimer) {
+      clearInterval(this.abidjanClockTimer);
+      this.abidjanClockTimer = null;
+    }
     this.visualObjectUrls.forEach((url) => URL.revokeObjectURL(url));
     this.visualObjectUrls.length = 0;
   }
@@ -7169,6 +7202,40 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     if (!first) return 'Modification ODJ proposee';
     const more = items.length > 1 ? ` (+${items.length - 1})` : '';
     return `${first.title || 'Point sans titre'}${more}`;
+  }
+
+  private defaultAgendaStartValue(): string {
+    return `${this.abidjanDateKey()}T09:45`;
+  }
+
+  private abidjanDateKey(offsetDays = 0): string {
+    const today = this.abidjanDateAtNoon();
+    today.setDate(today.getDate() + offsetDays);
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private abidjanDateAtNoon(): Date {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: this.abidjanTimeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(this.abidjanNow());
+    const get = (type: string) => parts.find((part) => part.type === type)?.value || '01';
+    return new Date(Number(get('year')), Number(get('month')) - 1, Number(get('day')), 12, 0, 0);
+  }
+
+  private formatRelativeAbidjanDate(offsetDays: number): string {
+    const date = this.abidjanDateAtNoon();
+    date.setDate(date.getDate() + offsetDays);
+    return this.abidjanShortDateFormatter.format(date).replace(/\.$/, '');
+  }
+
+  private capitalizeDateLabel(label: string): string {
+    return label ? label.charAt(0).toUpperCase() + label.slice(1) : label;
   }
 
   agendaDayLabel(): string {

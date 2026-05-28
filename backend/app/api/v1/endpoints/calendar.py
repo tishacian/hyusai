@@ -1,7 +1,7 @@
 """Workspace calendar API."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -59,13 +59,19 @@ class CalendarCancelRequest(BaseModel):
 async def calendar_events(
     start: Optional[datetime] = Query(default=None),
     end: Optional[datetime] = Query(default=None),
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
     status: Optional[str] = Query(default=None),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
+    if date_from and not start:
+        start = datetime.combine(date_from, time.min)
+    if date_to and not end:
+        end = datetime.combine(date_to, time.max)
     rows = list_events(db, workspace, start=start, end=end, status=status)
-    return {"events": [serialize_event(row) for row in rows]}
+    return {"events": [serialize_event(row, workspace=workspace) for row in rows]}
 
 
 @router.post("/events")
@@ -92,7 +98,7 @@ async def calendar_create_event(
             metadata=body.metadata,
         )
         db.commit()
-        return serialize_event(event)
+        return serialize_event(event, workspace=workspace)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -115,7 +121,7 @@ async def calendar_update_event(
             updates=body.model_dump(exclude_unset=True),
         )
         db.commit()
-        return serialize_event(event)
+        return serialize_event(event, workspace=workspace)
     except LookupError as exc:
         db.rollback()
         raise HTTPException(status_code=404, detail="Calendar event not found") from exc
@@ -135,7 +141,7 @@ async def calendar_cancel_event(
     try:
         event = cancel_event(db, workspace, user, event_id, body.reason)
         db.commit()
-        return serialize_event(event)
+        return serialize_event(event, workspace=workspace)
     except LookupError as exc:
         db.rollback()
         raise HTTPException(status_code=404, detail="Calendar event not found") from exc

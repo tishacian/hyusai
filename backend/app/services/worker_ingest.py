@@ -75,6 +75,10 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             db.commit()
             raise ValueError(f"Worker job {job_id!r} not found or not linked to a collection")
 
+        ingest_options = dict((job.result or {}).get("ingest_options") or {})
+        ingest_mode = str(ingest_options.get("mode") or "full")
+        incremental_names = [str(name) for name in (ingest_options.get("document_names") or []) if str(name).strip()]
+
         collection = (
             db.query(KnowledgeCollection)
             .filter(KnowledgeCollection.id == job.collection_id)
@@ -94,6 +98,10 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
 
         store = get_object_store()
         file_names = list(collection.document_names or [])
+        if incremental_names:
+            file_names = [name for name in incremental_names if name in set(collection.document_names or [])]
+        elif ingest_mode == "incremental" and collection.document_names:
+            file_names = list(collection.document_names or [])
         document_metadata_by_name = _load_document_metadata_manifest(collection)
         if not file_names:
             prefix = store.key(collection.artifact_prefix, "original")
@@ -130,13 +138,14 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             vector_db_type=db_type,
             workspace_slug=workspace.slug,
         )
-        # Worker jobs ingest the full collection snapshot. Clear stale vectors
-        # first so a reindex cannot accumulate duplicate chunks with fresh temp
-        # file-derived IDs.
-        await doc_service.clear_all_documents()
-        clear_collection_table_facts(db, workspace_id=workspace.id, collection_id=collection.id)
-        clear_collection_document_facts(db, workspace_id=workspace.id, collection_id=collection.id)
-        db.commit()
+        if ingest_mode != "incremental":
+            # Worker jobs ingest the full collection snapshot. Clear stale vectors
+            # first so a reindex cannot accumulate duplicate chunks with fresh temp
+            # file-derived IDs.
+            await doc_service.clear_all_documents()
+            clear_collection_table_facts(db, workspace_id=workspace.id, collection_id=collection.id)
+            clear_collection_document_facts(db, workspace_id=workspace.id, collection_id=collection.id)
+            db.commit()
         update_job(db, job_id, progress=60, stage="indexing")
         db.commit()
         ingest_result = await doc_service.ingest_documents_batch(
@@ -206,7 +215,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             status="ready",
             document_count=len(documents),
             chunk_count=chunk_count,
-            document_names=file_names,
+            document_names=list(collection.document_names or file_names),
         )
         update_job(db, job_id, status="completed", progress=100, result=result, stage="ready")
         db.commit()

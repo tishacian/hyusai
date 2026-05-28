@@ -16,6 +16,7 @@ from app.services.knowledge_guides import effective_guides
 from app.services.mission_room import SENTINEL_WORKSPACE_SLUG, ensure_sentinel_ci_workspace, navigation_payload
 from app.services.rag_preset_service import RagPresetService
 from app.services.skills_registry import bound_slugs, seed_skills_and_capabilities
+from app.services.demo_time_context import resolve_demo_date
 
 
 def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
@@ -81,7 +82,8 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert workspace.settings["voice_output"]["flush_timeout_ms"] == 450
     assert workspace.settings["document_intelligence"]["default_profile"] == "sentinel_ci_ministerial"
     assert workspace.settings["document_intelligence"]["ocr"]["enabled"] is True
-    assert workspace.settings["demo_time_context"]["current_date"] == "2026-05-25"
+    assert workspace.settings["demo_time_context"]["current_date"] == resolve_demo_date().isoformat()
+    assert workspace.settings["demo_time_context"]["mode"] == "rolling"
     assert workspace.settings["connectors"]["institutional_calendar"]["enabled"] is True
     assert workspace.settings["connectors"]["visual_streams"]["enabled"] is True
     assert workspace.settings["visual_intelligence"]["enabled"] is True

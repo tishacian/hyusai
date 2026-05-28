@@ -16,6 +16,14 @@ Permettre à un workspace de :
 
 L’implémentation actuelle est une **Phase 0** : logique déterministe et robuste pour démo, extensible vers LLM/RAG sans changer les contrats API principaux.
 
+### Parcours pilote (Andritz / Eric UX)
+
+- **Capture libre** (`plan_mode=free_conversation`) : pas de plan ni de couverture ; conversation vocale directe après préparation (titre + domaine + durée optionnelle).
+- **Construire un plan** (`plan_build`) : co-construction par tours de dialogue (`POST …/plan/dialogue-turn`) puis finalisation (`POST …/plan/finalize`) — le mode `ai_plan` instantané est réservé aux rôles reviewer/admin.
+- **Préparation pilote** : le contexte workspace est lié automatiquement ; pas de choix collection visible en mode démo.
+- **Qualité** : backlog métier (`GET …/quality-backlog`) — imprécisions, contradictions, questions ouvertes ; action **Reporter** sans bloquer la session.
+- **Clôture** : pause/reprise, export Markdown, publication Knowledge après `review_decide` + `trigger_ingestion`.
+
 ---
 
 ## 2. Modèle mental Agentium

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -13,6 +14,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services import mission_room as mission_room_service
 from app.services.action_plans import ensure_action_plan_seed
+from app.services.demo_time_context import resolve_demo_date, resolve_demo_time
 from app.services.workspace_calendar import ensure_calendar_seed
 
 
@@ -128,9 +130,9 @@ def test_mission_room_navigation_cockpit_and_search_are_audited(db_session):
     assert cockpit_body["press_preview"][0]["route"].startswith("/hypervisor/mission-room/presse?highlight=")
     assert cockpit_body["agenda_timeline"]["separate_from_actions"] is True
     assert cockpit_body["agenda_timeline"]["now_marker"]["label"] == "MAINTENANT"
-    # The "now" marker uses the workspace demo time (default 10:30) and the
-    # countdown is computed dynamically against the next event's time.
-    assert cockpit_body["agenda_timeline"]["now_marker"]["time"] == "10:30"
+    # The "now" marker follows the workspace demo time, which rolls with the
+    # current Africa/Abidjan clock unless a fixed context is explicitly locked.
+    assert cockpit_body["agenda_timeline"]["now_marker"]["time"] == resolve_demo_time(workspace).strftime("%H:%M")
     assert any(
         isinstance(event.get("countdown"), str)
         and (event["countdown"].startswith("dans ") or event["countdown"] == "imminent")
@@ -279,8 +281,8 @@ def test_mission_room_news_uses_live_workspace_intelligence_without_cross_tenant
 def test_mission_room_cockpit_agenda_uses_demo_date_window(db_session):
     """Cockpit must surface the J / J+1 events from the workspace demo date.
 
-    Regression for SENTINEL-CI demo (lundi 25 mai 2026) where the seeded
-    events of 25/26 mai were not surfaced because
+    Regression for SENTINEL-CI demo where the seeded
+    J/J+1 events were not surfaced because
     ``_agenda_items_from_calendar`` ignored the demo-day window.
     """
 
@@ -298,10 +300,14 @@ def test_mission_room_cockpit_agenda_uses_demo_date_window(db_session):
     assert agenda_events, "agenda_day.events should not be empty when calendar is seeded"
     timeline_events = [e for e in body["agenda_timeline"]["events"] if e.get("kind") != "now"]
     assert timeline_events, "agenda_timeline must surface the demo-day events"
+    expected_dates = {
+        resolve_demo_date(workspace).isoformat(),
+        (resolve_demo_date(workspace) + timedelta(days=1)).isoformat(),
+        (resolve_demo_date(workspace) + timedelta(days=2)).isoformat(),
+    }
     for event in timeline_events:
         start_at = event.get("start_at") or ""
-        # Each surfaced event must belong to the demo-day window (25 or 26 May 2026).
-        assert start_at.startswith("2026-05-25") or start_at.startswith("2026-05-26"), start_at
+        assert start_at[:10] in expected_dates, start_at
 
 
 def test_press_preview_falls_back_when_global_feed_is_not_ci():
@@ -389,7 +395,9 @@ def test_mission_room_timeline_decisions_and_library_are_workspace_scoped(db_ses
     assert timeline.json()["attention_required"][1]["id"] == "attention-zone-nord"
     assert timeline.json()["calendar"]["connector"]["id"] == "institutional_calendar"
     assert timeline.json()["agenda"][0]["title"] == "Conseil Defense restreint"
-    assert timeline.json()["calendar"]["next_event"]["title"] == "Rencontre Prefet de la region de Nawa"
+    next_event = timeline.json()["calendar"]["next_event"]
+    assert next_event["title"] in {event["title"] for event in timeline.json()["calendar"]["events"]}
+    assert next_event["time"] >= resolve_demo_time(workspace).strftime("%H:%M") or next_event["title"] == timeline.json()["calendar"]["events"][0]["title"]
     assert len(timeline.json()["action_items"]) >= 1
     assert len(timeline.json()["messages"]) >= 1
     assert decisions.status_code == 200

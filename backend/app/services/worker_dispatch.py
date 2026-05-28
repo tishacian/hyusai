@@ -33,7 +33,14 @@ def dispatch_worker_job(db: DBSession, job: WorkerJob) -> str | None:
             set_job_task_id(db, job.id, async_result.id)
             return async_result.id
         except Exception as exc:
-            update_job(db, job.id, status="failed", progress=100, error=str(exc))
+            if settings.worker_eager_mode:
+                raise
+            # Host CLI / dev shells may not have Celery installed; run inline as fallback.
+            set_job_task_id(db, job.id, f"eager:{job.id}")
             db.commit()
-            raise
+            if job.kind == "document_ingest_index":
+                run_document_ingest_index(job.id)
+            else:
+                run_bm25_rebuild(job.id)
+            return f"eager:{job.id}"
     raise ValueError(f"Unsupported worker job kind: {job.kind}")

@@ -139,7 +139,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                 </div>
 
                 <div class="text-sm">
-                  @if (canAdmin() && m.role !== 'owner' && !m.is_current_user) {
+                  @if (canAdmin() && !isOwner(m) && !m.is_current_user) {
                     <select
                       [value]="m.role"
                       (change)="changeRole(m, $event)"
@@ -152,21 +152,21 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                   } @else {
                     <span
                       class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full capitalize font-medium"
-                      [ngClass]="roleBadgeClass(m.role)"
+                      [ngClass]="roleBadgeClass(roleLabel(m))"
                     >
-                      @if (m.role === 'owner') {
+                      @if (isOwner(m)) {
                         <app-icon name="crown" [size]="11" />
-                      } @else if (m.role === 'admin') {
+                      } @else if (isAdmin(m)) {
                         <app-icon name="shield-check" [size]="11" />
                       } @else {
                         <app-icon name="user-round" [size]="11" />
                       }
-                      {{ m.role }}
+                      {{ roleLabel(m) }}
                     </span>
                   }
                 </div>
 
-                @if (canAdmin() && m.role !== 'owner' && !m.is_current_user) {
+                @if (canAdmin() && !isOwner(m) && !m.is_current_user) {
                   <button
                     type="button"
                     (click)="requestRemove(m)"
@@ -254,8 +254,7 @@ export class WorkspaceMembersComponent {
   inviteRole: 'admin' | 'member' = 'member';
 
   readonly canAdmin = computed(() => {
-    const role = this.workspaceService.current()?.role;
-    return role === 'owner' || role === 'admin';
+    return this.workspaceService.isAdmin();
   });
 
   constructor() {
@@ -288,15 +287,25 @@ export class WorkspaceMembersComponent {
     this.workspaceService.inviteMember(slug, email, this.inviteRole).subscribe({
       next: (res) => {
         this.inviting.set(false);
-        const verb = res?.invitation_email_sent
-          ? 'Invitation email sent'
-          : 'Member added';
-        this.toastr.success(`${email} is now ${this.inviteRole}`, verb);
+        if (res?.invitation_email_sent) {
+          this.toastr.success(`${email} is now ${this.inviteRole}.`, 'Invitation email sent');
+        } else {
+          this.toastr.success(
+            `${email} is now ${this.inviteRole}. If they do not receive an email, they can sign in or use password reset.`,
+            'Member added'
+          );
+        }
         this.inviteEmail = '';
         this.load(slug);
       },
       error: (err) => {
         this.inviting.set(false);
+        if (err?.status === 409 && err?.error?.detail === 'User is already a member') {
+          this.toastr.info(`${email} already has access to this workspace.`, 'Already a member');
+          this.inviteEmail = '';
+          this.load(slug);
+          return;
+        }
         this.toastr.error(err?.error?.detail || 'Failed to invite', 'Error');
       },
     });
@@ -360,5 +369,19 @@ export class WorkspaceMembersComponent {
       default:
         return 'bg-white/5 text-gray-300 border border-white/10';
     }
+  }
+
+  isOwner(member: WorkspaceMemberDetail): boolean {
+    return member.role === 'owner' || member.role_template === 'workspace_owner';
+  }
+
+  isAdmin(member: WorkspaceMemberDetail): boolean {
+    return member.role === 'admin' || member.role_template === 'workspace_admin';
+  }
+
+  roleLabel(member: WorkspaceMemberDetail): string {
+    if (this.isOwner(member)) return 'owner';
+    if (this.isAdmin(member)) return 'admin';
+    return 'member';
   }
 }

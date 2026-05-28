@@ -7,6 +7,7 @@ from app.api.v1.endpoints import calendar
 from app.models.audit import AuditLog
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.demo_time_context import resolve_demo_date
 from app.services.workspace_calendar import ensure_calendar_seed, handle_calendar_chat_action, list_events
 
 
@@ -86,10 +87,12 @@ def test_calendar_summary_uses_internal_connector(db_session):
 
     assert response.status_code == 200
     body = response.json()
+    assert body["date"] == resolve_demo_date(workspace).isoformat()
     assert body["connector"]["id"] == "institutional_calendar"
     assert body["connector"]["mode"] == "internal_shared"
     assert body["count"] >= 5
     assert body["events"][0]["title"] == "Conseil Defense restreint"
+    assert body["events"][0]["date"] == body["date"]
     assert "conflict_score" in body
     assert "recommended_moves" in body
     assert body["decision_deadlines"] == []

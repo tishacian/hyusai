@@ -785,7 +785,7 @@ async def execute_flow_action(
                 f"Monsieur le Vice Premier Ministre, je propose d'ajouter **{agenda_label}** a l'ordre du jour de **{event.title}**. "
                 "Validation advisory requise avant ecriture agenda."
             )
-            sources = [serialize_event(event)]
+            sources = [serialize_event(event, workspace=workspace)]
             extra["event_id"] = event.id
             extra["proposed_agenda_items"] = proposed_items
             awaiting_to_set = {
@@ -846,7 +846,7 @@ async def execute_flow_action(
                         f"Ordre du jour mis a jour pour **{updated.title}** : "
                         f"{len(agenda_items)} point(s) ajoute(s) avec tracabilite advisory."
                     )
-                    sources = [serialize_event(updated)]
+                    sources = [serialize_event(updated, workspace=workspace)]
                     extra["event_id"] = updated.id
                     extra["applied_agenda_items"] = agenda_items
                 awaiting_to_clear = True
@@ -879,7 +879,7 @@ async def execute_flow_action(
                 f"Monsieur le Vice Premier Ministre, je demarre la reunion **{event.title}**. "
                 "Mode meeting live - chaque arbitrage sera logge dans le registre des decisions."
             )
-            sources = [serialize_event(event)]
+            sources = [serialize_event(event, workspace=workspace)]
             extra["event_id"] = event.id
     elif handler == "log_decision":
         from app.services.meeting_decisions import log_decision_for_workspace, serialize_decision

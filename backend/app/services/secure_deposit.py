@@ -476,10 +476,20 @@ def _archive_document_metadata(
     return {key: value for key, value in metadata.items() if value is not None}
 
 
-def _read_supported_archive_documents(path: Path, *, deposit_filename: str | None = None) -> list[dict[str, Any]]:
-    max_files = max(1, int(settings.secure_deposit_archive_promotion_max_files or 50))
+def _read_supported_archive_documents(
+    path: Path,
+    *,
+    deposit_filename: str | None = None,
+    max_files: int | None = None,
+    max_uncompressed_bytes: int | None = None,
+    on_limit: str = "error",
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    limit_files = max(1, int(max_files or settings.secure_deposit_archive_promotion_max_files or 50))
+    limit_bytes = int(max_uncompressed_bytes) if max_uncompressed_bytes else None
     documents: list[dict[str, Any]] = []
     used_names: set[str] = set()
+    truncated_files = 0
+    skipped_uncompressed_bytes = 0
 
     try:
         archive = zipfile.ZipFile(path)
@@ -496,10 +506,23 @@ def _read_supported_archive_documents(path: Path, *, deposit_filename: str | Non
                 continue
             if info.flag_bits & 0x1:
                 raise HTTPException(status_code=422, detail=f"Encrypted ZIP member is not supported: {info.filename}")
-            if len(documents) >= max_files:
+            file_size = int(info.file_size or 0)
+            if len(documents) >= limit_files:
+                if on_limit == "truncate":
+                    truncated_files += 1
+                    continue
                 raise HTTPException(
                     status_code=413,
-                    detail=f"Archive contains more than {max_files} supported documents",
+                    detail=f"Archive contains more than {limit_files} supported documents",
+                )
+            if limit_bytes is not None and sum(int(doc.get("size_bytes") or 0) for doc in documents) + file_size > limit_bytes:
+                if on_limit == "truncate":
+                    truncated_files += 1
+                    skipped_uncompressed_bytes += file_size
+                    continue
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Archive uncompressed payload exceeds {limit_bytes} bytes",
                 )
             document_name = _archive_document_name(member_path, used_names)
             archive_path = member_path.as_posix()
@@ -508,7 +531,7 @@ def _read_supported_archive_documents(path: Path, *, deposit_filename: str | Non
                     "archive_path": archive_path,
                     "filename": document_name,
                     "extension": ext,
-                    "size_bytes": int(info.file_size or 0),
+                    "size_bytes": file_size,
                     "metadata": _archive_document_metadata(
                         deposit_filename=deposit_filename or path.name,
                         archive_path=archive_path,
@@ -521,7 +544,13 @@ def _read_supported_archive_documents(path: Path, *, deposit_filename: str | Non
 
     if not documents:
         raise HTTPException(status_code=422, detail="Archive contains no supported documents")
-    return documents
+    stats = {
+        "truncated_files": truncated_files,
+        "skipped_uncompressed_bytes": skipped_uncompressed_bytes,
+        "max_files": limit_files,
+        "max_uncompressed_bytes": limit_bytes,
+    }
+    return documents, stats
 
 
 def build_deposit_archive(
@@ -1240,7 +1269,7 @@ def promote_files_to_collection_batch(
 
         if extension == "zip":
             try:
-                archive_documents = _read_supported_archive_documents(
+                archive_documents, _archive_stats = _read_supported_archive_documents(
                     source_path,
                     deposit_filename=deposit_file.filename,
                 )
@@ -1466,7 +1495,7 @@ def _promote_archive_file_to_collection(
     collection_slug: str,
 ) -> DepositFile:
     archive_path = staged_file_path(deposit_file)
-    documents = _read_supported_archive_documents(archive_path, deposit_filename=deposit_file.filename)
+    documents, _archive_stats = _read_supported_archive_documents(archive_path, deposit_filename=deposit_file.filename)
 
     collection = create_or_get_collection(
         db,

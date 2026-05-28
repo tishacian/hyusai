@@ -372,7 +372,7 @@ async def _calendar_read_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any
     owns_db = not (ctx or {}).get("db")
     try:
         events = list_events(db, workspace, status=payload.get("status"))
-        return {"events": [serialize_event(event) for event in events], "workspace_id": workspace.id}
+        return {"events": [serialize_event(event, workspace=workspace) for event in events], "workspace_id": workspace.id}
     finally:
         if owns_db:
             db.close()
@@ -406,7 +406,7 @@ async def _calendar_create_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[
             metadata={"created_from": "skill", "skill_slug": "calendar_create_event_v1"},
         )
         db.commit()
-        return {"status": "applied", "applied": True, "event": serialize_event(event)}
+        return {"status": "applied", "applied": True, "event": serialize_event(event, workspace=workspace)}
     finally:
         if owns_db:
             db.close()
@@ -426,7 +426,7 @@ async def _calendar_update_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[
                 updates[key] = payload[key]
         event = update_event(db, workspace, None, str(payload["event_id"]), updates=updates)
         db.commit()
-        return {"status": "applied", "applied": True, "event": serialize_event(event)}
+        return {"status": "applied", "applied": True, "event": serialize_event(event, workspace=workspace)}
     finally:
         if owns_db:
             db.close()
@@ -442,7 +442,7 @@ async def _calendar_cancel_event_v1(payload: Dict[str, Any], ctx: Optional[Dict[
             return {"status": "proposal", "applied": False, "proposal": payload}
         event = cancel_event(db, workspace, None, str(payload["event_id"]), reason=str(payload.get("reason") or "skill"))
         db.commit()
-        return {"status": "applied", "applied": True, "event": serialize_event(event)}
+        return {"status": "applied", "applied": True, "event": serialize_event(event, workspace=workspace)}
     finally:
         if owns_db:
             db.close()
@@ -547,12 +547,14 @@ async def _time_context_set_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, 
     try:
         settings = dict(workspace.settings or {})
         defaults = demo_time_context_defaults(workspace)
+        mode = str(payload.get("mode") or defaults["mode"])
         settings["demo_time_context"] = {
-            "mode": str(payload.get("mode") or defaults["mode"]),
+            "mode": mode,
             "current_date": str(payload.get("current_date") or payload.get("date") or defaults["current_date"]),
             "current_time": str(payload.get("current_time") or defaults.get("current_time") or "10:30:00"),
             "label": str(payload.get("label") or defaults["label"]),
             "timezone": str(payload.get("timezone") or defaults["timezone"]),
+            "lock_fixed": bool(payload.get("lock_fixed") or payload.get("locked") or mode.lower() == "fixed"),
         }
         workspace.settings = settings
         db.add(workspace)
@@ -922,7 +924,7 @@ async def _update_meeting_agenda_v1(payload: Dict[str, Any], ctx: Optional[Dict[
         "requires_validation": True,
         "event_id": event.id,
         "event_title": event.title,
-        "event_summary": serialize_event(event),
+        "event_summary": serialize_event(event, workspace=workspace),
         "metadata": {"agenda_items": agenda_items},
         "audit_event": "calendar.event.agenda_items.proposed",
     }
