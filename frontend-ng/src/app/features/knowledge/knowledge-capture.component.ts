@@ -555,7 +555,7 @@ interface ProposalFact {
                 type="button"
                 class="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black disabled:opacity-50"
                 [disabled]="loading() || !sessionTitle.trim()"
-                (click)="goSurface('plan')"
+                (click)="continueFromPreparation()"
               >
                 Choisir le mode de capture
                 <app-icon name="arrow-right" [size]="14" />
@@ -587,7 +587,7 @@ interface ProposalFact {
                 type="button"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
                 [disabled]="!canCaptureCreate()"
-                (click)="goSurface('prep')"
+                (click)="startNewSessionDraft()"
               >
                 <app-icon name="plus" [size]="14" /> New session
               </button>
@@ -2050,9 +2050,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   });
   readonly visibleSurfaceNav = computed(() => {
     const session = this.session();
-    const hidePlan =
-      this.selectedPlanMode === 'free_conversation' ||
-      (session ? this.isFreeConversationSession(session) : false);
+    const hidePlan = session ? this.isFreeConversationSession(session) : false;
     return this.surfaceNav.filter((item) => item.id !== 'plan' || !hidePlan);
   });
   readonly modelSteps = [
@@ -2238,6 +2236,68 @@ export class KnowledgeCaptureComponent implements OnInit {
     return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   }
 
+  startNewSessionDraft(): void {
+    if (!this.canCaptureCreate()) {
+      this.setVoiceNotice('You do not have permission to create Capture sessions in this workspace.', 'error');
+      return;
+    }
+    this.resetCurrentCaptureSessionState();
+    this.sessionTitle = '';
+    this.objective = '';
+    this.answer = '';
+    this.expertProfile = 'Expert métier';
+    this.durationMinutes = 20;
+    this.durationUnlimited.set(false);
+    this.selectedDomain = 'technical';
+    this.selectedPlanMode = 'free_conversation';
+    this.providedPlanText = '';
+    this.planDialogueAnswer = '';
+    this.executiveSummary = '';
+    this.conversationMode.set('manual');
+    this.activeSurface.set('prep');
+  }
+
+  continueFromPreparation(): void {
+    if (this.loading()) return;
+    if (!this.canCaptureCreate()) {
+      this.setVoiceNotice('You do not have permission to create Capture sessions in this workspace.', 'error');
+      return;
+    }
+    if (!this.sessionTitle.trim()) {
+      this.setVoiceNotice('Renseignez un titre de session avant de continuer.', 'warning');
+      return;
+    }
+    this.resetCurrentCaptureSessionState();
+    this.activeSurface.set('plan');
+  }
+
+  private resetCurrentCaptureSessionState(): void {
+    if (this.conversationSessionActive() || this.recording() || this.speaking() || this.transcribing()) {
+      this.stopConversationSession();
+    }
+    this.session.set(null);
+    this.selectedQuestionId.set(null);
+    this.lastEvaluation.set(null);
+    this.nextPrompt.set(null);
+    this.lastSystemPromptEventId.set(null);
+    this.interruptionOfEventId.set(null);
+    this.setProposal(null);
+    this.closureSheetMarkdown.set(null);
+    this.closurePanelDismissed.set(false);
+    this.events.set([]);
+    this.hintStack.set([]);
+    this.activeSubtopicId.set(null);
+    this.questionBankStatus.set('idle');
+    this.planNotice.set(null);
+    this.planDialogueReadyFlag.set(false);
+    this.planDialogueNextPrompt.set(null);
+    this.lastConversationStep.set(null);
+    this.retrieval.set({ status: 'idle', chunks: [], scores: [], metadatas: [] });
+    this.currentClientTurnId = null;
+    this.lastPrefetchText = '';
+    this.lastPrefetchAt = 0;
+  }
+
   createPlan(): void {
     if (!this.canCaptureCreate()) {
       this.voiceNotice.set('You do not have permission to create Capture sessions in this workspace.');
@@ -2328,7 +2388,10 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (view === 'dashboard' || view === 'prep') return true;
     const current = this.session();
     if (view === 'plan') {
-      return Boolean(current) && !this.isFreeConversationSession(current!) && !this.isPlanBuildSession(current!);
+      if (!current) {
+        return this.canCaptureCreate() && Boolean(this.sessionTitle.trim());
+      }
+      return !this.isFreeConversationSession(current) && !this.isPlanBuildSession(current);
     }
     if (view === 'plan_build') {
       return Boolean(current) && this.isPlanBuildSession(current!);
