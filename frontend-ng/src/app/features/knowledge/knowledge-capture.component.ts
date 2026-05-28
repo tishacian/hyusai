@@ -283,35 +283,41 @@ interface ProposalFact {
       <header class="t-card t-elevated rounded-lg p-5 flex items-start justify-between gap-4">
         <div>
           <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
-            {{ systemScoped() ? 'System · Workbench' : 'Knowledge · Capture' }}
+            {{ isDemoMode() ? 'Capture expert' : (systemScoped() ? 'System · Workbench' : 'Knowledge · Capture') }}
           </p>
           <h1 class="text-2xl font-semibold text-white mt-1">
-            {{ systemScoped() ? systemLabel(systemId) || 'Expert Knowledge Capture' : 'Expert Knowledge Capture' }}
+            {{ isDemoMode() ? 'Préserver le savoir terrain' : (systemScoped() ? systemLabel(systemId) || 'Expert Knowledge Capture' : 'Expert Knowledge Capture') }}
           </h1>
           <p class="text-sm text-gray-400 mt-2 max-w-3xl">
-            {{ systemScoped()
+            {{ isDemoMode()
+              ? 'Préparez une courte session, échangez avec l’expert, puis relisez les connaissances proposées avant intégration.'
+              : systemScoped()
               ? 'Espace de capture dédié : préparer une session, échanger avec un expert, extraire les savoirs utiles et les relire avant intégration.'
               : 'Capture guidée ou libre : partez d’un sujet, échangez avec l’expert, puis transformez les enseignements en proposition relue.' }}
           </p>
         </div>
         <div class="flex flex-col items-end gap-2">
-          <span class="text-xs px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
-            Capture vocale
-          </span>
+          @if (!isDemoMode()) {
+            <span class="text-xs px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
+              Capture vocale
+            </span>
+          }
           <span class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-brand-500/10 ring-1 ring-brand-300/20 text-brand-100">
             <app-icon name="shield-check" [size]="12" />
-            Trace & revue humaine
+            {{ isDemoMode() ? 'Validation humaine' : 'Trace & revue humaine' }}
           </span>
-          <span class="text-xs px-3 py-1.5 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
-            {{ conversationMode() === 'conversation_only' ? 'Conversation libre' : 'Session guidée' }}
-          </span>
-          <a
-            [routerLink]="workspaceAccessRoute()"
-            class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
-          >
-            <app-icon name="settings-2" [size]="12" />
-            Gérer les accès
-          </a>
+          @if (!isDemoMode()) {
+            <span class="text-xs px-3 py-1.5 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
+              {{ conversationMode() === 'conversation_only' ? 'Conversation libre' : 'Session guidée' }}
+            </span>
+            <a
+              [routerLink]="workspaceAccessRoute()"
+              class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+            >
+              <app-icon name="settings-2" [size]="12" />
+              Gérer les accès
+            </a>
+          }
         </div>
       </header>
 
@@ -338,7 +344,7 @@ interface ProposalFact {
             >
               {{ stepIsComplete(item.id) ? '✓' : item.step }}
             </span>
-            <span class="text-sm">{{ item.label }}</span>
+            <span class="text-sm">{{ surfaceNavLabel(item) }}</span>
           </button>
           @if (!$last) {
             <span class="text-gray-700">·</span>
@@ -352,7 +358,9 @@ interface ProposalFact {
             <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Étape 1 · Préparation</p>
             <h2 class="mt-2 text-3xl text-white font-semibold">Définir le sujet de capture</h2>
             <p class="mt-2 text-sm text-gray-400 max-w-3xl">
-              Donnez un titre et décrivez ce que l’expert doit transmettre. Les sources et paramètres avancés restent disponibles sans encombrer le parcours pilote.
+              {{ isDemoMode()
+                ? 'Indiquez simplement le sujet à explorer. Agentium se charge de guider l’échange et de préparer la connaissance à relire.'
+                : 'Donnez un titre et décrivez ce que l’expert doit transmettre. Les sources et paramètres avancés restent disponibles sans encombrer le parcours pilote.' }}
             </p>
           </div>
 
@@ -383,6 +391,7 @@ interface ProposalFact {
               </div>
             </div>
 
+            @if (!isDemoMode()) {
             <div>
               <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Domaine</label>
               <div class="grid md:grid-cols-3 gap-3">
@@ -405,6 +414,7 @@ interface ProposalFact {
                 }
               </div>
             </div>
+            }
 
             @if (!isPilotMode()) {
             <div>
@@ -517,14 +527,17 @@ interface ProposalFact {
             </div>
             }
 
-            <div class="grid md:grid-cols-[1fr_220px] gap-4">
+            <div [class]="isDemoMode() ? 'grid gap-4' : 'grid md:grid-cols-[1fr_220px] gap-4'">
               <div>
-                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Expert</label>
+                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">
+                  {{ isDemoMode() ? 'Personne interrogée' : 'Expert' }}
+                </label>
                 <input
                   class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
                   [(ngModel)]="expertProfile"
                 />
               </div>
+              @if (!isDemoMode()) {
               <div>
                 <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Durée maximale</label>
                 @if (durationUnlimited()) {
@@ -546,6 +559,7 @@ interface ProposalFact {
                   {{ durationUnlimited() ? 'Fixer une durée' : 'Sans limite' }}
                 </button>
               </div>
+              }
             </div>
 
             <div class="kc-sticky-action flex items-center justify-end gap-3 pt-4 rounded-t-lg border-t border-white/10 bg-black/75 px-1 py-3 backdrop-blur">
@@ -575,13 +589,16 @@ interface ProposalFact {
       }
 
       @if (activeSurface() === 'dashboard') {
-        <section class="grid xl:grid-cols-[1.5fr_1fr] gap-5">
+        <section [class]="isDemoMode() ? 'grid gap-5 max-w-5xl mx-auto' : 'grid xl:grid-cols-[1.5fr_1fr] gap-5'">
           <div class="t-card rounded-lg p-5 space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Sessions de capture</p>
-                <h2 class="text-lg font-semibold text-white">Tableau de bord</h2>
+                <h2 class="text-lg font-semibold text-white">
+                  {{ isDemoMode() ? 'Vos sessions' : 'Tableau de bord' }}
+                </h2>
               </div>
+              @if (!isDemoMode()) {
               <select
                 class="rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
                 [(ngModel)]="dashboardDomainFilter"
@@ -592,15 +609,17 @@ interface ProposalFact {
                   <option [value]="domain.id">{{ domain.label }}</option>
                 }
               </select>
+              }
               <button
                 type="button"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
                 [disabled]="!canCaptureCreate()"
                 (click)="startNewSessionDraft()"
               >
-                <app-icon name="plus" [size]="14" /> Nouvelle session
+                <app-icon name="plus" [size]="14" /> {{ isDemoMode() ? 'Nouvelle capture' : 'Nouvelle session' }}
               </button>
             </div>
+            @if (!isDemoMode()) {
             <div class="grid md:grid-cols-4 gap-3">
               <div class="rounded bg-black/20 border border-white/10 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-gray-500">Sessions</div>
@@ -619,6 +638,7 @@ interface ProposalFact {
                 <div class="text-2xl text-white font-semibold">{{ pendingProposalCount() }}</div>
               </div>
             </div>
+            }
             <div class="space-y-2">
               @for (row of dashboardSessions(); track row.id) {
                 <button
@@ -641,7 +661,9 @@ interface ProposalFact {
                   <div class="mt-3 grid grid-cols-3 gap-2 text-xs text-gray-400">
                     <span>{{ isFreeConversationSession(row) ? 'capture libre' : planQuestions(row).length + ' questions' }}</span>
                     <span>{{ row.metrics?.['captured_facts'] || 0 }} faits</span>
-                    <span>{{ isFreeConversationSession(row) ? 'sans couverture' : coveragePercent(row) + '% couvert' }}</span>
+                    @if (!isDemoMode()) {
+                      <span>{{ isFreeConversationSession(row) ? 'sans couverture' : coveragePercent(row) + '% couvert' }}</span>
+                    }
                   </div>
                 </button>
               } @empty {
@@ -669,6 +691,7 @@ interface ProposalFact {
             }
           </div>
 
+          @if (!isDemoMode()) {
           <div class="t-card rounded-lg p-5 space-y-4">
             <div>
               <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Propositions Knowledge</p>
@@ -698,6 +721,7 @@ interface ProposalFact {
               }
             </div>
           </div>
+          }
         </section>
       }
 
@@ -787,7 +811,11 @@ interface ProposalFact {
               </section>
             }
 
-            <section class="grid xl:grid-cols-[300px_minmax(0,1fr)_360px] gap-4 items-start">
+            <section
+              [class]="isDemoMode()
+                ? 'grid xl:grid-cols-[280px_minmax(0,1fr)] gap-4 items-start'
+                : 'grid xl:grid-cols-[300px_minmax(0,1fr)_360px] gap-4 items-start'"
+            >
               <aside class="t-card rounded-lg p-4 max-h-[calc(100vh-270px)] overflow-auto space-y-4">
                 <div>
                   <div class="flex items-center justify-between gap-3">
@@ -862,7 +890,9 @@ interface ProposalFact {
                 <div class="rounded bg-brand-500/10 border border-brand-400/20 p-4">
                   <div class="flex items-start justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">Relance Agentium</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">
+                        {{ isDemoMode() ? 'Question posée' : 'Relance Agentium' }}
+                      </p>
                       <p class="mt-2 text-lg text-white leading-relaxed">{{ currentPromptText() || 'Sélectionnez une question pour démarrer la capture.' }}</p>
                     </div>
                     <button
@@ -880,10 +910,16 @@ interface ProposalFact {
                   <section class="mt-4 rounded border border-white/10 bg-black/20 p-4">
                     <div class="flex items-center justify-between gap-3">
                       <div>
-                        <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Pile de relances</p>
-                        <h3 class="text-sm font-semibold text-white">Questions disponibles hors navigation</h3>
+                        <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">
+                          {{ isDemoMode() ? 'Prochaines questions' : 'Pile de relances' }}
+                        </p>
+                        <h3 class="text-sm font-semibold text-white">
+                          {{ isDemoMode() ? 'À aborder pendant l’échange' : 'Questions disponibles hors navigation' }}
+                        </h3>
                       </div>
-                      <span class="text-xs text-gray-500">{{ planQuestions(s).length }} item(s)</span>
+                      @if (!isDemoMode()) {
+                        <span class="text-xs text-gray-500">{{ planQuestions(s).length }} item(s)</span>
+                      }
                     </div>
                     <div class="mt-3 grid gap-2 md:grid-cols-2">
                       @for (q of visibleQuestionStack(s); track q.id) {
@@ -925,13 +961,17 @@ interface ProposalFact {
                 <div class="mt-4 flex-1 flex flex-col gap-3 min-h-0">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Trace utile</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">
+                        {{ isDemoMode() ? 'Échange avec l’expert' : 'Trace utile' }}
+                      </p>
                       <h3 class="text-sm font-semibold text-white">{{ voiceStateLabel() }}</h3>
                     </div>
-                    @if (lastConversationStep(); as step) {
-                      <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
-                        {{ step.intent }} · {{ (step.confidence * 100).toFixed(0) }}%
-                      </span>
+                    @if (!isDemoMode()) {
+                      @if (lastConversationStep(); as step) {
+                        <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
+                          {{ step.intent }} · {{ (step.confidence * 100).toFixed(0) }}%
+                        </span>
+                      }
                     }
                   </div>
                   <div class="flex-1 min-h-80 rounded bg-black/20 border border-white/10 p-4 overflow-auto space-y-3">
@@ -1059,20 +1099,25 @@ interface ProposalFact {
                         @if (voiceNotice(); as notice) {
                           <div [class]="voiceNoticeClass()">{{ notice }}</div>
                         } @else {
-                          <div class="text-[10px] text-gray-500 truncate">{{ voiceRuntimeArchitecture(s.voice_runtime) }}</div>
+                          <div class="text-[10px] text-gray-500 truncate">
+                            {{ isDemoMode() ? 'Prêt à écouter l’expert' : voiceRuntimeArchitecture(s.voice_runtime) }}
+                          </div>
                         }
                       </div>
                     </div>
+                    @if (!isDemoMode()) {
                     <div class="flex items-center gap-2 text-xs text-gray-400">
                       <span class="px-2 py-1 rounded bg-white/5">{{ sessionStartStateLabel(s) }}</span>
                       <span class="px-2 py-1 rounded bg-white/5">{{ recording() ? 'enregistrement' : 'prêt' }}</span>
                       <span class="px-2 py-1 rounded bg-white/5">{{ speaking() ? 'lecture IA' : 'TTS prêt' }}</span>
                     </div>
+                    }
                   </div>
                 </div>
 
               </main>
 
+              @if (!isDemoMode()) {
               <aside class="space-y-4 max-h-[calc(100vh-270px)] overflow-auto">
                 <section class="t-card rounded-lg p-4">
                   <div class="flex items-center justify-between gap-3">
@@ -1248,6 +1293,7 @@ interface ProposalFact {
                   </section>
                 }
               </aside>
+              }
             </section>
           </section>
         } @else {
@@ -1263,10 +1309,13 @@ interface ProposalFact {
             <div class="t-card rounded-lg p-5 space-y-4">
               <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan d’entretien</p>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+                    {{ isDemoMode() ? 'Trame d’échange' : 'Plan d’entretien' }}
+                  </p>
                   <h2 class="text-lg font-semibold text-white mt-1">{{ s.title }}</h2>
                   <p class="text-sm text-gray-500 mt-1 max-w-3xl">{{ s.objective }}</p>
                 </div>
+                @if (!isDemoMode()) {
                 <button
                   type="button"
                   class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
@@ -1274,16 +1323,19 @@ interface ProposalFact {
                 >
                   <app-icon name="eye" [size]="14" /> Prévisualiser le cockpit
                 </button>
+                }
               </div>
 
-              <div class="grid md:grid-cols-3 gap-3 text-sm">
+              <div [class]="isDemoMode() ? 'grid md:grid-cols-2 gap-3 text-sm' : 'grid md:grid-cols-3 gap-3 text-sm'">
                 @if (isTopicOnlyPlan(s)) {
                   <div class="rounded bg-black/20 border border-white/10 p-3">
                     <div class="text-[10px] uppercase tracking-wider text-gray-500">Sous-sujets</div>
                     <div class="text-2xl text-white font-semibold">{{ planSubtopicCount(s) }}</div>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Banque de questions</div>
+                    <div class="text-[10px] uppercase tracking-wider text-gray-500">
+                      {{ isDemoMode() ? 'Questions préparées' : 'Banque de questions' }}
+                    </div>
                     <div class="text-sm text-gray-200 mt-2">{{ questionBankStatusLabel(s) }}</div>
                   </div>
                 } @else {
@@ -1296,10 +1348,12 @@ interface ProposalFact {
                     <div class="text-2xl text-white font-semibold">{{ planDurationMinutes(s) }} min</div>
                   </div>
                 }
+                @if (!isDemoMode()) {
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <div class="text-[10px] uppercase tracking-wider text-gray-500">Cible Knowledge</div>
                   <div class="text-sm text-gray-200 mt-2 truncate">{{ selectedContext()?.environment_state?.collection || 'Sources par défaut du workspace' }}</div>
                 </div>
+                }
               </div>
 
               @if (planNotice(); as notice) {
@@ -1440,8 +1494,12 @@ interface ProposalFact {
 
             <aside class="t-card rounded-lg p-5 space-y-4 xl:sticky xl:top-4">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Démarrage</p>
-                <h3 class="text-sm font-semibold text-white mt-1">Prêt pour la capture</h3>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+                  {{ isDemoMode() ? 'Démarrer' : 'Démarrage' }}
+                </p>
+                <h3 class="text-sm font-semibold text-white mt-1">
+                  {{ isDemoMode() ? 'Prêt pour l’échange' : 'Prêt pour la capture' }}
+                </h3>
               </div>
               @if (isTopicOnlyPlan(s)) {
                 <div class="rounded bg-black/20 border border-white/10 p-3 text-xs text-gray-300">
@@ -1453,9 +1511,10 @@ interface ProposalFact {
                   [disabled]="planDialogueLoading() || !canEditPlan(s)"
                   (click)="validatePlanTopics(s)"
                 >
-                  Valider les sujets
+                  {{ isDemoMode() ? 'Confirmer la trame' : 'Valider les sujets' }}
                 </button>
               }
+              @if (!isDemoMode()) {
               <div class="space-y-2 text-xs">
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <span class="block text-[9px] uppercase tracking-wider text-gray-500">Contexte</span>
@@ -1513,6 +1572,7 @@ interface ProposalFact {
                   </button>
                 </div>
               </div>
+              }
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-3 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
@@ -1531,9 +1591,13 @@ interface ProposalFact {
           <section class="max-w-5xl mx-auto py-8 space-y-7">
             <div>
               <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Étape 2 · Mode de capture</p>
-              <h2 class="mt-2 text-3xl text-white font-semibold">Choisir le niveau de guidage</h2>
+              <h2 class="mt-2 text-3xl text-white font-semibold">
+                {{ isDemoMode() ? 'Choisir le déroulé' : 'Choisir le niveau de guidage' }}
+              </h2>
               <p class="mt-2 text-sm text-gray-400 max-w-3xl">
-                Pour un pilote, la capture libre va directement à l’échange. Le plan guidé reste disponible quand il faut sécuriser une trame d’entretien.
+                {{ isDemoMode()
+                  ? 'Démarrez une conversation libre ou laissez Agentium préparer une trame simple avant l’échange.'
+                  : 'Pour un pilote, la capture libre va directement à l’échange. Le plan guidé reste disponible quand il faut sécuriser une trame d’entretien.' }}
               </p>
             </div>
 
@@ -2057,6 +2121,24 @@ export class KnowledgeCaptureComponent implements OnInit {
     { id: 'innovation', label: 'Innovation', description: 'R&D, prototypes, exploration' },
   ];
   readonly visiblePlanModes = computed(() => {
+    if (this.isDemoMode()) {
+      return [
+        {
+          id: 'ai_plan' as CapturePlanMode,
+          label: 'Agentium prépare une trame',
+          description: 'L’assistant propose quelques sujets pour structurer l’échange avec l’expert.',
+          icon: 'zap',
+          recommended: true,
+        },
+        {
+          id: 'free_conversation' as CapturePlanMode,
+          label: 'Démarrer directement',
+          description: 'L’expert parle librement, Agentium extrait les points importants au fil de l’échange.',
+          icon: 'activity',
+          recommended: false,
+        },
+      ];
+    }
     const modes: Array<{
       id: CapturePlanMode;
       label: string;
@@ -2197,6 +2279,20 @@ export class KnowledgeCaptureComponent implements OnInit {
     { id: 'session', label: 'Capture', icon: 'mic', step: 4 },
     { id: 'review', label: 'Proposition', icon: 'check-circle-2', step: 5 },
   ];
+
+  surfaceNavLabel(item: { id: CaptureSurfaceView; label: string }): string {
+    if (!this.isDemoMode()) return item.label;
+    const labels: Partial<Record<CaptureSurfaceView, string>> = {
+      dashboard: 'Sessions',
+      prep: 'Sujet',
+      plan: 'Trame',
+      plan_build: 'Trame',
+      session: 'Échange',
+      review: 'Validation',
+    };
+    return labels[item.id] || item.label;
+  }
+
   readonly voiceWaveBars = [10, 18, 26, 14, 22, 30, 16, 24, 12, 20];
   readonly workspaceAccessRoute = computed(() => {
     const slug = this.workspace.current()?.slug || this.workspace.currentSlug();
@@ -2297,11 +2393,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.durationMinutes = 20;
     this.durationUnlimited.set(false);
     this.selectedDomain = 'technical';
-    this.selectedPlanMode = 'free_conversation';
+    this.selectedPlanMode = this.isDemoMode() ? 'ai_plan' : 'free_conversation';
     this.providedPlanText = '';
     this.planDialogueAnswer = '';
     this.executiveSummary = '';
-    this.conversationMode.set('manual');
+    this.conversationMode.set(this.isDemoMode() ? 'conversation_only' : 'manual');
     this.activeSurface.set('prep');
   }
 
