@@ -53,6 +53,8 @@ import {
   ChevronUp,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
   ArrowUpRight,
   Plus,
   Minus,
@@ -249,6 +251,8 @@ const ICONS = {
   ChevronUp,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
   ArrowUpRight,
   Plus,
   Minus,
@@ -408,6 +412,8 @@ const ICONS = {
   layers: Layers,
   files: Files,
   'file-search': FileSearch,
+  'arrow-up': ArrowUp,
+  'arrow-down': ArrowDown,
   Y: CheckCircle2,
 };
 
