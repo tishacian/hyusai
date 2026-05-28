@@ -74,6 +74,11 @@ interface KnowledgeGuideRow {
   binding_kind: 'collection' | 'scope';
 }
 
+interface GuideBlock {
+  kind: 'h1' | 'h2' | 'h3' | 'li' | 'p';
+  text: string;
+}
+
 type KbTabId =
   | 'overview'
   | 'sources'
@@ -139,6 +144,17 @@ type KbTabId =
         <app-icon name="arrow-left" [size]="14" /> Back
       </a>
     </ck-object-header>
+
+    @if (!loading() && docCount() === 0 && chunkCount() === 0) {
+      <div class="mb-4 rounded-md border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+        Collection vide ou non indexée : elle ne peut pas encore alimenter le retrieval ni Knowledge Capture.
+      </div>
+    }
+    @if (!loadingBindings() && bindings().length === 0) {
+      <div class="mb-4 rounded-md border border-brand-400/20 bg-brand-500/10 px-4 py-3 text-sm text-brand-100">
+        Aucun système n’utilise cette collection pour l’instant. Créez ou mettez à jour un Context pour la rendre disponible dans Capture.
+      </div>
+    }
 
     <ck-tabs
       [active]="activeTab()"
@@ -574,7 +590,7 @@ type KbTabId =
                 type="search"
                 placeholder="Sheet, label, cell, value…"
                 [value]="tableFactQuery()"
-                (input)="tableFactQuery.set($any($event.target).value)"
+                (input)="onTableFactQueryInput($any($event.target).value)"
                 (keydown.enter)="loadTableFacts()"
               />
             </label>
@@ -600,25 +616,30 @@ type KbTabId =
                 type="search"
                 placeholder="Def strips"
                 [value]="tableFactSheet()"
-                (input)="tableFactSheet.set($any($event.target).value)"
+                (input)="onTableFactSheetInput($any($event.target).value)"
                 (keydown.enter)="loadTableFacts()"
               />
             </label>
           </div>
+          @if (!loadingTableFacts() && tableFacts().length > 0) {
+            <div class="px-5 py-2 border-b border-white/5 text-[11px] text-gray-500">
+              {{ visibleTableFacts().length }} résultat(s) affiché(s) sur {{ tableFacts().length }} chargé(s). Les faits suspects restent visibles pour audit.
+            </div>
+          }
           @if (loadingTableFacts()) {
             <div class="p-5 text-sm text-gray-400">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               Loading table facts…
             </div>
-          } @else if (tableFacts().length === 0) {
+          } @else if (visibleTableFacts().length === 0) {
             <app-empty-state
               icon="table"
               title="No table facts found"
-              description="Re-index spreadsheet sources with Table Intelligence enabled, then refresh this tab."
+              description="Aucun fait ne correspond aux filtres. Ré-indexez les fichiers Excel si la collection devrait en contenir."
             />
           } @else {
             <div class="divide-y divide-white/5">
-              @for (fact of tableFacts(); track factKey(fact, $index)) {
+              @for (fact of visibleTableFacts(); track factKey(fact, $index)) {
                 <article class="px-5 py-4 hover:bg-white/[0.03] transition">
                   <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
                     <span class="ck-mono rounded bg-brand-500/10 px-2 py-1 text-brand-300 ring-1 ring-brand-500/20">
@@ -638,6 +659,9 @@ type KbTabId =
                     {{ fact.document_filename || 'Spreadsheet source' }}
                   </h4>
                   <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
+                    @for (warning of tableFactWarnings(fact); track warning) {
+                      <span class="rounded border border-amber-400/25 bg-amber-500/10 px-2 py-1 text-amber-200">{{ warning }}</span>
+                    }
                     @if (fact.row_label) {
                       <span class="rounded bg-white/5 px-2 py-1 text-gray-300">row: {{ fact.row_label }}</span>
                     }
@@ -717,7 +741,23 @@ type KbTabId =
             </div>
             <div class="p-5">
               <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 mb-2">Preview</div>
-              <pre class="min-h-[28rem] max-h-[36rem] overflow-auto whitespace-pre-wrap rounded bg-black/25 p-4 text-xs leading-relaxed text-gray-300">{{ guideMarkdown() || 'No Markdown yet.' }}</pre>
+              <div class="min-h-[28rem] max-h-[36rem] overflow-auto rounded bg-black/25 p-4 text-sm leading-relaxed text-gray-300">
+                @for (block of guideMarkdownBlocks(guideMarkdown()); track $index) {
+                  @if (block.kind === 'h1') {
+                    <h1 class="mb-3 text-xl font-semibold text-white">{{ block.text }}</h1>
+                  } @else if (block.kind === 'h2') {
+                    <h2 class="mt-5 mb-2 text-base font-semibold text-white">{{ block.text }}</h2>
+                  } @else if (block.kind === 'h3') {
+                    <h3 class="mt-4 mb-1 text-sm font-semibold text-brand-100">{{ block.text }}</h3>
+                  } @else if (block.kind === 'li') {
+                    <p class="pl-4 text-xs text-gray-300 before:content-['•'] before:mr-2 before:text-brand-300">{{ block.text }}</p>
+                  } @else {
+                    <p class="mb-2 text-xs text-gray-300">{{ block.text }}</p>
+                  }
+                } @empty {
+                  <p class="text-xs text-gray-500">No Markdown yet.</p>
+                }
+              </div>
               <div class="mt-4">
                 <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 mb-2">Versions</div>
                 @if (collectionGuideVersions().length === 0) {
@@ -771,7 +811,23 @@ type KbTabId =
                     <app-icon name="pencil" [size]="13" /> Edit in settings
                   </a>
                 </div>
-                <pre class="max-h-[34rem] overflow-auto whitespace-pre-wrap bg-black/20 p-5 text-xs leading-relaxed text-gray-300">{{ row.guide.markdown || row.guide.snippet || 'No Markdown content.' }}</pre>
+                <div class="max-h-[34rem] overflow-auto bg-black/20 p-5 text-sm leading-relaxed text-gray-300">
+                  @for (block of guideMarkdownBlocks(row.guide.markdown || row.guide.snippet || ''); track $index) {
+                    @if (block.kind === 'h1') {
+                      <h1 class="mb-3 text-xl font-semibold text-white">{{ block.text }}</h1>
+                    } @else if (block.kind === 'h2') {
+                      <h2 class="mt-5 mb-2 text-base font-semibold text-white">{{ block.text }}</h2>
+                    } @else if (block.kind === 'h3') {
+                      <h3 class="mt-4 mb-1 text-sm font-semibold text-brand-100">{{ block.text }}</h3>
+                    } @else if (block.kind === 'li') {
+                      <p class="pl-4 text-xs text-gray-300 before:content-['•'] before:mr-2 before:text-brand-300">{{ block.text }}</p>
+                    } @else {
+                      <p class="mb-2 text-xs text-gray-300">{{ block.text }}</p>
+                    }
+                  } @empty {
+                    <p class="text-xs text-gray-500">No Markdown content.</p>
+                  }
+                </div>
               </article>
             }
           </section>
@@ -919,6 +975,15 @@ export class KnowledgeViewComponent implements OnInit {
   readonly knowledgeGuides = signal<KnowledgeGuide[]>([]);
   readonly knowledgeScopes = signal<KnowledgeScopeApi[]>([]);
   readonly tableFacts = signal<TableFactItem[]>([]);
+  readonly visibleTableFacts = computed(() => {
+    const query = this.tableFactQuery().trim().toLowerCase();
+    const sheet = this.tableFactSheet().trim().toLowerCase();
+    if (!query && !sheet) return this.tableFacts();
+    return this.tableFacts().filter((fact) => {
+      const haystack = this.tableFactHaystack(fact);
+      return (!query || haystack.includes(query)) && (!sheet || String(fact.sheet_name || '').toLowerCase().includes(sheet));
+    });
+  });
   readonly documentFacts = signal<DocumentFactItem[]>([]);
   readonly ocrFacts = signal<DocumentFactItem[]>([]);
   readonly tableFactQuery = signal('');
@@ -931,6 +996,7 @@ export class KnowledgeViewComponent implements OnInit {
   readonly guideTitle = signal('');
   readonly guideMarkdown = signal('');
   readonly editingGuideKey = signal<string | null>(null);
+  private tableFactReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly lens = this.lensService.lens;
 
@@ -1240,6 +1306,83 @@ export class KnowledgeViewComponent implements OnInit {
         this.tableFacts.set(payload.items || []);
         this.loadingTableFacts.set(false);
       });
+  }
+
+  onTableFactQueryInput(value: string): void {
+    this.tableFactQuery.set(value);
+    this.scheduleTableFactReload();
+  }
+
+  onTableFactSheetInput(value: string): void {
+    this.tableFactSheet.set(value);
+    this.scheduleTableFactReload();
+  }
+
+  tableFactWarnings(fact: TableFactItem): string[] {
+    const warnings: string[] = [];
+    const content = String(fact.content || fact.value_raw || '');
+    if (content.includes('#DIV/0!') || content.includes('#VALUE!') || content.includes('#REF!')) {
+      warnings.push('Erreur formule');
+    }
+    const row = String(fact.row_label || '').trim().toLowerCase();
+    const column = String(fact.column_header || '').trim().toLowerCase();
+    const value = String(fact.value_raw || fact.value_numeric || '').trim().toLowerCase();
+    if (row && value && row === value) warnings.push('Valeur auto-référente');
+    if (column && value && column === value) warnings.push('En-tête auto-référent');
+    if (fact.interpretation_note) warnings.push('À relire');
+    return warnings;
+  }
+
+  guideMarkdownBlocks(markdown: string): GuideBlock[] {
+    return this.cleanGuideMarkdownForDisplay(markdown)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line): GuideBlock => {
+        if (line.startsWith('### ')) return { kind: 'h3', text: line.slice(4).trim() };
+        if (line.startsWith('## ')) return { kind: 'h2', text: line.slice(3).trim() };
+        if (line.startsWith('# ')) return { kind: 'h1', text: line.slice(2).trim() };
+        if (/^[-*]\s+/.test(line)) return { kind: 'li', text: line.replace(/^[-*]\s+/, '').trim() };
+        return { kind: 'p', text: line };
+      });
+  }
+
+  private scheduleTableFactReload(): void {
+    if (this.tableFactReloadTimer) {
+      clearTimeout(this.tableFactReloadTimer);
+    }
+    this.tableFactReloadTimer = setTimeout(() => {
+      this.tableFactReloadTimer = null;
+      this.loadTableFacts();
+    }, 350);
+  }
+
+  private tableFactHaystack(fact: TableFactItem): string {
+    return [
+      fact.content,
+      fact.document_filename,
+      fact.sheet_name,
+      fact.cell_ref,
+      fact.cell_range,
+      fact.row_label,
+      fact.column_header,
+      fact.semantic_type,
+      fact.subject,
+      fact.measure,
+      fact.value_raw,
+      fact.value_numeric,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+  }
+
+  private cleanGuideMarkdownForDisplay(markdown: string): string {
+    return String(markdown || '')
+      .split(/\r?\n/)
+      .filter((line) => !/^statut\s*:\s*brouillon/i.test(line.trim()))
+      .join('\n')
+      .trim();
   }
 
   loadDocumentFacts(): void {

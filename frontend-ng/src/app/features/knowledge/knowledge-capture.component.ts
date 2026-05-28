@@ -271,6 +271,11 @@ interface ProposalFact {
       .kc-timer-blink {
         animation: kc-timer-blink 1s ease-in-out infinite;
       }
+      .kc-sticky-action {
+        position: sticky;
+        bottom: 0.75rem;
+        z-index: 5;
+      }
     `,
   ],
   template: `
@@ -342,16 +347,16 @@ interface ProposalFact {
       </nav>
 
       @if (activeSurface() === 'prep') {
-        <section class="max-w-5xl mx-auto py-8 space-y-7">
+        <section class="max-w-5xl mx-auto py-6 lg:py-8 space-y-6 min-h-[calc(100vh-15rem)] flex flex-col">
           <div>
-            <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Step 1 · Preparation</p>
+            <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Étape 1 · Préparation</p>
             <h2 class="mt-2 text-3xl text-white font-semibold">Définir le sujet de capture</h2>
             <p class="mt-2 text-sm text-gray-400 max-w-3xl">
               Donnez un titre et décrivez ce que l’expert doit transmettre. Les sources et paramètres avancés restent disponibles sans encombrer le parcours pilote.
             </p>
           </div>
 
-          <div class="space-y-5">
+          <div class="space-y-5 flex-1">
             <div>
               <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Titre de session *</label>
               <input
@@ -419,7 +424,7 @@ interface ProposalFact {
                 [(ngModel)]="contextId"
                 (ngModelChange)="onContextChange($event)"
               >
-                <option value="">Workspace defaults</option>
+                <option value="">Sources par défaut du workspace</option>
                 @for (ctx of contexts(); track ctx.id) {
                   <option [value]="ctx.id">
                     {{ ctx.name }}{{ ctx.environment_state?.collection ? ' · ' + ctx.environment_state?.collection : '' }}
@@ -433,12 +438,12 @@ interface ProposalFact {
                     <div class="min-w-0">
                       <div class="text-xs font-semibold text-gray-200 truncate">{{ ctx.name }}</div>
                       <div class="mt-1 text-[11px] text-gray-500 font-mono truncate">
-                        {{ ctx.environment_state?.collection || ctx.data_refs?.[0] || 'Workspace defaults' }}
+                        {{ ctx.environment_state?.collection || ctx.data_refs?.[0] || 'Sources par défaut du workspace' }}
                       </div>
                     </div>
                     @if (newContextId() === ctx.id) {
                       <span class="shrink-0 text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/20">
-                        New context
+                        Nouveau contexte
                       </span>
                     }
                   </div>
@@ -448,13 +453,13 @@ interface ProposalFact {
               <div class="mt-4 rounded border border-brand-400/20 bg-brand-500/5 p-4 space-y-3">
                 <div class="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Create from collection</p>
+                    <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Créer depuis une collection</p>
                     <p class="mt-1 text-xs text-gray-400">
-                      Attach a Knowledge collection to this capture without leaving the session prep.
+                      Rattachez une collection Knowledge à la capture sans quitter la préparation.
                     </p>
                   </div>
                   @if (loadingKnowledgeCollections()) {
-                    <span class="text-[11px] text-gray-500">Loading collections...</span>
+                    <span class="text-[11px] text-gray-500">Chargement des collections...</span>
                   }
                 </div>
 
@@ -467,25 +472,25 @@ interface ProposalFact {
                       [(ngModel)]="selectedKnowledgeCollection"
                       (ngModelChange)="onKnowledgeCollectionChange($event)"
                     >
-                      <option value="">Select collection</option>
+                      <option value="">Choisir une collection</option>
                       @for (collection of knowledgeCollections(); track collection) {
                         <option [value]="collection">{{ collection }}</option>
                       }
                     </select>
                   </div>
                   <div>
-                    <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Context name</label>
+                    <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Nom du contexte</label>
                     <input
                       class="w-full rounded bg-black/30 border border-white/10 px-3 py-2.5 text-sm text-white"
                       [(ngModel)]="newContextName"
-                      placeholder="BBA120 manuals pilot"
+                      placeholder="Contexte notices BBA120"
                     />
                   </div>
                 </div>
 
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <p class="text-[11px] text-gray-500">
-                    The Context will store <span class="font-mono text-gray-300">environment_state.collection</span> for live retrieval.
+                    Le contexte stocke <span class="font-mono text-gray-300">environment_state.collection</span> pour la recherche live.
                   </p>
                   <button
                     type="button"
@@ -494,7 +499,7 @@ interface ProposalFact {
                     (click)="createContextFromCollection()"
                   >
                     <app-icon name="plus" [size]="14" />
-                    {{ creatingContext() ? 'Creating...' : 'Create context' }}
+                    {{ creatingContext() ? 'Création...' : 'Créer le contexte' }}
                   </button>
                 </div>
 
@@ -503,7 +508,7 @@ interface ProposalFact {
                 }
                 @if (!loadingKnowledgeCollections() && knowledgeCollections().length === 0) {
                   <p class="text-xs rounded border border-white/10 bg-white/5 px-3 py-2 text-gray-400">
-                    No Knowledge collection is available in this workspace yet.
+                    Aucune collection Knowledge n’est disponible dans ce workspace pour l’instant.
                   </p>
                 }
               </div>
@@ -543,7 +548,7 @@ interface ProposalFact {
               </div>
             </div>
 
-            <div class="flex items-center justify-end gap-3 pt-4">
+            <div class="kc-sticky-action flex items-center justify-end gap-3 pt-4 rounded-t-lg border-t border-white/10 bg-black/75 px-1 py-3 backdrop-blur">
               <button
                 type="button"
                 class="px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-300 ring-1 ring-white/10"
@@ -554,13 +559,17 @@ interface ProposalFact {
               <button
                 type="button"
                 class="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black disabled:opacity-50"
-                [disabled]="loading() || !sessionTitle.trim()"
+                [disabled]="loading() || !sessionTitle.trim() || !canCaptureCreate()"
+                [title]="preparationBlockingHint() || ''"
                 (click)="continueFromPreparation()"
               >
                 Choisir le mode de capture
                 <app-icon name="arrow-right" [size]="14" />
               </button>
             </div>
+            @if (preparationBlockingHint(); as hint) {
+              <p class="-mt-3 text-right text-[11px] text-amber-200/85">{{ hint }}</p>
+            }
           </div>
         </section>
       }
@@ -589,7 +598,7 @@ interface ProposalFact {
                 [disabled]="!canCaptureCreate()"
                 (click)="startNewSessionDraft()"
               >
-                <app-icon name="plus" [size]="14" /> New session
+                <app-icon name="plus" [size]="14" /> Nouvelle session
               </button>
             </div>
             <div class="grid md:grid-cols-4 gap-3">
@@ -598,15 +607,15 @@ interface ProposalFact {
                 <div class="text-2xl text-white font-semibold">{{ dashboardSessions().length }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Active</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Actives</div>
                 <div class="text-2xl text-white font-semibold">{{ activeSessionCount() }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Proposals</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Propositions</div>
                 <div class="text-2xl text-white font-semibold">{{ dashboardProposals().length }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Pending review</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">À relire</div>
                 <div class="text-2xl text-white font-semibold">{{ pendingProposalCount() }}</div>
               </div>
             </div>
@@ -623,21 +632,21 @@ interface ProposalFact {
                       <p class="text-xs text-gray-500 mt-1 line-clamp-1">{{ row.objective }}</p>
                       @if (isAuthor(row)) {
                         <span class="mt-2 inline-flex px-2 py-0.5 rounded bg-brand-500/15 text-[10px] uppercase tracking-wider text-brand-200">
-                          Author
+                          Auteur
                         </span>
                       }
                     </div>
-                    <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ row.status }}</span>
+                    <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ workflowStatusLabel(row.status) }}</span>
                   </div>
                   <div class="mt-3 grid grid-cols-3 gap-2 text-xs text-gray-400">
                     <span>{{ isFreeConversationSession(row) ? 'capture libre' : planQuestions(row).length + ' questions' }}</span>
-                    <span>{{ row.metrics?.['captured_facts'] || 0 }} facts</span>
+                    <span>{{ row.metrics?.['captured_facts'] || 0 }} faits</span>
                     <span>{{ isFreeConversationSession(row) ? 'sans couverture' : coveragePercent(row) + '% couvert' }}</span>
                   </div>
                 </button>
               } @empty {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-8 text-center text-gray-500">
-                  No capture session yet. Prepare one from this System surface.
+                  Aucune session pour l’instant. Créez une capture depuis cette surface système.
                 </div>
               }
             </div>
@@ -662,8 +671,8 @@ interface ProposalFact {
 
           <div class="t-card rounded-lg p-5 space-y-4">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Knowledge proposals</p>
-              <h2 class="text-lg font-semibold text-white">Review queue</h2>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Propositions Knowledge</p>
+              <h2 class="text-lg font-semibold text-white">File de revue</h2>
             </div>
             <div class="space-y-2">
               @for (row of dashboardProposals(); track row.id) {
@@ -674,17 +683,17 @@ interface ProposalFact {
                 >
                   <div class="flex items-center justify-between gap-3">
                     <div class="text-sm font-semibold text-white">
-                      {{ row.proposal?.title || 'Knowledge update proposal' }}
+                      {{ row.proposal?.title || 'Proposition de connaissance' }}
                     </div>
-                    <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ row.status }}</span>
+                    <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ workflowStatusLabel(row.status) }}</span>
                   </div>
                   <div class="mt-2 text-xs text-gray-500">
-                    {{ row.proposal?.captured_facts?.length || 0 }} facts · {{ row.proposal?.audit?.event_count || 0 }} audit events
+                    {{ row.proposal?.captured_facts?.length || 0 }} faits · {{ row.proposal?.audit?.event_count || 0 }} événements d’audit
                   </div>
                 </button>
               } @empty {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-6 text-center text-gray-500">
-                  No proposal waiting for review.
+                  Aucune proposition en attente de revue.
                 </div>
               }
             </div>
@@ -698,11 +707,11 @@ interface ProposalFact {
             <section class="t-card rounded-lg p-4">
               <div class="flex flex-wrap items-center justify-between gap-4">
                 <div class="min-w-0">
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Live capture cockpit</p>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Capture en cours</p>
                   <h2 class="text-lg font-semibold text-white mt-1 truncate">{{ s.title }}</h2>
                 </div>
                 <div class="flex flex-wrap items-center gap-2 text-xs">
-                  <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">{{ s.status }}</span>
+                  <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">{{ workflowStatusLabel(s.status) }}</span>
                   @if (sessionTimerView(s); as timer) {
                     <span
                       [class]="timer.blink
@@ -716,13 +725,13 @@ interface ProposalFact {
                     {{ captureProgressLabel(s) }}
                   </span>
                   <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
-                    {{ s.metrics?.['captured_facts'] || 0 }} facts
+                    {{ s.metrics?.['captured_facts'] || 0 }} faits
                   </span>
                   <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
                     {{ knowledgeScopeLabel() }}
                   </span>
                   @if (isAuthor(s)) {
-                    <span class="px-2 py-1 rounded bg-brand-500/15 text-brand-100 ring-1 ring-brand-300/20">Author</span>
+                    <span class="px-2 py-1 rounded bg-brand-500/15 text-brand-100 ring-1 ring-brand-300/20">Auteur</span>
                   }
                   @if (s.status === 'active') {
                     <button type="button" class="px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white text-xs" (click)="pauseSession(s)">Pause</button>
@@ -785,7 +794,7 @@ interface ProposalFact {
                     <div>
                       <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Déroulé</p>
                       <h3 class="text-sm font-semibold text-white">
-                        {{ isFreeConversationSession(s) ? 'Conversation libre' : (isTopicOnlyPlan(s) ? 'Sujets' : 'Question track') }}
+                        {{ isFreeConversationSession(s) ? 'Conversation libre' : (isTopicOnlyPlan(s) ? 'Sujets' : 'Questions') }}
                       </h3>
                     </div>
                     <span class="text-xs text-brand-200">{{ captureProgressLabel(s) }}</span>
@@ -812,13 +821,13 @@ interface ProposalFact {
                     }
                   </div>
                   <section class="rounded border border-white/10 bg-black/20 p-3 space-y-2">
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Hints</p>
+                    <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Indices</p>
                     @for (hint of hintStack(); track hint.id) {
                       <div class="rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-gray-300">
                         {{ hint.hint || hint.full_question }}
                       </div>
                     } @empty {
-                      <p class="text-xs text-gray-500">Aucun hint pour ce sous-sujet.</p>
+                    <p class="text-xs text-gray-500">Aucun indice pour ce sous-sujet.</p>
                     }
                   </section>
                   @if (topHint(); as hint) {
@@ -830,11 +839,11 @@ interface ProposalFact {
                 } @else {
                 <div class="grid grid-cols-2 gap-2 text-xs">
                   <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">Status</span>
+                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">État</span>
                     <span class="text-gray-200">{{ sessionStartStateLabel(s) }}</span>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">{{ isFreeConversationSession(s) ? 'Facts' : 'Coverage' }}</span>
+                    <span class="block text-[9px] uppercase tracking-wider text-gray-500">{{ isFreeConversationSession(s) ? 'Faits' : 'Couverture' }}</span>
                     <span class="text-gray-200">
                       {{ isFreeConversationSession(s) ? (s.metrics?.['captured_facts'] || 0) : coveragePercent(s) + '%' }}
                     </span>
@@ -852,7 +861,7 @@ interface ProposalFact {
                       <div class="flex items-center justify-between gap-2">
                         <span class="text-xs text-brand-300 font-mono">{{ questionDisplayId(q) }}</span>
                         <span
-                          [class]="questionStateLabel(s, q) === 'current'
+                          [class]="questionStateLabel(s, q) === 'en cours'
                             ? 'text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-brand-500/20 text-brand-100'
                             : 'text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-white/5 text-gray-500'"
                         >
@@ -860,7 +869,7 @@ interface ProposalFact {
                         </span>
                       </div>
                       <div class="mt-2 text-sm text-gray-100 leading-snug line-clamp-3">{{ questionText(q) }}</div>
-                      <div class="mt-3 text-[10px] text-gray-500">{{ q.estimated_minutes || 3 }} min expected</div>
+                      <div class="mt-3 text-[10px] text-gray-500">{{ q.estimated_minutes || 3 }} min prévues</div>
                     </button>
                   } @empty {
                     <div class="rounded border border-dashed border-white/10 bg-black/20 p-4 text-sm text-gray-400">
@@ -875,8 +884,8 @@ interface ProposalFact {
                 <div class="rounded bg-brand-500/10 border border-brand-400/20 p-4">
                   <div class="flex items-start justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">Current prompt</p>
-                      <p class="mt-2 text-lg text-white leading-relaxed">{{ currentPromptText() || 'Select a question to begin capture.' }}</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">Relance Agentium</p>
+                      <p class="mt-2 text-lg text-white leading-relaxed">{{ currentPromptText() || 'Sélectionnez une question pour démarrer la capture.' }}</p>
                     </div>
                     <button
                       type="button"
@@ -884,7 +893,7 @@ interface ProposalFact {
                       [disabled]="!currentQuestion()"
                       (click)="readCurrentQuestion()"
                     >
-                      <app-icon name="volume-2" [size]="14" /> Read
+                      <app-icon name="volume-2" [size]="14" /> Lire
                     </button>
                   </div>
                 </div>
@@ -892,7 +901,7 @@ interface ProposalFact {
                 <div class="mt-4 flex-1 flex flex-col gap-3 min-h-0">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Conversation</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Trace utile</p>
                       <h3 class="text-sm font-semibold text-white">{{ voiceStateLabel() }}</h3>
                     </div>
                     @if (lastConversationStep(); as step) {
@@ -908,7 +917,7 @@ interface ProposalFact {
                         <span class="text-[10px] text-gray-500">{{ currentQuestion()?.estimated_minutes || 3 }} min</span>
                       </div>
                       <p class="mt-2 text-sm text-gray-100 leading-relaxed">
-                        {{ currentPromptText() || 'The next interviewer prompt will appear here.' }}
+                        {{ currentPromptText() || 'La prochaine relance apparaîtra ici.' }}
                       </p>
                     </article>
                     @for (event of textEvents().slice(-5); track event.id) {
@@ -918,7 +927,7 @@ interface ProposalFact {
                             {{ conversationEventLabel(event) }}
                           </span>
                           <button type="button" class="text-xs text-brand-200 hover:text-brand-100" (click)="beginAmend(event)">
-                            Amend
+                            Amender
                           </button>
                         </div>
                         @if (editingEventId() === event.id) {
@@ -929,10 +938,10 @@ interface ProposalFact {
                           ></textarea>
                           <div class="mt-2 flex gap-2">
                             <button type="button" class="px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-400 text-xs text-white" (click)="applyAmend(s.id, event.id)">
-                              Apply correction
+                              Appliquer la correction
                             </button>
                             <button type="button" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300" (click)="editingEventId.set(null)">
-                              Cancel
+                              Annuler
                             </button>
                           </div>
                         } @else if (eventDisplayText(event); as text) {
@@ -941,13 +950,13 @@ interface ProposalFact {
                       </article>
                     } @empty {
                       <div class="rounded border border-dashed border-white/10 bg-black/20 p-6 text-center">
-                        <p class="text-sm text-gray-400">No expert answer captured yet.</p>
-                        <p class="mt-1 text-xs text-gray-600">Start the session, then answer by voice or type below.</p>
+                        <p class="text-sm text-gray-400">Aucune réponse expert capturée pour l’instant.</p>
+                        <p class="mt-1 text-xs text-gray-600">{{ emptyConversationHint() }}</p>
                       </div>
                     }
                     @if (answer.trim()) {
                       <article class="rounded border border-emerald-400/20 bg-emerald-500/10 p-4">
-                        <span class="ck-mono text-[10px] uppercase tracking-wider text-emerald-200">Draft answer</span>
+                        <span class="ck-mono text-[10px] uppercase tracking-wider text-emerald-200">Réponse en brouillon</span>
                         <p class="mt-2 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ answer }}</p>
                       </article>
                     }
@@ -957,7 +966,7 @@ interface ProposalFact {
                       class="w-full min-h-28 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white leading-relaxed"
                       [(ngModel)]="answer"
                       (ngModelChange)="onAnswerDraftChange()"
-                      placeholder="Type or correct the expert answer before evaluation..."
+                      placeholder="Saisir ou corriger la réponse expert avant évaluation..."
                     ></textarea>
                   }
                 </div>
@@ -980,7 +989,7 @@ interface ProposalFact {
                           class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-sm text-amber-100 ring-1 ring-amber-400/20"
                           (click)="interruptSpeech()"
                         >
-                          <app-icon name="pause" [size]="14" /> Interrupt AI
+                          <app-icon name="pause" [size]="14" /> Interrompre
                         </button>
                       }
                     } @else {
@@ -1001,7 +1010,7 @@ interface ProposalFact {
                         [disabled]="!answer.trim() || !canCaptureUpdate(s)"
                         (click)="sendAnswer(s)"
                       >
-                        <app-icon name="send" [size]="14" /> Evaluate answer
+                        <app-icon name="send" [size]="14" /> Évaluer la réponse
                       </button>
                       <button
                         type="button"
@@ -1009,7 +1018,7 @@ interface ProposalFact {
                         [disabled]="!canProposalSubmit(s)"
                         (click)="createProposal(s)"
                       >
-                        <app-icon name="check-circle-2" [size]="14" /> Create proposal
+                        <app-icon name="check-circle-2" [size]="14" /> Créer la proposition
                       </button>
                     }
                     <div class="min-w-40 flex-1 flex items-center gap-3 rounded bg-white/[0.03] px-3 py-2">
@@ -1032,8 +1041,8 @@ interface ProposalFact {
                     </div>
                     <div class="flex items-center gap-2 text-xs text-gray-400">
                       <span class="px-2 py-1 rounded bg-white/5">{{ sessionStartStateLabel(s) }}</span>
-                      <span class="px-2 py-1 rounded bg-white/5">{{ recording() ? 'recording' : 'ready' }}</span>
-                      <span class="px-2 py-1 rounded bg-white/5">{{ speaking() ? 'speaking' : 'tts idle' }}</span>
+                      <span class="px-2 py-1 rounded bg-white/5">{{ recording() ? 'enregistrement' : 'prêt' }}</span>
+                      <span class="px-2 py-1 rounded bg-white/5">{{ speaking() ? 'lecture IA' : 'TTS prêt' }}</span>
                     </div>
                   </div>
                 </div>
@@ -1095,9 +1104,9 @@ interface ProposalFact {
                 >
                   <div class="flex items-start justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Session mode</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Mode de session</p>
                       <h3 class="text-sm font-semibold text-white mt-1">
-                        {{ conversationMode() === 'conversation_only' ? 'Conversation' : 'Guided capture' }}
+                        {{ conversationMode() === 'conversation_only' ? 'Conversation autonome' : 'Capture guidée' }}
                       </h3>
                     </div>
                     @if (conversationSessionActive()) {
@@ -1113,7 +1122,7 @@ interface ProposalFact {
                       (click)="setConversationMode('manual')"
                     >
                       <span class="flex items-center gap-2 text-xs font-semibold">
-                        <app-icon name="list-checks" [size]="13" /> Guided
+                        <app-icon name="list-checks" [size]="13" /> Guidé
                       </span>
                     </button>
                     <button
@@ -1128,21 +1137,24 @@ interface ProposalFact {
                       </span>
                     </button>
                   </div>
-                  @if (conversationMode() === 'conversation_only') {
-                    <p class="mt-3 text-sm text-white">{{ lastConversationLabel() }}</p>
-                    @if (voiceNotice(); as notice) {
-                      <p [class]="voiceNoticePanelClass()">{{ notice }}</p>
+                    @if (conversationMode() === 'conversation_only') {
+                      <p class="mt-3 text-sm text-white">{{ lastConversationLabel() }}</p>
+                      @if (nextPrompt()) {
+                        <p class="mt-3 text-xs text-gray-300 leading-relaxed">{{ promptText(nextPrompt()) }}</p>
+                      }
                     }
-                    @if (nextPrompt()) {
-                      <p class="mt-3 text-xs text-gray-300 leading-relaxed">{{ promptText(nextPrompt()) }}</p>
+                    @if (isDemoMode()) {
+                      @if (voiceNotice(); as notice) {
+                        <p [class]="voiceNoticePanelClass()">{{ notice }}</p>
+                      }
                     }
-                  }
-                </section>
+                  </section>
 
+                @if (!isDemoMode()) {
                 <section class="t-card rounded-lg p-4">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Conversation state</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">État de la conversation</p>
                       <h3 class="text-sm font-semibold text-white mt-1">{{ conversationStateHeadline(s) }}</h3>
                     </div>
                     @if (lastConversationStep(); as step) {
@@ -1172,11 +1184,12 @@ interface ProposalFact {
                     <p [class]="voiceNoticePanelClass()">{{ notice }}</p>
                   }
                 </section>
+                }
 
                 <section class="t-card rounded-lg p-4">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Live context</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Contexte retrouvé</p>
                       <h3 class="text-sm font-semibold text-white">{{ retrievalLabel() }}</h3>
                     </div>
                     @if (retrieval().latency_ms !== undefined) {
@@ -1191,7 +1204,7 @@ interface ProposalFact {
                     </div>
                   } @else {
                     <p class="mt-3 text-xs text-gray-500 leading-relaxed">
-                      Context appears here as the expert answer becomes specific enough. The conversation does not wait for it.
+                      Les passages utiles apparaissent ici dès que la réponse devient assez précise. La conversation ne les attend pas.
                     </p>
                   }
                 </section>
@@ -1200,13 +1213,13 @@ interface ProposalFact {
                   <section class="t-card rounded-lg p-4">
                     <div class="flex items-center justify-between gap-3">
                       <div>
-                        <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Proposal draft</p>
-                        <h3 class="text-sm font-semibold text-white">{{ proposalFacts().length }} facts</h3>
+                        <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Proposition en brouillon</p>
+                        <h3 class="text-sm font-semibold text-white">{{ proposalFacts().length }} fait(s)</h3>
                       </div>
-                      <span class="text-xs text-gray-400">{{ p.status }}</span>
+                      <span class="text-xs text-gray-400">{{ workflowStatusLabel(p.status) }}</span>
                     </div>
                     <button type="button" class="mt-3 w-full px-3 py-2 rounded bg-brand-500/20 text-brand-100 ring-1 ring-brand-300/30" (click)="goSurface('review')">
-                      Review proposal
+                      Relire la proposition
                     </button>
                   </section>
                 }
@@ -1215,7 +1228,7 @@ interface ProposalFact {
           </section>
         } @else {
           <section class="t-card rounded-lg p-8 text-center text-gray-400">
-            Prepare a capture plan before opening the live cockpit.
+            Préparez une session de capture avant d’ouvrir le cockpit live.
           </section>
         }
       }
@@ -1226,7 +1239,7 @@ interface ProposalFact {
             <div class="t-card rounded-lg p-5 space-y-4">
               <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Interview plan</p>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan d’entretien</p>
                   <h2 class="text-lg font-semibold text-white mt-1">{{ s.title }}</h2>
                   <p class="text-sm text-gray-500 mt-1 max-w-3xl">{{ s.objective }}</p>
                 </div>
@@ -1235,7 +1248,7 @@ interface ProposalFact {
                   class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
                   (click)="goSurface('session')"
                 >
-                  <app-icon name="eye" [size]="14" /> Preview cockpit
+                  <app-icon name="eye" [size]="14" /> Prévisualiser le cockpit
                 </button>
               </div>
 
@@ -1255,13 +1268,13 @@ interface ProposalFact {
                     <div class="text-2xl text-white font-semibold">{{ planQuestions(s).length }}</div>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Estimated duration</div>
+                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Durée estimée</div>
                     <div class="text-2xl text-white font-semibold">{{ planDurationMinutes(s) }} min</div>
                   </div>
                 }
                 <div class="rounded bg-black/20 border border-white/10 p-3">
-                  <div class="text-[10px] uppercase tracking-wider text-gray-500">Knowledge target</div>
-                  <div class="text-sm text-gray-200 mt-2 truncate">{{ selectedContext()?.environment_state?.collection || 'Workspace defaults' }}</div>
+                  <div class="text-[10px] uppercase tracking-wider text-gray-500">Cible Knowledge</div>
+                  <div class="text-sm text-gray-200 mt-2 truncate">{{ selectedContext()?.environment_state?.collection || 'Sources par défaut du workspace' }}</div>
                 </div>
               </div>
 
@@ -1276,14 +1289,14 @@ interface ProposalFact {
                   <section class="rounded border border-white/10 bg-white/[0.025] p-4 space-y-4">
                     <div class="flex flex-wrap items-start justify-between gap-3">
                       <div class="min-w-0 flex-1">
-                        <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Topic</p>
+                        <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Sujet</p>
                         <input
                           class="mt-1 w-full rounded bg-black/20 border border-white/10 px-3 py-2 text-base font-semibold text-white disabled:opacity-70"
                           [(ngModel)]="topic.title"
                           [disabled]="!canEditPlan(s)"
                           (ngModelChange)="touchPlanDraft()"
                         />
-                        <p class="mt-2 text-xs text-gray-500">{{ topic.objective || 'Topic objective' }}</p>
+                        <p class="mt-2 text-xs text-gray-500">{{ topic.objective || 'Objectif du sujet' }}</p>
                       </div>
                       <span class="rounded bg-brand-500/10 text-brand-100 border border-brand-300/20 px-2 py-1 text-xs">
                         @if (isTopicOnlyPlan(s)) {
@@ -1297,7 +1310,7 @@ interface ProposalFact {
                     @for (subtopic of topic.subtopics || []; track subtopic.id) {
                       <div class="rounded border border-white/10 bg-black/15 p-3 space-y-3">
                         <div>
-                          <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">Subtopic</p>
+                          <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">Sous-sujet</p>
                           <input
                             class="mt-1 w-full rounded bg-black/20 border border-white/10 px-3 py-2 text-sm font-semibold text-gray-100 disabled:opacity-70"
                             [(ngModel)]="subtopic.title"
@@ -1329,7 +1342,7 @@ interface ProposalFact {
                               >
                                 <span class="ck-mono">{{ questionDisplayId(q) }}</span>
                                 <span
-                                  [class]="questionStateLabel(s, q) === 'current'
+                                  [class]="questionStateLabel(s, q) === 'en cours'
                                     ? 'text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-brand-500/20 text-brand-100'
                                     : 'text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-white/5 text-gray-400'"
                                 >
@@ -1352,7 +1365,7 @@ interface ProposalFact {
                                   class="rounded bg-white/5 hover:bg-white/10 p-1.5 text-gray-300 disabled:opacity-30"
                                   [disabled]="!canEditPlan(s) || i === 0"
                                   (click)="moveQuestion(s, subtopic, i, -1)"
-                                  title="Move question up"
+                                  title="Monter la question"
                                 >
                                   <app-icon name="arrow-up" [size]="13" />
                                 </button>
@@ -1361,7 +1374,7 @@ interface ProposalFact {
                                   class="rounded bg-white/5 hover:bg-white/10 p-1.5 text-gray-300 disabled:opacity-30"
                                   [disabled]="!canEditPlan(s) || i >= ((subtopic.questions || []).length - 1)"
                                   (click)="moveQuestion(s, subtopic, i, 1)"
-                                  title="Move question down"
+                                  title="Descendre la question"
                                 >
                                   <app-icon name="arrow-down" [size]="13" />
                                 </button>
@@ -1370,7 +1383,7 @@ interface ProposalFact {
                                   class="rounded bg-red-500/10 hover:bg-red-500/20 p-1.5 text-red-200 disabled:opacity-30"
                                   [disabled]="!canEditPlan(s) || planQuestions(s).length <= 1"
                                   (click)="removeQuestion(s, subtopic, i)"
-                                  title="Remove question"
+                                  title="Supprimer la question"
                                 >
                                   <app-icon name="trash-2" [size]="13" />
                                 </button>
@@ -1391,7 +1404,7 @@ interface ProposalFact {
                             [disabled]="!canEditPlan(s)"
                             (click)="addQuestion(s, topic, subtopic)"
                           >
-                            <app-icon name="plus" [size]="13" /> Add question
+                            <app-icon name="plus" [size]="13" /> Ajouter une question
                           </button>
                         }
                       </div>
@@ -1403,8 +1416,8 @@ interface ProposalFact {
 
             <aside class="t-card rounded-lg p-5 space-y-4 xl:sticky xl:top-4">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Session setup</p>
-                <h3 class="text-sm font-semibold text-white mt-1">Ready for capture</h3>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Démarrage</p>
+                <h3 class="text-sm font-semibold text-white mt-1">Prêt pour la capture</h3>
               </div>
               @if (isTopicOnlyPlan(s)) {
                 <div class="rounded bg-black/20 border border-white/10 p-3 text-xs text-gray-300">
@@ -1421,7 +1434,7 @@ interface ProposalFact {
               }
               <div class="space-y-2 text-xs">
                 <div class="rounded bg-black/20 border border-white/10 p-3">
-                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Context</span>
+                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Contexte</span>
                   <span class="text-gray-200">{{ contextLabel(s.context_id) }}</span>
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
@@ -1429,11 +1442,11 @@ interface ProposalFact {
                   <span class="text-gray-200">{{ expertProfile }}</span>
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
-                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Runtime</span>
+                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Runtime vocal</span>
                   <span class="text-gray-200">{{ voiceRuntimeArchitecture(s.voice_runtime) }}</span>
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
-                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Status</span>
+                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">État</span>
                   <span class="text-gray-200">{{ sessionStartStateLabel(s) }} · {{ planReviewLabel(s) }}</span>
                 </div>
               </div>
@@ -1448,7 +1461,7 @@ interface ProposalFact {
                 </button>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <span class="block text-[9px] uppercase tracking-wider text-gray-500 mb-2">Session mode</span>
+                <span class="block text-[9px] uppercase tracking-wider text-gray-500 mb-2">Mode de session</span>
                 <div class="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -1458,9 +1471,9 @@ interface ProposalFact {
                     (click)="setConversationMode('manual')"
                   >
                     <span class="flex items-center gap-2 text-xs font-semibold">
-                      <app-icon name="list-checks" [size]="13" /> Guided
+                      <app-icon name="list-checks" [size]="13" /> Guidé
                     </span>
-                    <span class="mt-1 block text-[10px] text-gray-500">Turn by turn</span>
+                    <span class="mt-1 block text-[10px] text-gray-500">Tour par tour</span>
                   </button>
                   <button
                     type="button"
@@ -1472,7 +1485,7 @@ interface ProposalFact {
                     <span class="flex items-center gap-2 text-xs font-semibold">
                       <app-icon name="message-circle" [size]="13" /> Conversation
                     </span>
-                    <span class="mt-1 block text-[10px] text-gray-500">Voice led</span>
+                    <span class="mt-1 block text-[10px] text-gray-500">Piloté à la voix</span>
                   </button>
                 </div>
               </div>
@@ -1480,16 +1493,20 @@ interface ProposalFact {
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-3 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
                 [disabled]="loading() || !canCaptureExecute(s) || !canStartSessionPlan(s)"
+                [title]="planBlockingReason(s) || ''"
                 (click)="startGuidedSession(s)"
               >
                 <app-icon [name]="planStartIcon(s)" [size]="14" /> {{ planStartLabel(s) }}
               </button>
+              @if (planBlockingReason(s); as reason) {
+                <p class="text-[11px] leading-relaxed text-amber-200/85">{{ reason }}</p>
+              }
             </aside>
           </section>
         } @else {
           <section class="max-w-5xl mx-auto py-8 space-y-7">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Step 2 · Plan mode</p>
+              <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Étape 2 · Mode de capture</p>
               <h2 class="mt-2 text-3xl text-white font-semibold">Choisir le niveau de guidage</h2>
               <p class="mt-2 text-sm text-gray-400 max-w-3xl">
                 Pour un pilote, la capture libre va directement à l’échange. Le plan guidé reste disponible quand il faut sécuriser une trame d’entretien.
@@ -1617,7 +1634,7 @@ interface ProposalFact {
                 }
                 @if (oracle.coverage_gaps?.length) {
                   <section class="rounded border border-white/10 bg-black/20 p-4 space-y-2">
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Gaps knowledge</p>
+                    <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Manques Knowledge</p>
                     @for (gap of oracle.coverage_gaps; track gap.slug || gap.title || $index) {
                       <article class="text-sm text-gray-300">
                         <p class="font-medium text-gray-100">{{ gap.title }}</p>
@@ -1678,7 +1695,7 @@ interface ProposalFact {
             </div>
             <aside class="t-card rounded-lg p-5 space-y-4">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Probe oracle</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Assistant de cadrage</p>
                 <p class="mt-2 text-sm text-gray-300 leading-relaxed">{{ planDialoguePrompt() || 'Décrivez le sujet pour commencer.' }}</p>
               </div>
               <div class="rounded border border-white/10 bg-black/20 p-4 space-y-3 max-h-52 overflow-auto">
@@ -1714,16 +1731,16 @@ interface ProposalFact {
           <div class="t-card rounded-lg p-5 space-y-4">
             <div class="flex items-start justify-between gap-4">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Knowledge update proposal</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Proposition Knowledge</p>
                 <h2 class="text-lg font-semibold text-white">
-                  {{ proposal()?.proposal?.title || session()?.title || 'Review changes before ingestion' }}
+                  {{ proposal()?.proposal?.title || session()?.title || 'Relire les changements avant ingestion' }}
                 </h2>
                 <p class="text-sm text-gray-500 mt-1 max-w-3xl">
-                  Fact-level review keeps the conversation trace auditable without making raw transcription the primary user experience.
+                  La revue se fait au niveau des faits, avec une trace conversationnelle auditable en arrière-plan.
                 </p>
               </div>
               @if (proposal(); as p) {
-                <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">{{ p.status }}</span>
+                <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">{{ workflowStatusLabel(p.status) }}</span>
               }
             </div>
 
@@ -1748,7 +1765,7 @@ interface ProposalFact {
                             {{ proposalFactDecisionLabel($index, fact) }}
                           </span>
                           @if (fact.amended) {
-                            <span class="text-xs text-amber-200">HITL amended</span>
+                            <span class="text-xs text-amber-200">Corrigé par humain</span>
                           }
                         </div>
                         @if (editingProposalFactKey() === proposalFactKey($index, fact)) {
@@ -1759,10 +1776,10 @@ interface ProposalFact {
                           ></textarea>
                           <div class="mt-2 flex gap-2">
                             <button type="button" class="px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-400 text-xs text-white" (click)="saveProposalFactEdit($index, fact)">
-                              Save edit
+                              Enregistrer
                             </button>
                             <button type="button" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300" (click)="cancelProposalFactEdit()">
-                              Cancel
+                              Annuler
                             </button>
                           </div>
                         } @else {
@@ -1780,7 +1797,7 @@ interface ProposalFact {
                             : 'px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300 ring-1 ring-white/10'"
                           (click)="setProposalFactDecision($index, fact, 'accept')"
                         >
-                          Accept
+                          Accepter
                         </button>
                         <button
                           type="button"
@@ -1789,23 +1806,23 @@ interface ProposalFact {
                             : 'px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300 ring-1 ring-white/10'"
                           (click)="setProposalFactDecision($index, fact, 'reject')"
                         >
-                          Reject
+                          Rejeter
                         </button>
                         <button
                           type="button"
                           class="px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300 ring-1 ring-white/10"
                           (click)="beginProposalFactEdit($index, fact)"
                         >
-                          Edit
+                          Modifier
                         </button>
                       </div>
                     </div>
                     @if (fact.retrieval_refs?.length) {
                       <div class="mt-3 rounded bg-white/[0.03] border border-white/10 p-3">
-                        <div class="text-[10px] uppercase tracking-wider text-gray-500">Evidence</div>
+                        <div class="text-[10px] uppercase tracking-wider text-gray-500">Preuves</div>
                         @for (ref of (fact.retrieval_refs || []).slice(0, 2); track ref.title || ref.source || ref.preview) {
                           <p class="mt-2 text-xs text-gray-400 line-clamp-2">
-                            <span class="text-gray-300">{{ ref.title || ref.source || 'Retrieved context' }}</span>
+                            <span class="text-gray-300">{{ ref.title || ref.source || 'Contexte retrouvé' }}</span>
                             @if (ref.preview) { · {{ ref.preview }} }
                           </p>
                         }
@@ -1816,13 +1833,13 @@ interface ProposalFact {
               </div>
             } @else {
               <div class="rounded border border-dashed border-white/10 bg-black/20 p-8 text-center text-gray-500">
-                No structured fact yet. Capture or amend at least one substantive expert answer, then create a proposal.
+                Aucun fait structuré pour l’instant. Capturez ou amendez au moins une réponse expert substantielle, puis créez la proposition.
               </div>
             }
 
             @if (proposal()?.proposal?.recommended_ingestion?.content) {
               <details class="rounded border border-white/10 bg-black/20 p-3">
-                <summary class="cursor-pointer text-sm text-gray-300">Markdown ingestion preview</summary>
+                <summary class="cursor-pointer text-sm text-gray-300">Aperçu d’ingestion Markdown</summary>
                 <pre class="mt-3 whitespace-pre-wrap text-xs text-gray-400 max-h-72 overflow-auto">{{ proposal()?.proposal?.recommended_ingestion?.content }}</pre>
               </details>
             }
@@ -1836,33 +1853,33 @@ interface ProposalFact {
 
           <aside class="t-card rounded-lg p-5 space-y-4">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Review controls</p>
-              <h3 class="text-sm font-semibold text-white mt-1">Human validation</h3>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Contrôles de revue</p>
+              <h3 class="text-sm font-semibold text-white mt-1">Validation humaine</h3>
               @if (iamRoleBanner(); as banner) {
                 <p class="mt-2 text-xs text-brand-100/80">{{ banner }}</p>
               }
             </div>
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Facts</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Faits</div>
                 <div class="text-xl text-white font-semibold">{{ proposalFacts().length }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Evidence</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Preuves</div>
                 <div class="text-xl text-white font-semibold">{{ proposalEvidenceCount() }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Accepted</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Acceptés</div>
                 <div class="text-xl text-white font-semibold">{{ acceptedProposalFactCount() }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Rejected</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Rejetés</div>
                 <div class="text-xl text-white font-semibold">{{ rejectedProposalFactCount() }}</div>
               </div>
             </div>
             @if (proposalOpenQuestions().length) {
               <div class="rounded bg-amber-500/10 border border-amber-400/20 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-amber-200">Open follow-ups</div>
+                <div class="text-[10px] uppercase tracking-wider text-amber-200">Relances ouvertes</div>
                 @for (item of proposalOpenQuestions(); track item.gap_id || item.follow_up || item.reason) {
                   <p class="mt-2 text-xs text-amber-100/80">{{ item.follow_up || item.reason }}</p>
                 }
@@ -1879,7 +1896,7 @@ interface ProposalFact {
             }
             @if (postSessionQualityItems().length) {
               <section class="rounded border border-amber-500/25 bg-amber-500/5 p-3 space-y-2">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">Backlog qualité</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">Points qualité</p>
                 @for (item of postSessionQualityItems(); track item.id || item.label) {
                   <div class="text-xs text-gray-200 flex flex-wrap items-center justify-between gap-2">
                     <span>{{ item.label || item.follow_up }}</span>
@@ -1902,18 +1919,26 @@ interface ProposalFact {
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50"
                 [disabled]="!proposalFacts().length || !canProposalReview(p)"
+                [title]="proposalReviewHint(p)"
                 (click)="acceptProposal(p.id)"
               >
                 <app-icon name="check-circle-2" [size]="14" /> Valider la proposition
               </button>
+              @if (proposalReviewHint(p); as hint) {
+                <p class="text-[11px] leading-relaxed text-gray-500">{{ hint }}</p>
+              }
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500/20 text-sm text-brand-100 ring-1 ring-brand-300/30 disabled:opacity-50"
-                [disabled]="p.status !== 'accepted' || !canProposalReview(p)"
+                [disabled]="p.status !== 'accepted' || !canProposalPublish(p)"
+                [title]="proposalPublishHint(p)"
                 (click)="publishToKnowledge(p.id)"
               >
                 <app-icon name="upload" [size]="14" /> Publier dans Knowledge
               </button>
+              @if (proposalPublishHint(p); as hint) {
+                <p class="text-[11px] leading-relaxed text-gray-500">{{ hint }}</p>
+              }
               <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" (click)="exportProposalMd()">
                 Exporter en Markdown
               </button>
@@ -1925,7 +1950,7 @@ interface ProposalFact {
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
                 (click)="goSurface('session')"
               >
-                <app-icon name="message-square" [size]="14" /> Continue capture
+                <app-icon name="message-square" [size]="14" /> Reprendre la capture
               </button>
             } @else if (session(); as s) {
               <button
@@ -1934,7 +1959,7 @@ interface ProposalFact {
                 [disabled]="!canProposalSubmit(s)"
                 (click)="createProposal(s)"
               >
-                <app-icon name="check-circle-2" [size]="14" /> Create proposal
+                <app-icon name="check-circle-2" [size]="14" /> Créer la proposition
               </button>
             }
           </aside>
@@ -2040,10 +2065,9 @@ export class KnowledgeCaptureComponent implements OnInit {
       {
         id: 'ai_plan',
         label: 'L’IA propose un plan',
-        description: 'Bientôt — co-construction vocale',
+        description: 'Génère une trame d’entretien depuis le sujet, le profil expert et le contexte Knowledge.',
         icon: 'zap',
         recommended: false,
-        disabled: !this.permissions.isReviewerOrAdmin(),
       },
     ];
     return modes;
@@ -2055,24 +2079,24 @@ export class KnowledgeCaptureComponent implements OnInit {
   });
   readonly modelSteps = [
     {
-      eyebrow: 'Capability',
+      eyebrow: 'Capacité',
       label: 'Expert Knowledge Capture',
-      description: 'The business function: preserve expert reasoning and tacit knowledge.',
+      description: 'La fonction métier : préserver le raisonnement expert et la connaissance tacite.',
     },
     {
-      eyebrow: 'System',
-      label: 'Guided session runtime',
-      description: 'Runs a plan with voice, evaluator and structuring skills.',
+      eyebrow: 'Système',
+      label: 'Runtime de session guidée',
+      description: 'Exécute un plan avec voix, évaluation et structuration.',
     },
     {
-      eyebrow: 'Context',
-      label: 'Knowledge scope',
-      description: 'Selects collections, ACLs and constraints for the interview.',
+      eyebrow: 'Contexte',
+      label: 'Périmètre Knowledge',
+      description: 'Sélectionne collections, ACL et contraintes pour l’entretien.',
     },
     {
       eyebrow: 'Knowledge',
-      label: 'Reviewed update',
-      description: 'Receives validated proposals after human review.',
+      label: 'Mise à jour relue',
+      description: 'Reçoit les propositions validées après revue humaine.',
     },
   ];
 
@@ -2144,10 +2168,10 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   readonly surfaceNav: Array<{ id: CaptureSurfaceView; label: string; icon: string; step: number }> = [
     { id: 'dashboard', label: 'Sessions', icon: 'layout-dashboard', step: 1 },
-    { id: 'prep', label: 'Preparation', icon: 'sliders-horizontal', step: 2 },
+    { id: 'prep', label: 'Préparation', icon: 'sliders-horizontal', step: 2 },
     { id: 'plan', label: 'Plan', icon: 'list-checks', step: 3 },
     { id: 'session', label: 'Capture', icon: 'mic', step: 4 },
-    { id: 'review', label: 'Proposal', icon: 'check-circle-2', step: 5 },
+    { id: 'review', label: 'Proposition', icon: 'check-circle-2', step: 5 },
   ];
   readonly voiceWaveBars = [10, 18, 26, 14, 22, 30, 16, 24, 12, 20];
   readonly workspaceAccessRoute = computed(() => {
@@ -2238,7 +2262,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   startNewSessionDraft(): void {
     if (!this.canCaptureCreate()) {
-      this.setVoiceNotice('You do not have permission to create Capture sessions in this workspace.', 'error');
+      this.setVoiceNotice('Votre rôle ne permet pas de créer une session de capture dans ce workspace.', 'error');
       return;
     }
     this.resetCurrentCaptureSessionState();
@@ -2260,7 +2284,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   continueFromPreparation(): void {
     if (this.loading()) return;
     if (!this.canCaptureCreate()) {
-      this.setVoiceNotice('You do not have permission to create Capture sessions in this workspace.', 'error');
+      this.setVoiceNotice('Votre rôle ne permet pas de créer une session de capture dans ce workspace.', 'error');
       return;
     }
     if (!this.sessionTitle.trim()) {
@@ -2269,6 +2293,12 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     this.resetCurrentCaptureSessionState();
     this.activeSurface.set('plan');
+  }
+
+  preparationBlockingHint(): string | null {
+    if (!this.sessionTitle.trim()) return 'Renseignez un titre de session pour continuer.';
+    if (!this.canCaptureCreate()) return 'Votre rôle ne permet pas de créer une session de capture dans ce workspace.';
+    return null;
   }
 
   private resetCurrentCaptureSessionState(): void {
@@ -2300,7 +2330,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   createPlan(): void {
     if (!this.canCaptureCreate()) {
-      this.voiceNotice.set('You do not have permission to create Capture sessions in this workspace.');
+      this.voiceNotice.set('Votre rôle ne permet pas de créer une session de capture dans ce workspace.');
       return;
     }
     const title = this.sessionTitle.trim();
@@ -2334,7 +2364,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.planNotice.set({
             tone: 'info',
             text: this.isFreeConversationSession(typed)
-              ? 'Capture libre prête. La conversation va démarrer sans plan imposé.'
+              ? 'Capture libre prête. Lancez la session quand l’expert est prêt.'
               : 'Plan prêt. Ajustez-le si nécessaire, puis démarrez la capture.',
           });
           this.refreshEvents(typed.id);
@@ -2348,7 +2378,6 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.loading.set(false);
           if (this.isFreeConversationSession(typed)) {
             this.conversationMode.set('conversation_only');
-            void this.startGuidedSession(typed);
           }
         },
         error: () => this.loading.set(false),
@@ -2378,7 +2407,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   planModeActionLabel(): string {
-    if (this.selectedPlanMode === 'free_conversation') return 'Démarrer la capture';
+    if (this.selectedPlanMode === 'free_conversation') return 'Créer la session';
+    if (this.selectedPlanMode === 'ai_plan') return 'Générer le plan';
     if (this.selectedPlanMode === 'plan_build') return 'Co-construire le plan';
     if (this.selectedPlanMode === 'provided_plan') return 'Importer le plan';
     return 'Préparer la session';
@@ -2436,14 +2466,16 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   knowledgeScopeLabel(): string {
-    if (this.isPilotMode()) return 'Base connectée au workspace';
+    if (this.isPilotMode()) {
+      return this.selectedContext()?.environment_state?.collection || this.selectedContext()?.name || 'Base workspace';
+    }
     return this.selectedContext()?.name || 'Sources workspace';
   }
 
   async startGuidedSession(session: CaptureSession): Promise<void> {
     if (this.loading()) return;
     if (!this.canCaptureExecute(session)) {
-      this.setVoiceNotice('You do not have permission to start this Capture session.', 'error');
+      this.setVoiceNotice('Votre rôle ne permet pas de démarrer cette session de capture.', 'error');
       return;
     }
     if (!this.canStartSessionPlan(session)) {
@@ -2452,17 +2484,18 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     this.loading.set(true);
-    const conversationOnly = this.conversationMode() === 'conversation_only';
+    let conversationOnly = this.conversationMode() === 'conversation_only';
     let armed = true;
     if (conversationOnly) {
       this.conversationSessionActive.set(true);
-      this.setVoiceNotice('Preparing microphone access for the conversation session.', 'info');
+      this.setVoiceNotice('Préparation du micro pour la conversation.', 'info');
       armed = await this.ensureAudioStream();
       if (!armed) {
         this.conversationSessionActive.set(false);
         this.voiceState.set('idle');
-        this.loading.set(false);
-        return;
+        this.conversationMode.set('manual');
+        conversationOnly = false;
+        this.setVoiceNotice('Micro indisponible : la session démarre en saisie guidée, sans bloquer le parcours.', 'warning');
       }
     }
     this.api
@@ -2498,7 +2531,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           if (conversationOnly) {
             this.stopConversationSession();
           }
-          this.setVoiceNotice('Session start failed. Check backend availability, then retry.', 'error');
+          this.setVoiceNotice('Démarrage de session impossible. Vérifiez le backend, puis réessayez.', 'error');
           this.loading.set(false);
         },
       });
@@ -2625,6 +2658,22 @@ export class KnowledgeCaptureComponent implements OnInit {
     return this.dashboardProposals().filter((row) => row.status === 'pending_review').length;
   }
 
+  workflowStatusLabel(status?: string | null): string {
+    const normalized = String(status || '').toLowerCase();
+    const labels: Record<string, string> = {
+      planned: 'planifiée',
+      active: 'active',
+      paused: 'en pause',
+      completed: 'terminée',
+      pending_review: 'à relire',
+      accepted: 'validée',
+      rejected: 'rejetée',
+      published: 'publiée',
+      failed: 'en erreur',
+    };
+    return labels[normalized] || status || 'inconnu';
+  }
+
   stepIsComplete(view: CaptureSurfaceView): boolean {
     const order: CaptureSurfaceView[] = ['dashboard', 'prep', 'plan', 'plan_build', 'session', 'review'];
     const activeIndex = order.indexOf(this.activeSurface());
@@ -2668,10 +2717,29 @@ export class KnowledgeCaptureComponent implements OnInit {
     const resource = {
       owner_user_id: proposal?.created_by_user_id || relatedSession?.created_by_user_id || null,
     };
-    return (
-      this.permissions.can('knowledge_proposal', 'review_decide', resource) &&
-      this.permissions.can('knowledge_proposal', 'trigger_ingestion', resource)
-    );
+    return this.permissions.can('knowledge_proposal', 'review_decide', resource);
+  }
+
+  canProposalPublish(proposal?: CaptureProposal | null): boolean {
+    const relatedSession = this.session();
+    return this.permissions.can('knowledge_proposal', 'trigger_ingestion', {
+      owner_user_id: proposal?.created_by_user_id || relatedSession?.created_by_user_id || null,
+    });
+  }
+
+  proposalReviewHint(proposal?: CaptureProposal | null): string | null {
+    if (!this.proposalFacts().length) return 'Ajoutez au moins un fait capturé avant validation.';
+    if (!this.canProposalReview(proposal)) return 'Votre rôle peut préparer la proposition, mais pas la valider.';
+    if (this.proposalEvidenceCount() === 0) {
+      return 'Aucune preuve documentaire attachée : validation possible, mais à traiter comme connaissance expert non sourcée.';
+    }
+    return null;
+  }
+
+  proposalPublishHint(proposal?: CaptureProposal | null): string | null {
+    if (proposal?.status !== 'accepted') return 'Validez d’abord la proposition avant publication.';
+    if (!this.canProposalPublish(proposal)) return 'La publication Knowledge requiert le droit d’ingestion.';
+    return null;
   }
 
   isAuthor(session?: CaptureSession | null): boolean {
@@ -2680,9 +2748,9 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   iamRoleBanner(): string | null {
     if (!this.permissions.matrix()) return null;
-    if (this.permissions.isReviewerOrAdmin()) return `IAM: ${this.permissions.roleLabel()} can review workspace proposals.`;
-    if (this.canCaptureCreate()) return `IAM: ${this.permissions.roleLabel()} can capture own sessions.`;
-    return `IAM: ${this.permissions.roleLabel()} has limited Capture access.`;
+    if (this.permissions.isReviewerOrAdmin()) return `IAM : ${this.permissions.roleLabel()} peut relire les propositions du workspace.`;
+    if (this.canCaptureCreate()) return `IAM : ${this.permissions.roleLabel()} peut capturer ses propres sessions.`;
+    return `IAM : ${this.permissions.roleLabel()} dispose d’un accès limité à la capture.`;
   }
 
   selectedContext(): ContextOption | null {
@@ -2735,7 +2803,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.zoom.setCurrentContext(ctx.id, ctx.name);
           this.contextCreationNotice.set({
             tone: 'success',
-            text: `Context "${ctx.name}" is now attached to ${collection}.`,
+            text: `Le contexte "${ctx.name}" est maintenant rattaché à ${collection}.`,
           });
           this.lastSuggestedContextName = ctx.name;
           this.creatingContext.set(false);
@@ -2743,7 +2811,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         error: () => {
           this.contextCreationNotice.set({
             tone: 'error',
-            text: 'Context creation failed. Check workspace access, then retry.',
+            text: 'Création du contexte impossible. Vérifiez l’accès workspace, puis réessayez.',
           });
           this.creatingContext.set(false);
         },
@@ -2805,7 +2873,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   contextLabel(contextId?: string | null): string {
     if (!contextId) {
-      return 'Workspace defaults';
+      return 'Sources par défaut du workspace';
     }
     return this.contexts().find((ctx) => ctx.id === contextId)?.name || contextId.slice(0, 8);
   }
@@ -2931,7 +2999,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     const text = this.answer.trim();
     if (!text) return;
     if (!this.canCaptureUpdate(session)) {
-      this.setVoiceNotice('You do not have permission to update this Capture session.', 'error');
+      this.setVoiceNotice('Votre rôle ne permet pas de modifier cette session de capture.', 'error');
       return;
     }
     this.voiceState.set('thinking');
@@ -3007,33 +3075,29 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   voiceStateLabel(): string {
     const labels: Record<Voice2VoiceState, string> = {
-      idle: 'Idle',
-      listening: 'Listening',
-      partial_transcribing: 'Live transcription',
-      retrieving: 'Retrieving context',
-      oracle_updating: 'Oracle updating',
-      thinking: 'Evaluating',
-      speaking: 'AI speaking',
-      interrupted: 'Interrupted',
+      idle: 'Prêt',
+      listening: 'Écoute en cours',
+      partial_transcribing: 'Transcription live',
+      retrieving: 'Contexte en parallèle',
+      oracle_updating: 'Analyse qualité',
+      thinking: 'Évaluation',
+      speaking: 'Lecture IA',
+      interrupted: 'Interrompu',
     };
     return labels[this.voiceState()];
   }
 
   retrievalLabel(): string {
-    if (this.isPilotMode()) {
-      const rr = this.retrieval();
-      if (rr.chunks.length) return `${rr.chunks.length} repère(s) utile(s)`;
-      return 'Contexte en cours';
-    }
     const rr = this.retrieval();
+    if (rr.chunks.length) return `${rr.chunks.length} repère(s) utile(s)`;
     if (rr.status === 'searching') {
-      return rr.chunks.length ? `Refreshing · ${rr.chunks.length} chunk(s)` : 'Searching in parallel';
+      return 'Recherche en parallèle';
     }
-    if (rr.status === 'ready') return `${rr.chunks.length} chunk(s) ready`;
-    if (rr.status === 'late') return 'Late context';
-    if (rr.status === 'timeout') return 'Timeout, continuing';
-    if (rr.status === 'error') return 'Unavailable';
-    return 'Standby';
+    if (rr.status === 'ready' || rr.status === 'completed') return 'Aucun repère utile';
+    if (rr.status === 'late') return 'Contexte arrivé tard';
+    if (rr.status === 'timeout') return 'Timeout, on continue';
+    if (rr.status === 'error') return 'Contexte indisponible';
+    return 'En attente';
   }
 
   onAnswerDraftChange(): void {
@@ -3091,14 +3155,28 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   canStartSessionPlan(session: CaptureSession): boolean {
+    if (this.isFreeConversationSession(session)) return true;
     if (this.isTopicOnlyPlan(session)) {
       return (
         this.sessionHasStarted(session) ||
+        this.planQuestions(session).length > 0 ||
         (session.plan.review?.status === 'topics_validated' &&
           (session.plan.question_bank_status === 'ready' || this.questionBankStatus() === 'ready'))
       );
     }
-    return this.sessionHasStarted(session) || this.isFreeConversationSession(session) || this.planQuestions(session).length > 0;
+    return this.sessionHasStarted(session) || this.planQuestions(session).length > 0;
+  }
+
+  planBlockingReason(session: CaptureSession): string | null {
+    if (this.canStartSessionPlan(session)) return null;
+    if (!this.canCaptureExecute(session)) return 'Votre rôle ne permet pas de démarrer cette session.';
+    if (this.isTopicOnlyPlan(session)) {
+      if ((session.plan.question_bank_status || this.questionBankStatus()) === 'generating') {
+        return 'La banque de questions est en génération. Le démarrage sera disponible dès qu’elle est prête.';
+      }
+      return 'Validez les sujets pour générer les questions avant de démarrer, ou choisissez une capture libre.';
+    }
+    return 'Ajoutez au moins une question exploitable avant de démarrer.';
   }
 
   isTopicPlan(session: CaptureSession): boolean {
@@ -3422,6 +3500,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   publishToKnowledge(proposalId: string): void {
+    if (!this.canProposalPublish(this.proposal())) {
+      this.setVoiceNotice('Publication Knowledge non autorisée pour ce rôle.', 'error');
+      return;
+    }
     this.api
       .publishCaptureProposal(proposalId)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -3467,6 +3549,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (status === 'approved') return 'plan enregistré';
     if (status === 'edited') return 'changements enregistrés';
     if (status === 'draft') return 'plan prêt';
+    if (status === 'topics_validated') return 'sujets validés';
     return 'session prête';
   }
 
@@ -3540,7 +3623,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.savingPlan.set(false);
         },
         error: () => {
-          this.planNotice.set({ tone: 'error', text: 'Plan save failed. Check that every topic has at least one question.' });
+          this.planNotice.set({ tone: 'error', text: 'Enregistrement du plan impossible. Vérifiez que chaque sujet contient au moins une question.' });
           this.savingPlan.set(false);
         },
       });
@@ -3557,11 +3640,11 @@ export class KnowledgeCaptureComponent implements OnInit {
           const updated = payload as CaptureSession;
           this.session.set(updated);
           this.selectedQuestionId.set(this.planQuestions(updated)[0]?.id || this.selectedQuestionId());
-          this.planNotice.set({ tone: 'success', text: 'Plan approved. The guided session can start.' });
+          this.planNotice.set({ tone: 'success', text: 'Plan validé. La session guidée peut démarrer.' });
           this.savingPlan.set(false);
         },
         error: () => {
-          this.planNotice.set({ tone: 'error', text: 'Plan approval failed. Save the plan and retry.' });
+          this.planNotice.set({ tone: 'error', text: 'Validation du plan impossible. Enregistrez le plan puis réessayez.' });
           this.savingPlan.set(false);
         },
       });
@@ -3612,11 +3695,20 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (!session.started_at) {
       return { label: `${limitMinutes} min`, blink: false, ended: false };
     }
-    let remainingSeconds = Number(session.metrics?.['remaining_seconds'] ?? NaN);
+    const serverRemaining = Number(session.metrics?.['remaining_seconds'] ?? NaN);
+    let remainingSeconds = Number.isFinite(serverRemaining) && serverRemaining >= 0 ? serverRemaining : NaN;
     if (session.status === 'active') {
       const startedAt = new Date(session.started_at).getTime();
-      const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-      remainingSeconds = Math.max(0, limitMinutes * 60 - elapsedSeconds);
+      if (Number.isFinite(startedAt)) {
+        const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+        const computedRemaining = Math.max(0, limitMinutes * 60 - elapsedSeconds);
+        const clearlyStaleStart = elapsedSeconds > limitMinutes * 60 + 30 && !session.metrics?.['session_end_pending'];
+        if (!Number.isFinite(remainingSeconds) || (remainingSeconds <= 0 && !session.metrics?.['session_end_pending'])) {
+          remainingSeconds = clearlyStaleStart ? limitMinutes * 60 : computedRemaining;
+        }
+      } else if (!Number.isFinite(remainingSeconds)) {
+        remainingSeconds = limitMinutes * 60;
+      }
     } else if (!Number.isFinite(remainingSeconds)) {
       remainingSeconds = limitMinutes * 60;
     }
@@ -3715,30 +3807,39 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   answerQualityHeadline(): string {
     const evaluation = this.lastEvaluation();
-    if (!evaluation) return 'Waiting for first answer';
-    return `${evaluation.verdict} answer`;
+    if (!evaluation) return 'En attente d’une première réponse';
+    return `Réponse ${this.evaluationVerdictLabel(evaluation.verdict)}`;
+  }
+
+  private evaluationVerdictLabel(verdict?: string | null): string {
+    const normalized = String(verdict || '').toLowerCase();
+    if (normalized === 'accepted' || normalized === 'valid') return 'validée';
+    if (normalized === 'running' || normalized === 'pending') return 'en analyse';
+    if (normalized === 'needs_detail' || normalized === 'partial') return 'à préciser';
+    if (normalized === 'rejected' || normalized === 'invalid') return 'à reprendre';
+    return normalized || 'analysée';
   }
 
   conversationEventLabel(event: CaptureEvent): string {
     const speaker = (event.speaker || '').toLowerCase();
     if (speaker === 'expert') return `Expert · ${this.transcriptEventShortLabel(event)}`;
     if (speaker === 'system') return `Agentium · ${this.transcriptEventShortLabel(event)}`;
-    if (event.event_type === 'proposal_generated') return 'Proposal · generated';
-    if (event.event_type === 'proposal_reviewed') return 'Review · completed';
+    if (event.event_type === 'proposal_generated') return 'Proposition · générée';
+    if (event.event_type === 'proposal_reviewed') return 'Revue · terminée';
     return `Trace · ${this.transcriptEventShortLabel(event)}`;
   }
 
   conversationStateHeadline(session: CaptureSession): string {
-    if (!this.sessionHasStarted(session)) return 'Ready to start';
-    if (this.speaking()) return 'AI asking';
-    if (this.recording()) return 'Expert answering';
-    if (this.transcribing()) return 'Processing turn';
-    if (this.voiceState() === 'oracle_updating') return 'Oracle updating';
-    if (this.voiceState() === 'thinking') return 'Evaluating answer';
-    if (this.proposal()) return 'Proposal ready';
+    if (!this.sessionHasStarted(session)) return 'Prêt à démarrer';
+    if (this.speaking()) return 'Agentium pose la question';
+    if (this.recording()) return 'Réponse expert en cours';
+    if (this.transcribing()) return 'Traitement du tour';
+    if (this.voiceState() === 'oracle_updating') return 'Analyse qualité en cours';
+    if (this.voiceState() === 'thinking') return 'Évaluation de la réponse';
+    if (this.proposal()) return 'Proposition prête';
     const step = this.lastConversationStep();
-    if (step?.action_taken === 'proposal_deferred_insufficient_facts') return 'More detail needed';
-    return this.conversationMode() === 'conversation_only' ? 'Conversation loop ready' : 'Guided capture ready';
+    if (step?.action_taken === 'proposal_deferred_insufficient_facts') return 'Détail expert nécessaire';
+    return this.conversationMode() === 'conversation_only' ? 'Boucle conversationnelle prête' : 'Capture guidée prête';
   }
 
   conversationStageRows(session: CaptureSession): ConversationStageRow[] {
@@ -3753,22 +3854,22 @@ export class KnowledgeCaptureComponent implements OnInit {
     return [
       {
         id: 'ready',
-        label: 'Ready',
-        detail: started ? session.status : 'waiting for launch',
+        label: 'Démarrage',
+        detail: started ? this.sessionStartStateLabel(session) : 'en attente',
         icon: 'play',
         state: started ? 'done' : 'active',
       },
       {
         id: 'prompt',
-        label: 'Prompt',
-        detail: this.speaking() ? 'AI speaking' : this.currentQuestion()?.id || 'selected question',
+        label: 'Relance',
+        detail: this.speaking() ? 'lecture Agentium' : this.currentQuestion()?.id || 'question sélectionnée',
         icon: 'volume-2',
         state: !started ? 'pending' : this.speaking() ? 'active' : 'done',
       },
       {
         id: 'answer',
-        label: 'Answer',
-        detail: this.recording() ? 'recording expert' : this.transcribing() ? 'finalizing transcript' : this.voiceStateLabel(),
+        label: 'Réponse',
+        detail: this.recording() ? 'écoute expert' : this.transcribing() ? 'finalisation transcript' : this.voiceStateLabel(),
         icon: 'mic',
         state: !started
           ? 'pending'
@@ -3778,8 +3879,8 @@ export class KnowledgeCaptureComponent implements OnInit {
       },
       {
         id: 'proposal',
-        label: 'Proposal',
-        detail: this.proposal() ? `${this.proposalFacts().length} facts` : this.lastConversationLabel(),
+        label: 'Proposition',
+        detail: this.proposal() ? `${this.proposalFacts().length} fait(s)` : this.lastConversationLabel(),
         icon: 'check-circle-2',
         state: this.proposal() ? 'done' : proposalActive ? 'active' : 'pending',
       },
@@ -3809,8 +3910,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   sessionStartStateLabel(session: CaptureSession): string {
-    if (session.status === 'planned') return 'not started';
+    if (session.status === 'planned') return 'non démarrée';
     if (session.status === 'active') return 'active';
+    if (session.status === 'paused') return 'en pause';
+    if (session.status === 'completed') return 'terminée';
     return session.status;
   }
 
@@ -3853,19 +3956,26 @@ export class KnowledgeCaptureComponent implements OnInit {
     return this.conversationSessionActive() ? 'Mettre en pause' : 'Démarrer';
   }
 
+  emptyConversationHint(): string {
+    if (this.conversationMode() === 'conversation_only') {
+      return 'Démarrez la conversation. Si le micro est refusé, Agentium basculera en saisie guidée.';
+    }
+    return 'Démarrez la session, puis dictez ou saisissez la réponse expert.';
+  }
+
   lastConversationLabel(): string {
     const step = this.lastConversationStep();
-    if (!step) return 'Voice actions will be inferred from the next final transcript.';
+    if (!step) return 'Les actions seront déduites de la prochaine transcription finale.';
     const labels: Record<string, string> = {
-      answer_ready: 'Answer captured and evaluated',
-      correction: 'Correction captured',
-      more_detail: 'Additional detail captured',
-      proposal_requested: 'Proposal prepared, waiting for confirmation',
-      proposal_deferred_insufficient_facts: 'More expert detail needed before proposal',
-      proposal_confirmed: 'Proposal confirmed, waiting for final acceptance',
-      proposal_rejected: 'Proposal rejected, waiting for correction',
-      accept_confirmed: 'Proposal accepted',
-      accept_rejected: 'Acceptance paused',
+      answer_ready: 'Réponse capturée et évaluée',
+      correction: 'Correction capturée',
+      more_detail: 'Complément capturé',
+      proposal_requested: 'Proposition préparée, en attente de confirmation',
+      proposal_deferred_insufficient_facts: 'Détail expert nécessaire avant proposition',
+      proposal_confirmed: 'Proposition confirmée, validation finale attendue',
+      proposal_rejected: 'Proposition rejetée, correction attendue',
+      accept_confirmed: 'Proposition acceptée',
+      accept_rejected: 'Validation suspendue',
     };
     if (step.action_taken === 'proposal_deferred_insufficient_facts') {
       return labels['proposal_deferred_insufficient_facts'];
@@ -3875,22 +3985,22 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   transcriptEventLabel(event: CaptureEvent): string {
     if (event.event_type === 'conversation_intent_detected') {
-      return `intent: ${(event.metadata || {})['intent'] || 'detected'}`;
+      return `intention : ${(event.metadata || {})['intent'] || 'détectée'}`;
     }
-    if (event.event_type === 'proposal_generated') return 'proposal generated';
-    if (event.event_type === 'proposal_reviewed') return 'proposal reviewed';
-    if (event.event_type === 'transcript_amended' || event.text_amended) return 'amended transcript';
-    if (event.event_type === 'expert_turn_finalized') return 'final answer';
-    if (event.event_type === 'stt_final') return 'final transcript';
-    return 'transcript';
+    if (event.event_type === 'proposal_generated') return 'proposition générée';
+    if (event.event_type === 'proposal_reviewed') return 'proposition relue';
+    if (event.event_type === 'transcript_amended' || event.text_amended) return 'transcription amendée';
+    if (event.event_type === 'expert_turn_finalized') return 'réponse finale';
+    if (event.event_type === 'stt_final') return 'transcription finale';
+    return 'transcription';
   }
 
   private transcriptEventShortLabel(event: CaptureEvent): string {
-    if (event.event_type === 'conversation_intent_detected') return 'intent';
-    if (event.event_type === 'transcript_amended' || event.text_amended) return 'amended';
-    if (event.event_type === 'expert_turn_finalized') return 'final answer';
-    if (event.event_type === 'stt_final') return 'transcript';
-    return 'captured';
+    if (event.event_type === 'conversation_intent_detected') return 'intention';
+    if (event.event_type === 'transcript_amended' || event.text_amended) return 'amendé';
+    if (event.event_type === 'expert_turn_finalized') return 'réponse finale';
+    if (event.event_type === 'stt_final') return 'transcription';
+    return 'capturé';
   }
 
   eventDisplayText(event: CaptureEvent): string {
@@ -3936,14 +4046,14 @@ export class KnowledgeCaptureComponent implements OnInit {
     const text = this.editingText.trim();
     if (!text) return;
     if (!this.canCaptureUpdate(this.session())) {
-      this.setVoiceNotice('You do not have permission to amend this Capture session.', 'error');
+      this.setVoiceNotice('Votre rôle ne permet pas d’amender cette session de capture.', 'error');
       return;
     }
     this.api
       .amendCaptureEvent(sessionId, eventId, {
         text_amended: text,
         actor: 'demo-operator',
-        reason: 'HITL transcript correction from capture console.',
+        reason: 'Correction HITL depuis le cockpit de capture.',
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
@@ -3958,7 +4068,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   createProposal(session: CaptureSession): void {
     if (!this.canProposalSubmit(session)) {
-      this.setVoiceNotice('You do not have permission to submit a proposal for this session.', 'error');
+      this.setVoiceNotice('Votre rôle ne permet pas de soumettre une proposition pour cette session.', 'error');
       return;
     }
     const draft = this.answer.trim();
@@ -4011,11 +4121,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     const clean = text.trim();
     if (!clean) return;
     if (!this.canCaptureExecute(session)) {
-      this.setVoiceNotice('You do not have permission to run the conversation loop for this session.', 'error');
+      this.setVoiceNotice('Votre rôle ne permet pas d’exécuter la boucle conversationnelle de cette session.', 'error');
       return;
     }
     this.voiceState.set('thinking');
-    this.setVoiceNotice('Processing the final transcript and inferring the next action.', 'info');
+    this.setVoiceNotice('Traitement de la transcription finale et détection de la prochaine action.', 'info');
     this.api
       .runConversationStep(session.id, {
         client_turn_id: this.currentClientTurnId,
@@ -4057,13 +4167,13 @@ export class KnowledgeCaptureComponent implements OnInit {
             this.speak(this.promptText(step.next_prompt));
           } else {
             this.voiceState.set('idle');
-            this.setVoiceNotice('Ready for the next expert answer.', 'info');
+            this.setVoiceNotice('Prêt pour la prochaine réponse expert.', 'info');
             this.scheduleConversationResume();
           }
         },
         error: () => {
           this.voiceState.set('idle');
-          this.setVoiceNotice('Conversation step failed. The transcript was not processed.', 'error');
+          this.setVoiceNotice('Traitement conversationnel impossible. La transcription n’a pas été exploitée.', 'error');
         },
       });
   }
@@ -4115,14 +4225,14 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   acceptProposal(proposalId: string): void {
     if (!this.canProposalReview(this.proposal())) {
-      this.setVoiceNotice('You do not have permission to review this proposal.', 'error');
+      this.setVoiceNotice('Votre rôle ne permet pas de valider cette proposition.', 'error');
       return;
     }
     this.api
       .reviewCaptureProposal(proposalId, {
         status: 'accepted',
         reviewer: 'demo-operator',
-        review_notes: 'Accepted from Knowledge Capture demo.',
+        review_notes: 'Validé depuis la démo Knowledge Capture.',
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((proposal) => {
@@ -4166,9 +4276,9 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   proposalFactDecisionLabel(index: number, fact: ProposalFact): string {
     const decision = this.proposalFactDecision(index, fact);
-    if (decision === 'accept') return 'accepted';
-    if (decision === 'reject') return 'rejected';
-    return 'pending';
+    if (decision === 'accept') return 'accepté';
+    if (decision === 'reject') return 'rejeté';
+    return 'à relire';
   }
 
   proposalFactCardClass(index: number, fact: ProposalFact): string {
@@ -4218,16 +4328,27 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   proposalFactType(fact: ProposalFact): string {
-    if (fact.type) return fact.type.toUpperCase();
-    if (fact.turn_kind === 'correction') return 'UPDATE';
-    if (fact.turn_kind === 'complement') return 'DETAIL';
-    if (fact.amended) return 'AMENDED';
-    return 'NEW';
+    if (fact.type) return this.proposalFactTypeLabel(fact.type);
+    if (fact.turn_kind === 'correction') return 'CORRECTION';
+    if (fact.turn_kind === 'complement') return 'DÉTAIL';
+    if (fact.amended) return 'AMENDÉ';
+    return 'NOUVEAU';
   }
 
   proposalFactConfidence(fact: ProposalFact): string {
     const value = typeof fact.confidence === 'number' ? fact.confidence : 0.5;
-    return `${Math.round(value * 100)}% confidence`;
+    return `${Math.round(value * 100)}% confiance`;
+  }
+
+  private proposalFactTypeLabel(type: string): string {
+    const normalized = type.toLowerCase();
+    if (normalized === 'update') return 'MISE À JOUR';
+    if (normalized === 'detail') return 'DÉTAIL';
+    if (normalized === 'correction') return 'CORRECTION';
+    if (normalized === 'exception') return 'EXCEPTION';
+    if (normalized === 'open') return 'À CLARIFIER';
+    if (normalized === 'new') return 'NOUVEAU';
+    return type.toUpperCase();
   }
 
   private ensureVoiceConnection(session: CaptureSession): VoiceSessionConnection | null {
@@ -4253,7 +4374,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       return this.voiceConnection;
     } catch {
       this.voiceConnection = null;
-      this.setVoiceNotice('Voice WebSocket could not open; falling back to HTTP voice turns.', 'warning');
+      this.setVoiceNotice('WebSocket vocal indisponible ; bascule sur les tours vocaux HTTP.', 'warning');
       return null;
     }
   }
@@ -4272,8 +4393,8 @@ export class KnowledgeCaptureComponent implements OnInit {
       if (value === 'cascade' || value === 'cascade_openai') return 'Cascade';
       if (value === 'openai_realtime' || value === 'local_realtime' || value === 'realtime_gpu') return 'Realtime';
       if (value === 'local_stt') return 'Transcription';
-      if (value === 'local_tts') return 'Speech output';
-      return 'Voice runtime';
+      if (value === 'local_tts') return 'Synthèse vocale';
+      return 'Runtime vocal';
     }
     if (value === 'cascade' || value === 'cascade_openai') return 'cascade_openai · batch STT · segmented TTS';
     if (value === 'openai_realtime') return 'openai_realtime · speech-to-speech';
@@ -4286,13 +4407,13 @@ export class KnowledgeCaptureComponent implements OnInit {
   voiceRuntimeArchitecture(runtime?: string | null): string {
     if (this.isPilotMode()) return 'Assistant vocal actif';
     const label = this.runtimeLabel(runtime);
-    return this.isDemoMode() ? `${label} · conversation assistée` : `${label} · latest-wins`;
+    return this.isDemoMode() ? `${label} · conversation assistée` : `${label} · priorité au dernier tour`;
   }
 
   private handleVoiceSessionEvent(event: VoiceSessionEvent): void {
     const payload = event.payload || {};
     if (event.type === 'session.ready') {
-      this.setVoiceNotice('Streaming voice session ready.', 'info');
+      this.setVoiceNotice('Session vocale streaming prête.', 'info');
       return;
     }
     if (event.type === 'text.partial') {
@@ -4309,7 +4430,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       if (text) this.answer = text;
       this.transcribing.set(false);
       this.voiceState.set('thinking');
-      this.setVoiceNotice('Transcript finalized through the streaming voice session.', 'info');
+      this.setVoiceNotice('Transcription finalisée par la session vocale streaming.', 'info');
       return;
     }
     if (event.type === 'conversation.step') {
@@ -4346,7 +4467,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.nextPrompt.set(prompt || null);
       const promptEventId = payload['system_prompt_event_id'];
       this.lastSystemPromptEventId.set(typeof promptEventId === 'string' ? promptEventId : null);
-      this.setVoiceNotice('Next prompt prepared by the streaming capture oracle.', 'info');
+      this.setVoiceNotice('Prochaine relance préparée par l’orchestrateur de capture.', 'info');
       return;
     }
     if (event.type === 'oracle.delta') {
@@ -4356,7 +4477,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     if (event.type === 'oracle.superseded') {
       this.voiceState.set('oracle_updating');
-      this.setVoiceNotice('Older oracle signal superseded by the latest transcript.', 'info');
+      this.setVoiceNotice('Ancien signal remplacé par la dernière transcription.', 'info');
       return;
     }
     if (event.type === 'oracle.action') {
@@ -4413,14 +4534,14 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     if (event.type === 'barge_in') {
-      this.setVoiceNotice('Barge-in accepted by the voice gateway.', 'info');
+      this.setVoiceNotice('Interruption prise en compte par la passerelle vocale.', 'info');
       return;
     }
     if (event.type === 'session.error') {
       const code = String(payload['code'] || '');
       this.transcribing.set(false);
       this.voiceState.set('idle');
-      this.setVoiceNotice(String(payload['message'] || 'Voice streaming failed.'), 'error');
+      this.setVoiceNotice(String(payload['message'] || 'Session vocale streaming indisponible.'), 'error');
       if (code === 'synthesize_failed' && this.nextPrompt()) {
         this.speak(this.promptText(this.nextPrompt()));
       }
@@ -4453,13 +4574,13 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.scheduleConversationResume();
     };
     audio.onerror = () => {
-      this.setVoiceNotice('Streaming audio playback failed; opening the microphone instead.', 'warning');
+      this.setVoiceNotice('Lecture audio streaming impossible ; ouverture du micro à la place.', 'warning');
       this.speaking.set(false);
       this.voiceState.set('idle');
       this.scheduleConversationResume();
     };
     void audio.play().catch(() => {
-      this.setVoiceNotice('Browser blocked streaming audio playback; opening the microphone instead.', 'warning');
+      this.setVoiceNotice('Le navigateur bloque la lecture audio ; ouverture du micro à la place.', 'warning');
       this.speaking.set(false);
       this.voiceState.set('idle');
       this.scheduleConversationResume();
@@ -4500,7 +4621,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.currentClientTurnId = this.newTurnId();
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
-    this.startAudioRecorder('Microphone is open. Stop listening when the expert answer is complete.');
+    this.startAudioRecorder('Micro ouvert. Arrêtez l’écoute quand la réponse expert est complète.');
   }
 
   async toggleConversationSession(): Promise<void> {
@@ -4528,11 +4649,13 @@ export class KnowledgeCaptureComponent implements OnInit {
       auto_rearm_after_tts: true,
       barge_in: true,
     });
-    this.setVoiceNotice('Preparing microphone access for the conversation session.', 'info');
+    this.setVoiceNotice('Préparation du micro pour la conversation.', 'info');
     const armed = await this.ensureAudioStream();
     if (!armed) {
       this.conversationSessionActive.set(false);
       this.voiceState.set('idle');
+      this.conversationMode.set('manual');
+      this.setVoiceNotice('Micro indisponible : bascule en saisie guidée pour continuer la session.', 'warning');
       return;
     }
     const firstPrompt = this.currentPromptText();
@@ -4583,9 +4706,9 @@ export class KnowledgeCaptureComponent implements OnInit {
     const selected = this.selectedQuestionId();
     const selectedIndex = questions.findIndex((item) => item.id === selected);
     const questionIndex = questions.findIndex((item) => item.id === question.id);
-    if (question.id === selected) return 'current';
-    if (selectedIndex >= 0 && questionIndex >= 0 && questionIndex < selectedIndex) return 'covered';
-    return 'upcoming';
+    if (question.id === selected) return 'en cours';
+    if (selectedIndex >= 0 && questionIndex >= 0 && questionIndex < selectedIndex) return 'couverte';
+    return 'à venir';
   }
 
   voiceWaveHeight(base: number): number {
@@ -4603,16 +4726,16 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   voiceInputStatusLabel(): string {
-    if (this.recording()) return 'Recording expert turn';
-    if (this.transcribing()) return 'Finalizing transcript';
-    if (this.speaking()) return 'AI is speaking';
-    if (this.voiceState() === 'retrieving') return 'Retrieving context';
-    if (this.voiceState() === 'oracle_updating') return 'Oracle updating';
-    if (this.voiceState() === 'thinking') return 'Evaluating answer';
+    if (this.recording()) return 'Écoute de la réponse expert';
+    if (this.transcribing()) return 'Finalisation de la transcription';
+    if (this.speaking()) return 'Agentium parle';
+    if (this.voiceState() === 'retrieving') return 'Recherche du contexte';
+    if (this.voiceState() === 'oracle_updating') return 'Analyse qualité en cours';
+    if (this.voiceState() === 'thinking') return 'Évaluation de la réponse';
     if (this.conversationMode() === 'conversation_only' && this.conversationSessionActive()) {
-      return 'Conversation armed';
+      return 'Conversation armée';
     }
-    return this.conversationMode() === 'conversation_only' ? 'Ready for conversation-only session' : 'Ready for manual capture';
+    return this.conversationMode() === 'conversation_only' ? 'Prêt pour la conversation autonome' : 'Prêt pour la capture manuelle';
   }
 
   voiceNoticeClass(): string {
@@ -4641,7 +4764,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (!clean) {
       return;
     }
-    this.setVoiceNotice('Preparing voice output. You can interrupt and answer at any time.', 'info');
+    this.setVoiceNotice('Préparation de la lecture. Vous pouvez interrompre et répondre à tout moment.', 'info');
     this.stopSpeech(false);
     this.ttsPlayback.playText(clean, {
       surface: 'knowledge_capture',
@@ -4654,7 +4777,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           latency_profile: metric.latency_profile,
           time_to_first_audio_ms: metric.time_to_first_audio_ms,
         });
-        this.setVoiceNotice('Agentium is reading the prompt. You can interrupt and answer at any time.', 'info');
+        this.setVoiceNotice('Agentium lit la relance. Vous pouvez interrompre et répondre à tout moment.', 'info');
       },
       onEnded: (metric) => {
         this.voiceConnection?.ttsEnded({
@@ -4693,7 +4816,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     const blob = new Blob(this.chunks, { type: 'audio/webm' });
     this.transcribing.set(true);
     this.voiceState.set('partial_transcribing');
-    this.setVoiceNotice('Finalizing the voice transcript.', 'info');
+    this.setVoiceNotice('Finalisation de la transcription vocale.', 'info');
     this.api
       .transcribeAudio(blob)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -4714,14 +4837,14 @@ export class KnowledgeCaptureComponent implements OnInit {
             if (this.conversationMode() === 'conversation_only') {
               this.runConversationStep(session, res.text);
             } else {
-              this.setVoiceNotice('Transcript ready for evaluation.', 'info');
+              this.setVoiceNotice('Transcription prête pour évaluation.', 'info');
             }
           }
         },
         error: () => {
           this.transcribing.set(false);
           this.voiceState.set('idle');
-          this.setVoiceNotice('Transcription failed. Try another voice turn or use guided text entry.', 'error');
+          this.setVoiceNotice('Transcription impossible. Réessayez un tour vocal ou utilisez la saisie guidée.', 'error');
         },
       });
   }
@@ -4774,7 +4897,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   private async finishStreamingVoiceTurn(): Promise<void> {
     this.transcribing.set(true);
     this.voiceState.set('partial_transcribing');
-    this.setVoiceNotice('Finalizing transcript through the streaming voice session.', 'info');
+    this.setVoiceNotice('Finalisation de la transcription via la session vocale streaming.', 'info');
     const pending = [...this.pendingVoiceFrameSends];
     this.pendingVoiceFrameSends = [];
     if (pending.length) {
@@ -4830,6 +4953,8 @@ export class KnowledgeCaptureComponent implements OnInit {
           if (this.isTopicOnlyPlan(session)) this.refreshHintQueue(session.id, typed.active_subtopic_id || this.activeSubtopicId());
           if (this.recording()) {
             this.voiceState.set('listening');
+          } else if (this.voiceState() === 'retrieving') {
+            this.voiceState.set('idle');
           }
         },
         error: () => {
@@ -4837,6 +4962,8 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.prefetchInFlight = false;
           if (this.recording()) {
             this.voiceState.set('listening');
+          } else if (this.voiceState() === 'retrieving') {
+            this.voiceState.set('idle');
           }
         },
       });
@@ -4872,7 +4999,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     if (state === 'error') {
       this.voiceState.set('idle');
-      this.setVoiceNotice('Voice synthesis is unavailable; opening the microphone instead.', 'warning');
+      this.setVoiceNotice('Synthèse vocale indisponible ; ouverture du micro à la place.', 'warning');
     }
   }
 
@@ -4880,7 +5007,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (typeof MediaRecorder === 'undefined') {
       this.recorder = null;
       this.releaseAudioStream();
-      this.setVoiceNotice('Audio recording is unavailable in this browser. Try another browser or use guided text entry.', 'error');
+      this.setVoiceNotice('L’enregistrement audio est indisponible dans ce navigateur. Essayez un autre navigateur ou utilisez la saisie guidée.', 'error');
       return false;
     }
     try {
@@ -4891,7 +5018,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
           const send = this.voiceConnection
             .sendAudioFrame(event.data, this.voiceFrameMeta())
-            .catch(() => this.setVoiceNotice('A voice frame could not be sent; fallback HTTP may be needed.', 'warning'));
+            .catch(() => this.setVoiceNotice('Une trame vocale n’a pas pu être envoyée ; le fallback HTTP peut être nécessaire.', 'warning'));
           this.pendingVoiceFrameSends.push(send);
           void send.finally(() => {
             this.pendingVoiceFrameSends = this.pendingVoiceFrameSends.filter((item) => item !== send);
@@ -4905,7 +5032,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     } catch {
       this.recorder = null;
       this.releaseAudioStream();
-      this.setVoiceNotice('Audio recording could not start. Check the microphone device, then retry.', 'error');
+      this.setVoiceNotice('Démarrage de l’enregistrement impossible. Vérifiez le micro puis réessayez.', 'error');
       return false;
     }
     this.recording.set(true);
@@ -4933,7 +5060,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (session) {
       this.ensureVoiceConnection(session)?.loopArmed({ surface: 'knowledge_capture', mode: 'conversation_loop' });
     }
-    if (!this.startAudioRecorder('Microphone is open. End the turn when the expert answer is complete.')) {
+    if (!this.startAudioRecorder('Micro ouvert. Terminez le tour quand la réponse expert est complète.')) {
       this.conversationSessionActive.set(false);
       this.voiceState.set('idle');
     }
@@ -4961,7 +5088,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     if (!navigator.mediaDevices?.getUserMedia) {
       this.stream = null;
-      this.setVoiceNotice('Microphone capture is unavailable in this browser context.', 'error');
+      this.setVoiceNotice('La capture micro est indisponible dans ce contexte navigateur.', 'error');
       return false;
     }
     try {
@@ -4972,8 +5099,8 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.stream = null;
       this.setVoiceNotice(
         name === 'NotAllowedError'
-          ? 'Microphone permission is blocked. Allow microphone access, then start the session again.'
-          : 'Microphone capture failed. Check the input device, then retry.',
+          ? 'L’autorisation micro est bloquée. Autorisez le micro ou poursuivez en saisie guidée.'
+          : 'La capture micro a échoué. Vérifiez le périphérique puis réessayez.',
         'error',
       );
       return false;
