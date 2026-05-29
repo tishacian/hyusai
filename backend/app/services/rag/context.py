@@ -26,6 +26,7 @@ from app.services.rag.pipeline_retrieval import retrieve_for_mode
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
     clarification_from_policy,
+    filter_aligned_to_required_terms,
     policy_prompt,
     rerank_aligned_with_policy,
     retrieval_policy_from_guides,
@@ -236,6 +237,7 @@ def _retrieval_policy_summary(policy: RetrievalPolicy, clarification: dict[str, 
         "protected_terms": len(policy.protected_terms),
         "facets": len(policy.facets),
         "source_family_rules": len(policy.source_family_rules),
+        "require_project_code_match": policy.require_project_code_match,
         "clarification_required": bool(clarification and clarification.get("required")),
     }
 
@@ -565,6 +567,7 @@ async def retrieve_rag_context(
         "retrieval_policy": _retrieval_policy_summary(retrieval_policy, clarification),
         "retrieval_policy_enabled": retrieval_policy.enabled,
         "retrieval_policy_clarification": bool(clarification and clarification.get("required")),
+        "retrieval_constraints": {},
     }
 
     if len(collections) > 1 and doc_svc is None:
@@ -612,6 +615,7 @@ async def retrieve_rag_context(
             "query": query,
             "retrieval_query": retrieval_query,
             "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
+            "retrieval_constraints": {},
             "clarification": clarification,
             "metrics": _jsonable(metrics),
             "collections_touched": [],
@@ -654,6 +658,13 @@ async def retrieve_rag_context(
         query=retrieval_query,
         policy=retrieval_policy,
     )
+    chunks, scores, metadatas, retrieval_constraints = filter_aligned_to_required_terms(
+        chunks,
+        scores,
+        metadatas,
+        query=retrieval_query,
+        policy=retrieval_policy,
+    )
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
         chunks,
@@ -683,6 +694,7 @@ async def retrieve_rag_context(
             "knowledge_guides": guide_count,
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
+            "retrieval_constraints": retrieval_constraints,
             "pipeline": result.pipeline,
             "mode_label": mode_label,
             "no_context": len(chunks) == 0,
@@ -704,6 +716,7 @@ async def retrieve_rag_context(
             "query": query,
             "retrieval_query": retrieval_query,
             "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
+            "retrieval_constraints": retrieval_constraints,
             "clarification": clarification,
             "collection": profile["collection"],
             "collections": collections,
@@ -846,6 +859,13 @@ async def _retrieve_multi_collection_context(
         query=retrieval_query,
         policy=retrieval_policy,
     )
+    chunks, scores, metadatas, retrieval_constraints = filter_aligned_to_required_terms(
+        chunks,
+        scores,
+        metadatas,
+        query=retrieval_query,
+        policy=retrieval_policy,
+    )
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
         chunks,
@@ -877,6 +897,7 @@ async def _retrieve_multi_collection_context(
             "knowledge_guides": guide_count,
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
+            "retrieval_constraints": retrieval_constraints,
             "pipeline": f"multi_{profile['rag_mode'] or 'auto'}",
             "mode_label": "multi_collection",
             "no_context": len(chunks) == 0,
@@ -902,6 +923,7 @@ async def _retrieve_multi_collection_context(
             "query": query,
             "retrieval_query": retrieval_query,
             "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
+            "retrieval_constraints": retrieval_constraints,
             "clarification": clarification,
             "collection": profile["collection"],
             "collections": profile.get("collections") or [],

@@ -19,6 +19,7 @@ _POLICY_FENCE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]+")
+_PROJECT_REF_RE = re.compile(r"\b([A-Z]{3})[\s_-]?(\d{3})\b", re.IGNORECASE)
 _DEFAULT_NAVIGATION_TERMS = (
     "table of contents",
     "contents",
@@ -56,6 +57,7 @@ class RetrievalPolicy:
     aliases: tuple[tuple[str, tuple[str, ...]], ...] = ()
     facets: tuple[PolicyFacet, ...] = ()
     source_family_rules: tuple[SourceFamilyRule, ...] = ()
+    require_project_code_match: bool = False
     demote_navigation: bool = True
     navigation_terms: tuple[str, ...] = _DEFAULT_NAVIGATION_TERMS
     answer_instructions: tuple[str, ...] = ()
@@ -68,6 +70,7 @@ class RetrievalPolicy:
             or self.aliases
             or self.facets
             or self.source_family_rules
+            or self.require_project_code_match
             or self.answer_instructions
         )
 
@@ -170,6 +173,7 @@ def retrieval_policy_from_guides(guides: list[Any]) -> RetrievalPolicy:
     source_family_rules: list[SourceFamilyRule] = []
     answer_instructions: list[str] = []
     navigation_terms: list[str] = list(_DEFAULT_NAVIGATION_TERMS)
+    require_project_code_match = False
     demote_navigation = True
     raw_blocks: list[dict[str, Any]] = []
 
@@ -187,6 +191,8 @@ def retrieval_policy_from_guides(guides: list[Any]) -> RetrievalPolicy:
                 if alias[0].lower() not in {existing[0].lower() for existing in aliases}:
                     aliases.append(alias)
             facets.extend(_parse_facets(query_planning.get("facets")))
+            if "require_project_code_match" in query_planning:
+                require_project_code_match = bool(query_planning.get("require_project_code_match"))
             source_family_rules.extend(_parse_source_family_rules(source_quality.get("prefer_source_families")))
             if "demote_navigation" in source_quality:
                 demote_navigation = bool(source_quality.get("demote_navigation"))
@@ -202,6 +208,7 @@ def retrieval_policy_from_guides(guides: list[Any]) -> RetrievalPolicy:
         aliases=tuple(aliases),
         facets=tuple(facets),
         source_family_rules=tuple(source_family_rules),
+        require_project_code_match=require_project_code_match,
         demote_navigation=demote_navigation,
         navigation_terms=tuple(navigation_terms),
         answer_instructions=tuple(answer_instructions),
@@ -211,6 +218,30 @@ def retrieval_policy_from_guides(guides: list[Any]) -> RetrievalPolicy:
 
 def _normalise(value: str) -> str:
     return " ".join(str(value or "").lower().replace("’", "'").split())
+
+
+def _project_reference_terms(value: str) -> tuple[str, ...]:
+    terms: list[str] = []
+    for match in _PROJECT_REF_RE.finditer(value or ""):
+        term = f"{match.group(1).upper()}{match.group(2)}"
+        if term not in terms:
+            terms.append(term)
+    return tuple(terms)
+
+
+def _term_forms(term: str) -> tuple[str, ...]:
+    text = _clean_text(term)
+    match = _PROJECT_REF_RE.fullmatch(text)
+    if not match:
+        return (text,) if text else ()
+    buyer = match.group(1).upper()
+    position = match.group(2)
+    return (
+        f"{buyer}{position}",
+        f"{buyer} {position}",
+        f"{buyer}-{position}",
+        f"{buyer}_{position}",
+    )
 
 
 def _contains_term(text: str, term: str) -> bool:
@@ -223,6 +254,24 @@ def _contains_term(text: str, term: str) -> bool:
     return norm_term in norm_text
 
 
+def _contains_any_term_form(text: str, term: str) -> bool:
+    return any(_contains_term(text, form) for form in _term_forms(term))
+
+
+def required_terms_from_query(query: str, policy: RetrievalPolicy | None) -> tuple[str, ...]:
+    if not policy or not policy.enabled:
+        return ()
+
+    required: list[str] = []
+    if policy.require_project_code_match:
+        required.extend(_project_reference_terms(query))
+
+    for term in policy.protected_terms:
+        if _contains_any_term_form(query, term) and term not in required:
+            required.append(term)
+    return tuple(required)
+
+
 def query_variants_from_policy(query: str, policy: RetrievalPolicy | None) -> list[str]:
     if not policy or not policy.enabled:
         return []
@@ -232,16 +281,19 @@ def query_variants_from_policy(query: str, policy: RetrievalPolicy | None) -> li
     if not q:
         return []
 
+    for term in required_terms_from_query(q, policy):
+        variants.extend(_term_forms(term))
+
     for term in policy.protected_terms:
-        if _contains_term(q, term):
+        if _contains_any_term_form(q, term):
             variants.append(f"{q} {term}")
             variants.append(term)
 
     for term, expansions in policy.aliases:
         group = (term, *expansions)
-        if not any(_contains_term(q, item) for item in group):
+        if not any(_contains_any_term_form(q, item) for item in group):
             continue
-        expanded = " ".join(item for item in group if not _contains_term(q, item))
+        expanded = " ".join(item for item in group if not _contains_any_term_form(q, item))
         if expanded:
             variants.append(f"{q} {expanded}")
 
@@ -297,20 +349,33 @@ def score_result_with_policy(
     haystack = f"{content}\n{_metadata_text(metadata)}"
     score = 0
 
+    required_terms = required_terms_from_query(query, policy)
+    matched_required_terms = [term for term in required_terms if _contains_any_term_form(haystack, term)]
+    for term in matched_required_terms:
+        score += 14
+
+    project_terms = _project_reference_terms(query) if policy.require_project_code_match else ()
+    if project_terms:
+        project_code = str(metadata.get("project_code") or "")
+        if project_code and not any(_contains_any_term_form(project_code, term) for term in project_terms):
+            score -= 16
+        elif not matched_required_terms:
+            score -= 10
+
     for term in policy.protected_terms:
-        if _contains_term(query, term) and _contains_term(haystack, term):
+        if _contains_any_term_form(query, term) and _contains_any_term_form(haystack, term):
             score += 14
 
     for term, expansions in policy.aliases:
         group = (term, *expansions)
-        if not any(_contains_term(query, item) for item in group):
+        if not any(_contains_any_term_form(query, item) for item in group):
             continue
-        if any(_contains_term(haystack, item) for item in group):
+        if any(_contains_any_term_form(haystack, item) for item in group):
             score += 6
 
     source_family = _normalise(str(metadata.get("source_family") or ""))
     for rule in policy.source_family_rules:
-        if not any(_contains_term(query, term) for term in rule.when_terms):
+        if not any(_contains_any_term_form(query, term) for term in rule.when_terms):
             continue
         if source_family and any(source_family == _normalise(family) for family in rule.source_families):
             score += 9
@@ -318,6 +383,20 @@ def score_result_with_policy(
     if policy.demote_navigation and _is_navigation_like(content, metadata, policy):
         score -= 18
     return score
+
+
+def matched_required_terms(
+    *,
+    content: str,
+    metadata: Mapping[str, Any] | None,
+    query: str,
+    policy: RetrievalPolicy | None,
+) -> tuple[str, ...]:
+    if not policy or not policy.enabled:
+        return ()
+    metadata = metadata or {}
+    haystack = f"{content}\n{_metadata_text(metadata)}"
+    return tuple(term for term in required_terms_from_query(query, policy) if _contains_any_term_form(haystack, term))
 
 
 def rerank_results_with_policy(
@@ -375,6 +454,68 @@ def rerank_aligned_with_policy(
         [row[4] for row in rows],
         [row[5] for row in rows],
     )
+
+
+def filter_aligned_to_required_terms(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    *,
+    query: str,
+    policy: RetrievalPolicy | None,
+) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
+    required = required_terms_from_query(query, policy)
+    if not policy or not policy.require_project_code_match or not required or not chunks:
+        return chunks, scores, metadatas, {
+            "required_terms": list(required),
+            "matched_terms": [],
+            "missing_terms": list(required),
+            "filtered_chunks_removed": 0,
+            "enforced": False,
+        }
+
+    kept_chunks: list[str] = []
+    kept_scores: list[float] = []
+    kept_metadatas: list[dict[str, Any]] = []
+    matched_all: list[str] = []
+    for index, chunk in enumerate(chunks):
+        metadata = dict(metadatas[index] if index < len(metadatas) else {})
+        matched = matched_required_terms(
+            content=chunk,
+            metadata=metadata,
+            query=query,
+            policy=policy,
+        )
+        if not matched:
+            continue
+        metadata["retrieval_policy_required_terms_matched"] = list(matched)
+        kept_chunks.append(chunk)
+        kept_scores.append(float(scores[index]) if index < len(scores) else 0.0)
+        kept_metadatas.append(metadata)
+        for term in matched:
+            if term not in matched_all:
+                matched_all.append(term)
+
+    missing = [term for term in required if term not in matched_all]
+    if not kept_chunks:
+        # For exact project questions, unrelated chunks are more harmful than
+        # useful: they cause the assistant to answer from another project. Keep
+        # the no-match signal and let the guide/prompt explain the failure.
+        return [], [], [], {
+            "required_terms": list(required),
+            "matched_terms": [],
+            "missing_terms": list(required),
+            "filtered_chunks_removed": len(chunks),
+            "enforced": True,
+        }
+
+    return kept_chunks, kept_scores, kept_metadatas, {
+        "required_terms": list(required),
+        "matched_terms": matched_all,
+        "missing_terms": missing,
+        "filtered_chunks_removed": len(chunks) - len(kept_chunks),
+        "enforced": True,
+    }
 
 
 def clarification_from_policy(query: str, policy: RetrievalPolicy | None) -> dict[str, Any] | None:

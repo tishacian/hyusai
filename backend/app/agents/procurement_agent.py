@@ -63,6 +63,7 @@ def _build_rag_user_prompt(
     grounding_policy: dict[str, Any],
     has_retrieved_context: bool,
     retrieval_policy_prompt: str = "",
+    retrieval_constraints: dict[str, Any] | None = None,
 ) -> str:
     if grounding_policy.get("mode") == "balanced" and not has_retrieved_context:
         fallback_disclaimer = (
@@ -87,7 +88,23 @@ Grounding instructions:
 Answer using the context above. Cite sources by their [number] when relevant.
 If the context is not relevant or missing, say so clearly rather than guessing."""
 
-    policy_instructions = f"\n\n{retrieval_policy_prompt}" if retrieval_policy_prompt else ""
+    constraint_lines: list[str] = []
+    retrieval_constraints = retrieval_constraints or {}
+    missing_terms = retrieval_constraints.get("missing_terms") or []
+    required_terms = retrieval_constraints.get("required_terms") or []
+    if missing_terms:
+        constraint_lines.append(
+            "Retrieval constraint: the user asked for exact reference(s) "
+            f"{', '.join(str(term) for term in required_terms)}, but no retrieved document chunk matched "
+            f"{', '.join(str(term) for term in missing_terms)}."
+        )
+        constraint_lines.append(
+            "Do not answer from other projects or similar documents as if they applied. "
+            "State clearly that no indexed source was found for the exact reference, then mention any visible gap or next check."
+        )
+    policy_parts = [part for part in [retrieval_policy_prompt, "\n".join(constraint_lines)] if part]
+    policy_body = "\n".join(policy_parts)
+    policy_instructions = f"\n\n{policy_body}" if policy_body else ""
 
     return f"""User message:
 {query}
@@ -621,6 +638,7 @@ class OmniRAGAgent(BaseAgent):
             grounding_policy=grounding_policy,
             has_retrieved_context=bool(filtered_chunks),
             retrieval_policy_prompt=str((retrieval_context.get("retrieval_policy") or {}).get("prompt") or ""),
+            retrieval_constraints=retrieval_context.get("retrieval_constraints") or {},
         )
 
         await asyncio.sleep(0.03)

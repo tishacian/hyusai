@@ -14,6 +14,7 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
 {
   "version": 1,
   "query_planning": {
+    "require_project_code_match": true,
     "protected_terms": [
       "BBA120",
       "ACO140",
@@ -72,6 +73,19 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
         "safety",
         "declaration of conformity",
         "warning"
+      ],
+      "carde": [
+        "card",
+        "carding",
+        "carding machine",
+        "card documentation"
+      ],
+      "garniture": [
+        "card clothing",
+        "clothing",
+        "spare parts",
+        "spare parts list",
+        "wire"
       ]
     },
     "facets": [
@@ -100,7 +114,12 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
       {
         "key": "spare_parts",
         "label": "Pieces detachees",
-        "terms": ["piece", "pieces", "spare parts", "parts list", "O-ring", "seal"]
+        "terms": ["piece", "pieces", "spare parts", "parts list", "O-ring", "seal", "garniture", "card clothing"]
+      },
+      {
+        "key": "card",
+        "label": "Carde",
+        "terms": ["carde", "card", "carding", "carding machine", "garniture"]
       },
       {
         "key": "procedure",
@@ -131,7 +150,7 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
         "source_families": ["operating_manual", "maintenance", "commissioning", "html_manual"]
       },
       {
-        "when_terms": ["piece", "pieces", "spare", "O-ring", "joint"],
+        "when_terms": ["piece", "pieces", "spare", "O-ring", "joint", "garniture", "card clothing"],
         "source_families": ["spare_parts_list"]
       },
       {
@@ -147,6 +166,7 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
   "answer_policy": {
     "instructions": [
       "Traiter les codes de type XXX123 comme des references projet stables, pas comme des machines.",
+      "Si la question cite une reference projet exacte et qu'aucune source ne correspond a cette reference, dire explicitement que la base indexee ne contient pas cette reference plutot que repondre depuis un autre projet.",
       "Pour une reponse documentaire, citer projet, archive, document interne et page ou section lorsque disponibles.",
       "Ne pas generaliser une notice projet en regle gamme sans source explicite.",
       "Pour une interpretation metier, separer clairement l'interpretation des faits sources."

@@ -281,6 +281,45 @@ async def test_retrieve_rag_context_applies_knowledge_guide_retrieval_policy(mon
     assert "references projet stables" in result["retrieval_policy"]["prompt"]
 
 
+async def test_retrieve_rag_context_filters_other_projects_for_missing_exact_project(monkeypatch):
+    guide = SimpleNamespace(
+        title="Andritz retrieval policy",
+        markdown="""```agentium-retrieval-policy
+{
+  "query_planning": {
+    "require_project_code_match": true,
+    "protected_terms": ["BBA120", "AKK200"]
+  },
+  "answer_policy": {
+    "instructions": ["Ne pas repondre depuis un autre projet si la reference exacte est absente."]
+  }
+}
+```""",
+        guide_key="guide-policy",
+        version=1,
+        target_type="collection",
+        target_ref="andritz",
+    )
+    monkeypatch.setattr(rag_context, "_effective_guides_for_profile", lambda _profile: [guide])
+
+    result = await retrieve_rag_context(
+        {
+            "query": "Liste de garniture de la carde 1 du projet COL100",
+            "rag_pipeline_mode": "naive",
+            "top_k": 2,
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+        },
+        doc_svc=FakePolicyRankingService(),
+    )
+
+    assert not any(meta.get("project_code") == "AKK200" for meta in result["metadatas"])
+    assert result["metrics"]["document_chunks_retrieved"] == 0
+    assert result["retrieval_constraints"]["required_terms"] == ["COL100"]
+    assert result["retrieval_constraints"]["missing_terms"] == ["COL100"]
+    assert result["metrics"]["retrieval_constraints"]["filtered_chunks_removed"] == 2
+
+
 async def test_retrieve_rag_context_dedupes_repeated_spreadsheet_boilerplate():
     result = await retrieve_rag_context(
         {
