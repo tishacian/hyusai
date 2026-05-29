@@ -34,8 +34,10 @@ import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draf
   ],
   template: `
     <div
-      [style.position]="'relative'"
-      [style.height]="'100vh'"
+      [style.position]="'fixed'"
+      [style.inset]="'0'"
+      [style.height]="'100dvh'"
+      [style.overflow]="'hidden'"
       [style.display]="'grid'"
       [style.gridTemplateRows]="immersiveWorkspaceApp() ? '1fr' : '48px 1fr 28px'"
       [style.background]="'var(--ck-bg-base)'"
