@@ -91,7 +91,14 @@ def _history_augmented_query(request: dict[str, Any]) -> str:
     follow-ups when the current turn is referential/comparative and a recent
     user turn contains spreadsheet/table signals.
     """
-    query = str(request.get("rewritten_query") or request.get("query") or "").strip()
+    # Retrieval must preserve the user's exact words. An LLM rewrite can be
+    # useful for display or generic reasoning, but in document search it can
+    # silently corrupt domain terms ("carde" -> "carte") and destroy recall.
+    # Keep opt-in support for specialised callers, but default to the raw turn.
+    if request.get("use_rewritten_query_for_retrieval") is True:
+        query = str(request.get("rewritten_query") or request.get("query") or "").strip()
+    else:
+        query = str(request.get("query") or "").strip()
     if not query or not _FOLLOW_UP_RE.search(query):
         return query
 

@@ -1,5 +1,6 @@
 """Agent orchestrator for managing multiple agents"""
 import asyncio
+import re
 import time
 from typing import Dict, Any, List, AsyncGenerator
 from app.core.logging import get_logger
@@ -11,7 +12,93 @@ logger = get_logger(__name__)
 REWRITE_SYSTEM = """You are a query rewriting assistant for a RAG retrieval system.
 Given a user query, output ONLY a rewritten version that is clearer, more specific,
 and better suited for semantic search against a knowledge base.
+Preserve every domain term, product/project reference, acronym, number, and quoted phrase exactly.
+Do not correct spelling when the token could be a business, technical, or product term.
 Do not explain anything. Output only the rewritten query."""
+
+_TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]+")
+_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "au",
+    "aux",
+    "avec",
+    "can",
+    "ce",
+    "ces",
+    "comment",
+    "de",
+    "des",
+    "do",
+    "does",
+    "du",
+    "en",
+    "est",
+    "et",
+    "for",
+    "from",
+    "il",
+    "in",
+    "is",
+    "la",
+    "le",
+    "les",
+    "me",
+    "mon",
+    "nous",
+    "numero",
+    "numéro",
+    "of",
+    "on",
+    "ou",
+    "peux",
+    "pour",
+    "que",
+    "quel",
+    "quelle",
+    "quels",
+    "quelles",
+    "qui",
+    "retrouver",
+    "sur",
+    "the",
+    "to",
+    "tu",
+    "un",
+    "une",
+    "vous",
+    "what",
+    "which",
+}
+
+
+def _normalise_token(value: str) -> str:
+    return str(value or "").lower().replace("’", "'")
+
+
+def _query_terms_to_preserve(query: str) -> set[str]:
+    terms: set[str] = set()
+    for raw in _TOKEN_RE.findall(query or ""):
+        raw = raw.strip()
+        pieces = (raw,) if any(char.isdigit() for char in raw) else re.split(r"[-_]", raw)
+        for piece in pieces:
+            token = _normalise_token(piece.strip())
+            if not token or token in _STOPWORDS:
+                continue
+            if any(char.isdigit() for char in token) or len(token) >= 4:
+                terms.add(token)
+    return terms
+
+
+def _rewrite_preserves_query_terms(original: str, rewritten: str) -> bool:
+    original_terms = _query_terms_to_preserve(original)
+    if not original_terms:
+        return True
+    rewritten_terms = {_normalise_token(token) for token in _TOKEN_RE.findall(rewritten or "")}
+    return original_terms.issubset(rewritten_terms)
 
 
 class AgentOrchestrator:
@@ -44,6 +131,13 @@ class AgentOrchestrator:
                 result += chunk
             rewritten = result.strip().strip('"')
             if len(rewritten) > 10:
+                if not _rewrite_preserves_query_terms(query, rewritten):
+                    self.logger.info(
+                        "Query rewrite rejected because it changed protected user terms",
+                        original=query,
+                        rewritten=rewritten,
+                    )
+                    return query
                 return rewritten
             return query
         except Exception as e:

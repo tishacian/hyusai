@@ -323,7 +323,7 @@ class OmniRAGAgent(BaseAgent):
             mode_reason = f"Knowledge Scope {profile.get('knowledge_scope') or 'workspace_default'} across {len(collections)} collections"
         else:
             use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
-                doc_svc, rewritten, rag_mode
+                doc_svc, profile["query"], rag_mode
             )
         retriever_name = "HybridRetriever" if use_hybrid else "VectorRetriever"
         retriever_title = (
@@ -371,7 +371,7 @@ class OmniRAGAgent(BaseAgent):
             retriever_name,
             retriever_title,
             "Searching knowledge base",
-            f"{mode_label} — {mode_reason}\n{method_line}\nQuery: \"{rewritten[:80]}…\"",
+            f"{mode_label} — {mode_reason}\n{method_line}\nQuery: \"{profile['query'][:80]}…\"",
         )
         yield retrieval_event(
             "started",

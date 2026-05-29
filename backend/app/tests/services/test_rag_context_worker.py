@@ -619,6 +619,44 @@ def test_retrieval_profile_augments_spreadsheet_follow_up_from_history(monkeypat
     assert "label B" in profile["query"]
 
 
+def test_retrieval_profile_preserves_raw_query_over_rewrite(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "get_resolved_settings",
+        lambda **_kwargs: {
+            "ragCollectionName": "documents",
+            "ragVectorDBType": "qdrant",
+            "ragTopK": 5,
+            "ragPipelineMode": "chah",
+        },
+    )
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "andritz_spl",
+            "label": "Andritz SPL",
+            "collection_slugs": ["andritz-notices-techniques-spl-pilot"],
+            "default_mode": "chah",
+            "top_k": 5,
+        },
+    )
+
+    profile = get_retrieval_profile(
+        {
+            "query": "Peux-tu retrouver la liste de garniture de la carde numero 1 du projet COL100 ?",
+            "rewritten_query": "Retrouver la liste de garniture de la carte numero 1 du projet COL100",
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+            "knowledge_scope": "andritz_spl",
+        }
+    )
+
+    assert "carde numero 1" in profile["query"]
+    assert "carte numero 1" not in profile["query"]
+    assert "COL100" in profile["query"]
+
+
 def test_retrieval_profile_combines_scope_and_session_context(monkeypatch):
     monkeypatch.setattr(
         rag_context,
