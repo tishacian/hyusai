@@ -114,3 +114,86 @@ def test_grounding_vigie_compat_without_config_remains_balanced():
     assert policy["mode"] == "balanced"
     assert policy["inherited_from"] == "compat"
     assert policy["reason"] == "vigie_chat_first"
+
+
+def test_grounding_business_interpretation_guard_allows_advisory_context():
+    workspace = _workspace(
+        {
+            "assistant_profiles": [
+                {
+                    "key": "andritz_spl_advisor",
+                    "grounding": {
+                        "default_mode": "balanced",
+                        "allowed_modes": ["strict", "balanced"],
+                        "strict_guard": "business_interpretation",
+                    },
+                }
+            ]
+        }
+    )
+
+    policy = resolve_grounding_policy(
+        query="Interprète ce que le projet AKK200 implique pour la maintenance Jetlace.",
+        workspace=workspace,
+        assistant_profile="andritz_spl_advisor",
+        context_id="ctx-andritz-spl",
+    )
+
+    assert policy["mode"] == "balanced"
+    assert policy["source_requirement"] == "workspace_preferred"
+    assert policy["reason"] == "profile_default"
+
+
+def test_grounding_business_interpretation_guard_hardens_documentary_questions():
+    workspace = _workspace(
+        {
+            "assistant_profiles": [
+                {
+                    "key": "andritz_spl_advisor",
+                    "grounding": {
+                        "default_mode": "balanced",
+                        "allowed_modes": ["strict", "balanced"],
+                        "strict_guard": "business_interpretation",
+                    },
+                }
+            ]
+        }
+    )
+
+    policy = resolve_grounding_policy(
+        query="Cite la page source de la notice URACA KD724 qui donne la pression.",
+        workspace=workspace,
+        assistant_profile="andritz_spl_advisor",
+        requested_mode="balanced",
+    )
+
+    assert policy["mode"] == "strict"
+    assert policy["requested_mode"] == "balanced"
+    assert policy["reason"] == "documentary_question_requires_sources"
+    assert policy["allow_foundational_fallback"] is False
+
+
+def test_grounding_business_interpretation_guard_does_not_treat_reformulation_as_reference():
+    workspace = _workspace(
+        {
+            "assistant_profiles": [
+                {
+                    "key": "andritz_spl_advisor",
+                    "grounding": {
+                        "default_mode": "balanced",
+                        "allowed_modes": ["strict", "balanced"],
+                        "strict_guard": "business_interpretation",
+                    },
+                }
+            ]
+        }
+    )
+
+    policy = resolve_grounding_policy(
+        query="Reformule cette explication métier pour un responsable maintenance.",
+        workspace=workspace,
+        assistant_profile="andritz_spl_advisor",
+        context_id="ctx-andritz-spl",
+    )
+
+    assert policy["mode"] == "balanced"

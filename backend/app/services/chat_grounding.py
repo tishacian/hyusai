@@ -42,22 +42,56 @@ _GENERAL_ASSIST_TERMS = (
     "reformuler",
 )
 
-_EVIDENCE_OR_STATE_TERMS = (
+_DOCUMENTARY_STRICT_TERMS = (
     "combien",
     "chiffre",
     "chiffré",
     "chiffree",
+    "valeur",
+    "valeurs",
+    "mesure",
+    "mesures",
+    "paramètre",
+    "parametre",
+    "diamètre",
+    "diametre",
+    "vitesse",
+    "pression",
+    "température",
+    "temperature",
+    "référence",
+    "reference",
+    "références",
+    "references",
     "source",
+    "sources",
     "citation",
+    "cite",
+    "citer",
     "preuve",
+    "preuves",
     "document",
+    "documents",
     "pdf",
     "article",
+    "notice",
+    "notices",
+    "manuel",
+    "manual",
+    "page",
+    "section",
+    "chapitre",
+    "extrait",
+    "liste",
+    "lister",
     "ouvre",
     "résume",
     "resume",
     "montre",
     "affiche",
+)
+
+_STATE_TERMS = (
     "situation",
     "état",
     "etat",
@@ -72,7 +106,7 @@ _EVIDENCE_OR_STATE_TERMS = (
     "prochaine",
 )
 
-_WORKSPACE_FACT_TERMS = (
+_SENTINEL_FACT_TERMS = (
     "workspace",
     "sentinel",
     "s3",
@@ -103,6 +137,43 @@ _WORKSPACE_FACT_TERMS = (
     "prod",
     "run",
 )
+
+_ANDRITZ_FACT_TERMS = (
+    "andritz",
+    "spl",
+    "non-wovens",
+    "non wovens",
+    "nonwoven",
+    "bba",
+    "aco",
+    "akk",
+    "ara",
+    "ava",
+    "dci",
+    "projet",
+    "project",
+    "ligne",
+    "machine",
+    "équipement",
+    "equipement",
+    "jetlace",
+    "injector",
+    "injecteur",
+    "strip-carrier",
+    "strip carrier",
+    "pompe",
+    "pump",
+    "uraca",
+    "kd724",
+    "capteur",
+    "sensor",
+    "o-ring",
+    "spare parts",
+    "pièce",
+    "piece",
+)
+
+_WORKSPACE_FACT_TERMS = _SENTINEL_FACT_TERMS + _ANDRITZ_FACT_TERMS
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -140,19 +211,55 @@ def _normalise_chat_text(value: str) -> str:
     return " ".join(value.lower().replace("’", "'").split())
 
 
+def _contains_any(normalized: str, terms: tuple[str, ...]) -> bool:
+    return any(term in normalized for term in terms)
+
+
 def _query_requires_workspace_grounding(query: str) -> bool:
     """Return whether a turn should remain source-bound."""
     normalized = _normalise_chat_text(query)
     if not normalized:
         return False
 
-    has_general_assist = any(term in normalized for term in _GENERAL_ASSIST_TERMS)
-    has_evidence_or_state = any(term in normalized for term in _EVIDENCE_OR_STATE_TERMS)
-    has_workspace_fact = any(term in normalized for term in _WORKSPACE_FACT_TERMS)
+    has_general_assist = _contains_any(normalized, _GENERAL_ASSIST_TERMS)
+    has_evidence_or_state = _contains_any(normalized, _DOCUMENTARY_STRICT_TERMS + _STATE_TERMS)
+    has_workspace_fact = _contains_any(normalized, _WORKSPACE_FACT_TERMS)
 
     if has_general_assist and not has_evidence_or_state:
         return False
     return has_evidence_or_state and has_workspace_fact
+
+
+def _query_requires_documentary_grounding(query: str) -> bool:
+    """Return whether the user is asking for a source-bound documentary answer."""
+    normalized = _normalise_chat_text(query)
+    if not normalized:
+        return False
+    return _contains_any(normalized, _DOCUMENTARY_STRICT_TERMS + _STATE_TERMS)
+
+
+def _strict_guard_override_reason(*, query: str, strict_guard: str, context_id: str | None) -> str | None:
+    guard = (strict_guard or "default").strip().lower()
+    if guard == "default":
+        if context_id:
+            return "selected_context_requires_sources"
+        if _query_requires_workspace_grounding(query):
+            return "workspace_fact_or_sensitive_state"
+        return None
+
+    if guard in {"business_interpretation", "workspace_preferred"}:
+        if _query_requires_documentary_grounding(query):
+            return "documentary_question_requires_sources"
+        return None
+
+    if guard in {"documentary", "workspace_documents"}:
+        if context_id:
+            return "selected_context_requires_sources"
+        if _query_requires_documentary_grounding(query):
+            return "documentary_question_requires_sources"
+        return None
+
+    return None
 
 
 def _apply_grounding_config(
@@ -246,13 +353,14 @@ def resolve_grounding_policy(
             mode = "strict"
             reason = "requested_mode_not_allowed"
 
-    if strict_guard == "default":
-        if context_id:
-            mode = "strict"
-            reason = "selected_context_requires_sources"
-        elif _query_requires_workspace_grounding(query):
-            mode = "strict"
-            reason = "workspace_fact_or_sensitive_state"
+    override_reason = _strict_guard_override_reason(
+        query=query,
+        strict_guard=strict_guard,
+        context_id=context_id,
+    )
+    if override_reason:
+        mode = "strict"
+        reason = override_reason
 
     return {
         "requested_mode": requested_label,
