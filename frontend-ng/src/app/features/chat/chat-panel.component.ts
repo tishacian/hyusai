@@ -1,4 +1,5 @@
 import {
+  AfterViewInit,
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
@@ -635,29 +636,31 @@ const STEP_ICONS: Record<string, string> = {
             <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xs text-center">
               {{ emptySubtitle() }}
             </p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-5 w-full max-w-2xl">
-              @for (s of activeSuggestions(); track s.prompt) {
-                <button
-                  type="button"
-                  class="text-left px-3 py-2.5 rounded-md ring-1 ring-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:ring-brand-500/30 transition group"
-                  (click)="useSuggestion(s)"
-                >
-                  <div class="flex items-center gap-2 mb-1">
-                    <div
-                      class="w-6 h-6 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 group-hover:bg-brand-500/20 transition shrink-0"
-                    >
-                      <app-icon [name]="s.icon" [size]="12" />
+            @if (!isDemoMode() && activeSuggestions().length) {
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-5 w-full max-w-2xl">
+                @for (s of activeSuggestions(); track s.prompt) {
+                  <button
+                    type="button"
+                    class="text-left px-3 py-2.5 rounded-md ring-1 ring-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:ring-brand-500/30 transition group"
+                    (click)="useSuggestion(s)"
+                  >
+                    <div class="flex items-center gap-2 mb-1">
+                      <div
+                        class="w-6 h-6 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 group-hover:bg-brand-500/20 transition shrink-0"
+                      >
+                        <app-icon [name]="s.icon" [size]="12" />
+                      </div>
+                      <span class="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
+                        {{ s.label }}
+                      </span>
                     </div>
-                    <span class="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
-                      {{ s.label }}
-                    </span>
-                  </div>
-                  <p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">
-                    {{ s.prompt }}
-                  </p>
-                </button>
-              }
-            </div>
+                    <p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">
+                      {{ s.prompt }}
+                    </p>
+                  </button>
+                }
+              </div>
+            }
             @if (!isDemoMode() && effectiveChatActions().length) {
               <div class="mt-4 flex max-w-2xl flex-wrap items-center justify-center gap-2">
                 @for (action of effectiveChatActions().slice(0, 4); track action.action_id) {
@@ -1899,7 +1902,7 @@ const STEP_ICONS: Record<string, string> = {
     }
   `],
 })
-export class ChatPanelComponent {
+export class ChatPanelComponent implements AfterViewInit {
   @ViewChild('inputEl') private inputEl?: ElementRef<HTMLTextAreaElement>;
 
   /**
@@ -2392,6 +2395,10 @@ export class ChatPanelComponent {
     });
   }
 
+  ngAfterViewInit(): void {
+    this.focusComposer(120);
+  }
+
   private loadReasoningTemplates(): void {
     this.api
       .get<{ templates: ReasoningTemplate[] }>('/reasoning/templates')
@@ -2405,17 +2412,17 @@ export class ChatPanelComponent {
     this.api.listVoiceRuntimes().subscribe({
       next: (catalog) => {
         this.voiceRuntimes.set(catalog);
-	        const current = this.voiceProvider();
-	        const allowed = catalog.allowed_providers || [];
-	        const providers = catalog.providers || [];
-	        const currentRuntime = providers.find((runtime) => runtime.slug === current);
-	        const preferred = providers.find((runtime) => runtime.slug === catalog.default_provider && this.isVoiceRuntimeSelectableInChat(runtime));
-	        const fallback = providers.find((runtime) => (catalog.fallback_providers || []).includes(runtime.slug) && this.isVoiceRuntimeSelectableInChat(runtime));
-	        const firstSelectable = providers.find((runtime) => this.isVoiceRuntimeSelectableInChat(runtime));
-	        if (!allowed.includes(current) || (currentRuntime && !this.isVoiceRuntimeSelectableInChat(currentRuntime))) {
-	          this.voiceProvider.set(preferred?.slug || fallback?.slug || firstSelectable?.slug || 'cascade_openai');
-	        }
-	      },
+        const current = this.voiceProvider();
+        const allowed = catalog.allowed_providers || [];
+        const providers = catalog.providers || [];
+        const currentRuntime = providers.find((runtime) => runtime.slug === current);
+        const preferred = providers.find((runtime) => runtime.slug === catalog.default_provider && this.isVoiceRuntimeSelectableInChat(runtime));
+        const fallback = providers.find((runtime) => (catalog.fallback_providers || []).includes(runtime.slug) && this.isVoiceRuntimeSelectableInChat(runtime));
+        const firstSelectable = providers.find((runtime) => this.isVoiceRuntimeSelectableInChat(runtime));
+        if (!allowed.includes(current) || (currentRuntime && !this.isVoiceRuntimeSelectableInChat(currentRuntime))) {
+          this.voiceProvider.set(preferred?.slug || fallback?.slug || firstSelectable?.slug || 'cascade_openai');
+        }
+      },
       error: () => {
         this.voiceRuntimes.set(null);
         this.voiceProvider.set('cascade_openai');
@@ -3021,7 +3028,7 @@ export class ChatPanelComponent {
     this.userInput = s.prompt;
     this.voiceOracleMessage.set('Question prête. Complétez si besoin, puis envoyez.');
     this.cdr.markForCheck();
-    window.setTimeout(() => this.inputEl?.nativeElement.focus(), 0);
+    this.focusComposer();
   }
 
   stageActionPrompt(action: ActionManifest): void {
@@ -3029,6 +3036,13 @@ export class ChatPanelComponent {
     this.userInput = phrase;
     this.voiceOracleMessage.set(action.requires_confirmation ? `Action proposed: ${action.label}. Confirmation will be requested if it changes data.` : `Action ready: ${action.label}.`);
     this.cdr.markForCheck();
+    this.focusComposer();
+  }
+
+  private focusComposer(delayMs = 0): void {
+    window.setTimeout(() => {
+      if (!this.streaming()) this.inputEl?.nativeElement.focus();
+    }, delayMs);
   }
 
   private configuredPromptPack(): SuggestionCard[] {
@@ -3453,6 +3467,7 @@ export class ChatPanelComponent {
               if (this.ttsEnabled()) this.resetTtsPipeline();
               this.scheduleVoiceLoopRearm();
             }
+            this.focusComposer();
           }
         },
         error: () => {
@@ -3462,6 +3477,7 @@ export class ChatPanelComponent {
           this.liveSteps.set([]);
           if (this.ttsEnabled()) this.resetTtsPipeline();
           this.scheduleVoiceLoopRearm();
+          this.focusComposer();
         },
       });
   }
