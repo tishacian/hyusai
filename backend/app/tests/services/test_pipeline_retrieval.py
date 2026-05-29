@@ -14,6 +14,7 @@ from app.services.rag.pipeline_retrieval import (
     retrieve_for_mode,
     retrieve_hah_like,
 )
+from app.services.rag.retrieval_policy import RetrievalPolicy
 
 
 def _mk_result(content: str, score: float, rank: int = 0) -> dict:
@@ -129,6 +130,18 @@ def test_query_variants_add_protocol_matrix_hints():
     assert any("2025-05-21" in variant for variant in variants)
     assert any("Poids Weight" in variant for variant in variants)
     assert any("Customer GEOTEX" in variant for variant in variants)
+
+
+def test_query_variants_add_configured_knowledge_guide_policy_aliases():
+    policy = RetrievalPolicy(
+        protected_terms=("AKK200",),
+        aliases=(("capteurs", ("sensor", "proximity switch", "XS1", "ZCT")),),
+    )
+
+    variants = _query_variants("Quels capteurs sont documentes dans AKK200 ?", retrieval_policy=policy)
+
+    assert any("AKK200" == variant or variant.endswith(" AKK200") for variant in variants)
+    assert any("proximity switch" in variant for variant in variants)
 
 
 def test_spreadsheet_protocol_rerank_prioritises_trial_matrix():
@@ -278,6 +291,45 @@ async def test_retrieve_chah_like_parallel():
     assert out.pipeline == "chah_backend"
     assert doc.search.called
     assert len(out.chunks) >= 1
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chah_like_uses_policy_variants_and_rerank():
+    policy = RetrievalPolicy(
+        protected_terms=("AKK200",),
+        aliases=(("capteurs", ("sensor", "proximity switch", "XS1")),),
+    )
+    doc = MagicMock()
+
+    async def _search(query: str, top_k: int = 10, use_hybrid: bool = True):  # noqa: ARG001
+        if "sensor" in query or "AKK200" in query:
+            return [
+                {
+                    "content": "AKK200 proximity switch XS1 sensor wiring procedure.",
+                    "combined_score": 0.2,
+                    "score": 0.2,
+                    "metadata": {"project_code": "AKK200"},
+                    "id": "akk200-sensor",
+                }
+            ]
+        return [
+            {
+                "content": "Generic unrelated manual page with enough text.",
+                "combined_score": 0.9,
+                "score": 0.9,
+                "metadata": {},
+                "id": "noise",
+            }
+        ]
+
+    doc.search = AsyncMock(side_effect=_search)
+
+    out = await retrieve_chah_like(doc, "Quels capteurs dans AKK200 ?", top_k=3, retrieval_policy=policy)
+    queries = [call.args[0] for call in doc.search.await_args_list]
+
+    assert any("proximity switch" in query for query in queries)
+    assert "AKK200 proximity switch" in out.chunks[0]
+    assert out.metadatas[0]["retrieval_policy_score"] > 0
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from app.models.workspace import Workspace
-from scripts.setup_andritz_notices_spl import ANDRITZ_SPL_ADVISOR_PROFILE, _upsert_chat_profiles
+from app.services.rag.retrieval_policy import retrieval_policy_from_guides
+from scripts.setup_andritz_notices_spl import ANDRITZ_SPL_ADVISOR_PROFILE, _guide_markdown, _upsert_chat_profiles
 
 
 def test_upsert_chat_profiles_adds_andritz_spl_balanced_profile():
@@ -41,3 +44,14 @@ def test_upsert_chat_profiles_can_preserve_current_default():
     _upsert_chat_profiles(workspace, scope_key="andritz-spl-knowledge-experiment", make_default=False)
 
     assert workspace.settings["assistant_profile_default"] == "custom"
+
+
+def test_andritz_spl_guide_contains_retrieval_policy():
+    guide = SimpleNamespace(markdown=_guide_markdown())
+
+    policy = retrieval_policy_from_guides([guide])
+
+    assert policy.enabled is True
+    assert "BBA120" in policy.protected_terms
+    assert any(term == "capteurs" for term, _expansions in policy.aliases)
+    assert any(rule.source_families == ("spare_parts_list",) for rule in policy.source_family_rules)

@@ -23,6 +23,13 @@ from app.services.document_intelligence import DocumentQueryEngine, should_run_d
 from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_scope
 from app.services.rag.mode_selector import resolve_retrieval_mode
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
+from app.services.rag.retrieval_policy import (
+    RetrievalPolicy,
+    clarification_from_policy,
+    policy_prompt,
+    rerank_aligned_with_policy,
+    retrieval_policy_from_guides,
+)
 from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.table_intelligence import TableQueryEngine, should_run_table_analysis
 from app.models.workspace import Workspace
@@ -219,6 +226,25 @@ def _prepend_guide_context(
         metadatas + guide_metas,
         len(guide_chunks),
     )
+
+
+def _retrieval_policy_summary(policy: RetrievalPolicy, clarification: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "enabled": policy.enabled,
+        "blocks": len(policy.raw_blocks),
+        "aliases": len(policy.aliases),
+        "protected_terms": len(policy.protected_terms),
+        "facets": len(policy.facets),
+        "source_family_rules": len(policy.source_family_rules),
+        "clarification_required": bool(clarification and clarification.get("required")),
+    }
+
+
+def _retrieval_policy_payload(policy: RetrievalPolicy, clarification: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        **_retrieval_policy_summary(policy, clarification),
+        "prompt": policy_prompt(policy, clarification),
+    }
 
 
 def _table_analysis_for_profile(request: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any] | None:
@@ -515,6 +541,8 @@ async def retrieve_rag_context(
     query = profile["query"]
     guides = _effective_guides_for_profile(profile)
     guide_hint = guide_query_hint(guides)
+    retrieval_policy = retrieval_policy_from_guides(guides)
+    clarification = clarification_from_policy(query, retrieval_policy)
     table_analysis = _table_analysis_for_profile(request, profile)
     document_analysis = _document_analysis_for_profile(request, profile)
     retrieval_query = query
@@ -534,6 +562,9 @@ async def retrieve_rag_context(
         "knowledge_guides": len(guides),
         "query_expanded_with_guides": bool(guides),
         "knowledge_guide_hint_chars": len(guide_hint),
+        "retrieval_policy": _retrieval_policy_summary(retrieval_policy, clarification),
+        "retrieval_policy_enabled": retrieval_policy.enabled,
+        "retrieval_policy_clarification": bool(clarification and clarification.get("required")),
     }
 
     if len(collections) > 1 and doc_svc is None:
@@ -548,6 +579,8 @@ async def retrieve_rag_context(
             document_analysis=document_analysis,
             retrieval_query=retrieval_query,
             guide_hint=guide_hint,
+            retrieval_policy=retrieval_policy,
+            clarification=clarification,
         )
 
     try:
@@ -578,6 +611,8 @@ async def retrieve_rag_context(
             "use_hybrid": True,
             "query": query,
             "retrieval_query": retrieval_query,
+            "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
+            "clarification": clarification,
             "metrics": _jsonable(metrics),
             "collections_touched": [],
             "collection_errors": [{"collection": profile["collection"], "error": str(exc)}],
@@ -596,6 +631,7 @@ async def retrieve_rag_context(
         use_hybrid=use_hybrid,
         hah_chah_enabled=settings.rag_hah_chah_enabled,
         query_hints=guide_hint,
+        retrieval_policy=retrieval_policy,
     )
 
     duration_ms = int((time.time() - started) * 1000)
@@ -610,6 +646,13 @@ async def retrieve_rag_context(
         result.chunks,
         result.scores,
         metadatas,
+    )
+    chunks, scores, metadatas = rerank_aligned_with_policy(
+        chunks,
+        scores,
+        metadatas,
+        query=retrieval_query,
+        policy=retrieval_policy,
     )
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
@@ -660,6 +703,8 @@ async def retrieve_rag_context(
             "top_k": profile["top_k"],
             "query": query,
             "retrieval_query": retrieval_query,
+            "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
+            "clarification": clarification,
             "collection": profile["collection"],
             "collections": collections,
             "knowledge_scope": profile.get("knowledge_scope"),
@@ -731,6 +776,8 @@ async def _retrieve_multi_collection_context(
     document_analysis: dict[str, Any] | None,
     retrieval_query: str,
     guide_hint: str,
+    retrieval_policy: RetrievalPolicy,
+    clarification: dict[str, Any] | None,
 ) -> dict[str, Any]:
     query = profile["query"]
     collection_results: list[dict[str, Any]] = []
@@ -752,6 +799,7 @@ async def _retrieve_multi_collection_context(
                 use_hybrid=use_hybrid,
                 hah_chah_enabled=settings.rag_hah_chah_enabled,
                 query_hints=guide_hint,
+                retrieval_policy=retrieval_policy,
             )
             metadatas = []
             for meta in result.metadatas or []:
@@ -790,6 +838,13 @@ async def _retrieve_multi_collection_context(
         chunks,
         scores,
         metadatas,
+    )
+    chunks, scores, metadatas = rerank_aligned_with_policy(
+        chunks,
+        scores,
+        metadatas,
+        query=retrieval_query,
+        policy=retrieval_policy,
     )
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
@@ -846,6 +901,8 @@ async def _retrieve_multi_collection_context(
             "top_k": profile["top_k"],
             "query": query,
             "retrieval_query": retrieval_query,
+            "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
+            "clarification": clarification,
             "collection": profile["collection"],
             "collections": profile.get("collections") or [],
             "knowledge_scope": profile.get("knowledge_scope"),

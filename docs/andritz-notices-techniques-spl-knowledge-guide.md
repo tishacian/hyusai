@@ -10,6 +10,151 @@ Objectif : aider Agentium a lire les notices techniques SPL sans confondre refer
 
 Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sources. Les reponses doivent citer le projet, l'archive, le document interne et la page ou section quand ces metadonnees sont disponibles.
 
+```agentium-retrieval-policy
+{
+  "version": 1,
+  "query_planning": {
+    "protected_terms": [
+      "BBA120",
+      "ACO140",
+      "DCI110",
+      "AKK200",
+      "KD724",
+      "JETLACE",
+      "XS1-M",
+      "XS1",
+      "XS2",
+      "ZCT"
+    ],
+    "aliases": {
+      "capteur": [
+        "sensor",
+        "sensors",
+        "detector",
+        "detectors",
+        "proximity switch",
+        "XS1",
+        "XS2",
+        "ZCT"
+      ],
+      "capteurs": [
+        "sensor",
+        "sensors",
+        "detector",
+        "detectors",
+        "proximity switch",
+        "XS1",
+        "XS2",
+        "ZCT"
+      ],
+      "pompe": [
+        "pump",
+        "pumps",
+        "URACA",
+        "KD724"
+      ],
+      "injecteur": [
+        "injector",
+        "prewetting injector",
+        "autoclamped injector"
+      ],
+      "joint": [
+        "seal",
+        "O-ring",
+        "o ring"
+      ],
+      "pieces detachees": [
+        "spare parts",
+        "spare parts list",
+        "parts list"
+      ],
+      "securite": [
+        "safety",
+        "declaration of conformity",
+        "warning"
+      ]
+    },
+    "facets": [
+      {
+        "key": "project",
+        "label": "Projet",
+        "terms": ["projet", "project", "BBA120", "ACO140", "DCI110", "AKK200"]
+      },
+      {
+        "key": "sensor",
+        "label": "Capteurs",
+        "terms": ["capteur", "capteurs", "sensor", "detector", "proximity switch", "XS1", "XS2", "ZCT"],
+        "clarify_when_broad": true,
+        "clarification_prompt": "Voulez-vous les capteurs de proximite, pression, securite ou automatisme ?"
+      },
+      {
+        "key": "pump",
+        "label": "Pompes",
+        "terms": ["pompe", "pump", "URACA", "KD724"]
+      },
+      {
+        "key": "injector",
+        "label": "Injecteurs",
+        "terms": ["injecteur", "injector", "prewetting injector", "autoclamped injector"]
+      },
+      {
+        "key": "spare_parts",
+        "label": "Pieces detachees",
+        "terms": ["piece", "pieces", "spare parts", "parts list", "O-ring", "seal"]
+      },
+      {
+        "key": "procedure",
+        "label": "Procedures",
+        "terms": ["procedure", "maintenance", "commissioning", "operating manual", "service manual"]
+      },
+      {
+        "key": "safety",
+        "label": "Securite",
+        "terms": ["securite", "safety", "conformity", "declaration"]
+      }
+    ]
+  },
+  "source_quality": {
+    "demote_navigation": true,
+    "navigation_terms": [
+      "table of contents",
+      "sommaire",
+      "index",
+      "navigation",
+      "menu",
+      "previous",
+      "next"
+    ],
+    "prefer_source_families": [
+      {
+        "when_terms": ["procedure", "maintenance", "reglage", "operation", "demarrage"],
+        "source_families": ["operating_manual", "maintenance", "commissioning", "html_manual"]
+      },
+      {
+        "when_terms": ["piece", "pieces", "spare", "O-ring", "joint"],
+        "source_families": ["spare_parts_list"]
+      },
+      {
+        "when_terms": ["securite", "safety", "conformite", "conformity"],
+        "source_families": ["safety"]
+      },
+      {
+        "when_terms": ["annexe", "certificat", "certificate"],
+        "source_families": ["annex"]
+      }
+    ]
+  },
+  "answer_policy": {
+    "instructions": [
+      "Traiter les codes de type XXX123 comme des references projet stables, pas comme des machines.",
+      "Pour une reponse documentaire, citer projet, archive, document interne et page ou section lorsque disponibles.",
+      "Ne pas generaliser une notice projet en regle gamme sans source explicite.",
+      "Pour une interpretation metier, separer clairement l'interpretation des faits sources."
+    ]
+  }
+}
+```
+
 ## Modele projet Andritz
 
 Les references comme `BBA120`, `ACO140`, `DCI110`, `BIO100` ou `BHX100` sont des references projet stables.

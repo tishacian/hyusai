@@ -62,6 +62,7 @@ def _build_rag_user_prompt(
     keyword_hint: str,
     grounding_policy: dict[str, Any],
     has_retrieved_context: bool,
+    retrieval_policy_prompt: str = "",
 ) -> str:
     if grounding_policy.get("mode") == "balanced" and not has_retrieved_context:
         fallback_disclaimer = (
@@ -70,7 +71,7 @@ def _build_rag_user_prompt(
         )
         grounding_instructions = f"""
 Grounding instructions:
-No SENTINEL-CI workspace source was retrieved for this turn.
+No workspace source was retrieved for this turn.
 If the request is advisory, explanatory, drafting, planning, or general reasoning, answer from general knowledge and start with: "{fallback_disclaimer}"
 If the request asks for workspace facts, documents, live/current state, numbers, security/OSINT, agenda, actions, or operational claims, do not invent; say the workspace source is missing and propose a safe next step.
 Do not include citation markers like [1] because no source was retrieved."""
@@ -86,11 +87,14 @@ Grounding instructions:
 Answer using the context above. Cite sources by their [number] when relevant.
 If the context is not relevant or missing, say so clearly rather than guessing."""
 
+    policy_instructions = f"\n\n{retrieval_policy_prompt}" if retrieval_policy_prompt else ""
+
     return f"""User message:
 {query}
 
 Knowledge base context:
 {context_text}{keyword_hint}
+{policy_instructions}
 {grounding_instructions}"""
 
 
@@ -577,7 +581,7 @@ class OmniRAGAgent(BaseAgent):
             context_text = "\n\n".join(context_blocks)
         else:
             context_text = (
-                "No SENTINEL-CI workspace source was retrieved for this turn."
+                "No workspace source was retrieved for this turn."
                 if grounding_policy.get("allow_foundational_fallback")
                 else "No documents found in the knowledge base."
             )
@@ -616,6 +620,7 @@ class OmniRAGAgent(BaseAgent):
             keyword_hint=keyword_hint,
             grounding_policy=grounding_policy,
             has_retrieved_context=bool(filtered_chunks),
+            retrieval_policy_prompt=str((retrieval_context.get("retrieval_policy") or {}).get("prompt") or ""),
         )
 
         await asyncio.sleep(0.03)

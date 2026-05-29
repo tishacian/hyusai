@@ -153,6 +153,29 @@ class FakeEmptyRecordingService:
         return []
 
 
+class FakePolicyRankingService:
+    async def get_document_count(self) -> int:
+        return 2
+
+    async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid=None):  # noqa: ARG002
+        return [
+            {
+                "content": "Table of contents menu previous next index",
+                "score": 0.99,
+                "metadata": {"document_filename": "index.html"},
+            },
+            {
+                "content": "AKK200 proximity switch XS1 sensor wiring procedure.",
+                "score": 0.2,
+                "metadata": {
+                    "document_filename": "AKK200 manual.html",
+                    "project_code": "AKK200",
+                    "source_family": "operating_manual",
+                },
+            },
+        ][:top_k]
+
+
 async def test_retrieve_rag_context_returns_serialisable_contract():
     result = await retrieve_rag_context(
         {
@@ -207,6 +230,55 @@ async def test_retrieve_rag_context_uses_published_guides_as_hint_and_advisory_s
     assert result["metadatas"][-1]["retrieval_role"] == "advisory_context"
     assert result["metadatas"][-1]["guide_version"] == 2
     assert result["metrics"]["knowledge_guides"] == 1
+
+
+async def test_retrieve_rag_context_applies_knowledge_guide_retrieval_policy(monkeypatch):
+    guide = SimpleNamespace(
+        title="Andritz retrieval policy",
+        markdown="""```agentium-retrieval-policy
+{
+  "query_planning": {
+    "protected_terms": ["AKK200"],
+    "aliases": {"capteurs": ["sensor", "proximity switch", "XS1"]},
+    "facets": [
+      {
+        "key": "sensor",
+        "label": "Capteurs",
+        "terms": ["capteurs", "sensor"],
+        "clarify_when_broad": true,
+        "clarification_prompt": "Voulez-vous les capteurs de proximite, pression, securite ou automatisme ?"
+      }
+    ]
+  },
+  "source_quality": {"demote_navigation": true},
+  "answer_policy": {
+    "instructions": ["Traiter les codes de type XXX123 comme des references projet stables."]
+  }
+}
+```""",
+        guide_key="guide-policy",
+        version=1,
+        target_type="collection",
+        target_ref="andritz",
+    )
+    monkeypatch.setattr(rag_context, "_effective_guides_for_profile", lambda _profile: [guide])
+
+    result = await retrieve_rag_context(
+        {
+            "query": "Quels capteurs dans AKK200 ?",
+            "rag_pipeline_mode": "naive",
+            "top_k": 2,
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+        },
+        doc_svc=FakePolicyRankingService(),
+    )
+
+    assert result["chunks"][0].startswith("AKK200 proximity switch")
+    assert result["metadatas"][0]["retrieval_policy_score"] > 0
+    assert result["metrics"]["retrieval_policy_enabled"] is True
+    assert result["retrieval_policy"]["enabled"] is True
+    assert "references projet stables" in result["retrieval_policy"]["prompt"]
 
 
 async def test_retrieve_rag_context_dedupes_repeated_spreadsheet_boilerplate():

@@ -16,6 +16,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, List, Literal, Optional
 
 from app.core.logging import get_logger
+from app.services.rag.retrieval_policy import (
+    RetrievalPolicy,
+    query_variants_from_policy,
+    rerank_results_with_policy,
+)
 
 if TYPE_CHECKING:
     from app.services.rag.document_service import DocumentService
@@ -230,6 +235,7 @@ async def retrieve_hah_like(
     doc_svc: "DocumentService",
     query: str,
     top_k: int = 5,
+    retrieval_policy: RetrievalPolicy | None = None,
 ) -> RetrievalPipelineResult:
     """Two-pass retrieval: query → contexts → pseudo-document → second search → RRF merge.
 
@@ -250,6 +256,7 @@ async def retrieve_hah_like(
 
     first_k = min(max(top_k * 2, top_k), HAH_FIRST_PASS_CAP)
     pass1 = await doc_svc.search(q, top_k=first_k, use_hybrid=True)
+    pass1 = rerank_results_with_policy(pass1, q, retrieval_policy)
     if not pass1:
         return RetrievalPipelineResult(
             chunks=[],
@@ -268,6 +275,7 @@ async def retrieve_hah_like(
             parts.append(c)
     pseudo = ". ".join(parts)[:HAH_PSEUDO_DOC_MAX_CHARS]
     pass2 = await doc_svc.search(pseudo, top_k=min(HAH_SECOND_PASS_CAP, first_k + 8), use_hybrid=True)
+    pass2 = rerank_results_with_policy(pass2, q, retrieval_policy)
 
     merged = _merge_rrf([pass1, pass2] if pass2 else [pass1], top_k=top_k)
     chunks, scores, metas = _results_to_chunks_scores_metas(merged)
@@ -287,7 +295,11 @@ async def retrieve_hah_like(
     )
 
 
-def _query_variants(question: str, query_hints: str | None = None) -> list[str]:
+def _query_variants(
+    question: str,
+    query_hints: str | None = None,
+    retrieval_policy: RetrievalPolicy | None = None,
+) -> list[str]:
     q = question.strip()
     variants = [q]
     if len(q) > CHAH_QUERY_TRUNC:
@@ -297,6 +309,7 @@ def _query_variants(question: str, query_hints: str | None = None) -> list[str]:
         variants.append(" ".join(words[:CHAH_MAX_WORDS_HEAD]))
     table_plan = TableQueryPlanner().plan(q, query_hints=query_hints)
     variants.extend(table_plan.variants)
+    variants.extend(query_variants_from_policy(q, retrieval_policy))
     # dedupe while preserving order
     seen: set[str] = set()
     out: list[str] = []
@@ -825,6 +838,7 @@ async def retrieve_chah_like(
     query: str,
     top_k: int = 5,
     query_hints: str | None = None,
+    retrieval_policy: RetrievalPolicy | None = None,
 ) -> RetrievalPipelineResult:
     """Parallel retrieval over query variants + RRF merge (C-HAH-like).
 
@@ -845,9 +859,10 @@ async def retrieve_chah_like(
 
     table_plan = TableQueryPlanner().plan(q, query_hints=query_hints)
     exact_rows = await _exact_table_fact_candidates(doc_svc, q, table_plan, top_k=top_k)
-    variants = _query_variants(q, query_hints=query_hints)
+    variants = _query_variants(q, query_hints=query_hints, retrieval_policy=retrieval_policy)
     searches = [doc_svc.search(v, top_k=min(12, top_k + 7), use_hybrid=True) for v in variants]
     lists = await asyncio.gather(*searches)
+    lists = [rerank_results_with_policy(list(rows or []), q, retrieval_policy) for rows in lists]
     candidate_k = min(max(top_k * 4, top_k + 10), 30)
     merged = _prioritise_spreadsheet_label_matches(
         _merge_rrf(list(lists), top_k=candidate_k),
@@ -886,6 +901,7 @@ async def retrieve_for_mode(
     use_hybrid: bool = True,
     hah_chah_enabled: bool = True,
     query_hints: str | None = None,
+    retrieval_policy: RetrievalPolicy | None = None,
 ) -> RetrievalPipelineResult:
     """
     Single entry for RAG retrieval by pipeline mode.
@@ -907,9 +923,15 @@ async def retrieve_for_mode(
     m = _normalize_mode(mode)
 
     if hah_chah_enabled and m in ("hah", "hah_rag", "hah rag"):
-        return await retrieve_hah_like(doc_svc, query, top_k=top_k)
+        return await retrieve_hah_like(doc_svc, query, top_k=top_k, retrieval_policy=retrieval_policy)
     if hah_chah_enabled and m in ("chah", "c-hah", "c_hah", "hahcomposite", "hah_composite"):
-        return await retrieve_chah_like(doc_svc, query, top_k=top_k, query_hints=query_hints)
+        return await retrieve_chah_like(
+            doc_svc,
+            query,
+            top_k=top_k,
+            query_hints=query_hints,
+            retrieval_policy=retrieval_policy,
+        )
 
     table_plan = TableQueryPlanner().plan(query, query_hints=query_hints)
     exact_rows = await _exact_table_fact_candidates(doc_svc, query, table_plan, top_k=top_k)
@@ -920,6 +942,7 @@ async def retrieve_for_mode(
     if table_plan.is_table_query:
         candidate_k = min(max(top_k * 4, top_k + 10), 30)
     results = await doc_svc.search(search_query, top_k=candidate_k, use_hybrid=use_hybrid)
+    results = rerank_results_with_policy(results, query, retrieval_policy)
     results = _prioritise_spreadsheet_label_matches(results, query)
     results = _prepend_exact_table_candidates(exact_rows, results)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(results)
