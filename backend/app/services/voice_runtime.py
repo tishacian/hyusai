@@ -118,6 +118,7 @@ class VoiceRuntimeProvider(Protocol):
         *,
         filename: str = "recording.webm",
         content_type: str = "audio/webm",
+        language: str | None = None,
     ) -> Dict[str, Any]:
         ...
 
@@ -125,7 +126,8 @@ class VoiceRuntimeProvider(Protocol):
         self,
         text: str,
         *,
-        voice: str = "nova",
+        voice: str | None = None,
+        instructions: str | None = None,
         latency_profile: str | None = None,
         response_format: str = "mp3",
     ) -> SpeechResponse:
@@ -135,7 +137,8 @@ class VoiceRuntimeProvider(Protocol):
         self,
         text: str,
         *,
-        voice: str = "nova",
+        voice: str | None = None,
+        instructions: str | None = None,
         latency_profile: str | None = None,
         response_format: str = "mp3",
     ) -> Dict[str, Any]:
@@ -253,8 +256,62 @@ def audio_media_type(response_format: str | None) -> str:
     }.get(fmt, "audio/mpeg")
 
 
+_TTS_FAST_PROFILES = frozenset({"fast", "low", "lowest", "realtime"})
+
+
 def _select_tts_model(latency_profile: str | None) -> str:
-    return _TTS_FAST_MODEL if (latency_profile or "").strip().lower() == "fast" else _TTS_MODEL
+    """Map a latency profile to a TTS model.
+
+    Only the explicit low-latency profiles fall back to the faster, lower-fidelity
+    model (``tts-1`` by default). Every other profile — including ``balanced``,
+    ``quality`` and the unset default — uses the higher-quality model
+    (``gpt-4o-mini-tts`` by default). Both are env-overridable via
+    ``OPENAI_TTS_MODEL`` / ``OPENAI_TTS_FAST_MODEL``.
+    """
+    profile = (latency_profile or "").strip().lower()
+    if profile in _TTS_FAST_PROFILES:
+        return _TTS_FAST_MODEL
+    return _TTS_MODEL
+
+
+def _model_supports_instructions(model: str | None) -> bool:
+    """Whether a TTS model accepts the steering ``instructions`` field.
+
+    Only the GPT-4o TTS family (e.g. ``gpt-4o-mini-tts``) is steerable. Passing
+    ``instructions`` to ``tts-1`` / ``tts-1-hd`` raises a 400, so it must be
+    dropped for those models — including on the fast fallback path.
+    """
+    name = (model or "").strip().lower()
+    return name.startswith("gpt-4o") and "tts" in name
+
+
+def _resolve_tts_voice(workspace_settings: Any | None, override: str | None) -> str:
+    """Per-request override -> workspace voice settings -> env/code default."""
+    if override:
+        return override
+    voice = _voice_settings(workspace_settings)
+    candidate = voice.get("voice")
+    if isinstance(candidate, str) and candidate.strip():
+        return candidate.strip()
+    return settings.openai_tts_voice or "sage"
+
+
+def _resolve_tts_instructions(workspace_settings: Any | None, override: str | None) -> str | None:
+    """Per-request override -> workspace voice settings -> env/code default.
+
+    A workspace (or request) may set an empty string to explicitly disable
+    steering; that is honoured and returns ``None`` (no instructions sent).
+    """
+    if override is not None:
+        text = override.strip()
+        return text or None
+    voice = _voice_settings(workspace_settings)
+    if "instructions" in voice:
+        candidate = voice.get("instructions")
+        text = str(candidate).strip() if candidate is not None else ""
+        return text or None
+    default = (settings.openai_tts_instructions or "").strip()
+    return default or None
 
 
 class CascadeVoiceRuntime:
@@ -276,12 +333,19 @@ class CascadeVoiceRuntime:
         "time_awareness": True,
     }
 
+    def __init__(self, workspace_settings: Any | None = None) -> None:
+        # Retained so voice + steering instructions resolve from the workspace
+        # the provider was created for, even on call sites (voice loop, skills)
+        # that don't thread voice settings through every synthesize call.
+        self._workspace_settings = workspace_settings
+
     async def transcribe(
         self,
         audio_bytes: bytes,
         *,
         filename: str = "recording.webm",
         content_type: str = "audio/webm",
+        language: str | None = "fr",
     ) -> Dict[str, Any]:
         _assert_capability(self, "batch_transcription")
         if not settings.openai_api_key:
@@ -289,9 +353,18 @@ class CascadeVoiceRuntime:
 
         async def _call(model: str) -> Dict[str, Any]:
             client = _get_async_client()
+            kwargs: Dict[str, Any] = {
+                "model": model,
+                "file": (filename, audio_bytes, content_type),
+            }
+            if language:
+                kwargs["language"] = language
+                kwargs["prompt"] = (
+                    "Transcription en français d\'un expert industriel Andritz. "
+                    "Ignore les bruits, la musique et les sons sans parole."
+                )
             result = await client.audio.transcriptions.create(
-                model=model,
-                file=(filename, audio_bytes, content_type),
+                **kwargs,
             )
             text = result.text or ""
             logger.info(
@@ -321,7 +394,8 @@ class CascadeVoiceRuntime:
         self,
         text: str,
         *,
-        voice: str = "nova",
+        voice: str | None = None,
+        instructions: str | None = None,
         latency_profile: str | None = None,
         response_format: str = "mp3",
     ) -> SpeechResponse:
@@ -332,15 +406,23 @@ class CascadeVoiceRuntime:
             raise ValueError("Text must be 1-4096 characters")
         fmt = _normalize_audio_format(response_format)
         model = _select_tts_model(latency_profile)
+        resolved_voice = _resolve_tts_voice(self._workspace_settings, voice)
+        resolved_instructions = _resolve_tts_instructions(self._workspace_settings, instructions)
 
         def _create(model: str):
             client = _get_client()
-            return client.audio.speech.create(
-                model=model,
-                input=text,
-                voice=voice,
-                response_format=fmt,
-            )
+            kwargs: Dict[str, Any] = {
+                "model": model,
+                "input": text,
+                "voice": resolved_voice,
+                "response_format": fmt,
+            }
+            # `instructions` steering is only valid for the GPT-4o TTS family.
+            # Dropping it for tts-1 / tts-1-hd (incl. the fast fallback) avoids a
+            # 400 and is the one place steering is allowed to degrade gracefully.
+            if resolved_instructions and _model_supports_instructions(model):
+                kwargs["instructions"] = resolved_instructions
+            return client.audio.speech.create(**kwargs)
 
         loop = asyncio.get_running_loop()
         try:
@@ -363,13 +445,15 @@ class CascadeVoiceRuntime:
         self,
         text: str,
         *,
-        voice: str = "nova",
+        voice: str | None = None,
+        instructions: str | None = None,
         latency_profile: str | None = None,
         response_format: str = "mp3",
     ) -> Dict[str, Any]:
         speech = await self.create_speech(
             text,
             voice=voice,
+            instructions=instructions,
             latency_profile=latency_profile,
             response_format=response_format,
         )
@@ -433,8 +517,14 @@ class OpenAIRealtimeVoiceRuntime:
         "time_awareness": True,
     }
 
+    def __init__(self, workspace_settings: Any | None = None) -> None:
+        self._workspace_settings = workspace_settings
+
+    def _cascade(self) -> "CascadeVoiceRuntime":
+        return CascadeVoiceRuntime(workspace_settings=self._workspace_settings)
+
     async def transcribe(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
-        fallback = await CascadeVoiceRuntime().transcribe(*args, **kwargs)
+        fallback = await self._cascade().transcribe(*args, **kwargs)
         fallback["requested_provider"] = self.slug
         fallback["fallback"] = True
         fallback["fallback_reason"] = "openai_realtime_batch_transcription_uses_cascade"
@@ -444,13 +534,15 @@ class OpenAIRealtimeVoiceRuntime:
         self,
         text: str,
         *,
-        voice: str = "nova",
+        voice: str | None = None,
+        instructions: str | None = None,
         latency_profile: str | None = None,
         response_format: str = "mp3",
     ) -> SpeechResponse:
-        return await CascadeVoiceRuntime().create_speech(
+        return await self._cascade().create_speech(
             text,
             voice=voice,
+            instructions=instructions,
             latency_profile=latency_profile,
             response_format=response_format,
         )
@@ -459,13 +551,15 @@ class OpenAIRealtimeVoiceRuntime:
         self,
         text: str,
         *,
-        voice: str = "nova",
+        voice: str | None = None,
+        instructions: str | None = None,
         latency_profile: str | None = None,
         response_format: str = "mp3",
     ) -> Dict[str, Any]:
-        fallback = await CascadeVoiceRuntime().synthesize_bytes(
+        fallback = await self._cascade().synthesize_bytes(
             text,
             voice=voice,
+            instructions=instructions,
             latency_profile=latency_profile,
             response_format=response_format,
         )
@@ -484,11 +578,19 @@ class OpenAIRealtimeVoiceRuntime:
 class LocalHttpVoiceRuntime:
     """Local/open-source provider via a stable HTTP contract."""
 
-    def __init__(self, slug: str, endpoint_url: str | None, capabilities: Dict[str, bool], model: str | None = None):
+    def __init__(
+        self,
+        slug: str,
+        endpoint_url: str | None,
+        capabilities: Dict[str, bool],
+        model: str | None = None,
+        workspace_settings: Any | None = None,
+    ):
         self.slug = slug
         self.endpoint_url = endpoint_url
         self.capabilities = capabilities
         self.model = model
+        self._workspace_settings = workspace_settings
 
     def _endpoint(self) -> str:
         if not self.endpoint_url:
@@ -501,6 +603,7 @@ class LocalHttpVoiceRuntime:
         *,
         filename: str = "recording.webm",
         content_type: str = "audio/webm",
+        language: str | None = None,
     ) -> Dict[str, Any]:
         _assert_capability(self, "batch_transcription")
         payload = {
@@ -508,6 +611,7 @@ class LocalHttpVoiceRuntime:
             "filename": filename,
             "content_type": content_type,
             "model": self.model,
+            "language": language,
         }
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(f"{self._endpoint()}/transcribe", json=payload)
@@ -526,7 +630,8 @@ class LocalHttpVoiceRuntime:
         self,
         text: str,
         *,
-        voice: str = "nova",
+        voice: str | None = None,
+        instructions: str | None = None,
         latency_profile: str | None = None,
         response_format: str = "mp3",
     ) -> SpeechResponse:
@@ -534,6 +639,7 @@ class LocalHttpVoiceRuntime:
         result = await self.synthesize_bytes(
             text,
             voice=voice,
+            instructions=instructions,
             latency_profile=latency_profile,
             response_format=response_format,
         )
@@ -543,18 +649,22 @@ class LocalHttpVoiceRuntime:
         self,
         text: str,
         *,
-        voice: str = "nova",
+        voice: str | None = None,
+        instructions: str | None = None,
         latency_profile: str | None = None,
         response_format: str = "mp3",
     ) -> Dict[str, Any]:
         _assert_capability(self, "tts")
         payload = {
             "text": text,
-            "voice": voice,
+            "voice": _resolve_tts_voice(self._workspace_settings, voice),
             "model": self.model,
             "latency_profile": latency_profile or "balanced",
             "format": _normalize_audio_format(response_format),
         }
+        resolved_instructions = _resolve_tts_instructions(self._workspace_settings, instructions)
+        if resolved_instructions:
+            payload["instructions"] = resolved_instructions
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(f"{self._endpoint()}/synthesize", json=payload)
             response.raise_for_status()
@@ -635,9 +745,9 @@ def get_voice_runtime_provider(
 ) -> VoiceRuntimeProvider:
     resolved = resolve_voice_runtime_slug(slug, workspace_settings=workspace_settings)
     if resolved == "cascade_openai":
-        return CascadeVoiceRuntime()
+        return CascadeVoiceRuntime(workspace_settings=workspace_settings)
     if resolved == "openai_realtime":
-        return OpenAIRealtimeVoiceRuntime()
+        return OpenAIRealtimeVoiceRuntime(workspace_settings=workspace_settings)
     if resolved == "local_stt":
         return LocalHttpVoiceRuntime(
             "local_stt",
@@ -675,6 +785,7 @@ def get_voice_runtime_provider(
                 "background_tool_calls": False,
                 "time_awareness": True,
             },
+            workspace_settings=workspace_settings,
         )
     if resolved == "local_realtime":
         return LocalHttpVoiceRuntime(
@@ -694,6 +805,7 @@ def get_voice_runtime_provider(
                 "background_tool_calls": True,
                 "time_awareness": True,
             },
+            workspace_settings=workspace_settings,
         )
     if resolved == "realtime_gpu":
         return RealtimeVoiceRuntime()

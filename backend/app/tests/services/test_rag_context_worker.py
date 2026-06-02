@@ -434,6 +434,208 @@ async def test_retrieve_rag_context_exposes_multi_collection_metadata(monkeypatc
     assert len(result["collection_results"]) == 2
 
 
+# --- Document-discovery widen-then-rerank-then-truncate -------------------------
+
+_DISCOVERY_POLICY_GUIDE = SimpleNamespace(
+    title="Andritz",
+    markdown=(
+        "```agentium-retrieval-policy\n"
+        '{"query_planning": {"require_project_code_match": true}}\n'
+        "```"
+    ),
+    guide_key="discovery-policy",
+    version=1,
+    target_type="collection",
+    target_ref="andritz",
+)
+
+
+def _ara200_pool(top_k: int, conveyor_index: int = 20):
+    """Synthetic candidate pool: generic ARA200 covers, with the specific
+    operating_manual conveyor doc buried at ``conveyor_index`` so it is only
+    reachable when the pool is widened past the default top_k."""
+    chunks: list[str] = []
+    scores: list[float] = []
+    metas: list[dict] = []
+    for i in range(top_k):
+        if i == conveyor_index:
+            chunks.append("Conveyor jetlace operating description for ARA200.")
+            scores.append(0.40)
+            metas.append(
+                {
+                    "project_code": "ARA200",
+                    "source_family": "operating_manual",
+                    "document_filename": "conveyor.html",
+                    "inner_document_path": "ARA200/fichiers/users manual/section 3/conveyor.html",
+                }
+            )
+        else:
+            chunks.append(f"ARA200 Part's Manual. Printable version cover page {i}.")
+            scores.append(0.99 - i * 0.001)
+            metas.append(
+                {
+                    "project_code": "ARA200",
+                    "source_family": "html_manual",
+                    "document_filename": "printable version.pdf",
+                    "inner_document_path": f"ARA200/fichiers/printable version/p{i}.pdf",
+                }
+            )
+    return chunks, scores, metas
+
+
+def test_discovery_pool_top_k_helper():
+    # Non-discovery: pool size is exactly the requested top_k.
+    assert rag_context._discovery_pool_top_k(6, False) == 6
+    assert rag_context._discovery_pool_top_k(50, False) == 50
+    # Discovery: widened to at least the discovery floor, never narrowed.
+    assert rag_context._discovery_pool_top_k(6, True) == rag_context._DISCOVERY_POOL_K
+    assert rag_context._discovery_pool_top_k(rag_context._DISCOVERY_POOL_K + 5, True) == (
+        rag_context._DISCOVERY_POOL_K + 5
+    )
+
+
+async def test_discovery_widens_pool_then_truncates_single_collection(monkeypatch):
+    monkeypatch.setattr(rag_context, "_effective_guides_for_profile", lambda _p: [_DISCOVERY_POLICY_GUIDE])
+    captured: dict = {}
+
+    async def _fake_resolve(*_a, **_k):
+        return True, "chah", "test"
+
+    monkeypatch.setattr(rag_context, "resolve_retrieval_mode", _fake_resolve)
+
+    async def _fake_retrieve(doc_svc, query, mode, *, top_k, **_k):  # noqa: ARG001
+        captured["top_k"] = top_k
+        chunks, scores, metas = _ara200_pool(top_k)
+        return SimpleNamespace(
+            chunks=chunks, scores=scores, metadatas=metas,
+            pipeline="chah_backend", label="t", reason="r", detail="d",
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "Quels documents de convoyeur sont indexés pour ARA200 ?",
+            "rag_pipeline_mode": "chah",
+            "top_k": 6,
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+        },
+        doc_svc=FakeDocumentService(),
+    )
+
+    # Pool was widened before rerank...
+    assert captured["top_k"] == rag_context._DISCOVERY_POOL_K
+    # ...the buried operating_manual conveyor doc is promoted to the very top...
+    assert result["chunks"][0].startswith("Conveyor jetlace")
+    assert result["metadatas"][0]["document_filename"] == "conveyor.html"
+    # ...and the returned document payload is truncated back to top_k.
+    assert result["metrics"]["document_chunks_retrieved"] == 6
+
+
+async def test_non_discovery_pool_size_and_absence_unchanged(monkeypatch):
+    monkeypatch.setattr(rag_context, "_effective_guides_for_profile", lambda _p: [_DISCOVERY_POLICY_GUIDE])
+    captured: dict = {}
+
+    async def _fake_resolve(*_a, **_k):
+        return True, "chah", "test"
+
+    monkeypatch.setattr(rag_context, "resolve_retrieval_mode", _fake_resolve)
+
+    async def _fake_retrieve(doc_svc, query, mode, *, top_k, **_k):  # noqa: ARG001
+        captured["top_k"] = top_k
+        chunks, scores, metas = _ara200_pool(top_k)
+        return SimpleNamespace(
+            chunks=chunks, scores=scores, metadatas=metas,
+            pipeline="chah_backend", label="t", reason="r", detail="d",
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "Comment nettoyer le convoyeur ARA200 ?",
+            "rag_pipeline_mode": "chah",
+            "top_k": 6,
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+        },
+        doc_svc=FakeDocumentService(),
+    )
+
+    # No widening for a factual query: pool size equals the requested top_k...
+    assert captured["top_k"] == 6
+    # ...so the buried conveyor doc was never retrieved, and no extra truncation
+    # step changes the (already top_k-sized) result.
+    assert all(not c.startswith("Conveyor jetlace") for c in result["chunks"])
+    assert result["metrics"]["document_chunks_retrieved"] == 6
+
+
+async def test_multi_collection_discovery_widens_and_surfaces_preferred(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "get_resolved_settings",
+        lambda **_kwargs: {
+            "ragCollectionName": "documents",
+            "ragVectorDBType": "qdrant",
+            "ragTopK": 6,
+            "ragPipelineMode": "chah",
+        },
+    )
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "andritz-spl",
+            "label": "Andritz SPL",
+            "collection_slugs": ["andritz-manuals", "andritz-notices"],
+            "default_mode": "chah",
+            "top_k": 6,
+        },
+    )
+    monkeypatch.setattr(rag_context, "_effective_guides_for_profile", lambda _p: [_DISCOVERY_POLICY_GUIDE])
+    monkeypatch.setattr(
+        rag_context,
+        "_document_service_for_profile",
+        lambda _profile, collection: SimpleNamespace(collection_name=collection),
+    )
+
+    async def _fake_resolve(*_a, **_k):
+        return True, "chah", "test"
+
+    monkeypatch.setattr(rag_context, "resolve_retrieval_mode", _fake_resolve)
+
+    captured_top_ks: list[int] = []
+
+    async def _fake_retrieve(doc_svc, query, mode, *, top_k, **_k):  # noqa: ARG001
+        captured_top_ks.append(top_k)
+        chunks, scores, metas = _ara200_pool(top_k, conveyor_index=10)
+        return SimpleNamespace(
+            chunks=chunks, scores=scores, metadatas=metas,
+            pipeline="chah_backend", label="t", reason="r", detail="d",
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "Quels documents de convoyeur sont indexés pour ARA200 ?",
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+            "knowledge_scope": "andritz-spl",
+        }
+    )
+
+    assert result["pipeline"].startswith("multi_")
+    # Every per-collection retrieval was widened.
+    assert captured_top_ks and all(k == rag_context._DISCOVERY_POOL_K for k in captured_top_ks)
+    # The conveyor operating_manual doc, fused from a wide pool, wins the rerank.
+    assert result["chunks"][0].startswith("Conveyor jetlace")
+    assert result["metadatas"][0]["document_filename"] == "conveyor.html"
+    # Final document payload truncated back to the scope top_k.
+    assert result["metrics"]["document_chunks_retrieved"] == 6
+
+
 def test_rag_retrieve_context_task_delegates_to_service(monkeypatch):
     class FakeCelery:
         def __init__(self, *_args, **_kwargs):

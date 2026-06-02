@@ -1,3 +1,4 @@
+import base64
 import json
 import pytest
 
@@ -13,9 +14,11 @@ from app.services.knowledge_capture import (
     create_capture_plan,
     approve_capture_plan,
     append_turn,
+    build_open_questions,
     classify_conversation_intent,
     create_update_proposal,
     extend_capture_session,
+    get_session,
     list_capture_events,
     prefetch_capture_retrieval,
     process_conversation_step,
@@ -743,7 +746,12 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
         interruption_of_event_id="prompt-event-1",
         turn_kind="correction",
     )
-    assert turn["system_prompt_event_id"]
+    # New non-blocking model: the expert drives, so no forced system prompt / advance.
+    assert turn["system_prompt_event_id"] is None
+    assert turn["next_prompt"] is None
+    assert turn["next_question_id"] is None
+    assert turn["suggestions"] == [] or all("kind" in s and "text" in s for s in turn["suggestions"])
+    assert isinstance(turn["open_questions"], list)
     assert turn["turn"]["retrieval_refs"][0]["title"] == "CRM maintenance"
     assert turn["turn"]["turn_kind"] == "correction"
 
@@ -757,7 +765,8 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
     assert "retrieval_prefetch_completed" in event_types
     assert "stt_final" in event_types
     assert "ai_speech_interrupted" in event_types
-    assert "system_prompt_prepared" in event_types
+    # The AI no longer prepares a forced next prompt — it listens without interrupting.
+    assert "system_prompt_prepared" not in event_types
 
     later_events = list_capture_events(
         db_session,
@@ -836,6 +845,316 @@ def test_oracle_detects_rpm_contradiction_and_hint():
     assert "180" in live["hints"][0]["hint"]
 
 
+def test_plan_oracle_outline_strictly_grounded_in_expert_statements():
+    """The fallback outline must contain only the subjects the expert expressed and
+    must NOT invent complementary topics (e.g. a test-protocol section)."""
+    from app.services.capture_knowledge_oracle import (
+        CaptureSessionContext,
+        analyze_plan_oracle,
+    )
+
+    context = CaptureSessionContext(
+        title="Cadrage ligne",
+        objective="Capture ligne de production",
+        domain="technical",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        unlimited_duration=False,
+        elapsed_minutes=None,
+        workspace_id="ws-oracle-grounded",
+        context_snapshot={},
+        dialogue_turns=[{"text": "on va décrire la ligne de production, et ensuite ses limitations."}],
+        active_subtopic_id=None,
+        recent_transcript=[],
+    )
+    oracle = analyze_plan_oracle(
+        context,
+        rag_chunks=["Document mentionnant un protocole d'essais et des résultats."],
+        rag_metadatas=[{"title": "Manuel", "source": "manual"}],
+        base_gaps=[
+            {"slug": "test_protocol", "title": "Protocole d'essais", "description": "Essais et résultats"}
+        ],
+    )
+    titles = [topic["title"] for topic in oracle["topic_proposals"]]
+    assert titles == ["Ligne de production", "Limitations"]
+    blob = " ".join(titles + [
+        sub.get("title", "")
+        for topic in oracle["topic_proposals"]
+        for sub in topic.get("subtopics") or []
+    ]).lower()
+    assert "essais" not in blob
+    assert "protocole" not in blob
+    assert "résultat" not in blob and "resultat" not in blob
+
+
+def test_plan_oracle_outline_grows_as_expert_adds_subjects():
+    """Constraint is 'nothing beyond what was expressed', not 'frozen after turn 1':
+    when the expert adds a subject, the outline grows accordingly."""
+    from app.services.capture_knowledge_oracle import (
+        CaptureSessionContext,
+        analyze_plan_oracle,
+    )
+
+    def _context(turns):
+        return CaptureSessionContext(
+            title="Cadrage",
+            objective="Capture",
+            domain="technical",
+            expert_profile="Expert",
+            duration_minutes=20,
+            unlimited_duration=False,
+            elapsed_minutes=None,
+            workspace_id="ws-oracle-grow",
+            context_snapshot={},
+            dialogue_turns=turns,
+            active_subtopic_id=None,
+            recent_transcript=[],
+        )
+
+    first = analyze_plan_oracle(_context([{"text": "la ligne de production et ses limitations"}]))
+    assert [t["title"] for t in first["topic_proposals"]] == ["Ligne de production", "Limitations"]
+
+    grown = analyze_plan_oracle(
+        _context(
+            [
+                {"text": "la ligne de production et ses limitations"},
+                {"text": "ensuite la maintenance préventive"},
+            ]
+        )
+    )
+    grown_titles = [t["title"] for t in grown["topic_proposals"]]
+    assert "Ligne de production" in grown_titles
+    assert "Limitations" in grown_titles
+    assert "Maintenance préventive" in grown_titles
+    assert len(grown_titles) == 3
+
+
+def test_outline_traversal_opens_with_broad_topic_prompt_before_subtopics():
+    """A topic-with-subtopics must open with its broad, topic-level presentation
+    prompt BEFORE any subtopic prompt; advancement then descends into subtopics."""
+    from app.services.knowledge_capture import _flatten_plan_questions, _next_plan_question
+
+    plan = {
+        "topics": [
+            {
+                "id": "t-01",
+                "title": "Ligne de production",
+                "prompt": "Présentez globalement ce que vous savez de « Ligne de production ».",
+                "subtopics": [
+                    {
+                        "id": "st-01",
+                        "title": "Vitesse de production",
+                        "prompt": "Présentez ce que vous savez du point « Vitesse de production ».",
+                    },
+                    {"id": "st-02", "title": "Limitations"},
+                ],
+            },
+            {"id": "t-02", "title": "Maintenance", "subtopics": [{"id": "st-03", "title": "Préventif"}]},
+        ]
+    }
+
+    flat = _flatten_plan_questions(plan)
+    # First emitted item for the topic is the broad topic-level prompt (no subtopic).
+    assert flat[0]["level"] == "topic"
+    assert flat[0]["topic_id"] == "t-01"
+    assert flat[0]["subtopic_id"] is None
+    assert flat[0]["prompt"] == "Présentez globalement ce que vous savez de « Ligne de production »."
+    # It precedes every subtopic of that topic.
+    first_subtopic_index = next(i for i, q in enumerate(flat) if q.get("subtopic_id") == "st-01")
+    assert first_subtopic_index > 0
+    assert flat[1]["subtopic_id"] == "st-01"
+    assert flat[2]["subtopic_id"] == "st-02"
+    # Each top-level topic opens broad: the second topic also leads with its overview.
+    t2_overview = next(q for q in flat if q.get("topic_id") == "t-02")
+    assert t2_overview["level"] == "topic"
+    # A topic without an explicit prompt gets a synthesized broad prompt.
+    assert flat[flat.index(t2_overview)]["prompt"].startswith("Présentez globalement ce que vous savez de « Maintenance »")
+
+    # Opening point is the broad topic entry; once answered, advance to first subtopic.
+    opening = _next_plan_question(plan, [])
+    assert opening["prompt"] == "Présentez globalement ce que vous savez de « Ligne de production »."
+    after_overview = _next_plan_question(plan, [{"question_id": "t-01-overview", "verdict": "sufficient"}])
+    assert after_overview["subtopic_id"] == "st-01"
+
+
+def test_capture_turn_is_non_blocking_and_exposes_sorted_open_questions(db_session):
+    """New model: the plan stops driving the session. A turn never forces an answer
+    or auto-advances; relance is surfaced only as optional, non-blocking suggestions,
+    and the oracle exposes its OWN open_questions sorted by priority desc."""
+    workspace = Workspace(id="ws-capture-nonblock", name="Capture NonBlock", slug="capture-nonblock")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture libre experte",
+        objective="Capturer les décisions terrain sur la ligne de production.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+
+    result = append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=session.plan["questions"][0]["id"],
+        text=(
+            "Sur la ligne, je règle d'abord la vitesse selon le grade de papier, "
+            "puis je surveille la température et la vibration avant de valider."
+        ),
+    )
+
+    # The expert drives: nothing forces an answer or auto-advances the outline.
+    assert result["next_prompt"] is None
+    assert result["next_question_id"] is None
+    assert result["system_prompt_event_id"] is None
+
+    # Relance kept for backward compat, but only delivered as optional suggestions.
+    assert isinstance(result["relance"], dict)
+    for suggestion in result["suggestions"]:
+        assert set(suggestion.keys()) == {"kind", "text"}
+        assert suggestion["text"]
+
+    # The oracle exposes its OWN open questions, sorted by priority descending.
+    open_questions = result["open_questions"]
+    assert open_questions
+    for item in open_questions:
+        assert set(item.keys()) == {"id", "text", "topic_id", "priority", "status"}
+        assert item["status"] in {"open", "addressed"}
+    priorities = [item["priority"] for item in open_questions]
+    assert priorities == sorted(priorities, reverse=True)
+
+    # A detected contradiction is surfaced as the highest-priority open question.
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    with_contradiction = build_open_questions(
+        reloaded,
+        contradiction_candidates=[
+            {"suggested_hint": "Dans quel cas précis viser 180/min au lieu de 160/min ?"}
+        ],
+    )
+    assert with_contradiction[0]["priority"] == 2.0
+    assert "180/min" in with_contradiction[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, monkeypatch):
+    """Server-side incremental transcription: several audio.frame messages must emit
+    live transcript.partial + oracle analysis BEFORE any audio.endpoint, while
+    transcript.improved / text.final / fact-extraction happen only at the endpoint."""
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-live", name="GW Live", slug="gw-live")
+    user = User(id="user-gw-live", username="gw@datategy.local", email="gw@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Live capture",
+        objective="Capturer les réglages de vitesse sur la ligne.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    question_id = session.plan["questions"][0]["id"]
+
+    class FakeProvider:
+        def __init__(self) -> None:
+            self.transcribe_calls = 0
+
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None):
+            self.transcribe_calls += 1
+            return {
+                "text": f"je règle la vitesse selon le grade de papier numéro {self.transcribe_calls}",
+                "provider": "fake",
+                "model": "fake-stt",
+            }
+
+    fake_provider = FakeProvider()
+    monkeypatch.setattr(gw, "get_voice_runtime_provider", lambda *a, **k: fake_provider)
+    # Keep the live retrieval deterministic (no real vector store in unit tests).
+    monkeypatch.setattr(gw, "_retrieve_context_chunks", lambda *a, **k: ([], [], []))
+    # Remove the real-time cadence so each frame triggers an incremental partial.
+    monkeypatch.setattr(gw, "_PARTIAL_STT_MIN_INTERVAL_MS", 0)
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id=session.id, mode="guided", tandem_oracle_enabled=True)
+    state.oracle = gw.VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
+
+    frame_payload = {
+        "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+        "turn_id": "seg-live-1",
+        "question_id": question_id,
+        "content_type": "audio/webm",
+    }
+    for _ in range(3):
+        await gateway._handle_event(
+            websocket,
+            db_session,
+            user=user,
+            workspace=workspace,
+            state=state,
+            event={"type": "audio.frame", "payload": frame_payload},
+        )
+
+    types_before = [t for t, _ in sent]
+    # Live partial transcription + oracle analysis happened mid-utterance.
+    assert fake_provider.transcribe_calls >= 2
+    assert types_before.count("transcript.partial") >= 2
+    assert any(t == "oracle.delta" for t in types_before)
+    partial_texts = [p.get("text") for t, p in sent if t == "transcript.partial"]
+    assert all("numéro" in (text or "") for text in partial_texts)
+    assert all(p.get("segment_id") == "seg-live-1" for t, p in sent if t == "transcript.partial")
+    # The reframe / final / fact-extraction stages must NOT have run yet.
+    assert "transcript.improved" not in types_before
+    assert "text.final" not in types_before
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert not [turn for turn in (reloaded.transcript or []) if turn.get("speaker") == "expert"]
+
+    # Natural pause: the authoritative segment end runs reframe + final + fact extraction.
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "audio.endpoint", "payload": {"turn_id": "seg-live-1"}},
+    )
+
+    types_after = [t for t, _ in sent]
+    assert "transcript.improved" in types_after
+    assert "text.final" in types_after
+    improved = next(p for t, p in sent if t == "transcript.improved")
+    assert improved.get("reframed") is True
+    assert improved.get("segment_id") == "seg-live-1"
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert [turn for turn in (reloaded.transcript or []) if turn.get("speaker") == "expert"]
+    # The incremental path never cleared/corrupted the buffer used at endpoint.
+    assert state.audio_chunks == []
+    assert state.partial_stt_in_flight is False
+    assert state.last_partial_text == ""
+
+
 def test_oracle_detects_generalized_numeric_contradiction():
     from app.services.capture_knowledge_oracle import (
         CaptureSessionContext,
@@ -870,6 +1189,181 @@ def test_oracle_detects_generalized_numeric_contradiction():
     assert live["contradiction_candidates"]
     assert live["hints"]
     assert any("180" in str(item.get("hint") or "") for item in live["hints"])
+
+
+def test_evaluate_capture_partial_yields_retrieval_passages():
+    """A precise partial must surface the retrieved passages that back the live
+    'CONTEXTE RETROUVÉ' panel, even when no contradiction is detected."""
+    from app.services.capture_knowledge_oracle import (
+        CaptureSessionContext,
+        evaluate_capture_partial,
+    )
+
+    context = CaptureSessionContext(
+        title="Capture vitesse",
+        objective="Capturer les réglages de vitesse",
+        domain="technical",
+        expert_profile="Field engineer",
+        duration_minutes=20,
+        unlimited_duration=False,
+        elapsed_minutes=None,
+        workspace_id="ws-live-retrieval",
+        context_snapshot={},
+        dialogue_turns=[],
+        active_subtopic_id=None,
+        recent_transcript=[],
+    )
+    chunks = ["La vitesse nominale des rouleaux est de 120 par minute selon le manuel."]
+    metadatas = [{"title": "Manuel BBA120", "source": "manual-bba120", "document_id": "doc-1"}]
+    live = evaluate_capture_partial(
+        context,
+        "Je règle la vitesse des rouleaux selon le grade de papier produit ce matin",
+        chunks,
+        retrieval_metadatas=metadatas,
+    )
+    assert live["retrieval"], "evaluate_capture_partial should return retrieved passages"
+    first = live["retrieval"][0]
+    assert first["text"]
+    assert first["title"] == "Manuel BBA120"
+    assert first["document_id"] == "doc-1"
+
+
+def test_build_open_questions_falls_back_to_oracle_taxonomy_for_free_conversation(db_session):
+    """Free-conversation sessions have no plan gaps, yet the oracle still tracks its
+    own internal open questions — these must be non-empty so the panel populates."""
+    from app.services.knowledge_capture import (
+        build_open_questions,
+        create_capture_plan,
+    )
+
+    workspace = Workspace(id="ws-free-oq", name="Free OQ", slug="free-oq")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture libre",
+        objective="Capturer les savoirs maintenance ligne.",
+        expert_profile="Senior field engineer",
+        duration_minutes=0,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+    assert session.plan["mode"] == "free_conversation"
+    assert not session.knowledge_gaps
+
+    open_questions = build_open_questions(session)
+    assert open_questions, "oracle internal open questions should be non-empty in free conversation"
+    for item in open_questions:
+        assert set(item.keys()) == {"id", "text", "topic_id", "priority", "status"}
+        assert item["text"]
+        assert item["status"] in {"open", "addressed"}
+    priorities = [item["priority"] for item in open_questions]
+    assert priorities == sorted(priorities, reverse=True)
+
+
+@pytest.mark.asyncio
+async def test_gateway_forwards_open_questions_and_retrieval_in_free_conversation(db_session, monkeypatch):
+    """End-to-end: in free-conversation, an audio.endpoint must emit conversation.step
+    carrying TOP-LEVEL open_questions (oracle internal) and retrieval.chunks so the
+    live assist panels populate."""
+    from app.services import voice_session_gateway as gw
+    from app.services.knowledge_capture import create_capture_plan, start_session
+
+    workspace = Workspace(id="ws-gw-free", name="GW Free", slug="gw-free")
+    user = User(id="user-gw-free", username="gwf@datategy.local", email="gwf@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture libre live",
+        objective="Capturer les réglages de vitesse sur la ligne.",
+        expert_profile="Senior field engineer",
+        duration_minutes=0,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+
+    class FakeProvider:
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None):
+            return {
+                "text": "je règle la vitesse des rouleaux selon le grade de papier produit ce matin",
+                "provider": "fake",
+                "model": "fake-stt",
+            }
+
+    monkeypatch.setattr(gw, "get_voice_runtime_provider", lambda *a, **k: FakeProvider())
+    monkeypatch.setattr(gw, "_PARTIAL_STT_MIN_INTERVAL_MS", 0)
+    # Deterministic non-empty live retrieval.
+    monkeypatch.setattr(
+        gw,
+        "_retrieve_context_chunks",
+        lambda *a, **k: (
+            ["La vitesse nominale des rouleaux est de 120 par minute selon le manuel."],
+            [{"title": "Manuel BBA120", "source": "manual-bba120", "document_id": "doc-1"}],
+            [0.91],
+        ),
+    )
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id=session.id, mode="conversation_only", tandem_oracle_enabled=True)
+    state.oracle = gw.VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
+
+    frame_payload = {
+        "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+        "turn_id": "seg-free-1",
+        "content_type": "audio/webm",
+    }
+    for _ in range(2):
+        await gateway._handle_event(
+            websocket,
+            db_session,
+            user=user,
+            workspace=workspace,
+            state=state,
+            event={"type": "audio.frame", "payload": frame_payload},
+        )
+
+    # The partial path stored live retrieval for the upcoming endpoint emit.
+    assert state.last_retrieval_chunks
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "audio.endpoint", "payload": {"turn_id": "seg-free-1"}},
+    )
+
+    step = next((p for t, p in sent if t == "conversation.step"), None)
+    assert step is not None, "conversation.step must be emitted in conversation_only mode"
+    # open_questions + retrieval ride at the TOP LEVEL (the shape the frontend reads).
+    assert step.get("open_questions"), "open_questions must be forwarded and non-empty"
+    assert step.get("retrieval", {}).get("chunks"), "retrieval.chunks must be forwarded and non-empty"
+    first_chunk = step["retrieval"]["chunks"][0]
+    assert first_chunk["text"]
+    assert first_chunk["title"] == "Manuel BBA120"
+
+    evaluation_delta = next((p for t, p in sent if t == "evaluation.delta"), None)
+    assert evaluation_delta is not None
+    assert evaluation_delta.get("open_questions")
+    assert evaluation_delta.get("retrieval", {}).get("chunks")
 
 
 @pytest.mark.asyncio
@@ -959,6 +1453,7 @@ def test_plan_build_oracle_dialogue_and_topic_validation(db_session, monkeypatch
         finalize_plan_from_dialogue,
         generate_question_bank,
         get_hint_queue,
+        get_session,
         process_capture_partial_hints,
         process_plan_dialogue_turn,
         serialize_session,
@@ -1012,7 +1507,10 @@ def test_plan_build_oracle_dialogue_and_topic_validation(db_session, monkeypatch
         text="Réglages ligne, vitesse rouleaux et cas exceptionnels terrain à 180/min",
         workspace_slug=workspace.slug,
     )
-    assert turn["next_prompt"]
+    # New contract: a single dialogue turn already builds the topic tree, so the
+    # plan is ready to finalize immediately (frontend gates on topics existing) and
+    # the oracle no longer returns a follow-up probe.
+    assert turn["ready_to_finalize"]
     assert turn["session"]["plan"]["topics"]
     assert turn["session"]["plan"].get("oracle", {}).get("coverage_gaps") is not None
     assert not serialize_session(session, surface="plan_build")["plan"].get("questions")
@@ -1027,6 +1525,11 @@ def test_plan_build_oracle_dialogue_and_topic_validation(db_session, monkeypatch
             confirm_finalize=idx == 1,
         )
 
+    pre_finalize_topics = serialize_session(
+        get_session(db_session, workspace_id=workspace.id, session_id=session.id),
+        surface="plan_build",
+    )["plan"]["topics"]
+
     finalized = finalize_plan_from_dialogue(
         db_session,
         workspace_id=workspace.id,
@@ -1034,6 +1537,12 @@ def test_plan_build_oracle_dialogue_and_topic_validation(db_session, monkeypatch
         workspace_slug=workspace.slug,
     )
     assert finalized.plan["topics"]
+    # Finalize preserves the topics already built by the dialogue verbatim — it must
+    # not re-run the oracle / reshuffle the plan the user already saw.
+    assert [t["id"] for t in finalized.plan["topics"]] == [t["id"] for t in pre_finalize_topics]
+    # Idle question bank is auto-scheduled (status flips to generating) so the launch
+    # screen no longer needs an explicit confirmation step.
+    assert finalized.plan["question_bank_status"] == "generating"
     assert not serialize_session(finalized, surface="plan")["plan"].get("questions")
 
     validated = validate_plan_topics(
@@ -1073,6 +1582,88 @@ def test_plan_build_oracle_dialogue_and_topic_validation(db_session, monkeypatch
     assert started.status == "active"
 
 
+def test_plan_build_subtopics_are_grounded_not_gap_taxonomy(db_session):
+    """Co-construction (plan_build) must ground topics/subtopics in what the expert
+    expressed, and must never surface the internal _BASE_GAPS taxonomy titles
+    (Decision rationale, Exceptions and edge cases, ...) as visible plan subtopics."""
+    from app.services.knowledge_capture import (
+        _BASE_GAPS,
+        create_capture_plan,
+        finalize_plan_from_dialogue,
+        process_plan_dialogue_turn,
+    )
+
+    workspace = Workspace(id="ws-grounded-plan", name="Grounded Plan", slug="grounded-plan")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Cadrage maintenance",
+        objective="Capturer les savoirs maintenance.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="plan_build",
+    )
+    # Co-construction path is reachable: a fresh plan_build session is a dialogue
+    # shell with no questions and no pre-seeded topics.
+    assert session.plan["mode"] == "plan_build"
+    assert session.plan["dialogue"]["status"] == "in_progress"
+    assert not session.plan.get("topics")
+    assert not session.plan.get("questions")
+
+    expert_text = (
+        "On va décrire la maintenance des rouleaux, puis la lubrification de la "
+        "ligne et enfin les contrôles qualité en fin de poste."
+    )
+    turn = process_plan_dialogue_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        text=expert_text,
+        workspace_slug=workspace.slug,
+        confirm_finalize=True,
+    )
+    # The co-construction dialogue is intact: the expert's statement is recorded as a
+    # turn, the oracle runs, and a grounded outline is produced from it.
+    assert turn["session"]["plan"]["dialogue"]["turns"]
+    assert turn["session"]["plan"]["topics"]
+    assert turn["oracle"].get("coverage_gaps") is not None
+
+    finalized = finalize_plan_from_dialogue(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        workspace_slug=workspace.slug,
+    )
+
+    gap_titles = {str(gap["title"]).lower() for gap in _BASE_GAPS}
+    gap_descriptions = {str(gap["description"]).lower() for gap in _BASE_GAPS}
+    topics = finalized.plan["topics"]
+    assert topics
+
+    all_titles: list[str] = []
+    for topic in topics:
+        all_titles.append(str(topic.get("title") or ""))
+        for subtopic in topic.get("subtopics") or []:
+            sub_title = str(subtopic.get("title") or "")
+            all_titles.append(sub_title)
+            # Gap taxonomy must never become a visible subtopic title/objective.
+            assert sub_title.lower() not in gap_titles
+            assert str(subtopic.get("objective") or "").lower() not in gap_descriptions
+            # No duplication where the subtopic title equals its description line.
+            assert sub_title.strip() and sub_title.strip() != str(subtopic.get("objective") or "").strip()
+
+    titles_blob = " ".join(all_titles).lower()
+    assert not (gap_titles & set(t.lower() for t in all_titles))
+    # Subtopics are grounded in the expert's expressed subjects.
+    assert "maintenance" in titles_blob or "lubrification" in titles_blob
+
+
 def test_parse_provided_plan_text_builds_topic_tree():
     from app.services.knowledge_capture import parse_provided_plan_text
 
@@ -1088,6 +1679,151 @@ def test_parse_provided_plan_text_builds_topic_tree():
     assert len(topics[0]["subtopics"]) == 2
     assert topics[0]["subtopics"][0]["title"] == "Réglages rouleaux"
     assert topics[1]["subtopics"][0]["title"] == "Sources internes"
+
+
+def test_parse_provided_plan_text_builds_three_level_hierarchy():
+    from app.services.knowledge_capture import parse_provided_plan_text
+
+    topics = parse_provided_plan_text(
+        "# Introduction\n"
+        "## Contexte\n"
+        "### Périmètre du projet\n"
+        "### Objectifs\n"
+        "# Optimisation\n"
+        "## Énergie\n"
+        "- Réduction consommation\n"
+        "- Récupération de chaleur\n"
+    )
+    assert [t["title"] for t in topics] == ["Introduction", "Optimisation"]
+    contexte = topics[0]["subtopics"][0]
+    assert contexte["title"] == "Contexte"
+    assert [p["title"] for p in contexte["questions"]] == ["Périmètre du projet", "Objectifs"]
+    # 3rd-level points carry an invitation-to-present prompt, never an interview question.
+    assert contexte["questions"][0]["prompt"]
+    assert "?" not in contexte["questions"][0]["prompt"]
+    energy = topics[1]["subtopics"][0]
+    assert energy["title"] == "Énergie"
+    assert [p["title"] for p in energy["questions"]] == [
+        "Réduction consommation",
+        "Récupération de chaleur",
+    ]
+
+
+def test_parse_provided_plan_text_honours_indentation():
+    from app.services.knowledge_capture import parse_provided_plan_text
+
+    topics = parse_provided_plan_text(
+        "Description de la ligne\n"
+        "    Machines\n"
+        "        Cardes\n"
+        "        Nappeur\n"
+        "Analyse de l'existant\n"
+        "    Problèmes rencontrés\n"
+    )
+    assert [t["title"] for t in topics] == ["Description de la ligne", "Analyse de l'existant"]
+    machines = topics[0]["subtopics"][0]
+    assert machines["title"] == "Machines"
+    assert [p["title"] for p in machines["questions"]] == ["Cardes", "Nappeur"]
+    assert topics[1]["subtopics"][0]["title"] == "Problèmes rencontrés"
+
+
+def test_parse_provided_plan_text_honours_dotted_numbering():
+    from app.services.knowledge_capture import parse_provided_plan_text
+
+    topics = parse_provided_plan_text(
+        "1. Introduction\n"
+        "1.1 Contexte\n"
+        "1.1.1 Périmètre\n"
+        "2. Optimisation\n"
+        "2.1 Énergie\n"
+    )
+    assert [t["title"] for t in topics] == ["Introduction", "Optimisation"]
+    assert topics[0]["subtopics"][0]["title"] == "Contexte"
+    assert topics[0]["subtopics"][0]["questions"][0]["title"] == "Périmètre"
+    assert topics[1]["subtopics"][0]["title"] == "Énergie"
+
+
+def test_parse_provided_plan_text_plain_multisection_does_not_collapse():
+    """A plain multi-line paste (no markers, no indentation) must NOT collapse into a
+    single topic with everything else as one flat subtopic list."""
+    from app.services.knowledge_capture import parse_provided_plan_text
+
+    sections = [
+        "Introduction",
+        "Description de la ligne",
+        "Analyse de l'existant",
+        "Optimisation énergétique",
+        "Optimisation de la vitesse",
+        "Optimisation de l'homogénéité",
+        "Essais",
+        "Conclusions",
+    ]
+    topics = parse_provided_plan_text("\n".join(sections))
+    assert [t["title"] for t in topics] == sections
+    assert len(topics) == len(sections)
+    # Every topic still satisfies the downstream "at least one subtopic" invariant.
+    assert all(t["subtopics"] for t in topics)
+
+
+def test_parse_provided_plan_text_tree_passes_normalization():
+    """A parsed 3-level tree must survive _normalize_plan_build_topics unchanged in depth."""
+    from app.services.knowledge_capture import (
+        _normalize_plan_build_topics,
+        parse_provided_plan_text,
+    )
+
+    topics = parse_provided_plan_text(
+        "# Optimisation de la ligne\n"
+        "## Énergie\n"
+        "### Récupération de chaleur\n"
+        "## Vitesse\n"
+    )
+    normalized = _normalize_plan_build_topics({"topics": topics})
+    n_topics = len(normalized)
+    n_sub = sum(len(t.get("subtopics") or []) for t in normalized)
+    n_points = sum(
+        len(sub.get("questions") or [])
+        for t in normalized
+        for sub in t.get("subtopics") or []
+    )
+    assert n_topics == 1
+    assert n_sub == 2
+    assert n_points == 1
+
+
+def test_merge_topic_proposals_preserves_three_level_points():
+    """Oracle proposals carrying subtopic-level presentation points (3rd level) must be
+    persisted end-to-end through merge_topic_proposals."""
+    from app.services.capture_knowledge_oracle import merge_topic_proposals
+
+    proposals = [
+        {
+            "id": "t-01",
+            "title": "Optimisation énergétique",
+            "subtopics": [
+                {
+                    "id": "t-01-sub-01",
+                    "title": "Récupération de chaleur",
+                    "questions": [
+                        {"title": "Sources de chaleur récupérables"},
+                        "Dimensionnement de l'échangeur",
+                    ],
+                }
+            ],
+        }
+    ]
+    merged = merge_topic_proposals({"topics": []}, proposals)
+    assert len(merged) == 1
+    sub = merged[0]["subtopics"][0]
+    points = sub["questions"]
+    assert [p["title"] for p in points] == [
+        "Sources de chaleur récupérables",
+        "Dimensionnement de l'échangeur",
+    ]
+    assert all(p["id"] and p["prompt"] for p in points)
+    # Re-merging preserves the prior points (idempotent, no duplication).
+    remerged = merge_topic_proposals({"topics": merged}, proposals)
+    assert len(remerged[0]["subtopics"][0]["questions"]) == 2
 
 
 def test_provided_plan_mode_seeds_topics_on_create(db_session):

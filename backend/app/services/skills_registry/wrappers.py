@@ -1367,6 +1367,7 @@ async def _voice_transcribe_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, 
         audio_bytes,
         filename=payload.get("filename") or "recording.webm",
         content_type=payload.get("content_type") or "audio/webm",
+        language=payload.get("language") or payload.get("input_language") or "fr",
     )
     return {
         "transcript": result.get("transcript") or result.get("text", ""),
@@ -1383,7 +1384,8 @@ async def _voice_tts_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] =
     provider = get_voice_runtime_provider((payload.get("provider") or "cascade_openai"))
     result = await provider.synthesize_bytes(
         payload["text"],
-        voice=payload.get("voice") or "nova",
+        voice=payload.get("voice"),
+        instructions=payload.get("instructions"),
     )
     return {
         "audio_url": None,
@@ -1435,6 +1437,7 @@ async def _voice_realtime_transcribe_v1(payload: Dict[str, Any], ctx: Optional[D
         audio_bytes,
         filename=payload.get("filename") or "recording.webm",
         content_type=payload.get("content_type") or "audio/webm",
+        language=payload.get("language") or payload.get("input_language") or "fr",
     )
     text = result.get("text") or result.get("transcript") or ""
     return {
@@ -1456,7 +1459,11 @@ async def _voice_realtime_speak_v1(payload: Dict[str, Any], ctx: Optional[Dict[s
     from app.services.voice_runtime import get_voice_runtime_provider
 
     provider = get_voice_runtime_provider(payload.get("provider") or "cascade_openai")
-    result = await provider.synthesize_bytes(payload["text"], voice=payload.get("voice") or "nova")
+    result = await provider.synthesize_bytes(
+        payload["text"],
+        voice=payload.get("voice"),
+        instructions=payload.get("instructions"),
+    )
     return {
         "audio_base64": result.get("audio_base64"),
         "content_type": result.get("content_type"),

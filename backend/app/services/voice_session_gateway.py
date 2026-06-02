@@ -17,6 +17,7 @@ from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import decode_token
+from app.core.logging import get_logger
 from app.core.iam.dependencies import enforce_permission
 from app.models.expert_capture import ExpertCaptureSession
 from app.models.user import User
@@ -24,8 +25,12 @@ from app.models.workspace import Workspace, WorkspaceMember
 from app.services.audit_logger import emit_audit_event
 from app.services.knowledge_capture import (
     _retrieve_context_chunks,
+    _retrieve_context_chunks_async,
     append_turn,
+    build_open_questions,
+    format_retrieval_chunks,
     get_session,
+    is_capture_text_noise,
     process_capture_partial_hints,
     process_conversation_step,
 )
@@ -35,6 +40,9 @@ from app.services.voice_runtime import (
     resolve_voice_runtime_slug,
 )
 from app.services.voice_tandem_oracle import VoiceTandemOracle
+
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -56,11 +64,84 @@ class VoiceSessionState:
     interruption_of_event_id: Optional[str] = None
     last_proposal_id: Optional[str] = None
     content_type: str = "audio/webm"
+    language: str = "fr"
     turn_started_at: Optional[float] = None
     endpoint_at: Optional[float] = None
     tandem_oracle_enabled: bool = True
     oracle: VoiceTandemOracle = field(default_factory=VoiceTandemOracle)
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    last_contradiction_candidates: list[Dict[str, Any]] = field(default_factory=list)
+    last_retrieval_chunks: list[str] = field(default_factory=list)
+    last_retrieval_metadatas: list[Dict[str, Any]] = field(default_factory=list)
+    last_retrieval_scores: list[float] = field(default_factory=list)
+    last_partial_stt_at: Optional[float] = None
+    partial_stt_in_flight: bool = False
+    last_partial_text: str = ""
+    last_partial_chunk_count: int = 0
+
+
+_PARTIAL_STT_MIN_INTERVAL_MS = 1500
+
+_TRANSCRIPT_FILLERS = (
+    "euh",
+    "euhh",
+    "heu",
+    "heuh",
+    "hum",
+    "hmm",
+    " benh",
+    "bah",
+    "ben",
+)
+
+
+def improve_transcript_segment(text: str) -> str:
+    """Lightweight disfluency / punctuation cleanup for a transcript segment.
+
+    Deterministic and cheap: strips common filler words, collapses immediate word
+    repetitions and whitespace, capitalizes the first letter and ensures terminal
+    punctuation. Used to produce the ``transcript.improved`` stage after a chunk
+    has been transcribed.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    tokens = raw.split()
+    cleaned: list[str] = []
+    for token in tokens:
+        bare = token.strip(",.;:!?…").lower()
+        if bare in _TRANSCRIPT_FILLERS:
+            continue
+        if cleaned and cleaned[-1].strip(",.;:!?…").lower() == bare and bare:
+            continue
+        cleaned.append(token)
+    result = " ".join(cleaned).strip()
+    if not result:
+        return raw
+    result = result[0].upper() + result[1:]
+    if result[-1] not in ".!?…":
+        result = f"{result}."
+    return result
+
+
+def reframe_transcript_segment(text: str, *, plan_topic_label: Optional[str] = None) -> str:
+    """Plan-aware reformulation of a transcript chunk.
+
+    Cleans disfluencies (see :func:`improve_transcript_segment`) and, when the active
+    plan topic is known, frames the cleaned statement under that topic so the segment
+    reads against the plan rather than as a raw utterance. Never fabricates content and
+    never duplicates the frame when the statement already names the topic.
+    """
+    improved = improve_transcript_segment(text)
+    if not improved:
+        return improved
+    label = (plan_topic_label or "").strip()
+    if not label:
+        return improved
+    if label.lower() in improved.lower():
+        return improved
+    core = improved[0].lower() + improved[1:]
+    return f"{label} — {core}"
 
 
 class VoiceSessionGateway:
@@ -167,6 +248,7 @@ class VoiceSessionGateway:
             state.mode = str(payload.get("mode") or state.mode)
             state.transport = str(payload.get("transport") or state.transport)
             state.model = str(payload.get("model")) if payload.get("model") else None
+            state.language = str(payload.get("language") or payload.get("input_language") or state.language or "fr")
             state.fallback_policy = str(payload.get("fallback_policy") or state.fallback_policy)
             state.codec = payload.get("codec") if isinstance(payload.get("codec"), dict) else {}
             state.tandem_oracle_enabled = bool(payload.get("tandem_oracle", True))
@@ -201,6 +283,10 @@ class VoiceSessionGateway:
             "tts.ended",
             "tts.interrupted",
         }:
+            if event_type in {"loop.stop", "tts.interrupted"}:
+                # Hard stop / barge-in: cancel any pending incremental partials so the
+                # next utterance starts clean.
+                self._reset_partial_stt_state(state)
             emit_audit_event(
                 workspace_id=workspace.id,
                 event_type=f"voice.{event_type}",
@@ -215,7 +301,7 @@ class VoiceSessionGateway:
             await self._send(websocket, state, event_type, {"status": "ok", **payload})
             return
         if event_type == "audio.frame":
-            await self._handle_audio_frame(websocket, state, payload)
+            await self._handle_audio_frame(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
             return
         if event_type in {"audio.endpoint", "audio.endpoint.auto"}:
             if event_type == "audio.endpoint.auto":
@@ -223,6 +309,7 @@ class VoiceSessionGateway:
             await self._handle_audio_endpoint(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
             return
         if event_type == "barge_in":
+            self._reset_partial_stt_state(state)
             await self._send(websocket, state, "barge_in", {"status": "accepted", **payload})
             return
         if event_type == "voice.command":
@@ -264,9 +351,20 @@ class VoiceSessionGateway:
             return
         await self._send_error(websocket, "unknown_event", f"Unknown voice event: {event_type}", state=state)
 
+    @staticmethod
+    def _reset_partial_stt_state(state: VoiceSessionState) -> None:
+        state.last_partial_stt_at = None
+        state.partial_stt_in_flight = False
+        state.last_partial_text = ""
+        state.last_partial_chunk_count = 0
+
     async def _handle_audio_frame(
         self,
         websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
         state: VoiceSessionState,
         payload: Dict[str, Any],
     ) -> None:
@@ -288,8 +386,104 @@ class VoiceSessionGateway:
                 payload.get("interruption_of_event_id") if payload.get("interruption_of_event_id") else None
             )
             state.content_type = str(payload.get("content_type") or payload.get("encoding") or "audio/webm")
+            # New utterance: clear any leftover incremental-partial bookkeeping.
+            self._reset_partial_stt_state(state)
             await self._send(websocket, state, "runtime.metric", {"metric": "audio_started", "value_ms": 0})
         state.audio_chunks.append(chunk)
+        await self._maybe_run_incremental_transcription(
+            websocket, db, user=user, workspace=workspace, state=state
+        )
+
+    async def _maybe_run_incremental_transcription(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+    ) -> None:
+        """Throttled server-side incremental transcription of the GROWING audio buffer.
+
+        Emits live ``transcript.partial`` and runs the tandem oracle + capture-hint
+        retrieval mid-utterance. It never emits ``transcript.improved`` / ``text.final``
+        and never runs fact extraction — those stay in ``_handle_audio_endpoint`` (the
+        per-pause segment end). The authoritative buffer (``state.audio_chunks``) is read
+        but never cleared here, so the endpoint's full transcription stays intact.
+        """
+        if not state.tandem_oracle_enabled or state.partial_stt_in_flight:
+            return
+        chunk_count = len(state.audio_chunks)
+        if chunk_count < 1 or chunk_count <= state.last_partial_chunk_count:
+            return
+        now = time.perf_counter()
+        if (
+            state.last_partial_stt_at is not None
+            and (now - state.last_partial_stt_at) * 1000.0 < _PARTIAL_STT_MIN_INTERVAL_MS
+        ):
+            return
+        try:
+            provider = get_voice_runtime_provider(state.runtime, workspace_settings=workspace.settings)
+        except VoiceProviderError:
+            return
+        audio_bytes = b"".join(state.audio_chunks)
+        if not audio_bytes:
+            return
+        turn_id = state.client_turn_id or str(uuid.uuid4())
+        state.client_turn_id = turn_id
+        # In-flight guard: only one incremental STT runs at a time; new frames keep
+        # buffering and a later tick picks them up.
+        state.partial_stt_in_flight = True
+        state.last_partial_stt_at = now
+        state.last_partial_chunk_count = chunk_count
+        try:
+            transcript = await provider.transcribe(
+                audio_bytes,
+                filename=f"{turn_id}.webm",
+                content_type=state.content_type,
+                language=state.language or "fr",
+            )
+        except Exception:
+            return
+        finally:
+            state.partial_stt_in_flight = False
+
+        text = str(transcript.get("text") or transcript.get("transcript") or "").strip()
+        if is_capture_text_noise(text):
+            return
+        if not text or text == state.last_partial_text:
+            return
+        state.last_partial_text = text
+        state.text_partials.append(text)
+        await self._send(
+            websocket,
+            state,
+            "transcript.partial",
+            {"segment_id": turn_id, "turn_id": turn_id, "text": text},
+        )
+        events = state.oracle.observe_partial(
+            text,
+            turn_id=turn_id,
+            input_state={
+                "transcript_state": "partial",
+                "provider": transcript.get("provider") or state.runtime,
+                "transport": state.transport,
+            },
+            output_state={"oracle_state": "thinking"},
+            duration_ms=0,
+        )
+        await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
+        capture_session = self._capture_session(db, workspace.id, state.session_id)
+        if capture_session:
+            await self._maybe_push_capture_hints(
+                websocket,
+                db,
+                user=user,
+                workspace=workspace,
+                state=state,
+                capture_session=capture_session,
+                partial_text=text,
+            )
 
     async def _handle_text_partial(
         self,
@@ -305,6 +499,14 @@ class VoiceSessionGateway:
         state.client_turn_id = turn_id
         text = str(payload.get("text") or "")
         await self._send(websocket, state, "text.partial", {**payload, "turn_id": turn_id})
+        # Live transcript stage keyed by a stable segment_id (== turn_id) so the UI can
+        # later swap this text in place with the improved version.
+        await self._send(
+            websocket,
+            state,
+            "transcript.partial",
+            {"segment_id": turn_id, "turn_id": turn_id, "text": text},
+        )
         if not state.tandem_oracle_enabled:
             return
         events = state.oracle.observe_partial(
@@ -320,7 +522,7 @@ class VoiceSessionGateway:
         )
         await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
         capture_session = self._capture_session(db, workspace.id, state.session_id)
-        if capture_session and text.strip():
+        if capture_session and text.strip() and not is_capture_text_noise(text):
             await self._maybe_push_capture_hints(
                 websocket,
                 db,
@@ -344,14 +546,21 @@ class VoiceSessionGateway:
     ) -> None:
         if len(partial_text.split()) < 6:
             return
-        chunks, metadatas, _scores = _retrieve_context_chunks(
+        # Contextualize live retrieval with the current plan topic AND the active
+        # open_questions so retrieved chunks stay relevant to what the plan cares about.
+        query_context = self._retrieval_query_context(capture_session)
+        expanded_query = f"{partial_text} {query_context}".strip()
+        chunks, metadatas, scores = await _retrieve_context_chunks_async(
             db,
             workspace_id=workspace.id,
             workspace_slug=workspace.slug,
             session=capture_session,
-            query=partial_text,
+            query=expanded_query,
             top_k=4,
         )
+        state.last_retrieval_chunks = list(chunks)
+        state.last_retrieval_metadatas = list(metadatas or [])
+        state.last_retrieval_scores = list(scores or [])
         result = process_capture_partial_hints(
             db,
             workspace_id=workspace.id,
@@ -362,6 +571,9 @@ class VoiceSessionGateway:
             client_turn_id=state.client_turn_id,
             actor_user_id=user.id,
         )
+        candidates = result.get("contradiction_candidates") or []
+        if candidates:
+            state.last_contradiction_candidates = candidates
         for hint in result.get("hints") or []:
             hint_events = state.oracle.emit_hint(
                 str(hint.get("hint") or ""),
@@ -432,6 +644,7 @@ class VoiceSessionGateway:
                 audio_bytes,
                 filename=f"{state.client_turn_id or 'voice-session'}.webm",
                 content_type=state.content_type,
+                language=state.language or "fr",
             )
         except VoiceProviderError as exc:
             await self._send_error(websocket, exc.code, str(exc), state=state)
@@ -443,6 +656,9 @@ class VoiceSessionGateway:
             return
 
         text = str(transcript.get("text") or transcript.get("transcript") or "").strip()
+        ignored_reason = "stt_noise" if text and is_capture_text_noise(text) else None
+        if ignored_reason:
+            text = ""
         first_text_ms = int((time.perf_counter() - started) * 1000)
         latency = {
             "first_text": first_text_ms,
@@ -483,6 +699,32 @@ class VoiceSessionGateway:
                 },
             )
             await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=oracle_events)
+        # Two-stage transcript contract keyed by a stable segment_id (== turn_id):
+        # the raw STT text as the partial, then the cleaned text as the improved stage.
+        segment_id = state.client_turn_id or str(uuid.uuid4())
+        capture_session = self._capture_session(db, workspace.id, state.session_id)
+        if text:
+            # Plan-aware reformulation: reframe the raw chunk against the relevant plan
+            # topic, not just disfluency cleanup. The UI labels it via reframed=True.
+            plan_topic_label = self._active_plan_topic_label(capture_session)
+            improved_text = reframe_transcript_segment(text, plan_topic_label=plan_topic_label)
+            await self._send(
+                websocket,
+                state,
+                "transcript.partial",
+                {"segment_id": segment_id, "turn_id": state.client_turn_id, "text": text},
+            )
+            await self._send(
+                websocket,
+                state,
+                "transcript.improved",
+                {
+                    "segment_id": segment_id,
+                    "turn_id": state.client_turn_id,
+                    "text": improved_text,
+                    "reframed": True,
+                },
+            )
         await self._send(
             websocket,
             state,
@@ -492,7 +734,7 @@ class VoiceSessionGateway:
                 "speaker": "expert",
                 "text": text,
                 "empty": not bool(text),
-                "reason": None if text else "empty_transcript",
+                "reason": None if text else (ignored_reason or "empty_transcript"),
                 "confidence": transcript.get("confidence"),
                 "latency_ms": first_text_ms,
                 "source": f"{transcript.get('provider') or state.runtime}_stt",
@@ -517,7 +759,6 @@ class VoiceSessionGateway:
             },
         )
 
-        capture_session = self._capture_session(db, workspace.id, state.session_id)
         if capture_session and text:
             turn_started = time.perf_counter()
             if state.mode == "conversation_only":
@@ -533,6 +774,7 @@ class VoiceSessionGateway:
                     last_proposal_id=state.last_proposal_id,
                     actor_user_id=user.id,
                     actor_label=self._actor_label(user),
+                    contradiction_candidates=state.last_contradiction_candidates,
                 )
                 proposal_payload = result.get("proposal") if isinstance(result.get("proposal"), dict) else None
                 if proposal_payload and proposal_payload.get("id"):
@@ -552,9 +794,27 @@ class VoiceSessionGateway:
                     actor_user_id=user.id,
                     text_partials=state.text_partials[-5:],
                     latency_ms=latency,
+                    contradiction_candidates=state.last_contradiction_candidates,
                 )
             turn_to_prompt_ms = int((time.perf_counter() - turn_started) * 1000)
             self._merge_capture_metrics(db, workspace.id, capture_session.id, {**latency, "turn_end_to_prompt": turn_to_prompt_ms})
+            # Oracle live payload (non-blocking): the AI's own sorted open_questions, the
+            # passive optional suggestions, and the plan/question-contextualized retrieval.
+            oracle_suggestions = result.get("suggestions") or []
+            oracle_open_questions = result.get("open_questions")
+            if not oracle_open_questions:
+                refreshed = self._capture_session(db, workspace.id, state.session_id)
+                oracle_open_questions = build_open_questions(
+                    refreshed,
+                    contradiction_candidates=state.last_contradiction_candidates,
+                ) if refreshed else []
+            oracle_retrieval = {
+                "chunks": format_retrieval_chunks(
+                    state.last_retrieval_chunks,
+                    state.last_retrieval_metadatas,
+                    state.last_retrieval_scores,
+                )
+            }
             if state.mode == "conversation_only":
                 await self._send(
                     websocket,
@@ -572,6 +832,10 @@ class VoiceSessionGateway:
                         "closure_sheet": result.get("closure_sheet"),
                         "next_prompt": result.get("next_prompt"),
                         "next_question_id": result.get("next_question_id"),
+                        "relance": result.get("relance") or {"kind": None, "text": None},
+                        "suggestions": oracle_suggestions,
+                        "open_questions": oracle_open_questions,
+                        "retrieval": oracle_retrieval,
                     },
                 )
             await self._send(
@@ -581,6 +845,10 @@ class VoiceSessionGateway:
                 {
                     "turn_id": state.client_turn_id,
                     "evaluation": result.get("evaluation"),
+                    "relance": result.get("relance") or {"kind": None, "text": None},
+                    "suggestions": oracle_suggestions,
+                    "open_questions": oracle_open_questions,
+                    "retrieval": oracle_retrieval,
                     "next_question_id": result.get("next_question_id"),
                     "session": result.get("session"),
                     "proposal": result.get("proposal"),
@@ -644,6 +912,11 @@ class VoiceSessionGateway:
         state.client_turn_id = None
         state.retrieval_event_id = None
         state.interruption_of_event_id = None
+        state.last_contradiction_candidates = []
+        state.last_retrieval_chunks = []
+        state.last_retrieval_metadatas = []
+        state.last_retrieval_scores = []
+        self._reset_partial_stt_state(state)
 
     async def _send_prompt_audio(
         self,
@@ -816,6 +1089,45 @@ class VoiceSessionGateway:
         if not membership:
             return None
         return user, workspace
+
+    @staticmethod
+    def _active_plan_topic_label(capture_session: Optional[ExpertCaptureSession]) -> Optional[str]:
+        if not capture_session:
+            return None
+        plan = capture_session.plan or {}
+        metrics = capture_session.metrics or {}
+        active_subtopic_id = metrics.get("active_subtopic_id")
+        topics = plan.get("topics") or []
+        for topic in topics:
+            for subtopic in topic.get("subtopics") or []:
+                if subtopic.get("id") == active_subtopic_id:
+                    topic_title = (topic.get("title") or "").strip()
+                    subtopic_title = (subtopic.get("title") or "").strip()
+                    if topic_title and subtopic_title:
+                        return f"{topic_title} / {subtopic_title}"
+                    return subtopic_title or topic_title or None
+        if topics:
+            return (topics[0].get("title") or "").strip() or None
+        return None
+
+    def _retrieval_query_context(self, capture_session: Optional[ExpertCaptureSession]) -> str:
+        """Build query-expansion terms from the active plan topic and the oracle's
+        open_questions so live retrieval is plan/question-aware."""
+        if not capture_session:
+            return ""
+        parts: list[str] = []
+        label = self._active_plan_topic_label(capture_session)
+        if label:
+            parts.append(label)
+        try:
+            open_questions = build_open_questions(capture_session)
+        except Exception:
+            open_questions = []
+        for item in [q for q in open_questions if q.get("status") != "addressed"][:3]:
+            text = str(item.get("text") or "").strip()
+            if text:
+                parts.append(text)
+        return " ".join(parts).strip()
 
     def _capture_session(
         self,

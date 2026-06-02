@@ -19,6 +19,7 @@ from app.services.knowledge_collections import (
     document_manifest_key,
     ingested_key,
     original_key,
+    resolve_original_key,
     update_collection_status,
     update_job,
 )
@@ -112,7 +113,11 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         local_paths: list[str] = []
         for name in file_names:
             dest = temp_dir / Path(name).name
-            store.copy_to_local(original_key(collection, name), dest)
+            legacy_name = (document_metadata_by_name.get(name) or {}).get("legacy_document_name")
+            store.copy_to_local(
+                resolve_original_key(collection, name, legacy_name=legacy_name, store=store),
+                dest,
+            )
             local_paths.append(str(dest))
 
         update_job(db, job_id, progress=20, stage="parsing")

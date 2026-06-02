@@ -160,6 +160,18 @@ export class VoiceSessionConnection {
     });
   }
 
+  /** Push a live partial transcript so the backend tandem oracle can react
+   * before the turn is finalised. Used by streaming conversation loops. */
+  textPartial(text: string, meta: VoiceFrameMeta = {}): void {
+    this.send('text.partial', {
+      text,
+      turn_id: meta.turn_id,
+      question_id: meta.question_id,
+      retrieval_event_id: meta.retrieval_event_id,
+      transcript_state: 'partial',
+    });
+  }
+
   bargeIn(promptEventId?: string | null): void {
     this.send('barge_in', { prompt_event_id: promptEventId || null });
   }

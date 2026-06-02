@@ -29,6 +29,8 @@ def test_upsert_chat_profiles_adds_andritz_spl_balanced_profile():
     settings = workspace.settings
     profiles = {profile["key"]: profile for profile in settings["assistant_profiles"]}
     assert settings["assistant_profile_default"] == ANDRITZ_SPL_ADVISOR_PROFILE
+    assert settings["voice_loop"]["default_mode"] == "session_loop"
+    assert settings["voice_loop"]["enabled_default"] is True
     assert settings["chat"]["grounding"]["default_mode"] == "strict"
     assert settings["chat"]["grounding"]["strict_guard"] == "business_interpretation"
     assert profiles[ANDRITZ_SPL_ADVISOR_PROFILE]["default_knowledge_scope"] == "andritz-spl-knowledge-experiment"

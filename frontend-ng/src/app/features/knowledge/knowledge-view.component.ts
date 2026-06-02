@@ -23,6 +23,11 @@ import { LensService } from '@app/core/lens';
 import { CanonicalApiService, type System } from '@app/core/canonical-api.service';
 import { ApiService, DocumentFactItem, KnowledgeGuide, TableFactItem } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
+import {
+  EmbeddingMapComponent,
+  type EmbeddingNodeSelection,
+} from './embedding-map.component';
 
 /**
  * `KnowledgeViewComponent` — detail page for a single Knowledge Base
@@ -54,6 +59,27 @@ interface StatsPayload {
   cache_stats?: Record<string, unknown> | null;
 }
 
+interface ChunkRow {
+  point_id?: string;
+  chunk_id?: string;
+  document_id?: string;
+  document_filename?: string;
+  chunk_index?: number | null;
+  section_path?: string | null;
+  page?: number | string | null;
+  semantic_type?: string | null;
+  content_length: number;
+  content: string;
+  truncated: boolean;
+}
+
+interface ChunksPayload {
+  count: number;
+  offset: number;
+  has_more: boolean;
+  chunks: ChunkRow[];
+}
+
 interface CollectionsPayload {
   collections?: string[];
   vector_db_type?: string;
@@ -83,6 +109,7 @@ type KbTabId =
   | 'overview'
   | 'sources'
   | 'chunks'
+  | 'graph'
   | 'structure'
   | 'facts'
   | 'ocr'
@@ -104,6 +131,8 @@ type KbTabId =
     CkTabsComponent,
     CkTabComponent,
     CkPanelComponent,
+    DocumentPreviewComponent,
+    EmbeddingMapComponent,
   ],
   template: `
     <ck-object-header
@@ -216,6 +245,7 @@ type KbTabId =
                   <th class="text-right px-4 py-2 font-semibold">Chunks</th>
                   <th class="text-left px-4 py-2 font-semibold">Type</th>
                   <th class="text-left px-4 py-2 font-semibold">Uploaded</th>
+                  <th class="text-right px-4 py-2 font-semibold">Preview</th>
                 </tr>
               </thead>
               <tbody>
@@ -225,6 +255,16 @@ type KbTabId =
                     <td class="px-4 py-2.5 text-right tabular-nums text-gray-300">{{ s.chunk_count ?? '—' }}</td>
                     <td class="px-4 py-2.5 text-gray-400 text-xs">{{ s.mime_type || '—' }}</td>
                     <td class="px-4 py-2.5 text-gray-400 text-xs">{{ s.uploaded_at ? (s.uploaded_at | slice:0:10) : '—' }}</td>
+                    <td class="px-4 py-2.5 text-right">
+                      <button
+                        type="button"
+                        title="Preview source document"
+                        class="inline-flex items-center justify-center rounded p-1.5 text-gray-400 ring-1 ring-white/10 hover:bg-white/10 hover:text-white"
+                        (click)="previewDocument(s)"
+                      >
+                        <app-icon name="eye" [size]="14" />
+                      </button>
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -272,6 +312,99 @@ type KbTabId =
             </div>
           }
         </section>
+
+        <section class="t-card rounded-md overflow-hidden mt-4">
+          <div class="px-5 py-4 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Indexed chunks</div>
+              <h3 class="mt-1 text-base font-semibold text-white">Browse embedded chunks</h3>
+              <p class="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
+                The exact text segments stored in the vector index, with their retrieval locators
+                (chunk index, section, page). This is what chat actually cites.
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <select
+                [value]="chunkDocFilter()"
+                (change)="onChunkDocFilterChange($event)"
+                class="rounded bg-white/5 px-2 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 max-w-[220px]"
+              >
+                <option value="">All documents</option>
+                @for (s of sources(); track s.document_id) {
+                  <option [value]="s.document_id">{{ s.filename }}</option>
+                }
+              </select>
+              <button
+                type="button"
+                (click)="loadChunks(0)"
+                class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+              >
+                <app-icon name="refresh-cw" [size]="13" /> Load
+              </button>
+            </div>
+          </div>
+
+          @if (loadingChunks()) {
+            <div class="p-5 text-center text-gray-400 text-sm">
+              <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
+              Loading chunks…
+            </div>
+          } @else if (chunks().length === 0) {
+            <div class="p-5 text-center text-gray-500 text-sm">
+              No chunks loaded yet. Use “Load” to fetch chunk bodies.
+            </div>
+          } @else {
+            <ul class="divide-y divide-white/5">
+              @for (c of chunks(); track c.point_id) {
+                <li class="px-5 py-3.5 space-y-2">
+                  <div class="flex flex-wrap items-center gap-2 text-[10px] text-gray-500">
+                    <span class="rounded bg-white/5 px-1.5 py-0.5 font-mono text-gray-300 ring-1 ring-white/10">#{{ c.chunk_index ?? '—' }}</span>
+                    <span class="truncate max-w-[260px] text-gray-300">{{ c.document_filename || '—' }}</span>
+                    @if (c.section_path) {
+                      <span class="text-brand-300">§ {{ c.section_path }}</span>
+                    }
+                    @if (c.page) {
+                      <span>p.{{ c.page }}</span>
+                    }
+                    @if (c.semantic_type) {
+                      <span class="rounded bg-brand-500/10 px-1.5 py-0.5 text-brand-200">{{ c.semantic_type }}</span>
+                    }
+                    <span class="ml-auto tabular-nums">{{ c.content_length }} chars</span>
+                  </div>
+                  <p class="text-xs leading-relaxed text-gray-200 whitespace-pre-wrap">{{ c.content }}{{ c.truncated ? '…' : '' }}</p>
+                </li>
+              }
+            </ul>
+            <div class="px-5 py-3 border-t border-white/5 flex items-center justify-between text-xs text-gray-400">
+              <span>Showing {{ chunkOffset() + 1 }}–{{ chunkOffset() + chunks().length }}</span>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  [disabled]="chunkOffset() === 0"
+                  (click)="loadChunks(chunkOffset() - chunkPageSize)"
+                  class="rounded px-2 py-1 ring-1 ring-white/10 hover:bg-white/5 disabled:opacity-40"
+                >
+                  <app-icon name="chevron-left" [size]="12" /> Prev
+                </button>
+                <button
+                  type="button"
+                  [disabled]="!chunksHasMore()"
+                  (click)="loadChunks(chunkOffset() + chunkPageSize)"
+                  class="rounded px-2 py-1 ring-1 ring-white/10 hover:bg-white/5 disabled:opacity-40"
+                >
+                  Next <app-icon name="chevron-right" [size]="12" />
+                </button>
+              </div>
+            </div>
+          }
+        </section>
+      </ck-tab>
+
+      <ck-tab id="graph" label="Graph">
+        <app-embedding-map
+          [collection]="kbId"
+          (previewRequested)="previewFromNode($event)"
+        />
       </ck-tab>
 
       <ck-tab id="structure" label="Structure">
@@ -939,6 +1072,14 @@ type KbTabId =
         </ul>
       }
     </ck-panel>
+
+    <app-document-preview
+      [open]="previewOpen()"
+      [previewUrl]="previewUrl()"
+      [title]="previewTitle()"
+      subtitle="Knowledge source"
+      (closed)="closePreview()"
+    />
   `,
 })
 export class KnowledgeViewComponent implements OnInit {
@@ -955,6 +1096,19 @@ export class KnowledgeViewComponent implements OnInit {
   readonly title = signal('Knowledge base');
   readonly activeTab = signal<KbTabId>('overview');
   readonly bindingsPanelOpen = signal(false);
+
+  // Source document preview (shared with Secure Deposit viewer).
+  readonly previewOpen = signal(false);
+  readonly previewUrl = signal<string | null>(null);
+  readonly previewTitle = signal('');
+
+  // Chunk browser (Chunks tab).
+  readonly chunkPageSize = 50;
+  readonly chunks = signal<ChunkRow[]>([]);
+  readonly loadingChunks = signal(false);
+  readonly chunkOffset = signal(0);
+  readonly chunksHasMore = signal(false);
+  readonly chunkDocFilter = signal('');
 
   readonly loading = signal(true);
   readonly loadingSources = signal(true);
@@ -1226,6 +1380,58 @@ export class KnowledgeViewComponent implements OnInit {
     const max = this.topSources()[0]?.chunk_count ?? 1;
     if (!n || max === 0) return 0;
     return Math.max(3, Math.min(100, (n / max) * 100));
+  }
+
+  previewDocument(doc: DocRow): void {
+    if (!this.kbId || !doc.document_id) return;
+    let url =
+      `${this.base}/${encodeURIComponent(doc.document_id)}/rich-preview` +
+      `?collection_name=${encodeURIComponent(this.kbId)}`;
+    if (doc.filename) url += `&filename=${encodeURIComponent(doc.filename)}`;
+    this.previewTitle.set(doc.filename || 'Document preview');
+    this.previewUrl.set(url);
+    this.previewOpen.set(true);
+  }
+
+  previewFromNode(selection: EmbeddingNodeSelection): void {
+    if (!this.kbId || !selection.document_id) return;
+    let url =
+      `${this.base}/${encodeURIComponent(selection.document_id)}/rich-preview` +
+      `?collection_name=${encodeURIComponent(this.kbId)}`;
+    if (selection.title) url += `&filename=${encodeURIComponent(selection.title)}`;
+    this.previewTitle.set(selection.title || 'Document preview');
+    this.previewUrl.set(url);
+    this.previewOpen.set(true);
+  }
+
+  closePreview(): void {
+    this.previewOpen.set(false);
+    this.previewUrl.set(null);
+  }
+
+  onChunkDocFilterChange(event: Event): void {
+    this.chunkDocFilter.set((event.target as HTMLSelectElement).value);
+    this.loadChunks(0);
+  }
+
+  loadChunks(offset: number): void {
+    if (!this.kbId) return;
+    const safeOffset = Math.max(0, offset);
+    this.loadingChunks.set(true);
+    let url =
+      `${this.base}/chunks?collection_name=${encodeURIComponent(this.kbId)}` +
+      `&limit=${this.chunkPageSize}&offset=${safeOffset}`;
+    const docId = this.chunkDocFilter();
+    if (docId) url += `&document_id=${encodeURIComponent(docId)}`;
+    this.http
+      .get<ChunksPayload>(url)
+      .pipe(catchError(() => of<ChunksPayload>({ count: 0, offset: safeOffset, has_more: false, chunks: [] })))
+      .subscribe((payload) => {
+        this.chunks.set(payload.chunks ?? []);
+        this.chunkOffset.set(safeOffset);
+        this.chunksHasMore.set(!!payload.has_more);
+        this.loadingChunks.set(false);
+      });
   }
 
   private loadAll(): void {

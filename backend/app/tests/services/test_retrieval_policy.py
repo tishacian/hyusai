@@ -5,9 +5,12 @@ from types import SimpleNamespace
 from app.services.rag.retrieval_policy import (
     clarification_from_policy,
     filter_aligned_to_required_terms,
+    is_document_discovery_query,
     query_variants_from_policy,
+    rerank_aligned_with_policy,
     rerank_results_with_policy,
     retrieval_policy_from_guides,
+    score_result_with_policy,
 )
 
 
@@ -132,3 +135,218 @@ def test_policy_filters_other_projects_when_exact_project_reference_missing():
     assert constraints["required_terms"] == ["COL100"]
     assert constraints["missing_terms"] == ["COL100"]
     assert constraints["filtered_chunks_removed"] == 2
+
+
+# --- Document-discovery intent detection -----------------------------------
+
+DISCOVERY_POLICY_GUIDE = SimpleNamespace(
+    markdown="""# Andritz
+
+```agentium-retrieval-policy
+{
+  "query_planning": {
+    "require_project_code_match": true
+  },
+  "source_quality": {
+    "demote_navigation": true
+  }
+}
+```
+"""
+)
+
+
+def test_intent_detector_positive_cases():
+    positives = [
+        # The two confirmed under-performing audit queries.
+        "Quels documents de convoyeur sont indexés pour ARA200 ?",
+        "Quel document décrit l'armoire pneumatique de ARA200 ?",
+        # SPL-list style discovery queries (Q3-Q6 are fine to count as discovery).
+        "Quelles sources documentent le projet AKK200 ?",
+        "Liste des documents SPL pour BBA120",
+        "Retrouve la liste des documents indexés",
+        "Which documents are indexed for ARA200?",
+        "What document describes the pneumatic cabinet?",
+        "List of documents about the conveyor",
+        "Find the operating manual document for ARA200",
+    ]
+    for query in positives:
+        assert is_document_discovery_query(query) is True, query
+
+
+def test_intent_detector_negative_cases():
+    # Q1/Q2/Q7/Q8/Q11/Q12 style ordinary factual questions must NOT be discovery.
+    negatives = [
+        "Comment nettoyer les injecteurs ?",
+        "Que vaut le label B sur la feuille Def strips ?",
+        "Quelle est la valeur du diamètre pour LM300 ?",
+        "Comment fonctionne la filtration sous vide ?",
+        "Quel est le diamètre du strip pour DCI110 ?",
+        "How do I clean the injectors?",
+        "",
+    ]
+    for query in negatives:
+        assert is_document_discovery_query(query) is False, query
+
+
+# --- Discovery-gated ranking using realistic ARA200 payloads ----------------
+
+# Synthetic chunks mimicking the confirmed live Qdrant payloads.
+_CONVEYOR_HTML = {
+    "content": "Conveyor ARA200 operating notes. table of contents previous next home menu",
+    "metadata": {
+        "project_code": "ARA200",
+        "source_family": "operating_manual",
+        "inner_document_path": "ARA200/fichiers/users manual/section 3/conveyor.html",
+        "document_filename": "conveyor.html",
+        "document_title": "Conveyor",
+    },
+}
+_CONVEYOR_ANNEX = {
+    "content": "Conveyor jetlace operating description and maintenance for ARA200.",
+    "metadata": {
+        "project_code": "ARA200",
+        "source_family": "annex",
+        "inner_document_path": "ARA200/fichiers/users manual/Annexes/520-convoyeur/conveyor-jetlace-gb b.pdf",
+        "document_filename": "conveyor-jetlace-gb b.pdf",
+        "document_title": "Conveyor Jetlace",
+    },
+}
+_PRINTABLE_COVER = {
+    "content": "ARA200 cover page. Printable version of the manual.",
+    "metadata": {
+        "project_code": "ARA200",
+        "source_family": "html_manual",
+        "document_filename": "printable version.pdf",
+        "document_title": "ARA200 Part's Manual",
+    },
+}
+_PART_MANUAL_INDEX = {
+    "content": "table of contents index home previous next menu navigation. "
+    "href= href= href= href= href= href= href= href= href=",
+    "metadata": {
+        "project_code": "ARA200",
+        "source_family": "html_manual",
+        "document_filename": "index.html",
+        "document_title": "ARA200 Part's Manual",
+    },
+}
+
+
+def _ranked_paths(chunks, metadatas, query):
+    policy = retrieval_policy_from_guides([DISCOVERY_POLICY_GUIDE])
+    ranked_chunks, _scores, ranked_metas = rerank_aligned_with_policy(
+        list(chunks),
+        [0.5] * len(chunks),
+        list(metadatas),
+        query=query,
+        policy=policy,
+    )
+    return [m.get("document_filename") for m in ranked_metas]
+
+
+def test_discovery_intent_ranks_specific_docs_above_generic_cover():
+    samples = [_PART_MANUAL_INDEX, _PRINTABLE_COVER, _CONVEYOR_HTML, _CONVEYOR_ANNEX]
+    chunks = [s["content"] for s in samples]
+    metadatas = [dict(s["metadata"]) for s in samples]
+
+    order = _ranked_paths(chunks, metadatas, "Quels documents de convoyeur sont indexés pour ARA200 ?")
+
+    # The specific annex/operating_manual conveyor docs must outrank the generic
+    # cover/index pages under discovery intent.
+    assert order.index("conveyor.html") < order.index("printable version.pdf")
+    assert order.index("conveyor-jetlace-gb b.pdf") < order.index("printable version.pdf")
+    assert order.index("conveyor.html") < order.index("index.html")
+    assert order.index("conveyor-jetlace-gb b.pdf") < order.index("index.html")
+
+
+def test_discovery_intent_surfaces_pneumatic_annex():
+    pneumatic = {
+        "content": "Pneumatic cabinet description and wiring for ARA200.",
+        "metadata": {
+            "project_code": "ARA200",
+            "source_family": "annex",
+            "inner_document_path": "ARA200/fichiers/users manual/Annexes/535-commande machine/pneumatic cabinet.pdf",
+            "document_filename": "pneumatic cabinet.pdf",
+            "document_title": "Pneumatic Cabinet",
+        },
+    }
+    samples = [_PART_MANUAL_INDEX, _PRINTABLE_COVER, pneumatic]
+    chunks = [s["content"] for s in samples]
+    metadatas = [dict(s["metadata"]) for s in samples]
+
+    order = _ranked_paths(chunks, metadatas, "Quel document décrit l'armoire pneumatique de ARA200 ?")
+
+    assert order.index("pneumatic cabinet.pdf") < order.index("printable version.pdf")
+    assert order.index("pneumatic cabinet.pdf") < order.index("index.html")
+
+
+def test_non_discovery_scores_are_unchanged_vs_baseline():
+    policy = retrieval_policy_from_guides([DISCOVERY_POLICY_GUIDE])
+    factual_query = "Comment nettoyer le convoyeur ARA200 ?"
+    assert is_document_discovery_query(factual_query) is False
+
+    for sample in (_CONVEYOR_HTML, _CONVEYOR_ANNEX, _PRINTABLE_COVER, _PART_MANUAL_INDEX):
+        # The flag rerank computes for a factual query is False, so the live score
+        # equals the explicit no-discovery baseline: the pre-change code path,
+        # byte-for-byte.
+        baseline = score_result_with_policy(
+            content=sample["content"],
+            metadata=sample["metadata"],
+            query=factual_query,
+            policy=policy,
+            is_document_discovery=False,
+        )
+        live = score_result_with_policy(
+            content=sample["content"],
+            metadata=sample["metadata"],
+            query=factual_query,
+            policy=policy,
+            is_document_discovery=is_document_discovery_query(factual_query),
+        )
+        assert live == baseline
+
+
+def test_non_discovery_ranking_matches_baseline_ordering():
+    policy = retrieval_policy_from_guides([DISCOVERY_POLICY_GUIDE])
+    samples = [_PART_MANUAL_INDEX, _PRINTABLE_COVER, _CONVEYOR_HTML, _CONVEYOR_ANNEX]
+    chunks = [s["content"] for s in samples]
+    metadatas = [dict(s["metadata"]) for s in samples]
+    factual_query = "Comment nettoyer le convoyeur ARA200 ?"
+
+    # Live ordering for a factual query.
+    live_chunks, live_scores, live_metas = rerank_aligned_with_policy(
+        list(chunks), [0.5] * len(chunks), [dict(m) for m in metadatas],
+        query=factual_query, policy=policy,
+    )
+    # Baseline scores computed with the discovery flag forced off (old behaviour).
+    baseline_scores = [
+        score_result_with_policy(
+            content=s["content"], metadata=s["metadata"], query=factual_query,
+            policy=policy, is_document_discovery=False,
+        )
+        for s in samples
+    ]
+    live_score_by_file = {
+        m["document_filename"]: m.get("retrieval_policy_score", 0) for m in live_metas
+    }
+    for sample, baseline in zip(samples, baseline_scores):
+        fname = sample["metadata"]["document_filename"]
+        # retrieval_policy_score is only stamped when non-zero, so compare via 0.
+        assert live_score_by_file.get(fname, 0) == baseline
+
+
+def test_discovery_flag_actually_changes_preferred_family_score():
+    policy = retrieval_policy_from_guides([DISCOVERY_POLICY_GUIDE])
+    discovery_query = "Quels documents de convoyeur sont indexés pour ARA200 ?"
+
+    off = score_result_with_policy(
+        content=_CONVEYOR_ANNEX["content"], metadata=_CONVEYOR_ANNEX["metadata"],
+        query=discovery_query, policy=policy, is_document_discovery=False,
+    )
+    on = score_result_with_policy(
+        content=_CONVEYOR_ANNEX["content"], metadata=_CONVEYOR_ANNEX["metadata"],
+        query=discovery_query, policy=policy, is_document_discovery=True,
+    )
+    # +12 preferred-family boost only under discovery intent.
+    assert on - off == 12

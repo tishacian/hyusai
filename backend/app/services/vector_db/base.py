@@ -49,3 +49,16 @@ class VectorDBBase(ABC):
         default keeps legacy vector stores compatible.
         """
         return []
+
+    async def sample_chunk_vectors(
+        self,
+        limit: int = 200,
+        filters: Optional[Dict] = None,
+    ) -> List[Dict]:
+        """Return a sample of points with their raw vectors + payload.
+
+        Powers the embedding-map visualization (projection + similarity
+        graph). Each item is ``{"id", "vector": list[float], "payload": dict}``.
+        Default returns nothing for stores that cannot expose vectors.
+        """
+        return []

@@ -15,6 +15,7 @@ Implementation notes:
   blocking call, preserving the streaming response pattern.
 """
 
+import os
 import time
 from typing import Any, Dict, Optional
 
@@ -58,7 +59,10 @@ voice_read = require_permission(
 
 class SynthesizeRequest(BaseModel):
     text: str
-    voice: str = "nova"
+    # None lets the cascade resolve the workspace / env default voice + steering
+    # (per-request override -> workspace voice settings -> env/code default).
+    voice: Optional[str] = None
+    instructions: Optional[str] = None
     provider: Optional[str] = None
     latency_profile: Optional[str] = None
     surface: Optional[str] = None
@@ -116,6 +120,7 @@ async def voice_runtimes(permission: PermissionContext = Depends(voice_read)):
 async def transcribe_audio(
     file: UploadFile = File(...),
     provider_slug: Optional[str] = Query(None, alias="provider"),
+    language: Optional[str] = Query("fr", min_length=2, max_length=8),
     permission: PermissionContext = Depends(voice_read),
 ):
     audio_bytes = await file.read()
@@ -133,6 +138,7 @@ async def transcribe_audio(
             audio_bytes,
             filename=filename,
             content_type=content_type,
+            language=language or "fr",
         )
     except VoiceProviderError as exc:
         status = 403 if isinstance(exc, VoiceProviderNotAllowed) else 503
@@ -153,11 +159,21 @@ async def synthesize_speech(
     response_format = req.format or "mp3"
     latency_profile = (req.latency_profile or "balanced").strip().lower()
     surface = (req.surface or "unknown").strip() or "unknown"
+    # Capture must not be stuck on the muffled low-latency model. Unless explicitly
+    # opted back in via env, coerce capture surfaces off the "fast" profile so they
+    # reach the higher-quality TTS model.
+    if (
+        "capture" in surface.lower()
+        and latency_profile in {"fast", "low", "lowest", "realtime"}
+        and os.getenv("CAPTURE_TTS_ALLOW_FAST", "").strip().lower() not in {"1", "true", "yes"}
+    ):
+        latency_profile = "balanced"
     try:
         provider = get_voice_runtime_provider(req.provider or "cascade_openai", workspace_settings=permission.workspace.settings)
         speech = await provider.create_speech(
             req.text,
             voice=req.voice,
+            instructions=req.instructions,
             latency_profile=latency_profile,
             response_format=response_format,
         )

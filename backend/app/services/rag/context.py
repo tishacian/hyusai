@@ -27,6 +27,7 @@ from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
     clarification_from_policy,
     filter_aligned_to_required_terms,
+    is_document_discovery_query,
     policy_prompt,
     rerank_aligned_with_policy,
     retrieval_policy_from_guides,
@@ -57,6 +58,26 @@ _SPREADSHEET_SIGNAL_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+
+
+# Document-discovery queries ("quels documents… ?") need a wide candidate pool
+# *before* the policy rerank so the specific content docs (annex/operating_manual)
+# can be promoted above generic cover/index pages. The merged pool is reranked
+# and filtered while wide, then truncated back to ``top_k`` so prompt size and
+# latency stay identical to non-discovery queries.
+#
+# The floor is deliberately deep: the CHAH pipeline fans the query into several
+# query-variants (incl. bare project-code expansions) and RRF-merges them, which
+# pushes a content doc that only matches the *semantic* variant far down the pool
+# (observed: a wanted annex doc at CHAH merge rank ~110 while generic project
+# cover pages dominate the head). A shallow pool would never feed those docs to
+# the rerank, so discovery widens to a pool that reaches them.
+_DISCOVERY_POOL_K = 120
+
+
+def _discovery_pool_top_k(top_k: int, is_discovery: bool) -> int:
+    """Widen the per-collection / fusion candidate pool for discovery intent only."""
+    return max(top_k, _DISCOVERY_POOL_K) if is_discovery else top_k
 
 
 def _int_or_default(value: Any, default: int) -> int:
@@ -634,11 +655,13 @@ async def retrieve_rag_context(
         retrieval_query,
         profile["rag_mode"],
     )
+    is_discovery = is_document_discovery_query(retrieval_query)
+    pool_top_k = _discovery_pool_top_k(profile["top_k"], is_discovery)
     result = await retrieve_for_mode(
         doc_svc,
         retrieval_query,
         profile["rag_mode"],
-        top_k=profile["top_k"],
+        top_k=pool_top_k,
         use_hybrid=use_hybrid,
         hah_chah_enabled=settings.rag_hah_chah_enabled,
         query_hints=guide_hint,
@@ -672,6 +695,12 @@ async def retrieve_rag_context(
         query=retrieval_query,
         policy=retrieval_policy,
     )
+    if is_discovery:
+        # Wide pool was only needed to feed the policy rerank above; trim back to
+        # the intended top_k so the returned payload matches the non-discovery size.
+        chunks = chunks[: profile["top_k"]]
+        scores = scores[: profile["top_k"]]
+        metadatas = metadatas[: profile["top_k"]]
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
         chunks,
@@ -800,6 +829,8 @@ async def _retrieve_multi_collection_context(
     clarification: dict[str, Any] | None,
 ) -> dict[str, Any]:
     query = profile["query"]
+    is_discovery = is_document_discovery_query(retrieval_query)
+    pool_top_k = _discovery_pool_top_k(profile["top_k"], is_discovery)
     collection_results: list[dict[str, Any]] = []
     collection_errors: list[dict[str, str]] = []
 
@@ -815,7 +846,7 @@ async def _retrieve_multi_collection_context(
                 doc_svc,
                 retrieval_query,
                 profile["rag_mode"],
-                top_k=profile["top_k"],
+                top_k=pool_top_k,
                 use_hybrid=use_hybrid,
                 hah_chah_enabled=settings.rag_hah_chah_enabled,
                 query_hints=guide_hint,
@@ -849,9 +880,14 @@ async def _retrieve_multi_collection_context(
             )
             collection_errors.append({"collection": collection, "error": str(exc)})
 
+    # For discovery intent keep the fused pool wide enough that every collection's
+    # candidates reach the policy rerank/filter — otherwise off-project collections
+    # (e.g. BBA120/GEOTEX) flood a small fused pool and the project-code filter then
+    # drops the very ARA200 annex/operating-manual docs we want to surface.
+    fuse_limit = pool_top_k * max(1, len(collection_results)) if is_discovery else profile["top_k"]
     chunks, scores, metadatas = _fuse_collection_results(
         collection_results,
-        limit=profile["top_k"],
+        limit=fuse_limit,
     )
     raw_chunk_count = len(chunks)
     chunks, scores, metadatas, duplicates_removed = _dedupe_aligned_results(
@@ -873,6 +909,12 @@ async def _retrieve_multi_collection_context(
         query=retrieval_query,
         policy=retrieval_policy,
     )
+    if is_discovery:
+        # The wide fused pool only existed to feed the policy rerank; trim back to
+        # the intended top_k so the returned size matches non-discovery queries.
+        chunks = chunks[: profile["top_k"]]
+        scores = scores[: profile["top_k"]]
+        metadatas = metadatas[: profile["top_k"]]
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
         chunks,

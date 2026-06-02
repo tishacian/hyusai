@@ -73,16 +73,113 @@ def build_andritz_knowledge_sheet(
                 exceptions.append({"text": label})
     sources = _collect_sources(facts)
     owner = (session.expert_profile or "Expert métier").strip()
+    plan_section = _plan_restitution_section(session, facts)
 
     return (
         f"# Fiche connaissance — {session.title}\n\n"
         f"## Contexte\n{contexte}\n\n"
+        f"{plan_section}\n\n"
         f"## Décision\n{_bullet_lines(decisions, 'Aucune décision structurée.')}\n\n"
         f"## Conditions\n{_bullet_lines(conditions, 'Non précisées.')}\n\n"
         f"## Exceptions\n{_bullet_lines(exceptions, 'Aucune exception signalée.')}\n\n"
         f"## Sources\n{_bullet_lines(sources, 'Aucune source documentaire attachée.')}\n\n"
         f"## Owner\n- {owner}\n"
     )
+
+
+def _plan_restitution_section(session: ExpertCaptureSession, facts: List[Dict[str, Any]]) -> str:
+    topics = [topic for topic in (session.plan or {}).get("topics") or [] if isinstance(topic, dict)]
+    if not topics:
+        return "## Rapport structuré\n" + _bullet_lines(facts, "Aucune information exploitable capturée.")
+
+    lines: List[str] = ["## Rapport structuré selon le plan"]
+    assigned: set[int] = set()
+    for index, topic in enumerate(topics, start=1):
+        topic_id = str(topic.get("id") or index)
+        topic_title = str(topic.get("title") or f"Sujet {index}").strip()
+        lines.append(f"### {index}. {topic_title}")
+        subtopics = [item for item in topic.get("subtopics") or [] if isinstance(item, dict)]
+        topic_facts = _facts_for_plan_node(facts, topic_id=topic_id, subtopic_id=None, title=topic_title)
+        for fact_index, fact in topic_facts:
+            assigned.add(fact_index)
+        if subtopics:
+            direct_topic_facts = [
+                fact
+                for fact_index, fact in topic_facts
+                if fact_index not in {
+                    idx
+                    for subtopic in subtopics
+                    for idx, _ in _facts_for_plan_node(
+                        facts,
+                        topic_id=topic_id,
+                        subtopic_id=str(subtopic.get("id") or ""),
+                        title=str(subtopic.get("title") or ""),
+                    )
+                }
+            ]
+            if direct_topic_facts:
+                lines.extend(_fact_bullets(direct_topic_facts))
+            for sub_index, subtopic in enumerate(subtopics, start=1):
+                subtopic_id = str(subtopic.get("id") or f"{topic_id}.{sub_index}")
+                subtopic_title = str(subtopic.get("title") or f"Sous-partie {sub_index}").strip()
+                sub_facts = _facts_for_plan_node(
+                    facts,
+                    topic_id=topic_id,
+                    subtopic_id=subtopic_id,
+                    title=subtopic_title,
+                )
+                lines.append(f"#### {index}.{sub_index}. {subtopic_title}")
+                if sub_facts:
+                    for fact_index, _fact in sub_facts:
+                        assigned.add(fact_index)
+                    lines.extend(_fact_bullets([fact for _fact_index, fact in sub_facts]))
+                else:
+                    lines.append("- À compléter.")
+        elif topic_facts:
+            lines.extend(_fact_bullets([fact for _fact_index, fact in topic_facts]))
+        else:
+            lines.append("- À compléter.")
+
+    unassigned = [fact for fact_index, fact in enumerate(facts) if fact_index not in assigned]
+    if unassigned:
+        lines.append("### Compléments à classer")
+        lines.extend(_fact_bullets(unassigned))
+    return "\n".join(lines)
+
+
+def _facts_for_plan_node(
+    facts: List[Dict[str, Any]],
+    *,
+    topic_id: str,
+    subtopic_id: Optional[str],
+    title: str,
+) -> List[tuple[int, Dict[str, Any]]]:
+    title_norm = _norm(title)
+    selected: List[tuple[int, Dict[str, Any]]] = []
+    for index, fact in enumerate(facts):
+        fact_topic = str(fact.get("topic_id") or "")
+        fact_subtopic = str(fact.get("subtopic_id") or "")
+        path = str(fact.get("topic_path") or "")
+        if subtopic_id:
+            if fact_subtopic == subtopic_id or (title_norm and title_norm in _norm(path)):
+                selected.append((index, fact))
+            continue
+        if fact_topic == topic_id or (title_norm and title_norm in _norm(path)):
+            selected.append((index, fact))
+    return selected
+
+
+def _fact_bullets(facts: Iterable[Dict[str, Any]]) -> List[str]:
+    lines: List[str] = []
+    for fact in facts:
+        text = str(fact.get("text") or fact.get("statement") or "").strip()
+        if text:
+            lines.append(f"- {text}")
+    return lines or ["- À compléter."]
+
+
+def _norm(value: str) -> str:
+    return re.sub(r"\s+", " ", value or "").strip().lower()
 
 
 def _default_knowledge_sheet(
@@ -119,14 +216,6 @@ def _andritz_contexte(
     )
     if topic_paths:
         parts.append("Sujets couverts : " + ", ".join(topic_paths))
-    elif transcript:
-        expert_lines = [
-            str(turn.get("text") or "").strip()
-            for turn in transcript
-            if turn.get("speaker") == "expert" and str(turn.get("text") or "").strip()
-        ]
-        if expert_lines:
-            parts.append(f"Échange initial : {expert_lines[0][:240]}")
     return "\n".join(f"- {part}" for part in parts if part) or "- Contexte non renseigné."
 
 

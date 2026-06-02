@@ -29,6 +29,8 @@ from app.services.knowledge_collections import (
 from app.services.object_store import get_object_store
 from app.services.secure_deposit import (
     _read_supported_archive_documents,
+    _unique_archive_name,
+    archive_document_namespace,
     extension_for,
     staged_file_path,
 )
@@ -679,6 +681,12 @@ def execute_wave_plan(
     document_name_set = set(document_names)
     new_document_names: list[str] = []
     promoted_archives: list[dict[str, Any]] = []
+    collisions: list[dict[str, Any]] = []
+    # Share the de-dup set across every archive in this wave (not just within a
+    # single ZIP) so two archives in the same wave cannot reuse a document name.
+    # Seeded empty (within-wave scope) so the write-time guard below remains the
+    # authoritative detector for collisions against the *existing* corpus.
+    wave_used_names: set[str] = set()
 
     by_name = {str(row.filename or ""): row for row in list_spl_zip_deposits(db, workspace_id=workspace.id)}
     for archive in plan.archives:
@@ -691,17 +699,42 @@ def execute_wave_plan(
             continue
         source_path = staged_file_path(deposit_file)
         max_files, max_mb = _archive_limits(archive.filename, limits)
+        namespace = archive_document_namespace(deposit_file.filename)
         documents, stats = _read_supported_archive_documents(
             source_path,
             deposit_filename=deposit_file.filename,
             max_files=max_files,
             max_uncompressed_bytes=int(max_mb * 1024 * 1024),
             on_limit="truncate",
+            document_namespace=namespace,
+            used_names=wave_used_names,
         )
         item_documents: list[dict[str, Any]] = []
         for document in documents:
             document_name = str(document["filename"])
-            store.write_bytes(original_key(collection, document_name), document["content"])
+            new_source = str(deposit_file.filename or "")
+            # Collision guard: never clobber a document that already belongs to a
+            # *different* source. Re-running the same archive (same source) is an
+            # allowed idempotent refresh; a different source is disambiguated to a
+            # fresh unique name and recorded so the overwrite is visible.
+            target_key = original_key(collection, document_name)
+            if document_name in document_name_set or store.exists(target_key):
+                existing_source = str((document_manifest.get(document_name) or {}).get("source_deposit_path") or "")
+                if existing_source and existing_source != new_source:
+                    guard_used = set(wave_used_names) | document_name_set
+                    disambiguated = _unique_archive_name(document_name, guard_used)
+                    collisions.append(
+                        {
+                            "requested_name": document_name,
+                            "stored_as": disambiguated,
+                            "existing_source": existing_source,
+                            "new_source": new_source,
+                        }
+                    )
+                    document_name = disambiguated
+                    wave_used_names.add(document_name)
+                    target_key = original_key(collection, document_name)
+            store.write_bytes(target_key, document["content"])
             if document_name not in document_name_set:
                 document_names.append(document_name)
                 document_name_set.add(document_name)
@@ -738,7 +771,12 @@ def execute_wave_plan(
 
     if not new_document_names:
         db.commit()
-        return {"status": "noop", "collection_slug": collection.slug, "promoted_archives": promoted_archives}
+        return {
+            "status": "noop",
+            "collection_slug": collection.slug,
+            "promoted_archives": promoted_archives,
+            "collisions": collisions,
+        }
 
     store.write_text(manifest_key, json.dumps(document_manifest, ensure_ascii=True, indent=2, sort_keys=True))
     update_collection_status(
@@ -781,6 +819,8 @@ def execute_wave_plan(
             "wave_id": plan.wave_id,
             "new_document_count": len(new_document_names),
             "archives": promoted_filenames,
+            "collision_count": len(collisions),
+            "collisions": collisions[:50],
         },
     )
     db.commit()
@@ -792,6 +832,7 @@ def execute_wave_plan(
         "wave_id": plan.wave_id,
         "new_document_count": len(new_document_names),
         "promoted_archives": promoted_archives,
+        "collisions": collisions,
     }
 
 

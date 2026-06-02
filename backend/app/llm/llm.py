@@ -195,6 +195,7 @@ class LLM:
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        history: Optional[list[dict]] = None,
         **kwargs
     ) -> AsyncGenerator[str, None]:
         """
@@ -206,6 +207,10 @@ class LLM:
             system_prompt: Optional system message
             temperature: Controls randomness
             max_tokens: Maximum tokens to generate
+            history: Optional prior conversation turns ({"role", "content"})
+                inserted between the system prompt and the final user prompt so
+                the model can follow the conversation (e.g. expand or continue a
+                previous answer).
             **kwargs: Additional parameters
             
         Yields:
@@ -214,6 +219,11 @@ class LLM:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+        for turn in history or []:
+            role = str((turn or {}).get("role") or "").strip().lower()
+            content = str((turn or {}).get("content") or "").strip()
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": prompt})
         
         async for chunk in self.stream_generate(

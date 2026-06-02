@@ -117,6 +117,14 @@ class Settings(BaseSettings):
     openai_responses_api_enabled: bool = False
     openai_responses_include_reasoning_encrypted_content: bool = True
 
+    # Reasoning effort pinned for OpenAI "thinking" models (o-series, gpt-5
+    # family). gpt-5 reasons by default, which adds thinking latency before the
+    # first output token; pinning a low effort keeps the live chat + voice
+    # cascade latency on par with the non-reasoning gpt-4o it replaces. Only
+    # forwarded for thinking models (gpt-4o / gpt-4.1 never see it). Set empty
+    # to let the model use its own default. Valid: minimal|low|medium|high.
+    openai_reasoning_effort: str = "minimal"
+
     # Voice2Voice runtime provider plane. OpenAI Realtime is an optional lane;
     # cascade_openai remains the production-safe default and local providers are
     # integrated through HTTP/WebSocket contracts rather than heavy in-process
@@ -136,6 +144,22 @@ class Settings(BaseSettings):
     local_stt_endpoint_url: Optional[str] = None
     local_tts_endpoint_url: Optional[str] = None
     local_realtime_endpoint_url: Optional[str] = None
+
+    # Cascade TTS voice + steering. The steerable gpt-4o-mini-tts model accepts
+    # an `instructions` field to control accent / persona / prosody; tts-1 and
+    # tts-1-hd do NOT (instructions are dropped whenever the resolved model is
+    # not a 4o-tts model, including the fast fallback). `sage` is a calm,
+    # measured preset that is also available on tts-1, so the fallback path
+    # keeps the same voice and only loses steering. Workspaces can override both
+    # via voice_runtime settings ({"voice": ..., "instructions": ...}); these
+    # are the global defaults. French-first persona for the Andritz workspace.
+    openai_tts_voice: str = "sage"
+    openai_tts_instructions: str = (
+        "Parle en français de France, sans aucun accent anglo-américain. "
+        "Adopte un ton d'expert industriel posé, professionnel et rassurant, "
+        "avec une légère chaleur. Débit mesuré et régulier, articulation claire "
+        "des nombres et des unités (mètres cubes par heure, bars, degrés Celsius)."
+    )
 
     # Keycloak OIDC (papai-org realm, core-service client)
     # keycloak_url: public URL, used for "iss" validation and user-facing links

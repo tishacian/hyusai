@@ -45,6 +45,18 @@ ANDRITZ_WORKSPACE_GROUNDING = {
     "fallback_disclaimer": ANDRITZ_BALANCED_GROUNDING["fallback_disclaimer"],
     "strict_guard": "business_interpretation",
 }
+# Andritz runs voice in Conversation mode by default: a continuous streaming
+# loop with the tandem oracle following the speech live, auto-submitting the
+# final transcript, and re-arming the microphone after each answer.
+ANDRITZ_VOICE_LOOP = {
+    "default_mode": "session_loop",
+    "enabled_default": True,
+    "auto_endpoint": True,
+    "auto_send_final_transcript": True,
+    "auto_rearm_after_tts": True,
+    "barge_in": True,
+    "commands_enabled": True,
+}
 
 
 def _repo_root() -> Path:
@@ -97,6 +109,13 @@ def _upsert_chat_profiles(workspace: Workspace, *, scope_key: str, make_default:
     chat = _as_dict(settings.get("chat"))
     chat["grounding"] = {**ANDRITZ_WORKSPACE_GROUNDING, **_as_dict(chat.get("grounding"))}
     settings["chat"] = chat
+
+    # Default the workspace voice surface to Conversation while preserving any
+    # operator-tuned thresholds (silence_ms, rms_threshold, ...) already set.
+    voice_loop = {**ANDRITZ_VOICE_LOOP, **_as_dict(settings.get("voice_loop"))}
+    voice_loop["default_mode"] = "session_loop"
+    voice_loop["enabled_default"] = True
+    settings["voice_loop"] = voice_loop
 
     raw_profiles = settings.get("assistant_profiles")
     profiles = [dict(profile) for profile in raw_profiles if isinstance(profile, Mapping)] if isinstance(raw_profiles, list) else []

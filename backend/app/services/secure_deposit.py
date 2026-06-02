@@ -342,25 +342,37 @@ def _docx_preview(path: Path) -> dict[str, Any]:
     }
 
 
-def preview_deposit_file(file: DepositFile) -> dict[str, Any]:
-    path = staged_file_path(file)
-    media_type = staged_file_media_type(file)
-    ext = extension_for(file.filename)
+def build_file_preview(
+    path: Path,
+    *,
+    filename: str,
+    media_type: str,
+    size_bytes: int,
+    download_url: str,
+) -> dict[str, Any]:
+    """Render an inline preview payload for a local file.
+
+    Shared by the Secure Deposit staging queue and the Knowledge collection
+    Sources browser so both surfaces produce the same ``kind`` contract
+    (``text`` | ``spreadsheet`` | ``image`` | ``pdf`` | ``binary``).
+    """
+    ext = extension_for(filename)
+    size = int(size_bytes or 0)
     base: dict[str, Any] = {
-        "filename": file.filename,
+        "filename": filename,
         "content_type": media_type,
-        "size_bytes": int(file.size_bytes or 0),
-        "download_url": f"/api/v1/sftp/deposits/{file.id}/download",
+        "size_bytes": size,
+        "download_url": download_url,
     }
 
-    if ext in _SPREADSHEET_EXTENSIONS and int(file.size_bytes or 0) <= _STRUCTURED_PREVIEW_MAX_BYTES:
+    if ext in _SPREADSHEET_EXTENSIONS and size <= _STRUCTURED_PREVIEW_MAX_BYTES:
         return {**base, **_spreadsheet_preview(path)}
 
-    if ext in _DOCX_EXTENSIONS and int(file.size_bytes or 0) <= _DOCX_PREVIEW_MAX_BYTES:
+    if ext in _DOCX_EXTENSIONS and size <= _DOCX_PREVIEW_MAX_BYTES:
         return {**base, **_docx_preview(path)}
 
     if ext in _TEXT_EXTENSIONS or media_type.startswith("text/"):
-        if int(file.size_bytes or 0) > _TEXT_PREVIEW_BYTES:
+        if size > _TEXT_PREVIEW_BYTES:
             return {**base, "kind": "binary", "reason": "text_preview_too_large"}
         data = path.read_bytes()
         truncated = len(data) > _TEXT_PREVIEW_BYTES
@@ -375,13 +387,42 @@ def preview_deposit_file(file: DepositFile) -> dict[str, Any]:
             content = data.decode("utf-8", errors="replace")
         return {**base, "kind": "text", "content": content, "truncated": truncated}
 
-    if int(file.size_bytes or 0) <= _INLINE_PREVIEW_MAX_BYTES:
+    if size <= _INLINE_PREVIEW_MAX_BYTES:
         if media_type.startswith("image/"):
             return {**base, "kind": "image"}
         if media_type == "application/pdf":
             return {**base, "kind": "pdf"}
 
     return {**base, "kind": "binary"}
+
+
+def preview_needs_file_bytes(filename: str, media_type: str, size_bytes: int) -> bool:
+    """Whether :func:`build_file_preview` reads the file content for this input.
+
+    PDF / image / binary previews only need the size and media type, so callers
+    backed by remote object storage (MinIO/S3) can avoid downloading the original
+    bytes just to build the preview envelope. Kept in lock-step with the reading
+    branches of :func:`build_file_preview`.
+    """
+    ext = extension_for(filename)
+    size = int(size_bytes or 0)
+    if ext in _SPREADSHEET_EXTENSIONS and size <= _STRUCTURED_PREVIEW_MAX_BYTES:
+        return True
+    if ext in _DOCX_EXTENSIONS and size <= _DOCX_PREVIEW_MAX_BYTES:
+        return True
+    if (ext in _TEXT_EXTENSIONS or media_type.startswith("text/")) and size <= _TEXT_PREVIEW_BYTES:
+        return True
+    return False
+
+
+def preview_deposit_file(file: DepositFile) -> dict[str, Any]:
+    return build_file_preview(
+        staged_file_path(file),
+        filename=file.filename,
+        media_type=staged_file_media_type(file),
+        size_bytes=int(file.size_bytes or 0),
+        download_url=f"/api/v1/sftp/deposits/{file.id}/download",
+    )
 
 
 def _archive_component(value: str | None, fallback: str) -> str:
@@ -416,9 +457,44 @@ def _validated_archive_member_path(info: zipfile.ZipInfo) -> PurePosixPath | Non
     return path
 
 
-def _archive_document_name(member_path: PurePosixPath, used: set[str]) -> str:
+def archive_document_namespace(deposit_filename: str | None) -> str:
+    """Stable per-archive prefix used to namespace flattened document names.
+
+    Two archives that share an internal member path (e.g. ``OPERATING_MANUAL/
+    page1.pdf``) would otherwise flatten to the *same* document name and clobber
+    each other in a shared collection. Prefixing with a namespace derived from
+    the deposit's source path (its immediate folder + archive stem, e.g.
+    ``Notices_Techniques_SPL/A/Manual_ASY100.zip`` -> ``A__Manual_ASY100``)
+    keeps cross-archive / cross-prefix documents distinct.
+
+    A short digest of the *full* deposit path is appended when the readable
+    prefix would be too long, so the namespace stays globally unique without
+    growing object keys unbounded.
+    """
+    raw = str(deposit_filename or "").replace("\\", "/").strip("/")
+    if not raw:
+        return ""
+    pure = PurePosixPath(raw)
+    stem = pure.name[: -len(pure.suffix)] if pure.suffix else pure.name
+    parent = pure.parent.name  # immediate folder letter (A/B/C/D/...)
+    namespace = "__".join(part for part in (parent, stem) if part) or stem
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", namespace).strip("_")
+    if len(safe) > 80:
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:10]
+        safe = f"{safe[:60]}_{digest}"
+    return safe or hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _archive_document_name(
+    member_path: PurePosixPath,
+    used: set[str],
+    *,
+    namespace: str | None = None,
+) -> str:
     safe_path = safe_relative_path(member_path.as_posix())
     flattened = safe_path.replace("/", "__")
+    if namespace:
+        flattened = f"{namespace}__{flattened}"
     return _unique_archive_name(flattened, used)
 
 
@@ -483,11 +559,21 @@ def _read_supported_archive_documents(
     max_files: int | None = None,
     max_uncompressed_bytes: int | None = None,
     on_limit: str = "error",
+    document_namespace: str | None = None,
+    used_names: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Extract supported documents from a staged ZIP.
+
+    ``document_namespace`` (opt-in) prefixes each flattened document name with a
+    per-archive namespace so identical internal paths in different archives do
+    not collide on a shared collection. ``used_names`` lets a caller share the
+    de-dup set *across* archives within a single wave (rather than only within
+    one ZIP); when omitted a fresh per-call set preserves the legacy behaviour.
+    """
     limit_files = max(1, int(max_files or settings.secure_deposit_archive_promotion_max_files or 50))
     limit_bytes = int(max_uncompressed_bytes) if max_uncompressed_bytes else None
     documents: list[dict[str, Any]] = []
-    used_names: set[str] = set()
+    used_names = used_names if used_names is not None else set()
     truncated_files = 0
     skipped_uncompressed_bytes = 0
 
@@ -524,20 +610,26 @@ def _read_supported_archive_documents(
                     status_code=413,
                     detail=f"Archive uncompressed payload exceeds {limit_bytes} bytes",
                 )
-            document_name = _archive_document_name(member_path, used_names)
+            document_name = _archive_document_name(member_path, used_names, namespace=document_namespace)
             archive_path = member_path.as_posix()
+            metadata = _archive_document_metadata(
+                deposit_filename=deposit_filename or path.name,
+                archive_path=archive_path,
+                document_name=document_name,
+                extension=ext,
+            )
+            if document_namespace:
+                # Record the namespace + the legacy (un-namespaced) flattened
+                # name so collisions can be detected and legacy lookups mapped.
+                metadata["document_namespace"] = document_namespace
+                metadata["legacy_document_name"] = safe_relative_path(member_path.as_posix()).replace("/", "__")
             documents.append(
                 {
                     "archive_path": archive_path,
                     "filename": document_name,
                     "extension": ext,
                     "size_bytes": file_size,
-                    "metadata": _archive_document_metadata(
-                        deposit_filename=deposit_filename or path.name,
-                        archive_path=archive_path,
-                        document_name=document_name,
-                        extension=ext,
-                    ),
+                    "metadata": metadata,
                     "content": archive.read(info),
                 }
             )

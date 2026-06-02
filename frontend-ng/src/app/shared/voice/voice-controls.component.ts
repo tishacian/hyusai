@@ -174,7 +174,7 @@ export interface SharedVoiceOracleStep {
     @if (transport === 'backend_ws') {
       <div class="voice-oracle-panel" [title]="oraclePanelHint">
         <div class="voice-oracle-copy">
-          <span class="voice-oracle-kicker">Agentium voice session</span>
+          <span class="voice-oracle-kicker">Session vocale</span>
           <span class="voice-oracle-message">{{ oracleMessage }}</span>
         </div>
         <div class="voice-oracle-steps">

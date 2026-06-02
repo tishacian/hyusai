@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { firstValueFrom } from 'rxjs';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '@app/core/api.service';
 import { PermissionsService } from '@app/core/permissions.service';
@@ -10,10 +10,12 @@ import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
 
 interface CaptureQuestion {
   id: string;
   question: string;
+  prompt?: string;
   title?: string;
   topic_id?: string;
   subtopic_id?: string;
@@ -27,6 +29,7 @@ interface CaptureQuestion {
 interface CaptureSubtopic {
   id: string;
   title: string;
+  prompt?: string;
   objective?: string;
   status?: string;
   target_gap_ids?: string[];
@@ -48,12 +51,31 @@ interface CaptureHint {
 interface CaptureTopic {
   id: string;
   title: string;
+  prompt?: string;
   objective?: string;
   rationale?: string;
+  status?: string;
   oracle_confidence?: number;
   estimated_minutes?: number;
   knowledge_refs?: Array<Record<string, unknown>>;
   subtopics?: CaptureSubtopic[];
+}
+
+// New capture-session contract: the oracle exposes its own working questions
+// (NOT questions posed to the expert) and live retrieval chunks. The plan is a
+// passive reminder; suggestions are non-blocking, dismissible hints.
+interface OracleOpenQuestion {
+  id?: string;
+  text?: string;
+  topic_id?: string;
+  priority?: number;
+  status?: string;
+}
+
+interface CaptureLiveSuggestion {
+  id: string;
+  kind: string;
+  text: string;
 }
 
 interface PlanOracleSnapshot {
@@ -197,6 +219,22 @@ interface ConversationStageRow {
   state: 'done' | 'active' | 'pending';
 }
 
+type RelanceKind = 'topic_close' | 'gap_question' | 'contradiction' | null;
+
+interface CaptureRelance {
+  kind: RelanceKind;
+  text: string | null;
+}
+
+interface TranscriptSegment {
+  id: string;
+  speaker: 'expert' | 'ia';
+  text: string;
+  status: 'live' | 'improved';
+  topicTitle?: string;
+  relanceKind?: RelanceKind;
+}
+
 interface ConversationStepResponse {
   intent: string;
   confidence: number;
@@ -208,6 +246,7 @@ interface ConversationStepResponse {
   next_prompt?: string | null;
   next_question_id?: string | null;
   system_prompt_event_id?: string | null;
+  relance?: CaptureRelance | null;
   requires_confirmation: boolean;
   confirmation_target?: string | null;
   closure_sheet?: {
@@ -230,6 +269,7 @@ interface CaptureProposal {
     captured_facts?: ProposalFact[];
     open_questions?: Array<{ gap_id?: string; reason?: string; follow_up?: string }>;
     recommended_ingestion?: { content?: string; metadata?: Record<string, any> };
+    report_markdown?: string;
     audit?: { event_count?: number; amendment_count?: number };
   };
 }
@@ -256,7 +296,7 @@ interface ProposalFact {
   selector: 'app-knowledge-capture',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DecimalPipe, FormsModule, RouterLink, IconComponent],
+  imports: [FormsModule, RouterLink, IconComponent, DocumentPreviewComponent],
   styles: [
     `
       @keyframes kc-timer-blink {
@@ -290,7 +330,7 @@ interface ProposalFact {
           </h1>
           <p class="text-sm text-gray-400 mt-2 max-w-3xl">
             {{ isDemoMode()
-              ? 'Préparez une courte session, échangez avec l’expert, puis relisez les connaissances proposées avant intégration.'
+              ? 'Préparez une session, échangez avec l’expert, puis relisez les connaissances proposées avant intégration.'
               : systemScoped()
               ? 'Espace de capture dédié : préparer une session, échanger avec un expert, extraire les savoirs utiles et les relire avant intégration.'
               : 'Capture guidée ou libre : partez d’un sujet, échangez avec l’expert, puis transformez les enseignements en proposition relue.' }}
@@ -304,7 +344,7 @@ interface ProposalFact {
           }
           <span class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-brand-500/10 ring-1 ring-brand-300/20 text-brand-100">
             <app-icon name="shield-check" [size]="12" />
-            {{ isDemoMode() ? 'Validation humaine' : 'Trace & revue humaine' }}
+            {{ isDemoMode() ? 'Revue humaine' : 'Trace & revue humaine' }}
           </span>
           @if (!isDemoMode()) {
             <span class="text-xs px-3 py-1.5 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
@@ -359,7 +399,7 @@ interface ProposalFact {
             <h2 class="mt-2 text-3xl text-white font-semibold">Définir le sujet de capture</h2>
             <p class="mt-2 text-sm text-gray-400 max-w-3xl">
               {{ isDemoMode()
-                ? 'Indiquez simplement le sujet à explorer. Agentium se charge de guider l’échange et de préparer la connaissance à relire.'
+                ? 'Indiquez simplement le sujet à explorer. L’IA se charge de guider l’échange et de préparer la connaissance à relire.'
                 : 'Donnez un titre et décrivez ce que l’expert doit transmettre. Les sources et paramètres avancés restent disponibles sans encombrer le parcours pilote.' }}
             </p>
           </div>
@@ -376,17 +416,20 @@ interface ProposalFact {
 
             <div>
               <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Sujet (optionnel — précisez à la voix)</label>
-              <div class="flex flex-wrap gap-2">
+              <div class="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
-                  class="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-brand-500/20 text-brand-100 ring-1 ring-brand-300/30 hover:bg-brand-500/30"
+                  class="inline-flex h-11 w-11 items-center justify-center rounded-full bg-brand-500/20 text-brand-100 ring-1 ring-brand-300/30 hover:bg-brand-500/30"
+                  [attr.aria-label]="recording() ? 'Arrêter et transcrire la dictée' : 'Décrire le sujet à la voix'"
+                  [title]="recording() ? 'Arrêter et transcrire la dictée' : 'Décrire le sujet à la voix'"
                   (click)="dictatePrepSubject()"
                 >
-                  <app-icon name="mic" [size]="14" />
-                  Décrire le sujet à la voix
+                  <app-icon [name]="recording() ? 'square' : 'mic'" [size]="16" />
                 </button>
                 @if (objective.trim()) {
                   <p class="text-sm text-gray-300 flex-1 min-w-[200px]">{{ objective }}</p>
+                } @else {
+                  <span class="text-xs text-gray-500">Décrivez le sujet à la voix (optionnel).</span>
                 }
               </div>
             </div>
@@ -527,7 +570,7 @@ interface ProposalFact {
             </div>
             }
 
-            <div [class]="isDemoMode() ? 'grid gap-4' : 'grid md:grid-cols-[1fr_220px] gap-4'">
+            <div class="grid md:grid-cols-[1fr_220px] gap-4">
               <div>
                 <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">
                   {{ isDemoMode() ? 'Personne interrogée' : 'Expert' }}
@@ -537,7 +580,20 @@ interface ProposalFact {
                   [(ngModel)]="expertProfile"
                 />
               </div>
-              @if (!isDemoMode()) {
+              @if (isDemoMode()) {
+              <div>
+                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Durée estimée (minutes)</label>
+                <input
+                  type="number"
+                  min="5"
+                  max="90"
+                  placeholder="15"
+                  class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
+                  [(ngModel)]="durationMinutes"
+                />
+                <p class="mt-2 text-xs text-gray-500">Optionnel — sert d’estimation pour le plan.</p>
+              </div>
+              } @else {
               <div>
                 <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Durée maximale</label>
                 @if (durationUnlimited()) {
@@ -659,7 +715,7 @@ interface ProposalFact {
                     <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ workflowStatusLabel(row.status) }}</span>
                   </div>
                   <div class="mt-3 grid grid-cols-3 gap-2 text-xs text-gray-400">
-                    <span>{{ isFreeConversationSession(row) ? 'capture libre' : planQuestions(row).length + ' questions' }}</span>
+                    <span>{{ isFreeConversationSession(row) ? 'capture libre' : planSubtopicCount(row) + ' sous-sujets' }}</span>
                     <span>{{ row.metrics?.['captured_facts'] || 0 }} faits</span>
                     @if (!isDemoMode()) {
                       <span>{{ isFreeConversationSession(row) ? 'sans couverture' : coveragePercent(row) + '% couvert' }}</span>
@@ -816,20 +872,25 @@ interface ProposalFact {
                 ? 'grid xl:grid-cols-[280px_minmax(0,1fr)] gap-4 items-start'
                 : 'grid xl:grid-cols-[300px_minmax(0,1fr)_360px] gap-4 items-start'"
             >
-              <aside class="t-card rounded-lg p-4 max-h-[calc(100vh-270px)] overflow-auto space-y-4">
-                <div>
+              <aside class="t-card rounded-lg p-4 max-h-[calc(100vh-270px)] flex flex-col gap-4 overflow-y-auto">
+                <div class="shrink-0">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Structure</p>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Rappel</p>
                       <h3 class="text-sm font-semibold text-white">
                         {{ isFreeConversationSession(s) ? 'Conversation libre' : 'Sujets de capture' }}
                       </h3>
                     </div>
                     <span class="text-xs text-brand-200">{{ captureProgressLabel(s) }}</span>
                   </div>
+                  @if (!isFreeConversationSession(s)) {
+                    <p class="mt-1 text-[11px] leading-relaxed text-gray-500">
+                      Simple repère : parlez librement, dans l’ordre que vous voulez. Rien ne vous oblige à suivre ce plan.
+                    </p>
+                  }
                 </div>
 
-                <div class="grid grid-cols-2 gap-2 text-xs">
+                <div class="grid grid-cols-2 gap-2 text-xs shrink-0">
                   <div class="rounded bg-black/20 border border-white/10 p-3">
                     <span class="block text-[9px] uppercase tracking-wider text-gray-500">État</span>
                     <span class="text-gray-200">{{ sessionStartStateLabel(s) }}</span>
@@ -842,9 +903,10 @@ interface ProposalFact {
                   </div>
                 </div>
 
+                <div class="flex-1 min-h-0 overflow-y-auto pr-1">
                 @if (isFreeConversationSession(s)) {
                   <div class="rounded border border-dashed border-white/10 bg-black/20 p-4 text-sm text-gray-400">
-                    L’expert pilote le fil. Agentium extrait les faits, corrections et demandes de synthèse sans plan imposé.
+                    L’expert pilote le fil. L’IA extrait les faits, corrections et demandes de synthèse sans plan imposé.
                   </div>
                 } @else {
                   <div class="space-y-3">
@@ -853,8 +915,8 @@ interface ProposalFact {
                         <div class="flex items-start justify-between gap-3">
                           <div class="min-w-0">
                             <div class="text-xs font-semibold text-gray-200 truncate">{{ topic.title }}</div>
-                            @if (topic.objective) {
-                              <p class="mt-1 text-[11px] text-gray-500 line-clamp-2">{{ topic.objective }}</p>
+                            @if (outlineItemPrompt(topic) || topic.objective; as topicHint) {
+                              <p class="mt-1 text-[11px] text-gray-500 line-clamp-2">{{ topicHint }}</p>
                             }
                           </div>
                           <span class="shrink-0 rounded bg-white/5 px-2 py-1 text-[10px] text-gray-400">
@@ -869,8 +931,8 @@ interface ProposalFact {
                           >
                             <span class="min-w-0">
                               <span class="block truncate">{{ subtopic.title }}</span>
-                              @if (subtopic.objective) {
-                                <span class="mt-0.5 block truncate text-[10px] opacity-70">{{ subtopic.objective }}</span>
+                              @if (outlineItemPrompt(subtopic) || subtopic.objective; as subHint) {
+                                <span class="mt-0.5 block truncate text-[10px] opacity-70">{{ subHint }}</span>
                               }
                             </span>
                             <span class="shrink-0 text-[10px] opacity-70">{{ subtopicProgressLabel(s, subtopic) }}</span>
@@ -884,21 +946,100 @@ interface ProposalFact {
                     }
                   </div>
                 }
+                </div>
+
+                <section class="rounded border border-white/10 bg-black/20 p-3 shrink-0">
+                  <div class="flex items-center justify-between gap-2">
+                    <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Questions de l’oracle</p>
+                    <span class="text-[10px] text-gray-600">{{ oracleOpenQuestions().length }}</span>
+                  </div>
+                  <p class="mt-1 text-[10px] leading-relaxed text-gray-600">
+                    Ce que l’IA cherche à clarifier en interne — pas des questions qui vous sont posées.
+                  </p>
+                  <div class="mt-2 space-y-2 max-h-[26vh] overflow-y-auto pr-1">
+                    @for (q of oracleOpenQuestions(); track q.id || q.text) {
+                      <div class="rounded border border-white/10 bg-white/[0.03] p-2.5">
+                        <div class="flex items-start gap-2">
+                          <span [class]="oracleQuestionPriorityClass(q)" class="mt-1.5"></span>
+                          <p class="text-xs text-gray-200 leading-snug">{{ q.text }}</p>
+                        </div>
+                        <div class="mt-1.5 flex flex-wrap items-center gap-2 pl-3.5">
+                          @if (oracleQuestionTopicLabel(q); as topicLabel) {
+                            <span class="text-[10px] text-brand-200/80 truncate">{{ topicLabel }}</span>
+                          }
+                          @if (oracleQuestionPriorityLabel(q); as priorityLabel) {
+                            <span class="text-[10px] text-gray-600">{{ priorityLabel }}</span>
+                          }
+                        </div>
+                      </div>
+                    } @empty {
+                      <p class="text-[11px] text-gray-600">
+                        Les questions internes de l’IA apparaîtront ici au fil de l’échange.
+                      </p>
+                    }
+                  </div>
+                </section>
+
+                @if (isDemoMode()) {
+                  <section class="rounded border border-white/10 bg-black/20 p-3 shrink-0">
+                    <div class="flex items-center justify-between gap-2">
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Contexte retrouvé</p>
+                      @if (retrieval().latency_ms !== undefined) {
+                        <span class="text-[10px] text-gray-600">{{ retrieval().latency_ms }} ms</span>
+                      }
+                    </div>
+                    @if (retrieval().chunks.length) {
+                      <div class="mt-2 space-y-2 max-h-[24vh] overflow-y-auto pr-1">
+                        @for (chunk of retrieval().chunks.slice(0, 3); track retrievalChunkTrack($index, chunk); let ci = $index) {
+                          <div class="rounded bg-white/[0.03] border border-white/10 p-2.5">
+                            <div class="flex items-start justify-between gap-2">
+                              <p class="text-[11px] text-gray-400 line-clamp-3">{{ chunk }}</p>
+                              @if (canPreviewRetrievalChunk(ci)) {
+                                <button
+                                  type="button"
+                                  class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-brand-300 hover:bg-white/5 transition"
+                                  title="Prévisualiser la source"
+                                  (click)="previewRetrievalChunk(ci)"
+                                >
+                                  <app-icon name="eye" [size]="12" />
+                                </button>
+                              }
+                            </div>
+                            @if (retrievalChunkTitle(ci); as srcTitle) {
+                              <p class="mt-1 text-[10px] uppercase tracking-wider text-gray-600 truncate">{{ srcTitle }}</p>
+                            }
+                          </div>
+                        }
+                      </div>
+                    } @else {
+                      <p class="mt-2 text-[11px] text-gray-600 leading-relaxed">
+                        Les passages utiles s’affichent ici dès que l’échange devient assez précis. L’IA ne vous attend pas.
+                      </p>
+                    }
+                  </section>
+                }
               </aside>
 
               <main class="t-card rounded-lg p-4 min-h-[calc(100vh-270px)] flex flex-col">
-                <div class="rounded bg-brand-500/10 border border-brand-400/20 p-4">
+                <div
+                  [class]="isDemoMode()
+                    ? 'sticky top-2 z-10 rounded bg-brand-500/10 border border-brand-400/20 p-4 backdrop-blur'
+                    : 'rounded bg-brand-500/10 border border-brand-400/20 p-4'"
+                >
                   <div class="flex items-start justify-between gap-3">
-                    <div>
+                    <div class="min-w-0">
                       <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">
-                        {{ isDemoMode() ? 'Question posée' : 'Relance Agentium' }}
+                        Rappel du plan · vous parlez librement
                       </p>
-                      <p class="mt-2 text-lg text-white leading-relaxed">{{ currentPromptText() || 'Sélectionnez une question pour démarrer la capture.' }}</p>
+                      @if (isDemoMode() && captureOutlineTitle(); as outlineTitle) {
+                        <p class="mt-1 text-sm font-semibold text-white">{{ outlineTitle }}</p>
+                      }
+                      <p class="mt-2 text-lg text-white leading-relaxed">{{ currentPromptText() || 'Parlez librement : ce repère est seulement là pour ne rien oublier.' }}</p>
                     </div>
                     <button
                       type="button"
                       class="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-200 ring-1 ring-white/10"
-                      [disabled]="!currentQuestion()"
+                      [disabled]="!currentPromptText()"
                       (click)="readCurrentQuestion()"
                     >
                       <app-icon name="volume-2" [size]="14" /> Lire
@@ -906,7 +1047,29 @@ interface ProposalFact {
                   </div>
                 </div>
 
-                @if (!isFreeConversationSession(s) || hintStack().length) {
+                @if (visibleSuggestions().length) {
+                  <div class="mt-3 space-y-2">
+                    @for (sug of visibleSuggestions(); track sug.id) {
+                      <div class="flex items-start gap-2 rounded border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <app-icon name="lightbulb" [size]="13" class="mt-0.5 shrink-0 text-amber-300/80" />
+                        <div class="min-w-0 flex-1">
+                          <p class="text-[10px] uppercase tracking-wider text-gray-500">{{ suggestionKindLabel(sug.kind) }}</p>
+                          <p class="text-xs text-gray-200 leading-snug">{{ sug.text }}</p>
+                        </div>
+                        <button
+                          type="button"
+                          class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-gray-200 hover:bg-white/5"
+                          title="Ignorer cette suggestion (elle n’interrompt jamais)."
+                          (click)="dismissSuggestion(sug.id)"
+                        >
+                          <app-icon name="x" [size]="12" />
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
+
+                @if (!isDemoMode() && (!isFreeConversationSession(s) || hintStack().length)) {
                   <section class="mt-4 rounded border border-white/10 bg-black/20 p-4">
                     <div class="flex items-center justify-between gap-3">
                       <div>
@@ -974,10 +1137,43 @@ interface ProposalFact {
                       }
                     }
                   </div>
+                  @if (isDemoMode()) {
+                    <div class="flex-1 min-h-80 rounded bg-black/20 border border-white/10 p-5 overflow-auto leading-relaxed">
+                      @for (row of captureTranscriptRows(); track row.key) {
+                        @if (row.kind === 'topic') {
+                          <p class="mt-5 first:mt-0 mb-2 ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ row.text }}</p>
+                        } @else if (row.kind === 'ia') {
+                          <p class="my-2 border-l-2 border-brand-400/40 pl-3 text-sm italic text-brand-200/90">{{ row.text }}</p>
+                        } @else {
+                          <div class="my-2">
+                            <p
+                              [class]="row.status === 'live'
+                                ? 'text-sm text-gray-400 italic'
+                                : 'text-sm text-gray-100'"
+                            >{{ row.text }}</p>
+                            @if (row.status === 'improved' && row.reframed) {
+                              <span
+                                class="mt-0.5 inline-flex items-center gap-1 text-[10px] text-brand-200/70"
+                                title="Texte reformulé par l’IA selon le plan de capture. Votre formulation brute reste affichée pendant que vous parlez."
+                              >
+                                <app-icon name="sparkles" [size]="10" /> Reformulé selon le plan
+                              </span>
+                            }
+                          </div>
+                        }
+                      } @empty {
+                        <div class="flex h-full flex-col items-center justify-center text-center">
+                          <p class="text-sm text-gray-400">La transcription de l’échange apparaîtra ici.</p>
+                          <p class="mt-1 text-xs text-gray-600">{{ emptyConversationHint() }}</p>
+                        </div>
+                      }
+                    </div>
+                  }
+                  @if (!isDemoMode()) {
                   <div class="flex-1 min-h-80 rounded bg-black/20 border border-white/10 p-4 overflow-auto space-y-3">
                     <article class="rounded border border-brand-400/20 bg-brand-500/10 p-4">
                       <div class="flex items-center justify-between gap-3">
-                        <span class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">Agentium</span>
+                        <span class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">IA</span>
                         <span class="text-[10px] text-gray-500">{{ currentQuestion()?.estimated_minutes || 3 }} min</span>
                       </div>
                       <p class="mt-2 text-sm text-gray-100 leading-relaxed">
@@ -1025,7 +1221,8 @@ interface ProposalFact {
                       </article>
                     }
                   </div>
-                  @if (conversationMode() === 'manual') {
+                  }
+                  @if (showAnswerComposer(s)) {
                     <textarea
                       class="w-full min-h-28 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white leading-relaxed"
                       [(ngModel)]="answer"
@@ -1035,22 +1232,33 @@ interface ProposalFact {
                   }
                 </div>
 
-                <div class="mt-4 sticky bottom-3 rounded bg-black/70 border border-white/10 p-3 backdrop-blur">
+                <div class="mt-4 sticky bottom-3 z-30 rounded bg-black/70 border border-white/10 p-3 backdrop-blur">
                   <div class="flex flex-wrap items-center gap-3">
                     @if (sessionHasStarted(s)) {
                       <button
                         type="button"
-                        class="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+                        class="inline-flex w-full items-center justify-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
                         [disabled]="transcribing() || !canCaptureExecute(s)"
                         (click)="conversationMode() === 'conversation_only' ? toggleConversationSession() : toggleRecording()"
                       >
                         <app-icon [name]="conversationPrimaryIcon()" [size]="15" />
                         {{ conversationPrimaryLabel() }}
                       </button>
+                      @if (captureStopAvailable()) {
+                        <button
+                          type="button"
+                          class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-red-500/20 hover:bg-red-500/30 text-sm font-semibold text-red-100 ring-1 ring-red-400/30 sm:w-auto"
+                          title="Couper la voix sans clôturer la capture."
+                          (click)="stopConversation()"
+                        >
+                          <app-icon name="square" [size]="14" /> Stop voix
+                        </button>
+                      }
                       @if (speaking()) {
                         <button
                           type="button"
-                          class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-sm text-amber-100 ring-1 ring-amber-400/20"
+                          class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-sm text-amber-100 ring-1 ring-amber-400/20 sm:w-auto"
+                          title="Couper la lecture et répondre tout de suite (la conversation continue)."
                           (click)="interruptSpeech()"
                         >
                           <app-icon name="pause" [size]="14" /> Interrompre
@@ -1059,7 +1267,7 @@ interface ProposalFact {
                     } @else {
                       <button
                         type="button"
-                        class="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+                        class="inline-flex w-full items-center justify-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
                         [disabled]="loading() || !canCaptureExecute(s)"
                         (click)="startGuidedSession(s)"
                       >
@@ -1067,10 +1275,10 @@ interface ProposalFact {
                         {{ planStartLabel(s) }}
                       </button>
                     }
-                    @if (conversationMode() === 'manual' && sessionHasStarted(s)) {
+                    @if (showAnswerComposer(s)) {
                       <button
                         type="button"
-                        class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
+                        class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50 sm:w-auto"
                         [disabled]="!answer.trim() || !canCaptureUpdate(s)"
                         (click)="sendAnswer(s)"
                       >
@@ -1078,14 +1286,25 @@ interface ProposalFact {
                       </button>
                       <button
                         type="button"
-                        class="inline-flex items-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
+                        class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50 sm:w-auto"
                         [disabled]="!canProposalSubmit(s)"
                         (click)="createProposal(s)"
                       >
                         <app-icon name="check-circle-2" [size]="14" /> Créer la proposition
                       </button>
                     }
-                    <div class="min-w-40 flex-1 flex items-center gap-3 rounded bg-white/[0.03] px-3 py-2">
+                    @if (sessionHasStarted(s) && s.status === 'active') {
+                      <button
+                        type="button"
+                        class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50 sm:w-auto"
+                        [disabled]="closureActionLoading() || recording() || transcribing() || !canCaptureExecute(s)"
+                        title="Clôturer la capture et produire la proposition Knowledge."
+                        (click)="applySessionClosure(s, 'finish')"
+                      >
+                        <app-icon name="check-circle-2" [size]="14" /> Terminer la capture
+                      </button>
+                    }
+                    <div class="min-w-0 w-full flex items-center gap-3 rounded bg-white/[0.03] px-3 py-2 sm:min-w-40 sm:flex-1">
                       <div class="flex h-7 items-center gap-1">
                         @for (bar of voiceWaveBars; track $index) {
                           <span
@@ -1267,8 +1486,25 @@ interface ProposalFact {
                   </div>
                   @if (retrieval().chunks.length) {
                     <div class="mt-3 space-y-2">
-                      @for (chunk of retrieval().chunks.slice(0, 3); track retrievalChunkTrack($index, chunk)) {
-                        <p class="rounded bg-black/20 border border-white/10 p-3 text-xs text-gray-400 line-clamp-3">{{ chunk }}</p>
+                      @for (chunk of retrieval().chunks.slice(0, 3); track retrievalChunkTrack($index, chunk); let ci = $index) {
+                        <div class="rounded bg-black/20 border border-white/10 p-3">
+                          <div class="flex items-start justify-between gap-2">
+                            <p class="text-xs text-gray-400 line-clamp-3">{{ chunk }}</p>
+                            @if (canPreviewRetrievalChunk(ci)) {
+                              <button
+                                type="button"
+                                class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-brand-300 hover:bg-white/5 transition"
+                                title="Prévisualiser la source"
+                                (click)="previewRetrievalChunk(ci)"
+                              >
+                                <app-icon name="eye" [size]="12" />
+                              </button>
+                            }
+                          </div>
+                          @if (retrievalChunkTitle(ci); as srcTitle) {
+                            <p class="mt-1.5 text-[10px] uppercase tracking-wider text-gray-600 truncate">{{ srcTitle }}</p>
+                          }
+                        </div>
                       }
                     </div>
                   } @else {
@@ -1326,22 +1562,26 @@ interface ProposalFact {
                 }
               </div>
 
-              <div [class]="isDemoMode() ? 'grid md:grid-cols-2 gap-3 text-sm' : 'grid md:grid-cols-3 gap-3 text-sm'">
+              <div class="grid md:grid-cols-3 gap-3 text-sm">
                 @if (isTopicOnlyPlan(s)) {
                   <div class="rounded bg-black/20 border border-white/10 p-3">
                     <div class="text-[10px] uppercase tracking-wider text-gray-500">Sous-sujets</div>
                     <div class="text-2xl text-white font-semibold">{{ planSubtopicCount(s) }}</div>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
+                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Durée estimée</div>
+                    <div class="text-2xl text-white font-semibold">{{ planDurationMinutes(s) }} min</div>
+                  </div>
+                  <div class="rounded bg-black/20 border border-white/10 p-3">
                     <div class="text-[10px] uppercase tracking-wider text-gray-500">
-                      {{ isDemoMode() ? 'Questions préparées' : 'Banque de questions' }}
+                      {{ isDemoMode() ? 'Préparation' : 'Préparation du plan' }}
                     </div>
                     <div class="text-sm text-gray-200 mt-2">{{ questionBankStatusLabel(s) }}</div>
                   </div>
                 } @else {
                   <div class="rounded bg-black/20 border border-white/10 p-3">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Questions</div>
-                    <div class="text-2xl text-white font-semibold">{{ planQuestions(s).length }}</div>
+                    <div class="text-[10px] uppercase tracking-wider text-gray-500">Sous-sujets</div>
+                    <div class="text-2xl text-white font-semibold">{{ planSubtopicCount(s) }}</div>
                   </div>
                   <div class="rounded bg-black/20 border border-white/10 p-3">
                     <div class="text-[10px] uppercase tracking-wider text-gray-500">Durée estimée</div>
@@ -1362,6 +1602,19 @@ interface ProposalFact {
                 </div>
               }
 
+              @if (isTopicOnlyPlan(s)) {
+                <div class="space-y-2">
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
+                  <textarea
+                    class="min-h-[22rem] w-full rounded border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm leading-6 text-gray-100 outline-none focus:border-brand-300 disabled:opacity-60"
+                    [ngModel]="planOutlineText(s)"
+                    (ngModelChange)="updatePlanOutlineText(s, $event)"
+                    [disabled]="!canEditPlan(s)"
+                    spellcheck="false"
+                    placeholder="1. Description de la ligne&#10;2. Optimisations&#10;   a. Upgrade de récupération d'énergie&#10;   b. Update à proposer"
+                  ></textarea>
+                </div>
+              } @else {
               <div class="space-y-4">
                 @for (topic of planTopics(s); track topic.id) {
                   <section class="rounded border border-white/10 bg-white/[0.025] p-4 space-y-4">
@@ -1374,14 +1627,10 @@ interface ProposalFact {
                           [disabled]="!canEditPlan(s)"
                           (ngModelChange)="touchPlanDraft()"
                         />
-                        <p class="mt-2 text-xs text-gray-500">{{ topic.objective || 'Objectif du sujet' }}</p>
+                        <p class="mt-2 text-xs text-gray-500">{{ outlineItemPrompt(topic) || topic.objective || 'Sujet à présenter' }}</p>
                       </div>
                       <span class="rounded bg-brand-500/10 text-brand-100 border border-brand-300/20 px-2 py-1 text-xs">
-                        @if (isTopicOnlyPlan(s)) {
-                          {{ (topic.subtopics || []).length }} sous-sujets
-                        } @else {
-                          {{ topicQuestionCount(topic) }} questions
-                        }
+                        {{ (topic.subtopics || []).length }} sous-sujets
                       </span>
                     </div>
 
@@ -1405,7 +1654,25 @@ interface ProposalFact {
                           }
                         </div>
 
-                        @if (!isTopicOnlyPlan(s)) {
+                        @if (isTopicOnlyPlan(s) && (subtopic.questions || []).length) {
+                          <div class="space-y-1.5">
+                            <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">Points à présenter</p>
+                            @for (point of subtopic.questions || []; track point.id) {
+                              <div class="rounded border border-white/10 bg-white/[0.03] px-3 py-2">
+                                <p class="text-xs text-gray-200 leading-relaxed">{{ outlineItemLabel(point) || 'Point à présenter' }}</p>
+                              </div>
+                            }
+                          </div>
+                        }
+
+                        @if (!isTopicOnlyPlan(s) && isDemoMode()) {
+                          @for (q of subtopic.questions || []; track q.id) {
+                            <div class="rounded border border-white/10 bg-white/[0.03] p-3">
+                              <p class="text-sm text-gray-100 leading-relaxed">{{ outlineItemLabel(q) || 'Point à présenter' }}</p>
+                            </div>
+                          }
+                        }
+                        @if (!isTopicOnlyPlan(s) && !isDemoMode()) {
                           @for (q of subtopic.questions || []; track q.id; let i = $index) {
                           <div
                             class="rounded border border-white/10 bg-white/[0.03] p-4"
@@ -1490,6 +1757,8 @@ interface ProposalFact {
                   </section>
                 }
               </div>
+              }
+
             </div>
 
             <aside class="t-card rounded-lg p-5 space-y-4 xl:sticky xl:top-4">
@@ -1502,17 +1771,23 @@ interface ProposalFact {
                 </h3>
               </div>
               @if (isTopicOnlyPlan(s)) {
-                <div class="rounded bg-black/20 border border-white/10 p-3 text-xs text-gray-300">
-                  {{ questionBankStatusLabel(s) }}
+                <div class="rounded bg-black/20 border border-white/10 px-3 py-2.5" role="status" aria-live="polite">
+                  <div class="flex items-center gap-2">
+                    @if ((s.plan.question_bank_status || questionBankStatus()) === 'generating') {
+                      <app-icon name="check-circle-2" [size]="13" class="shrink-0 text-emerald-300" />
+                      <span class="text-xs text-gray-300">{{ questionBankStatusLabel(s) }}</span>
+                      <span class="ml-auto shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[9px] uppercase tracking-wider text-gray-500">
+                        prêt
+                      </span>
+                    } @else if ((s.plan.question_bank_status || questionBankStatus()) === 'ready') {
+                      <app-icon name="check-circle-2" [size]="13" class="shrink-0 text-emerald-300" />
+                      <span class="text-xs text-gray-300">{{ questionBankStatusLabel(s) }}</span>
+                    } @else {
+                      <app-icon name="info" [size]="13" class="shrink-0 text-gray-500" />
+                      <span class="text-xs text-gray-400">{{ questionBankStatusLabel(s) }}</span>
+                    }
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500/80 hover:bg-brand-400 text-xs font-semibold text-white disabled:opacity-40"
-                  [disabled]="planDialogueLoading() || !canEditPlan(s)"
-                  (click)="validatePlanTopics(s)"
-                >
-                  {{ isDemoMode() ? 'Confirmer la trame' : 'Valider les sujets' }}
-                </button>
               }
               @if (!isDemoMode()) {
               <div class="space-y-2 text-xs">
@@ -1573,11 +1848,15 @@ interface ProposalFact {
                 </div>
               </div>
               }
+              @if (isDemoMode()) {
+                <p class="text-[10px] uppercase tracking-wider text-brand-300/80">Action principale</p>
+              }
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-3 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
                 [disabled]="loading() || !canCaptureExecute(s) || !canStartSessionPlan(s)"
-                [title]="planBlockingReason(s) || ''"
+                [title]="planBlockingReason(s)
+                  || 'Démarrez l’échange maintenant. La préparation des angles continue en arrière-plan.'"
                 (click)="startGuidedSession(s)"
               >
                 <app-icon [name]="planStartIcon(s)" [size]="14" /> {{ planStartLabel(s) }}
@@ -1588,6 +1867,68 @@ interface ProposalFact {
             </aside>
           </section>
         } @else {
+          @if (planSourceStep()) {
+            <section class="max-w-5xl mx-auto py-8 space-y-7">
+              <div>
+                <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Étape 3 · Source du plan</p>
+                <h2 class="mt-2 text-3xl text-white font-semibold">Donner le texte source</h2>
+                <p class="mt-2 text-sm text-gray-400 max-w-3xl">
+                  Fichier, copier-coller ou saisie libre : Agentium reconstruit ensuite un bloc de plan éditable.
+                </p>
+              </div>
+
+              <section class="rounded-lg border border-white/10 bg-white/[0.03] p-5 space-y-4">
+                <div class="flex flex-wrap items-center gap-3">
+                  <label class="inline-flex cursor-pointer items-center gap-2 rounded bg-brand-500/20 px-4 py-2.5 text-sm font-semibold text-brand-100 ring-1 ring-brand-300/20 hover:bg-brand-500/30">
+                    <app-icon name="upload" [size]="14" /> Fichier
+                    <input
+                      type="file"
+                      class="hidden"
+                      accept=".txt,.text,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.rtf,.html,.htm,.xml,.log,.pdf,.docx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      (change)="onProvidedPlanFile($event)"
+                    />
+                  </label>
+                  @if (providedPlanFileName) {
+                    <span class="max-w-full truncate text-sm text-gray-300">{{ providedPlanFileName }}</span>
+                  }
+                  @if (extractingPlanSource()) {
+                    <span class="inline-flex items-center gap-2 text-sm text-brand-100">
+                      <app-icon name="loader-2" [size]="14" class="animate-spin" /> Extraction...
+                    </span>
+                  }
+                </div>
+                <textarea
+                  class="min-h-[24rem] w-full rounded border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm leading-6 text-gray-100 outline-none focus:border-brand-300 disabled:opacity-60"
+                  [(ngModel)]="providedPlanText"
+                  [disabled]="extractingPlanSource()"
+                  spellcheck="false"
+                  placeholder="Description de la ligne Godot&#10;Optimisations&#10;- Upgrade récupération d'énergie&#10;- Update à proposer&#10;&#10;Ou collez simplement un texte brut, même non hiérarchisé."
+                ></textarea>
+                @if (!providedPlanText.trim()) {
+                  <p class="text-xs text-amber-200/90">Ajoutez un texte source pour construire le bloc de plan.</p>
+                }
+              </section>
+
+              <div class="flex items-center justify-between gap-3 pt-4">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-2 px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-300 ring-1 ring-white/10"
+                  (click)="backToPlanModeSelection()"
+                >
+                  <app-icon name="arrow-left" [size]="14" /> Retour
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black disabled:opacity-50"
+                  [disabled]="loading() || extractingPlanSource() || !canSubmitProvidedPlanSource()"
+                  (click)="createPlan()"
+                >
+                  {{ loading() ? 'Construction...' : 'Construire le bloc plan' }}
+                  <app-icon name="arrow-right" [size]="14" />
+                </button>
+              </div>
+            </section>
+          } @else {
           <section class="max-w-5xl mx-auto py-8 space-y-7">
             <div>
               <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Étape 2 · Mode de capture</p>
@@ -1596,8 +1937,8 @@ interface ProposalFact {
               </h2>
               <p class="mt-2 text-sm text-gray-400 max-w-3xl">
                 {{ isDemoMode()
-                  ? 'Démarrez une conversation libre ou laissez Agentium préparer une trame simple avant l’échange.'
-                  : 'Pour un pilote, la capture libre va directement à l’échange. Le plan guidé reste disponible quand il faut sécuriser une trame d’entretien.' }}
+                  ? 'Démarrez une conversation libre ou laissez l’IA préparer un plan simple avant l’échange.'
+                  : 'Pour un pilote, la capture libre va directement à l’échange. Le plan guidé reste disponible quand il faut sécuriser un plan d’entretien.' }}
               </p>
             </div>
 
@@ -1624,11 +1965,6 @@ interface ProposalFact {
                     <span class="min-w-0 flex-1">
                       <span class="flex flex-wrap items-center gap-2">
                         <span class="text-base font-semibold text-white">{{ mode.label }}</span>
-                        @if (mode.recommended) {
-                          <span class="ck-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded border border-brand-300/40 text-brand-200">
-                            Recommandé
-                          </span>
-                        }
                       </span>
                       <span class="mt-1 block text-sm text-gray-500">{{ mode.description }}</span>
                     </span>
@@ -1646,29 +1982,6 @@ interface ProposalFact {
               }
             </div>
 
-            @if (selectedPlanMode === 'plan_build' || selectedPlanMode === 'provided_plan') {
-              <section class="rounded-lg border border-white/10 bg-white/[0.03] p-5 space-y-3">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan document (optionnel)</p>
-                <p class="text-sm text-gray-400">
-                  Importez un fichier .txt ou .md, ou collez un plan structuré (# sujets, ## sous-sujets, puces).
-                </p>
-                <input
-                  type="file"
-                  accept=".txt,.md,text/plain,text/markdown"
-                  class="block w-full text-sm text-gray-400 file:mr-3 file:rounded file:border-0 file:bg-brand-500/20 file:px-3 file:py-2 file:text-brand-100"
-                  (change)="onProvidedPlanFile($event)"
-                />
-                <textarea
-                  class="w-full min-h-28 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white font-mono"
-                  [(ngModel)]="providedPlanText"
-                  placeholder="# Sujet principal&#10;## Sous-sujet A&#10;- Point à clarifier"
-                ></textarea>
-                @if (selectedPlanMode === 'provided_plan' && !providedPlanText.trim()) {
-                  <p class="text-xs text-amber-200/90">Un plan fourni est requis pour ce mode.</p>
-                }
-              </section>
-            }
-
             <div class="flex items-center justify-between gap-3 pt-4">
               <button
                 type="button"
@@ -1681,13 +1994,14 @@ interface ProposalFact {
                 type="button"
                 class="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black disabled:opacity-50"
                 [disabled]="loading() || !canCreateSelectedPlan()"
-                (click)="createPlan()"
+                (click)="continuePlanModeSelection()"
               >
                 {{ loading() ? 'Préparation...' : planModeActionLabel() }}
                 <app-icon name="arrow-right" [size]="14" />
               </button>
             </div>
           </section>
+          }
         }
       }
 
@@ -1702,9 +2016,9 @@ interface ProposalFact {
                 <h2 class="mt-2 text-2xl text-white font-semibold">{{ s.title }}</h2>
                 <p class="mt-2 text-sm text-gray-400">
                   @if (isProvidedPlanSession(s)) {
-                    Ajustez l’arborescence importée, validez les sujets puis la banque de questions internes.
+                    Ajustez l’arborescence importée, puis validez les sujets.
                   } @else {
-                    Validez l’arborescence de sujets — les questions d’entretien restent internes.
+                    Validez l’arborescence de sujets.
                   }
                 </p>
               </div>
@@ -1720,66 +2034,18 @@ interface ProposalFact {
                     }
                   </section>
                 }
-                @if (oracle.coverage_gaps?.length) {
-                  <section class="rounded border border-white/10 bg-black/20 p-4 space-y-2">
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Manques Knowledge</p>
-                    @for (gap of oracle.coverage_gaps; track gap.slug || gap.title || $index) {
-                      <article class="text-sm text-gray-300">
-                        <p class="font-medium text-gray-100">{{ gap.title }}</p>
-                        @if (gap.description) {
-                          <p class="text-xs text-gray-500 mt-0.5">{{ gap.description }}</p>
-                        }
-                      </article>
-                    }
-                  </section>
-                }
               }
-              <div class="space-y-3">
-                @for (topic of planTopics(s); track topic.id) {
-                  <section class="rounded border border-white/10 bg-white/[0.025] p-4 space-y-3">
-                    <input
-                      class="w-full rounded bg-black/20 border border-white/10 px-3 py-2 text-base font-semibold text-white"
-                      [(ngModel)]="topic.title"
-                      (ngModelChange)="touchPlanDraft()"
-                    />
-                    @if (planTopicRationale(topic); as rationale) {
-                      <p class="text-xs text-gray-400 leading-relaxed">{{ rationale }}</p>
-                    }
-                    @if (topic.oracle_confidence != null) {
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">
-                        Confiance oracle {{ (topic.oracle_confidence * 100) | number:'1.0-0' }}%
-                      </p>
-                    }
-                    @for (subtopic of topic.subtopics || []; track subtopic.id) {
-                      <div class="rounded border border-white/10 bg-black/15 p-3 space-y-2">
-                        <input
-                          class="w-full rounded bg-black/20 border border-white/10 px-3 py-2 text-sm font-semibold text-gray-100"
-                          [(ngModel)]="subtopic.title"
-                          (ngModelChange)="touchPlanDraft()"
-                        />
-                        <textarea
-                          class="w-full min-h-16 rounded bg-black/20 border border-white/10 px-3 py-2 text-xs text-gray-300"
-                          [(ngModel)]="subtopic.objective"
-                          (ngModelChange)="touchPlanDraft()"
-                          placeholder="Objectif du sous-sujet..."
-                        ></textarea>
-                      </div>
-                    }
-                  </section>
-                } @empty {
-                  <div class="rounded border border-dashed border-white/10 bg-black/20 p-6 text-sm text-gray-500">
-                    L’oracle proposera des sujets après vos premiers échanges de cadrage.
-                  </div>
-                }
+              <div class="space-y-2">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
+                <textarea
+                  class="min-h-[22rem] w-full rounded border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm leading-6 text-gray-100 outline-none focus:border-brand-300 disabled:opacity-60"
+                  [ngModel]="planOutlineText(s)"
+                  (ngModelChange)="updatePlanOutlineText(s, $event)"
+                  [disabled]="!canEditPlan(s)"
+                  spellcheck="false"
+                  placeholder="1. Description de la ligne&#10;2. Optimisations&#10;   a. Upgrade de récupération d'énergie&#10;   b. Update à proposer"
+                ></textarea>
               </div>
-              <button
-                type="button"
-                class="inline-flex items-center gap-2 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white disabled:opacity-40"
-                [disabled]="!planTopics(s).length || planDialogueLoading()"
-                (click)="validatePlanTopics(s)"
-              >
-                Valider les sujets
-              </button>
             </div>
             <aside class="t-card rounded-lg p-5 space-y-4">
               <div>
@@ -1793,22 +2059,59 @@ interface ProposalFact {
                   <p class="text-sm text-gray-500">Aucun échange pour l’instant.</p>
                 }
               </div>
-              <textarea
-                class="w-full min-h-24 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
-                [(ngModel)]="planDialogueAnswer"
-                placeholder="Votre réponse..."
-              ></textarea>
-              <div class="flex flex-wrap gap-2">
-                <button type="button" class="px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white" [disabled]="planDialogueLoading()" (click)="submitPlanDialogueTurn(s)">
-                  Envoyer
-                </button>
-                <button type="button" class="px-4 py-2 rounded bg-white/5 text-sm text-gray-200" [disabled]="!planDialogueReady(s) || planDialogueLoading()" (click)="finalizePlanBuild(s)">
-                  Préparer le plan
-                </button>
-                <button type="button" class="inline-flex items-center gap-2 px-4 py-2 rounded bg-white/5 text-sm text-gray-300" (click)="dictatePlanDialogue()">
-                  <app-icon name="mic" [size]="14" /> Dictée
+              <div class="flex items-start gap-2">
+                <textarea
+                  class="w-full min-h-24 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white disabled:opacity-60"
+                  [(ngModel)]="planDialogueAnswer"
+                  [disabled]="planDialogueLoading()"
+                  placeholder="Votre réponse…"
+                ></textarea>
+                <button
+                  type="button"
+                  class="shrink-0 inline-flex h-11 w-11 items-center justify-center rounded-full bg-brand-500/20 text-brand-100 ring-1 ring-brand-300/30 hover:bg-brand-500/30"
+                  [attr.aria-label]="recording() ? 'Arrêter et transcrire la dictée' : 'Dicter la réponse'"
+                  [title]="recording() ? 'Arrêter et transcrire la dictée' : 'Dicter la réponse'"
+                  (click)="dictatePlanDialogue()"
+                >
+                  <app-icon [name]="recording() ? 'square' : 'mic'" [size]="16" />
                 </button>
               </div>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-2 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white disabled:opacity-50"
+                  title="Ajoute votre réponse au cadrage et met à jour le plan de sujets proposé."
+                  [disabled]="planDialogueLoading()"
+                  (click)="submitPlanDialogueTurn(s)"
+                >
+                  @if (planDialogueLoading()) {
+                    <span class="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin"></span>
+                    Analyse…
+                  } @else {
+                    Envoyer
+                  }
+                </button>
+                <button
+                  type="button"
+                  class="px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
+                  title="Valide le plan de sujets co-construit pendant le cadrage. Disponible dès qu’un sujet existe."
+                  [disabled]="(!planDialogueReady(s) && !planTopics(s).length) || planDialogueLoading()"
+                  (click)="finalizePlanBuild(s)"
+                >
+                  Valider le plan
+                </button>
+              </div>
+              @if (planDialogueLoading()) {
+                <p class="flex items-center gap-2 text-[11px] leading-relaxed text-brand-200/90">
+                  <span class="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-brand-200/40 border-t-brand-200 animate-spin"></span>
+                  L’assistant analyse votre description et met à jour le plan de sujets…
+                </p>
+              } @else if (planDialogueReadyHint(s); as hint) {
+                <p class="text-[11px] leading-relaxed text-amber-200/85">{{ hint }}</p>
+              }
+              @if (planDialogueNotice(); as notice) {
+                <p [class]="planNoticeClass(notice.tone)">{{ notice.text }}</p>
+              }
             </aside>
           </section>
         }
@@ -1824,7 +2127,7 @@ interface ProposalFact {
                   {{ proposal()?.proposal?.title || session()?.title || 'Relire les changements avant ingestion' }}
                 </h2>
                 <p class="text-sm text-gray-500 mt-1 max-w-3xl">
-                  La revue se fait au niveau des faits, avec une trace conversationnelle auditable en arrière-plan.
+                  Rapport structuré selon le plan, librement éditable avant validation et publication.
                 </p>
               </div>
               @if (proposal(); as p) {
@@ -1832,105 +2135,25 @@ interface ProposalFact {
               }
             </div>
 
-            @if (proposalFacts().length) {
-              <div class="space-y-3">
-                @for (fact of proposalFacts(); track proposalFactTrack($index, fact)) {
-                  <article [class]="proposalFactCardClass($index, fact)">
-                    <div class="flex items-start justify-between gap-3">
-                      <div class="min-w-0">
-                        <div class="flex flex-wrap items-center gap-2">
-                          <span class="ck-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-brand-500/15 text-brand-200">
-                            {{ proposalFactType(fact) }}
-                          </span>
-                          <span class="text-xs text-gray-500">{{ proposalFactConfidence(fact) }}</span>
-                          <span
-                            [class]="proposalFactDecision($index, fact) === 'accept'
-                              ? 'text-xs text-emerald-200'
-                              : proposalFactDecision($index, fact) === 'reject'
-                                ? 'text-xs text-red-200'
-                                : 'text-xs text-gray-500'"
-                          >
-                            {{ proposalFactDecisionLabel($index, fact) }}
-                          </span>
-                          @if (fact.amended) {
-                            <span class="text-xs text-amber-200">Corrigé par humain</span>
-                          }
-                        </div>
-                        @if (editingProposalFactKey() === proposalFactKey($index, fact)) {
-                          <textarea
-                            class="mt-3 w-full min-h-24 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
-                            [ngModel]="proposalFactEditText"
-                            (ngModelChange)="proposalFactEditText = $event"
-                          ></textarea>
-                          <div class="mt-2 flex gap-2">
-                            <button type="button" class="px-3 py-1.5 rounded bg-brand-500 hover:bg-brand-400 text-xs text-white" (click)="saveProposalFactEdit($index, fact)">
-                              Enregistrer
-                            </button>
-                            <button type="button" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300" (click)="cancelProposalFactEdit()">
-                              Annuler
-                            </button>
-                          </div>
-                        } @else {
-                          <p class="mt-3 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ proposalFactReviewText($index, fact) }}</p>
-                        }
-                        @if (fact.raw_text && fact.raw_text !== proposalFactText(fact)) {
-                          <p class="mt-2 text-xs text-gray-500">Raw: {{ fact.raw_text }}</p>
-                        }
-                      </div>
-                      <div class="shrink-0 grid gap-1.5 w-28">
-                        <button
-                          type="button"
-                          [class]="proposalFactDecision($index, fact) === 'accept'
-                            ? 'px-2 py-1.5 rounded bg-emerald-500/20 text-xs text-emerald-100 ring-1 ring-emerald-400/30'
-                            : 'px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300 ring-1 ring-white/10'"
-                          (click)="setProposalFactDecision($index, fact, 'accept')"
-                        >
-                          Accepter
-                        </button>
-                        <button
-                          type="button"
-                          [class]="proposalFactDecision($index, fact) === 'reject'
-                            ? 'px-2 py-1.5 rounded bg-red-500/20 text-xs text-red-100 ring-1 ring-red-400/30'
-                            : 'px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300 ring-1 ring-white/10'"
-                          (click)="setProposalFactDecision($index, fact, 'reject')"
-                        >
-                          Rejeter
-                        </button>
-                        <button
-                          type="button"
-                          class="px-2 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-300 ring-1 ring-white/10"
-                          (click)="beginProposalFactEdit($index, fact)"
-                        >
-                          Modifier
-                        </button>
-                      </div>
-                    </div>
-                    @if (fact.retrieval_refs?.length) {
-                      <div class="mt-3 rounded bg-white/[0.03] border border-white/10 p-3">
-                        <div class="text-[10px] uppercase tracking-wider text-gray-500">Preuves</div>
-                        @for (ref of (fact.retrieval_refs || []).slice(0, 2); track ref.title || ref.source || ref.preview) {
-                          <p class="mt-2 text-xs text-gray-400 line-clamp-2">
-                            <span class="text-gray-300">{{ ref.title || ref.source || 'Contexte retrouvé' }}</span>
-                            @if (ref.preview) { · {{ ref.preview }} }
-                          </p>
-                        }
-                      </div>
-                    }
-                  </article>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <label class="block text-[10px] uppercase tracking-wider text-brand-300">Rapport final éditable</label>
+                @if (proposalReportDirty()) {
+                  <span class="text-[11px] text-amber-200">Modifications non enregistrées</span>
                 }
               </div>
-            } @else {
-              <div class="rounded border border-dashed border-white/10 bg-black/20 p-8 text-center text-gray-500">
-                Aucun fait structuré pour l’instant. Capturez ou amendez au moins une réponse expert substantielle, puis créez la proposition.
-              </div>
-            }
-
-            @if (proposal()?.proposal?.recommended_ingestion?.content) {
-              <details class="rounded border border-white/10 bg-black/20 p-3">
-                <summary class="cursor-pointer text-sm text-gray-300">Aperçu d’ingestion Markdown</summary>
-                <pre class="mt-3 whitespace-pre-wrap text-xs text-gray-400 max-h-72 overflow-auto">{{ proposal()?.proposal?.recommended_ingestion?.content }}</pre>
-              </details>
-            }
+              <textarea
+                class="w-full min-h-[520px] rounded bg-black/30 border border-white/10 px-4 py-3 font-mono text-sm leading-relaxed text-gray-100 resize-y"
+                [ngModel]="proposalReportDraft"
+                (ngModelChange)="onProposalReportChange($event)"
+                placeholder="Le rapport structuré apparaîtra ici."
+              ></textarea>
+              @if (!proposalReportText()) {
+                <div class="rounded border border-dashed border-white/10 bg-black/20 p-5 text-sm text-gray-500">
+                  Aucun rapport exploitable pour l’instant. Reprenez la capture ou régénérez la proposition après avoir ajouté une information métier substantielle.
+                </div>
+              }
+            </div>
             @if (closureSheetMarkdown()) {
               <details class="rounded border border-white/10 bg-black/20 p-3">
                 <summary class="cursor-pointer text-sm text-gray-300">Fiche fin de session</summary>
@@ -1949,20 +2172,20 @@ interface ProposalFact {
             </div>
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Faits</div>
-                <div class="text-xl text-white font-semibold">{{ proposalFacts().length }}</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Rapport</div>
+                <div class="text-xl text-white font-semibold">{{ proposalReportWordCount() }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-gray-500">Preuves</div>
                 <div class="text-xl text-white font-semibold">{{ proposalEvidenceCount() }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Acceptés</div>
-                <div class="text-xl text-white font-semibold">{{ acceptedProposalFactCount() }}</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Relances</div>
+                <div class="text-xl text-white font-semibold">{{ proposalOpenQuestions().length }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Rejetés</div>
-                <div class="text-xl text-white font-semibold">{{ rejectedProposalFactCount() }}</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">État</div>
+                <div class="text-sm text-white font-semibold">{{ proposalReviewStateLabel() }}</div>
               </div>
             </div>
             @if (proposalOpenQuestions().length) {
@@ -2006,7 +2229,7 @@ interface ProposalFact {
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50"
-                [disabled]="!proposalFacts().length || !canProposalReview(p)"
+                [disabled]="!proposalReportText() || proposalReportSaving() || !canProposalReview(p)"
                 [title]="proposalReviewHint(p)"
                 (click)="acceptProposal(p.id)"
               >
@@ -2029,6 +2252,14 @@ interface ProposalFact {
               }
               <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" (click)="exportProposalMd()">
                 Exporter en Markdown
+              </button>
+              <button
+                type="button"
+                class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200 disabled:opacity-50"
+                [disabled]="!proposalReportDirty() || proposalReportSaving() || !proposalReportText()"
+                (click)="saveProposalReport(p.id)"
+              >
+                {{ proposalReportSaving() ? 'Enregistrement…' : 'Enregistrer le rapport' }}
               </button>
               <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" [disabled]="!session()" (click)="regenerateProposal()">
                 Régénérer la proposition
@@ -2071,8 +2302,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     const settings = this.asRecord(this.workspace.current()?.settings);
     const voiceOutput = this.asRecord(settings['voice_output']);
     return {
-      latency_profile: 'fast',
+      // 'quality' maps to gpt-4o-mini-tts in voice_runtime (vs the muffled
+      // tts-1 used by 'fast'). Workspace settings can still override this.
+      latency_profile: 'quality',
       voice: 'nova',
+      format: 'mp3',
       flush_first_chars: 24,
       flush_next_chars: 80,
       flush_timeout_ms: 900,
@@ -2093,6 +2327,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   selectedDomain = 'technical';
   selectedPlanMode: CapturePlanMode = 'free_conversation';
   providedPlanText = '';
+  providedPlanFileName = '';
   planDialogueAnswer = '';
   executiveSummary = '';
   dashboardDomainFilter = '';
@@ -2107,6 +2342,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly planDialogueLoading = signal(false);
   readonly planDialogueReadyFlag = signal(false);
   readonly planDialogueNextPrompt = signal<string | null>(null);
+  readonly planSourceStep = signal(false);
+  readonly extractingPlanSource = signal(false);
+  private readonly planOutlineDrafts = new Map<string, string>();
+  readonly planDialogueNotice = signal<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
   readonly hintStack = signal<CaptureHint[]>([]);
   readonly activeSubtopicId = signal<string | null>(null);
   readonly questionBankStatus = signal<string>('idle');
@@ -2124,16 +2363,16 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.isDemoMode()) {
       return [
         {
-          id: 'ai_plan' as CapturePlanMode,
-          label: 'Agentium prépare une trame',
-          description: 'L’assistant propose quelques sujets pour structurer l’échange avec l’expert.',
-          icon: 'zap',
-          recommended: true,
+          id: 'plan_build' as CapturePlanMode,
+          label: 'Session avec plan',
+          description: 'L’expert décrit le sujet (voix ou texte) et l’IA co-construit un plan de sujets ancré sur ses propos.',
+          icon: 'layout-grid',
+          recommended: false,
         },
         {
           id: 'free_conversation' as CapturePlanMode,
           label: 'Démarrer directement',
-          description: 'L’expert parle librement, Agentium extrait les points importants au fil de l’échange.',
+          description: 'L’expert parle librement, l’IA extrait les points importants au fil de l’échange.',
           icon: 'activity',
           recommended: false,
         },
@@ -2152,26 +2391,26 @@ export class KnowledgeCaptureComponent implements OnInit {
         label: 'Capture libre',
         description: 'Conversation directe, sans plan ni questions imposées.',
         icon: 'activity',
-        recommended: true,
+        recommended: false,
       },
       {
         id: 'plan_build',
         label: 'Construire un plan',
-        description: 'Échanges de cadrage vocaux ou texte, upload optionnel, puis plan hiérarchique.',
+        description: 'Échanges de cadrage vocaux ou texte, puis bloc de plan éditable.',
         icon: 'layout-grid',
         recommended: false,
       },
       {
         id: 'provided_plan',
         label: 'Plan fourni',
-        description: 'Collez ou importez un plan (.txt/.md) — arborescence sujets puis validation.',
+        description: 'Fichier ou texte libre, transformé en bloc de plan éditable.',
         icon: 'file-text',
         recommended: false,
       },
       {
         id: 'ai_plan',
         label: 'L’IA propose un plan',
-        description: 'Génère une trame d’entretien depuis le sujet, le profil expert et le contexte Knowledge.',
+        description: 'Génère un plan d’entretien depuis le sujet, le profil expert et le contexte Knowledge.',
         icon: 'zap',
         recommended: false,
       },
@@ -2243,6 +2482,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly transcribing = signal(false);
   readonly speaking = signal(false);
   readonly conversationSessionActive = signal(false);
+  readonly textFallbackActive = signal(false);
   readonly voiceState = signal<Voice2VoiceState>('idle');
   readonly voiceNotice = signal<string | null>(null);
   readonly voiceNoticeTone = signal<VoiceNoticeTone>('info');
@@ -2256,6 +2496,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly proposalFactDecisions = signal<Record<string, ProposalFactDecision>>({});
   readonly proposalFactEdits = signal<Record<string, string>>({});
   readonly editingProposalFactKey = signal<string | null>(null);
+  readonly proposalReportDirty = signal(false);
+  readonly proposalReportSaving = signal(false);
   readonly closureSheetMarkdown = signal<string | null>(null);
   readonly closurePanelDismissed = signal(false);
   readonly closureActionLoading = signal(false);
@@ -2271,6 +2513,18 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly editingEventId = signal<string | null>(null);
   editingText = '';
   proposalFactEditText = '';
+  proposalReportDraft = '';
+  readonly sourcePreviewOpen = signal(false);
+  readonly sourcePreviewUrl = signal<string | null>(null);
+  readonly sourcePreviewTitle = signal('');
+  readonly liveTranscript = signal<{ id: string; text: string; status: 'live' | 'improved'; reframed?: boolean } | null>(
+    null,
+  );
+  readonly relanceAnnotations = signal<Array<{ id: string; order: number; text: string; kind: RelanceKind }>>([]);
+  // New non-blocking model: oracle's own working questions, passive suggestions.
+  readonly oracleOpenQuestions = signal<OracleOpenQuestion[]>([]);
+  readonly captureSuggestions = signal<CaptureLiveSuggestion[]>([]);
+  private dismissedSuggestionKeys = new Set<string>();
 
   readonly surfaceNav: Array<{ id: CaptureSurfaceView; label: string; icon: string; step: number }> = [
     { id: 'dashboard', label: 'Sessions', icon: 'layout-dashboard', step: 1 },
@@ -2313,6 +2567,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   private pendingVoiceFrameSends: Promise<void>[] = [];
   private revokedAudioUrls: string[] = [];
   private autoResumeTimer: ReturnType<typeof setTimeout> | null = null;
+  private transcriptionWatchdog: number | null = null;
+  private conversationProcessingWatchdog: number | null = null;
   private lastSuggestedContextName = '';
 
   ngOnInit(): void {
@@ -2393,10 +2649,13 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.durationMinutes = 20;
     this.durationUnlimited.set(false);
     this.selectedDomain = 'technical';
-    this.selectedPlanMode = this.isDemoMode() ? 'ai_plan' : 'free_conversation';
+    this.selectedPlanMode = this.isDemoMode() ? 'plan_build' : 'free_conversation';
     this.providedPlanText = '';
+    this.providedPlanFileName = '';
     this.planDialogueAnswer = '';
     this.executiveSummary = '';
+    this.planSourceStep.set(false);
+    this.extractingPlanSource.set(false);
     this.conversationMode.set(this.isDemoMode() ? 'conversation_only' : 'manual');
     this.activeSurface.set('prep');
   }
@@ -2412,6 +2671,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     this.resetCurrentCaptureSessionState();
+    this.planSourceStep.set(false);
     this.activeSurface.set('plan');
   }
 
@@ -2442,7 +2702,13 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.planDialogueReadyFlag.set(false);
     this.planDialogueNextPrompt.set(null);
     this.lastConversationStep.set(null);
+    this.textFallbackActive.set(false);
     this.retrieval.set({ status: 'idle', chunks: [], scores: [], metadatas: [] });
+    this.liveTranscript.set(null);
+    this.relanceAnnotations.set([]);
+    this.oracleOpenQuestions.set([]);
+    this.captureSuggestions.set([]);
+    this.dismissedSuggestionKeys.clear();
     this.currentClientTurnId = null;
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
@@ -2456,6 +2722,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     const title = this.sessionTitle.trim();
     if (!title) {
       this.setVoiceNotice('Renseignez un titre de session avant de continuer.', 'warning');
+      return;
+    }
+    if (this.selectedPlanMode === 'provided_plan' && !this.canSubmitProvidedPlanSource()) {
+      this.setVoiceNotice('Ajoutez un texte source pour construire le plan.', 'warning');
+      this.planSourceStep.set(true);
       return;
     }
     this.loading.set(true);
@@ -2490,6 +2761,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.refreshEvents(typed.id);
           this.refreshDashboard();
           if (this.isPlanBuildSession(typed)) {
+            this.planSourceStep.set(false);
             this.activeSurface.set('plan_build');
             this.planDialogueNextPrompt.set(this.planDialoguePromptFor(typed));
           } else {
@@ -2509,6 +2781,9 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (!entry || entry.disabled) return;
     if (mode === 'ai_plan' || mode === 'provided_plan' || mode === 'free_conversation' || mode === 'plan_build') {
       this.selectedPlanMode = mode;
+      if (mode !== 'provided_plan') {
+        this.planSourceStep.set(false);
+      }
       if (mode === 'free_conversation') {
         this.conversationMode.set('conversation_only');
       }
@@ -2519,19 +2794,32 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   canCreateSelectedPlan(): boolean {
-    if (!this.canCaptureCreate() || !this.sessionTitle.trim()) return false;
-    if (this.selectedPlanMode === 'provided_plan') {
-      return this.providedPlanText.trim().length >= 12;
-    }
-    return true;
+    return this.canCaptureCreate() && Boolean(this.sessionTitle.trim());
+  }
+
+  canSubmitProvidedPlanSource(): boolean {
+    return this.canCreateSelectedPlan() && this.providedPlanText.trim().length >= 3;
   }
 
   planModeActionLabel(): string {
     if (this.selectedPlanMode === 'free_conversation') return 'Créer la session';
     if (this.selectedPlanMode === 'ai_plan') return 'Générer le plan';
     if (this.selectedPlanMode === 'plan_build') return 'Co-construire le plan';
-    if (this.selectedPlanMode === 'provided_plan') return 'Importer le plan';
+    if (this.selectedPlanMode === 'provided_plan') return 'Continuer';
     return 'Préparer la session';
+  }
+
+  continuePlanModeSelection(): void {
+    if (!this.canCreateSelectedPlan()) return;
+    if (this.selectedPlanMode === 'provided_plan') {
+      this.planSourceStep.set(true);
+      return;
+    }
+    this.createPlan();
+  }
+
+  backToPlanModeSelection(): void {
+    this.planSourceStep.set(false);
   }
 
   canNavigateTo(view: CaptureSurfaceView): boolean {
@@ -2541,7 +2829,13 @@ export class KnowledgeCaptureComponent implements OnInit {
       if (!current) {
         return this.canCaptureCreate() && Boolean(this.sessionTitle.trim());
       }
-      return !this.isFreeConversationSession(current) && !this.isPlanBuildSession(current);
+      if (this.isFreeConversationSession(current)) return false;
+      if (this.isPlanBuildSession(current)) {
+        // Trame tab unlocks once the co-construction produced an outline
+        // (finalizePlanBuild moves the surface to 'plan' even on plan_build_v2).
+        return this.planTopics(current).length > 0;
+      }
+      return true;
     }
     if (view === 'plan_build') {
       return Boolean(current) && this.isPlanBuildSession(current!);
@@ -2559,6 +2853,9 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   goSurface(view: CaptureSurfaceView): void {
     if (!this.canNavigateTo(view)) return;
+    if (view === 'prep' || view === 'dashboard') {
+      this.planSourceStep.set(false);
+    }
     this.activeSurface.set(view);
     if (view === 'dashboard') {
       this.refreshDashboard();
@@ -2604,6 +2901,21 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     this.loading.set(true);
+    // The explicit "Valider les sujets" gate is gone, so persist any inline
+    // edits to the topics before starting. The backend auto-triggers
+    // question-bank generation on start when idle, so no confirm step is needed.
+    const topics = this.planTopics(session);
+    if (this.isTopicOnlyPlan(session) && topics.length) {
+      try {
+        await firstValueFrom(
+          this.api
+            .updateCapturePlanTopics(session.id, topics as unknown as Record<string, unknown>[])
+            .pipe(takeUntilDestroyed(this.destroyRef)),
+        );
+      } catch {
+        // Non-blocking: start the session even if the topics PATCH fails.
+      }
+    }
     let conversationOnly = this.conversationMode() === 'conversation_only';
     let armed = true;
     if (conversationOnly) {
@@ -2614,8 +2926,11 @@ export class KnowledgeCaptureComponent implements OnInit {
         this.conversationSessionActive.set(false);
         this.voiceState.set('idle');
         this.conversationMode.set('manual');
+        this.textFallbackActive.set(true);
         conversationOnly = false;
         this.setVoiceNotice('Micro indisponible : la session démarre en saisie guidée, sans bloquer le parcours.', 'warning');
+      } else {
+        this.textFallbackActive.set(false);
       }
     }
     this.api
@@ -2747,6 +3062,10 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.proposalFactEdits.set({});
       this.editingProposalFactKey.set(null);
       this.proposalFactEditText = '';
+      this.proposalReportDraft = this.proposalReportContent(proposal);
+      this.proposalReportDirty.set(false);
+    } else if (!this.proposalReportDirty()) {
+      this.proposalReportDraft = this.proposalReportContent(proposal);
     }
   }
 
@@ -2848,12 +3167,31 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   proposalReviewHint(proposal?: CaptureProposal | null): string | null {
-    if (!this.proposalFacts().length) return 'Ajoutez au moins un fait capturé avant validation.';
+    if (!this.proposalReportText()) return 'Ajoutez ou générez un rapport avant validation.';
     if (!this.canProposalReview(proposal)) return 'Votre rôle peut préparer la proposition, mais pas la valider.';
     if (this.proposalEvidenceCount() === 0) {
       return 'Aucune preuve documentaire attachée : validation possible, mais à traiter comme connaissance expert non sourcée.';
     }
     return null;
+  }
+
+  proposalReportText(): string {
+    return (this.proposalReportDraft || '').trim();
+  }
+
+  proposalReportWordCount(): number {
+    const text = this.proposalReportText();
+    return text ? text.split(/\s+/).length : 0;
+  }
+
+  proposalReviewStateLabel(): string {
+    const status = this.proposal()?.status || 'draft';
+    return this.workflowStatusLabel(status);
+  }
+
+  onProposalReportChange(value: string): void {
+    this.proposalReportDraft = value;
+    this.proposalReportDirty.set(value.trim() !== this.proposalReportContent(this.proposal()).trim());
   }
 
   proposalPublishHint(proposal?: CaptureProposal | null): string | null {
@@ -2999,20 +3337,35 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   questionText(question?: CaptureQuestion | null): string {
-    return this.promptText(question?.question || '');
+    return this.promptText(question?.prompt || question?.title || question?.question || '');
   }
 
   currentPromptText(): string | null {
     const session = this.session();
     if (session && this.isFreeConversationSession(session)) {
-      return 'Capture libre active. Parlez du sujet, corrigez ou complétez naturellement ; Agentium structurera les éléments utiles.';
+      return 'Capture libre active. Parlez du sujet, corrigez ou complétez naturellement ; l’IA structurera les éléments utiles.';
     }
     const question = this.currentQuestion();
     if (question) {
       return this.questionText(question);
     }
     const prompt = this.nextPrompt();
-    return prompt ? this.promptText(prompt) : null;
+    if (prompt) return this.promptText(prompt);
+    return this.activeOutlinePrompt();
+  }
+
+  private activeOutlinePrompt(): string | null {
+    const session = this.session();
+    if (!session) return null;
+    const subtopicId = this.activeSubtopicId();
+    const subtopics = this.planTopics(session).flatMap((topic) => topic.subtopics || []);
+    const active = (subtopicId && subtopics.find((item) => item.id === subtopicId)) || subtopics[0];
+    if (active) {
+      const prompt = this.outlineItemPrompt(active);
+      if (prompt) return prompt;
+    }
+    const firstTopic = this.planTopics(session)[0];
+    return firstTopic ? this.outlineItemPrompt(firstTopic) : null;
   }
 
   promptText(text?: string | null): string {
@@ -3183,6 +3536,283 @@ export class KnowledgeCaptureComponent implements OnInit {
     return Array.from(byKey.values()).sort((a, b) => a.sequence - b.sequence);
   }
 
+  captureOutlineTitle(): string | null {
+    const session = this.session();
+    if (session && this.isFreeConversationSession(session)) return null;
+    const question = this.currentQuestion();
+    const title = (question?.title || '').trim();
+    if (title) return title;
+    const subtopicId = this.activeSubtopicId();
+    if (session && subtopicId) {
+      const subtopic = this.planTopics(session)
+        .flatMap((topic) => topic.subtopics || [])
+        .find((item) => item.id === subtopicId);
+      if (subtopic?.title) return subtopic.title.trim();
+    }
+    return null;
+  }
+
+  capturePresentationPrompt(): string | null {
+    return this.currentPromptText();
+  }
+
+  private eventOutlineTitle(event: CaptureEvent): string | undefined {
+    const meta = event.metadata || {};
+    const title = String(meta['subtopic_title'] || meta['topic_title'] || meta['path_label'] || '').trim();
+    return title || undefined;
+  }
+
+  captureTranscriptRows(): Array<{
+    key: string;
+    kind: 'topic' | 'expert' | 'ia';
+    text: string;
+    status?: 'live' | 'improved';
+    reframed?: boolean;
+  }> {
+    const expert = this.textEvents()
+      .filter((event) => (event.speaker || '').toLowerCase() === 'expert' && Boolean(this.eventDisplayText(event)))
+      .map((event) => ({
+        order: event.sequence,
+        kind: 'expert' as const,
+        id: event.id,
+        text: this.eventDisplayText(event),
+        topic: this.eventOutlineTitle(event),
+      }));
+    const annotations = this.relanceAnnotations().map((item) => ({
+      order: item.order,
+      kind: 'ia' as const,
+      id: item.id,
+      text: item.text,
+      topic: undefined as string | undefined,
+    }));
+    const ordered = [...expert, ...annotations].sort((a, b) => a.order - b.order);
+
+    const rows: Array<{
+      key: string;
+      kind: 'topic' | 'expert' | 'ia';
+      text: string;
+      status?: 'live' | 'improved';
+      reframed?: boolean;
+    }> = [];
+    let lastTopic: string | undefined;
+    let lastExpertText = '';
+    for (const item of ordered) {
+      if (item.kind === 'expert') {
+        if (item.topic && item.topic !== lastTopic) {
+          rows.push({ key: `topic-${item.id}`, kind: 'topic', text: item.topic });
+          lastTopic = item.topic;
+        }
+        lastExpertText = item.text.trim();
+        rows.push({ key: `expert-${item.id}`, kind: 'expert', text: item.text, status: 'improved' });
+      } else {
+        rows.push({ key: `ia-${item.id}`, kind: 'ia', text: item.text });
+      }
+    }
+    const live = this.liveTranscript();
+    if (live && live.text.trim()) {
+      const isDuplicate = live.status === 'improved' && live.text.trim() === lastExpertText;
+      if (!isDuplicate) {
+        rows.push({
+          key: `live-${live.id}`,
+          kind: 'expert',
+          text: live.text,
+          status: live.status,
+          reframed: live.reframed,
+        });
+      }
+    }
+    return rows;
+  }
+
+  private setLivePartial(id: string, text: string): void {
+    const clean = text.trim();
+    if (!clean) return;
+    this.liveTranscript.set({ id, text: clean, status: 'live' });
+  }
+
+  private setLiveImproved(id: string, text: string, reframed = false): void {
+    const clean = text.trim();
+    if (!clean) return;
+    this.liveTranscript.set({ id, text: clean, status: 'improved', reframed });
+  }
+
+  /**
+   * Consume the passive assist payload that may ride on any streaming event:
+   * the oracle's own working questions, its live retrieval, and non-blocking
+   * suggestions. Nothing here ever interrupts the expert or gates input.
+   */
+  private ingestOraclePayload(payload: Record<string, any>): void {
+    if (!payload || typeof payload !== 'object') return;
+    // The gateway emits open_questions / retrieval / suggestions at the TOP LEVEL of
+    // conversation.step and evaluation.delta. Older shapes nested them under an
+    // `oracle` object, so we accept either and prefer the top-level keys.
+    const oracle = payload['oracle'] && typeof payload['oracle'] === 'object' ? payload['oracle'] : {};
+    const openQuestions = Array.isArray(payload['open_questions'])
+      ? payload['open_questions']
+      : Array.isArray(oracle['open_questions'])
+        ? oracle['open_questions']
+        : null;
+    if (openQuestions) {
+      const questions = (openQuestions as any[])
+        .filter((q) => q && typeof q === 'object')
+        .map((q) => ({
+          id: q['id'] != null ? String(q['id']) : undefined,
+          text: String(q['text'] || '').trim(),
+          topic_id: q['topic_id'] != null ? String(q['topic_id']) : undefined,
+          priority: typeof q['priority'] === 'number' ? q['priority'] : Number(q['priority']) || undefined,
+          status: q['status'] != null ? String(q['status']) : undefined,
+        }))
+        .filter((q) => q.text);
+      // Backend sends these already sorted desc by priority; keep as received.
+      this.oracleOpenQuestions.set(questions);
+    }
+    const retrieval =
+      payload['retrieval'] && typeof payload['retrieval'] === 'object'
+        ? payload['retrieval']
+        : oracle['retrieval'] && typeof oracle['retrieval'] === 'object'
+          ? oracle['retrieval']
+          : null;
+    if (retrieval && Array.isArray(retrieval['chunks'])) {
+      this.applyLiveRetrieval(retrieval);
+    }
+    const suggestions = Array.isArray(payload['suggestions'])
+      ? payload['suggestions']
+      : Array.isArray(oracle['suggestions'])
+        ? oracle['suggestions']
+        : null;
+    if (suggestions) {
+      this.applySuggestions(suggestions as any[]);
+    }
+  }
+
+  /** Normalise oracle live-retrieval chunks into the existing retrieval shape so
+   * the DocumentPreview affordance (previewRetrievalChunk) keeps working. */
+  private applyLiveRetrieval(retrieval: Record<string, any>): void {
+    const raw = Array.isArray(retrieval['chunks']) ? retrieval['chunks'] : [];
+    if (!raw.length) return;
+    const chunks: string[] = [];
+    const scores: number[] = [];
+    const metadatas: Record<string, any>[] = [];
+    for (const item of raw) {
+      if (typeof item === 'string') {
+        chunks.push(item);
+        scores.push(0);
+        metadatas.push({});
+        continue;
+      }
+      const obj = (item || {}) as Record<string, any>;
+      const meta = (obj['metadata'] as Record<string, any>) || {};
+      chunks.push(String(obj['text'] ?? obj['content'] ?? obj['chunk'] ?? obj['excerpt'] ?? '').trim());
+      scores.push(typeof obj['score'] === 'number' ? obj['score'] : Number(obj['score']) || 0);
+      metadatas.push({
+        ...meta,
+        document_id: obj['document_id'] ?? obj['source_id'] ?? meta['document_id'],
+        source_id: obj['source_id'] ?? meta['source_id'],
+        collection: obj['collection'] ?? obj['collection_name'] ?? meta['collection'],
+        collection_name: obj['collection_name'] ?? obj['collection'] ?? meta['collection_name'],
+        title: obj['title'] ?? obj['filename'] ?? obj['source'] ?? meta['title'],
+        filename: obj['filename'] ?? meta['filename'],
+      });
+    }
+    this.retrieval.set({
+      ...this.retrieval(),
+      status: 'ready',
+      chunks,
+      scores,
+      metadatas,
+      collection_name:
+        String(retrieval['collection_name'] || retrieval['collection'] || '') || this.retrieval().collection_name,
+    });
+  }
+
+  private applySuggestions(items: any[]): void {
+    const next: CaptureLiveSuggestion[] = [];
+    items.forEach((raw, index) => {
+      if (!raw || typeof raw !== 'object') return;
+      const text = String(raw['text'] || '').trim();
+      if (!text) return;
+      const kind = String(raw['kind'] || 'suggestion');
+      const id = String(raw['id'] || `${kind}:${text}`);
+      if (this.dismissedSuggestionKeys.has(id)) return;
+      next.push({ id, kind, text });
+    });
+    this.captureSuggestions.set(next);
+  }
+
+  visibleSuggestions(): CaptureLiveSuggestion[] {
+    return this.captureSuggestions().filter((s) => !this.dismissedSuggestionKeys.has(s.id));
+  }
+
+  dismissSuggestion(id: string): void {
+    this.dismissedSuggestionKeys.add(id);
+    this.captureSuggestions.update((current) => current.filter((s) => s.id !== id));
+  }
+
+  suggestionKindLabel(kind: string): string {
+    switch (kind) {
+      case 'topic_close':
+        return 'Sujet bientôt couvert';
+      case 'gap_question':
+        return 'Angle peu abordé';
+      case 'contradiction':
+        return 'Possible contradiction';
+      case 'relance':
+        return 'Relance';
+      default:
+        return 'Suggestion';
+    }
+  }
+
+  /** Read-only: oracle working questions, kept in received (priority-desc) order. */
+  oracleQuestionTopicLabel(question: OracleOpenQuestion): string | null {
+    const topicId = (question.topic_id || '').trim();
+    if (!topicId) return null;
+    const session = this.session();
+    if (!session) return null;
+    for (const topic of this.planTopics(session)) {
+      if (topic.id === topicId) return topic.title || topicId;
+      const sub = (topic.subtopics || []).find((item) => item.id === topicId);
+      if (sub) return sub.title || topicId;
+    }
+    return topicId;
+  }
+
+  oracleQuestionPriorityLabel(question: OracleOpenQuestion): string | null {
+    const priority = question.priority;
+    if (priority == null || Number.isNaN(priority)) return null;
+    if (priority >= 0.66 || priority >= 3) return 'Priorité haute';
+    if (priority >= 0.33 || priority >= 2) return 'Priorité moyenne';
+    return 'Priorité basse';
+  }
+
+  oracleQuestionPriorityClass(question: OracleOpenQuestion): string {
+    const priority = question.priority ?? 0;
+    if (priority >= 0.66 || priority >= 3) {
+      return 'inline-block h-1.5 w-1.5 rounded-full bg-rose-400/80';
+    }
+    if (priority >= 0.33 || priority >= 2) {
+      return 'inline-block h-1.5 w-1.5 rounded-full bg-amber-400/80';
+    }
+    return 'inline-block h-1.5 w-1.5 rounded-full bg-brand-300/70';
+  }
+
+  private pushRelanceAnnotation(relance?: CaptureRelance | null): void {
+    if (!relance || !relance.kind || !relance.text || !relance.text.trim()) return;
+    const order = (this.events().at(-1)?.sequence ?? 0) + 0.5;
+    const id = `${relance.kind}-${Date.now()}`;
+    this.relanceAnnotations.update((current) => [
+      ...current,
+      { id, order, text: relance.text!.trim(), kind: relance.kind },
+    ]);
+  }
+
+  relanceAnnotationLabel(kind: RelanceKind): string {
+    if (kind === 'topic_close') return 'IA · transition';
+    if (kind === 'gap_question') return 'IA · précision';
+    if (kind === 'contradiction') return 'IA · à vérifier';
+    return 'IA';
+  }
+
   refreshEvents(sessionId: string): void {
     this.api
       .listCaptureEvents(sessionId, undefined, true)
@@ -3230,36 +3860,193 @@ export class KnowledgeCaptureComponent implements OnInit {
     const plan = session?.plan;
     if (!plan) return [];
     if (plan.topics?.length) {
-      return plan.topics.flatMap((topic) =>
-        (topic.subtopics || []).flatMap((subtopic) =>
-          (subtopic.questions || []).map((question) => ({
-            ...question,
-            topic_id: question.topic_id || topic.id,
-            subtopic_id: question.subtopic_id || subtopic.id,
-            path_label: question.path_label || `${topic.title} / ${subtopic.title}`,
-          })),
-        ),
-      );
+      const questions: CaptureQuestion[] = [];
+      for (const topic of plan.topics) {
+        const subtopics = topic.subtopics || [];
+        const topicIsOutline = subtopics.length > 0 && !subtopics.some((subtopic) => (subtopic.questions || []).length);
+        if (topicIsOutline) {
+          const prompt = this.outlineItemPrompt(topic) || `Présentez ce que vous savez sur ${topic.title}.`;
+          questions.push({
+            id: `${topic.id}-overview`,
+            question: prompt,
+            title: topic.title,
+            topic_id: topic.id,
+            subtopic_id: undefined,
+            path_label: topic.title,
+            estimated_minutes: topic.estimated_minutes || 3,
+          });
+        }
+        for (const subtopic of subtopics) {
+          const pathLabel = `${topic.title} / ${subtopic.title}`;
+          const subtopicQuestions = subtopic.questions || [];
+          if (subtopicQuestions.length) {
+            questions.push(
+              ...subtopicQuestions.map((question) => ({
+                ...question,
+                topic_id: question.topic_id || topic.id,
+                subtopic_id: question.subtopic_id || subtopic.id,
+                path_label: question.path_label || pathLabel,
+              })),
+            );
+          } else if (topicIsOutline) {
+            const prompt = this.outlineItemPrompt(subtopic) || `Présentez ce que vous savez sur ${subtopic.title}.`;
+            questions.push({
+              id: `${subtopic.id}-present`,
+              question: prompt,
+              title: subtopic.title,
+              topic_id: topic.id,
+              subtopic_id: subtopic.id,
+              path_label: pathLabel,
+              estimated_minutes: 3,
+            });
+          }
+        }
+      }
+      return questions;
     }
     return plan.questions || [];
   }
 
   planTopics(session: CaptureSession): CaptureTopic[] {
     if (session.plan.topics?.length) return session.plan.topics;
-    return [
-      {
-        id: 'topic-legacy',
-        title: 'Interview questions',
-        objective: 'Legacy flat plan',
-        subtopics: [
+    const flat = session.plan.questions || [];
+    if (!flat.length) return [];
+    return flat.map((question, index) => ({
+      id: question.topic_id || `outline-${index + 1}`,
+      title: this.outlineItemLabel(question) || `Point ${index + 1}`,
+      prompt: question.prompt || undefined,
+      subtopics: [],
+    }));
+  }
+
+  planOutlineText(session: CaptureSession): string {
+    const draft = this.planOutlineDrafts.get(session.id);
+    if (draft !== undefined) return draft;
+    const text = this.serializePlanOutline(this.planTopics(session));
+    this.planOutlineDrafts.set(session.id, text);
+    return text;
+  }
+
+  updatePlanOutlineText(session: CaptureSession, text: string): void {
+    this.planOutlineDrafts.set(session.id, text);
+    const topics = this.parsePlanOutline(text, session.plan.topics || []);
+    session.plan.topics = topics;
+    session.plan.questions = [];
+    this.session.set({ ...session, plan: { ...session.plan, topics, questions: [] } });
+    this.touchPlanDraft();
+  }
+
+  private resetPlanOutlineDraft(session: CaptureSession): void {
+    this.planOutlineDrafts.set(session.id, this.serializePlanOutline(this.planTopics(session)));
+  }
+
+  private serializePlanOutline(topics: CaptureTopic[]): string {
+    return topics
+      .map((topic, topicIndex) => {
+        const lines = [`${topicIndex + 1}. ${topic.title}`];
+        const subtopics = topic.subtopics || [];
+        const visibleSubtopics = subtopics.filter((subtopic) => {
+          const title = (subtopic.title || '').trim();
+          return title && !(subtopics.length === 1 && title === topic.title && !subtopic.objective);
+        });
+        visibleSubtopics.forEach((subtopic, subtopicIndex) => {
+          lines.push(`   ${String.fromCharCode(97 + subtopicIndex)}. ${subtopic.title}`);
+        });
+        return lines.join('\n');
+      })
+      .join('\n');
+  }
+
+  private parsePlanOutline(text: string, fallbackTopics: CaptureTopic[]): CaptureTopic[] {
+    const topics: CaptureTopic[] = [];
+    let currentTopic: CaptureTopic | null = null;
+    const addTopic = (title: string): CaptureTopic => {
+      const index = topics.length;
+      const fallback = fallbackTopics[index];
+      const topic: CaptureTopic = {
+        id: fallback?.id || `t-${String(index + 1).padStart(2, '0')}`,
+        title: title.trim() || `Sujet ${index + 1}`,
+        objective: '',
+        status: fallback?.status,
+        knowledge_refs: fallback?.knowledge_refs || [],
+        subtopics: [],
+      };
+      topics.push(topic);
+      currentTopic = topic;
+      return topic;
+    };
+    const addSubtopic = (title: string): void => {
+      const topic = currentTopic || addTopic('Plan');
+      const subtopics = topic.subtopics || [];
+      const fallback = fallbackTopics[topics.length - 1]?.subtopics?.[subtopics.length];
+      subtopics.push({
+        id: fallback?.id || `${topic.id}-sub-${String(subtopics.length + 1).padStart(2, '0')}`,
+        title: title.trim() || `Sous-sujet ${subtopics.length + 1}`,
+        objective: '',
+        status: fallback?.status || 'pending',
+      });
+      topic.subtopics = subtopics;
+    };
+
+    for (const rawLine of text.split(/\r?\n/)) {
+      if (!rawLine.trim()) continue;
+      const indent = rawLine.length - rawLine.trimStart().length;
+      const line = rawLine.trim();
+      const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+      if (heading) {
+        if (heading[1].length === 1) addTopic(heading[2]);
+        else addSubtopic(heading[2]);
+        continue;
+      }
+      const dotted = /^(\d+(?:\.\d+)+)[.)]?\s+(.+)$/.exec(line);
+      if (dotted) {
+        if (dotted[1].includes('.')) addSubtopic(dotted[2]);
+        else addTopic(dotted[2]);
+        continue;
+      }
+      const numbered = /^\d+[.)]\s+(.+)$/.exec(line);
+      if (numbered) {
+        addTopic(numbered[1]);
+        continue;
+      }
+      const alpha = /^[a-zA-Z][.)]\s+(.+)$/.exec(line);
+      if (alpha) {
+        addSubtopic(alpha[1]);
+        continue;
+      }
+      const bullet = /^[-*•·▪◦]\s+(.+)$/.exec(line);
+      if (bullet) {
+        if (!currentTopic) addTopic(bullet[1]);
+        else addSubtopic(bullet[1]);
+        continue;
+      }
+      if (!currentTopic || indent === 0) addTopic(line);
+      else addSubtopic(line);
+    }
+
+    topics.forEach((topic) => {
+      if (!topic.subtopics?.length) {
+        topic.subtopics = [
           {
-            id: 'topic-legacy-sub-01',
-            title: 'Questions',
-            questions: session.plan.questions || [],
+            id: `${topic.id}-sub-01`,
+            title: topic.title,
+            objective: '',
+            status: 'pending',
           },
-        ],
-      },
-    ];
+        ];
+      }
+    });
+    return topics;
+  }
+
+  outlineItemLabel(item?: { prompt?: string; title?: string; question?: string } | null): string {
+    if (!item) return '';
+    return (item.prompt || item.title || item.question || '').trim();
+  }
+
+  outlineItemPrompt(item?: { prompt?: string } | null): string | null {
+    const value = (item?.prompt || '').trim();
+    return value || null;
   }
 
   topicQuestionCount(topic: CaptureTopic): number {
@@ -3277,26 +4064,35 @@ export class KnowledgeCaptureComponent implements OnInit {
   canStartSessionPlan(session: CaptureSession): boolean {
     if (this.isFreeConversationSession(session)) return true;
     if (this.isTopicOnlyPlan(session)) {
+      // Outline-driven capture does not need the question bank to be ready:
+      // a validated outline (or any topics) is enough to start.
       return (
         this.sessionHasStarted(session) ||
         this.planQuestions(session).length > 0 ||
-        (session.plan.review?.status === 'topics_validated' &&
-          (session.plan.question_bank_status === 'ready' || this.questionBankStatus() === 'ready'))
+        this.planTopics(session).length > 0 ||
+        session.plan.review?.status === 'topics_validated'
       );
     }
     return this.sessionHasStarted(session) || this.planQuestions(session).length > 0;
   }
 
   planBlockingReason(session: CaptureSession): string | null {
-    if (this.canStartSessionPlan(session)) return null;
+    if (this.canStartSessionPlan(session)) {
+      // Not blocking, but surface question-bank progress instead of silence.
+      if (
+        this.isTopicOnlyPlan(session) &&
+        !this.sessionHasStarted(session) &&
+        (session.plan.question_bank_status || this.questionBankStatus()) === 'generating'
+      ) {
+        return 'Préparation des angles d’exploration en arrière-plan — vous pouvez démarrer dès maintenant.';
+      }
+      return null;
+    }
     if (!this.canCaptureExecute(session)) return 'Votre rôle ne permet pas de démarrer cette session.';
     if (this.isTopicOnlyPlan(session)) {
-      if ((session.plan.question_bank_status || this.questionBankStatus()) === 'generating') {
-        return 'La banque de questions est en génération. Le démarrage sera disponible dès qu’elle est prête.';
-      }
-      return 'Validez les sujets pour générer les questions avant de démarrer, ou choisissez une capture libre.';
+      return 'Ajoutez au moins une rubrique au plan avant de démarrer.';
     }
-    return 'Ajoutez au moins une question exploitable avant de démarrer.';
+    return 'Ajoutez au moins un point exploitable avant de démarrer.';
   }
 
   isTopicPlan(session: CaptureSession): boolean {
@@ -3354,10 +4150,10 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   questionBankStatusLabel(session: CaptureSession): string {
     const status = String(session.plan.question_bank_status || this.questionBankStatus());
-    if (status === 'generating') return 'Préparation des angles d’exploration…';
+    if (status === 'generating') return 'Plan validé — capture disponible';
     if (status === 'ready') return 'Banque prête';
-    if ((session.plan.review?.status || '') === 'topics_validated') return 'Validation reçue — génération en cours';
-    return 'En attente de validation des sujets';
+    if ((session.plan.review?.status || '') === 'topics_validated') return 'Plan validé — capture disponible';
+    return 'En attente de validation du plan';
   }
 
   topHint(): CaptureHint | null {
@@ -3405,17 +4201,22 @@ export class KnowledgeCaptureComponent implements OnInit {
     const dialogue = (session.plan['dialogue'] as { turns?: unknown[]; ready_to_finalize?: boolean }) || {};
     const turns = dialogue.turns?.length || 0;
     const prompts = [
-      'Quels grands sujets ou thèmes souhaitez-vous couvrir pendant cette capture ?',
-      'Sur quelle ligne, client ou périmètre porte principalement cette session ?',
-      'Quels cas concrets, exceptions terrain ou décisions difficiles sont prioritaires ?',
-      'Y a-t-il des zones à valider plus tard ou des interlocuteurs à impliquer en revue ?',
+      'Collez ou dictez le plan exact à respecter, avec vos numéros et indentations si vous en avez.',
+      'Modifiez directement les rubriques à garder, ajouter ou retirer. Je conserve vos intitulés.',
+      'Ajoutez seulement les sous-parties ou exceptions que vous voulez voir dans le plan.',
+      'Dernière vérification : le bloc texte ci-contre est le plan qui sera utilisé.',
     ];
     if (dialogue.ready_to_finalize) return 'Vous pouvez valider le plan quand il vous convient.';
     return prompts[Math.min(turns, prompts.length - 1)] || null;
   }
 
   planDialogueReady(session: CaptureSession): boolean {
-    return this.planDialogueReadyFlag() || Boolean((session.plan['dialogue'] as { ready_to_finalize?: boolean })?.ready_to_finalize);
+    // The plan is ready to validate as soon as the dialogue has produced at
+    // least one topic ("Envoyer" builds plan.topics). This matches the backend
+    // gate ("au moins un topic existe") and removes the old word-count mismatch.
+    if (this.planTopics(session).length > 0) return true;
+    if (this.planDialogueReadyFlag()) return true;
+    return Boolean((session.plan['dialogue'] as { ready_to_finalize?: boolean })?.ready_to_finalize);
   }
 
   refreshQualityBacklog(sessionId: string): void {
@@ -3493,7 +4294,14 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   submitPlanDialogueTurn(session: CaptureSession): void {
     const text = this.planDialogueAnswer.trim();
-    if (!text) return;
+    if (!text) {
+      this.planDialogueNotice.set({
+        tone: 'info',
+        text: 'Saisissez ou dictez une description du sujet avant d’envoyer.',
+      });
+      return;
+    }
+    this.planDialogueNotice.set(null);
     this.planDialogueLoading.set(true);
     this.api
       .planDialogueTurn(session.id, { text })
@@ -3506,19 +4314,46 @@ export class KnowledgeCaptureComponent implements OnInit {
             ready_to_finalize?: boolean;
           };
           this.session.set(body.session);
+          this.resetPlanOutlineDraft(body.session);
           this.planDialogueAnswer = '';
           this.planDialogueNextPrompt.set(body.next_prompt || this.planDialoguePromptFor(body.session));
           this.planDialogueReadyFlag.set(Boolean(body.ready_to_finalize));
           this.planDialogueLoading.set(false);
+          this.planDialogueNotice.set(null);
           this.touchPlanDraft();
         },
-        error: () => this.planDialogueLoading.set(false),
+        error: (err) => {
+          this.planDialogueLoading.set(false);
+          this.planDialogueNotice.set({
+            tone: 'error',
+            text: this.apiErrorMessage(err, 'Impossible d’envoyer ce tour de cadrage. Réessayez.'),
+          });
+        },
       });
   }
 
+  planDialogueReadyHint(session: CaptureSession): string | null {
+    if (this.planDialogueReady(session)) return null;
+    return 'Envoyez une description du sujet : le plan se construit, puis « Valider le plan » s’active.';
+  }
+
+  private apiErrorMessage(err: unknown, fallback: string): string {
+    const detail = (err as { error?: { detail?: unknown }; message?: string })?.error?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail;
+    const message = (err as { message?: string })?.message;
+    if (typeof message === 'string' && message.trim()) return message;
+    return fallback;
+  }
+
   validatePlanTopics(session: CaptureSession): void {
-    this.planDialogueLoading.set(true);
     const topics = this.planTopics(session);
+    if (!topics.length) {
+      this.planNotice.set({ tone: 'error', text: 'Aucun sujet à valider. Ajoutez au moins un sujet au plan.' });
+      return;
+    }
+    this.planDialogueLoading.set(true);
+    this.planNotice.set(null);
+    this.planDialogueNotice.set(null);
     this.api
       .updateCapturePlanTopics(session.id, topics as unknown as Record<string, unknown>[])
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -3531,15 +4366,23 @@ export class KnowledgeCaptureComponent implements OnInit {
               next: (updated) => {
                 const typed = updated as CaptureSession;
                 this.session.set(typed);
+                this.resetPlanOutlineDraft(typed);
                 this.questionBankStatus.set(String(typed.plan.question_bank_status || 'generating'));
                 this.planDialogueLoading.set(false);
-                this.planNotice.set({ tone: 'info', text: this.questionBankStatusLabel(typed) });
+                this.planNotice.set({ tone: 'success', text: 'Plan validé — vous pouvez démarrer la capture.' });
+                this.activeSurface.set('plan');
                 this.pollQuestionBankStatus(session.id);
               },
-              error: () => this.planDialogueLoading.set(false),
+              error: (err) => {
+                this.planDialogueLoading.set(false);
+                this.planNotice.set({ tone: 'error', text: this.apiErrorMessage(err, 'La validation des sujets a échoué. Réessayez.') });
+              },
             });
         },
-        error: () => this.planDialogueLoading.set(false),
+        error: (err) => {
+          this.planDialogueLoading.set(false);
+          this.planNotice.set({ tone: 'error', text: this.apiErrorMessage(err, 'Enregistrement des sujets impossible. Réessayez.') });
+        },
       });
   }
 
@@ -3578,7 +4421,13 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   finalizePlanBuild(session: CaptureSession): void {
+    if (this.planTopics(session).length) {
+      this.validatePlanTopics(session);
+      return;
+    }
     this.planDialogueLoading.set(true);
+    this.planNotice.set(null);
+    this.planDialogueNotice.set(null);
     this.api
       .finalizeCapturePlan(session.id)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -3586,12 +4435,15 @@ export class KnowledgeCaptureComponent implements OnInit {
         next: (updated) => {
           const typed = updated as CaptureSession;
           this.session.set(typed);
+          this.resetPlanOutlineDraft(typed);
           this.questionBankStatus.set(String(typed.plan.question_bank_status || 'idle'));
           this.planDialogueLoading.set(false);
-          this.activeSurface.set('plan');
-          this.planNotice.set({ tone: 'success', text: 'Plan de sujets prêt — validez les sujets puis la banque de questions.' });
+          this.validatePlanTopics(typed);
         },
-        error: () => this.planDialogueLoading.set(false),
+        error: (err) => {
+          this.planDialogueLoading.set(false);
+          this.planNotice.set({ tone: 'error', text: this.apiErrorMessage(err, 'La préparation du plan a échoué. Réessayez.') });
+        },
       });
   }
 
@@ -3599,33 +4451,97 @@ export class KnowledgeCaptureComponent implements OnInit {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
+    this.providedPlanFileName = file.name;
+    this.extractingPlanSource.set(true);
+    this.api
+      .extractCapturePlanSource(file)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          this.providedPlanText = String(payload.text || '').slice(0, 20000);
+          this.extractingPlanSource.set(false);
+          input.value = '';
+        },
+        error: () => this.readProvidedPlanFileLocally(file, input),
+      });
+  }
+
+  private readProvidedPlanFileLocally(file: File, input: HTMLInputElement): void {
     const reader = new FileReader();
     reader.onload = () => {
-      this.providedPlanText = String(reader.result || '').slice(0, 12000);
+      this.providedPlanText = String(reader.result || '').slice(0, 20000);
+      this.extractingPlanSource.set(false);
+      input.value = '';
+    };
+    reader.onerror = () => {
+      this.extractingPlanSource.set(false);
+      input.value = '';
+      this.setVoiceNotice("Impossible d'extraire le texte du fichier sélectionné.", 'error');
     };
     reader.readAsText(file);
   }
 
   async dictatePrepSubject(): Promise<void> {
-    const armed = await this.ensureAudioStream();
-    if (!armed) return;
-    this.setVoiceNotice('Décrivez le sujet à la voix, puis arrêtez l’enregistrement.', 'info');
-    await this.startRecordingTurn();
-    this.recordingStopCallback = (text: string) => {
-      if (text.trim()) this.objective = text.trim();
-    };
+    if (this.recording()) {
+      this.finishDictation();
+      return;
+    }
+    await this.beginDictation((text) => {
+      this.objective = text;
+    });
   }
 
   async dictatePlanDialogue(): Promise<void> {
+    if (this.recording()) {
+      this.finishDictation();
+      return;
+    }
+    await this.beginDictation((text) => {
+      this.planDialogueAnswer = text;
+    });
+  }
+
+  /**
+   * Start an icon-only dictation. The captured audio is transcribed live
+   * (throttled partials) into the target field while speaking, and finalised on
+   * stop. Unlike the conversation hard-stop, dictation MUST transcribe — it
+   * routes through the standard recorder `onstop` → `transcribeRecording` path,
+   * never the discard-style hard stop.
+   */
+  private async beginDictation(write: (text: string) => void): Promise<void> {
+    if (this.speaking()) this.interruptSpeech();
     const armed = await this.ensureAudioStream();
     if (!armed) return;
-    await this.startRecordingTurn();
-    this.recordingStopCallback = (text: string) => {
-      if (text.trim()) this.planDialogueAnswer = text.trim();
+    this.chunks = [];
+    this.currentClientTurnId = this.newTurnId();
+    this.lastPrefetchText = '';
+    this.lastPrefetchAt = 0;
+    this.recordingPartialCallback = (text: string) => {
+      const clean = text.trim();
+      if (clean) write(clean);
     };
+    this.recordingStopCallback = (text: string) => {
+      const clean = text.trim();
+      if (clean) write(clean);
+      this.recordingPartialCallback = null;
+    };
+    this.setVoiceNotice('Dictée en cours : le texte s’affiche en direct, puis se finalise à l’arrêt.', 'info');
+    if (!this.startAudioRecorder('Dictée en cours. Appuyez sur le carré pour arrêter et finaliser.')) {
+      this.recordingPartialCallback = null;
+      this.recordingStopCallback = null;
+    }
+  }
+
+  /** Stop an in-progress dictation and finalise it (transcribe + write). */
+  private finishDictation(): void {
+    if (this.recorder && this.recorder.state !== 'inactive') {
+      this.recorder.stop();
+    }
+    this.recording.set(false);
   }
 
   private recordingStopCallback: ((text: string) => void) | null = null;
+  private recordingPartialCallback: ((text: string) => void) | null = null;
 
   pauseSession(session: CaptureSession): void {
     this.api
@@ -3656,33 +4572,43 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.setVoiceNotice('Publication Knowledge non autorisée pour ce rôle.', 'error');
       return;
     }
-    this.api
-      .publishCaptureProposal(proposalId)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => this.setVoiceNotice('Publication dans Knowledge lancée.', 'info'),
-        error: () => this.setVoiceNotice('Publication impossible pour le moment.', 'error'),
-      });
+    this.persistProposalReport(proposalId, () => {
+      this.api
+        .publishCaptureProposal(proposalId)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => this.setVoiceNotice('Publication dans Knowledge lancée.', 'info'),
+          error: () => this.setVoiceNotice('Publication impossible pour le moment.', 'error'),
+        });
+    });
   }
 
   exportProposalMd(): void {
     const session = this.session();
     if (!session) return;
-    this.api
-      .exportCaptureProposal(session.id, {
-        executive_summary: this.executiveSummary,
-        proposal_id: this.proposal()?.id,
-      })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((payload) => {
-        const blob = new Blob([payload.markdown], { type: 'text/markdown;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = `${session.title || 'capture'}.md`;
-        anchor.click();
-        URL.revokeObjectURL(url);
-      });
+    const runExport = () => {
+      this.api
+        .exportCaptureProposal(session.id, {
+          executive_summary: this.executiveSummary,
+          proposal_id: this.proposal()?.id,
+        })
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((payload) => {
+          const blob = new Blob([payload.markdown], { type: 'text/markdown;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = `${session.title || 'capture'}.md`;
+          anchor.click();
+          URL.revokeObjectURL(url);
+        });
+    };
+    const proposalId = this.proposal()?.id;
+    if (proposalId) {
+      this.persistProposalReport(proposalId, runExport);
+    } else {
+      runExport();
+    }
   }
 
   regenerateProposal(): void {
@@ -3975,7 +4901,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   conversationEventLabel(event: CaptureEvent): string {
     const speaker = (event.speaker || '').toLowerCase();
     if (speaker === 'expert') return `Expert · ${this.transcriptEventShortLabel(event)}`;
-    if (speaker === 'system') return `Agentium · ${this.transcriptEventShortLabel(event)}`;
+    if (speaker === 'system') return `IA · ${this.transcriptEventShortLabel(event)}`;
     if (event.event_type === 'proposal_generated') return 'Proposition · générée';
     if (event.event_type === 'proposal_reviewed') return 'Revue · terminée';
     return `Trace · ${this.transcriptEventShortLabel(event)}`;
@@ -3983,7 +4909,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   conversationStateHeadline(session: CaptureSession): string {
     if (!this.sessionHasStarted(session)) return 'Prêt à démarrer';
-    if (this.speaking()) return 'Agentium pose la question';
+    if (this.speaking()) return 'L’IA pose la question';
     if (this.recording()) return 'Réponse expert en cours';
     if (this.transcribing()) return 'Traitement du tour';
     if (this.voiceState() === 'oracle_updating') return 'Analyse qualité en cours';
@@ -4014,7 +4940,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       {
         id: 'prompt',
         label: 'Relance',
-        detail: this.speaking() ? 'lecture Agentium' : this.currentQuestion()?.id || 'question sélectionnée',
+        detail: this.speaking() ? 'lecture IA' : this.currentQuestion()?.id || 'sujet sélectionné',
         icon: 'volume-2',
         state: !started ? 'pending' : this.speaking() ? 'active' : 'done',
       },
@@ -4049,6 +4975,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   setConversationMode(mode: ConversationMode): void {
     if (this.conversationMode() === mode) return;
     this.conversationMode.set(mode);
+    this.textFallbackActive.set(false);
     this.lastConversationStep.set(null);
     this.stopConversationSession();
   }
@@ -4059,6 +4986,10 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   sessionHasStarted(session: CaptureSession): boolean {
     return session.status !== 'planned';
+  }
+
+  showAnswerComposer(session: CaptureSession): boolean {
+    return this.sessionHasStarted(session) && (this.conversationMode() === 'manual' || this.textFallbackActive());
   }
 
   sessionStartStateLabel(session: CaptureSession): string {
@@ -4103,14 +5034,14 @@ export class KnowledgeCaptureComponent implements OnInit {
             : 'Écouter';
     }
     if (this.transcribing()) return 'Traitement...';
-    if (this.recording()) return 'Finir le tour';
+    if (this.recording()) return 'Terminer l’écoute';
     if (this.speaking()) return 'Interrompre et répondre';
     return this.conversationSessionActive() ? 'Mettre en pause' : 'Démarrer';
   }
 
   emptyConversationHint(): string {
     if (this.conversationMode() === 'conversation_only') {
-      return 'Démarrez la conversation. Si le micro est refusé, Agentium basculera en saisie guidée.';
+      return 'Démarrez la conversation. Si le micro est refusé, l’IA basculera en saisie guidée.';
     }
     return 'Démarrez la session, puis dictez ou saisissez la réponse expert.';
   }
@@ -4278,6 +5209,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     this.voiceState.set('thinking');
     this.setVoiceNotice('Traitement de la transcription finale et détection de la prochaine action.', 'info');
+    this.armConversationProcessingWatchdog();
     this.api
       .runConversationStep(session.id, {
         client_turn_id: this.currentClientTurnId,
@@ -4290,8 +5222,11 @@ export class KnowledgeCaptureComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (payload) => {
+          this.clearConversationProcessingWatchdog();
           const step = payload as ConversationStepResponse;
+          this.ingestOraclePayload(payload as Record<string, any>);
           this.lastConversationStep.set(step);
+          this.pushRelanceAnnotation(step.relance);
           this.session.set(step.session);
           this.lastEvaluation.set(step.evaluation || null);
           this.nextPrompt.set(step.next_prompt || null);
@@ -4324,6 +5259,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           }
         },
         error: () => {
+          this.clearConversationProcessingWatchdog();
           this.voiceState.set('idle');
           this.setVoiceNotice('Traitement conversationnel impossible. La transcription n’a pas été exploitée.', 'error');
         },
@@ -4344,11 +5280,14 @@ export class KnowledgeCaptureComponent implements OnInit {
       next_prompt: step.next_prompt || null,
       next_question_id: step.next_question_id || null,
       system_prompt_event_id: step.system_prompt_event_id || null,
+      relance: step.relance || null,
       requires_confirmation: Boolean(step.requires_confirmation),
       confirmation_target: step.confirmation_target || null,
       closure_sheet: step.closure_sheet || null,
     };
+    this.ingestOraclePayload(step as Record<string, any>);
     this.lastConversationStep.set(normalized);
+    this.pushRelanceAnnotation(normalized.relance);
     this.session.set(session);
     if (normalized.evaluation) {
       this.lastEvaluation.set(normalized.evaluation);
@@ -4380,17 +5319,61 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.setVoiceNotice('Votre rôle ne permet pas de valider cette proposition.', 'error');
       return;
     }
+    this.persistProposalReport(proposalId, () => {
+      this.api
+        .reviewCaptureProposal(proposalId, {
+          status: 'accepted',
+          reviewer: 'demo-operator',
+          review_notes: 'Validé depuis la démo Knowledge Capture.',
+        })
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((proposal) => {
+          this.setProposal(proposal as CaptureProposal);
+          this.refreshDashboard();
+        });
+    });
+  }
+
+  saveProposalReport(proposalId: string): void {
+    this.persistProposalReport(proposalId, () => this.setVoiceNotice('Rapport enregistré.', 'info'));
+  }
+
+  private persistProposalReport(proposalId: string, afterSave?: () => void): void {
+    const content = this.proposalReportText();
+    if (!content) {
+      this.setVoiceNotice('Le rapport est vide.', 'error');
+      return;
+    }
+    if (!this.proposalReportDirty()) {
+      afterSave?.();
+      return;
+    }
+    this.proposalReportSaving.set(true);
     this.api
-      .reviewCaptureProposal(proposalId, {
-        status: 'accepted',
-        reviewer: 'demo-operator',
-        review_notes: 'Validé depuis la démo Knowledge Capture.',
-      })
+      .updateCaptureProposalContent(proposalId, content)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((proposal) => {
-        this.setProposal(proposal as CaptureProposal);
-        this.refreshDashboard();
+      .subscribe({
+        next: (proposal) => {
+          this.proposalReportDirty.set(false);
+          this.setProposal(proposal as CaptureProposal);
+          this.proposalReportDraft = this.proposalReportContent(proposal as CaptureProposal);
+          this.proposalReportSaving.set(false);
+          this.refreshDashboard();
+          afterSave?.();
+        },
+        error: () => {
+          this.proposalReportSaving.set(false);
+          this.setVoiceNotice('Impossible d’enregistrer le rapport pour le moment.', 'error');
+        },
       });
+  }
+
+  private proposalReportContent(proposal: CaptureProposal | null): string {
+    return (
+      proposal?.proposal?.report_markdown ||
+      proposal?.proposal?.recommended_ingestion?.content ||
+      ''
+    ).trim();
   }
 
   proposalFacts(): ProposalFact[] {
@@ -4515,6 +5498,8 @@ export class KnowledgeCaptureComponent implements OnInit {
         runtime: session.voice_runtime || 'cascade_openai',
         provider: session.voice_runtime || 'cascade_openai',
         transport: 'backend_ws',
+        language: 'fr',
+        output_language: 'fr',
         capability: 'voice2voice_interaction',
         context_id: session.context_id || this.contextId || null,
         system_id: session.system_id || this.systemId || null,
@@ -4562,34 +5547,65 @@ export class KnowledgeCaptureComponent implements OnInit {
     return this.isDemoMode() ? `${label} · conversation assistée` : `${label} · priorité au dernier tour`;
   }
 
+  private voiceSegmentId(payload: Record<string, any>): string {
+    return String(payload['segment_id'] || this.currentClientTurnId || 'live-turn');
+  }
+
   private handleVoiceSessionEvent(event: VoiceSessionEvent): void {
     const payload = event.payload || {};
+    // Passive assist contract: any event may carry the oracle snapshot
+    // (open questions + live retrieval) and non-blocking suggestions.
+    this.ingestOraclePayload(payload);
     if (event.type === 'session.ready') {
       this.setVoiceNotice('Session vocale streaming prête.', 'info');
       return;
     }
-    if (event.type === 'text.partial') {
+    if (event.type === 'text.partial' || event.type === 'transcript.partial') {
+      // Server-side incremental STT is the single source of truth for live
+      // partials: the gateway emits these mid-utterance. Render the live
+      // (grey/italic) transcript row and flag the "Transcription live" state.
       const text = String(payload['text'] || '').trim();
       if (text) {
         this.answer = text;
+        this.setLivePartial(this.voiceSegmentId(payload), text);
         const session = this.session();
         if (session) this.maybePrefetchRetrieval(session, text);
+        // Keep the live indicator visible during speech (set after the
+        // prefetch call, which may otherwise flip the state to "retrieving").
+        this.voiceState.set('partial_transcribing');
+      }
+      return;
+    }
+    if (event.type === 'transcript.improved') {
+      const text = String(payload['text'] || '').trim();
+      if (text) {
+        this.answer = text;
+        // New model: the improved transcript is the plan-aware reformulation.
+        this.setLiveImproved(this.voiceSegmentId(payload), text, Boolean(payload['reframed']));
       }
       return;
     }
     if (event.type === 'text.final') {
       const text = String(payload['text'] || '').trim();
-      if (text) this.answer = text;
+      if (text) {
+        this.answer = text;
+        this.setLiveImproved(this.voiceSegmentId(payload), text);
+      }
+      this.clearTranscriptionWatchdog();
       this.transcribing.set(false);
       this.voiceState.set('thinking');
       this.setVoiceNotice('Transcription finalisée par la session vocale streaming.', 'info');
       return;
     }
     if (event.type === 'conversation.step') {
+      this.clearConversationProcessingWatchdog();
       this.applyConversationStepEvent(payload as Partial<ConversationStepResponse>);
       return;
     }
     if (event.type === 'evaluation.delta') {
+      // Live assist panels (oracle open questions + retrieved passages + suggestions)
+      // ride at the top level of this event; ingest them regardless of plan mode.
+      this.ingestOraclePayload(payload);
       const nextQuestionId = payload['next_question_id'];
       if (typeof nextQuestionId === 'string' && nextQuestionId) {
         this.selectedQuestionId.set(nextQuestionId);
@@ -4624,7 +5640,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     if (event.type === 'oracle.delta') {
       this.voiceState.set('oracle_updating');
-      this.setVoiceNotice('Agentium prépare une action depuis la dernière transcription.', 'info');
+      this.setVoiceNotice('L’IA prépare une action depuis la dernière transcription.', 'info');
       return;
     }
     if (event.type === 'oracle.superseded') {
@@ -4680,7 +5696,10 @@ export class KnowledgeCaptureComponent implements OnInit {
       if (metric === 'micro_turn') {
         this.voiceState.set('oracle_updating');
       }
-      if (typeof metric === 'string' && typeof value === 'number') {
+      // Only attribute latency to the retrieval panel when the metric is actually a
+      // retrieval timing. Transcript metrics like `time_to_first_text` must NOT show
+      // up as "CONTEXTE RETROUVÉ" latency (that made the panel look active while empty).
+      if (typeof metric === 'string' && metric.startsWith('retrieval') && typeof value === 'number') {
         this.retrieval.update((current) => ({ ...current, latency_ms: value }));
       }
       return;
@@ -4807,9 +5826,11 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.conversationSessionActive.set(false);
       this.voiceState.set('idle');
       this.conversationMode.set('manual');
+      this.textFallbackActive.set(true);
       this.setVoiceNotice('Micro indisponible : bascule en saisie guidée pour continuer la session.', 'warning');
       return;
     }
+    this.textFallbackActive.set(false);
     const firstPrompt = this.currentPromptText();
     if (firstPrompt && !(session && this.isFreeConversationSession(session))) {
       this.speak(firstPrompt);
@@ -4861,6 +5882,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   planDurationMinutes(session: CaptureSession): number {
+    // The estimated duration set on the setup form is authoritative for the plan.
+    const stored = Number(session.duration_minutes || 0);
+    if (stored > 0) return stored;
+    // Fallback for question-based plans: sum the per-question estimates.
     const questions = this.planQuestions(session);
     return questions.reduce((total, question) => total + (question.estimated_minutes || 3), 0);
   }
@@ -4892,7 +5917,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   voiceInputStatusLabel(): string {
     if (this.recording()) return 'Écoute de la réponse expert';
     if (this.transcribing()) return 'Finalisation de la transcription';
-    if (this.speaking()) return 'Agentium parle';
+    if (this.speaking()) return 'L’IA parle';
     if (this.voiceState() === 'retrieving') return 'Recherche du contexte';
     if (this.voiceState() === 'oracle_updating') return 'Analyse qualité en cours';
     if (this.voiceState() === 'thinking') return 'Évaluation de la réponse';
@@ -4941,7 +5966,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           latency_profile: metric.latency_profile,
           time_to_first_audio_ms: metric.time_to_first_audio_ms,
         });
-        this.setVoiceNotice('Agentium lit la relance. Vous pouvez interrompre et répondre à tout moment.', 'info');
+        this.setVoiceNotice('L’IA lit la relance. Vous pouvez interrompre et répondre à tout moment.', 'info');
       },
       onEnded: (metric) => {
         this.voiceConnection?.ttsEnded({
@@ -4958,6 +5983,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         if (message) this.setVoiceNotice(message, tone || 'info');
       },
     });
+    this.scheduleConversationResume(this.conversationResumeFallbackDelay(clean), true);
   }
 
   interruptSpeech(): void {
@@ -4968,12 +5994,52 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.voiceState.set('interrupted');
   }
 
+  /** True while there is something to STOP: an active conversation session, a
+   * live recording, or the assistant reading a prompt/answer aloud. Drives the
+   * capture STOP affordance. */
+  captureStopAvailable(): boolean {
+    return this.conversationSessionActive() || this.recording() || this.speaking();
+  }
+
+  /**
+   * The explicit STOP the user asked for on the capture surface: immediately cut
+   * any TTS voice-out and hard-stop the conversation loop so it does not
+   * auto-rearm. Any in-flight recording is torn down without being submitted;
+   * the on-screen draft answer is kept.
+   */
+  stopConversation(): void {
+    this.clearAutoResumeTimer();
+    this.conversationSessionActive.set(false);
+    this.voiceConnection?.loopStop({ surface: 'knowledge_capture', reason: 'user_stop' });
+    this.stopSpeech(false);
+    if (this.recorder) {
+      try {
+        this.recorder.onstop = null;
+      } catch {
+        /* browser cleanup only */
+      }
+      try {
+        if (this.recorder.state !== 'inactive') this.recorder.stop();
+      } catch {
+        /* browser cleanup only */
+      }
+      this.recorder = null;
+    }
+    this.recording.set(false);
+    this.releaseAudioStream();
+    this.closeVoiceConnection();
+    this.voiceState.set('idle');
+    this.setVoiceNotice('Conversation arrêtée. La lecture vocale a été coupée.', 'info');
+  }
+
   private transcribeRecording(): void {
     if (!this.conversationSessionActive()) {
       this.releaseAudioStream();
     }
     this.recorder = null;
-    if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
+    // Dictation always finalises over HTTP so the stop callback receives the
+    // transcript; only conversation turns hand off to the streaming gateway.
+    if (!this.recordingStopCallback && this.voiceConnection && this.conversationMode() === 'conversation_only') {
       void this.finishStreamingVoiceTurn();
       return;
     }
@@ -4981,31 +6047,44 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.transcribing.set(true);
     this.voiceState.set('partial_transcribing');
     this.setVoiceNotice('Finalisation de la transcription vocale.', 'info');
+    this.armTranscriptionWatchdog();
     this.api
       .transcribeAudio(blob)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
-          this.answer = res.text;
-          this.transcribing.set(false);
-          this.voiceState.set('idle');
+          this.clearTranscriptionWatchdog();
+          const text = res.text || '';
+          // Dictation finalises through this same path, but must NOT clobber the
+          // capture answer field — the stop callback writes to its own target.
           if (this.recordingStopCallback) {
-            this.recordingStopCallback(res.text);
+            this.transcribing.set(false);
+            this.voiceState.set('idle');
+            const finalize = this.recordingStopCallback;
             this.recordingStopCallback = null;
+            this.recordingPartialCallback = null;
+            finalize(text);
             this.setVoiceNotice('Transcription enregistrée.', 'info');
             return;
           }
+          this.answer = text;
+          if (text.trim()) {
+            this.setLiveImproved(this.currentClientTurnId || 'live-turn', text);
+          }
+          this.transcribing.set(false);
+          this.voiceState.set('idle');
           const session = this.session();
           if (session) {
-            this.maybePrefetchRetrieval(session, res.text, true);
+            this.maybePrefetchRetrieval(session, text, true);
             if (this.conversationMode() === 'conversation_only') {
-              this.runConversationStep(session, res.text);
+              this.runConversationStep(session, text);
             } else {
               this.setVoiceNotice('Transcription prête pour évaluation.', 'info');
             }
           }
         },
         error: () => {
+          this.clearTranscriptionWatchdog();
           this.transcribing.set(false);
           this.voiceState.set('idle');
           this.setVoiceNotice('Transcription impossible. Réessayez un tour vocal ou utilisez la saisie guidée.', 'error');
@@ -5027,8 +6106,14 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
       return;
     }
+    if (this.partialTranscriptionInFlight || this.chunks.length < 2) {
+      return;
+    }
     const session = this.session();
-    if (!session || this.partialTranscriptionInFlight || this.chunks.length < 2) {
+    const dictation = !!this.recordingPartialCallback;
+    // Live partials drive either the capture transcript (session) or an icon-only
+    // dictation (which can run during prep/scoping where there is no session yet).
+    if (!session && !dictation) {
       return;
     }
     this.partialTranscriptionInFlight = true;
@@ -5042,8 +6127,13 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.partialTranscriptionInFlight = false;
           const text = (res.text || '').trim();
           if (text) {
-            this.answer = text;
-            this.maybePrefetchRetrieval(session, text);
+            this.setLivePartial(this.currentClientTurnId || 'live-turn', text);
+            if (dictation) {
+              this.recordingPartialCallback?.(text);
+            } else if (session) {
+              this.answer = text;
+              this.maybePrefetchRetrieval(session, text);
+            }
           }
           if (this.recording()) {
             this.voiceState.set(this.prefetchInFlight ? 'retrieving' : 'listening');
@@ -5062,6 +6152,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.transcribing.set(true);
     this.voiceState.set('partial_transcribing');
     this.setVoiceNotice('Finalisation de la transcription via la session vocale streaming.', 'info');
+    this.armTranscriptionWatchdog();
     const pending = [...this.pendingVoiceFrameSends];
     this.pendingVoiceFrameSends = [];
     if (pending.length) {
@@ -5135,6 +6226,55 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   retrievalChunkTrack(index: number, chunk: string): string {
     return `${index}:${chunk.slice(0, 80)}`;
+  }
+
+  private retrievalChunkMeta(index: number): Record<string, any> {
+    return this.retrieval().metadatas?.[index] || {};
+  }
+
+  private retrievalChunkDocumentId(index: number): string {
+    const meta = this.retrievalChunkMeta(index);
+    return String(meta['document_id'] || meta['source_id'] || '');
+  }
+
+  private retrievalChunkCollection(index: number): string {
+    const meta = this.retrievalChunkMeta(index);
+    return String(
+      meta['collection_name'] ||
+        meta['collection'] ||
+        this.retrieval().collection_name ||
+        '',
+    );
+  }
+
+  retrievalChunkTitle(index: number): string | null {
+    const meta = this.retrievalChunkMeta(index);
+    const title = String(meta['title'] || meta['filename'] || meta['source'] || '').trim();
+    return title || null;
+  }
+
+  canPreviewRetrievalChunk(index: number): boolean {
+    return Boolean(this.retrievalChunkDocumentId(index)) && Boolean(this.retrievalChunkCollection(index));
+  }
+
+  previewRetrievalChunk(index: number): void {
+    const documentId = this.retrievalChunkDocumentId(index);
+    const collection = this.retrievalChunkCollection(index);
+    if (!documentId || !collection) return;
+    const meta = this.retrievalChunkMeta(index);
+    const filename = String(meta['filename'] || '').trim();
+    let url =
+      `${this.api.base}/documents/${encodeURIComponent(documentId)}/rich-preview` +
+      `?collection_name=${encodeURIComponent(collection)}`;
+    if (filename) url += `&filename=${encodeURIComponent(filename)}`;
+    this.sourcePreviewTitle.set(this.retrievalChunkTitle(index) || 'Source retrouvée');
+    this.sourcePreviewUrl.set(url);
+    this.sourcePreviewOpen.set(true);
+  }
+
+  closeSourcePreview(): void {
+    this.sourcePreviewOpen.set(false);
+    this.sourcePreviewUrl.set(null);
   }
 
   private stopSpeech(markInterrupted: boolean): void {
@@ -5280,13 +6420,12 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.stream = null;
   }
 
-  private scheduleConversationResume(): void {
+  private scheduleConversationResume(delayMs = 450, forceAfterSpeech = false): void {
     if (
       this.conversationMode() !== 'conversation_only' ||
       !this.conversationSessionActive() ||
       this.recording() ||
-      this.transcribing() ||
-      this.speaking()
+      this.transcribing()
     ) {
       return;
     }
@@ -5297,19 +6436,64 @@ export class KnowledgeCaptureComponent implements OnInit {
         this.conversationMode() === 'conversation_only' &&
         this.conversationSessionActive() &&
         !this.recording() &&
-        !this.transcribing() &&
-        !this.speaking()
+        !this.transcribing()
       ) {
+        if (this.speaking()) {
+          if (!forceAfterSpeech) {
+            this.scheduleConversationResume(700);
+            return;
+          }
+          this.stopSpeech(false);
+        }
         this.voiceConnection?.loopArmed({ surface: 'knowledge_capture', mode: 'conversation_loop' });
         void this.startRecordingTurn();
       }
-    }, 450);
+    }, delayMs);
+  }
+
+  private conversationResumeFallbackDelay(text: string): number {
+    const estimatedSpeechMs = Math.ceil(Math.max(1, text.length) / 16) * 1000;
+    return Math.max(4500, Math.min(12000, estimatedSpeechMs + 2500));
   }
 
   private clearAutoResumeTimer(): void {
     if (this.autoResumeTimer) {
       clearTimeout(this.autoResumeTimer);
       this.autoResumeTimer = null;
+    }
+  }
+
+  private armTranscriptionWatchdog(): void {
+    this.clearTranscriptionWatchdog();
+    this.transcriptionWatchdog = window.setTimeout(() => {
+      if (!this.transcribing()) return;
+      this.transcribing.set(false);
+      this.voiceState.set('idle');
+      this.releaseAudioStream();
+      this.setVoiceNotice('La transcription prend trop de temps. Le micro est libéré, relancez un tour ou utilisez le texte.', 'error');
+    }, 45000);
+  }
+
+  private clearTranscriptionWatchdog(): void {
+    if (this.transcriptionWatchdog) {
+      clearTimeout(this.transcriptionWatchdog);
+      this.transcriptionWatchdog = null;
+    }
+  }
+
+  private armConversationProcessingWatchdog(): void {
+    this.clearConversationProcessingWatchdog();
+    this.conversationProcessingWatchdog = window.setTimeout(() => {
+      if (this.voiceState() !== 'thinking') return;
+      this.voiceState.set('idle');
+      this.setVoiceNotice('L’analyse prend trop de temps. Vous pouvez continuer la capture ou terminer la session.', 'error');
+    }, 60000);
+  }
+
+  private clearConversationProcessingWatchdog(): void {
+    if (this.conversationProcessingWatchdog) {
+      clearTimeout(this.conversationProcessingWatchdog);
+      this.conversationProcessingWatchdog = null;
     }
   }
 

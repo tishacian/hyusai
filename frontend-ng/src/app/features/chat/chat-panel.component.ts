@@ -41,13 +41,14 @@ import {
   SharedVoiceRuntimeOption,
   VoiceControlsComponent,
 } from '@app/shared/voice/voice-controls.component';
+import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
 
 interface DecisionStep {
   id: string;
   type?: string;
   title?: string;
   description?: string;
-  status?: 'pending' | 'active' | 'completed' | 'error';
+  status?: 'pending' | 'active' | 'completed' | 'warning' | 'error';
   duration?: number;
   metrics?: Record<string, unknown>;
 }
@@ -88,6 +89,18 @@ interface ChatMessage {
   durationMs?: number;
   ragMode?: string | null;
   promptType?: string | null;
+  // Canonical Run id for this turn — lets the auto-QA polling loop attach its
+  // verdict to the right bubble once the judge finishes.
+  runId?: string | null;
+  // Calm, end-user-facing auto-QA verdict. Present only when the reply
+  // breached workspace thresholds. ``reasons`` holds the raw internal metric
+  // names and is surfaced ONLY in operator mode.
+  qaReview?: {
+    compositeScore: number | null;
+    reasons: string[];
+    decisionId?: string | null;
+    runId: string;
+  } | null;
   evaluation?: {
     composite_score: number;
     scores: Record<string, number>;
@@ -334,7 +347,14 @@ const STEP_ICONS: Record<string, string> = {
   selector: 'app-chat-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, IconComponent, RuntimeStatusBadgeComponent, VoiceControlsComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    IconComponent,
+    RuntimeStatusBadgeComponent,
+    VoiceControlsComponent,
+    DocumentPreviewComponent,
+  ],
   template: `
     <div class="flex flex-col h-full">
       @if (executiveMode()) {
@@ -361,6 +381,17 @@ const STEP_ICONS: Record<string, string> = {
                 <app-icon [name]="voiceConversationActive() && !voiceConversationPaused() ? 'mic' : 'play'" [size]="13" />
                 {{ executiveVoiceCtaLabel() }}
               </button>
+              @if (voiceStopAvailable()) {
+                <button
+                  type="button"
+                  class="vigie-voice-stop"
+                  title="Arrêter la voix : couper la lecture et la boucle d’écoute."
+                  (click)="stopVoiceExperience()"
+                >
+                  <app-icon name="square" [size]="13" />
+                  Arrêter
+                </button>
+              }
               <button
                 type="button"
                 class="vigie-trace-button"
@@ -621,9 +652,8 @@ const STEP_ICONS: Record<string, string> = {
 
       <!-- Messages -->
       <div
-        class="flex-1 overflow-y-auto px-4 py-4 space-y-5"
+        class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5"
         [class.vigie-messages]="executiveMode()"
-        style="max-height: calc(100vh - 320px); min-height: 360px;"
       >
         @if (messages().length === 0 && !streaming()) {
           <div class="h-full flex flex-col items-center justify-center py-8" [class.vigie-empty-state]="executiveMode()">
@@ -998,6 +1028,17 @@ const STEP_ICONS: Record<string, string> = {
                                 {{ scoreDisplay(src.score) }}
                               </span>
                             }
+                            @if (canPreviewSource(src)) {
+                              <button
+                                type="button"
+                                class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-brand-300 hover:bg-white/5 transition"
+                                [class.ml-auto]="src.score == null"
+                                title="Preview source document"
+                                (click)="previewSource(src); $event.stopPropagation()"
+                              >
+                                <app-icon name="eye" [size]="12" />
+                              </button>
+                            }
                           </div>
                           @if (sourceSnippet(src); as snippet) {
                             <p class="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-3">
@@ -1117,6 +1158,28 @@ const STEP_ICONS: Record<string, string> = {
                 }
               </div>
 
+              <!-- Calm, end-user-friendly auto-QA marker. Replaces the alarming
+                   top toast for everyone; operators additionally get the raw
+                   breach metrics inline (and still receive the verbose toast). -->
+              @if (msg.qaReview; as qa) {
+                <div class="ml-2 mt-1.5 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/25 hover:bg-amber-500/15 transition"
+                    [title]="qaReviewTooltip()"
+                    (click)="openQaReview(qa.decisionId, qa.runId)"
+                  >
+                    <app-icon name="shield-alert" [size]="12" />
+                    <span>Réponse à vérifier</span>
+                  </button>
+                  @if (!isDemoMode() && qa.reasons.length) {
+                    <span class="text-[10px] font-mono text-gray-500">
+                      {{ qa.compositeScore != null ? qa.compositeScore + '/100 · ' : '' }}{{ qa.reasons.slice(0, 3).join(', ') }}
+                    </span>
+                  }
+                </div>
+              }
+
               @if (msg.evaluation?.claim_audit?.claims?.length) {
                 <div class="ml-2 mt-1 rounded-md bg-white/[0.02] border border-white/5 p-2.5 space-y-1">
                   <div
@@ -1145,6 +1208,26 @@ const STEP_ICONS: Record<string, string> = {
         <!-- Live streaming -->
         @if (streaming()) {
           <div class="flex flex-col gap-2">
+            <!-- Staged, plain-language progress (driven by real decision_step
+                 lifecycle events). Shown until the answer text starts arriving,
+                 in every mode — demo-safe workspaces hide the verbose step list
+                 below, so this is their only progress feedback. -->
+            @if (streamProgress(); as progress) {
+              <div class="flex justify-start">
+                <div
+                  class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-white/[0.04] ring-1 ring-white/5"
+                  aria-live="polite"
+                >
+                  <app-icon
+                    name="loader-2"
+                    [size]="13"
+                    class="text-brand-400"
+                    [class.animate-spin]="progress.spinning"
+                  />
+                  <span>{{ progress.label }}</span>
+                </div>
+              </div>
+            }
             @if (!isDemoMode() && liveSteps().length > 0) {
               <div class="space-y-1">
                 @for (step of liveSteps(); track step.id) {
@@ -1180,16 +1263,26 @@ const STEP_ICONS: Record<string, string> = {
                 }
               </div>
             }
-            <div class="flex justify-start">
-              <div
-                class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-white/5"
-              >
-                {{ streamBuffer() }}<span class="inline-block w-1.5 h-4 bg-brand-400 ml-0.5 animate-pulse align-middle"></span>
+            @if (streamBuffer().length > 0) {
+              <div class="flex justify-start">
+                <div
+                  class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-white/5"
+                >
+                  {{ streamBuffer() }}<span class="inline-block w-1.5 h-4 bg-brand-400 ml-0.5 animate-pulse align-middle"></span>
+                </div>
               </div>
-            </div>
+            }
           </div>
         }
       </div>
+
+      <!-- Live dictation preview: partial transcript while recording -->
+      @if (recording() && voicePartial()) {
+        <div class="px-3 pt-2 -mb-1 flex items-center gap-2 text-xs text-gray-400">
+          <app-icon name="mic" [size]="12" class="text-brand-300 animate-pulse" />
+          <span class="italic truncate">{{ voicePartial() }}</span>
+        </div>
+      }
 
       <!-- Input -->
       <form
@@ -1211,12 +1304,12 @@ const STEP_ICONS: Record<string, string> = {
           [class.bg-white\\/5]="!recording() && !transcribing()"
           [class.ring-white\\/10]="!recording() && !transcribing()"
           [class.text-gray-300]="!recording() && !transcribing()"
-          [disabled]="transcribing() || !canTranscribeVoice()"
+          [disabled]="transcribing() || (!canTranscribeVoice() && !voiceStopAvailable())"
           [title]="voiceMicTitle()"
           (click)="toggleMic()"
         >
           <app-icon
-            [name]="transcribing() ? 'loader-2' : (recording() ? 'square' : 'mic')"
+            [name]="transcribing() ? 'loader-2' : (voiceStopAvailable() ? 'square' : 'mic')"
             [size]="15"
             [class.animate-spin]="transcribing()"
           />
@@ -1238,10 +1331,18 @@ const STEP_ICONS: Record<string, string> = {
           [class.vigie-send-button]="executiveMode()"
         >
           <app-icon [name]="streaming() ? 'loader-2' : 'send'" [size]="14" [class.animate-spin]="streaming()" />
-          {{ streaming() ? 'Streaming' : sendLabel() }}
+          {{ streaming() ? streamingLabel() : sendLabel() }}
         </button>
       </form>
     </div>
+
+    <app-document-preview
+      [open]="sourcePreviewOpen()"
+      [previewUrl]="sourcePreviewUrl()"
+      [title]="sourcePreviewTitle()"
+      subtitle="Retrieval source"
+      (closed)="closeSourcePreview()"
+    />
   `,
   styles: [`
     .vigie-context-bar {
@@ -1315,6 +1416,27 @@ const STEP_ICONS: Record<string, string> = {
       opacity: 0.48;
       box-shadow: none;
     }
+    .vigie-voice-stop {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 36px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(248, 113, 113, 0.42);
+      background:
+        linear-gradient(135deg, rgba(159, 33, 33, 0.88), rgba(94, 18, 18, 0.84)),
+        rgba(11, 18, 28, 0.82);
+      color: #ffe2e2;
+      font-size: 12px;
+      font-weight: 750;
+      transition: 140ms ease;
+    }
+    .vigie-voice-stop:hover {
+      transform: translateY(-1px);
+      border-color: rgba(248, 113, 113, 0.66);
+      color: #fff;
+    }
     .vigie-trace-button {
       display: inline-flex;
       align-items: center;
@@ -1338,6 +1460,7 @@ const STEP_ICONS: Record<string, string> = {
         flex-direction: column;
       }
       .vigie-voice-primary,
+      .vigie-voice-stop,
       .vigie-trace-button {
         justify-content: center;
       }
@@ -1943,6 +2066,46 @@ export class ChatPanelComponent implements AfterViewInit {
   streamBuffer = signal('');
   liveSteps = signal<DecisionStep[]>([]);
   evaluatingId = signal<string | null>(null);
+
+  /**
+   * Plain-language, staged progress label for the in-flight turn. Driven by
+   * the *real* ``decision_step`` lifecycle events emitted by the orchestrator
+   * (query_analysis → embedding → retrieve → thought → synthesis), NOT by any
+   * artificial timer. Returns ``null`` once the answer text starts streaming —
+   * at that point the assistant bubble itself is the progress feedback.
+   *
+   * This is intentionally NOT gated behind ``isDemoMode()`` so demo-safe
+   * workspaces (which hide the verbose decision-step list) still get
+   * meaningful progress instead of a blank bubble during the 25-55s retrieval
+   * + synthesis window.
+   */
+  readonly streamProgress = computed<{ label: string; spinning: boolean } | null>(() => {
+    if (!this.streaming()) return null;
+    // Once tokens arrive the bubble renders them — drop the placeholder.
+    if (this.streamBuffer().length > 0) return null;
+
+    const steps = this.liveSteps();
+    const byType = (t: string): DecisionStep | undefined =>
+      [...steps].reverse().find((s) => s.type === t);
+
+    // Synthesis is active but no text has landed yet → the model is writing.
+    if (byType('synthesis')) return { label: 'Rédaction de la réponse…', spinning: true };
+
+    const retrieve = byType('retrieve');
+    if (retrieve && (retrieve.status === 'completed' || retrieve.status === 'warning')) {
+      const n = this.passagesFound(retrieve);
+      const label =
+        n != null
+          ? `${n} passage${n > 1 ? 's' : ''} trouvé${n > 1 ? 's' : ''} · analyse en cours…`
+          : 'Passages analysés…';
+      return { label, spinning: true };
+    }
+    if (byType('thought')) return { label: 'Analyse des passages…', spinning: true };
+    if (retrieve || byType('embedding') || byType('query_analysis')) {
+      return { label: 'Recherche dans les documents…', spinning: true };
+    }
+    return { label: 'Préparation de la requête…', spinning: true };
+  });
   userInput = '';
   private chatSessionId: string | null = null;
   private chatSessionSignature: string | null = null;
@@ -2145,6 +2308,7 @@ export class ChatPanelComponent implements AfterViewInit {
     return 'Ask a workspace question…';
   });
   readonly sendLabel = computed(() => this.isDemoMode() || this.executiveMode() ? 'Interroger' : 'Send');
+  readonly streamingLabel = computed(() => this.isDemoMode() || this.executiveMode() ? 'En cours…' : 'Streaming');
 
   readonly ragModeHint = computed(() => {
     const slug = this.ragModeOverride();
@@ -2323,6 +2487,11 @@ export class ChatPanelComponent implements AfterViewInit {
 
   private readonly openTrails = signal<Set<string>>(new Set());
   private readonly openSources = signal<Set<string>>(new Set());
+
+  // Source document preview (reuses the shared Knowledge/SFTP viewer drawer).
+  readonly sourcePreviewOpen = signal(false);
+  readonly sourcePreviewUrl = signal<string | null>(null);
+  readonly sourcePreviewTitle = signal('');
   /**
    * Expanded evaluation steps, keyed by ``"${messageId}:${stepId}"``. Kept
    * separate from ``openTrails`` so operators can dive into a specific
@@ -2337,6 +2506,19 @@ export class ChatPanelComponent implements AfterViewInit {
   private voiceLoopRearmTimer: ReturnType<typeof setTimeout> | null = null;
   private voiceLastEndpointReason: VoiceLoopEndpointReason | null = null;
   private appliedVoiceDefaultsSignature = '';
+  /**
+   * Streaming-turn state. When the conversation loop runs over a backend_ws
+   * session we stream MediaRecorder chunks to the gateway as they arrive
+   * (rather than sending one blob on endpoint), and run throttled partial
+   * transcription so the tandem oracle can react live to in-progress speech.
+   */
+  private voiceTurnId: string | null = null;
+  private voiceTurnChunks: Blob[] = [];
+  private voiceTurnStreaming = false;
+  private voiceFramesStreamed = false;
+  private voicePartialInFlight = false;
+  private lastVoicePartialAt = 0;
+  private pendingVoiceFrameSends: Promise<void>[] = [];
   /**
    * Signals reflecting TTS transport state so the template can show a
    * pause/resume button only while audio is actually being prepared,
@@ -2602,12 +2784,13 @@ export class ChatPanelComponent implements AfterViewInit {
 	  }
 
   voiceMicTitle(): string {
-    if (!this.canTranscribeVoice()) return this.isDemoMode() ? 'Voice runtime cannot transcribe audio' : 'Selected provider cannot transcribe voice';
     if (this.voiceConversationActive()) {
       if (this.voiceConversationPaused()) return 'Conversation loop paused. Press Resume to reopen the microphone.';
-      if (this.recording()) return 'Listening. Silence will submit this voice turn automatically.';
-      return 'Conversation loop is armed. The microphone reopens after each answer.';
+      return 'Arrêter la voix : couper la lecture et la boucle d’écoute (sans relance).';
     }
+    if (!this.canTranscribeVoice() && !this.voiceStopAvailable())
+      return this.isDemoMode() ? 'Voice runtime cannot transcribe audio' : 'Selected provider cannot transcribe voice';
+    if (this.ttsSpeaking()) return 'Couper la lecture vocale en cours.';
     if (this.transcribing()) return this.isDemoMode() ? 'Transcribing…' : `Transcribing with ${this.voiceInputProvider()}…`;
     if (this.recording()) {
       return this.voiceAutoEndpoint() && this.voiceTransport() === 'backend_ws'
@@ -3024,6 +3207,44 @@ export class ChatPanelComponent implements AfterViewInit {
     return score <= 1 ? (score * 100).toFixed(0) + '%' : score.toFixed(2);
   }
 
+  private sourceDocumentId(src: Source): string {
+    const meta = (src.metadata ?? {}) as Record<string, unknown>;
+    return (
+      (src.document_id as string | undefined) ||
+      (meta['document_id'] as string | undefined) ||
+      ''
+    );
+  }
+
+  /** A source is previewable when we can resolve a document id + collection. */
+  canPreviewSource(src: Source): boolean {
+    return !!this.sourceDocumentId(src) && !!this.sourceCollection(src);
+  }
+
+  previewSource(src: Source): void {
+    const documentId = this.sourceDocumentId(src);
+    const collection = this.sourceCollection(src);
+    if (!documentId || !collection) return;
+    const filename =
+      (src.filename as string | undefined) ||
+      ((src.metadata as any)?.filename as string | undefined) ||
+      '';
+    let url =
+      `${this.api.base}/documents/${encodeURIComponent(documentId)}/rich-preview` +
+      `?collection_name=${encodeURIComponent(collection)}`;
+    if (filename) url += `&filename=${encodeURIComponent(filename)}`;
+    this.sourcePreviewTitle.set(this.sourceTitle(src));
+    this.sourcePreviewUrl.set(url);
+    this.sourcePreviewOpen.set(true);
+    this.cdr.markForCheck();
+  }
+
+  closeSourcePreview(): void {
+    this.sourcePreviewOpen.set(false);
+    this.sourcePreviewUrl.set(null);
+    this.cdr.markForCheck();
+  }
+
   useSuggestion(s: SuggestionCard): void {
     this.userInput = s.prompt;
     this.voiceOracleMessage.set('Question prête. Complétez si besoin, puis envoyez.');
@@ -3287,6 +3508,27 @@ export class ChatPanelComponent implements AfterViewInit {
     return STEP_ICONS[step.type ?? 'default'] ?? STEP_ICONS['default'];
   }
 
+  /**
+   * Best-effort passage count for the retrieval step. The orchestrator encodes
+   * it in the step description (``"Retrieved N chunks…"``) and in a structured
+   * ``details`` array (``"Retrieved: N/top_k documents"``); we read whichever is
+   * present so the staged progress label can say "N passages trouvés".
+   */
+  private passagesFound(step: DecisionStep): number | null {
+    const raw = step as unknown as { details?: unknown; scores?: unknown };
+    if (Array.isArray(raw.details)) {
+      for (const d of raw.details as unknown[]) {
+        const m = String(d).match(/Retrieved:\s*(\d+)\s*\//i);
+        if (m) return Number(m[1]);
+      }
+    }
+    const desc = step.description ?? '';
+    const m = desc.match(/Retrieved\s+(\d+)\s+chunks/i);
+    if (m) return Number(m[1]);
+    if (Array.isArray(raw.scores)) return (raw.scores as unknown[]).length;
+    return null;
+  }
+
   onKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -3342,6 +3584,7 @@ export class ChatPanelComponent implements AfterViewInit {
     let reasoning: DecisionStep[] = [];
     let sources: Source[] | undefined;
     let mapCommand: Record<string, unknown> | undefined;
+    let turnRunId: string | undefined;
 
     const ragOverride = this.ragModeOverride();
     const promptTypeSel = this.promptType();
@@ -3384,6 +3627,10 @@ export class ChatPanelComponent implements AfterViewInit {
           if (chunk.sources && Array.isArray(chunk.sources) && chunk.sources.length > 0) {
             sources = chunk.sources as Source[];
           }
+          // The canonical Run id can ride along any chunk (special-path text
+          // chunks and the trailing ``eval_pending`` chunk both carry it).
+          // Remember it so the auto-QA verdict can be pinned to this bubble.
+          if (chunk.run_id) turnRunId = chunk.run_id;
           if (chunk.chunk_type === 'text' && typeof chunk.content === 'string') {
             buffer += chunk.content;
             this.streamBuffer.set(buffer);
@@ -3446,6 +3693,8 @@ export class ChatPanelComponent implements AfterViewInit {
               durationMs,
               ragMode: ragOverride !== 'auto' ? ragOverride : null,
               promptType: promptTypeSel !== 'auto' ? promptTypeSel : null,
+              runId: turnRunId ?? null,
+              qaReview: null,
             };
             this.messages.update((m) => [...m, assistantMsg]);
             this.streaming.set(false);
@@ -3560,35 +3809,73 @@ export class ChatPanelComponent implements AfterViewInit {
     decision_id?: string | null;
     run_id: string;
   }): void {
-    const metricList = (res.reasons ?? [])
+    const reasons = (res.reasons ?? [])
       .map((r) => r.metric)
-      .filter(Boolean)
-      .slice(0, 3)
-      .join(', ');
-    const score = res.composite_score != null ? Math.round(res.composite_score) : '—';
-    const title = 'Reply flagged by auto-QA';
-    const msg = metricList
-      ? `Composite ${score}/100 · breaches: ${metricList} · tap to review`
-      : `Composite ${score}/100 · tap to review`;
-    const t: ActiveToast<unknown> = this.toast.warning(msg, title, {
-      timeOut: 10000,
-      closeButton: true,
-      tapToDismiss: false,
-      enableHtml: false,
+      .filter((m): m is string => Boolean(m));
+    const score = res.composite_score != null ? Math.round(res.composite_score) : null;
+
+    // Primary, end-user-friendly affordance: pin a calm "à vérifier" marker on
+    // the bubble itself. No jargon, no alarming top toast. The detailed review
+    // stays reachable via the badge's discreet "Voir le détail" action.
+    this.attachQaReview(res.run_id, {
+      compositeScore: score,
+      reasons,
+      decisionId: res.decision_id ?? null,
+      runId: res.run_id,
     });
-    t.onTap.subscribe(() => {
-      // Deeplink priority: if the breach already produced a
-      // Decision row we jump to the review queue (so the reviewer
-      // can accept/reject inline); otherwise we fall back to the
-      // Run inspector for raw context.
-      if (res.decision_id) {
-        this.router.navigate(['/steering', 'review-queue'], {
-          queryParams: { decision: res.decision_id },
-        });
-      } else {
-        this.router.navigate(['/runs', res.run_id]);
-      }
-    });
+
+    // Operator/debug context only: keep the verbose breach toast so reviewer
+    // tooling (raw metric names, one-tap deeplink) is not regressed. End users
+    // in demo-safe workspaces never see this.
+    if (!this.isDemoMode()) {
+      const metricList = reasons.slice(0, 3).join(', ');
+      const title = 'Reply flagged by auto-QA';
+      const scoreLabel = score != null ? `${score}` : '—';
+      const msg = metricList
+        ? `Composite ${scoreLabel}/100 · breaches: ${metricList} · tap to review`
+        : `Composite ${scoreLabel}/100 · tap to review`;
+      const t: ActiveToast<unknown> = this.toast.warning(msg, title, {
+        timeOut: 10000,
+        closeButton: true,
+        tapToDismiss: false,
+        enableHtml: false,
+      });
+      t.onTap.subscribe(() => this.openQaReview(res.decision_id ?? null, res.run_id));
+    }
+  }
+
+  /**
+   * Pin the auto-QA verdict to the matching assistant bubble (by Run id). The
+   * polling loop can resolve slightly before or after the ``done`` chunk
+   * creates the bubble; either way ``messages`` is updated in place when the
+   * bubble exists.
+   */
+  private attachQaReview(
+    runId: string,
+    review: NonNullable<ChatMessage['qaReview']>,
+  ): void {
+    this.messages.update((msgs) =>
+      msgs.map((m) => (m.runId === runId ? { ...m, qaReview: review } : m)),
+    );
+  }
+
+  /** Plain-language tooltip for the "Réponse à vérifier" badge. */
+  qaReviewTooltip(): string {
+    return 'Le contrôle qualité automatique recommande de vérifier cette réponse avant de l’utiliser. Cliquez pour consulter le détail.';
+  }
+
+  /** Navigate to the detailed QA review for a flagged reply (opt-in). */
+  openQaReview(decisionId: string | null | undefined, runId: string): void {
+    // Deeplink priority: if the breach already produced a Decision row we jump
+    // to the review queue (so the reviewer can accept/reject inline);
+    // otherwise we fall back to the Run inspector for raw context.
+    if (decisionId) {
+      this.router.navigate(['/steering', 'review-queue'], {
+        queryParams: { decision: decisionId },
+      });
+    } else {
+      this.router.navigate(['/runs', runId]);
+    }
   }
 
   rate(msg: ChatMessage, verdict: 'up' | 'down'): void {
@@ -3666,11 +3953,63 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   async toggleMic(): Promise<void> {
+    // In a Conversation-default workspace the microphone toggles the whole
+    // continuous loop (auto-rearm + tandem oracle + stop triggers) instead of
+    // a single batch turn, so the Quick-ask surface gets the same behaviour as
+    // the advanced voice controls without an extra button.
+    if (this.voiceConversationActive()) {
+      this.stopConversationLoop();
+      return;
+    }
     if (this.recording()) {
       this.voiceLoop.stopTurn('manual');
       return;
     }
+    // No loop and not recording, but the assistant is still reading the answer
+    // aloud: the on-screen text is already complete, so STOP just cuts the TTS.
+    if (this.ttsSpeaking()) {
+      this.stopVoiceExperience();
+      return;
+    }
+    if (this.conversationModeIsDefault()) {
+      await this.startConversationLoop();
+      return;
+    }
     await this.startVoiceTurn(false);
+  }
+
+  /** True while there is something to STOP: an active conversation loop, a live
+   * recording, or the assistant reading the answer aloud. Drives the mic
+   * button's stop (square) affordance and the executive STOP control. */
+  voiceStopAvailable(): boolean {
+    return this.voiceConversationActive() || this.recording() || this.ttsSpeaking();
+  }
+
+  /**
+   * The explicit STOP the user asked for: immediately cut any TTS voice-out and
+   * hard-stop the loop so it does not auto-rearm. The on-screen answer is kept.
+   */
+  stopVoiceExperience(): void {
+    if (this.voiceConversationActive()) {
+      this.stopConversationLoop();
+      return;
+    }
+    this.clearVoiceLoopRearmTimer();
+    if (this.recording()) {
+      this.voiceLoop.hardStop({ cancelTts: () => this.resetTtsPipeline() });
+      this.recording.set(false);
+    } else if (this.ttsSpeaking()) {
+      this.resetTtsPipeline();
+    }
+    this.voiceConnection?.ttsInterrupted({ reason: 'user_stop', surface: 'chat' });
+    this.voiceNotice.set('Lecture coupée');
+    this.cdr.markForCheck();
+  }
+
+  /** True when the workspace voice default is Conversation and the runtime can
+   * open a streaming voice session. */
+  private conversationModeIsDefault(): boolean {
+    return this.workspaceVoiceLoopConfig().default_mode === 'session_loop' && this.canUseVoiceSession();
   }
 
   private voiceLoopSettingNumber(key: keyof WorkspaceVoiceLoopConfig, fallback: number, min: number, max: number): number {
@@ -3728,7 +4067,7 @@ export class ChatPanelComponent implements AfterViewInit {
         this.voiceNotice.set('Voice output stopped for listening');
       }
 
-      const autoEndpoint = this.voiceTransport() === 'backend_ws' && (fromConversationLoop || this.voiceAutoEndpoint());
+      const autoEndpoint = fromConversationLoop || this.voiceAutoEndpoint();
       this.voiceConnection?.loopArmed({
         surface: 'chat',
         mode: fromConversationLoop ? 'conversation_loop' : 'manual_turn',
@@ -3737,21 +4076,52 @@ export class ChatPanelComponent implements AfterViewInit {
       this.voiceOracleStage.set('listening');
       this.voiceOracleMessage.set(
         autoEndpoint
-          ? 'Listening: Agentium will end this voice turn after a short silence.'
+          ? 'Listening: the assistant will end this voice turn after a short silence.'
           : 'Listening: press the microphone again to end this voice turn.',
       );
+
+      // Stream audio chunks to the gateway (live) when the conversation loop is
+      // running over a backend_ws session. This drives per-chunk transcription
+      // and the tandem oracle while the user is still speaking, instead of one
+      // big blob on endpoint.
+      const streamTurn =
+        fromConversationLoop && this.voiceTransport() === 'backend_ws' && this.canUseVoiceSession();
+      // A standard (non-streaming) dictation turn still shows live partial text
+      // as the user speaks: the recorder emits timeslice chunks and we run
+      // throttled HTTP partial transcription into `voicePartial`.
+      const livePartialTurn = !streamTurn && this.canTranscribeVoice();
+      this.voiceTurnStreaming = streamTurn;
+      this.voiceFramesStreamed = false;
+      this.voiceTurnChunks = [];
+      this.voicePartialInFlight = false;
+      this.lastVoicePartialAt = 0;
+      this.voicePartial.set('');
+      if (streamTurn) {
+        this.voiceTurnId = crypto.randomUUID?.() || String(Date.now());
+        this.ensureVoiceSession();
+      } else if (livePartialTurn) {
+        this.voiceTurnId = crypto.randomUUID?.() || String(Date.now());
+      } else {
+        this.voiceTurnId = null;
+      }
 
       const started = await this.voiceLoop.startTurn({
         autoEndpoint,
         mimeType: 'audio/webm',
+        timesliceMs: streamTurn || livePartialTurn ? 1200 : undefined,
         silenceMs: this.voiceEndpointSilenceMs(),
         minSpeechMs: this.voiceEndpointMinSpeechMs(),
         maxTurnMs: this.voiceEndpointMaxTurnMs(),
         rmsThreshold: this.voiceEndpointRmsThreshold(),
+        onChunk: streamTurn
+          ? (chunk) => this.onConversationVoiceChunk(chunk)
+          : livePartialTurn
+            ? (chunk) => this.onManualVoiceChunk(chunk)
+            : undefined,
         onState: (state) => this.syncVoiceLoopState(state),
         onSpeechStart: () => {
           this.voiceOracleStage.set('listening');
-          this.voiceOracleMessage.set('Speech detected. Agentium will submit after silence.');
+          this.voiceOracleMessage.set('Speech detected. The assistant will submit after silence.');
           if (this.ttsSpeaking() && this.voiceLoopBargeInEnabled()) {
             this.voiceConnection?.bargeIn();
             this.voiceConnection?.ttsInterrupted({ reason: 'user_speech', surface: 'chat' });
@@ -3774,7 +4144,11 @@ export class ChatPanelComponent implements AfterViewInit {
           this.voiceNotice.set(this.voiceEndpointNotice(reason));
           this.voiceOracleStage.set('thinking');
           this.voiceOracleMessage.set('Voice turn ended; transcribing final audio.');
-          this.transcribe(blob);
+          if (this.voiceTurnStreaming && this.voiceFramesStreamed) {
+            void this.finishStreamingVoiceTurn(reason);
+          } else {
+            this.transcribe(blob);
+          }
         },
         onError: (message) => {
           this.recording.set(false);
@@ -3854,13 +4228,16 @@ export class ChatPanelComponent implements AfterViewInit {
     if (!this.voiceConversationActive() && !this.recording() && !this.transcribing() && !this.ttsSpeaking()) return;
     this.voiceConversationActive.set(false);
     this.voiceConversationPaused.set(false);
-    this.clearVoiceLoopRearmTimer();
-    this.voiceLoop.stopLoop();
+    this.voiceLoop.hardStop({
+      disableRearm: () => this.clearVoiceLoopRearmTimer(),
+      cancelTts: () => {
+        if (this.ttsSpeaking()) this.resetTtsPipeline();
+      },
+    });
     this.recording.set(false);
     this.transcribing.set(false);
     this.voicePartial.set('');
     this.voiceLastEndpointReason = null;
-    if (this.ttsSpeaking()) this.resetTtsPipeline();
     this.voiceConnection?.loopStop({ surface: 'chat', reason });
     this.closeVoiceSession();
     this.voiceNotice.set(reason === 'user_stop' ? 'Conversation stopped' : `Conversation stopped · ${reason.replace(/_/g, ' ')}`);
@@ -3942,6 +4319,8 @@ export class ChatPanelComponent implements AfterViewInit {
     options: { fallbackUsed?: boolean; provider?: string | null } = {},
   ): boolean {
     const text = rawText.trim();
+    // The final transcript supersedes the live preview.
+    this.voicePartial.set('');
     if (!text) {
       this.toast.info('No speech detected in the recording', 'Voice');
       this.scheduleVoiceLoopRearm();
@@ -4172,7 +4551,7 @@ export class ChatPanelComponent implements AfterViewInit {
 	    this.voicePartial.set('');
 	    this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', this.voiceInputProvider()));
 	    this.voiceOracleStage.set('thinking');
-	    this.voiceOracleMessage.set('Audio segment sent to Agentium voice session; waiting for transcript.');
+	    this.voiceOracleMessage.set('Audio segment sent to the voice session; waiting for transcript.');
 	    const connection = this.ensureVoiceSession();
     if (!connection) {
       this.voiceTransport.set('batch_http');
@@ -4195,6 +4574,94 @@ export class ChatPanelComponent implements AfterViewInit {
       this.closeVoiceSession();
       this.cdr.markForCheck();
     }
+  }
+
+  /** Handle one MediaRecorder timeslice while a streaming conversation turn is
+   * in progress: forward it to the gateway only. The gateway is now the single
+   * source of truth for live partials — it transcribes the growing buffer
+   * server-side and emits `transcript.partial` events that drive `voicePartial`
+   * (see handleVoiceSessionEvent). We no longer re-transcribe client-side here,
+   * which removes the previous double transcription. */
+  private onConversationVoiceChunk(chunk: Blob): void {
+    if (!this.voiceTurnStreaming || chunk.size <= 0) return;
+    this.voiceTurnChunks.push(chunk);
+    const connection = this.voiceConnection;
+    if (connection) {
+      const send = connection
+        .sendAudioFrame(chunk, { turn_id: this.voiceTurnId, content_type: chunk.type || 'audio/webm' })
+        .then(() => {
+          this.voiceFramesStreamed = true;
+        })
+        .catch(() => {
+          // Frame transport failed; finalise this turn with a single blob.
+          this.voiceTurnStreaming = false;
+        });
+      this.pendingVoiceFrameSends.push(send);
+      void send.finally(() => {
+        this.pendingVoiceFrameSends = this.pendingVoiceFrameSends.filter((item) => item !== send);
+      });
+    }
+  }
+
+  /** Handle one MediaRecorder timeslice during a standard (non-conversation)
+   * dictation turn: buffer it and run throttled partial STT for live display. */
+  private onManualVoiceChunk(chunk: Blob): void {
+    if (chunk.size <= 0) return;
+    this.voiceTurnChunks.push(chunk);
+    this.maybeTranscribeManualPartial();
+  }
+
+  /** Throttled (~1.5s) partial transcription of the dictation captured so far,
+   * shown live in `voicePartial`. The final transcript still arrives through the
+   * normal endpoint path; this only drives the live preview. */
+  private maybeTranscribeManualPartial(): void {
+    if (this.voicePartialInFlight || this.voiceTurnChunks.length < 2) return;
+    const now = Date.now();
+    if (now - this.lastVoicePartialAt < 1500) return;
+    this.voicePartialInFlight = true;
+    this.lastVoicePartialAt = now;
+    const turnId = this.voiceTurnId;
+    const blob = new Blob(this.voiceTurnChunks, { type: 'audio/webm' });
+    this.api
+      .transcribeAudio(blob, 'partial.webm', this.voiceInputProvider())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.voicePartialInFlight = false;
+          const text = String(res?.text || '').trim();
+          if (!text || turnId !== this.voiceTurnId || !this.recording()) return;
+          this.voicePartial.set(text);
+          this.cdr.markForCheck();
+        },
+        error: () => {
+          this.voicePartialInFlight = false;
+        },
+      });
+  }
+
+  /** Finalise a streamed conversation turn: flush any in-flight frames then
+   * signal the endpoint. The gateway transcribes from the buffered frames, so
+   * we never resend the whole blob (which would duplicate the audio). */
+  private async finishStreamingVoiceTurn(reason: VoiceLoopEndpointReason): Promise<void> {
+    this.transcribing.set(true);
+    this.voiceOracleStage.set('thinking');
+    this.voiceNotice.set(this.voiceRuntimeNotice('Voice session', this.voiceInputProvider()));
+    this.voiceOracleMessage.set('Finalising the streamed voice turn; waiting for the transcript.');
+    const connection = this.voiceConnection;
+    if (!connection) {
+      this.voiceTurnStreaming = false;
+      this.transcribe(new Blob(this.voiceTurnChunks, { type: 'audio/webm' }));
+      return;
+    }
+    const pending = [...this.pendingVoiceFrameSends];
+    this.pendingVoiceFrameSends = [];
+    if (pending.length) await Promise.allSettled(pending);
+    connection.endpoint({
+      turn_id: this.voiceTurnId,
+      auto: reason === 'silence' || reason === 'max_turn',
+      reason,
+    });
+    this.voiceLastEndpointReason = null;
   }
 
   private ensureVoiceSession(): VoiceSessionConnection | null {
@@ -4237,11 +4704,14 @@ export class ChatPanelComponent implements AfterViewInit {
 	      this.voiceOracleMessage.set('Session channel ready. Record a voice turn to start oracle tracking.');
 	      return;
 	    }
-	    if (event.type === 'text.partial') {
+	    if (event.type === 'text.partial' || event.type === 'transcript.partial') {
+	      // Server is the single source of truth for live partials: the gateway
+	      // emits these mid-utterance from its server-side incremental STT.
 	      const text = String(payload['text'] || '').trim();
 	      if (text) this.voicePartial.set(text);
 	      this.voiceOracleStage.set('thinking');
 	      this.voiceOracleMessage.set(text ? `Transcript received: “${text.slice(0, 90)}${text.length > 90 ? '…' : ''}”` : 'Transcript received; oracle is updating.');
+	      this.cdr.markForCheck();
 	      return;
 	    }
 	    if (event.type === 'text.final') {

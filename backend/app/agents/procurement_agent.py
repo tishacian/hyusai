@@ -4,7 +4,9 @@ Full execution streaming pipeline with real-time SSE decision_step events.
 """
 
 import asyncio
+import re
 import time
+from collections.abc import Mapping
 from typing import Any, AsyncGenerator
 
 from app.agents.base import BaseAgent
@@ -12,6 +14,414 @@ from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+# ── Conversation memory / follow-up handling ──────────────────────────────
+#
+# End users repeatedly reported "il ne suit pas la conversation": short
+# follow-up / meta instructions ("détaille", "réponds plus long", "résume")
+# were run as literal RAG queries — retrieving junk and losing the previous
+# answer the user actually wanted expanded. We now (a) feed recent turns
+# (including the previous assistant answer) into the generation prompt and
+# (b) detect meta/follow-up turns so we reuse the prior context instead of
+# grounding on noise, and never attach spurious sources to them.
+
+# How many prior turns and how much text to carry into the prompt. The most
+# recent assistant answer is kept in full so "détaille"/"plus long" has the
+# real text to expand; older turns are length-capped to bound prompt size.
+_HISTORY_MAX_TURNS = 8
+_HISTORY_TURN_MAX_CHARS = 4000
+
+# Meta / formatting / length instructions that operate on the PREVIOUS answer
+# rather than introducing a new retrieval topic. Matching turns reuse the
+# conversation context (no fresh grounding requirement, no sources panel).
+_META_FOLLOWUP_RE = re.compile(
+    r"\b("
+    r"d[ée]taille[rz]?|d[ée]taill[ée]e?s?|d[ée]velopp[a-z]*|approfond[a-z]*|"
+    r"r[ée]sume[rz]?|r[ée]sum[ée]|reformule[rz]?|reformul[a-z]*|"
+    r"explique[rz]?|expliqu[a-z]*|pr[ée]cise[rz]?|clarifie[rz]?|"
+    r"continue[rz]?|poursui[a-z]*|encore|davantage|"
+    r"plus\s+(?:long|court|d[ée]taill[ée]e?s?|pr[ée]cis|simple|clair)|"
+    r"moins\s+long|"
+    r"r[ée]ponse\s+plus|"
+    r"\d+\s*fois\s+plus|"
+    r"traduis[a-z]*|reprends|r[ée][ée]cris|reecris|"
+    r"expand|elaborate|summari[sz]e|rephrase|rewrite|shorter|longer|"
+    r"continue|more\s+detail|in\s+detail"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Explicit "make it longer / more detailed" intent — relaxes brevity and
+# raises the output budget so the model genuinely expands.
+_LENGTH_DETAIL_RE = re.compile(
+    r"\b("
+    r"d[ée]taille[rz]?|d[ée]taill[ée]e?s?|d[ée]velopp[a-z]*|approfond[a-z]*|"
+    r"plus\s+(?:long|d[ée]taill[ée]e?s?|complet|exhaustif)|"
+    r"\d+\s*fois\s+plus|r[ée]ponse\s+plus\s+longue|"
+    r"expand|elaborate|longer|more\s+detail|in\s+detail|comprehensive"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_CITATION_RE = re.compile(r"\[(\d{1,2})\]")
+
+# A turn is only treated as a standalone (retrieval) question when it carries
+# enough signal. Very short pronoun/instruction-only turns in an ongoing
+# conversation are follow-ups even when they don't match the meta regex.
+_MIN_STANDALONE_QUERY_WORDS = 4
+
+
+def _conversation_history(request: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return prior conversation turns supplied by the chat endpoint."""
+    context = request.get("context") if isinstance(request.get("context"), Mapping) else {}
+    history = context.get("conversation_history") if isinstance(context, Mapping) else None
+    if not isinstance(history, list):
+        return []
+    turns: list[dict[str, Any]] = []
+    for item in history:
+        if not isinstance(item, Mapping):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        content = str(item.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            turns.append({"role": role, "content": content})
+    return turns
+
+
+def _trimmed_history_for_prompt(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the last few turns, length-capping all but the latest answer."""
+    recent = history[-_HISTORY_MAX_TURNS:]
+    trimmed: list[dict[str, Any]] = []
+    last_assistant_index = max(
+        (i for i, t in enumerate(recent) if t["role"] == "assistant"),
+        default=-1,
+    )
+    for index, turn in enumerate(recent):
+        content = turn["content"]
+        # Preserve the most recent assistant answer in full so an "expand"
+        # follow-up has the real text to build on; cap everything else.
+        if index != last_assistant_index and len(content) > _HISTORY_TURN_MAX_CHARS:
+            content = content[:_HISTORY_TURN_MAX_CHARS] + " […]"
+        trimmed.append({"role": turn["role"], "content": content})
+    return trimmed
+
+
+def _previous_assistant_answer(history: list[dict[str, Any]]) -> str:
+    for turn in reversed(history):
+        if turn["role"] == "assistant":
+            return turn["content"]
+    return ""
+
+
+def _is_meta_followup(query: str, history: list[dict[str, Any]]) -> bool:
+    """Detect a meta/conversational turn that refers to the previous answer.
+
+    Conservative: only fires when there is prior conversation, and either the
+    turn matches an explicit meta/length instruction or it is too short to be a
+    standalone retrieval question (pronoun/instruction-only). Non-follow-up
+    questions ("de quelle documentation disposes-tu ?") never match.
+    """
+    text = str(query or "").strip()
+    if not text or not _previous_assistant_answer(history):
+        return False
+    if _META_FOLLOWUP_RE.search(text):
+        return True
+    word_count = len(re.findall(r"\w+", text))
+    if word_count < _MIN_STANDALONE_QUERY_WORDS and "?" not in text:
+        return True
+    return False
+
+
+def _cited_source_indices(text: str) -> set[int]:
+    return {int(match) for match in _CITATION_RE.findall(text or "")}
+
+# Generic/placeholder document titles that carry no information for an end
+# user. When the extracted title matches one of these we fall back to the
+# real filename so a source card reads "spare part list ACO140 ind a.xls"
+# instead of "Document1" / "Untitled document" / "Documentation".
+_PLACEHOLDER_TITLE_RE = re.compile(
+    r"^(?:document\s*\d*|untitled(?:\s+document)?|documentation|sans\s+titre|"
+    r"nouveau\s+document|new\s+document|titre|title)$",
+    re.IGNORECASE,
+)
+
+# Synthetic "analysis evidence" chunks are prefixed with a bureaucratic
+# locator header ("Document analysis evidence: <type>; file=...; locator=...."
+# / "Table analysis evidence: <label> = <value>; file=...; ...."). The real
+# fact text follows that header. We strip the header for the UI snippet so the
+# source card shows the actual passage instead of the metadata blurb.
+_EVIDENCE_PREFIX_RE = re.compile(
+    r"^(?:document|table)\s+analysis\s+evidence:\s*.*?\.\s+",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Source rows that are advisory background (Knowledge Guides), not citable
+# end-user documents. They stay in the prompt as context but are excluded from
+# the numbered Sources panel so internal plumbing never reads as a citation.
+_ADVISORY_SOURCE_TYPES = {"knowledge_guide"}
+# Synthetic evidence rows derived from structured facts. They are useful in the
+# prompt, but when a real retrieved passage exists for the same document/page
+# we prefer the passage so the model and the panel see actual text.
+_EVIDENCE_SOURCE_TYPES = {"document_analysis", "table_analysis"}
+
+# Upper bound on distinct passages kept per document and overall, so one noisy
+# multi-page PDF (or cross-collection copies) cannot flood the Sources panel.
+_MAX_PASSAGES_PER_DOCUMENT = 3
+_MAX_CITABLE_SOURCES = 8
+
+
+def _meta_source_type(meta: dict[str, Any]) -> str:
+    return str(meta.get("source_type") or meta.get("type") or "").strip().lower()
+
+
+def _is_advisory_meta(meta: dict[str, Any]) -> bool:
+    return (
+        _meta_source_type(meta) in _ADVISORY_SOURCE_TYPES
+        or str(meta.get("retrieval_role") or "").strip().lower() == "advisory_context"
+    )
+
+
+def _is_evidence_meta(meta: dict[str, Any]) -> bool:
+    return _meta_source_type(meta) in _EVIDENCE_SOURCE_TYPES
+
+
+def _is_placeholder_title(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return True
+    return bool(_PLACEHOLDER_TITLE_RE.match(text))
+
+
+def _filename_display(filename: Any) -> str:
+    """Return a human-friendly filename, unwrapping archive-flattened names.
+
+    Promoted archive members carry names like
+    ``Manual_BBA120__Spare part list__Spare Parts List_BBA120.pdf`` where
+    ``__`` joins the inner path segments. We keep the final segment so the
+    card shows the real file rather than the archive path.
+    """
+    name = str(filename or "").strip()
+    if not name:
+        return ""
+    for separator in ("__", "/", "\\"):
+        if separator in name:
+            name = name.split(separator)[-1]
+    return name.strip()
+
+
+def _display_title(meta: dict[str, Any]) -> str:
+    """Resolve a recognizable title, falling back past known placeholders."""
+    for key in ("title", "document_title"):
+        value = str(meta.get(key) or "").strip()
+        if value and not _is_placeholder_title(value):
+            return value
+    filename = _filename_display(meta.get("document_filename") or meta.get("filename"))
+    if filename:
+        return filename
+    # Nothing better than a placeholder is available — keep it rather than the
+    # generic default so at least *something* is shown.
+    for key in ("title", "document_title"):
+        value = str(meta.get(key) or "").strip()
+        if value:
+            return value
+    return "Untitled document"
+
+
+def _document_identity(meta: dict[str, Any]) -> str:
+    """Stable identity used to collapse the same underlying file.
+
+    The same file promoted into two collections gets distinct ``document_id``
+    values, so the normalized filename is the most reliable cross-collection
+    key. We only fall back to ids/paths when no filename is available.
+    """
+    filename = _filename_display(meta.get("document_filename") or meta.get("filename"))
+    if filename:
+        return f"file:{filename.lower()}"
+    for key in ("document_id", "source_path", "object_key", "url"):
+        value = meta.get(key)
+        if value:
+            return f"{key}:{value}"
+    return ""
+
+
+def _passage_locator(meta: dict[str, Any]) -> str:
+    """Best-effort intra-document locator used to keep distinct passages."""
+    for key in (
+        "page",
+        "cell_ref",
+        "cell_range",
+        "sheet_name",
+        "section_path",
+        "paragraph_index",
+        "chunk_index",
+    ):
+        value = meta.get(key)
+        if value not in (None, ""):
+            return f"{key}={value}"
+    return ""
+
+
+def _clean_source_snippet(chunk: Any) -> str:
+    text = str(chunk or "").strip()
+    stripped = _EVIDENCE_PREFIX_RE.sub("", text, count=1).strip()
+    return (stripped or text)[:200]
+
+
+def _select_citation_entries(
+    chunks: list[Any],
+    scores: list[Any],
+    metadatas: list[Any],
+    *,
+    max_per_document: int = _MAX_PASSAGES_PER_DOCUMENT,
+    max_total: int = _MAX_CITABLE_SOURCES,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Partition retrieved chunks into citable sources and advisory context.
+
+    - Knowledge Guides / advisory rows are routed to ``advisory`` so they never
+      appear as numbered citations (item 1).
+    - Citable rows are de-duplicated by (document identity, passage locator):
+      true duplicates and near-identical cross-collection copies collapse while
+      legitimately distinct pages survive (item 2).
+    - On a collision a real retrieved passage beats a synthetic analysis-evidence
+      summary, so the model and the panel get the actual text (item 4).
+    """
+    scores = scores or []
+    metadatas = metadatas or []
+    citable_raw: list[dict[str, Any]] = []
+    advisory: list[dict[str, Any]] = []
+    for index, chunk in enumerate(chunks or []):
+        meta = dict(metadatas[index]) if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        try:
+            score = float(scores[index]) if index < len(scores) else 0.0
+        except (TypeError, ValueError):
+            score = 0.0
+        entry = {"chunk": str(chunk or ""), "score": score, "meta": meta}
+        if _is_advisory_meta(meta):
+            advisory.append(entry)
+        else:
+            citable_raw.append(entry)
+
+    by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str]] = []
+    for entry in citable_raw:
+        meta = entry["meta"]
+        identity = _document_identity(meta)
+        if identity:
+            key = (identity, _passage_locator(meta))
+        else:
+            normalized = " ".join(entry["chunk"].split()).lower()[:200]
+            key = (f"text:{normalized}", "")
+        entry["_is_raw"] = not _is_evidence_meta(meta)
+        existing = by_key.get(key)
+        if existing is None:
+            by_key[key] = entry
+            order.append(key)
+        elif (entry["_is_raw"], entry["score"]) > (existing["_is_raw"], existing["score"]):
+            # Preserve the original display position but upgrade to the better
+            # representation of the same passage.
+            by_key[key] = entry
+
+    deduped = [by_key[key] for key in order]
+    capped: list[dict[str, Any]] = []
+    per_document: dict[str, int] = {}
+    for entry in deduped:
+        identity = _document_identity(entry["meta"]) or f"_e{id(entry)}"
+        seen = per_document.get(identity, 0)
+        if seen >= max_per_document:
+            continue
+        per_document[identity] = seen + 1
+        capped.append(entry)
+        if len(capped) >= max_total:
+            break
+    return capped, advisory
+
+
+def _source_entry_from(index: int, entry: dict[str, Any]) -> dict[str, Any]:
+    meta = entry["meta"]
+    source_type = str(meta.get("source_type") or meta.get("type") or "document")
+    source_entry: dict[str, Any] = {
+        "id": f"chunk-{index}",
+        "type": source_type,
+        "title": _display_title(meta),
+        "snippet": _clean_source_snippet(entry["chunk"]),
+        "relevance_score": entry.get("score", 0.0),
+    }
+    document_id = meta.get("document_id")
+    if document_id:
+        source_entry["document_id"] = document_id
+    filename = meta.get("document_filename")
+    if filename:
+        source_entry["filename"] = filename
+    page = meta.get("page")
+    if page is not None:
+        source_entry["page"] = page
+    collection = meta.get("collection") or meta.get("collection_name")
+    if collection:
+        source_entry["collection"] = collection
+        source_entry["collection_name"] = collection
+    keywords = meta.get("document_extracted_keywords")
+    if keywords:
+        source_entry["keywords"] = list(keywords)[:5]
+    author = meta.get("document_author")
+    if author:
+        source_entry["author"] = author
+    num_pages = meta.get("document_num_pages")
+    if num_pages is not None:
+        source_entry["num_pages"] = num_pages
+    return source_entry
+
+
+def _assemble_context_and_sources(
+    chunks: list[Any],
+    scores: list[Any],
+    metadatas: list[Any],
+    *,
+    allow_foundational_fallback: bool = False,
+) -> tuple[str, list[dict[str, Any]], bool]:
+    """Build the LLM context block and the user-facing sources in lockstep.
+
+    The numbered context entries ``[1..N]`` correspond 1:1 to the returned
+    ``sources`` list, so a citation marker the model emits can never point past
+    the displayed panel (item 5). Advisory Knowledge Guides are appended as an
+    explicitly non-citable trailing block.
+    """
+    citable, advisory = _select_citation_entries(chunks, scores, metadatas)
+
+    context_blocks: list[str] = []
+    for idx, entry in enumerate(citable):
+        meta = entry["meta"]
+        header = f"[{idx + 1}] {_display_title(meta)}"
+        page = meta.get("page")
+        if page is not None:
+            header = f"{header} (p. {page})"
+        context_blocks.append(f"{header}\n{entry['chunk']}")
+
+    advisory_blocks: list[str] = []
+    for entry in advisory:
+        meta = entry["meta"]
+        label = _display_title(meta)
+        version = meta.get("guide_version")
+        if version:
+            label = f"{label} (Knowledge guide v{version})"
+        advisory_blocks.append(f"- {label}\n{entry['chunk']}")
+
+    if context_blocks or advisory_blocks:
+        sections = list(context_blocks)
+        if advisory_blocks:
+            sections.append(
+                "Advisory context (background only — do not cite these as sources):\n"
+                + "\n\n".join(advisory_blocks)
+            )
+        context_text = "\n\n".join(sections)
+    else:
+        context_text = (
+            "No workspace source was retrieved for this turn."
+            if allow_foundational_fallback
+            else "No documents found in the knowledge base."
+        )
+
+    sources = [_source_entry_from(idx, entry) for idx, entry in enumerate(citable)]
+    return context_text, sources, bool(citable)
 
 SYSTEM_PROMPT = """You are an intelligent assistant with access to a curated knowledge base.
 
@@ -115,6 +525,27 @@ Knowledge base context:
 {grounding_instructions}"""
 
 
+def _build_followup_user_prompt(*, query: str, wants_more_detail: bool) -> str:
+    """Prompt for meta/follow-up turns that operate on the previous answer.
+
+    No fresh retrieval ran for these turns, so the model must rely on the
+    conversation history (provided as prior messages) instead of declaring it
+    "lacks context". We never attach sources to these turns.
+    """
+    length_clause = (
+        "Provide a substantially longer, more detailed and thorough version. "
+        "Expand each point, add structure (headings/lists), examples and useful "
+        "elaboration grounded in what was already established. "
+        if wants_more_detail
+        else "Apply the instruction faithfully. "
+    )
+    return f"""The user is giving a follow-up instruction about your PREVIOUS answer in this conversation (see the messages above): "{query}".
+
+Apply it to your previous answer. {length_clause}Answer in the same language as the user.
+Do NOT say that you lack context or sources — the relevant material is your own previous answer in this conversation. Do NOT ask the user to repeat their question.
+Do not invent new citation markers like [1]; only reuse facts already established above."""
+
+
 class OmniRAGAgent(BaseAgent):
     def __init__(self):
         super().__init__(
@@ -205,6 +636,22 @@ class OmniRAGAgent(BaseAgent):
         grounding_policy = _grounding_policy_from_request(request)
         system_prompt = _system_prompt_with_grounding(custom_system_prompt or SYSTEM_PROMPT, grounding_policy)
         pipeline_start = time.time()
+
+        # Conversation memory: recent turns (incl. the previous assistant
+        # answer) are carried into the generation prompt so follow-ups can be
+        # expanded/continued. Meta/follow-up turns ("détaille", "plus long",
+        # "résume") reuse that context instead of running retrieval on the
+        # short instruction (which only returned junk + spurious sources).
+        conversation_history = _conversation_history(request)
+        prompt_history = _trimmed_history_for_prompt(conversation_history)
+        is_followup = _is_meta_followup(query, conversation_history)
+        wants_more_detail = bool(_LENGTH_DETAIL_RE.search(query or ""))
+        if is_followup:
+            logger.info(
+                "rag_agent: follow-up turn — reusing conversation context, skipping retrieval",
+                query=query[:120],
+                history_turns=len(conversation_history),
+            )
 
         uid = id(query)
 
@@ -316,7 +763,11 @@ class OmniRAGAgent(BaseAgent):
         rag_mode = profile.get("rag_mode")
         collections = profile.get("collections") or [profile["collection"]]
         is_multi_collection = len(collections) > 1
-        doc_svc = None if settings.rag_retrieval_worker_enabled or is_multi_collection else self._get_document_service(request)
+        doc_svc = (
+            None
+            if is_followup or settings.rag_retrieval_worker_enabled or is_multi_collection
+            else self._get_document_service(request)
+        )
         if is_multi_collection:
             use_hybrid = True
             mode_label = "multi_collection"
@@ -364,22 +815,46 @@ class OmniRAGAgent(BaseAgent):
             "grounding_mode": grounding_policy.get("mode"),
             "grounding_policy": grounding_policy,
         }
-        yield self._step(
-            sid,
-            "active",
-            "retrieve",
-            retriever_name,
-            retriever_title,
-            "Searching knowledge base",
-            f"{mode_label} — {mode_reason}\n{method_line}\nQuery: \"{profile['query'][:80]}…\"",
-        )
-        yield retrieval_event(
-            "started",
-            details=base_retrieval_details,
-            message="Retrieval started",
-        )
+        if is_followup:
+            yield self._step(
+                sid,
+                "active",
+                "retrieve",
+                "ConversationMemory",
+                "Follow-up — reusing conversation context",
+                "Follow-up instruction detected",
+                "Reusing the previous answer instead of retrieving new documents.",
+            )
+        else:
+            yield self._step(
+                sid,
+                "active",
+                "retrieve",
+                retriever_name,
+                retriever_title,
+                "Searching knowledge base",
+                f"{mode_label} — {mode_reason}\n{method_line}\nQuery: \"{profile['query'][:80]}…\"",
+            )
+            yield retrieval_event(
+                "started",
+                details=base_retrieval_details,
+                message="Retrieval started",
+            )
 
-        if settings.rag_retrieval_worker_enabled:
+        if is_followup:
+            # Meta/follow-up turn ("détaille", "plus long", "résume"): the
+            # instruction refers to the previous answer, not a new retrieval
+            # topic. Skip retrieval entirely so we neither waste latency nor
+            # surface junk chunks / spurious sources; synthesis below answers
+            # from the conversation history instead.
+            retrieval_context = {
+                "chunks": [],
+                "scores": [],
+                "metadatas": [],
+                "pipeline": "followup_skip",
+                "metrics": {"no_context": True, "followup_skip": True},
+            }
+        elif settings.rag_retrieval_worker_enabled:
             try:
                 async_result = dispatch_rag_retrieval_task(request)
                 retrieval_task_id = async_result.id
@@ -460,31 +935,43 @@ class OmniRAGAgent(BaseAgent):
         if n_chunks and retrieval_context.get("detail"):
             done_detail = f"{done_detail}\n{retrieval_context['detail']}"
 
-        yield self._step(
-            sid,
-            "completed",
-            "retrieve",
-            retriever_name,
-            retriever_title,
-            f"Retrieved {n_chunks} chunks",
-            done_detail,
-            duration=self._ms_since(step_start),
-            scores=scores[:5],
-        )
-        yield retrieval_event(
-            "completed" if n_chunks else "no_context",
-            details={
-                **base_retrieval_details,
-                **(retrieval_context.get("metrics") or {}),
-                "task_id": retrieval_task_id,
-                "chunks_retrieved": n_chunks,
-                "pipeline": retrieval_context.get("pipeline"),
-                "grounding_mode": grounding_policy.get("mode"),
-                "grounding_policy": grounding_policy,
-            },
-            message=f"Retrieved {n_chunks} chunks" if n_chunks else "No retrieval context found",
-            rag_context=retrieval_context,
-        )
+        if is_followup:
+            yield self._step(
+                sid,
+                "completed",
+                "retrieve",
+                "ConversationMemory",
+                "Follow-up — reusing conversation context",
+                "Using previous answer",
+                "Follow-up/meta instruction — answered from conversation memory; retrieval skipped.",
+                duration=self._ms_since(step_start),
+            )
+        else:
+            yield self._step(
+                sid,
+                "completed",
+                "retrieve",
+                retriever_name,
+                retriever_title,
+                f"Retrieved {n_chunks} chunks",
+                done_detail,
+                duration=self._ms_since(step_start),
+                scores=scores[:5],
+            )
+            yield retrieval_event(
+                "completed" if n_chunks else "no_context",
+                details={
+                    **base_retrieval_details,
+                    **(retrieval_context.get("metrics") or {}),
+                    "task_id": retrieval_task_id,
+                    "chunks_retrieved": n_chunks,
+                    "pipeline": retrieval_context.get("pipeline"),
+                    "grounding_mode": grounding_policy.get("mode"),
+                    "grounding_policy": grounding_policy,
+                },
+                message=f"Retrieved {n_chunks} chunks" if n_chunks else "No retrieval context found",
+                rag_context=retrieval_context,
+            )
 
         # ── Step 5: Context Filtering & Reranking ──
         step_start = time.time()
@@ -509,6 +996,14 @@ class OmniRAGAgent(BaseAgent):
             filtered_metadatas = filtered_metadatas + [{}] * (
                 len(filtered_chunks) - len(filtered_metadatas)
             )
+        from app.services.rag.retrieval_policy import is_document_discovery_query
+
+        # Document-discovery queries ("quels documents… ?") rely on the upstream
+        # policy rerank to surface the specific content docs above generic
+        # cover/index pages. A raw-similarity re-sort below would silently undo
+        # that ordering, so we honour the policy score for this intent only and
+        # leave every other query's ordering byte-for-byte unchanged.
+        _discovery_intent = is_document_discovery_query(query)
         preserve_retrieval_order = str(retrieval_context.get("pipeline") or "").startswith(
             ("chah_", "hah_", "multi_")
         )
@@ -529,7 +1024,18 @@ class OmniRAGAgent(BaseAgent):
                 if s >= threshold or str(m.get("source_type") or m.get("type") or "") == "knowledge_guide"
             ]
             if not preserve_retrieval_order:
-                triples.sort(key=lambda x: x[1], reverse=True)
+                if _discovery_intent:
+                    # Honour the policy rerank (specific annex/operating-manual
+                    # docs first), falling back to raw similarity as a tiebreaker.
+                    triples.sort(
+                        key=lambda x: (
+                            float(x[2].get("retrieval_policy_score") or 0.0),
+                            x[1],
+                        ),
+                        reverse=True,
+                    )
+                else:
+                    triples.sort(key=lambda x: x[1], reverse=True)
             if triples:
                 filtered_chunks = [c for c, _, _ in triples]
                 filtered_scores = [s for _, s, _ in triples]
@@ -569,39 +1075,17 @@ class OmniRAGAgent(BaseAgent):
             f"Assembling {after} chunks for synthesis…",
         )
 
-        # Build a citation-friendly context block: each chunk is prefixed with
-        # its document title (docmeta-sourced when available, filename
-        # otherwise). This helps the LLM attribute quotes back to the right
-        # source and lets follow-up questions reference by name.
-        def _display_title(meta: dict[str, Any]) -> str:
-            title = (meta.get("title") or "").strip()
-            if title:
-                return title
-            title = (meta.get("document_title") or "").strip()
-            if title:
-                return title
-            filename = (meta.get("document_filename") or "").strip()
-            return filename or "Untitled document"
-
-        if filtered_chunks:
-            context_blocks: list[str] = []
-            for idx, chunk in enumerate(filtered_chunks):
-                meta = filtered_metadatas[idx] if idx < len(filtered_metadatas) else {}
-                title = _display_title(meta)
-                page = meta.get("page")
-                header = f"[{idx + 1}] {title}"
-                if meta.get("source_type") == "knowledge_guide":
-                    header = f"{header} (Knowledge guide v{meta.get('guide_version') or 1})"
-                if page is not None:
-                    header = f"{header} (p. {page})"
-                context_blocks.append(f"{header}\n{chunk}")
-            context_text = "\n\n".join(context_blocks)
-        else:
-            context_text = (
-                "No workspace source was retrieved for this turn."
-                if grounding_policy.get("allow_foundational_fallback")
-                else "No documents found in the knowledge base."
-            )
+        # Build a citation-friendly context block plus the user-facing sources
+        # list in lockstep so citation markers always map to a displayed
+        # source. Advisory Knowledge Guides are kept as background context but
+        # excluded from the numbered sources; true duplicates / cross-collection
+        # copies are collapsed; placeholder titles fall back to the filename.
+        context_text, sources, has_citable_context = _assemble_context_and_sources(
+            filtered_chunks,
+            filtered_scores,
+            filtered_metadatas,
+            allow_foundational_fallback=bool(grounding_policy.get("allow_foundational_fallback")),
+        )
 
         # Aggregate docmeta TF-IDF keywords across the top chunks so the LLM
         # can anchor on document topics even when the user's query is fuzzy
@@ -631,15 +1115,21 @@ class OmniRAGAgent(BaseAgent):
             else ""
         )
 
-        user_prompt = _build_rag_user_prompt(
-            query=query,
-            context_text=context_text,
-            keyword_hint=keyword_hint,
-            grounding_policy=grounding_policy,
-            has_retrieved_context=bool(filtered_chunks),
-            retrieval_policy_prompt=str((retrieval_context.get("retrieval_policy") or {}).get("prompt") or ""),
-            retrieval_constraints=retrieval_context.get("retrieval_constraints") or {},
-        )
+        if is_followup:
+            user_prompt = _build_followup_user_prompt(
+                query=query,
+                wants_more_detail=wants_more_detail,
+            )
+        else:
+            user_prompt = _build_rag_user_prompt(
+                query=query,
+                context_text=context_text,
+                keyword_hint=keyword_hint,
+                grounding_policy=grounding_policy,
+                has_retrieved_context=has_citable_context,
+                retrieval_policy_prompt=str((retrieval_context.get("retrieval_policy") or {}).get("prompt") or ""),
+                retrieval_constraints=retrieval_context.get("retrieval_constraints") or {},
+            )
 
         await asyncio.sleep(0.03)
         yield self._step(
@@ -667,53 +1157,14 @@ class OmniRAGAgent(BaseAgent):
             has_text=True,
         )
 
-        # Build real citations from the chunk metadata we now keep in lockstep
-        # with ``filtered_chunks``. Prefer docmeta-sourced ``document_title``
-        # (e.g. the PDF's embedded title), fall back to the filename, and
-        # surface page numbers + docmeta keywords when available so the UI
-        # source panel can render something useful instead of the legacy
-        # "Policy chunk N" placeholder.
-        sources: list[dict[str, Any]] = []
-        for i, c in enumerate(filtered_chunks[:5]):
-            meta = filtered_metadatas[i] if i < len(filtered_metadatas) else {}
-            source_type = str(meta.get("source_type") or meta.get("type") or "document")
-            source_entry: dict[str, Any] = {
-                "id": f"chunk-{i}",
-                "type": source_type,
-                "title": _display_title(meta),
-                "snippet": c[:200],
-                "relevance_score": filtered_scores[i] if i < len(filtered_scores) else 0.0,
-            }
-            guide_key = meta.get("guide_key")
-            if guide_key:
-                source_entry["guide_key"] = guide_key
-                source_entry["guide_version"] = meta.get("guide_version")
-                source_entry["target_type"] = meta.get("target_type")
-                source_entry["target_ref"] = meta.get("target_ref")
-            document_id = meta.get("document_id")
-            if document_id:
-                source_entry["document_id"] = document_id
-            filename = meta.get("document_filename")
-            if filename:
-                source_entry["filename"] = filename
-            page = meta.get("page")
-            if page is not None:
-                source_entry["page"] = page
-            collection = meta.get("collection") or meta.get("collection_name")
-            if collection:
-                source_entry["collection"] = collection
-                source_entry["collection_name"] = collection
-            keywords = meta.get("document_extracted_keywords")
-            if keywords:
-                source_entry["keywords"] = list(keywords)[:5]
-            author = meta.get("document_author")
-            if author:
-                source_entry["author"] = author
-            num_pages = meta.get("document_num_pages")
-            if num_pages is not None:
-                source_entry["num_pages"] = num_pages
-            sources.append(source_entry)
-
+        # Sources are gated and emitted ONCE, on the final chunk, after the
+        # answer is known: a follow-up/meta turn never carries sources, and a
+        # normal turn only keeps the sources the model actually grounded on
+        # (cited [n] markers), so the panel never shows spurious citations on
+        # conversational turns or when retrieval was irrelevant.
+        # Explicit "make it longer/detailed" turns get a larger output budget
+        # so the model can genuinely expand instead of being clipped.
+        max_output_tokens = 4000 if wants_more_detail else 2000
         sequence = 0
         accumulated = ""
         try:
@@ -723,7 +1174,8 @@ class OmniRAGAgent(BaseAgent):
                 model=model_name,
                 system_prompt=system_prompt,
                 temperature=temperature,
-                max_tokens=2000,
+                max_tokens=max_output_tokens,
+                history=prompt_history,
             ):
                 sequence += 1
                 accumulated += chunk_text
@@ -731,7 +1183,6 @@ class OmniRAGAgent(BaseAgent):
                     "chunk_type": "text",
                     "content": chunk_text,
                     "delta": chunk_text,
-                    "sources": sources if sequence == 1 else None,
                     "sequence": sequence,
                     "is_final": False,
                 }
@@ -751,20 +1202,62 @@ class OmniRAGAgent(BaseAgent):
             )
             return
 
-        yield {"chunk_type": "text", "content": "", "is_final": True, "sequence": sequence + 1}
+        # Robustness: never surface an empty bubble ("(no response)"). gpt-5 can
+        # occasionally return no output text (e.g. reasoning consumed the token
+        # budget). Emit a short, honest fallback so the turn always says
+        # something the user can act on.
+        if not accumulated.strip():
+            fallback_text = (
+                "Je n'ai pas pu générer de réponse complète à l'instant. "
+                "Pouvez-vous reformuler ou préciser votre demande ? "
+                "Je peux aussi réessayer si vous renvoyez la question."
+            )
+            sequence += 1
+            accumulated = fallback_text
+            yield {
+                "chunk_type": "text",
+                "content": fallback_text,
+                "delta": fallback_text,
+                "sequence": sequence,
+                "is_final": False,
+            }
+            logger.warning("rag_agent: empty generation — emitted non-empty fallback")
+
+        final_sources = self._gate_sources(
+            sources,
+            accumulated,
+            is_followup=is_followup,
+            has_citable_context=has_citable_context,
+            discovery_intent=_discovery_intent,
+        )
 
         llm_duration_ms = self._ms_since(step_start)
-        yield self._step(
+        # Carry the gated sources on the (forwarded) synthesis-completed step:
+        # the orchestrator drops empty-content text chunks, so the trailing
+        # empty text chunk can't reliably deliver sources. Any chunk that
+        # carries a non-empty ``sources`` list updates the front's panel, and
+        # an empty list never overwrites it, so suppressed turns show none.
+        completed_step = self._step(
             sid,
             "completed",
             "synthesis",
             "Synthesizer",
             model_name,
             "Response generated",
-            f"{len(accumulated)} chars · {len(sources)} citations · {sequence} tokens streamed",
+            f"{len(accumulated)} chars · {len(final_sources)} citations · {sequence} tokens streamed",
             duration=llm_duration_ms,
             has_text=True,
         )
+        if final_sources:
+            completed_step["sources"] = final_sources
+        yield completed_step
+
+        yield {
+            "chunk_type": "text",
+            "content": "",
+            "is_final": True,
+            "sequence": sequence + 1,
+        }
 
         # ── Step 8: Quality Metrics ──
         step_start = time.time()
@@ -833,6 +1326,35 @@ class OmniRAGAgent(BaseAgent):
         except Exception as e:
             logger.warning("Retrieval failed", error=str(e))
             return {"chunks": [], "scores": [], "metadatas": []}
+
+    @staticmethod
+    def _gate_sources(
+        sources: list[dict[str, Any]],
+        answer: str,
+        *,
+        is_followup: bool,
+        has_citable_context: bool,
+        discovery_intent: bool,
+    ) -> list[dict[str, Any]]:
+        """Decide which sources (if any) to surface for this turn.
+
+        Rules (the Sources panel must only appear when retrieval was actually
+        used AND relevant):
+        - follow-up/meta turns and turns with no citable retrieval → no panel.
+        - if the model cited at least one ``[n]`` marker, keep the full list so
+          the citation → panel index mapping stays intact (the front maps
+          ``[n]`` to ``sources[n-1]``; subsetting would misalign it).
+        - if the model cited nothing, only keep sources for explicit
+          document-discovery turns ("quels documents…"); otherwise the answer
+          did not ground on retrieval, so suppress the panel.
+        """
+        if is_followup or not has_citable_context or not sources:
+            return []
+        if _cited_source_indices(answer):
+            return sources
+        if discovery_intent:
+            return sources
+        return []
 
     @staticmethod
     def _step(

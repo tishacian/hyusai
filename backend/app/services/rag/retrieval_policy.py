@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -220,6 +221,64 @@ def _normalise(value: str) -> str:
     return " ".join(str(value or "").lower().replace("’", "'").split())
 
 
+def _strip_accents(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
+# Document-discovery intent: queries that ask *which/what* documents exist or to
+# retrieve a list/source, rather than ordinary factual questions. Patterns run on
+# accent-stripped, lowercased text so "indexés" == "indexes" and "quel" matches
+# regardless of diacritics. Kept deliberately precise to avoid catching factual
+# queries such as "comment nettoyer…" or "que vaut le label…".
+_DISCOVERY_INTENT_PATTERNS = (
+    # FR: "quel document", "quels documents", "quelle source", "quel ... fichier"
+    re.compile(r"\bquel(?:s|le|les)?\b(?:\s+\S+){0,3}?\s+(?:documents?|sources?|fichiers?)\b"),
+    # FR: "liste des documents", "liste de sources", EN-ish "liste of files"
+    re.compile(r"\bliste\s+(?:des?|du|of)\s+(?:documents?|sources?|fichiers?|files?)\b"),
+    # FR: "documents … indexés / indexes / indexer"
+    re.compile(r"\bdocuments?\b(?:\s+\S+){0,5}?\s+index(?:e|es|er|ed)?\b"),
+    # FR: "retrouve(r/z) la liste / les documents / les sources"
+    re.compile(r"\bretrouve(?:r|z)?\b(?:\s+\S+){0,4}?\s+(?:liste|documents?|sources?|fichiers?)\b"),
+    # EN: "which document(s)", "what document(s)"
+    re.compile(r"\b(?:which|what)\s+documents?\b"),
+    # EN: "list of documents / sources / files"
+    re.compile(r"\blist\s+of\s+(?:documents?|sources?|files?)\b"),
+    # EN: "find the … document / list / source"
+    re.compile(r"\bfind\s+the\b(?:\s+\S+){0,5}?\s+(?:documents?|sources?|list)\b"),
+)
+
+# Under discovery intent only, prefer specific content families over generic
+# cover/index frames, and lightly demote obvious generic cover/index pages.
+_DISCOVERY_PREFERRED_FAMILIES = ("annex", "operating_manual", "maintenance")
+_DISCOVERY_GENERIC_MARKERS = (
+    "printable version",
+    "part's manual",
+    "parts manual",
+    "part s manual",
+)
+
+
+def is_document_discovery_query(query: str) -> bool:
+    """Detect "which/what documents exist / list / retrieve" style queries.
+
+    Pure helper with no policy dependency so callers can gate ranking tweaks on
+    it. Returns ``False`` for ordinary factual questions.
+    """
+    text = _strip_accents(_normalise(query))
+    if not text:
+        return False
+    return any(pattern.search(text) for pattern in _DISCOVERY_INTENT_PATTERNS)
+
+
+def _is_generic_cover_like(metadata: Mapping[str, Any]) -> bool:
+    """Identify obvious generic cover/index pages by title/filename markers."""
+    meta_text = _strip_accents(_normalise(_metadata_text(metadata)))
+    if not meta_text:
+        return False
+    return any(marker in meta_text for marker in _DISCOVERY_GENERIC_MARKERS)
+
+
 def _project_reference_terms(value: str) -> tuple[str, ...]:
     terms: list[str] = []
     for match in _PROJECT_REF_RE.finditer(value or ""):
@@ -342,6 +401,7 @@ def score_result_with_policy(
     metadata: Mapping[str, Any] | None,
     query: str,
     policy: RetrievalPolicy | None,
+    is_document_discovery: bool = False,
 ) -> int:
     if not policy or not policy.enabled:
         return 0
@@ -380,7 +440,24 @@ def score_result_with_policy(
         if source_family and any(source_family == _normalise(family) for family in rule.source_families):
             score += 9
 
-    if policy.demote_navigation and _is_navigation_like(content, metadata, policy):
+    # Discovery-intent adjustments are fully gated behind ``is_document_discovery``
+    # so non-discovery queries score byte-for-byte as before.
+    discovery_preferred = is_document_discovery and source_family in _DISCOVERY_PREFERRED_FAMILIES
+    if is_document_discovery:
+        if discovery_preferred:
+            # Surface the specific content docs (annex/operating_manual/...) the
+            # query is asking to enumerate, comparable in weight to a required-
+            # term match (+14) so they clear generic cover pages.
+            score += 12
+        elif _is_generic_cover_like(metadata):
+            # Lightly demote obvious cover/index frames ("printable version",
+            # "Part's Manual") without erasing a legitimate project match.
+            score -= 10
+
+    # Demote content-poor navigation pages, but never demote a preferred content
+    # family under discovery intent (e.g. a content HTML page like conveyor.html),
+    # otherwise the navigation rule would push it below generic index pages.
+    if policy.demote_navigation and _is_navigation_like(content, metadata, policy) and not discovery_preferred:
         score -= 18
     return score
 
@@ -406,6 +483,7 @@ def rerank_results_with_policy(
 ) -> list[dict[str, Any]]:
     if not policy or not policy.enabled or not results:
         return results
+    is_document_discovery = is_document_discovery_query(query)
     ranked: list[tuple[int, float, int, dict[str, Any]]] = []
     for index, row in enumerate(results):
         metadata = _as_mapping(row.get("metadata"))
@@ -415,6 +493,7 @@ def rerank_results_with_policy(
             metadata=metadata,
             query=query,
             policy=policy,
+            is_document_discovery=is_document_discovery,
         )
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score
@@ -435,6 +514,7 @@ def rerank_aligned_with_policy(
 ) -> tuple[list[str], list[float], list[dict[str, Any]]]:
     if not policy or not policy.enabled or not chunks:
         return chunks, scores, metadatas
+    is_document_discovery = is_document_discovery_query(query)
     rows: list[tuple[int, float, int, str, float, dict[str, Any]]] = []
     for index, chunk in enumerate(chunks):
         metadata = dict(metadatas[index] if index < len(metadatas) else {})
@@ -443,6 +523,7 @@ def rerank_aligned_with_policy(
             metadata=metadata,
             query=query,
             policy=policy,
+            is_document_discovery=is_document_discovery,
         )
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score

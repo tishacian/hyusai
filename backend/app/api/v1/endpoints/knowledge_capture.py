@@ -6,9 +6,12 @@ needed, and emits a reviewable knowledge update proposal.
 """
 from __future__ import annotations
 
+import os
+import tempfile
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
@@ -53,6 +56,7 @@ from app.services.knowledge_capture import (
     serialize_proposal,
     serialize_session,
     start_session,
+    update_proposal_report_content,
     update_capture_session_flags,
     update_plan_topics,
     validate_plan_topics,
@@ -62,6 +66,112 @@ from app.services.voice_runtime import list_voice_runtime_providers
 router = APIRouter()
 
 CAPTURE_CAPABILITY = "expert_knowledge_capture"
+_PLAN_SOURCE_MAX_BYTES = 8 * 1024 * 1024
+_PLAN_SOURCE_TEXT_LIMIT = 20000
+_PLAN_SOURCE_EXTENSIONS = {
+    ".csv",
+    ".docx",
+    ".htm",
+    ".html",
+    ".json",
+    ".log",
+    ".md",
+    ".markdown",
+    ".pdf",
+    ".rtf",
+    ".text",
+    ".tsv",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
+_PLAN_SOURCE_MEDIA_TYPES = {
+    "application/json",
+    "application/pdf",
+    "application/rtf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/xml",
+    "text/csv",
+    "text/html",
+    "text/markdown",
+    "text/plain",
+    "text/tab-separated-values",
+    "text/xml",
+}
+
+
+def _safe_plan_source_filename(filename: Optional[str]) -> str:
+    name = Path(str(filename or "plan.txt").replace("\\", "/")).name.strip()
+    return (name or "plan.txt")[:180]
+
+
+def _read_uploaded_text_fallback(path: str) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            return Path(path).read_text(encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+    return Path(path).read_text(encoding="latin-1", errors="ignore")
+
+
+async def _extract_plan_source_text(upload: UploadFile) -> Dict[str, Any]:
+    filename = _safe_plan_source_filename(upload.filename)
+    ext = Path(filename).suffix.lower()
+    media_type = str(upload.content_type or "").lower()
+    if ext not in _PLAN_SOURCE_EXTENSIONS and not media_type.startswith("text/") and media_type not in _PLAN_SOURCE_MEDIA_TYPES:
+        raise ValueError("Format de fichier non supporté pour une source de plan.")
+
+    fd, temp_path = tempfile.mkstemp(prefix="agentium-plan-source-", suffix=ext or ".txt")
+    size = 0
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            while True:
+                chunk = await upload.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > _PLAN_SOURCE_MAX_BYTES:
+                    raise ValueError("Le fichier de plan dépasse la limite de 8 Mo.")
+                handle.write(chunk)
+        if size <= 0:
+            raise ValueError("Le fichier de plan est vide.")
+
+        document_type = "text"
+        try:
+            import app.services.document_parser.parsers  # noqa: F401
+            from app.services.document_parser.factory import DocumentParserFactory
+
+            parser = DocumentParserFactory.get_parser(temp_path)
+            parsed = await parser.parse(temp_path, chunk_size=2000, chunk_overlap=100, use_ocr=False)
+            text = str(parsed.raw_content or "").strip()
+            document_type = getattr(parsed.document_type, "value", str(parsed.document_type))
+        except Exception as exc:
+            if ext in {".pdf", ".docx"}:
+                raise ValueError("Impossible d'extraire du texte depuis ce fichier.") from exc
+            text = _read_uploaded_text_fallback(temp_path).strip()
+
+        if not text or text == "No content could be extracted from this document.":
+            raise ValueError("Aucun texte exploitable trouvé dans le fichier.")
+        truncated = len(text) > _PLAN_SOURCE_TEXT_LIMIT
+        if truncated:
+            text = text[:_PLAN_SOURCE_TEXT_LIMIT]
+        return {
+            "filename": filename,
+            "content_type": upload.content_type,
+            "document_type": document_type,
+            "chars": len(text),
+            "truncated": truncated,
+            "text": text,
+        }
+    finally:
+        try:
+            await upload.close()
+        finally:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
 
 
 def _actor_label(user: User) -> str:
@@ -218,6 +328,10 @@ class ProposalReviewRequest(BaseModel):
     review_notes: Optional[str] = None
 
 
+class ProposalContentUpdateRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+
+
 class EventAmendRequest(BaseModel):
     text_amended: str = Field(..., min_length=1)
     actor: Optional[str] = None
@@ -240,6 +354,28 @@ async def voice_runtimes(
         audit_prefix="kc",
     )
     return list_voice_runtime_providers(workspace=workspace)
+
+
+@router.post("/plan-source/extract")
+async def extract_plan_source(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    enforce_permission(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capture_session",
+        action="create",
+        resource_attrs={"capability": CAPTURE_CAPABILITY},
+        audit_prefix="kc",
+    )
+    try:
+        return await _extract_plan_source_text(file)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/plans")
@@ -406,6 +542,7 @@ async def approve_capture_session_plan(
 @router.post("/sessions/{session_id}/start")
 async def start_capture_session(
     session_id: str,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
@@ -421,7 +558,21 @@ async def start_capture_session(
             resource_attrs=_session_attrs(existing),
             audit_prefix="kc",
         )
+        prior_qbank_status = (existing.plan or {}).get("question_bank_status") or "idle"
         session = start_session(db, workspace_id=workspace.id, session_id=session_id)
+        if (
+            prior_qbank_status == "idle"
+            and (session.plan or {}).get("question_bank_status") == "generating"
+        ):
+            from app.db.base import SessionLocal
+
+            background_tasks.add_task(
+                _run_question_bank_generation,
+                SessionLocal,
+                workspace_id=workspace.id,
+                session_id=session_id,
+                workspace_slug=workspace.slug,
+            )
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc
     return serialize_session(session)
@@ -746,6 +897,38 @@ async def review_capture_proposal(
     return serialize_proposal(proposal)
 
 
+@router.patch("/proposals/{proposal_id}/content")
+async def update_capture_proposal_content(
+    proposal_id: str,
+    body: ProposalContentUpdateRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        existing, session = _load_proposal_with_session(db, workspace_id=workspace.id, proposal_id=proposal_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="knowledge_proposal",
+            action="review_decide",
+            resource_attrs=_proposal_attrs(existing, session),
+            audit_prefix="kc",
+        )
+        proposal = update_proposal_report_content(
+            db,
+            workspace_id=workspace.id,
+            proposal_id=proposal_id,
+            content=body.content,
+            actor_user_id=user.id,
+            actor_label=_actor_label(user),
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    return serialize_proposal(proposal)
+
+
 @router.get("/sessions/{session_id}/quality-backlog")
 async def get_capture_quality_backlog(
     session_id: str,
@@ -870,6 +1053,7 @@ def capture_plan_dialogue_turn(
 @router.post("/sessions/{session_id}/plan/finalize")
 def capture_plan_finalize(
     session_id: str,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
@@ -885,6 +1069,7 @@ def capture_plan_finalize(
             resource_attrs=_session_attrs(session),
             audit_prefix="kc",
         )
+        prior_qbank_status = (session.plan or {}).get("question_bank_status") or "idle"
         finalized = finalize_plan_from_dialogue(
             db,
             workspace_id=workspace.id,
@@ -892,6 +1077,19 @@ def capture_plan_finalize(
             actor_user_id=user.id,
             workspace_slug=workspace.slug,
         )
+        if (
+            prior_qbank_status == "idle"
+            and (finalized.plan or {}).get("question_bank_status") == "generating"
+        ):
+            from app.db.base import SessionLocal
+
+            background_tasks.add_task(
+                _run_question_bank_generation,
+                SessionLocal,
+                workspace_id=workspace.id,
+                session_id=session_id,
+                workspace_slug=workspace.slug,
+            )
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc
     return serialize_session(finalized, surface="plan")

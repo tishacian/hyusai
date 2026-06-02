@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { ApiService } from './api.service';
 
@@ -62,8 +62,12 @@ export class VoiceTtsPlaybackService {
   }
 }
 
+const SPEAKING_STATES: readonly VoiceTtsState[] = ['preparing', 'queued', 'speaking', 'paused'];
+
 export class VoiceTtsPlaybackController {
   readonly state = signal<VoiceTtsState>('idle');
+  /** Reactive flag: true while audio is preparing, queued, speaking or paused. */
+  readonly speaking = computed(() => SPEAKING_STATES.includes(this.state()));
 
   private options: VoiceTtsPlaybackOptions = { surface: 'unknown' };
   private config: ResolvedVoiceOutputConfig = { ...DEFAULT_VOICE_OUTPUT };
@@ -142,6 +146,13 @@ export class VoiceTtsPlaybackController {
     if (emit) {
       this.options.onInterrupted?.(reason);
     }
+  }
+
+  /** Immediately cut the current voice output and drop any queued/in-flight
+   * audio. Distinct from `pause()` (which can be resumed): once cancelled the
+   * buffered answer is discarded so nothing keeps reading aloud. */
+  cancel(reason = 'stopped'): void {
+    this.stop(reason, true);
   }
 
   reset(silent = true): void {

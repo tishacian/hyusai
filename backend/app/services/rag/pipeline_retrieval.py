@@ -860,10 +860,18 @@ async def retrieve_chah_like(
     table_plan = TableQueryPlanner().plan(q, query_hints=query_hints)
     exact_rows = await _exact_table_fact_candidates(doc_svc, q, table_plan, top_k=top_k)
     variants = _query_variants(q, query_hints=query_hints, retrieval_policy=retrieval_policy)
-    searches = [doc_svc.search(v, top_k=min(12, top_k + 7), use_hybrid=True) for v in variants]
+    # Per-variant fan-out. A deliberately wide top_k (document-discovery widening
+    # in context.py passes top_k≈40) digs deeper per variant so specific annex /
+    # operating-manual docs reach the pool; for any normal top_k (< 30) this is the
+    # exact original ``min(12, top_k + 7)`` cap, so non-discovery is unchanged.
+    per_variant_k = top_k if top_k >= 30 else min(12, top_k + 7)
+    searches = [doc_svc.search(v, top_k=per_variant_k, use_hybrid=True) for v in variants]
     lists = await asyncio.gather(*searches)
     lists = [rerank_results_with_policy(list(rows or []), q, retrieval_policy) for rows in lists]
-    candidate_k = min(max(top_k * 4, top_k + 10), 30)
+    # Cap the RRF merge pool. The ceiling scales with top_k so a deliberately wide
+    # caller gets a wide candidate pool; for normal top_k (≤30) this is identical
+    # to ``min(…, 30)``.
+    candidate_k = min(max(top_k * 4, top_k + 10), max(30, top_k))
     merged = _prioritise_spreadsheet_label_matches(
         _merge_rrf(list(lists), top_k=candidate_k),
         q,

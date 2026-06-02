@@ -108,9 +108,13 @@ class OpenAIProvider(LLMProvider):
         # For thinking models (o1, o3, etc.)
         if is_thinking:
             logging.debug(f"Using thinking model: {model}")
-            
-            if request.reasoning_effort:
-                params["reasoning_effort"] = request.reasoning_effort
+
+            # Pin reasoning effort low by default so gpt-5/o-series don't add
+            # thinking latency on the live chat + voice cascade path. An explicit
+            # per-request value always wins; the settings default is the floor.
+            effort = request.reasoning_effort or getattr(settings, "openai_reasoning_effort", None)
+            if effort:
+                params["reasoning_effort"] = effort
             
             if request.max_completion_tokens is not None:
                 params["max_completion_tokens"] = request.max_completion_tokens
@@ -178,6 +182,11 @@ class OpenAIProvider(LLMProvider):
             params["instructions"] = instructions
 
         is_thinking = self._is_thinking_model(model)
+        if is_thinking:
+            # Responses API expects reasoning effort under reasoning.effort.
+            effort = request.reasoning_effort or getattr(settings, "openai_reasoning_effort", None)
+            if effort:
+                params["reasoning"] = {"effort": effort}
         if not is_thinking and request.temperature is not None:
             params["temperature"] = request.temperature
         if request.max_completion_tokens is not None:

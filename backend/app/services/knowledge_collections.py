@@ -207,6 +207,39 @@ def original_key(collection: KnowledgeCollection, filename: str) -> str:
     return get_object_store().key(collection.artifact_prefix, "original", Path(filename).name)
 
 
+def resolve_original_key(
+    collection: KnowledgeCollection,
+    filename: str,
+    *,
+    legacy_name: str | None = None,
+    store=None,
+) -> str:
+    """Return the object key for an original, tolerating the legacy flat scheme.
+
+    Document originals are stored under ``original_key`` keyed by the *stored*
+    document name. New SPL-wave ingests use a source-namespaced name while the
+    pre-existing corpus keeps its flat (un-namespaced) name; in both cases the
+    stored name matches its key, so the primary lookup resolves directly and no
+    re-keying is ever required.
+
+    ``legacy_name`` is an *explicit, known* fallback (e.g. the
+    ``legacy_document_name`` recorded in the manifest). It is only used when the
+    primary key is absent and is verified to exist before being returned, so a
+    namespaced document can still be located if it was written under its legacy
+    flat name. We never blindly strip a namespace prefix, because that could
+    mis-resolve to a different archive's identically named file.
+    """
+    store = store or get_object_store()
+    primary = original_key(collection, filename)
+    if store.exists(primary):
+        return primary
+    if legacy_name:
+        legacy = original_key(collection, legacy_name)
+        if legacy != primary and store.exists(legacy):
+            return legacy
+    return primary
+
+
 def ingested_key(collection: KnowledgeCollection, filename: str) -> str:
     safe_name = Path(filename).name.replace("/", "_").replace("\\", "_")
     text_name = safe_name if safe_name.lower().endswith(".txt") else f"{safe_name}.txt"

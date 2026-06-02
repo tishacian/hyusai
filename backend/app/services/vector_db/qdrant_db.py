@@ -381,6 +381,81 @@ class QdrantVectorDB(VectorDBBase):
 
         return await loop.run_in_executor(None, _list)
 
+    async def sample_chunk_vectors(
+        self,
+        limit: int = 200,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Sample points (with vectors) for the embedding-map visualization."""
+        if self.client is None or not self.client.collection_exists(self.collection_name):
+            return []
+        limit = max(1, min(int(limit or 200), 1000))
+        qf = self._filters_to_qdrant(filters)
+        loop = asyncio.get_event_loop()
+
+        def _as_vector(raw) -> Optional[List[float]]:
+            if raw is None:
+                return None
+            if isinstance(raw, dict):  # named vectors — take the first dense one.
+                raw = next((v for v in raw.values() if isinstance(v, (list, tuple))), None)
+            if raw is None:
+                return None
+            return [float(x) for x in raw]
+
+        def _sample():
+            out: List[Dict[str, Any]] = []
+            # Prefer a true random sample (Qdrant >= 1.11); fall back to scroll.
+            try:
+                from qdrant_client import models as qmodels
+
+                response = self.client.query_points(
+                    collection_name=self.collection_name,
+                    query=qmodels.SampleQuery(sample=qmodels.Sample.RANDOM),
+                    query_filter=qf,
+                    limit=limit,
+                    with_payload=True,
+                    with_vectors=True,
+                )
+                points = getattr(response, "points", response) or []
+                for p in points:
+                    vector = _as_vector(getattr(p, "vector", None))
+                    if vector is None:
+                        continue
+                    out.append(
+                        {"id": str(p.id), "vector": vector, "payload": dict(p.payload or {})}
+                    )
+                if out:
+                    return out
+            except Exception as exc:  # noqa: BLE001 - fall back to deterministic scroll.
+                logger.debug("Qdrant random sample unavailable, scrolling instead", error=str(exc))
+
+            next_off = None
+            while len(out) < limit:
+                records, next_off = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=qf,
+                    limit=min(256, limit - len(out)),
+                    offset=next_off,
+                    with_payload=True,
+                    with_vectors=True,
+                )
+                if not records:
+                    break
+                for r in records:
+                    vector = _as_vector(getattr(r, "vector", None))
+                    if vector is None:
+                        continue
+                    out.append(
+                        {"id": str(r.id), "vector": vector, "payload": dict(r.payload or {})}
+                    )
+                    if len(out) >= limit:
+                        break
+                if next_off is None:
+                    break
+            return out
+
+        return await loop.run_in_executor(None, _sample)
+
     async def clear_collection(self):
         if self.client is None:
             return

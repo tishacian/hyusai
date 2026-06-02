@@ -87,7 +87,7 @@ class CompletionRequest(BaseModel):
     top_logprobs: Optional[int] = Field(default=None, ge=0, le=20)
     
     # Provider-specific parameters
-    reasoning_effort: Optional[Literal["low", "medium", "high"]] = None  # For thinking models
+    reasoning_effort: Optional[Literal["minimal", "low", "medium", "high"]] = None  # For thinking models
     
     # Routing and configuration
     timeout: Optional[float] = Field(default=None, gt=0)

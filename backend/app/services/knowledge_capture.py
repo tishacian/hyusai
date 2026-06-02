@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import asyncio
+import logging
 import tempfile
 import time
 import uuid
@@ -28,8 +29,11 @@ from app.services.capture_knowledge_oracle import (
     analyze_plan_oracle_async,
     evaluate_capture_partial,
     generate_question_bank_entry_async,
+    broad_presentation_prompt,
     merge_topic_proposals,
+    normalize_outline_points,
     plan_dialogue_probe,
+    presentation_prompt,
     score_gaps_with_rag,
     session_context_from_capture,
 )
@@ -42,14 +46,15 @@ PLAN_BUILD_V2_SCHEMA_VERSION = "plan_build_v2"
 PLAN_BUILD_SCHEMA_VERSIONS = frozenset({PLAN_BUILD_SCHEMA_VERSION, PLAN_BUILD_V2_SCHEMA_VERSION})
 VALID_PLAN_MODES = frozenset({"ai_plan", "provided_plan", "free_conversation", "plan_build"})
 _PLAN_DIALOGUE_STEPS = (
-    "Quels grands sujets ou thèmes souhaitez-vous couvrir pendant cette capture ?",
-    "Sur quelle ligne, client ou périmètre porte principalement cette session ?",
-    "Quels cas concrets, exceptions terrain ou décisions difficiles sont prioritaires ?",
-    "Y a-t-il des zones à valider plus tard ou des interlocuteurs à impliquer en revue ?",
+    "Collez ou dictez le plan à suivre. Je garde vos rubriques et votre ordre, sans ajouter d'axes non demandés.",
+    "Ajoutez seulement les rubriques manquantes ou les sous-parties à intégrer.",
+    "Précisez les cas concrets, exceptions terrain ou décisions difficiles à rattacher au plan.",
 )
-_MIN_PLAN_DIALOGUE_TURNS = 3
-_MIN_PLAN_SUBJECT_CHARS = 24
+_MIN_PLAN_DIALOGUE_TURNS = 1
+_MIN_PLAN_SUBJECT_CHARS = 12
 RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
+
+_logger = logging.getLogger(__name__)
 POSITIVE_CONFIRMATION_TERMS = (
     "oui",
     "valide",
@@ -81,7 +86,20 @@ PROPOSAL_REQUEST_TERMS = (
     "proposition",
     "crée la proposition",
     "cree la proposition",
+    "créer la proposition",
+    "creer la proposition",
+    "prépare la proposition",
+    "prepare la proposition",
+    "crée proposition",
+    "cree proposition",
     "on peut conclure",
+)
+_STT_HALLUCINATION_TERMS = (
+    "пентак",
+    "сексуаль",
+    "карты",
+    "масти",
+    "выпадает",
 )
 SESSION_END_TERMS = (
     "c'est terminé",
@@ -552,86 +570,178 @@ def _content_tokens(text: str) -> set[str]:
     return {token.lower() for token in _words(text) if len(token) >= 4}
 
 
+def _outline_indent_level(indent_stack: List[int], indent: int) -> int:
+    """Resolve a 0-based depth for ``indent`` against a running indent stack.
+
+    Deeper leading whitespace pushes a new level; equal whitespace stays on the
+    same level; shallower whitespace pops back. Used for indentation-driven
+    pastes (bullets / plain lines), independent of markdown/numbering markers.
+    """
+    while indent_stack and indent < indent_stack[-1]:
+        indent_stack.pop()
+    if indent_stack and indent == indent_stack[-1]:
+        return len(indent_stack) - 1
+    indent_stack.append(indent)
+    return len(indent_stack) - 1
+
+
+_PLAN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
+_PLAN_DOTTED_RE = re.compile(r"^(\d+(?:\.\d+)+)[.)]?\s+(.+)$")
+_PLAN_NUMBER_RE = re.compile(r"^\d+[.)]\s+(.+)$")
+_PLAN_BULLET_RE = re.compile(r"^[-*•·▪◦]\s+(.+)$")
+_PLAN_ALPHA_RE = re.compile(r"^[a-zA-Z][.)]\s+(.+)$")
+
+
+def _outline_items_from_text(seed: str) -> List[Tuple[int, str]]:
+    """Turn raw plan text into ``(level, title)`` rows (level 0 = top section).
+
+    Honors, in order of precedence: markdown heading depth (#, ##, ### ...),
+    nested numbering (1 / 1.1 / 1.1.1), and leading-whitespace indentation for
+    bullets / plain lines. Bullets and plain lines nest one level under the most
+    recent explicit marker so mixed documents (## heading + "- point") work.
+    """
+    items: List[Tuple[int, str]] = []
+    indent_stack: List[int] = []
+    last_marker_level = -1
+    for raw_line in seed.splitlines():
+        if not raw_line.strip():
+            continue
+        expanded = raw_line.replace("\t", "    ")
+        indent = len(expanded) - len(expanded.lstrip(" "))
+        line = raw_line.strip()
+
+        heading = _PLAN_HEADING_RE.match(line)
+        if heading:
+            level = len(heading.group(1)) - 1
+            items.append((level, heading.group(2).strip()))
+            last_marker_level = level
+            indent_stack = []
+            continue
+
+        dotted = _PLAN_DOTTED_RE.match(line)
+        if dotted:
+            level = dotted.group(1).count(".")
+            items.append((level, dotted.group(2).strip()))
+            last_marker_level = level
+            indent_stack = []
+            continue
+
+        numbered = _PLAN_NUMBER_RE.match(line)
+        if numbered:
+            # A plain enumerator ("1." / "2)") is a top-level section; deeper
+            # numbering is expressed with dots (1.1 / 1.1.1), handled above.
+            items.append((0, numbered.group(1).strip()))
+            last_marker_level = 0
+            indent_stack = []
+            continue
+
+        alpha = _PLAN_ALPHA_RE.match(line)
+        if alpha:
+            items.append((1, alpha.group(1).strip()))
+            last_marker_level = 1
+            indent_stack = []
+            continue
+
+        bullet = _PLAN_BULLET_RE.match(line)
+        title = bullet.group(1).strip() if bullet else line[:240]
+
+        relative = _outline_indent_level(indent_stack, indent)
+        level = max(0, last_marker_level + 1) + relative if last_marker_level >= 0 else relative
+        items.append((level, title))
+    return items
+
+
 def parse_provided_plan_text(text: str) -> List[Dict[str, Any]]:
-    """Parse pasted or uploaded plan text into plan_build_v2 topic/subtopic rows."""
+    """Parse pasted or uploaded plan text into a 3-level plan_build_v2 tree.
+
+    Level 0 -> topic (section), level 1 -> subtopic (subsection), level >= 2 ->
+    presentation point (subtopic.questions). Leading-whitespace indentation,
+    nested markdown headings and nested numbering are all honored, so a richly
+    structured paste keeps its hierarchy instead of collapsing to one topic.
+    """
     seed = (text or "").strip()
     if not seed:
         return []
 
+    items = _outline_items_from_text(seed)
     topics: List[Dict[str, Any]] = []
     current_topic: Optional[Dict[str, Any]] = None
+    current_sub: Optional[Dict[str, Any]] = None
     topic_index = 0
-    subtopic_index = 0
 
-    def _append_subtopic(title: str, *, objective: str = "") -> None:
-        nonlocal subtopic_index, current_topic
-        if not current_topic:
-            return
-        subtopic_index += 1
-        topic_id = str(current_topic["id"])
-        current_topic["subtopics"].append(
-            {
-                "id": f"{topic_id}-sub-{subtopic_index:02d}",
-                "title": title.strip(),
-                "objective": objective.strip(),
-                "status": "pending",
-            }
-        )
-
-    def _start_topic(title: str) -> None:
-        nonlocal current_topic, topic_index, subtopic_index
-        if current_topic and current_topic.get("subtopics"):
-            topics.append(current_topic)
+    def _new_topic(title: str) -> Dict[str, Any]:
+        nonlocal topic_index, current_topic, current_sub
         topic_index += 1
-        subtopic_index = 0
-        topic_id = f"t-{topic_index:02d}"
         current_topic = {
-            "id": topic_id,
-            "title": title.strip(),
+            "id": f"t-{topic_index:02d}",
+            "title": title.strip() or f"Sujet {topic_index}",
             "objective": "",
             "status": "draft",
             "knowledge_refs": [],
             "subtopics": [],
         }
-
-    for raw_line in seed.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        heading = re.match(r"^(#{1,6})\s+(.+)$", line)
-        if heading:
-            level = len(heading.group(1))
-            title = heading.group(2).strip()
-            if level == 1:
-                _start_topic(title)
-            else:
-                if not current_topic:
-                    _start_topic(title)
-                else:
-                    _append_subtopic(title)
-            continue
-        numbered = re.match(r"^\d+[\.)]\s+(.+)$", line)
-        if numbered:
-            title = numbered.group(1).strip()
-            if not current_topic:
-                _start_topic(title)
-            else:
-                _append_subtopic(title)
-            continue
-        bullet = re.match(r"^[-*•]\s+(.+)$", line)
-        if bullet:
-            title = bullet.group(1).strip()
-            if not current_topic:
-                _start_topic("Plan importé")
-            _append_subtopic(title)
-            continue
-        if not current_topic:
-            _start_topic(line[:120])
-        else:
-            _append_subtopic(line[:120])
-
-    if current_topic and current_topic.get("subtopics"):
+        current_sub = None
         topics.append(current_topic)
+        return current_topic
+
+    def _new_subtopic(title: str) -> Dict[str, Any]:
+        nonlocal current_sub
+        assert current_topic is not None
+        sub_index = len(current_topic["subtopics"]) + 1
+        current_sub = {
+            "id": f"{current_topic['id']}-sub-{sub_index:02d}",
+            "title": title.strip() or current_topic["title"],
+            "objective": "",
+            "status": "pending",
+            "questions": [],
+        }
+        current_topic["subtopics"].append(current_sub)
+        return current_sub
+
+    def _add_point(title: str) -> None:
+        assert current_sub is not None
+        point_index = len(current_sub["questions"]) + 1
+        clean = title.strip()
+        current_sub["questions"].append(
+            {
+                "id": f"{current_sub['id']}-pt-{point_index:02d}",
+                "title": clean,
+                "prompt": presentation_prompt(clean),
+                "status": "pending",
+            }
+        )
+
+    for level, title in items:
+        if not title:
+            continue
+        if level <= 0:
+            _new_topic(title)
+        elif level == 1:
+            if current_topic is None:
+                _new_topic(title)
+            else:
+                _new_subtopic(title)
+        else:  # level >= 2 -> presentation point
+            if current_topic is None:
+                _new_topic(title)
+            elif current_sub is None:
+                _new_subtopic(current_topic["title"])
+                _add_point(title)
+            else:
+                _add_point(title)
+
+    # Every topic needs at least one subtopic for downstream normalization.
+    for topic in topics:
+        if not topic["subtopics"]:
+            topic["subtopics"].append(
+                {
+                    "id": f"{topic['id']}-sub-01",
+                    "title": topic["title"],
+                    "objective": "",
+                    "status": "pending",
+                    "questions": [],
+                }
+            )
 
     if not topics and len(_words(seed)) >= 6:
         topics.append(
@@ -647,6 +757,7 @@ def parse_provided_plan_text(text: str) -> List[Dict[str, Any]]:
                         "title": "Sujet principal",
                         "objective": seed[:500],
                         "status": "pending",
+                        "questions": [],
                     }
                 ],
             }
@@ -725,6 +836,13 @@ def _dialogue_subject_text(plan: Dict[str, Any]) -> str:
 def _plan_dialogue_ready(plan: Dict[str, Any]) -> bool:
     dialogue = plan.get("dialogue") or {}
     if dialogue.get("ready_to_finalize"):
+        return True
+    # A plan is ready to finalize as soon as it has at least one topic — the
+    # dialogue turn already builds the topic tree. This aligns the backend gate
+    # with the frontend (planTopics().length > 0) and supersedes the legacy
+    # word-count threshold below, which now only acts as an oracle-fallback hint
+    # when no topics have been produced yet.
+    if plan.get("topics"):
         return True
     turns = dialogue.get("turns") or []
     subject = _dialogue_subject_text(plan)
@@ -882,7 +1000,7 @@ def _is_plan_build_schema(plan: Dict[str, Any]) -> bool:
     }
 
 
-def _retrieve_context_chunks(
+async def _retrieve_context_chunks_async(
     db: DBSession,
     *,
     workspace_id: str,
@@ -913,19 +1031,38 @@ def _retrieve_context_chunks(
             vector_db_type=vector_db_type,
             workspace_slug=workspace_slug,
         )
-        result = asyncio.run(
-            retrieve_for_mode(
-                doc_svc,
-                text,
-                "chah",
-                top_k=max(1, min(top_k, 8)),
-                use_hybrid=True,
-                hah_chah_enabled=True,
-            )
+        result = await retrieve_for_mode(
+            doc_svc,
+            text,
+            "chah",
+            top_k=max(1, min(top_k, 8)),
+            use_hybrid=True,
+            hah_chah_enabled=True,
         )
         return list(result.chunks), list(result.metadatas or []), list(result.scores or [])
     except Exception:
         return [], [], []
+
+
+def _retrieve_context_chunks(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    workspace_slug: Optional[str],
+    session: ExpertCaptureSession,
+    query: str,
+    top_k: int = 4,
+) -> Tuple[List[str], List[Dict[str, Any]], List[float]]:
+    return asyncio.run(
+        _retrieve_context_chunks_async(
+            db,
+            workspace_id=workspace_id,
+            workspace_slug=workspace_slug,
+            session=session,
+            query=query,
+            top_k=top_k,
+        )
+    )
 
 
 def _sync_plan_rag_chunks(
@@ -1083,35 +1220,56 @@ def finalize_plan_from_dialogue(
         raise ValueError("Plan dialogue is not complete enough to finalize")
     subject = _dialogue_subject_text(plan)
     enriched_objective = f"{session.objective.strip()} {subject}".strip()
-    rag_chunks, rag_metadatas = _sync_plan_rag_chunks(
-        db,
-        workspace_id=workspace_id,
-        workspace_slug=workspace_slug,
-        session=session,
-        query=enriched_objective,
-    )
-    gaps = build_knowledge_gaps(
-        objective=enriched_objective,
-        expert_profile=session.expert_profile,
-        context_snapshot=(plan.get("context") or {}),
-        knowledge_refs=list(plan.get("knowledge_refs") or []),
-        rag_chunks=rag_chunks,
-        rag_metadatas=rag_metadatas,
-    )
-    context = session_context_from_capture(session=session, plan=plan)
-    oracle = _invoke_plan_oracle(
-        context,
-        rag_chunks=rag_chunks,
-        rag_metadatas=rag_metadatas,
-        base_gaps=gaps,
-    )
+    existing_topics = plan.get("topics") or []
+    if existing_topics:
+        # The dialogue already built (and the user may have edited) the topic tree.
+        # Preserve it verbatim — re-invoking the oracle / merge_topic_proposals here
+        # reshuffles and duplicates the plan the user already saw (QA #2) and adds a
+        # redundant ~17s oracle call. Only finalize: status, enriched objective, surface.
+        gaps = list(session.knowledge_gaps or [])
+        plan["topics"] = existing_topics
+    else:
+        # Fall back to the oracle only when no topics exist yet.
+        rag_chunks, rag_metadatas = _sync_plan_rag_chunks(
+            db,
+            workspace_id=workspace_id,
+            workspace_slug=workspace_slug,
+            session=session,
+            query=enriched_objective,
+        )
+        gaps = build_knowledge_gaps(
+            objective=enriched_objective,
+            expert_profile=session.expert_profile,
+            context_snapshot=(plan.get("context") or {}),
+            knowledge_refs=list(plan.get("knowledge_refs") or []),
+            rag_chunks=rag_chunks,
+            rag_metadatas=rag_metadatas,
+        )
+        context = session_context_from_capture(session=session, plan=plan)
+        oracle = _invoke_plan_oracle(
+            context,
+            rag_chunks=rag_chunks,
+            rag_metadatas=rag_metadatas,
+            base_gaps=gaps,
+        )
+        plan["topics"] = merge_topic_proposals(plan, oracle.get("topic_proposals") or [])
+        plan["oracle"] = {
+            "coverage_gaps": oracle.get("coverage_gaps") or [],
+            "contradiction_candidates": oracle.get("contradiction_candidates") or [],
+            "last_refreshed_at": datetime.utcnow().isoformat(),
+        }
     plan["schema_version"] = PLAN_BUILD_V2_SCHEMA_VERSION
-    plan["topics"] = merge_topic_proposals(plan, oracle.get("topic_proposals") or [])
     plan["dialogue"] = {**(plan.get("dialogue") or {}), "status": "finalized"}
     plan["objective"] = enriched_objective
     plan["questions"] = []
     plan["question_bank"] = list(plan.get("question_bank") or [])
-    plan["question_bank_status"] = plan.get("question_bank_status") or "idle"
+    # Auto-schedule question-bank generation: the launch screen no longer needs an
+    # explicit "confirm" button. The endpoint kicks off generate_question_bank in the
+    # background once it sees the status flip from idle to generating.
+    if (plan.get("question_bank_status") or "idle") == "idle":
+        plan["question_bank_status"] = "generating"
+    else:
+        plan["question_bank_status"] = plan.get("question_bank_status") or "idle"
     plan["mode"] = "plan_build"
     plan["voice_runtime"] = session.voice_runtime
     plan["knowledge_refs"] = list(plan.get("knowledge_refs") or [])
@@ -1172,6 +1330,10 @@ def _normalize_plan_build_topics(
             if not subtopic_id or subtopic_id in subtopic_ids:
                 raise ValueError("Subtopic ids must be unique")
             subtopic_ids.add(subtopic_id)
+            points = normalize_outline_points(
+                subtopic_id,
+                raw_subtopic.get("questions") or raw_subtopic.get("points"),
+            )
             normalized_subtopics.append(
                 {
                     **raw_subtopic,
@@ -1179,6 +1341,7 @@ def _normalize_plan_build_topics(
                     "title": subtopic_title,
                     "objective": str(raw_subtopic.get("objective") or "").strip(),
                     "status": raw_subtopic.get("status") or "pending",
+                    "questions": points,
                 }
             )
         normalized_topics.append(
@@ -1324,11 +1487,13 @@ def generate_question_bank(
             )
             full_question = generated["full_question"]
             hint = generated["hint"][:80]
+            presentation = generated.get("prompt") or presentation_prompt(title)
             bank.append(
                 {
                     "id": f"qb-{uuid.uuid4()}",
                     "subtopic_id": subtopic_id,
                     "full_question": full_question,
+                    "prompt": presentation,
                     "hint": hint[:80],
                     "priority": priority,
                     "source": "planned",
@@ -1343,6 +1508,7 @@ def generate_question_bank(
             "id": item["id"],
             "subtopic_id": item["subtopic_id"],
             "question": item["full_question"],
+            "prompt": item["prompt"],
             "hint": item["hint"],
             "visibility": "hidden",
         }
@@ -1431,6 +1597,106 @@ def get_hint_queue(
     return {"hints": aggregated}
 
 
+def _coerce_priority(value: Any) -> float:
+    try:
+        return round(float(value), 4)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def build_open_questions(
+    session: ExpertCaptureSession,
+    *,
+    plan: Optional[Dict[str, Any]] = None,
+    contradiction_candidates: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """The oracle's OWN open questions — the curiosities and gaps it tracks while
+    listening, NOT questions imposed on the expert.
+
+    Derived from the internal ``coverage_gaps`` and contradiction tracking already
+    computed. Returns a list of ``{id, text, topic_id, priority, status}`` sorted by
+    ``priority`` descending (higher = more pressing). Marked ``addressed`` when the
+    expert's free expression already overlaps the gap.
+    """
+    plan = plan if plan is not None else (session.plan or {})
+    gaps = list(((plan.get("oracle") or {}).get("coverage_gaps")) or [])
+    if not gaps:
+        gaps = list(session.knowledge_gaps or [])
+    if not gaps:
+        # Free-conversation (and any plan that never seeded gaps) still has internal
+        # oracle curiosities: fall back to the generic prioritized gap taxonomy so the
+        # "questions de l'oracle" panel reflects what the AI is tracking internally.
+        gaps = build_knowledge_gaps(
+            objective=session.objective or "",
+            expert_profile=session.expert_profile,
+            context_snapshot=plan.get("context") or {},
+            knowledge_refs=list(plan.get("knowledge_refs") or []),
+        )
+
+    expert_text = " ".join(
+        str(turn.get("text") or "")
+        for turn in (session.transcript or [])
+        if turn.get("speaker") == "expert"
+    )
+    expert_tokens = _content_tokens(expert_text)
+
+    items: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            continue
+        slug = str(gap.get("slug") or gap.get("id") or "").strip()
+        title = str(gap.get("title") or "").strip()
+        description = str(gap.get("description") or "").strip()
+        text = description or title
+        if not text:
+            continue
+        key = slug or text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        gap_tokens = _content_tokens(f"{title} {description}")
+        addressed = bool(
+            gap_tokens
+            and expert_tokens
+            and len(gap_tokens & expert_tokens) / max(1, len(gap_tokens)) >= 0.5
+        )
+        items.append(
+            {
+                "id": slug or f"open-{len(items) + 1:02d}",
+                "text": text,
+                "topic_id": gap.get("topic_id"),
+                "priority": _coerce_priority(gap.get("priority")),
+                "status": "addressed" if addressed else "open",
+            }
+        )
+
+    for candidate in contradiction_candidates or []:
+        if not isinstance(candidate, dict):
+            continue
+        hint = str(candidate.get("suggested_hint") or "").strip()
+        if not hint:
+            continue
+        key = f"contradiction:{hint.lower()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(
+            {
+                "id": f"contradiction-{len(items) + 1:02d}",
+                "text": hint,
+                "topic_id": candidate.get("topic_id"),
+                # Above the 0..1 coverage-gap range so a detected contradiction is the
+                # most pressing open question the oracle is tracking.
+                "priority": 2.0,
+                "status": "open",
+            }
+        )
+
+    items.sort(key=lambda item: item.get("priority") or 0.0, reverse=True)
+    return items
+
+
 def process_capture_partial_hints(
     db: DBSession,
     *,
@@ -1443,6 +1709,8 @@ def process_capture_partial_hints(
     actor_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    if is_capture_text_noise(partial_text):
+        return {"hints": [], "active_subtopic_id": None, "session": session, "ignored_reason": "stt_noise"}
     plan = dict(session.plan or {})
     metrics = dict(session.metrics or {})
     context = session_context_from_capture(
@@ -2045,7 +2313,11 @@ def export_session_proposal_markdown(
     captured = payload.get("captured_facts") or []
     open_questions = payload.get("open_questions") or []
     summary = payload.get("executive_summary") or session.title
-    body = _proposal_markdown(session, captured, open_questions)
+    body = (
+        payload.get("report_markdown")
+        or ((payload.get("recommended_ingestion") or {}).get("content"))
+        or _proposal_markdown(session, captured, open_questions)
+    )
     return f"## Résumé exécutif\n\n{summary}\n\n{body}"
 
 
@@ -2246,10 +2518,6 @@ def evaluate_expert_answer(
     else:
         verdict = "partial"
 
-    follow_up = None
-    if verdict != "sufficient":
-        follow_up = _select_follow_up(question, has_reason=has_reason, has_example=has_example, has_source=has_source)
-
     return {
         "id": str(uuid.uuid4()),
         "gap_id": (gap or {}).get("id") or (question or {}).get("target_gap_id"),
@@ -2264,7 +2532,8 @@ def evaluate_expert_answer(
             "uncertainty": uncertainty,
             "contradiction": contradiction,
         },
-        "follow_up": follow_up,
+        "follow_up": None,
+        "relance": {"kind": None, "text": None},
     }
 
 
@@ -2323,7 +2592,7 @@ def classify_conversation_intent(
 def _clean_conversation_fact_text(text: str, intent: str) -> str:
     """Remove voice-control utterances before a transcript becomes a fact."""
     clean = (text or "").strip()
-    if not clean:
+    if not clean or is_capture_text_noise(clean):
         return ""
 
     segments = re.split(r"(?<=[.!?])\s+", clean)
@@ -2370,7 +2639,9 @@ def _strip_leading_discourse_markers(text: str) -> str:
 def _strip_proposal_request_clause(text: str) -> str:
     out = text
     proposal_patterns = [
-        r"\b(?:crée|cree|prépare|prepare)\s+la\s+proposition\b.*$",
+        r"\b(?:crée|cree|créer|creer|prépare|prepare|préparer|preparer)\s+la\s+proposition\b.*$",
+        r"\b(?:crée|cree|créer|creer|prépare|prepare|préparer|preparer)\s+proposition\b.*$",
+        r"\bconclu(?:re|s|ez)?\s+(?:par|pas)?\s*(?:crée|cree|créer|creer)\s+la\s+proposition\b.*$",
         r"\bon\s+peut\s+(?:faire|créer|creer)\s+une\s+proposition\b.*$",
         r"\bje\s+pense\s+qu['’]?\s*on\s+peut\s+.*proposition\b.*$",
         r"\bon\s+peut\s+conclure\b.*$",
@@ -2379,6 +2650,67 @@ def _strip_proposal_request_clause(text: str) -> str:
     for pattern in proposal_patterns:
         out = re.sub(pattern, "", out, flags=re.IGNORECASE).strip(" ,;:")
     return out
+
+
+def is_capture_text_noise(text: str) -> bool:
+    """Detect STT hallucinations/control-only text before they become knowledge."""
+    clean = (text or "").strip()
+    if not clean:
+        return False
+    if _looks_like_stt_hallucination(clean):
+        return True
+    return False
+
+
+def _looks_like_stt_hallucination(text: str) -> bool:
+    lowered = (text or "").lower()
+    if any(term in lowered for term in _STT_HALLUCINATION_TERMS):
+        return True
+    letters = [char for char in text if char.isalpha()]
+    if not letters:
+        return False
+    cyrillic = sum(1 for char in letters if "\u0400" <= char <= "\u04ff")
+    latin = sum(1 for char in letters if ("A" <= char <= "Z") or ("a" <= char <= "z") or ("\u00c0" <= char <= "\u024f"))
+    if cyrillic >= 8 and cyrillic / max(1, len(letters)) >= 0.18:
+        return True
+    return cyrillic >= 4 and latin == 0 and len(letters) >= 8
+
+
+def _sanitize_capture_fact_text(text: str) -> str:
+    clean = (text or "").strip()
+    if not clean or is_capture_text_noise(clean) or _is_voice_control_residue(clean):
+        return ""
+    clean = _strip_proposal_request_clause(clean).strip(" ,;:")
+    if not clean or is_capture_text_noise(clean) or _is_voice_control_residue(clean):
+        return ""
+    return clean
+
+
+def _is_voice_control_residue(text: str) -> bool:
+    lower = re.sub(r"\s+", " ", (text or "").strip().lower().strip(" .,!?:;"))
+    if lower in {"conclure pas", "conclure par", "créer la proposition", "creer la proposition", "crée la proposition", "cree la proposition"}:
+        return True
+    words = _words(lower)
+    return len(words) <= 4 and any(term in lower for term in ("proposition", "conclure", "valider le plan"))
+
+
+def _sanitize_captured_fact(fact: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    text = _sanitize_capture_fact_text(str(fact.get("text") or fact.get("statement") or ""))
+    if not text:
+        return None
+    cleaned = dict(fact)
+    cleaned["text"] = text
+    cleaned["statement"] = text
+    return cleaned
+
+
+def _sanitize_captured_facts(facts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    cleaned: List[Dict[str, Any]] = []
+    for fact in facts:
+        item = _sanitize_captured_fact(fact)
+        if item:
+            cleaned.append(item)
+    return cleaned
 
 
 def process_conversation_step(
@@ -2407,6 +2739,7 @@ def process_conversation_step(
     intent = classification["intent"]
     confidence = classification["confidence"]
     fact_text = _clean_conversation_fact_text(text, intent)
+    stt_noise_ignored = is_capture_text_noise(text)
     action_taken = "none"
     next_prompt: Optional[str] = None
     proposal: Optional[KnowledgeUpdateProposal] = None
@@ -2414,7 +2747,11 @@ def process_conversation_step(
     confirmation_target: Optional[str] = None
     turn_payload: Optional[Dict[str, Any]] = None
 
-    if intent in {"answer_ready", "correction", "more_detail"}:
+    if stt_noise_ignored:
+        action_taken = "stt_noise_ignored"
+        confidence = min(confidence, 0.25)
+        next_prompt = "Je n’ai pas compris cette prise de parole. Pouvez-vous reformuler en français ?"
+    elif intent in {"answer_ready", "correction", "more_detail"}:
         turn_kind = "correction" if intent == "correction" else ("complement" if intent == "more_detail" else "answer")
         turn_payload = append_turn(
             db,
@@ -2630,6 +2967,85 @@ def _select_follow_up(
     return follow_ups[0] if follow_ups else "Quelle précision manque encore pour rendre cette réponse réutilisable ?"
 
 
+def build_relance(
+    *,
+    answer: str,
+    evaluation: Dict[str, Any],
+    question: Optional[Dict[str, Any]] = None,
+    topic_label: Optional[str] = None,
+    contradiction_candidates: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Optional[str]]:
+    """Build a non-blocking live suggestion from the latest expert answer."""
+    del answer, topic_label
+    for candidate in contradiction_candidates or []:
+        if not isinstance(candidate, dict):
+            continue
+        hint = str(candidate.get("suggested_hint") or candidate.get("hint") or candidate.get("text") or "").strip()
+        if hint:
+            return {"kind": "contradiction", "text": hint}
+
+    verdict = str(evaluation.get("verdict") or "")
+    if verdict == "contradiction_or_update":
+        return {"kind": "contradiction", "text": "Clarifier ce qui contredit ou met à jour la source existante."}
+    if verdict not in {"needs_precision", "partial"}:
+        return {"kind": None, "text": None}
+
+    signals = evaluation.get("signals") if isinstance(evaluation.get("signals"), dict) else {}
+    follow_up = _select_follow_up(
+        question,
+        has_reason=bool(signals.get("has_reason")),
+        has_example=bool(signals.get("has_example")),
+        has_source=bool(signals.get("has_source")),
+    )
+    return {"kind": "relance", "text": follow_up}
+
+
+def relance_to_suggestions(relance: Optional[Dict[str, Optional[str]]]) -> List[Dict[str, str]]:
+    if not relance:
+        return []
+    text = str(relance.get("text") or "").strip()
+    if not text:
+        return []
+    kind = str(relance.get("kind") or "relance")
+    return [
+        {
+            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge-capture:{kind}:{text}")),
+            "kind": kind,
+            "text": text,
+        }
+    ]
+
+
+def format_retrieval_chunks(
+    chunks: Optional[List[str]],
+    metadatas: Optional[List[Dict[str, Any]]] = None,
+    scores: Optional[List[float]] = None,
+) -> List[Dict[str, Any]]:
+    """Shape live retrieval chunks for the oracle payload, preserving the metadata
+    that powers the existing document source-preview (document_id/source_id +
+    collection)."""
+    metadatas = metadatas or []
+    scores = scores or []
+    formatted: List[Dict[str, Any]] = []
+    for index, chunk in enumerate(chunks or []):
+        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        formatted.append(
+            {
+                "rank": index + 1,
+                "text": str(chunk),
+                "preview": str(chunk)[:360],
+                "score": scores[index] if index < len(scores) else None,
+                "document_id": md.get("document_id") or md.get("doc_id") or md.get("id"),
+                "source_id": md.get("source_id") or md.get("source"),
+                "source": md.get("source") or md.get("filename") or md.get("document_id"),
+                "title": md.get("title") or md.get("filename") or md.get("source"),
+                "collection": md.get("collection") or md.get("collection_name"),
+                "metadata": md,
+            }
+        )
+    return formatted
+
+
 def structure_capture_payload(
     session: ExpertCaptureSession,
     transcript_events: Optional[List[ExpertCaptureEvent]] = None,
@@ -2640,6 +3056,7 @@ def structure_capture_payload(
     captured = [_fact_from_turn(turn, evaluations) for turn in expert_turns]
     event_rows = transcript_events or []
     captured = _merge_event_facts(captured, _facts_from_events(event_rows, evaluations))
+    captured = _sanitize_captured_facts(captured)
     event_evidence = [_serialize_event(event) for event in event_rows]
     amendments = [
         _serialize_event(event)
@@ -2676,10 +3093,11 @@ def structure_capture_payload(
         "context_id": session.context_id,
         "captured_facts": captured,
         "open_questions": open_questions,
-        "transcript": transcript,
-        "transcript_events": event_evidence,
-        "amendments": amendments,
+        "transcript": [],
+        "transcript_events": [],
+        "amendments": [],
         "knowledge_sheet_template": template_id,
+        "report_markdown": markdown,
         "recommended_ingestion": {
             "title": f"Expert capture - {session.title}",
             "content": markdown,
@@ -2905,6 +3323,95 @@ def _retrieval_refs_from_event(event: Optional[ExpertCaptureEvent]) -> List[Dict
             }
         )
     return refs
+
+
+def _structure_facts_by_plan(
+    plan: Dict[str, Any],
+    captured_facts: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Group captured facts under the plan's topics/subtopics so the plan can act as
+    the final structuring frame. Facts that do not map to any plan node are returned
+    under ``unassigned``."""
+    topics = (plan or {}).get("topics") or []
+    facts = list(captured_facts or [])
+    assigned: set[int] = set()
+    structured_topics: List[Dict[str, Any]] = []
+    for topic in topics:
+        if not isinstance(topic, dict):
+            continue
+        topic_id = topic.get("id")
+        subtopic_nodes: List[Dict[str, Any]] = []
+        for subtopic in topic.get("subtopics") or []:
+            if not isinstance(subtopic, dict):
+                continue
+            subtopic_id = subtopic.get("id")
+            sub_facts = [fact for fact in facts if fact.get("subtopic_id") == subtopic_id]
+            for fact in sub_facts:
+                assigned.add(id(fact))
+            subtopic_nodes.append(
+                {
+                    "subtopic_id": subtopic_id,
+                    "title": subtopic.get("title"),
+                    "prompt": subtopic.get("prompt"),
+                    "facts": sub_facts,
+                }
+            )
+        topic_facts = [
+            fact
+            for fact in facts
+            if fact.get("topic_id") == topic_id and not fact.get("subtopic_id")
+        ]
+        for fact in topic_facts:
+            assigned.add(id(fact))
+        structured_topics.append(
+            {
+                "topic_id": topic_id,
+                "title": topic.get("title"),
+                "prompt": topic.get("prompt"),
+                "facts": topic_facts,
+                "subtopics": subtopic_nodes,
+            }
+        )
+    unassigned = [fact for fact in facts if id(fact) not in assigned]
+    return {"topics": structured_topics, "unassigned": unassigned}
+
+
+def _plan_framed_markdown(
+    session: ExpertCaptureSession,
+    plan_structure: Dict[str, Any],
+    open_questions: List[Dict[str, Any]],
+) -> str:
+    lines: List[str] = [f"# {session.title}", "", f"Objectif : {session.objective}", ""]
+    for topic in plan_structure.get("topics") or []:
+        lines.append(f"## {topic.get('title') or 'Sujet'}")
+        for fact in topic.get("facts") or []:
+            statement = str(fact.get("text") or "").strip()
+            if statement:
+                lines.append(f"- {statement}")
+        for subtopic in topic.get("subtopics") or []:
+            lines.append(f"### {subtopic.get('title') or 'Sous-sujet'}")
+            sub_facts = [str(f.get("text") or "").strip() for f in subtopic.get("facts") or []]
+            sub_facts = [item for item in sub_facts if item]
+            if sub_facts:
+                lines.extend(f"- {item}" for item in sub_facts)
+            else:
+                lines.append("- (à compléter)")
+        lines.append("")
+    unassigned = plan_structure.get("unassigned") or []
+    if unassigned:
+        lines.append("## Autres éléments capturés")
+        for fact in unassigned:
+            statement = str(fact.get("text") or "").strip()
+            if statement:
+                lines.append(f"- {statement}")
+        lines.append("")
+    if open_questions:
+        lines.append("## Questions ouvertes")
+        for item in open_questions:
+            label = item.get("follow_up") or item.get("reason") or item.get("gap_id")
+            if label:
+                lines.append(f"- {label}")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _proposal_markdown(
@@ -3180,19 +3687,33 @@ def approve_capture_plan(
 def _plan_build_ready_to_start(plan: Dict[str, Any]) -> bool:
     if not _is_plan_build_schema(plan):
         return True
+    # Outline-driven capture does not depend on a pre-generated question bank: a
+    # validated topic outline (or any topics already present) is enough to start.
     review_status = (plan.get("review") or {}).get("status")
-    bank_status = plan.get("question_bank_status") or "idle"
-    return review_status == "topics_validated" and bank_status == "ready"
+    if review_status in {"topics_validated", "topics_pending_validation"}:
+        return True
+    return bool(plan.get("topics"))
 
 
 def start_session(db: DBSession, *, workspace_id: str, session_id: str) -> ExpertCaptureSession:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
-    plan = session.plan or {}
+    plan = dict(session.plan or {})
     if _topic_plan_requires_approval(plan):
         raise ValueError("Capture plan must be approved before the session starts")
     if _is_plan_build_schema(plan) and not _plan_build_ready_to_start(plan):
-        raise ValueError("Plan topics must be validated and question bank ready before capture starts")
+        raise ValueError("Plan must contain at least one topic before capture starts")
     if session.status == "planned":
+        # Persist the current topics and auto-start question-bank generation when it
+        # has not run yet (guided mode). This removes the need for an explicit
+        # "validate topics" confirmation before starting the conversation. The
+        # endpoint schedules generate_question_bank in the background when it sees the
+        # status flip to "generating".
+        if _is_plan_build_schema(plan):
+            plan["topics"] = list(plan.get("topics") or [])
+            if (plan.get("question_bank_status") or "idle") == "idle":
+                plan["question_bank_status"] = "generating"
+            session.plan = plan
+            flag_modified(session, "plan")
         session.status = "active"
         session.started_at = datetime.utcnow()
         _record_capture_event(
@@ -3223,6 +3744,7 @@ def append_turn(
     actor_user_id: Optional[str] = None,
     text_partials: Optional[List[str]] = None,
     latency_ms: Optional[Dict[str, Any]] = None,
+    contradiction_candidates: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     if session.status == "planned" and _topic_plan_requires_approval(session.plan or {}):
@@ -3317,6 +3839,9 @@ def append_turn(
     session.transcript = transcript
 
     evaluation: Optional[Dict[str, Any]] = None
+    relance: Dict[str, Optional[str]] = {"kind": None, "text": None}
+    suggestions: List[Dict[str, str]] = []
+    open_questions: List[Dict[str, Any]] = []
     next_prompt: Optional[str] = None
     next_question: Optional[Dict[str, Any]] = None
     system_prompt_event_id: Optional[str] = None
@@ -3330,19 +3855,32 @@ def append_turn(
         evaluation["turn_kind"] = turn_kind
         evaluation.update(question_meta)
 
+        topic_label = (question or {}).get("title") or question_meta.get("topic_path")
+        # The relance is still computed for internal tracking, but it is delivered as a
+        # NON-BLOCKING, optional suggestion. The expert drives: we never force an answer
+        # and never auto-advance the outline. The plan is a passive reminder + retrieval
+        # frame, not a script.
+        relance = build_relance(
+            answer=text,
+            evaluation=evaluation,
+            question=question,
+            topic_label=topic_label,
+            contradiction_candidates=contradiction_candidates,
+        )
+        evaluation["relance"] = relance
+        evaluation["follow_up"] = relance.get("text")
+
         evaluations = list(session.evaluations or [])
         evaluations.append(evaluation)
         session.evaluations = evaluations
 
-        if evaluation["verdict"] == "sufficient":
+        # Record the expert's free expression regardless of verdict — the plan no
+        # longer gates what is captured.
+        if _has_substantive_answer_text(text):
             captured = list(session.captured_facts or [])
             captured.append(_fact_from_turn(turn, evaluations))
             session.captured_facts = captured
-            next_question = _next_plan_question(session.plan or {}, evaluations)
-            next_prompt = (next_question or {}).get("question")
-        else:
-            next_question = question
-            next_prompt = evaluation.get("follow_up")
+
         session.metrics = _metrics_for_session(session)
         resolve_hints_from_expert_text(
             db,
@@ -3352,16 +3890,12 @@ def append_turn(
             actor_user_id=actor_user_id,
         )
         session = get_session(db, workspace_id=workspace_id, session_id=session_id)
-        if evaluation.get("verdict") != "sufficient":
-            queue_payload = get_hint_queue(
-                db,
-                workspace_id=workspace_id,
-                session_id=session_id,
-                subtopic_id=question_meta.get("subtopic_id"),
-            )
-            visible_hints = queue_payload.get("hints") or []
-            if visible_hints:
-                next_prompt = str(visible_hints[0].get("hint") or next_prompt)
+
+        suggestions = relance_to_suggestions(relance)
+        open_questions = build_open_questions(
+            session,
+            contradiction_candidates=contradiction_candidates,
+        )
 
         _record_capture_run(
             db,
@@ -3369,31 +3903,12 @@ def append_turn(
             capability_id=session.capability_id,
             trigger="knowledge_capture_turn",
             input_ref={"session_id": session.id, "turn": turn},
-            output_ref={"evaluation": evaluation, "next_prompt": next_prompt},
+            output_ref={"evaluation": evaluation, "suggestions": suggestions},
             skill_slugs=["expert_answer_evaluator_v1"],
             initiated_by_user_id=actor_user_id,
         )
-        if next_prompt:
-            prompt_event = _record_capture_event(
-                db,
-                session=session,
-                event_type="system_prompt_prepared",
-                speaker="system",
-                question_id=(next_question or {}).get("id") or question_id,
-                text_raw=next_prompt,
-                source="capture_engine",
-                status="accepted",
-                parent_event_id=event.id,
-                created_by=actor_user_id,
-                meta_data={
-                    "trigger_turn_id": turn["id"],
-                    "client_turn_id": client_turn_id,
-                    "retrieval_event_id": retrieval_event_id,
-                    "turn_kind": turn_kind,
-                    **_question_trace_metadata(session.plan or {}, (next_question or {}).get("id") or question_id),
-                },
-            )
-            system_prompt_event_id = prompt_event.id
+        # Intentionally no system prompt is prepared and no next_prompt is emitted:
+        # the AI listens and tracks, it does not push the expert to a next outline item.
 
     db.commit()
     db.refresh(session)
@@ -3401,6 +3916,9 @@ def append_turn(
         "session": serialize_session(session),
         "turn": turn,
         "evaluation": evaluation,
+        "relance": relance,
+        "suggestions": suggestions,
+        "open_questions": open_questions,
         "next_prompt": next_prompt,
         "next_question_id": (next_question or {}).get("id") if speaker == "expert" else None,
         "system_prompt_event_id": system_prompt_event_id,
@@ -3539,6 +4057,68 @@ def review_proposal(
     return proposal
 
 
+def update_proposal_report_content(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    proposal_id: str,
+    content: str,
+    actor_user_id: Optional[str] = None,
+    actor_label: Optional[str] = None,
+) -> KnowledgeUpdateProposal:
+    proposal = (
+        db.query(KnowledgeUpdateProposal)
+        .filter(KnowledgeUpdateProposal.id == proposal_id, KnowledgeUpdateProposal.workspace_id == workspace_id)
+        .first()
+    )
+    if not proposal:
+        raise ValueError("Knowledge update proposal not found")
+    clean = (content or "").strip()
+    if not clean:
+        raise ValueError("Proposal report content cannot be empty")
+    payload = dict(proposal.proposal or {})
+    recommended = dict(payload.get("recommended_ingestion") or {})
+    metadata = dict(recommended.get("metadata") or {})
+    metadata.update(
+        {
+            "edited_by_user_id": actor_user_id,
+            "edited_at": datetime.utcnow().isoformat(),
+        }
+    )
+    recommended["content"] = clean
+    recommended["metadata"] = metadata
+    payload["recommended_ingestion"] = recommended
+    payload["report_markdown"] = clean
+    proposal.proposal = payload
+    flag_modified(proposal, "proposal")
+
+    session = (
+        db.query(ExpertCaptureSession)
+        .filter(
+            ExpertCaptureSession.id == proposal.session_id,
+            ExpertCaptureSession.workspace_id == workspace_id,
+        )
+        .first()
+    )
+    if session:
+        _record_capture_event(
+            db,
+            session=session,
+            event_type="proposal_report_edited",
+            source="operator_edit",
+            status="accepted",
+            created_by=actor_label or actor_user_id,
+            meta_data={
+                "proposal_id": proposal.id,
+                "content_chars": len(clean),
+                "actor_user_id": actor_user_id,
+            },
+        )
+    db.commit()
+    db.refresh(proposal)
+    return proposal
+
+
 async def prefetch_capture_retrieval(
     db: DBSession,
     *,
@@ -3556,6 +4136,20 @@ async def prefetch_capture_retrieval(
     text = (partial_text or "").strip()
     if not text:
         raise ValueError("partial_text cannot be empty")
+    if is_capture_text_noise(text):
+        return {
+            "event_id": None,
+            "status": "ignored",
+            "latency_ms": 0,
+            "chunks": [],
+            "scores": [],
+            "metadatas": [],
+            "stale": False,
+            "collection_name": "documents",
+            "hints": [],
+            "active_subtopic_id": None,
+            "ignored_reason": "stt_noise",
+        }
 
     question_meta = _question_trace_metadata(session.plan or {}, question_id)
     partial_event = _record_capture_event(
@@ -3611,14 +4205,21 @@ async def prefetch_capture_retrieval(
             vector_db_type=vector_db_type,
             workspace_slug=workspace_slug,
         )
+        # Live prefetch forces dense-only vector search regardless of the requested
+        # mode. The hybrid/CHAH paths build an in-memory BM25 index from the whole
+        # collection on first use (~2.8-3.8s cold for large collections) and the
+        # per-process worker caches cannot be warmed reliably across the gunicorn
+        # worker pool, so chah/hybrid prefetch blew RETRIEVAL_PREFETCH_TIMEOUT_SECONDS
+        # and returned zero chunks (empty "Contexte retrouvé" panel). Dense-only
+        # qdrant search is ~0.2-1.0s cold on any worker and needs no full-collection load.
         result = await asyncio.wait_for(
             retrieve_for_mode(
                 doc_svc,
                 text,
-                mode,
+                "dense",
                 top_k=max(1, min(top_k, 8)),
-                use_hybrid=True,
-                hah_chah_enabled=True,
+                use_hybrid=False,
+                hah_chah_enabled=False,
             ),
             timeout=timeout_seconds,
         )
@@ -4077,6 +4678,8 @@ def _mark_proposal_conversation_state(
 
 
 def _has_substantive_answer_text(text: str) -> bool:
+    if is_capture_text_noise(text):
+        return False
     lower = (text or "").lower()
     stripped = lower
     for term in PROPOSAL_REQUEST_TERMS:
@@ -4148,16 +4751,58 @@ def _flatten_plan_questions(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
     for topic in topics:
         topic_id = topic.get("id")
         topic_title = topic.get("title") or "Topic"
-        for subtopic in topic.get("subtopics") or []:
+        subtopics = topic.get("subtopics") or []
+        # Broad-first: open an outline-driven topic with its wide, topic-level
+        # presentation prompt before descending into the narrower subtopic prompts.
+        # Legacy guided plans (subtopics carry authored questions) keep their order.
+        topic_is_outline = not any((subtopic.get("questions") or []) for subtopic in subtopics)
+        if subtopics and topic_is_outline:
+            topic_prompt = str(topic.get("prompt") or "").strip() or broad_presentation_prompt(topic_title)
+            questions.append(
+                {
+                    "id": f"{topic_id}-overview" if topic_id else None,
+                    "topic_id": topic_id,
+                    "subtopic_id": None,
+                    "path_label": topic_title,
+                    "title": topic_title,
+                    "prompt": topic_prompt,
+                    "question": topic_prompt,
+                    "level": "topic",
+                    "visibility": "outline",
+                }
+            )
+        for subtopic in subtopics:
             subtopic_id = subtopic.get("id")
             subtopic_title = subtopic.get("title") or topic_title
             path_label = f"{topic_title} / {subtopic_title}"
-            for question in subtopic.get("questions") or []:
-                q = dict(question)
-                q["topic_id"] = q.get("topic_id") or topic_id
-                q["subtopic_id"] = q.get("subtopic_id") or subtopic_id
-                q["path_label"] = q.get("path_label") or path_label
-                questions.append(q)
+            sub_prompt = str(subtopic.get("prompt") or "").strip() or presentation_prompt(subtopic_title)
+            sub_questions = subtopic.get("questions") or []
+            if sub_questions:
+                for question in sub_questions:
+                    q = dict(question)
+                    q["topic_id"] = q.get("topic_id") or topic_id
+                    q["subtopic_id"] = q.get("subtopic_id") or subtopic_id
+                    q["path_label"] = q.get("path_label") or path_label
+                    q["title"] = q.get("title") or subtopic_title
+                    q["prompt"] = str(q.get("prompt") or "").strip() or sub_prompt
+                    q.setdefault("level", "subtopic")
+                    questions.append(q)
+            else:
+                # Outline-driven capture: the subtopic itself is the unit to present,
+                # even when no internal question bank has been generated.
+                questions.append(
+                    {
+                        "id": f"{subtopic_id}-present" if subtopic_id else None,
+                        "topic_id": topic_id,
+                        "subtopic_id": subtopic_id,
+                        "path_label": path_label,
+                        "title": subtopic_title,
+                        "prompt": sub_prompt,
+                        "question": sub_prompt,
+                        "level": "subtopic",
+                        "visibility": "outline",
+                    }
+                )
     return questions
 
 
@@ -4340,7 +4985,8 @@ def _next_plan_question(plan: Dict[str, Any], evaluations: List[Dict[str, Any]])
             return question
     return {
         "id": None,
-        "question": "Nous avons couvert le plan principal. Quelles zones d’incertitude souhaitez-vous ajouter avant la synthèse ?",
+        "prompt": "Nous avons parcouru l'arborescence. Souhaitez-vous présenter un autre point avant la synthèse ?",
+        "question": "Nous avons parcouru l'arborescence. Souhaitez-vous présenter un autre point avant la synthèse ?",
     }
 
 

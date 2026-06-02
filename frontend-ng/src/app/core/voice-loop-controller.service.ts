@@ -132,6 +132,21 @@ export class VoiceLoopController {
     this.state.set('idle');
   }
 
+  /**
+   * Explicit, always-available hard stop for the continuous voice experience.
+   * Distinct from the per-turn endpoint (`stopTurn`): it (a) cancels any
+   * in-flight TTS via the supplied hook, (b) tears down the active recording
+   * without emitting an endpoint so the captured audio is discarded, and
+   * (c) disables auto-rearm via the supplied hook so the loop terminates and
+   * does not re-listen.
+   */
+  hardStop(hooks: { cancelTts?: () => void; disableRearm?: () => void } = {}): void {
+    hooks.disableRearm?.();
+    hooks.cancelTts?.();
+    this.stopTurn('stop', false);
+    this.state.set('idle');
+  }
+
   dispose(): void {
     this.stopEndpointMonitor();
     if (this.recorder?.state === 'recording') this.recorder.stop();

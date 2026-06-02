@@ -53,15 +53,21 @@ export class IconComponent {
 
   private iconName = 'sparkles';
 
+  /** Legitimate single-letter Lucide icons that must not fall back to a glyph. */
+  private static readonly SINGLE_CHAR_ICONS = new Set(['x']);
+
   private normalizeIconName(raw: string): string {
     const trimmed = (raw || 'sparkles').trim();
     if (!trimmed) return 'sparkles';
-    if (trimmed.length === 1) return 'sparkles';
     const aliases: Record<string, string> = {
       pulse: 'activity',
       'check-circle': 'check-circle-2',
       Y: 'check-circle-2',
     };
-    return aliases[trimmed] || trimmed;
+    if (aliases[trimmed]) return aliases[trimmed];
+    if (trimmed.length === 1 && !IconComponent.SINGLE_CHAR_ICONS.has(trimmed.toLowerCase())) {
+      return 'sparkles';
+    }
+    return trimmed;
   }
 }

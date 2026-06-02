@@ -1,12 +1,17 @@
 """Document management endpoints"""
 
+import mimetypes
 import os
 import shutil
 import tempfile
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
+from urllib.parse import quote
+
+import numpy as np
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
 
@@ -25,12 +30,14 @@ from app.services.knowledge_collections import (
     create_worker_job,
     get_collection_or_404,
     original_key,
+    resolve_original_key,
     serialize_collection,
     serialize_job,
     update_collection_status,
 )
 from app.services.object_store import get_object_store
 from app.services.rag.document_service import DocumentService
+from app.services.secure_deposit import build_file_preview, preview_needs_file_bytes
 from app.services.worker_dispatch import dispatch_worker_job
 
 logger = get_logger(__name__)
@@ -527,6 +534,83 @@ def _find_original_file(document_id: str, filename: str) -> Optional[str]:
     return None
 
 
+def _resolve_original_bytes(
+    db: DBSession,
+    workspace: Workspace,
+    collection_name: str,
+    document_id: str,
+    filename: str,
+) -> Optional[bytes]:
+    """Return the original source bytes for an indexed document.
+
+    Knowledge collections (web drop / SFTP / SPL wave promotions) keep
+    originals in the object store under ``original_key``; legacy uploads land
+    in ``uploads/`` or ``sample_data/``. Try the object store first, then the
+    local filesystem.
+    """
+    try:
+        collection = get_collection_or_404(
+            db, workspace_id=workspace.id, collection_ref=collection_name
+        )
+        store = get_object_store()
+        key = resolve_original_key(collection, filename, store=store)
+        if store.exists(key):
+            return store.read_bytes(key)
+    except HTTPException:
+        pass
+    except Exception as exc:  # noqa: BLE001 - object store is best-effort here.
+        logger.warning(f"Object store lookup failed for {document_id}: {exc}")
+
+    local_path = _find_original_file(document_id, filename)
+    if local_path:
+        return Path(local_path).read_bytes()
+    return None
+
+
+def _resolve_original_meta(
+    db: DBSession,
+    workspace: Workspace,
+    collection_name: str,
+    document_id: str,
+    filename: str,
+) -> tuple[bool, int]:
+    """Cheaply resolve ``(exists, size_bytes)`` without downloading the file.
+
+    Lets the preview endpoint build PDF/image envelopes without pulling the
+    full original out of object storage.
+    """
+    try:
+        collection = get_collection_or_404(
+            db, workspace_id=workspace.id, collection_ref=collection_name
+        )
+        store = get_object_store()
+        key = resolve_original_key(collection, filename, store=store)
+        if store.exists(key):
+            return True, int(store.size(key) or 0)
+    except HTTPException:
+        pass
+    except Exception as exc:  # noqa: BLE001 - object store is best-effort here.
+        logger.warning(f"Object store meta lookup failed for {document_id}: {exc}")
+
+    local_path = _find_original_file(document_id, filename)
+    if local_path:
+        try:
+            return True, int(os.path.getsize(local_path))
+        except OSError:
+            return True, 0
+    return False, 0
+
+
+async def _document_filename_for_id(
+    doc_service: DocumentService, document_id: str
+) -> Optional[str]:
+    documents = await doc_service.list_documents()
+    doc = next((d for d in documents if d.get("document_id") == document_id), None)
+    if not doc:
+        return None
+    return doc.get("filename") or doc.get("document_filename") or ""
+
+
 @router.get("/{document_id}/metadata")
 async def get_document_metadata(
     document_id: str,
@@ -652,6 +736,347 @@ async def serve_document_file(
         raise
     except Exception as e:
         logger.error(f"Error serving file: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{document_id}/rich-preview")
+async def rich_preview_document(
+    document_id: str,
+    collection_name: str = Query("documents"),
+    filename: Optional[str] = Query(
+        None, description="Filename hint; skips the collection scan when provided."
+    ),
+    db: DBSession = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Return an inline preview for an indexed source document.
+
+    Mirrors the Secure Deposit preview contract (``kind`` text / spreadsheet /
+    image / pdf / binary) so the Knowledge Sources browser can reuse the same
+    viewer. Originals are read from the object store (or local uploads).
+
+    PDF/image previews only need size + media type, so the original bytes are
+    NOT downloaded here; the viewer streams them lazily from ``download_url``.
+    """
+    try:
+        resolved_name = filename
+        if not resolved_name:
+            db_type = _resolve_document_vector_db_type(workspace)
+            doc_service = DocumentService(
+                collection_name=collection_name,
+                vector_db_type=db_type,
+                workspace_slug=workspace.slug,
+            )
+            resolved_name = await _document_filename_for_id(doc_service, document_id)
+        if not resolved_name:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        media_type = mimetypes.guess_type(resolved_name)[0] or "application/octet-stream"
+        download_url = (
+            f"/api/v1/documents/{quote(document_id)}/raw"
+            f"?collection_name={quote(collection_name)}&filename={quote(resolved_name)}"
+        )
+
+        exists, size = _resolve_original_meta(
+            db, workspace, collection_name, document_id, resolved_name
+        )
+        if not exists:
+            raise HTTPException(status_code=404, detail="Source file not found")
+
+        if not preview_needs_file_bytes(resolved_name, media_type, size):
+            # PDF / image / binary: only size + media type are needed.
+            return build_file_preview(
+                Path(resolved_name),
+                filename=resolved_name,
+                media_type=media_type,
+                size_bytes=size,
+                download_url=download_url,
+            )
+
+        data = _resolve_original_bytes(db, workspace, collection_name, document_id, resolved_name)
+        if data is None:
+            raise HTTPException(status_code=404, detail="Source file not found")
+        suffix = os.path.splitext(resolved_name)[1] or ""
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        try:
+            return build_file_preview(
+                Path(tmp_path),
+                filename=resolved_name,
+                media_type=media_type,
+                size_bytes=len(data),
+                download_url=download_url,
+            )
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error building rich preview: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{document_id}/raw")
+async def serve_document_raw(
+    document_id: str,
+    collection_name: str = Query("documents"),
+    disposition: str = Query("inline"),
+    filename: Optional[str] = Query(
+        None, description="Filename hint; skips the collection scan when provided."
+    ),
+    db: DBSession = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Serve the original source bytes (object store or local) for inline view."""
+    try:
+        resolved_name = filename
+        if not resolved_name:
+            db_type = _resolve_document_vector_db_type(workspace)
+            doc_service = DocumentService(
+                collection_name=collection_name,
+                vector_db_type=db_type,
+                workspace_slug=workspace.slug,
+            )
+            resolved_name = await _document_filename_for_id(doc_service, document_id)
+        if not resolved_name:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        data = _resolve_original_bytes(db, workspace, collection_name, document_id, resolved_name)
+        if data is None:
+            raise HTTPException(status_code=404, detail="Source file not found")
+
+        media_type = mimetypes.guess_type(resolved_name)[0] or "application/octet-stream"
+        safe_disposition = "attachment" if disposition == "attachment" else "inline"
+        name = os.path.basename(resolved_name) or "document"
+        return Response(
+            content=data,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'{safe_disposition}; filename="{name}"',
+                "Cache-Control": "private, max-age=3600",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving raw document: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/chunks")
+async def list_document_chunks(
+    collection_name: str = Query("documents"),
+    document_id: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    max_chars: int = Query(800, ge=80, le=8000),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Browse indexed chunks (vector payloads) for a collection or document.
+
+    Powers the Knowledge "Chunks" tab: returns the chunk body (truncated to
+    ``max_chars``) plus retrieval locators (chunk index, section path, page)
+    so operators can inspect what was actually embedded.
+    """
+    try:
+        db_type = _resolve_document_vector_db_type(workspace)
+        doc_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
+        filters = {"document_id": document_id} if document_id else None
+        payloads = await doc_service.vector_db.list_payloads(
+            filters=filters, limit=limit, offset=offset
+        )
+        chunks: list[dict] = []
+        for pl in payloads:
+            content = str(pl.get("content") or pl.get("text") or "")
+            chunks.append(
+                {
+                    "point_id": pl.get("point_id"),
+                    "chunk_id": pl.get("chunk_id"),
+                    "document_id": pl.get("document_id"),
+                    "document_filename": pl.get("document_filename"),
+                    "chunk_index": pl.get("chunk_index"),
+                    "section_path": pl.get("section_path"),
+                    "page": pl.get("page") or pl.get("page_number"),
+                    "semantic_type": pl.get("semantic_type"),
+                    "content_length": len(content),
+                    "content": content[:max_chars],
+                    "truncated": len(content) > max_chars,
+                }
+            )
+        return {
+            "collection_name": collection_name,
+            "document_id": document_id,
+            "limit": limit,
+            "offset": offset,
+            "count": len(chunks),
+            "has_more": len(chunks) >= limit,
+            "chunks": chunks,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing chunks: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _project_2d(matrix: np.ndarray) -> tuple[np.ndarray, str]:
+    """Reduce embeddings to 2D. Prefer UMAP (clusters), fall back to PCA."""
+    n = matrix.shape[0]
+    if n < 3:
+        return np.zeros((n, 2), dtype=float), "trivial"
+    try:
+        import umap  # type: ignore
+
+        reducer = umap.UMAP(
+            n_components=2,
+            n_neighbors=min(15, n - 1),
+            metric="cosine",
+            random_state=42,
+        )
+        coords = np.asarray(reducer.fit_transform(matrix), dtype=float)
+        return coords, "umap"
+    except Exception:  # noqa: BLE001 - UMAP optional; PCA always works.
+        centered = matrix - matrix.mean(axis=0, keepdims=True)
+        try:
+            _, _, vt = np.linalg.svd(centered, full_matrices=False)
+            coords = centered @ vt[:2].T
+        except Exception:  # noqa: BLE001
+            coords = centered[:, :2]
+        return np.asarray(coords, dtype=float), "pca"
+
+
+def _scale_unit(coords: np.ndarray) -> np.ndarray:
+    """Min-max scale each axis into [0, 1] for stable frontend rendering."""
+    if coords.size == 0:
+        return coords
+    scaled = coords.astype(float).copy()
+    for axis in range(scaled.shape[1]):
+        col = scaled[:, axis]
+        lo, hi = float(col.min()), float(col.max())
+        scaled[:, axis] = (col - lo) / (hi - lo) if hi > lo else 0.5
+    return scaled
+
+
+def _build_embedding_graph(
+    rows: list[dict],
+    *,
+    neighbors: int,
+    min_score: float,
+) -> dict:
+    """Build nodes (with 2D coords) + similarity edges from sampled vectors."""
+    vectors = np.asarray([r["vector"] for r in rows], dtype=float)
+    if len(rows):
+        raw_coords, projection = _project_2d(vectors)
+        coords = _scale_unit(raw_coords)
+    else:
+        coords, projection = np.zeros((0, 2)), "trivial"
+
+    nodes: list[dict] = []
+    for idx, row in enumerate(rows):
+        pl = row.get("payload", {})
+        content = str(pl.get("content") or pl.get("text") or "")
+        nodes.append(
+            {
+                "id": idx,
+                "point_id": row.get("id"),
+                "document_id": pl.get("document_id"),
+                "document_filename": pl.get("document_filename"),
+                "chunk_index": pl.get("chunk_index"),
+                "section_path": pl.get("section_path"),
+                "page": pl.get("page") or pl.get("page_number"),
+                "snippet": content[:180],
+                "x": float(coords[idx][0]) if len(coords) else 0.5,
+                "y": float(coords[idx][1]) if len(coords) else 0.5,
+            }
+        )
+
+    edges: list[dict] = []
+    if len(rows) >= 2:
+        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+        normed = vectors / np.where(norms == 0, 1.0, norms)
+        sim = normed @ normed.T
+        np.fill_diagonal(sim, -1.0)
+        k = max(1, min(int(neighbors), len(rows) - 1))
+        seen: set[tuple[int, int]] = set()
+        for i in range(len(rows)):
+            top = np.argpartition(sim[i], -k)[-k:]
+            for j in top:
+                j = int(j)
+                weight = float(sim[i][j])
+                if weight < min_score:
+                    continue
+                pair = (i, j) if i < j else (j, i)
+                if pair in seen:
+                    continue
+                seen.add(pair)
+                edges.append({"source": pair[0], "target": pair[1], "weight": round(weight, 4)})
+
+    return {"nodes": nodes, "edges": edges, "projection": projection}
+
+
+@router.get("/graph")
+async def embedding_graph(
+    collection_name: str = Query("documents"),
+    document_id: Optional[str] = Query(None),
+    sample: int = Query(200, ge=10, le=1000),
+    neighbors: int = Query(4, ge=1, le=15),
+    min_score: float = Query(0.55, ge=0.0, le=1.0),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Embedding map: 2D projection of sampled chunks + similarity edges.
+
+    Inspired by the Qdrant graph/visualize tools. Sampled chunk vectors are
+    reduced to 2D (UMAP when available, otherwise PCA) and connected to their
+    nearest neighbours, letting operators inspect clusters and outliers and
+    jump from any node to the source document preview.
+    """
+    try:
+        db_type = _resolve_document_vector_db_type(workspace)
+        doc_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
+        filters = {"document_id": document_id} if document_id else None
+        rows = await doc_service.vector_db.sample_chunk_vectors(limit=sample, filters=filters)
+        if not rows:
+            return {
+                "collection_name": collection_name,
+                "document_id": document_id,
+                "sample": 0,
+                "neighbors": neighbors,
+                "min_score": min_score,
+                "vector_dim": None,
+                "projection": "none",
+                "nodes": [],
+                "edges": [],
+                "supported": db_type == "qdrant" or db_type == "faiss",
+            }
+        graph = _build_embedding_graph(rows, neighbors=neighbors, min_score=min_score)
+        return {
+            "collection_name": collection_name,
+            "document_id": document_id,
+            "sample": len(rows),
+            "neighbors": neighbors,
+            "min_score": min_score,
+            "vector_dim": len(rows[0]["vector"]),
+            "projection": graph["projection"],
+            "nodes": graph["nodes"],
+            "edges": graph["edges"],
+            "supported": True,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error building embedding graph: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

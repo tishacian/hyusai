@@ -303,6 +303,40 @@ class FAISSVectorDB(VectorDBBase):
                 break
         return out
 
+    async def sample_chunk_vectors(
+        self,
+        limit: int = 200,
+        filters: Optional[dict] = None,
+    ) -> list[dict]:
+        """Sample points (with vectors) for the embedding-map visualization."""
+        if self.vectors is None or not len(self.ids):
+            return []
+        limit = max(1, min(int(limit or 200), 1000))
+        candidate_indices = []
+        for idx, vec_id in enumerate(self.ids):
+            if idx >= len(self.vectors):
+                break
+            metadata = self.metadatas.get(vec_id, {})
+            if filters and not all(metadata.get(k) == v for k, v in filters.items()):
+                continue
+            candidate_indices.append(idx)
+
+        if len(candidate_indices) > limit:
+            step = len(candidate_indices) / float(limit)
+            candidate_indices = [candidate_indices[int(i * step)] for i in range(limit)]
+
+        out: list[dict] = []
+        for idx in candidate_indices:
+            vec_id = self.ids[idx]
+            out.append(
+                {
+                    "id": str(vec_id),
+                    "vector": [float(x) for x in self.vectors[idx]],
+                    "payload": dict(self.metadatas.get(vec_id, {})),
+                }
+            )
+        return out
+
     async def clear_collection(self):
         """Clear all vectors from the collection"""
         import asyncio

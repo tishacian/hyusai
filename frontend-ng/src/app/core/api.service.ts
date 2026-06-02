@@ -16,6 +16,15 @@ export interface CapturePlanRequest {
   provided_plan_text?: string | null;
 }
 
+export interface CapturePlanSourceExtractResponse {
+  filename: string;
+  text: string;
+  chars: number;
+  content_type?: string | null;
+  document_type?: string | null;
+  truncated?: boolean;
+}
+
 export interface CaptureQualityBacklog {
   imprecisions: Array<Record<string, unknown>>;
   contradictions: Array<Record<string, unknown>>;
@@ -234,7 +243,9 @@ export class ApiService {
   ): Observable<{ text: string; provider?: string; model?: string; fallback?: boolean }> {
     const form = new FormData();
     form.append('file', blob, filename);
-    const options = provider ? { params: new HttpParams().set('provider', provider) } : {};
+    let params = new HttpParams().set('language', 'fr');
+    if (provider) params = params.set('provider', provider);
+    const options = { params };
     return this.http.post<{ text: string; provider?: string; model?: string; fallback?: boolean }>(
       `${this.base}/voice/transcribe`,
       form,
@@ -366,6 +377,12 @@ export class ApiService {
 
   createCapturePlan(body: CapturePlanRequest): Observable<unknown> {
     return this.post('/knowledge-capture/plans', body);
+  }
+
+  extractCapturePlanSource(file: File): Observable<CapturePlanSourceExtractResponse> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.http.post<CapturePlanSourceExtractResponse>(`${this.base}/knowledge-capture/plan-source/extract`, form);
   }
 
   listCaptureSessions(status?: string, domain?: string, systemId?: string | null): Observable<unknown> {
@@ -529,4 +546,9 @@ export class ApiService {
   reviewCaptureProposal(proposalId: string, body: ProposalReviewRequest): Observable<unknown> {
     return this.patch(`/knowledge-capture/proposals/${proposalId}/review`, body);
   }
+
+  updateCaptureProposalContent(proposalId: string, content: string): Observable<unknown> {
+    return this.patch(`/knowledge-capture/proposals/${proposalId}/content`, { content });
+  }
+
 }
