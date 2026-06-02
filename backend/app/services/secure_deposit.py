@@ -1259,6 +1259,7 @@ def _promote_single_worker_file_to_collection(
 
     result = {
         "status": "queued",
+        "indexing_status": "queued",
         "mode": mode,
         "collection_id": collection.id,
         "collection_slug": collection.slug,
@@ -1495,6 +1496,7 @@ def promote_files_to_collection_batch(
 
     result = {
         "status": "queued",
+        "indexing_status": "queued",
         "mode": "document_bulk",
         "collection_id": collection.id,
         "collection_slug": collection.slug,
@@ -1649,6 +1651,7 @@ def _promote_archive_file_to_collection(
 
     result = {
         "status": "queued",
+        "indexing_status": "queued",
         "mode": "archive",
         "collection_id": collection.id,
         "collection_slug": collection.slug,

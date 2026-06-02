@@ -7,6 +7,8 @@ import pytest
 
 from app.core.config import settings
 from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.secure_deposit import DepositAccessLink, DepositFile
+from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import (
     create_collection,
@@ -139,6 +141,132 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     assert get_object_store().read_bytes(
         f"{collection.artifact_prefix}/ingested/manual.txt"
     ) == b"hello world"
+
+
+def test_worker_ingest_finalizes_deposit_file_and_records_wave_ledger(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "default_vector_db_type", "faiss")
+
+    ws = _workspace(db_session, slug="andritz")
+    user = User(id="user-bhx", username="thib", email="thibaud.ishacian@datategy.net")
+    db_session.add(user)
+    db_session.flush()
+    collection = create_collection(
+        db_session,
+        workspace=ws,
+        name="SPL",
+        slug="andritz-notices-techniques-spl-pilot",
+    )
+    document_name = "B__Manual_BHX100_revD__Carding__page1.pdf"
+    collection.document_names = [document_name]
+    get_object_store().write_bytes(original_key(collection, document_name), b"hello carding")
+    get_object_store().write_text(
+        document_manifest_key(collection),
+        json.dumps(
+            {
+                document_name: {
+                    "source_deposit_path": "Notices_Techniques_SPL/B/Manual_BHX100_revD.zip",
+                    "archive_name": "Manual_BHX100_revD.zip",
+                    "project_code": "BHX100",
+                }
+            }
+        ),
+    )
+    job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    job.result = {
+        "ingest_options": {
+            "mode": "incremental",
+            "document_names": [document_name],
+            "wave_id": "spl_v3_7",
+            "wave_ledger": {
+                "collection_slug": collection.slug,
+                "wave_id": "spl_v3_7",
+                "filenames": ["Notices_Techniques_SPL/B/Manual_BHX100_revD.zip"],
+                "job_id": job.id,
+                "new_document_count": 1,
+            },
+        }
+    }
+    link = DepositAccessLink(
+        id="link-bhx",
+        workspace_id=ws.id,
+        created_by_user_id=user.id,
+        label="SPL",
+        access_id="spl-link",
+        password_hash="hash",
+        max_file_size_mb=1024,
+        allowed_extensions=["zip"],
+    )
+    deposit = DepositFile(
+        id="deposit-bhx",
+        workspace_id=ws.id,
+        access_link_id=link.id,
+        filename="Notices_Techniques_SPL/B/Manual_BHX100_revD.zip",
+        object_key="obj/bhx",
+        size_bytes=123,
+        sha256="hash",
+        status="promoted",
+        promoted_collection_slug=collection.slug,
+        worker_job_id=job.id,
+        promotion_result={"status": "queued", "indexing_status": "queued"},
+    )
+    db_session.add_all([link, deposit])
+    db_session.commit()
+
+    class FakeParser:
+        async def parse(self, _path, **_kwargs):
+            return SimpleNamespace(chunks=[{"content": "hello carding"}])
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            self.vector_db = object()
+
+        async def ingest_documents_batch(self, paths, **_kwargs):
+            return {
+                "total": len(paths),
+                "successful": len(paths),
+                "failed": 0,
+                "results": [{"status": "success", "filename": "ignored.pdf", "chunks_processed": 2}],
+            }
+
+        async def get_document_count(self):
+            return 2
+
+        async def list_documents(self):
+            return [{"document_id": "doc-1", "filename": document_name}]
+
+    async def fake_bm25(**_kwargs):
+        return {"status": "ready", "chunk_count": 2}
+
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        lambda _path: FakeParser(),
+    )
+    monkeypatch.setattr("app.services.worker_ingest.DocumentService", FakeDocumentService)
+    monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
+
+    result = run_document_ingest_index(job.id)
+
+    db_session.expire_all()
+    refreshed_deposit = db_session.query(DepositFile).filter(DepositFile.id == deposit.id).one()
+    refreshed_ws = db_session.query(Workspace).filter(Workspace.id == ws.id).one()
+    assert refreshed_deposit.status == "promoted"
+    assert refreshed_deposit.promotion_result["indexing_status"] == "indexed"
+    assert refreshed_deposit.promotion_result["indexing_verification"]["chunk_count"] == 2
+    assert result["deposit_files"][0]["indexing_status"] == "indexed"
+    assert result["wave_ledger"]["status"] == "recorded"
+    ledger = refreshed_ws.settings["spl_wave_ledger"][collection.slug]
+    assert "Notices_Techniques_SPL/B/Manual_BHX100_revD.zip" in ledger["promoted_filenames"]
 
 
 def test_worker_ingest_defers_large_bm25_to_worker_job(

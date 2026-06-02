@@ -6,12 +6,14 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
+from datetime import datetime
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import SessionLocal
-from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource, WorkerJob
+from app.models.secure_deposit import DepositFile
 from app.models.workspace import Workspace
 from app.services.document_parser.factory import DocumentParserFactory
 from app.services.knowledge_collections import (
@@ -51,6 +53,198 @@ def _load_document_metadata_manifest(collection: KnowledgeCollection) -> dict[st
         str(name): dict(metadata)
         for name, metadata in payload.items()
         if isinstance(metadata, dict)
+    }
+
+
+def _source_result_status(item: dict) -> str:
+    return "ready" if item.get("status") == "success" else "error"
+
+
+def _verification_status(*, document_count: int, indexed_count: int, error_count: int, chunk_count: int) -> str:
+    if document_count <= 0:
+        return "unknown"
+    if error_count > 0 and indexed_count > 0:
+        return "partial"
+    if error_count > 0:
+        return "failed"
+    if indexed_count == document_count:
+        return "indexed" if chunk_count > 0 else "indexed_empty"
+    if indexed_count > 0:
+        return "partial"
+    return "failed"
+
+
+def _merge_promotion_result(row: DepositFile, payload: dict) -> None:
+    base = dict(row.promotion_result or {})
+    base.update(payload)
+    row.promotion_result = base
+
+
+def _finalize_linked_deposit_files(
+    db,
+    *,
+    job: WorkerJob,
+    collection: KnowledgeCollection,
+    file_names: list[str],
+    document_metadata_by_name: dict[str, dict],
+    source_results_by_name: dict[str, dict],
+    ingest_result: dict,
+) -> list[dict]:
+    """Attach worker completion proof to Secure Deposit files linked to a job.
+
+    ``deposit_files.status`` has only a coarse ``promoted`` value, so the
+    detailed truth lives in ``promotion_result.indexing_status``. A file is only
+    considered verified when the worker produced ready source rows for the
+    documents that came from that deposit path.
+    """
+
+    rows = (
+        db.query(DepositFile)
+        .filter(DepositFile.worker_job_id == job.id, DepositFile.workspace_id == job.workspace_id)
+        .all()
+    )
+    if not rows:
+        return []
+
+    source_rows = {
+        row.normalized_name: row
+        for row in db.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .all()
+    }
+    all_names = list(file_names)
+    summaries: list[dict] = []
+    for row in rows:
+        document_names = [
+            name
+            for name in all_names
+            if str((document_metadata_by_name.get(name) or {}).get("source_deposit_path") or "") == str(row.filename or "")
+        ]
+        if not document_names and len(rows) == 1:
+            document_names = all_names
+
+        documents: list[dict] = []
+        indexed_count = 0
+        error_count = 0
+        chunk_count = 0
+        for name in document_names:
+            source_row = source_rows.get(name)
+            item = source_results_by_name.get(name) or {}
+            status = source_row.status if source_row else _source_result_status(item)
+            chunks = int((source_row.chunk_count if source_row else item.get("chunks_processed")) or 0)
+            if status in {"ready", "indexed"}:
+                indexed_count += 1
+            elif status == "error":
+                error_count += 1
+            chunk_count += chunks
+            documents.append(
+                {
+                    "document_name": name,
+                    "status": status,
+                    "chunk_count": chunks,
+                    "error": (source_row.last_error if source_row else item.get("error")) or None,
+                }
+            )
+
+        indexing_status = _verification_status(
+            document_count=len(document_names),
+            indexed_count=indexed_count,
+            error_count=error_count,
+            chunk_count=chunk_count,
+        )
+        verification = {
+            "worker_job_id": job.id,
+            "job_status": "completed",
+            "collection_slug": collection.slug,
+            "document_count": len(document_names),
+            "indexed_document_count": indexed_count,
+            "error_document_count": error_count,
+            "chunk_count": chunk_count,
+            "ingest_failed_count": int(ingest_result.get("failed") or 0),
+            "completed_at": datetime.utcnow().isoformat(),
+            "documents": documents[:100],
+            "truncated_documents": max(0, len(documents) - 100),
+        }
+        _merge_promotion_result(
+            row,
+            {
+                "indexing_status": indexing_status,
+                "indexing_verification": verification,
+            },
+        )
+        summaries.append(
+            {
+                "file_id": row.id,
+                "filename": row.filename,
+                "indexing_status": indexing_status,
+                "document_count": len(document_names),
+                "chunk_count": chunk_count,
+            }
+        )
+    return summaries
+
+
+def _mark_linked_deposit_files_failed(db, *, job_id: str, workspace_id: str, error: str) -> None:
+    rows = (
+        db.query(DepositFile)
+        .filter(DepositFile.worker_job_id == job_id, DepositFile.workspace_id == workspace_id)
+        .all()
+    )
+    for row in rows:
+        row.status = "received"
+        _merge_promotion_result(
+            row,
+            {
+                "indexing_status": "failed",
+                "indexing_verification": {
+                    "worker_job_id": job_id,
+                    "job_status": "failed",
+                    "error": error,
+                    "completed_at": datetime.utcnow().isoformat(),
+                },
+            },
+        )
+
+
+def _record_wave_ledger_if_verified(
+    db,
+    *,
+    workspace: Workspace,
+    ingest_options: dict,
+    deposit_summaries: list[dict],
+) -> dict | None:
+    wave_ledger = ingest_options.get("wave_ledger")
+    if not isinstance(wave_ledger, dict):
+        return None
+    statuses = {str(item.get("indexing_status") or "") for item in deposit_summaries}
+    verified_statuses = {"indexed"}
+    if not deposit_summaries or not statuses <= verified_statuses:
+        return {
+            "status": "not_recorded",
+            "reason": "deposit_indexing_not_fully_verified",
+            "deposit_statuses": sorted(statuses),
+        }
+    from app.services.spl_wave_importer import record_wave_ledger
+
+    filenames = [str(name) for name in wave_ledger.get("filenames") or [] if str(name).strip()]
+    collection_slug = str(wave_ledger.get("collection_slug") or "")
+    wave_id = str(wave_ledger.get("wave_id") or ingest_options.get("wave_id") or "")
+    if not filenames or not collection_slug or not wave_id:
+        return {"status": "not_recorded", "reason": "wave_ledger_payload_incomplete"}
+    record_wave_ledger(
+        db,
+        workspace=workspace,
+        collection_slug=collection_slug,
+        wave_id=wave_id,
+        filenames=filenames,
+        job_id=str(wave_ledger.get("job_id") or ""),
+        new_document_count=int(wave_ledger.get("new_document_count") or 0),
+    )
+    return {
+        "status": "recorded",
+        "wave_id": wave_id,
+        "collection_slug": collection_slug,
+        "filenames": filenames,
     }
 
 
@@ -169,13 +363,16 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             collection_slug=collection.slug,
             document_metadata_by_name=document_metadata_by_name,
         )
-        for item in ingest_result.get("results") or []:
+        source_results_by_name: dict[str, dict] = {}
+        for index, item in enumerate(ingest_result.get("results") or []):
             if not isinstance(item, dict):
                 continue
-            filename = item.get("filename") or Path(str(item.get("document_id") or "")).name
+            filename = file_names[index] if index < len(file_names) else item.get("filename")
+            filename = filename or Path(str(item.get("document_id") or "")).name
             if not filename:
                 continue
             status = "ready" if item.get("status") == "success" else "error"
+            source_results_by_name[str(filename)] = item
             upsert_collection_source(
                 db,
                 collection=collection,
@@ -190,6 +387,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 },
                 last_error=item.get("error"),
             )
+        db.flush()
         chunk_count = await doc_service.get_document_count()
         documents = await doc_service.list_documents()
         update_job(db, job_id, progress=85, stage="bm25")
@@ -236,6 +434,22 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 }
             db.commit()
 
+        deposit_summaries = _finalize_linked_deposit_files(
+            db,
+            job=job,
+            collection=collection,
+            file_names=file_names,
+            document_metadata_by_name=document_metadata_by_name,
+            source_results_by_name=source_results_by_name,
+            ingest_result=ingest_result,
+        )
+        wave_ledger_result = _record_wave_ledger_if_verified(
+            db,
+            workspace=workspace,
+            ingest_options=ingest_options,
+            deposit_summaries=deposit_summaries,
+        )
+
         result = {
             "ingest": ingest_result,
             "bm25": bm25,
@@ -243,7 +457,10 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             "collection_slug": collection.slug,
             "chunk_count": chunk_count,
             "document_count": len(documents),
+            "deposit_files": deposit_summaries,
         }
+        if wave_ledger_result:
+            result["wave_ledger"] = wave_ledger_result
         update_collection_status(
             db,
             collection.id,
@@ -261,6 +478,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         job = db.query(WorkerJob).filter(WorkerJob.id == job_id).first()
         if job and job.collection_id:
             update_collection_status(db, job.collection_id, status="error", last_error=str(exc))
+            _mark_linked_deposit_files_failed(db, job_id=job.id, workspace_id=job.workspace_id, error=str(exc))
         update_job(db, job_id, status="failed", progress=100, error=str(exc))
         db.commit()
         raise

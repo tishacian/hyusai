@@ -681,6 +681,7 @@ def execute_wave_plan(
     document_name_set = set(document_names)
     new_document_names: list[str] = []
     promoted_archives: list[dict[str, Any]] = []
+    promoted_deposit_files: list[DepositFile] = []
     collisions: list[dict[str, Any]] = []
     # Share the de-dup set across every archive in this wave (not just within a
     # single ZIP) so two archives in the same wave cannot reuse a document name.
@@ -757,6 +758,7 @@ def execute_wave_plan(
                 "stats": stats,
             }
         )
+        promoted_deposit_files.append(deposit_file)
         if deposit_file.status != "promoted":
             deposit_file.status = "promoted"
             deposit_file.promoted_at = datetime.utcnow()
@@ -767,6 +769,7 @@ def execute_wave_plan(
             "mode": plan.wave_id,
             "collection_slug": collection.slug,
             "wave": plan.as_dict(),
+            "indexing_status": "queued",
         }
 
     if not new_document_names:
@@ -787,27 +790,30 @@ def execute_wave_plan(
         document_count=len(document_names),
     )
     job = create_worker_job(db, workspace_id=workspace.id, collection_id=collection.id, kind="document_ingest_index")
+    promoted_filenames = [item["filename"] for item in promoted_archives]
     job.result = {
         "ingest_options": {
             "mode": "incremental",
             "document_names": new_document_names,
             "wave_id": plan.wave_id,
+            "wave_ledger": {
+                "collection_slug": collection.slug,
+                "wave_id": plan.wave_id,
+                "filenames": promoted_filenames,
+                "job_id": job.id,
+                "new_document_count": len(new_document_names),
+            },
         }
     }
+    for deposit_file in promoted_deposit_files:
+        deposit_file.worker_job_id = job.id
+        result = dict(deposit_file.promotion_result or {})
+        result["job_id"] = job.id
+        result["indexing_status"] = "queued"
+        deposit_file.promotion_result = result
     db.commit()
     celery_task_id = dispatch_worker_job(db, job)
     db.commit()
-
-    promoted_filenames = [item["filename"] for item in promoted_archives]
-    record_wave_ledger(
-        db,
-        workspace=workspace,
-        collection_slug=collection.slug,
-        wave_id=plan.wave_id,
-        filenames=promoted_filenames,
-        job_id=job.id,
-        new_document_count=len(new_document_names),
-    )
     emit_audit_event(
         db=db,
         workspace_id=workspace.id,
