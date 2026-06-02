@@ -628,7 +628,13 @@ def test_execute_wave_plan_reindexes_existing_archive_documents(db_session, monk
         dry_run=False,
         wave_id="spl_repair",
     )
-    result = execute_wave_plan(db_session, workspace=workspace, user=user, plan=plan)
+    result = execute_wave_plan(
+        db_session,
+        workspace=workspace,
+        user=user,
+        plan=plan,
+        document_ocr={"enabled": False},
+    )
 
     refreshed_job = (
         db_session.query(__import__("app.models.knowledge_collection", fromlist=["WorkerJob"]).WorkerJob)
@@ -638,3 +644,4 @@ def test_execute_wave_plan_reindexes_existing_archive_documents(db_session, monk
     assert result["new_document_count"] == 0
     assert result["job_document_count"] == 1
     assert refreshed_job.result["ingest_options"]["document_names"] == [existing_name]
+    assert refreshed_job.result["ingest_options"]["document_ocr"] == {"enabled": False}

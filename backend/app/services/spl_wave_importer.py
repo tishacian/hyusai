@@ -657,6 +657,7 @@ def execute_wave_plan(
     plan: WavePlan,
     allow_repromote: bool = True,
     limits: WaveLimits | None = None,
+    document_ocr: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if plan.dry_run:
         raise ValueError("Wave plan is dry-run only")
@@ -801,20 +802,21 @@ def execute_wave_plan(
     )
     job = create_worker_job(db, workspace_id=workspace.id, collection_id=collection.id, kind="document_ingest_index")
     promoted_filenames = [item["filename"] for item in promoted_archives]
-    job.result = {
-        "ingest_options": {
-            "mode": "incremental",
-            "document_names": job_document_names,
+    ingest_options: dict[str, Any] = {
+        "mode": "incremental",
+        "document_names": job_document_names,
+        "wave_id": plan.wave_id,
+        "wave_ledger": {
+            "collection_slug": collection.slug,
             "wave_id": plan.wave_id,
-            "wave_ledger": {
-                "collection_slug": collection.slug,
-                "wave_id": plan.wave_id,
-                "filenames": promoted_filenames,
-                "job_id": job.id,
-                "new_document_count": len(job_document_names),
-            },
-        }
+            "filenames": promoted_filenames,
+            "job_id": job.id,
+            "new_document_count": len(job_document_names),
+        },
     }
+    if document_ocr is not None:
+        ingest_options["document_ocr"] = document_ocr
+    job.result = {"ingest_options": ingest_options}
     for deposit_file in promoted_deposit_files:
         deposit_file.worker_job_id = job.id
         result = dict(deposit_file.promotion_result or {})
@@ -901,6 +903,7 @@ def execute_v3_wave_plans(
     skip_ledger: bool = True,
     folder: str | None = None,
     batch_index: int | None = None,
+    document_ocr: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     limits = WaveLimits.v3()
     results: list[dict[str, Any]] = []
@@ -927,6 +930,7 @@ def execute_v3_wave_plans(
                 plan=plan,
                 allow_repromote=True,
                 limits=limits,
+                document_ocr=document_ocr,
             )
         )
     return results

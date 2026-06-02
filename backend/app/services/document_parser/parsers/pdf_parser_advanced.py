@@ -28,6 +28,7 @@ class AdvancedPDFParser(BaseDocumentParser):
         chunking_method = kwargs.get('chunking_method', ChunkingMethod.RECURSIVE_CHARACTER)
         use_ocr = kwargs.get('use_ocr', False)
         use_markdown_converter = kwargs.get('use_markdown_converter', True)
+        ocr_config = kwargs.get("ocr_config") if isinstance(kwargs.get("ocr_config"), dict) else {}
         
         metadata = await self.extract_metadata(file_path)
         
@@ -41,17 +42,17 @@ class AdvancedPDFParser(BaseDocumentParser):
         try:
             if use_markdown_converter:
                 pages_data = await self._extract_with_markdown_converter(file_path)
-                if self._should_run_ocr(pages_data, use_ocr=use_ocr):
-                    ocr_pages, ocr_artifacts = await self._extract_with_ocr(file_path, kwargs.get("ocr_config"))
+                if self._should_run_ocr(pages_data, use_ocr=use_ocr, ocr_config=ocr_config):
+                    ocr_pages, ocr_artifacts = await self._extract_with_ocr(file_path, ocr_config)
                     if ocr_pages:
                         pages_data = ocr_pages
             else:
-                pages_data, ocr_artifacts = await self._extract_with_ocr(file_path, kwargs.get("ocr_config"))
+                pages_data, ocr_artifacts = await self._extract_with_ocr(file_path, ocr_config)
         except Exception as e:
             logger.warning(f"Primary extraction method failed: {e}, trying fallback")
             if use_markdown_converter:
                 try:
-                    pages_data, ocr_artifacts = await self._extract_with_ocr(file_path, kwargs.get("ocr_config"))
+                    pages_data, ocr_artifacts = await self._extract_with_ocr(file_path, ocr_config)
                 except Exception as fallback_error:
                     logger.error(f"Both extraction methods failed: {fallback_error}")
                     pages_data = await self._extract_basic(file_path)
@@ -184,13 +185,18 @@ class AdvancedPDFParser(BaseDocumentParser):
             logger.error(f"Markdown converter extraction failed: {e}")
             raise
 
-    def _should_run_ocr(self, pages_data: List[Dict], *, use_ocr: bool) -> bool:
-        if use_ocr or settings.document_ocr_force_ocr:
+    def _should_run_ocr(self, pages_data: List[Dict], *, use_ocr: bool, ocr_config: dict | None = None) -> bool:
+        config = ocr_config or {}
+        enabled = bool(config.get("enabled", settings.document_ocr_enabled))
+        if not enabled:
+            return False
+        if use_ocr or bool(config.get("force_ocr", settings.document_ocr_force_ocr)):
             return True
-        if not settings.document_ocr_enabled or not settings.document_ocr_scan_detection:
+        if not bool(config.get("scan_detection", settings.document_ocr_scan_detection)):
             return False
         total_chars = sum(len(str(page.get("text") or "").strip()) for page in pages_data)
-        return total_chars < max(0, int(settings.document_ocr_min_text_chars_for_native_pdf or 0))
+        min_chars = int(config.get("min_text_chars_for_native_pdf", settings.document_ocr_min_text_chars_for_native_pdf) or 0)
+        return total_chars < max(0, min_chars)
 
     async def _extract_with_ocr(self, file_path: str, ocr_config: dict | None = None) -> Tuple[List[Dict], List[Dict]]:
         """Extract text using OCR (for scanned PDFs)"""
@@ -199,6 +205,8 @@ class AdvancedPDFParser(BaseDocumentParser):
             from PIL import Image
 
             loop = asyncio.get_event_loop()
+
+            force_ocr = bool((ocr_config or {}).get("force_ocr", settings.document_ocr_force_ocr))
 
             def _extract() -> Tuple[List[Dict], List[Dict]]:
                 pages: List[Dict] = []
@@ -209,7 +217,7 @@ class AdvancedPDFParser(BaseDocumentParser):
                         page = doc[idx]
                         page_num = idx + 1
                         text = page.get_text("text")
-                        if text and text.strip() and not settings.document_ocr_force_ocr:
+                        if text and text.strip() and not force_ocr:
                             pages.append({"page_number": page_num, "text": text})
                             continue
                         pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))

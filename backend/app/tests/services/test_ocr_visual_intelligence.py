@@ -8,6 +8,7 @@ from app.models.knowledge_collection import KnowledgeCollection
 from app.models.workspace import Workspace
 from app.services.document_intelligence import ensure_document_artifacts, replace_document_facts
 from app.services.document_parser.parsers.image_parser import ImageParser
+from app.services.document_parser.parsers.pdf_parser_advanced import AdvancedPDFParser
 from app.services.ocr import build_ocr_config, extract_ocr_for_image, resolve_ocr_config_for_workspace
 
 
@@ -124,6 +125,22 @@ def test_workspace_ocr_config_overrides_global_defaults(db_session):
     assert config.openai_vision_enabled is True
     assert config.openai_model == "gpt-4o-mini"
     assert config.required is True
+
+
+def test_pdf_parser_honors_ocr_disabled_config():
+    parser = AdvancedPDFParser()
+
+    assert parser._should_run_ocr([], use_ocr=True, ocr_config={"enabled": False}) is False
+    assert parser._should_run_ocr([], use_ocr=False, ocr_config={"enabled": False}) is False
+    assert (
+        parser._should_run_ocr(
+            [],
+            use_ocr=False,
+            ocr_config={"enabled": True, "scan_detection": True, "min_text_chars_for_native_pdf": 80},
+        )
+        is True
+    )
+    assert parser._should_run_ocr([], use_ocr=False, ocr_config={"enabled": True, "scan_detection": False}) is False
 
 
 def test_openai_vision_enriches_low_confidence_ocr(tmp_path, monkeypatch):

@@ -23,6 +23,9 @@ logger = get_logger(__name__)
 @dataclass(frozen=True)
 class OcrConfig:
     enabled: bool = True
+    scan_detection: bool = True
+    force_ocr: bool = False
+    min_text_chars_for_native_pdf: int = 80
     provider_priority: tuple[str, ...] = ("ppocr_service", "tesseract_local")
     ppocr_endpoint_url: str | None = None
     languages: tuple[str, ...] = ("eng", "fra")
@@ -54,6 +57,11 @@ def build_ocr_config(overrides: dict[str, Any] | None = None) -> OcrConfig:
         languages = tuple(str(item).strip() for item in languages_raw or [] if str(item).strip())
     return OcrConfig(
         enabled=bool(overrides.get("enabled", settings.document_ocr_enabled)),
+        scan_detection=bool(overrides.get("scan_detection", settings.document_ocr_scan_detection)),
+        force_ocr=bool(overrides.get("force_ocr", settings.document_ocr_force_ocr)),
+        min_text_chars_for_native_pdf=int(
+            overrides.get("min_text_chars_for_native_pdf", settings.document_ocr_min_text_chars_for_native_pdf) or 0
+        ),
         provider_priority=provider_priority or ("ppocr_service", "tesseract_local"),
         ppocr_endpoint_url=(overrides.get("ppocr_endpoint_url") or settings.document_ocr_ppocr_endpoint_url or None),
         languages=languages or ("eng",),

@@ -253,10 +253,12 @@ async def _materialize_ingested_text(
     collection: KnowledgeCollection,
     local_path: Path,
     workspace_id: str | None = None,
+    ocr_overrides: dict | None = None,
 ):
     parser = DocumentParserFactory.get_parser(str(local_path))
+    ocr_config = resolve_ocr_config_for_workspace(workspace_id, overrides=ocr_overrides)
     try:
-        parsed = await parser.parse(str(local_path), ocr_config=resolve_ocr_config_for_workspace(workspace_id))
+        parsed = await parser.parse(str(local_path), ocr_config=ocr_config)
     except TypeError:
         parsed = await parser.parse(str(local_path))
     text = "\n\n".join(str(chunk.get("content", "")) for chunk in parsed.chunks if chunk.get("content"))
@@ -277,6 +279,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         ingest_options = dict((job.result or {}).get("ingest_options") or {})
         ingest_mode = str(ingest_options.get("mode") or "full")
         incremental_names = [str(name) for name in (ingest_options.get("document_names") or []) if str(name).strip()]
+        ocr_overrides = ingest_options.get("document_ocr") if isinstance(ingest_options.get("document_ocr"), dict) else None
 
         collection = (
             db.query(KnowledgeCollection)
@@ -335,6 +338,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 collection=collection,
                 local_path=Path(path),
                 workspace_id=workspace.id,
+                ocr_overrides=ocr_overrides,
             )
             if index == len(local_paths) or index % 25 == 0:
                 parse_progress = 20 + int(20 * index / total_paths)
@@ -375,6 +379,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             collection_slug=collection.slug,
             document_metadata_by_name=document_metadata_by_name,
             parsed_documents_by_path=parsed_documents_by_path,
+            document_ocr=ocr_overrides,
         )
         source_results_by_name: dict[str, dict] = {}
         for index, item in enumerate(ingest_result.get("results") or []):

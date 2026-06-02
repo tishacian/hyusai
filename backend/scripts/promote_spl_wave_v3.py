@@ -6,6 +6,7 @@ Usage:
     python -m scripts.promote_spl_wave_v3 --workspace andritz --execute
     python -m scripts.promote_spl_wave_v3 --workspace andritz --execute --batch 1
     python -m scripts.promote_spl_wave_v3 --workspace andritz --dry-run --folder A
+    python -m scripts.promote_spl_wave_v3 --workspace andritz --execute --folder A --ocr off
 """
 from __future__ import annotations
 
@@ -43,6 +44,12 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", default=False)
     parser.add_argument("--execute", action="store_true", default=False)
     parser.add_argument("--force", action="store_true", help="Ignore wave ledger skips")
+    parser.add_argument(
+        "--ocr",
+        choices=["auto", "off", "force"],
+        default="auto",
+        help="OCR policy for worker ingestion: auto scan detection, off for text-layer baseline, force for every PDF page",
+    )
     args = parser.parse_args()
 
     if args.execute == args.dry_run:
@@ -74,6 +81,11 @@ def main() -> None:
             return
 
         user = _resolve_actor(db)
+        document_ocr = None
+        if args.ocr == "off":
+            document_ocr = {"enabled": False}
+        elif args.ocr == "force":
+            document_ocr = {"enabled": True, "force_ocr": True}
         results = execute_v3_wave_plans(
             db,
             workspace=workspace,
@@ -82,6 +94,7 @@ def main() -> None:
             skip_ledger=not args.force,
             folder=args.folder,
             batch_index=args.batch,
+            document_ocr=document_ocr,
         )
         print("wave_results:", json.dumps(results, ensure_ascii=False, indent=2))
     finally:
