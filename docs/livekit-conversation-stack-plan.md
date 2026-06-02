@@ -151,7 +151,8 @@ LiveKit a besoin de :
 Proposition VM :
 
 ```text
-livekit.agentium.papai.ai  -> Nginx TLS -> 127.0.0.1:7880
+agentium.papai.ai/livekit  -> Nginx TLS -> 127.0.0.1:7880
+livekit.agentium.papai.ai  -> alternative future si DNS/cert dedies
 UDP 50000-50100 demo       -> host -> agentium-livekit
 UDP 50000-60000 prod       -> host -> agentium-livekit, apres validation firewall
 TCP 7881                   -> host -> agentium-livekit, si ICE/TCP active

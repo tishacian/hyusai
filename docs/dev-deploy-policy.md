@@ -172,6 +172,10 @@ La plage UDP demo par defaut est courte (`50000-50100`) pour eviter un blocage
 Docker lors du publish de milliers de ports sur la VM. Elargir vers
 `50000-60000` seulement lors d'un vrai cutover WebRTC production avec firewall
 et monitoring prets.
+Sur la VM demo mono-domaine, l'ingress public LiveKit peut rester sur
+`wss://agentium.papai.ai/livekit` via Nginx, qui strippe le prefixe `/livekit/`
+vers `127.0.0.1:7880`. Le sous-domaine `livekit.agentium.papai.ai` n'est pas
+obligatoire tant que le certificat/DNS dedie n'existe pas.
 
 Depuis `/home/ubuntu/omnirag/docker` :
 
