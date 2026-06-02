@@ -16,7 +16,79 @@ branch_labels = None
 depends_on = None
 
 
+_REQUIRED_COLUMNS = {
+    "id",
+    "workspace_id",
+    "collection_id",
+    "filename",
+    "normalized_name",
+    "source_kind",
+    "extension",
+    "mime_type",
+    "origin",
+    "size_bytes",
+    "chunk_count",
+    "status",
+    "source_metadata",
+    "last_error",
+    "indexed_at",
+    "created_at",
+    "updated_at",
+}
+
+
+def _table_exists(inspector: sa.Inspector, table_name: str) -> bool:
+    return table_name in set(inspector.get_table_names())
+
+
+def _ensure_existing_table_shape(bind: sa.engine.Connection, inspector: sa.Inspector) -> None:
+    """Handle demo deployments where FastAPI create_all raced Alembic."""
+
+    columns = {column["name"] for column in inspector.get_columns("knowledge_collection_sources")}
+    missing_columns = sorted(_REQUIRED_COLUMNS - columns)
+    if missing_columns:
+        raise RuntimeError(
+            "knowledge_collection_sources already exists but is missing columns: "
+            + ", ".join(missing_columns)
+        )
+
+    existing_indexes = {index["name"] for index in inspector.get_indexes("knowledge_collection_sources")}
+    index_specs = (
+        (
+            "ix_knowledge_collection_sources_workspace_id",
+            ["workspace_id"],
+        ),
+        (
+            "ix_knowledge_collection_sources_collection_id",
+            ["collection_id"],
+        ),
+        (
+            "ix_knowledge_collection_sources_workspace_collection",
+            ["workspace_id", "collection_id"],
+        ),
+        (
+            "ix_knowledge_collection_sources_kind",
+            ["workspace_id", "source_kind"],
+        ),
+    )
+    for index_name, columns_ in index_specs:
+        if index_name not in existing_indexes:
+            op.create_index(index_name, "knowledge_collection_sources", columns_)
+
+    if bind.dialect.name == "postgresql":
+        op.execute(
+            "ALTER TABLE knowledge_collection_sources "
+            "ALTER COLUMN source_metadata SET DEFAULT '{}'::json"
+        )
+
+
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if _table_exists(inspector, "knowledge_collection_sources"):
+        _ensure_existing_table_shape(bind, inspector)
+        return
+
     op.create_table(
         "knowledge_collection_sources",
         sa.Column("id", sa.String(length=36), primary_key=True),
