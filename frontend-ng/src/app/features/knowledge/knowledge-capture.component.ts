@@ -1546,7 +1546,7 @@ interface ProposalFact {
               <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
-                    {{ isDemoMode() ? 'Trame d’échange' : 'Plan d’entretien' }}
+                    {{ isDemoMode() ? 'Plan d’échange' : 'Plan d’entretien' }}
                   </p>
                   <h2 class="text-lg font-semibold text-white mt-1">{{ s.title }}</h2>
                   <p class="text-sm text-gray-500 mt-1 max-w-3xl">{{ s.objective }}</p>
@@ -2539,8 +2539,8 @@ export class KnowledgeCaptureComponent implements OnInit {
     const labels: Partial<Record<CaptureSurfaceView, string>> = {
       dashboard: 'Sessions',
       prep: 'Sujet',
-      plan: 'Trame',
-      plan_build: 'Trame',
+      plan: 'Plan',
+      plan_build: 'Plan',
       session: 'Échange',
       review: 'Validation',
     };
