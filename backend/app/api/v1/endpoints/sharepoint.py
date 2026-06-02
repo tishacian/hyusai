@@ -224,18 +224,15 @@ def _ingest_downloaded_files(
     """
     from app.core.settings_manager import get_resolved_settings
     from app.services.rag.document_service import DocumentService
+    from app.services.rag.vector_store_config import resolve_vector_db_type
 
     if not result or not result.downloaded_paths:
         return 0, 0
 
     app_settings = get_resolved_settings(workspace_id=workspace_id)
-    # Match the drop-and-ask / documents upload path exactly so search
-    # lands in the same Qdrant/FAISS collection and chat sees the files.
-    db_type = (
-        app_settings.get("ragVectorDBType")
-        or settings.default_vector_db_type
-        or "faiss"
-    )
+    # Match the drop-and-ask / documents upload path exactly so search lands
+    # in the same vector store collection and chat sees the files.
+    db_type = resolve_vector_db_type(app_settings)
 
     try:
         doc_service = DocumentService(

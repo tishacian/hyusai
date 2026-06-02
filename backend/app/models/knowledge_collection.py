@@ -71,6 +71,11 @@ class KnowledgeCollection(Base):
         back_populates="collection",
         cascade="all, delete-orphan",
     )
+    sources = relationship(
+        "KnowledgeCollectionSource",
+        back_populates="collection",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint("workspace_id", "slug", name="uq_knowledge_collections_workspace_slug"),
@@ -129,4 +134,67 @@ class WorkerJob(Base):
             name="ck_worker_jobs_status",
         ),
         Index("ix_worker_jobs_workspace_status", "workspace_id", "status"),
+    )
+
+
+SOURCE_STATUSES = ("queued", "ingesting", "indexed", "ready", "error", "deleted")
+
+
+class KnowledgeCollectionSource(Base):
+    """Per-source inventory for a Knowledge collection.
+
+    ``KnowledgeCollection.document_names`` is kept for backward compatibility,
+    but this ledger is the authoritative place for source cardinality,
+    typology, size and indexing status.
+    """
+
+    __tablename__ = "knowledge_collection_sources"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id = Column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    collection_id = Column(
+        String(36),
+        ForeignKey("knowledge_collections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    filename = Column(Text, nullable=False)
+    normalized_name = Column(String(512), nullable=False)
+    source_kind = Column(String(80), nullable=False, default="document", server_default="document")
+    extension = Column(String(32), nullable=False, default="", server_default="")
+    mime_type = Column(String(160), nullable=False, default="", server_default="")
+    origin = Column(String(80), nullable=False, default="upload", server_default="upload")
+    size_bytes = Column(Integer, nullable=True)
+    chunk_count = Column(Integer, nullable=False, default=0, server_default="0")
+    status = Column(String(32), nullable=False, default="queued", server_default="queued")
+    source_metadata = Column(JSON, nullable=False, default=dict)
+    last_error = Column(Text, nullable=True)
+    indexed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    collection = relationship("KnowledgeCollection", back_populates="sources")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "collection_id",
+            "normalized_name",
+            name="uq_knowledge_collection_sources_collection_name",
+        ),
+        CheckConstraint(
+            "status IN ('queued', 'ingesting', 'indexed', 'ready', 'error', 'deleted')",
+            name="ck_knowledge_collection_sources_status",
+        ),
+        Index("ix_knowledge_collection_sources_workspace_collection", "workspace_id", "collection_id"),
+        Index("ix_knowledge_collection_sources_kind", "workspace_id", "source_kind"),
     )

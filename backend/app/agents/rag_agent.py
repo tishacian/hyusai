@@ -5,6 +5,7 @@ from app.agents.base import BaseAgent
 from app.services.models import ModelService
 from app.services.vector_store import VectorStore
 from app.services.rag.document_service import DocumentService
+from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
@@ -60,7 +61,7 @@ class RAGAgent(BaseAgent):
         similarity_threshold = request.get("similarity_threshold", app_settings.get("ragSimilarityThreshold", 0.2))
         
         collection_name = app_settings.get("ragCollectionName", "documents")
-        vector_db_type = app_settings.get("ragVectorDBType", "faiss")
+        vector_db_type = resolve_vector_db_type(app_settings)
         workspace_slug = request.get("workspace_slug")
 
         document_service = DocumentService(

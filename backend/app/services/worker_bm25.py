@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 
-from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import SessionLocal
@@ -13,6 +12,7 @@ from app.services.knowledge_collections import update_job
 from app.services.object_store import get_object_store
 from app.services.rag.bm25_store import rebuild_bm25_artifact
 from app.services.rag.document_service import DocumentService
+from app.services.rag.vector_store_config import resolve_vector_db_type
 
 logger = get_logger(__name__)
 
@@ -39,11 +39,7 @@ async def _run_bm25_rebuild_async(job_id: str) -> dict:
             db.commit()
             raise ValueError(f"Workspace for BM25 worker job {job_id!r} not found")
 
-        db_type = (
-            get_resolved_settings(workspace_id=workspace.id).get("ragVectorDBType")
-            or settings.default_vector_db_type
-            or "faiss"
-        )
+        db_type = resolve_vector_db_type(get_resolved_settings(workspace_id=workspace.id))
         update_job(db, job_id, progress=20, stage="bm25_load_vectors")
         db.commit()
 

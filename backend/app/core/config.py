@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # Vector Store
     faiss_persist_directory: str = "./faiss_db"
     chroma_persist_directory: str = "./chroma_db"
-    default_vector_db_type: str = "faiss"
+    default_vector_db_type: str = "qdrant"
 
     # Qdrant (optional; used when rag_vector_db_type / default_vector_db_type is "qdrant")
     qdrant_host: str = "localhost"

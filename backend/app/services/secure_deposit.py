@@ -40,6 +40,7 @@ from app.services.knowledge_collections import (
 )
 from app.services.object_store import get_object_store
 from app.services.rag.document_service import DocumentService
+from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.worker_dispatch import dispatch_worker_job
 
 try:  # pragma: no cover - exercised when dependency is installed.
@@ -1168,11 +1169,7 @@ async def promote_file_to_collection(
         )
 
     app_settings = get_resolved_settings(workspace_id=workspace.id)
-    db_type = (
-        app_settings.get("ragVectorDBType")
-        or settings.default_vector_db_type
-        or "faiss"
-    )
+    db_type = resolve_vector_db_type(app_settings)
     tmp_dir = tempfile.mkdtemp()
     try:
         tmp_path = Path(tmp_dir) / deposit_file.filename

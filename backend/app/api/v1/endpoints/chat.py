@@ -65,6 +65,9 @@ class ChatRequest(BaseModel):
     max_tokens: Optional[int] = 2000
     temperature: Optional[float] = 0.3
     top_k: Optional[int] = None
+    candidate_pool_k: Optional[int] = None
+    synthesis_k: Optional[int] = None
+    source_display_k: Optional[int] = None
     similarity_threshold: Optional[float] = None
     system_prompt: Optional[str] = None
     # RAG mode: auto | naive | hybrid | hah | chah — see docs/rag-rd-papai-mapping.md
@@ -1629,6 +1632,12 @@ async def chat_stream(
             # Add RAG settings if provided
             if request.top_k is not None:
                 request_dict["top_k"] = request.top_k
+            if request.candidate_pool_k is not None:
+                request_dict["candidate_pool_k"] = request.candidate_pool_k
+            if request.synthesis_k is not None:
+                request_dict["synthesis_k"] = request.synthesis_k
+            if request.source_display_k is not None:
+                request_dict["source_display_k"] = request.source_display_k
             if request.similarity_threshold is not None:
                 request_dict["similarity_threshold"] = request.similarity_threshold
             

@@ -19,6 +19,7 @@ from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import SessionLocal
 from app.services.knowledge_guides import effective_guides, guide_context_entries, guide_query_hint
+from app.services.knowledge_collections import collection_inventory
 from app.services.document_intelligence import DocumentQueryEngine, should_run_document_analysis
 from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_scope
 from app.services.rag.mode_selector import resolve_retrieval_mode
@@ -35,6 +36,7 @@ from app.services.rag.retrieval_policy import (
 from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.table_intelligence import TableQueryEngine, should_run_table_analysis
 from app.models.workspace import Workspace
+from app.models.knowledge_collection import KnowledgeCollection
 
 logger = get_logger(__name__)
 
@@ -55,6 +57,26 @@ _SPREADSHEET_SIGNAL_RE = re.compile(
     r"\b("
     r"diam[eè]tre|diameter|label|lettre|letter|def\s+strips?|strip|strips|"
     r"table|valeur|value|sheet|feuille"
+    r")\b",
+    re.IGNORECASE,
+)
+_INVENTORY_QUERY_RE = re.compile(
+    r"\b("
+    r"combien|nombre|count|how\s+many|liste|lister|list|inventaire|inventory|"
+    r"typolog(?:ie|y)|types?|formats?|extensions?"
+    r")\b",
+    re.IGNORECASE,
+)
+_INVENTORY_OBJECT_RE = re.compile(
+    r"\b("
+    r"docs?|documents?|sources?|fichiers?|files?|collection|knowledge\s+collection"
+    r")\b",
+    re.IGNORECASE,
+)
+_CONTENT_SEARCH_HINT_RE = re.compile(
+    r"\b("
+    r"sur|about|parle(?:nt)?|contien(?:t|nent)|mentionn(?:e|ent)|trait(?:e|ent)|"
+    r"au\s+sujet|concerne|d[ée]tail|r[ée]sume|explique"
     r")\b",
     re.IGNORECASE,
 )
@@ -86,6 +108,27 @@ def _int_or_default(value: Any, default: int) -> int:
         return parsed if parsed > 0 else default
     except (TypeError, ValueError):
         return default
+
+
+def _int_clamped(value: Any, default: int, *, minimum: int = 1, maximum: int = 200) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(parsed, maximum))
+
+
+def is_collection_inventory_query(query: str) -> bool:
+    text = str(query or "").strip()
+    if not text:
+        return False
+    if not (_INVENTORY_QUERY_RE.search(text) and _INVENTORY_OBJECT_RE.search(text)):
+        return False
+    # "Quels documents parlent de X ?" is a content-discovery query, not an
+    # inventory/cardinality question. Keep that path on vector retrieval.
+    if re.search(r"\b(?:quels?|which|what)\b", text, re.IGNORECASE) and _CONTENT_SEARCH_HINT_RE.search(text):
+        return False
+    return True
 
 
 def _explicit_mode(value: Any) -> str | None:
@@ -197,9 +240,38 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         or app_settings.get("ragPipelineMode")
         or app_settings.get("mode")
     )
+    explicit_top_k = request.get("top_k") is not None
     top_k = _int_or_default(
         request.get("top_k") or scope.get("top_k") or app_settings.get("ragTopK"),
         5,
+    )
+    explicit_budget = any(
+        request.get(key) is not None
+        for key in ("candidate_pool_k", "synthesis_k", "source_display_k")
+    )
+    source_display_default = top_k if explicit_top_k else min(max(top_k, 5), 8)
+    app_source_display = None if explicit_top_k and not explicit_budget else app_settings.get("ragSourceDisplayK")
+    source_display_k = _int_clamped(
+        request.get("source_display_k") or app_source_display,
+        source_display_default,
+        minimum=1,
+        maximum=24,
+    )
+    synthesis_default = top_k if explicit_top_k and not explicit_budget else max(top_k, source_display_k, 12)
+    app_synthesis = None if explicit_top_k and not explicit_budget else app_settings.get("ragSynthesisK")
+    synthesis_k = _int_clamped(
+        request.get("synthesis_k") or app_synthesis,
+        synthesis_default,
+        minimum=source_display_k,
+        maximum=48,
+    )
+    candidate_default = top_k if explicit_top_k and not explicit_budget else max(synthesis_k * 4, 40)
+    app_candidate_pool = None if explicit_top_k and not explicit_budget else app_settings.get("ragCandidatePoolK")
+    candidate_pool_k = _int_clamped(
+        request.get("candidate_pool_k") or app_candidate_pool,
+        candidate_default,
+        minimum=synthesis_k,
+        maximum=200,
     )
     collections = scope.get("collection_slugs") or [fallback_collection]
     vector_db_type = resolve_vector_db_type(app_settings)
@@ -207,6 +279,9 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         "query": _history_augmented_query(request),
         "rag_mode": rag_mode,
         "top_k": top_k,
+        "candidate_pool_k": candidate_pool_k,
+        "synthesis_k": synthesis_k,
+        "source_display_k": source_display_k,
         "collection": collections[0],
         "collections": collections,
         "knowledge_scope": scope.get("key"),
@@ -325,6 +400,148 @@ def _document_analysis_for_profile(request: dict[str, Any], profile: dict[str, A
         return {"warnings": [f"document_analysis_failed: {exc}"], "evidence_rows": []}
     finally:
         db.close()
+
+
+def _inventory_summary(inventories: list[dict[str, Any]]) -> str:
+    total_sources = sum(int(item.get("source_count") or 0) for item in inventories)
+    total_chunks = sum(int(item.get("chunk_count") or 0) for item in inventories)
+    kind_counter: dict[str, int] = {}
+    ext_counter: dict[str, int] = {}
+    status_counter: dict[str, int] = {}
+    for item in inventories:
+        for key, value in (item.get("by_kind") or {}).items():
+            kind_counter[str(key)] = kind_counter.get(str(key), 0) + int(value or 0)
+        for key, value in (item.get("by_extension") or {}).items():
+            ext_counter[str(key)] = ext_counter.get(str(key), 0) + int(value or 0)
+        for key, value in (item.get("by_status") or {}).items():
+            status_counter[str(key)] = status_counter.get(str(key), 0) + int(value or 0)
+
+    def _pairs(payload: dict[str, int]) -> str:
+        if not payload:
+            return "aucun"
+        return ", ".join(f"{key}: {value}" for key, value in sorted(payload.items(), key=lambda kv: (-kv[1], kv[0])))
+
+    lines = [
+        "Inventaire Knowledge collection.",
+        f"Total sources: {total_sources}.",
+        f"Total indexed chunks: {total_chunks}.",
+        f"Typologie par source_kind: {_pairs(kind_counter)}.",
+        f"Typologie par extension: {_pairs(ext_counter)}.",
+        f"Statuts: {_pairs(status_counter)}.",
+        "",
+        "Collections:",
+    ]
+    for item in inventories:
+        lines.append(
+            f"- {item.get('collection_slug')}: {item.get('source_count')} source(s), "
+            f"{item.get('chunk_count')} chunk(s), statut {item.get('status') or 'unknown'}."
+        )
+        for source in (item.get("sources") or [])[:80]:
+            bits = [
+                str(source.get("filename") or "source"),
+                str(source.get("source_kind") or "document"),
+                str(source.get("extension") or "unknown"),
+                str(source.get("status") or "unknown"),
+                f"{int(source.get('chunk_count') or 0)} chunks",
+            ]
+            if source.get("size_bytes") is not None:
+                bits.append(f"{int(source.get('size_bytes') or 0)} bytes")
+            lines.append("  - " + " | ".join(bits))
+        if len(item.get("sources") or []) > 80:
+            lines.append(f"  - ... {len(item.get('sources') or []) - 80} source(s) supplementaire(s)")
+    return "\n".join(lines)
+
+
+def _retrieve_collection_inventory_context(
+    profile: dict[str, Any],
+    *,
+    started: float,
+    metrics: dict[str, Any],
+) -> dict[str, Any] | None:
+    workspace_id = profile.get("workspace_id")
+    collections = [str(slug) for slug in (profile.get("collections") or []) if str(slug).strip()]
+    if not workspace_id:
+        return None
+    db = SessionLocal()
+    try:
+        query = db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id == str(workspace_id))
+        if collections:
+            query = query.filter(KnowledgeCollection.slug.in_(collections))
+        rows = query.order_by(KnowledgeCollection.slug.asc()).all()
+        inventories = [collection_inventory(db, collection=row, include_sources=True) for row in rows]
+    finally:
+        db.close()
+    summary = _inventory_summary(inventories)
+    duration_ms = int((time.time() - started) * 1000)
+    total_sources = sum(int(item.get("source_count") or 0) for item in inventories)
+    total_chunks = sum(int(item.get("chunk_count") or 0) for item in inventories)
+    touched = [str(item.get("collection_slug")) for item in inventories]
+    metrics.update(
+        {
+            "duration_ms": duration_ms,
+            "chunks_retrieved": 1 if inventories else 0,
+            "document_chunks_retrieved": 0,
+            "raw_chunks_retrieved": 0,
+            "inventory_sources": total_sources,
+            "inventory_chunks": total_chunks,
+            "pipeline": "collection_inventory",
+            "mode_label": "collection_inventory",
+            "no_context": not inventories,
+            "collections_touched": touched,
+            "candidate_pool_k": profile.get("candidate_pool_k"),
+            "synthesis_k": profile.get("synthesis_k"),
+            "source_display_k": profile.get("source_display_k"),
+        }
+    )
+    return _jsonable(
+        {
+            "chunks": [summary] if inventories else [],
+            "scores": [1.0] if inventories else [],
+            "metadatas": [
+                {
+                    "source_type": "collection_inventory",
+                    "semantic_type": "collection_inventory",
+                    "title": "Inventaire Knowledge collection",
+                    "document_filename": "knowledge-collection-inventory",
+                    "collection": ", ".join(touched),
+                    "collection_name": ", ".join(touched),
+                    "citation_label": "Inventaire Knowledge collection",
+                }
+            ]
+            if inventories
+            else [],
+            "pipeline": "collection_inventory",
+            "label": profile.get("scope_label") or "Collection inventory",
+            "reason": "Inventory/cardinality query answered from KnowledgeCollectionSource ledger",
+            "detail": f"{len(touched)} collection(s); {total_sources} source(s); {total_chunks} chunk(s)",
+            "mode_label": "collection_inventory",
+            "mode_reason": "Source inventory request",
+            "use_hybrid": False,
+            "top_k": profile["top_k"],
+            "candidate_pool_k": profile.get("candidate_pool_k"),
+            "synthesis_k": profile.get("synthesis_k"),
+            "source_display_k": profile.get("source_display_k"),
+            "query": profile["query"],
+            "retrieval_query": profile["query"],
+            "retrieval_policy": {"enabled": False, "prompt": ""},
+            "retrieval_constraints": {},
+            "clarification": None,
+            "collection": profile["collection"],
+            "collections": profile.get("collections") or [],
+            "knowledge_scope": profile.get("knowledge_scope"),
+            "scope_label": profile.get("scope_label"),
+            "vector_db": profile["vector_db"],
+            "workspace_slug": profile["workspace_slug"],
+            "inventory": {
+                "total_sources": total_sources,
+                "total_chunks": total_chunks,
+                "collections": inventories,
+            },
+            "metrics": metrics,
+            "collections_touched": touched,
+            "collection_errors": [],
+        }
+    )
 
 
 def _prepend_table_analysis_context(
@@ -587,6 +804,9 @@ async def retrieve_rag_context(
         "collections": collections,
         "vector_db": profile["vector_db"],
         "top_k": profile["top_k"],
+        "candidate_pool_k": profile["candidate_pool_k"],
+        "synthesis_k": profile["synthesis_k"],
+        "source_display_k": profile["source_display_k"],
         "fallback": bool(fallback_reason),
         "fallback_reason": fallback_reason,
         "knowledge_guides": len(guides),
@@ -597,6 +817,15 @@ async def retrieve_rag_context(
         "retrieval_policy_clarification": bool(clarification and clarification.get("required")),
         "retrieval_constraints": {},
     }
+
+    if is_collection_inventory_query(query):
+        inventory_context = _retrieve_collection_inventory_context(
+            profile,
+            started=started,
+            metrics=metrics,
+        )
+        if inventory_context is not None:
+            return inventory_context
 
     if len(collections) > 1 and doc_svc is None:
         return await _retrieve_multi_collection_context(
@@ -656,7 +885,8 @@ async def retrieve_rag_context(
         profile["rag_mode"],
     )
     is_discovery = is_document_discovery_query(retrieval_query)
-    pool_top_k = _discovery_pool_top_k(profile["top_k"], is_discovery)
+    pool_top_k = _discovery_pool_top_k(profile["candidate_pool_k"], is_discovery)
+    synthesis_k = profile["synthesis_k"]
     result = await retrieve_for_mode(
         doc_svc,
         retrieval_query,
@@ -695,12 +925,12 @@ async def retrieve_rag_context(
         query=retrieval_query,
         policy=retrieval_policy,
     )
-    if is_discovery:
-        # Wide pool was only needed to feed the policy rerank above; trim back to
-        # the intended top_k so the returned payload matches the non-discovery size.
-        chunks = chunks[: profile["top_k"]]
-        scores = scores[: profile["top_k"]]
-        metadatas = metadatas[: profile["top_k"]]
+    if len(chunks) > synthesis_k:
+        # The wide candidate pool exists to improve recall before policy rerank /
+        # dedupe. Only the synthesis budget is sent to the LLM.
+        chunks = chunks[:synthesis_k]
+        scores = scores[:synthesis_k]
+        metadatas = metadatas[:synthesis_k]
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
         chunks,
@@ -731,6 +961,9 @@ async def retrieve_rag_context(
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
             "retrieval_constraints": retrieval_constraints,
+            "candidate_pool_k": profile["candidate_pool_k"],
+            "synthesis_k": profile["synthesis_k"],
+            "source_display_k": profile["source_display_k"],
             "pipeline": result.pipeline,
             "mode_label": mode_label,
             "no_context": len(chunks) == 0,
@@ -749,6 +982,9 @@ async def retrieve_rag_context(
             "mode_reason": mode_reason,
             "use_hybrid": use_hybrid,
             "top_k": profile["top_k"],
+            "candidate_pool_k": profile["candidate_pool_k"],
+            "synthesis_k": profile["synthesis_k"],
+            "source_display_k": profile["source_display_k"],
             "query": query,
             "retrieval_query": retrieval_query,
             "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),
@@ -830,7 +1066,8 @@ async def _retrieve_multi_collection_context(
 ) -> dict[str, Any]:
     query = profile["query"]
     is_discovery = is_document_discovery_query(retrieval_query)
-    pool_top_k = _discovery_pool_top_k(profile["top_k"], is_discovery)
+    pool_top_k = _discovery_pool_top_k(profile["candidate_pool_k"], is_discovery)
+    synthesis_k = profile["synthesis_k"]
     collection_results: list[dict[str, Any]] = []
     collection_errors: list[dict[str, str]] = []
 
@@ -884,7 +1121,7 @@ async def _retrieve_multi_collection_context(
     # candidates reach the policy rerank/filter — otherwise off-project collections
     # (e.g. BBA120/GEOTEX) flood a small fused pool and the project-code filter then
     # drops the very ARA200 annex/operating-manual docs we want to surface.
-    fuse_limit = pool_top_k * max(1, len(collection_results)) if is_discovery else profile["top_k"]
+    fuse_limit = pool_top_k * max(1, len(collection_results)) if is_discovery else pool_top_k
     chunks, scores, metadatas = _fuse_collection_results(
         collection_results,
         limit=fuse_limit,
@@ -909,12 +1146,12 @@ async def _retrieve_multi_collection_context(
         query=retrieval_query,
         policy=retrieval_policy,
     )
-    if is_discovery:
-        # The wide fused pool only existed to feed the policy rerank; trim back to
-        # the intended top_k so the returned size matches non-discovery queries.
-        chunks = chunks[: profile["top_k"]]
-        scores = scores[: profile["top_k"]]
-        metadatas = metadatas[: profile["top_k"]]
+    if len(chunks) > synthesis_k:
+        # The wide fused pool only existed to feed policy rerank / dedupe; trim
+        # to the synthesis budget before prompt assembly.
+        chunks = chunks[:synthesis_k]
+        scores = scores[:synthesis_k]
+        metadatas = metadatas[:synthesis_k]
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
         chunks,
@@ -947,6 +1184,9 @@ async def _retrieve_multi_collection_context(
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
             "retrieval_constraints": retrieval_constraints,
+            "candidate_pool_k": profile["candidate_pool_k"],
+            "synthesis_k": profile["synthesis_k"],
+            "source_display_k": profile["source_display_k"],
             "pipeline": f"multi_{profile['rag_mode'] or 'auto'}",
             "mode_label": "multi_collection",
             "no_context": len(chunks) == 0,
@@ -969,6 +1209,9 @@ async def _retrieve_multi_collection_context(
             "mode_reason": "Workspace Knowledge Scope",
             "use_hybrid": True,
             "top_k": profile["top_k"],
+            "candidate_pool_k": profile["candidate_pool_k"],
+            "synthesis_k": profile["synthesis_k"],
+            "source_display_k": profile["source_display_k"],
             "query": query,
             "retrieval_query": retrieval_query,
             "retrieval_policy": _retrieval_policy_payload(retrieval_policy, clarification),

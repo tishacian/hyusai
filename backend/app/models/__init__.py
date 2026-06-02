@@ -14,7 +14,7 @@ from app.models.intelligence import FeedSource, FeedArticle, SemanticTarget, Saf
 from app.models.sharepoint_sync_job import SharePointSyncJob
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.expert_capture import ExpertCaptureEvent, ExpertCaptureSession, KnowledgeUpdateProposal
-from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource, WorkerJob
 from app.models.knowledge_guide import KnowledgeGuide
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
@@ -47,7 +47,7 @@ __all__ = [
     "FeedSource", "FeedArticle", "SemanticTarget", "SafetyFilter",
     "SharePointSyncJob", "ExpertCaptureSession", "KnowledgeUpdateProposal",
     "DepositAccessLink", "DepositFile",
-    "KnowledgeCollection", "WorkerJob",
+    "KnowledgeCollection", "KnowledgeCollectionSource", "WorkerJob",
     "KnowledgeGuide", "KnowledgeTableFact", "KnowledgeDocumentFact",
     "WorkspaceCalendarEvent", "WorkspaceActionItem", "WorkspaceJob",
     "WorkspaceMap", "WorkspaceMapLayer", "WorkspaceMapZone", "WorkspaceMapSignal", "WorkspaceMapScore",

@@ -135,9 +135,9 @@ class SettingsService:
             result["ragBM25Weight"] = 0.3
         
         try:
-            result["ragVectorDBType"] = getattr(db_settings, 'rag_vector_db_type', 'faiss')
+            result["ragVectorDBType"] = getattr(db_settings, 'rag_vector_db_type', None) or app_config.default_vector_db_type
         except (AttributeError, Exception):
-            result["ragVectorDBType"] = 'faiss'
+            result["ragVectorDBType"] = app_config.default_vector_db_type
         
         try:
             result["ragChunkingMethod"] = getattr(db_settings, 'rag_chunking_method', 'recursive_character')
@@ -218,4 +218,3 @@ class SettingsService:
             "ollamaRopeAlpha": "ollama_rope_alpha",
         }
         return mapping.get(key, key)
-

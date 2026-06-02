@@ -15,6 +15,9 @@ export interface AppSettings {
   // Retrieval / RAG
   ragPipelineMode?: 'auto' | 'naive' | 'hybrid' | 'hah' | 'chah';
   ragTopK?: number;
+  ragCandidatePoolK?: number;
+  ragSynthesisK?: number;
+  ragSourceDisplayK?: number;
   ragSimilarityThreshold?: number;
   ragUseHybridSearch?: boolean;
   ragVectorWeight?: number;
@@ -38,6 +41,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   maxTokens: 2000,
   ragPipelineMode: 'auto',
   ragTopK: 5,
+  ragCandidatePoolK: 48,
+  ragSynthesisK: 12,
+  ragSourceDisplayK: 8,
   ragSimilarityThreshold: 0.35,
   ragUseHybridSearch: true,
   ragVectorWeight: 0.7,

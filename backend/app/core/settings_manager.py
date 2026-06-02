@@ -122,12 +122,15 @@ class SettingsManager:
             "enableReasoning": True,
             "enableSearch": False,
             "ragTopK": 5,
+            "ragCandidatePoolK": 48,
+            "ragSynthesisK": 12,
+            "ragSourceDisplayK": 8,
                 "ragSimilarityThreshold": 0.2,  # Lowered from 0.7 - cosine similarity scores are typically 0.2-0.5 range
             "ragCollectionName": "documents",
             "ragUseHybridSearch": True,
             "ragVectorWeight": 0.7,
             "ragBM25Weight": 0.3,
-            "ragVectorDBType": "faiss",
+            "ragVectorDBType": app_config.default_vector_db_type,
             "ragChunkingMethod": "recursive_character",  # Default: recursive_character (same as streaming-decision-process)
             "ragChunkSize": 1000,
             "ragChunkOverlap": 200,

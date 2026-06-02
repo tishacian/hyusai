@@ -1,7 +1,9 @@
 """Service helpers for canonical knowledge collections and worker jobs."""
 from __future__ import annotations
 
+import mimetypes
 import re
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,7 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
-from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource, WorkerJob
 from app.models.workspace import Workspace
 from app.services.object_store import ObjectStore, get_object_store
 from app.services.rag.bm25_store import bm25_artifact_key
@@ -114,6 +116,176 @@ def create_or_get_collection(
         created_by_user_id=created_by_user_id,
         slug=requested_slug,
     )
+
+
+def normalize_source_name(filename: str) -> str:
+    return Path(str(filename or "source").replace("\\", "/")).name.strip()
+
+
+def source_kind_for(filename: str, mime_type: str | None = None) -> str:
+    ext = Path(filename or "").suffix.lower().lstrip(".")
+    mime = str(mime_type or "").lower()
+    if ext in {"xlsx", "xls", "xlsm", "xltx", "xltm", "csv", "tsv"}:
+        return "spreadsheet"
+    if ext in {"pdf"}:
+        return "pdf"
+    if ext in {"docx", "doc", "odt", "rtf"}:
+        return "document"
+    if ext in {"md", "markdown", "txt", "text", "log"}:
+        return "text"
+    if ext in {"html", "htm", "xml"}:
+        return "markup"
+    if ext in {"json", "yaml", "yml"}:
+        return "structured_data"
+    if ext in {"png", "jpg", "jpeg", "webp", "gif", "svg", "tif", "tiff"}:
+        return "image"
+    if mime.startswith("image/"):
+        return "image"
+    if "spreadsheet" in mime or "excel" in mime or "csv" in mime:
+        return "spreadsheet"
+    if "pdf" in mime:
+        return "pdf"
+    if "html" in mime or "xml" in mime:
+        return "markup"
+    if mime.startswith("text/"):
+        return "text"
+    return "document"
+
+
+def upsert_collection_source(
+    db: DBSession,
+    *,
+    collection: KnowledgeCollection,
+    filename: str,
+    status: str = "queued",
+    mime_type: str | None = None,
+    origin: str = "upload",
+    size_bytes: int | None = None,
+    chunk_count: int | None = None,
+    source_metadata: dict[str, Any] | None = None,
+    last_error: str | None = None,
+) -> KnowledgeCollectionSource:
+    normalized = normalize_source_name(filename)
+    guessed_mime = mime_type or mimetypes.guess_type(normalized)[0] or ""
+    extension = Path(normalized).suffix.lower().lstrip(".")
+    row = (
+        db.query(KnowledgeCollectionSource)
+        .filter(
+            KnowledgeCollectionSource.collection_id == collection.id,
+            KnowledgeCollectionSource.normalized_name == normalized,
+        )
+        .first()
+    )
+    now = datetime.utcnow()
+    if row is None:
+        row = KnowledgeCollectionSource(
+            id=str(uuid4()),
+            workspace_id=collection.workspace_id,
+            collection_id=collection.id,
+            filename=normalized,
+            normalized_name=normalized,
+            created_at=now,
+        )
+        db.add(row)
+    row.filename = normalized
+    row.source_kind = source_kind_for(normalized, guessed_mime)
+    row.extension = extension
+    row.mime_type = guessed_mime
+    row.origin = origin or row.origin or "upload"
+    if size_bytes is not None:
+        row.size_bytes = int(size_bytes)
+    if chunk_count is not None:
+        row.chunk_count = max(0, int(chunk_count))
+    row.status = status
+    row.last_error = last_error
+    row.updated_at = now
+    if status in {"indexed", "ready"}:
+        row.indexed_at = now
+    if source_metadata:
+        merged = dict(row.source_metadata or {})
+        merged.update(source_metadata)
+        row.source_metadata = merged
+    return row
+
+
+def collection_source_rows(
+    db: DBSession,
+    *,
+    collection: KnowledgeCollection,
+    include_deleted: bool = False,
+) -> list[KnowledgeCollectionSource]:
+    query = db.query(KnowledgeCollectionSource).filter(KnowledgeCollectionSource.collection_id == collection.id)
+    if not include_deleted:
+        query = query.filter(KnowledgeCollectionSource.status != "deleted")
+    rows = query.order_by(KnowledgeCollectionSource.filename.asc()).all()
+    if rows:
+        return rows
+    # Backward-compatible fallback for pre-ledger collections. Do not commit:
+    # callers may use this in read paths where side effects would be surprising.
+    fallback: list[KnowledgeCollectionSource] = []
+    for name in collection.document_names or []:
+        normalized = normalize_source_name(str(name))
+        fallback.append(
+            KnowledgeCollectionSource(
+                id=f"fallback-{collection.id}-{len(fallback)}",
+                workspace_id=collection.workspace_id,
+                collection_id=collection.id,
+                filename=normalized,
+                normalized_name=normalized,
+                source_kind=source_kind_for(normalized),
+                extension=Path(normalized).suffix.lower().lstrip("."),
+                mime_type=mimetypes.guess_type(normalized)[0] or "",
+                origin="legacy_document_names",
+                size_bytes=None,
+                chunk_count=0,
+                status=collection.status or "ready",
+                source_metadata={"fallback": True},
+            )
+        )
+    return fallback
+
+
+def collection_inventory(
+    db: DBSession,
+    *,
+    collection: KnowledgeCollection,
+    include_sources: bool = True,
+) -> dict[str, Any]:
+    rows = collection_source_rows(db, collection=collection)
+    by_kind = Counter(row.source_kind or "document" for row in rows)
+    by_extension = Counter((row.extension or "unknown") for row in rows)
+    by_status = Counter(row.status or "unknown" for row in rows)
+    sources = [
+        {
+            "id": row.id,
+            "filename": row.filename,
+            "source_kind": row.source_kind,
+            "extension": row.extension,
+            "mime_type": row.mime_type,
+            "origin": row.origin,
+            "size_bytes": row.size_bytes,
+            "chunk_count": row.chunk_count,
+            "status": row.status,
+            "indexed_at": row.indexed_at.isoformat() if row.indexed_at else None,
+            "last_error": row.last_error,
+            "metadata": row.source_metadata or {},
+        }
+        for row in rows
+    ]
+    total_chunks = sum(int(row.chunk_count or 0) for row in rows) or (collection.chunk_count or 0)
+    return {
+        "collection_id": collection.id,
+        "collection_slug": collection.slug,
+        "collection_name": collection.name,
+        "status": collection.status,
+        "source_count": len(rows),
+        "document_count": len(rows) or (collection.document_count or len(collection.document_names or [])),
+        "chunk_count": total_chunks,
+        "by_kind": dict(sorted(by_kind.items())),
+        "by_extension": dict(sorted(by_extension.items())),
+        "by_status": dict(sorted(by_status.items())),
+        "sources": sources if include_sources else [],
+    }
 
 
 def create_worker_job(
@@ -278,6 +450,13 @@ async def serialize_collection(
     include_metrics: bool = False,
     store: ObjectStore | None = None,
 ) -> dict[str, Any]:
+    try:
+        source_rows = [row for row in (collection.sources or []) if row.status != "deleted"]
+    except Exception:
+        source_rows = []
+    source_count = len(source_rows) or (collection.document_count or len(collection.document_names or []))
+    source_kind_counts = Counter(row.source_kind or "document" for row in source_rows)
+    source_extension_counts = Counter((row.extension or "unknown") for row in source_rows)
     payload = {
         "id": collection.id,
         "uuid": collection.id,
@@ -290,6 +469,9 @@ async def serialize_collection(
         "created_by_user_id": collection.created_by_user_id,
         "document_names": collection.document_names or [],
         "document_count": collection.document_count or 0,
+        "source_count": source_count,
+        "source_kind_counts": dict(sorted(source_kind_counts.items())),
+        "source_extension_counts": dict(sorted(source_extension_counts.items())),
         "chunk_count": collection.chunk_count or 0,
         "embedding_model": collection.embedding_model,
         "chunking_method": collection.chunking_method,

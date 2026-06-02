@@ -82,21 +82,27 @@ class DocumentQueryRequest(BaseModel):
 
 
 def _collection_stats(db: Session, workspace_id: str) -> dict[str, dict[str, Any]]:
+    from app.services.knowledge_collections import collection_inventory
+
     rows = (
         db.query(KnowledgeCollection)
         .filter(KnowledgeCollection.workspace_id == workspace_id)
         .all()
     )
-    return {
-        row.slug: {
+    stats: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        inventory = collection_inventory(db, collection=row, include_sources=False)
+        stats[row.slug] = {
             "id": row.id,
             "name": row.name,
             "status": row.status,
             "document_count": row.document_count,
             "chunk_count": row.chunk_count,
+            "source_count": inventory.get("source_count"),
+            "source_kind_counts": inventory.get("by_kind") or {},
+            "source_extension_counts": inventory.get("by_extension") or {},
         }
-        for row in rows
-    }
+    return stats
 
 
 def _serialize_scopes(

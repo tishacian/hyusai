@@ -84,9 +84,9 @@ If Qdrant should run without auth on the private Docker network, remove the
 still enables Qdrant API-key checks.
 
 Keep `DOCUMENT_INGEST_ASYNC_ENABLED=false` until RabbitMQ and the worker are
-healthy. Qdrant is the standardized target for new deployments, but
-`FAISS_PERSIST_DIRECTORY=/data/faiss_db` keeps legacy workspace presets
-compatible until their collections are deliberately migrated.
+healthy. Qdrant is the standardized target for new deployments.
+`FAISS_PERSIST_DIRECTORY=/data/faiss_db` is retained only to read legacy
+snapshots during migration or rollback drills.
 
 ## Safe Start While SFTP Transfer Is Active
 
@@ -263,9 +263,10 @@ docker compose -f compose.agentium.yml --profile tools run --rm --no-deps \
   --switch-preset
 ```
 
-Rollback remains a preset change: set the Andritz workspace default
-`ragVectorDBType` back to `faiss`. Do not delete the FAISS files until the
-Qdrant cutover has been observed in production.
+Rollback remains an explicit preset change: set the Andritz workspace default
+`ragVectorDBType` back to `faiss` and pass that explicit backend through the
+diagnostic/migration path. Do not delete the FAISS files until the Qdrant
+cutover has been observed in production.
 
 ## Rollback
 

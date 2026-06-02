@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 from app.services.rag import context as rag_context
 from app.services.rag.context import get_retrieval_profile, retrieve_rag_context
+from app.models.workspace import Workspace
+from app.services.knowledge_collections import create_collection, upsert_collection_source
 
 
 class FakeDocumentService:
@@ -194,9 +196,51 @@ async def test_retrieve_rag_context_returns_serialisable_contract():
     assert result["metrics"]["chunks_retrieved"] == 1
     assert result["metrics"]["duration_ms"] >= 0
     assert result["metrics"]["collection"] == "documents"
-    assert result["metrics"]["vector_db"] == "faiss"
+    assert result["metrics"]["vector_db"] == "qdrant"
     assert result["collections_touched"] == ["documents"]
     assert result["collection_errors"] == []
+
+
+async def test_retrieve_rag_context_inventory_query_uses_collection_source_ledger(db_session):
+    workspace = Workspace(id="ws-inventory", name="Inventory", slug="inventory")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Manuals")
+    upsert_collection_source(
+        db_session,
+        collection=collection,
+        filename="manual-bba120.pdf",
+        status="ready",
+        mime_type="application/pdf",
+        size_bytes=1200,
+        chunk_count=7,
+    )
+    upsert_collection_source(
+        db_session,
+        collection=collection,
+        filename="essais-geotex.xlsx",
+        status="ready",
+        mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        size_bytes=2400,
+        chunk_count=11,
+    )
+    db_session.commit()
+
+    result = await retrieve_rag_context(
+        {
+            "query": "Combien de documents as-tu et quels types de sources ?",
+            "context_collection": collection.slug,
+            "workspace_id": workspace.id,
+            "workspace_slug": workspace.slug,
+        }
+    )
+
+    assert result["pipeline"] == "collection_inventory"
+    assert result["inventory"]["total_sources"] == 2
+    assert result["inventory"]["total_chunks"] == 18
+    assert result["inventory"]["collections"][0]["by_kind"] == {"pdf": 1, "spreadsheet": 1}
+    assert "Total sources: 2" in result["chunks"][0]
+    assert "essais-geotex.xlsx" in result["chunks"][0]
 
 
 async def test_retrieve_rag_context_uses_published_guides_as_hint_and_advisory_source(monkeypatch):
@@ -632,8 +676,10 @@ async def test_multi_collection_discovery_widens_and_surfaces_preferred(monkeypa
     # The conveyor operating_manual doc, fused from a wide pool, wins the rerank.
     assert result["chunks"][0].startswith("Conveyor jetlace")
     assert result["metadatas"][0]["document_filename"] == "conveyor.html"
-    # Final document payload truncated back to the scope top_k.
-    assert result["metrics"]["document_chunks_retrieved"] == 6
+    # Final document payload is truncated to the synthesis budget, not the
+    # compact source-display top_k.
+    assert result["metrics"]["document_chunks_retrieved"] == 12
+    assert result["metrics"]["source_display_k"] == 6
 
 
 def test_rag_retrieve_context_task_delegates_to_service(monkeypatch):

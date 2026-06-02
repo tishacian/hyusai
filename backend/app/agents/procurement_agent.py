@@ -168,6 +168,7 @@ _EVIDENCE_SOURCE_TYPES = {"document_analysis", "table_analysis"}
 # multi-page PDF (or cross-collection copies) cannot flood the Sources panel.
 _MAX_PASSAGES_PER_DOCUMENT = 3
 _MAX_CITABLE_SOURCES = 8
+_MAX_SYNTHESIS_CONTEXT_SOURCES = 16
 
 
 def _meta_source_type(meta: dict[str, Any]) -> str:
@@ -377,6 +378,7 @@ def _assemble_context_and_sources(
     metadatas: list[Any],
     *,
     allow_foundational_fallback: bool = False,
+    source_display_k: int | None = None,
 ) -> tuple[str, list[dict[str, Any]], bool]:
     """Build the LLM context block and the user-facing sources in lockstep.
 
@@ -385,7 +387,18 @@ def _assemble_context_and_sources(
     the displayed panel (item 5). Advisory Knowledge Guides are appended as an
     explicitly non-citable trailing block.
     """
-    citable, advisory = _select_citation_entries(chunks, scores, metadatas)
+    try:
+        display_limit = max(1, min(int(source_display_k or _MAX_CITABLE_SOURCES), 24))
+    except (TypeError, ValueError):
+        display_limit = _MAX_CITABLE_SOURCES
+    selected, advisory = _select_citation_entries(
+        chunks,
+        scores,
+        metadatas,
+        max_total=max(display_limit, min(len(chunks or []), _MAX_SYNTHESIS_CONTEXT_SOURCES)),
+    )
+    citable = selected[:display_limit]
+    additional = selected[display_limit:]
 
     context_blocks: list[str] = []
     for idx, entry in enumerate(citable):
@@ -395,6 +408,12 @@ def _assemble_context_and_sources(
         if page is not None:
             header = f"{header} (p. {page})"
         context_blocks.append(f"{header}\n{entry['chunk']}")
+
+    additional_blocks: list[str] = []
+    for entry in additional:
+        meta = entry["meta"]
+        label = _display_title(meta)
+        additional_blocks.append(f"- {label}\n{entry['chunk']}")
 
     advisory_blocks: list[str] = []
     for entry in advisory:
@@ -407,6 +426,11 @@ def _assemble_context_and_sources(
 
     if context_blocks or advisory_blocks:
         sections = list(context_blocks)
+        if additional_blocks:
+            sections.append(
+                "Additional retrieved context (use for synthesis, do not cite by number):\n"
+                + "\n\n".join(additional_blocks)
+            )
         if advisory_blocks:
             sections.append(
                 "Advisory context (background only — do not cite these as sources):\n"
@@ -421,7 +445,50 @@ def _assemble_context_and_sources(
         )
 
     sources = [_source_entry_from(idx, entry) for idx, entry in enumerate(citable)]
-    return context_text, sources, bool(citable)
+    return context_text, sources, bool(citable or additional or advisory)
+
+
+def _retrieval_synthesis_brief(
+    chunks: list[Any],
+    metadatas: list[Any],
+    *,
+    max_points: int = 5,
+) -> str:
+    """Compact extractive brief used to nudge first answers toward synthesis.
+
+    This is intentionally deterministic and cheap: it summarizes coverage and
+    gives the LLM a few readable excerpts before generation, without adding a
+    second model call.
+    """
+    if not chunks:
+        return ""
+    docs: set[str] = set()
+    collections: set[str] = set()
+    kinds: dict[str, int] = {}
+    points: list[str] = []
+    metadatas = metadatas or []
+    for index, chunk in enumerate(chunks):
+        meta = dict(metadatas[index]) if index < len(metadatas) and isinstance(metadatas[index], Mapping) else {}
+        title = _display_title(meta)
+        docs.add(title)
+        collection = str(meta.get("collection") or meta.get("collection_name") or "").strip()
+        if collection:
+            collections.add(collection)
+        kind = str(meta.get("source_type") or meta.get("document_type") or meta.get("semantic_type") or "document")
+        kinds[kind] = kinds.get(kind, 0) + 1
+        text = " ".join(str(chunk or "").split())
+        if text and len(points) < max_points:
+            points.append(f"- {title}: {text[:360]}")
+    kind_line = ", ".join(f"{key}: {value}" for key, value in sorted(kinds.items(), key=lambda kv: (-kv[1], kv[0])))
+    lines = [
+        f"Coverage: {len(chunks)} retrieved chunk(s), {len(docs)} distinct source title(s)"
+        + (f", collections: {', '.join(sorted(collections))}" if collections else "")
+        + ".",
+        f"Retrieved source types: {kind_line or 'unknown'}.",
+        "Representative content:",
+        *points,
+    ]
+    return "\n".join(lines)
 
 SYSTEM_PROMPT = """You are an intelligent assistant with access to a curated knowledge base.
 
@@ -474,6 +541,7 @@ def _build_rag_user_prompt(
     has_retrieved_context: bool,
     retrieval_policy_prompt: str = "",
     retrieval_constraints: dict[str, Any] | None = None,
+    retrieval_summary: str = "",
 ) -> str:
     if grounding_policy.get("mode") == "balanced" and not has_retrieved_context:
         fallback_disclaimer = (
@@ -516,13 +584,21 @@ If the context is not relevant or missing, say so clearly rather than guessing."
     policy_body = "\n".join(policy_parts)
     policy_instructions = f"\n\n{policy_body}" if policy_body else ""
 
+    summary_block = f"\n\nRetrieved content synthesis brief:\n{retrieval_summary}" if retrieval_summary else ""
+
     return f"""User message:
 {query}
 
 Knowledge base context:
-{context_text}{keyword_hint}
+{context_text}{keyword_hint}{summary_block}
 {policy_instructions}
-{grounding_instructions}"""
+{grounding_instructions}
+
+Answer-shaping instructions:
+- Start with a concise synthesis of what the retrieved content says, not only with source locators.
+- Include the useful evidence/citations after the synthesis when workspace sources exist.
+- For broad questions, give 3 to 5 key points and stop before overloading the user.
+- If the retrieved content is too thin or contradictory, say that explicitly and name the gap."""
 
 
 def _build_followup_user_prompt(*, query: str, wants_more_detail: bool) -> str:
@@ -559,7 +635,7 @@ class OmniRAGAgent(BaseAgent):
         # each tenant's index isolated. A single shared instance (the pre-D8
         # behaviour) routed every workspace to the same unscoped collection and
         # never honored the per-workspace `ragVectorDBType` preset — drop-and-ask
-        # uploads went to FAISS while this agent read from Qdrant.
+        # uploads and chat could land in different vector stores.
         self._document_services: dict[tuple[str | None, str, str], Any] = {}
 
     async def initialize(self) -> None:
@@ -581,12 +657,12 @@ class OmniRAGAgent(BaseAgent):
 
         Resolution order for ``vector_db_type`` / ``collection_name``:
           1. The workspace's resolved RAG preset (`get_resolved_settings`).
-          2. Static defaults (`faiss` / `documents`) — matches
+          2. Static defaults (`qdrant` / `documents`) — matches
              ``_get_default_settings`` and keeps upload and retrieval
              symmetric.
 
         ``workspace_slug`` is taken verbatim from the request so that the
-        FAISS/Qdrant/Chroma factory can prefix the collection with
+        vector DB factory can prefix the collection with
         ``<slug>__``, giving the same isolation the dropzone upload path
         already uses.
         """
@@ -597,7 +673,7 @@ class OmniRAGAgent(BaseAgent):
         workspace_slug = request.get("workspace_slug")
         profile = get_retrieval_profile(request)
         collection_name = profile.get("collection", "documents")
-        vector_db_type = profile.get("vector_db", "faiss")
+        vector_db_type = profile.get("vector_db", "qdrant")
 
         cache_key = (workspace_slug, collection_name, vector_db_type)
         svc = self._document_services.get(cache_key)
@@ -778,25 +854,30 @@ class OmniRAGAgent(BaseAgent):
             )
         retriever_name = "HybridRetriever" if use_hybrid else "VectorRetriever"
         retriever_title = (
-            "FAISS + BM25 (RRF)" if use_hybrid else "FAISS dense (naive)"
+            "Vector search + BM25 (RRF)" if use_hybrid else "Vector search (naive)"
+        )
+        budget_line = (
+            f"candidate_pool_k: {profile.get('candidate_pool_k')} · "
+            f"synthesis_k: {profile.get('synthesis_k')} · "
+            f"sources: {profile.get('source_display_k')}"
         )
         method_line = (
-            f"Method: Reciprocal Rank Fusion · top_k: {profile['top_k']}"
+            f"Method: Reciprocal Rank Fusion · {budget_line}"
             if use_hybrid
-            else f"Method: dense vector similarity · top_k: {profile['top_k']}"
+            else f"Method: dense vector similarity · {budget_line}"
         )
         if mode_label == "hah_backend":
             retriever_name = "HAHBackendRetriever"
             retriever_title = "Two-pass hybrid + RRF (HAH-like)"
-            method_line = f"Method: pass1 hybrid → pseudo-document → pass2 hybrid → RRF merge · top_k: {profile['top_k']}"
+            method_line = f"Method: pass1 hybrid → pseudo-document → pass2 hybrid → RRF merge · {budget_line}"
         elif mode_label == "chah_backend":
             retriever_name = "CHAHBackendRetriever"
             retriever_title = "Parallel hybrid + RRF (C-HAH-like)"
-            method_line = f"Method: parallel hybrid over query variants → RRF merge · top_k: {profile['top_k']}"
+            method_line = f"Method: parallel hybrid over query variants → RRF merge · {budget_line}"
         elif mode_label == "multi_collection":
             retriever_name = "KnowledgeScopeRetriever"
             retriever_title = f"{profile.get('scope_label') or 'Knowledge Scope'}"
-            method_line = f"Method: {rag_mode or 'auto'} per collection → RRF merge · top_k: {profile['top_k']}"
+            method_line = f"Method: {rag_mode or 'auto'} per collection → RRF merge · {budget_line}"
 
         step_start = time.time()
         sid = f"kb-retrieval-{uid}"
@@ -810,6 +891,9 @@ class OmniRAGAgent(BaseAgent):
             "collections_touched": collections,
             "vector_db": profile["vector_db"],
             "top_k": profile["top_k"],
+            "candidate_pool_k": profile.get("candidate_pool_k"),
+            "synthesis_k": profile.get("synthesis_k"),
+            "source_display_k": profile.get("source_display_k"),
             "pipeline": mode_label,
             "task_id": None,
             "grounding_mode": grounding_policy.get("mode"),
@@ -1085,7 +1169,9 @@ class OmniRAGAgent(BaseAgent):
             filtered_scores,
             filtered_metadatas,
             allow_foundational_fallback=bool(grounding_policy.get("allow_foundational_fallback")),
+            source_display_k=int(retrieval_context.get("source_display_k") or (retrieval_context.get("metrics") or {}).get("source_display_k") or _MAX_CITABLE_SOURCES),
         )
+        retrieval_summary = _retrieval_synthesis_brief(filtered_chunks, filtered_metadatas)
 
         # Aggregate docmeta TF-IDF keywords across the top chunks so the LLM
         # can anchor on document topics even when the user's query is fuzzy
@@ -1129,6 +1215,7 @@ class OmniRAGAgent(BaseAgent):
                 has_retrieved_context=has_citable_context,
                 retrieval_policy_prompt=str((retrieval_context.get("retrieval_policy") or {}).get("prompt") or ""),
                 retrieval_constraints=retrieval_context.get("retrieval_constraints") or {},
+                retrieval_summary=retrieval_summary,
             )
 
         await asyncio.sleep(0.03)

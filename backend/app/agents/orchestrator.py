@@ -282,7 +282,7 @@ class AgentOrchestrator:
                 "model": model_name,
                 "status": "active",
                 "title": "Determining optimal retrieval strategy",
-                "description": f"Strategy: {strategy}\nSources: FAISS index ({app_settings.get('ragCollectionName', 'documents')})\nTop-K: {app_settings.get('ragTopK', 5)}",
+                "description": f"Strategy: {strategy}\nSources: Vector store ({app_settings.get('ragCollectionName', 'documents')})\nTop-K: {app_settings.get('ragTopK', 5)}",
             }
         }
 

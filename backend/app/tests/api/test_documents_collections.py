@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import documents
 from app.core.config import settings
-from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource, WorkerJob
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import create_collection, create_worker_job
 from app.services.object_store import get_object_store
@@ -31,7 +31,7 @@ def test_list_collections_returns_ledger_items(db_session, monkeypatch):
 
     monkeypatch.setattr(
         "app.services.vector_db.factory.VectorDBFactory.list_collections_for_workspace",
-        classmethod(lambda cls, db_type="faiss", workspace_slug=None: []),
+        classmethod(lambda cls, db_type="qdrant", workspace_slug=None: []),
     )
 
     response = _client(db_session, ws).get("/documents/collections")
@@ -79,6 +79,16 @@ def test_collection_document_upload_creates_worker_job_and_stores_original(
     assert (
         tmp_path / "objects" / collection.artifact_prefix / "original" / "manual.txt"
     ).read_bytes() == b"hello"
+    source = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .one()
+    )
+    assert source.filename == "manual.txt"
+    assert source.source_kind == "text"
+    assert source.extension == "txt"
+    assert source.size_bytes == 5
+    assert source.status == "queued"
 
 
 def test_collection_detail_exposes_storage_vector_and_bm25_diagnostics(
@@ -93,6 +103,8 @@ def test_collection_detail_exposes_storage_vector_and_bm25_diagnostics(
     db_session.add(ws)
     db_session.commit()
     collection = create_collection(db_session, workspace=ws, name="Manuals")
+    collection.document_names = ["manual.txt"]
+    collection.document_count = 1
     bm25_job = create_worker_job(
         db_session,
         workspace_id=ws.id,
@@ -126,9 +138,17 @@ def test_collection_detail_exposes_storage_vector_and_bm25_diagnostics(
     assert body["storage"]["ingested_bytes"] == 10
     assert body["storage"]["derived_bytes"] == 4
     assert body["vector_metrics"]["points"] == 7
+    assert body["inventory"]["source_count"] == 1
+    assert body["inventory"]["by_kind"] == {"text": 1}
     assert body["bm25"]["status"] == "ready"
     assert body["bm25"]["job"]["id"] == bm25_job.id
     assert body["latest_job"]["kind"] == "bm25_rebuild"
+
+    inventory_response = _client(db_session, ws).get(f"/documents/collections/{collection.id}/inventory")
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["source_count"] == 1
+    assert inventory["sources"][0]["filename"] == "manual.txt"
 
 
 def test_delete_collection_removes_ledger_and_store(

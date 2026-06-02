@@ -27,7 +27,7 @@ class AppSettings(Base):
     rag_use_hybrid_search = Column(Boolean, default=True)
     rag_vector_weight = Column(Float, default=0.7)
     rag_bm25_weight = Column(Float, default=0.3)
-    rag_vector_db_type = Column(String(20), default="faiss")
+    rag_vector_db_type = Column(String(20), default="qdrant")
     rag_chunking_method = Column(String(50), default="recursive_character")
     rag_chunk_size = Column(Integer, default=1000)
     rag_chunk_overlap = Column(Integer, default=200)

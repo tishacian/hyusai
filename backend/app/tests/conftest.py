@@ -74,6 +74,7 @@ def db_session():
         "workspace_visual_captures",
         "workspace_visual_sources",
         "worker_jobs",
+        "knowledge_collection_sources",
         "knowledge_document_facts",
         "knowledge_table_facts",
         "knowledge_guides",

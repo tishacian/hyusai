@@ -3,7 +3,54 @@ import pytest
 import asyncio
 import tempfile
 import os
+import numpy as np
 from app.services.rag.document_service import DocumentService
+from app.services.vector_db.factory import VectorDBFactory
+
+
+class FakeVectorDB:
+    def __init__(self):
+        self.dimension = 0
+        self.vectors = {}
+        self.metadatas = {}
+
+    async def create_index(self, dimension: int):
+        self.dimension = dimension
+
+    async def add_vectors(self, embeddings, metadatas, ids):
+        for embedding, metadata, chunk_id in zip(embeddings, metadatas, ids):
+            self.vectors[chunk_id] = np.array(embedding)
+            self.metadatas[chunk_id] = dict(metadata)
+
+    async def search(self, query_embedding, top_k: int = 10, filters=None):
+        query = np.array(query_embedding)
+        ranked = []
+        for chunk_id, vector in self.vectors.items():
+            score = float(np.dot(query, vector))
+            metadata = self.metadatas[chunk_id]
+            ranked.append(
+                {
+                    "id": chunk_id,
+                    "score": score,
+                    "content": metadata.get("content", ""),
+                    "metadata": metadata,
+                }
+            )
+        return sorted(ranked, key=lambda item: item["score"], reverse=True)[:top_k]
+
+    async def get_all_ids(self):
+        return list(self.vectors.keys())
+
+
+@pytest.fixture
+def fake_vector_db(monkeypatch):
+    vector_db = FakeVectorDB()
+    monkeypatch.setattr(
+        VectorDBFactory,
+        "get_db",
+        classmethod(lambda cls, *args, **kwargs: vector_db),
+    )
+    return vector_db
 
 
 @pytest.fixture
@@ -26,9 +73,10 @@ Natural language processing helps computers understand human language."""
 
 
 @pytest.mark.asyncio
-async def test_document_ingestion(sample_text_file):
+async def test_document_ingestion(sample_text_file, fake_vector_db):
     """Test document ingestion"""
     service = DocumentService(collection_name="test_collection")
+    assert service.vector_db_type == "qdrant"
     result = await service.ingest_document(sample_text_file)
     
     assert result["status"] == "success"
@@ -37,9 +85,10 @@ async def test_document_ingestion(sample_text_file):
 
 
 @pytest.mark.asyncio
-async def test_document_search(sample_text_file):
+async def test_document_search(sample_text_file, fake_vector_db):
     """Test document search"""
     service = DocumentService(collection_name="test_collection")
+    assert service.vector_db_type == "qdrant"
     
     # First ingest document
     await service.ingest_document(sample_text_file)

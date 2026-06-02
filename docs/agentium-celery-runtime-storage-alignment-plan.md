@@ -321,7 +321,7 @@ Latest Enzo commits checked:
 | --- | --- | --- | --- |
 | `5a1a769` | `ENH: omnirag 2.0 full-http` | Big consolidation: HTTP endpoints for collections/files/tasks/query, config split, OpenAI service, streaming query tests, dev env split. | **Port selectively.** Too broad for direct cherry-pick. Extract API/task boundaries, models, tests, and config ideas. |
 | `6d20c86` | `ENH: qdrant but it's great` | Strong Qdrant direction, qdrant client config, reduced local vector-store complexity, integration tests. | **Port concepts/tests.** Current Agentium already has Qdrant; reuse missing tests and config hardening. |
-| `7e7185c` | `ENH: replace vdb options by qdrant` | Simplifies vector DB options by making Qdrant the main backend. | **Partial.** Good for prod defaults, but keep FAISS/local for tests/dev unless product decides Qdrant-only. |
+| `7e7185c` | `ENH: replace vdb options by qdrant` | Simplifies vector DB options by making Qdrant the main backend. | **Adopted Qdrant-first.** FAISS remains only for explicit legacy migration/rollback paths. |
 | `33cad8f` | `TST: add integration test for qdrant service using qdrant-client` | Useful test coverage around real Qdrant. | **Cherry-pick or rewrite into `backend/app/tests/integration`.** |
 | `b773a3f` | `ENH: add qdrant service to docker-compose` | Adds Qdrant service and env wiring. | **Already mostly present.** Compare image/version/env only. |
 | `5b8e918` | `ENH: add create vs and query llm pipeline task and endpoints` | Adds Celery tasks for `create_vector_store`, `query_llm_pipeline`, and FastAPI endpoints. | **Port as worker task designs, not routes.** Public API should stay Agentium. |
@@ -346,8 +346,8 @@ Latest Enzo commits checked:
   schemas/services.
 - Direct Celery progress callback to external core endpoint
   `/api/private/v1/jobs/py-status`; Agentium should own progress in its DB/SSE.
-- Full Qdrant-only removal of FAISS/local until tests and dev workflows are
-  adjusted.
+- Removing the FAISS migration/rollback utilities before every legacy snapshot
+  has been validated in Qdrant.
 
 ## Proposed cherry-pick order
 
@@ -402,4 +402,3 @@ Prefer small ports over Git cherry-pick when files moved between runtimes.
 - [ ] Add SSE/poll endpoint for job progress.
 - [ ] Port Qdrant integration tests from Enzo branch into `backend/app/tests`.
 - [ ] Add VM runbook section for `agentium-worker` once compose path is green.
-

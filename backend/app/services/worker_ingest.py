@@ -22,10 +22,12 @@ from app.services.knowledge_collections import (
     resolve_original_key,
     update_collection_status,
     update_job,
+    upsert_collection_source,
 )
 from app.services.object_store import get_object_store
 from app.services.rag.bm25_store import rebuild_bm25_artifact
 from app.services.rag.document_service import DocumentService
+from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.table_intelligence import clear_collection_table_facts
 from app.services.document_intelligence import clear_collection_document_facts
 from app.services.ocr import resolve_ocr_config_for_workspace
@@ -112,6 +114,13 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
 
         local_paths: list[str] = []
         for name in file_names:
+            upsert_collection_source(
+                db,
+                collection=collection,
+                filename=name,
+                status="ingesting",
+                origin=(document_metadata_by_name.get(name) or {}).get("origin") or "upload",
+            )
             dest = temp_dir / Path(name).name
             legacy_name = (document_metadata_by_name.get(name) or {}).get("legacy_document_name")
             store.copy_to_local(
@@ -137,7 +146,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         update_job(db, job_id, progress=45, stage="embedding")
         db.commit()
 
-        db_type = app_settings.get("ragVectorDBType") or settings.default_vector_db_type or "faiss"
+        db_type = resolve_vector_db_type(app_settings)
         doc_service = DocumentService(
             collection_name=collection.slug,
             vector_db_type=db_type,
@@ -160,6 +169,27 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             collection_slug=collection.slug,
             document_metadata_by_name=document_metadata_by_name,
         )
+        for item in ingest_result.get("results") or []:
+            if not isinstance(item, dict):
+                continue
+            filename = item.get("filename") or Path(str(item.get("document_id") or "")).name
+            if not filename:
+                continue
+            status = "ready" if item.get("status") == "success" else "error"
+            upsert_collection_source(
+                db,
+                collection=collection,
+                filename=str(filename),
+                status=status,
+                origin=(document_metadata_by_name.get(str(filename)) or {}).get("origin") or "upload",
+                chunk_count=int(item.get("chunks_processed") or 0),
+                source_metadata={
+                    "document_id": item.get("document_id"),
+                    "table_facts_processed": item.get("table_facts_processed"),
+                    "document_facts_processed": item.get("document_facts_processed"),
+                },
+                last_error=item.get("error"),
+            )
         chunk_count = await doc_service.get_document_count()
         documents = await doc_service.list_documents()
         update_job(db, job_id, progress=85, stage="bm25")

@@ -12,6 +12,7 @@ import {
   signal,
   ViewChild,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
@@ -76,7 +77,17 @@ interface Source {
  */
 export type AnswerToken =
   | { kind: 'text'; value: string }
+  | { kind: 'strong'; value: string }
+  | { kind: 'em'; value: string }
+  | { kind: 'code'; value: string }
+  | { kind: 'link'; value: string; href: string }
   | { kind: 'cite'; n: number };
+
+type AnswerBlock =
+  | { kind: 'paragraph'; tokens: AnswerToken[] }
+  | { kind: 'heading'; level: 2 | 3 | 4; tokens: AnswerToken[] }
+  | { kind: 'list'; ordered: boolean; items: AnswerToken[][] }
+  | { kind: 'codeblock'; value: string };
 
 interface ChatMessage {
   id: string;
@@ -349,6 +360,7 @@ const STEP_ICONS: Record<string, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    NgTemplateOutlet,
     RouterLink,
     IconComponent,
     RuntimeStatusBadgeComponent,
@@ -896,25 +908,62 @@ const STEP_ICONS: Record<string, string> = {
                   class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-black/5 dark:ring-white/5"
                   [class.vigie-assistant-bubble]="executiveMode()"
                 >
-                  @for (tok of renderAnswer(msg.content); track $index) {
-                    @if (tok.kind === 'text') {
-                      <span>{{ tok.value }}</span>
-                    } @else if (isValidCitation(msg, tok.n)) {
-                      <button
-                        type="button"
-                        class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono font-semibold bg-brand-500/15 text-brand-500 dark:text-brand-300 hover:bg-brand-500/30 hover:text-brand-200 transition ring-1 ring-brand-500/30 cursor-pointer"
-                        [title]="citationTooltip(msg, tok.n)"
-                        (click)="gotoSource(msg, tok.n)"
-                      >
-                        {{ tok.n }}
-                      </button>
+                  <ng-template #answerInline let-tokens="tokens">
+                    @for (tok of tokens; track $index) {
+                      @if (tok.kind === 'text') {
+                        <span>{{ tok.value }}</span>
+                      } @else if (tok.kind === 'strong') {
+                        <strong class="font-semibold text-gray-950 dark:text-white">{{ tok.value }}</strong>
+                      } @else if (tok.kind === 'em') {
+                        <em class="italic">{{ tok.value }}</em>
+                      } @else if (tok.kind === 'code') {
+                        <code class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.5 font-mono text-[0.92em]">{{ tok.value }}</code>
+                      } @else if (tok.kind === 'link') {
+                        <a class="text-brand-500 dark:text-brand-300 underline underline-offset-2" [href]="safeMarkdownHref(tok.href)" target="_blank" rel="noreferrer">{{ tok.value }}</a>
+                      } @else if (isValidCitation(msg, tok.n)) {
+                        <button
+                          type="button"
+                          class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono font-semibold bg-brand-500/15 text-brand-500 dark:text-brand-300 hover:bg-brand-500/30 hover:text-brand-200 transition ring-1 ring-brand-500/30 cursor-pointer"
+                          [title]="citationTooltip(msg, tok.n)"
+                          (click)="gotoSource(msg, tok.n)"
+                        >
+                          {{ tok.n }}
+                        </button>
+                      } @else {
+                        <span
+                          class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono bg-gray-400/15 text-gray-500 ring-1 ring-gray-400/20"
+                          [title]="'Source [' + tok.n + '] referenced by the model but not available'"
+                        >
+                          {{ tok.n }}
+                        </span>
+                      }
+                    }
+                  </ng-template>
+                  @for (block of renderMarkdownAnswer(msg.content); track $index) {
+                    @if (block.kind === 'heading') {
+                      <h3 class="mt-2 first:mt-0 mb-1 text-[0.95rem] font-semibold text-gray-950 dark:text-white">
+                        <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens }"></ng-container>
+                      </h3>
+                    } @else if (block.kind === 'list') {
+                      @if (block.ordered) {
+                        <ol class="my-1.5 list-decimal pl-5 space-y-0.5">
+                          @for (item of block.items; track $index) {
+                            <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item }"></ng-container></li>
+                          }
+                        </ol>
+                      } @else {
+                        <ul class="my-1.5 list-disc pl-5 space-y-0.5">
+                          @for (item of block.items; track $index) {
+                            <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item }"></ng-container></li>
+                          }
+                        </ul>
+                      }
+                    } @else if (block.kind === 'codeblock') {
+                      <pre class="my-2 max-w-full overflow-auto rounded-md bg-black/5 dark:bg-white/[0.06] p-2 text-xs leading-relaxed"><code>{{ block.value }}</code></pre>
                     } @else {
-                      <span
-                        class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono bg-gray-400/15 text-gray-500 ring-1 ring-gray-400/20"
-                        [title]="'Source [' + tok.n + '] referenced by the model but not available'"
-                      >
-                        {{ tok.n }}
-                      </span>
+                      <p class="my-1 first:mt-0 last:mb-0">
+                        <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens }"></ng-container>
+                      </p>
                     }
                   }
                 </div>
@@ -3049,6 +3098,118 @@ export class ChatPanelComponent implements AfterViewInit {
     return tokens.length ? tokens : [{ kind: 'text', value: content }];
   }
 
+  renderMarkdownAnswer(content: string | undefined | null): AnswerBlock[] {
+    const text = (content || '(no response)').replace(/\r\n?/g, '\n');
+    const lines = text.split('\n');
+    const blocks: AnswerBlock[] = [];
+    let paragraph: string[] = [];
+    let listItems: AnswerToken[][] = [];
+    let listOrdered = false;
+    let codeLines: string[] = [];
+    let inCode = false;
+
+    const flushParagraph = () => {
+      const value = paragraph.join('\n').trim();
+      if (value) blocks.push({ kind: 'paragraph', tokens: this.inlineMarkdownTokens(value) });
+      paragraph = [];
+    };
+    const flushList = () => {
+      if (listItems.length) blocks.push({ kind: 'list', ordered: listOrdered, items: listItems });
+      listItems = [];
+      listOrdered = false;
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine.replace(/\s+$/g, '');
+      if (/^\s*```/.test(line)) {
+        if (inCode) {
+          blocks.push({ kind: 'codeblock', value: codeLines.join('\n') });
+          codeLines = [];
+          inCode = false;
+        } else {
+          flushParagraph();
+          flushList();
+          inCode = true;
+        }
+        continue;
+      }
+      if (inCode) {
+        codeLines.push(rawLine);
+        continue;
+      }
+      if (!line.trim()) {
+        flushParagraph();
+        flushList();
+        continue;
+      }
+      const heading = /^(#{1,4})\s+(.+)$/.exec(line);
+      if (heading) {
+        flushParagraph();
+        flushList();
+        const level = Math.min(4, Math.max(2, heading[1].length + 1)) as 2 | 3 | 4;
+        blocks.push({ kind: 'heading', level, tokens: this.inlineMarkdownTokens(heading[2]) });
+        continue;
+      }
+      const unordered = /^\s*[-*•]\s+(.+)$/.exec(line);
+      const ordered = /^\s*\d+[\.)]\s+(.+)$/.exec(line);
+      if (unordered || ordered) {
+        flushParagraph();
+        const isOrdered = !!ordered;
+        if (listItems.length && listOrdered !== isOrdered) {
+          flushList();
+        }
+        listOrdered = isOrdered;
+        listItems.push(this.inlineMarkdownTokens((ordered || unordered)![1]));
+        continue;
+      }
+      flushList();
+      paragraph.push(line);
+    }
+    if (inCode) {
+      blocks.push({ kind: 'codeblock', value: codeLines.join('\n') });
+    }
+    flushParagraph();
+    flushList();
+    return blocks.length ? blocks : [{ kind: 'paragraph', tokens: [{ kind: 'text', value: '(no response)' }] }];
+  }
+
+  private inlineMarkdownTokens(value: string): AnswerToken[] {
+    const tokens: AnswerToken[] = [];
+    const re =
+      /(\[(\d+(?:\s*,\s*\d+)*)\])|(\[([^\]]+)\]\(((?:https?:\/\/|\/)[^) \t]+)\))|(\*\*([^*]+)\*\*)|(__([^_]+)__)|(`([^`]+)`)|(\*([^*]+)\*)|(_([^_]+)_)/g;
+    let last = 0;
+    for (const match of value.matchAll(re)) {
+      const index = match.index ?? 0;
+      if (index > last) {
+        tokens.push({ kind: 'text', value: value.slice(last, index) });
+      }
+      if (match[2]) {
+        for (const part of match[2].split(',')) {
+          const n = parseInt(part.trim(), 10);
+          if (Number.isFinite(n) && n > 0) tokens.push({ kind: 'cite', n });
+        }
+      } else if (match[4] && match[5]) {
+        tokens.push({ kind: 'link', value: match[4], href: match[5] });
+      } else if (match[7] || match[9]) {
+        tokens.push({ kind: 'strong', value: match[7] ?? match[9] ?? '' });
+      } else if (match[11]) {
+        tokens.push({ kind: 'code', value: match[11] });
+      } else if (match[13] || match[15]) {
+        tokens.push({ kind: 'em', value: match[13] ?? match[15] ?? '' });
+      }
+      last = index + match[0].length;
+    }
+    if (last < value.length) {
+      tokens.push({ kind: 'text', value: value.slice(last) });
+    }
+    return tokens.length ? tokens : [{ kind: 'text', value }];
+  }
+
+  safeMarkdownHref(href: string): string {
+    const value = String(href || '').trim();
+    return /^(https?:\/\/|\/)/i.test(value) ? value : '#';
+  }
+
   /** DOM id we attach to each source ``<li>`` so chips can scroll to it. */
   sourceDomId(msgId: string, n: number): string {
     return `msg-${msgId}-src-${n}`;
@@ -3601,6 +3762,9 @@ export class ChatPanelComponent implements AfterViewInit {
         temperature: s.temperature,
         max_tokens: s.maxTokens,
         top_k: s.ragTopK,
+        candidate_pool_k: s.ragCandidatePoolK ?? Math.max((s.ragSynthesisK ?? 12) * 4, 40),
+        synthesis_k: s.ragSynthesisK ?? Math.max(s.ragTopK ?? 5, 12),
+        source_display_k: s.ragSourceDisplayK ?? Math.min(Math.max(s.ragTopK ?? 5, 5), 8),
         similarity_threshold: s.ragSimilarityThreshold,
         // Per-query retrieval override wins over workspace default.
         rag_pipeline_mode: ragOverride !== 'auto' ? ragOverride : s.ragPipelineMode,

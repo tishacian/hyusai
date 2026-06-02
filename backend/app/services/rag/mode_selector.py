@@ -6,7 +6,7 @@ still lives under ``src/`` (Streamlit).
 
 The FastAPI demo maps:
 - ``naive``     -> dense vector retrieval only (closest to "Naive RAG" in-service).
-- ``hybrid``    -> FAISS + BM25 + RRF (default).
+- ``hybrid``    -> vector store + BM25 + RRF (default).
 - ``auto``      -> choose based on index size and query length.
 - ``hah``/``chah`` -> dedicated pipelines when enabled; else hybrid fallback with explicit reason.
 """

@@ -25,6 +25,7 @@ from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import (
+    collection_inventory,
     create_or_get_collection,
     create_collection as create_knowledge_collection,
     create_worker_job,
@@ -34,9 +35,11 @@ from app.services.knowledge_collections import (
     serialize_collection,
     serialize_job,
     update_collection_status,
+    upsert_collection_source,
 )
 from app.services.object_store import get_object_store
 from app.services.rag.document_service import DocumentService
+from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.secure_deposit import build_file_preview, preview_needs_file_bytes
 from app.services.worker_dispatch import dispatch_worker_job
 
@@ -83,12 +86,7 @@ def _resolve_document_vector_db_type(
     requested_type: Optional[str] = None,
 ) -> str:
     app_settings = get_resolved_settings(workspace_id=workspace.id)
-    return (
-        requested_type
-        or app_settings.get("ragVectorDBType")
-        or settings.default_vector_db_type
-        or "faiss"
-    )
+    return (requested_type or "").strip().lower() or resolve_vector_db_type(app_settings)
 
 
 def _attach_collection_job_diagnostics(payload: dict, jobs: list[WorkerJob]) -> dict:
@@ -132,6 +130,15 @@ async def _queue_collection_ingest(
         safe_name = (file.filename or "upload").replace("/", "_").replace("\\", "_")
         content = await file.read()
         store.write_bytes(original_key(collection, safe_name), content)
+        upsert_collection_source(
+            db,
+            collection=collection,
+            filename=safe_name,
+            status="queued",
+            mime_type=file.content_type,
+            origin="upload",
+            size_bytes=len(content),
+        )
         if safe_name not in existing:
             existing.append(safe_name)
         uploaded_names.append(safe_name)
@@ -203,15 +210,7 @@ async def upload_document(
                 "chunks_processed": 0,
             }
 
-        app_settings = get_resolved_settings(workspace_id=workspace.id)
-        # Keep symmetric with the RAG agent read path (`get("ragVectorDBType",
-        # "faiss")`) so upload and retrieval never land in different backends.
-        db_type = (
-            vector_db_type
-            or app_settings.get("ragVectorDBType")
-            or settings.default_vector_db_type
-            or "faiss"
-        )
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
 
         safe_name = file.filename.replace("/", "_").replace("\\", "_")
         tmp_dir = tempfile.mkdtemp()
@@ -290,17 +289,7 @@ async def upload_documents_batch(
             ],
         }
 
-    app_settings = get_resolved_settings(workspace_id=workspace.id)
-    # Ultimate fallback is "faiss" to stay symmetric with the RAG agent retrieval
-    # path. The per-workspace preset still wins and the env-level
-    # `DEFAULT_VECTOR_DB_TYPE` can override it via the request param — but when
-    # nothing is set, we no longer diverge from the read side.
-    db_type = (
-        vector_db_type
-        or app_settings.get("ragVectorDBType")
-        or settings.default_vector_db_type
-        or "faiss"
-    )
+    db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
 
     # We write each upload into a fresh tmpdir using its *original* filename so
     # downstream parsers surface `slides_admin_cockpit.pdf` in chunk metadata
@@ -362,8 +351,7 @@ async def search_documents(
 ):
     """Search documents"""
     try:
-        app_settings = get_resolved_settings(workspace_id=workspace.id)
-        db_type = app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace)
 
         doc_service = DocumentService(
             collection_name=request.collection_name,
@@ -626,12 +614,7 @@ async def get_document_metadata(
     on the cheaper ``GET /documents`` listing.
     """
     try:
-        app_settings = get_resolved_settings(workspace_id=workspace.id)
-        db_type = (
-            app_settings.get("ragVectorDBType")
-            or settings.default_vector_db_type
-            or "faiss"
-        )
+        db_type = _resolve_document_vector_db_type(workspace)
         doc_service = DocumentService(
             collection_name=collection_name,
             vector_db_type=db_type,
@@ -659,7 +642,12 @@ async def preview_document(
 ):
     """Return raw content of a document for preview (text) or redirect info for binary files."""
     try:
-        doc_service = DocumentService(collection_name=collection_name, workspace_slug=workspace.slug)
+        db_type = _resolve_document_vector_db_type(workspace)
+        doc_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
         documents = await doc_service.list_documents()
         doc = next((d for d in documents if d.get("document_id") == document_id), None)
         if not doc:
@@ -706,7 +694,12 @@ async def serve_document_file(
 ):
     """Serve the original uploaded file (PDF, DOCX, etc.) for in-browser viewing."""
     try:
-        doc_service = DocumentService(collection_name=collection_name, workspace_slug=workspace.slug)
+        db_type = _resolve_document_vector_db_type(workspace)
+        doc_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
         documents = await doc_service.list_documents()
         doc = next((d for d in documents if d.get("document_id") == document_id), None)
         if not doc:
@@ -1123,8 +1116,7 @@ async def clear_all_documents(
 ):
     """Clear all documents from a collection"""
     try:
-        app_settings = get_resolved_settings(workspace_id=workspace.id)
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
 
         doc_service = DocumentService(
             collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug
@@ -1162,8 +1154,7 @@ async def delete_document(
 ):
     """Delete a document and its chunks"""
     try:
-        app_settings = get_resolved_settings(workspace_id=workspace.id)
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
 
         doc_service = DocumentService(
             collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug
@@ -1209,8 +1200,7 @@ async def list_collections(
     try:
         from app.services.vector_db.factory import VectorDBFactory
 
-        app_settings = get_resolved_settings(workspace_id=workspace.id)
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
 
         rows = (
             db.query(KnowledgeCollection)
@@ -1270,8 +1260,7 @@ async def create_collection(
     try:
         from app.services.vector_db.factory import VectorDBFactory
 
-        app_settings = get_resolved_settings(workspace_id=workspace.id)
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
         requested_name = (payload.name if payload else collection_name) or ""
         if not requested_name.strip():
             raise HTTPException(status_code=422, detail="Collection name is required")
@@ -1376,7 +1365,23 @@ async def get_collection_detail(
         workspace_slug=workspace.slug,
         include_metrics=True,
     )
+    payload["inventory"] = collection_inventory(db, collection=row, include_sources=True)
     return _attach_collection_job_diagnostics(payload, jobs)
+
+
+@router.get("/collections/{collection_id}/inventory")
+async def get_collection_inventory(
+    collection_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Return authoritative source cardinality and typology for a collection."""
+    row = get_collection_or_404(
+        db,
+        workspace_id=workspace.id,
+        collection_ref=collection_id,
+    )
+    return collection_inventory(db, collection=row, include_sources=True)
 
 
 @router.patch("/collections/{collection_id}")
@@ -1460,8 +1465,7 @@ async def delete_collection(
 
         collection_name = unquote(collection_name)
 
-        app_settings = get_resolved_settings(workspace_id=workspace.id)
-        db_type = vector_db_type or app_settings.get("ragVectorDBType", settings.default_vector_db_type)
+        db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
         row = (
             db.query(KnowledgeCollection)
             .filter(

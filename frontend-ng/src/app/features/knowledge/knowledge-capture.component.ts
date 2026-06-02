@@ -10,7 +10,6 @@ import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
-import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
 
 interface CaptureQuestion {
   id: string;
@@ -296,7 +295,7 @@ interface ProposalFact {
   selector: 'app-knowledge-capture',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, IconComponent, DocumentPreviewComponent],
+  imports: [FormsModule, RouterLink, IconComponent],
   styles: [
     `
       @keyframes kc-timer-blink {

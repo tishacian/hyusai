@@ -163,7 +163,7 @@ class DocumentService:
         collection_name: str = "documents", 
         use_hybrid: bool = True, 
         use_cache: bool = True, 
-        vector_db_type: str = "faiss",
+        vector_db_type: str = "qdrant",
         fusion_method: FusionMethod = FusionMethod.SCORE_ADAPTIVE,
         use_reranker: bool = True,
         workspace_slug: Optional[str] = None,
