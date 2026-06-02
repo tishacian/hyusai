@@ -74,7 +74,35 @@ _STOPWORDS = frozenset(
         "très", "trop", "une", "vers", "voici", "voilà", "vont", "votre", "vous",
         "ça", "celui", "celle", "depuis", "pendant", "puis", "selon", "ainsi", "donne",
         "passe", "valide", "été", "cet", "des", "les", "ces", "est", "que", "qu",
-        "the", "and", "for", "with", "this", "that", "from", "your",
+    }
+)
+
+# Cross-language boilerplate often found in multilingual technical notices
+# (EN/DE) plus HTML/CSS property names. Notices in this corpus are exported as
+# HTML, so without this filter the extracted "distinctive" terms are dominated
+# by markup and English/German function words rather than domain vocabulary.
+_NOISE_WORDS = frozenset(
+    {
+        # English function / boilerplate
+        "the", "and", "for", "with", "this", "that", "from", "your", "must", "only",
+        "into", "such", "have", "will", "shall", "been", "they", "their", "there",
+        "page", "part", "parts", "type", "unit", "table", "manual", "section",
+        "safety", "operating", "instructions", "instruction", "installation",
+        "maintenance", "service", "equipment", "system", "machine", "check", "note",
+        "warning", "danger", "caution", "target", "fixed", "center", "style", "blue",
+        "water", "pressure", "temperature", "motor", "motors", "pump", "valve",
+        "background", "nonwoven", "pilot", "every", "must", "when", "where", "which",
+        # German function / boilerplate
+        "werden", "oder", "sind", "nicht", "nach", "durch", "eine", "einen", "kann",
+        "wird", "seite", "maschine", "maschinen", "betriebsanleitung", "monate",
+        "monat", "warnung", "achtung", "gefahr", "auch", "über", "sich", "diese",
+        "dieser", "dieses", "beim", "zum", "zur", "vom", "wenn", "muss",
+        # HTML / CSS markup leakage
+        "html", "head", "body", "span", "div", "href", "link", "alink", "vlink",
+        "arial", "font", "text", "size", "family", "color", "align", "valign",
+        "width", "height", "style", "class", "table", "border", "cellpadding",
+        "cellspacing", "bgcolor", "nowrap", "verdana", "helvetica", "sans", "serif",
+        "decoration", "none", "left", "right", "center", "top", "bottom", "middle",
     }
 )
 
@@ -98,6 +126,7 @@ def extract_acronyms(text: str) -> List[str]:
     """
     if not text:
         return []
+    text = _strip_markup(text)
     out: List[str] = []
     for surface in _ACRONYM_RE.findall(text):
         if any(ch.isdigit() for ch in surface):
@@ -111,6 +140,21 @@ def _is_acronym_token(token: str) -> bool:
     return bool(token) and _ACRONYM_RE.fullmatch(token) is not None
 
 
+_STYLE_SCRIPT_RE = re.compile(r"<(style|script)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
+_TAG_RE = re.compile(r"<[^>]+>")
+_ENTITY_RE = re.compile(r"&[a-zA-Z#0-9]+;")
+
+
+def _strip_markup(text: str) -> str:
+    """Remove HTML/CSS so extraction sees prose, not tags. Cheap and tolerant."""
+    if "<" not in text and "&" not in text:
+        return text
+    text = _STYLE_SCRIPT_RE.sub(" ", text)
+    text = _TAG_RE.sub(" ", text)
+    text = _ENTITY_RE.sub(" ", text)
+    return text
+
+
 def extract_distinctive_terms(text: str, *, min_len: int = _MIN_TERM_LEN) -> List[str]:
     """Extract candidate distinctive domain nouns from ``text``.
 
@@ -120,15 +164,20 @@ def extract_distinctive_terms(text: str, *, min_len: int = _MIN_TERM_LEN) -> Lis
     """
     if not text:
         return []
+    text = _strip_markup(text)
     out: List[str] = []
     for match in _WORD_RE.finditer(text):
         token = match.group(0)
         if _is_acronym_token(token):
             continue
+        # CSS property leakage (font-family, text-decoration, ...) and other
+        # hyphen-joined markup are not domain nouns.
+        if "-" in token:
+            continue
         lowered = token.lower()
         if len(lowered) < min_len:
             continue
-        if lowered in _STOPWORDS:
+        if lowered in _STOPWORDS or lowered in _NOISE_WORDS:
             continue
         # Require at least one letter; skip pure numbers / codes (acronym path
         # owns alphanumeric codes).
