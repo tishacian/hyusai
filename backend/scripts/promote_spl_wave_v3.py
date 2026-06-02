@@ -18,7 +18,9 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.spl_wave_importer import (
     DEFAULT_SPL_COLLECTION,
+    build_v3_archive_wave_plan,
     build_v3_wave_plans,
+    execute_v3_archive_wave_plan,
     execute_v3_wave_plans,
 )
 
@@ -41,6 +43,13 @@ def main() -> None:
     parser.add_argument("--collection", default=DEFAULT_SPL_COLLECTION)
     parser.add_argument("--folder", help="Limit to SPL subfolder letter (A, B, C, D)")
     parser.add_argument("--batch", type=int, help="1-based batch index from dry-run plan list")
+    parser.add_argument(
+        "--archive",
+        action="append",
+        dest="archives",
+        help="Exact SPL archive path to promote; can be repeated. Avoids mutable batch numbers.",
+    )
+    parser.add_argument("--wave-id", help="Override the wave id used when --archive is provided")
     parser.add_argument("--dry-run", action="store_true", default=False)
     parser.add_argument("--execute", action="store_true", default=False)
     parser.add_argument("--force", action="store_true", help="Ignore wave ledger skips")
@@ -60,16 +69,31 @@ def main() -> None:
         workspace = db.query(Workspace).filter(Workspace.slug == args.workspace).first()
         if not workspace:
             raise SystemExit(f"Workspace not found: {args.workspace}")
+        if args.archives and (args.folder or args.batch):
+            raise SystemExit("--archive cannot be combined with --folder or --batch")
 
-        plans = build_v3_wave_plans(
-            db,
-            workspace=workspace,
-            collection_slug=args.collection,
-            dry_run=args.dry_run,
-            skip_ledger=not args.force,
-            folder=args.folder,
-            batch_index=args.batch,
-        )
+        if args.archives:
+            plans = [
+                build_v3_archive_wave_plan(
+                    db,
+                    workspace=workspace,
+                    collection_slug=args.collection,
+                    archive_filenames=args.archives,
+                    dry_run=args.dry_run,
+                    skip_ledger=not args.force,
+                    wave_id=args.wave_id,
+                )
+            ]
+        else:
+            plans = build_v3_wave_plans(
+                db,
+                workspace=workspace,
+                collection_slug=args.collection,
+                dry_run=args.dry_run,
+                skip_ledger=not args.force,
+                folder=args.folder,
+                batch_index=args.batch,
+            )
         summary = {
             "batch_count": len(plans),
             "total_archives": sum(len(plan.archives) for plan in plans),
@@ -86,16 +110,30 @@ def main() -> None:
             document_ocr = {"enabled": False}
         elif args.ocr == "force":
             document_ocr = {"enabled": True, "force_ocr": True}
-        results = execute_v3_wave_plans(
-            db,
-            workspace=workspace,
-            user=user,
-            collection_slug=args.collection,
-            skip_ledger=not args.force,
-            folder=args.folder,
-            batch_index=args.batch,
-            document_ocr=document_ocr,
-        )
+        if args.archives:
+            results = [
+                execute_v3_archive_wave_plan(
+                    db,
+                    workspace=workspace,
+                    user=user,
+                    collection_slug=args.collection,
+                    archive_filenames=args.archives,
+                    skip_ledger=not args.force,
+                    wave_id=args.wave_id,
+                    document_ocr=document_ocr,
+                )
+            ]
+        else:
+            results = execute_v3_wave_plans(
+                db,
+                workspace=workspace,
+                user=user,
+                collection_slug=args.collection,
+                skip_ledger=not args.force,
+                folder=args.folder,
+                batch_index=args.batch,
+                document_ocr=document_ocr,
+            )
         print("wave_results:", json.dumps(results, ensure_ascii=False, indent=2))
     finally:
         db.close()

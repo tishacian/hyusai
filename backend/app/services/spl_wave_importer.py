@@ -567,6 +567,43 @@ def build_v3_wave_plans(
     return plans
 
 
+def _v3_archive_wave_id(archive_filenames: Iterable[str]) -> str:
+    names = [str(name or "") for name in archive_filenames if name]
+    stem = (names[0].rsplit("/", 1)[-1].rsplit(".", 1)[0] if names else "archive").lower()
+    slug = re.sub(r"[^a-z0-9]+", "_", stem).strip("_") or "archive"
+    if len(names) > 1:
+        slug = f"{slug}_plus_{len(names) - 1}"
+    return f"spl_v3_archive_{slug[:48]}"
+
+
+def build_v3_archive_wave_plan(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    collection_slug: str,
+    archive_filenames: Iterable[str],
+    dry_run: bool = True,
+    skip_ledger: bool = True,
+    wave_id: str | None = None,
+) -> WavePlan:
+    """Build a V3 plan for exact archive path(s), avoiding mutable batch numbers."""
+    filenames = [str(name) for name in archive_filenames if str(name or "").strip()]
+    if not filenames:
+        raise ValueError("at least one archive filename is required")
+    limits = WaveLimits.v3()
+    return build_wave_plan(
+        db,
+        workspace=workspace,
+        collection_slug=collection_slug,
+        archive_filenames=filenames,
+        allow_repromote=True,
+        dry_run=dry_run,
+        limits=limits,
+        wave_id=wave_id or _v3_archive_wave_id(filenames),
+        skip_ledger=skip_ledger,
+    )
+
+
 def copy_collection_documents(
     db: DBSession,
     *,
@@ -934,3 +971,44 @@ def execute_v3_wave_plans(
             )
         )
     return results
+
+
+def execute_v3_archive_wave_plan(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    collection_slug: str,
+    archive_filenames: Iterable[str],
+    skip_ledger: bool = True,
+    wave_id: str | None = None,
+    document_ocr: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    limits = WaveLimits.v3()
+    plan = build_v3_archive_wave_plan(
+        db,
+        workspace=workspace,
+        collection_slug=collection_slug,
+        archive_filenames=archive_filenames,
+        dry_run=False,
+        skip_ledger=skip_ledger,
+        wave_id=wave_id,
+    )
+    if not any(item.promotable for item in plan.archives):
+        return {
+            "status": "skipped",
+            "wave_id": plan.wave_id,
+            "reason": "no_promotable_archives",
+            "plan": plan.as_dict(),
+        }
+    if any(item.filename == "__wave_limit__" for item in plan.archives):
+        return {"status": "blocked", "wave_id": plan.wave_id, "plan": plan.as_dict()}
+    return execute_wave_plan(
+        db,
+        workspace=workspace,
+        user=user,
+        plan=plan,
+        allow_repromote=True,
+        limits=limits,
+        document_ocr=document_ocr,
+    )

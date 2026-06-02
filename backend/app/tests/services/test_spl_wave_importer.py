@@ -12,6 +12,7 @@ from app.services.secure_deposit import (
 )
 from app.services.spl_wave_importer import (
     WaveLimits,
+    build_v3_archive_wave_plan,
     build_v2_wave_plans,
     build_v3_wave_plans,
     build_wave_plan,
@@ -355,6 +356,99 @@ def test_build_v3_wave_plans_isolates_large_archive(db_session, monkeypatch, tmp
     assert "Manual_ASY100.zip" not in {
         item.filename for plan in plans_after for item in plan.archives
     }
+
+
+def test_build_v3_archive_wave_plan_targets_exact_archive(db_session, monkeypatch, tmp_path):
+    from app.models.secure_deposit import DepositFile
+    from app.models.user import User
+    from app.models.workspace import Workspace
+    from app.services.secure_deposit import create_link
+    from app.services.spl_wave_importer import record_wave_ledger
+
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    db_session.add_all([workspace, user])
+    db_session.flush()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="SPL archive target test",
+        expires_at=None,
+        max_file_size_mb=10240,
+        allowed_extensions=["zip"],
+    )
+
+    acj = tmp_path / "Manual_ACJ200-revA.zip"
+    with zipfile.ZipFile(acj, "w") as archive:
+        archive.writestr("acj/manual.txt", "acj")
+    bhx = tmp_path / "Manual_BHX100_revD.zip"
+    with zipfile.ZipFile(bhx, "w") as archive:
+        archive.writestr("bhx/manual.txt", "bhx")
+
+    d_acj = DepositFile(
+        workspace_id=workspace.id,
+        access_link_id=link.id,
+        filename="Notices_Techniques_SPL/A/Manual_ACJ200-revA.zip",
+        object_key="obj-acj",
+        status="received",
+        size_bytes=acj.stat().st_size,
+        sha256="hash-acj",
+    )
+    d_bhx = DepositFile(
+        workspace_id=workspace.id,
+        access_link_id=link.id,
+        filename="Notices_Techniques_SPL/B/Manual_BHX100_revD.zip",
+        object_key="obj-bhx",
+        status="received",
+        size_bytes=bhx.stat().st_size,
+        sha256="hash-bhx",
+    )
+    db_session.add_all([d_acj, d_bhx])
+    db_session.commit()
+
+    def _fake_staged(deposit_file):
+        if deposit_file.id == d_acj.id:
+            return acj
+        if deposit_file.id == d_bhx.id:
+            return bhx
+        raise FileNotFoundError(deposit_file.filename)
+
+    monkeypatch.setattr("app.services.spl_wave_importer.staged_file_path", _fake_staged)
+
+    target = "Notices_Techniques_SPL/B/Manual_BHX100_revD.zip"
+    plan = build_v3_archive_wave_plan(
+        db_session,
+        workspace=workspace,
+        collection_slug="andritz-notices-techniques-spl-pilot",
+        archive_filenames=[target],
+        dry_run=True,
+    )
+
+    assert plan.wave_id == "spl_v3_archive_manual_bhx100_revd"
+    assert [item.filename for item in plan.archives] == [target]
+    assert plan.total_documents == 1
+
+    record_wave_ledger(
+        db_session,
+        workspace=workspace,
+        collection_slug="andritz-notices-techniques-spl-pilot",
+        wave_id=plan.wave_id,
+        filenames=[target],
+        job_id="job-bhx",
+        new_document_count=1,
+    )
+    db_session.commit()
+
+    skipped = build_v3_archive_wave_plan(
+        db_session,
+        workspace=workspace,
+        collection_slug="andritz-notices-techniques-spl-pilot",
+        archive_filenames=[target],
+        dry_run=True,
+    )
+    assert skipped.archives == []
+    assert skipped.skipped_ledger == [target]
 
 
 # --- Collision-prevention fix (source-namespaced document identity) ----------
