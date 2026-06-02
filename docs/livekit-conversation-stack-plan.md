@@ -152,7 +152,8 @@ Proposition VM :
 
 ```text
 livekit.agentium.papai.ai  -> Nginx TLS -> 127.0.0.1:7880
-UDP 50000-60000            -> host -> agentium-livekit
+UDP 50000-50100 demo       -> host -> agentium-livekit
+UDP 50000-60000 prod       -> host -> agentium-livekit, apres validation firewall
 TCP 7881                   -> host -> agentium-livekit, si ICE/TCP active
 ```
 
@@ -540,6 +541,8 @@ export LIVEKIT_WEBHOOK_API_KEY="$(grep -E '^LIVEKIT_WEBHOOK_API_KEY=' env/agenti
 export LIVEKIT_KEYS="$(grep -E '^LIVEKIT_KEYS=' env/agentium.vm.env | cut -d= -f2-)"
 test -n "$LIVEKIT_WEBHOOK_API_KEY" || export LIVEKIT_WEBHOOK_API_KEY="$LIVEKIT_API_KEY"
 test -n "$LIVEKIT_KEYS" || export LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET"
+export LIVEKIT_RTC_UDP_RANGE_START="${LIVEKIT_RTC_UDP_RANGE_START:-50000}"
+export LIVEKIT_RTC_UDP_RANGE_END="${LIVEKIT_RTC_UDP_RANGE_END:-50100}"
 docker compose -f compose.agentium.yml --profile realtime up -d agentium-livekit
 docker compose -f compose.agentium.yml --profile realtime build agentium-backend agentium-frontend agentium-livekit-agent
 docker compose -f compose.agentium.yml --profile realtime up -d agentium-backend agentium-frontend agentium-livekit-agent

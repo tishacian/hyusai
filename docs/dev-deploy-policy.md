@@ -168,6 +168,10 @@ Si `LIVEKIT_WEBHOOK_API_KEY` est dédiée, elle doit être présente dans
 `docker/livekit/agentium-livekit.yaml` contient seulement un placeholder
 `__LIVEKIT_WEBHOOK_API_KEY__` ; le compose le remplace au démarrage du conteneur
 avec `LIVEKIT_WEBHOOK_API_KEY` avant de lancer `/livekit-server`.
+La plage UDP demo par defaut est courte (`50000-50100`) pour eviter un blocage
+Docker lors du publish de milliers de ports sur la VM. Elargir vers
+`50000-60000` seulement lors d'un vrai cutover WebRTC production avec firewall
+et monitoring prets.
 
 Depuis `/home/ubuntu/omnirag/docker` :
 
@@ -178,6 +182,8 @@ export LIVEKIT_API_KEY="$(grep -E '^LIVEKIT_API_KEY=' env/agentium.vm.env | cut 
 export LIVEKIT_API_SECRET="$(grep -E '^LIVEKIT_API_SECRET=' env/agentium.vm.env | cut -d= -f2-)"
 export LIVEKIT_WEBHOOK_API_KEY="$(grep -E '^LIVEKIT_WEBHOOK_API_KEY=' env/agentium.vm.env | cut -d= -f2-)"
 export LIVEKIT_KEYS="$(grep -E '^LIVEKIT_KEYS=' env/agentium.vm.env | cut -d= -f2-)"
+export LIVEKIT_RTC_UDP_RANGE_START="${LIVEKIT_RTC_UDP_RANGE_START:-50000}"
+export LIVEKIT_RTC_UDP_RANGE_END="${LIVEKIT_RTC_UDP_RANGE_END:-50100}"
 test -n "$LIVEKIT_WEBHOOK_API_KEY" || export LIVEKIT_WEBHOOK_API_KEY="$LIVEKIT_API_KEY"
 test -n "$LIVEKIT_KEYS" || export LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET"
 

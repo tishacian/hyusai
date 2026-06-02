@@ -70,7 +70,10 @@ services:
         awk \
           -v webhook_key="$${LIVEKIT_WEBHOOK_API_KEY:-$${LIVEKIT_API_KEY:-devkey}}" \
           -v redis_block="$$redis_block" \
-          '{ gsub("__LIVEKIT_WEBHOOK_API_KEY__", webhook_key); gsub("__LIVEKIT_REDIS_BLOCK__", redis_block); print }' \
+          -v rtc_tcp_port="$${LIVEKIT_RTC_TCP_PORT:-7881}" \
+          -v rtc_udp_start="$${LIVEKIT_RTC_UDP_RANGE_START:-50000}" \
+          -v rtc_udp_end="$${LIVEKIT_RTC_UDP_RANGE_END:-50100}" \
+          '{ gsub("__LIVEKIT_WEBHOOK_API_KEY__", webhook_key); gsub("__LIVEKIT_REDIS_BLOCK__", redis_block); gsub("__LIVEKIT_RTC_TCP_PORT__", rtc_tcp_port); gsub("__LIVEKIT_RTC_UDP_RANGE_START__", rtc_udp_start); gsub("__LIVEKIT_RTC_UDP_RANGE_END__", rtc_udp_end); print }' \
           /etc/livekit/agentium-livekit.yaml > /tmp/agentium-livekit.yaml
         exec /livekit-server --config /tmp/agentium-livekit.yaml
     environment:
@@ -80,10 +83,13 @@ services:
       LIVEKIT_REDIS_USERNAME: ${LIVEKIT_REDIS_USERNAME:-}
       LIVEKIT_REDIS_PASSWORD: ${LIVEKIT_REDIS_PASSWORD:-}
       LIVEKIT_REDIS_DB: ${LIVEKIT_REDIS_DB:-}
+      LIVEKIT_RTC_TCP_PORT: ${LIVEKIT_RTC_TCP_PORT:-7881}
+      LIVEKIT_RTC_UDP_RANGE_START: ${LIVEKIT_RTC_UDP_RANGE_START:-50000}
+      LIVEKIT_RTC_UDP_RANGE_END: ${LIVEKIT_RTC_UDP_RANGE_END:-50100}
     ports:
       - "127.0.0.1:${LIVEKIT_HTTP_HOST_PORT:-7880}:7880"
       - "${LIVEKIT_RTC_BIND_HOST:-0.0.0.0}:${LIVEKIT_RTC_TCP_PORT:-7881}:7881"
-      - "${LIVEKIT_RTC_BIND_HOST:-0.0.0.0}:${LIVEKIT_RTC_UDP_RANGE_START:-50000}-${LIVEKIT_RTC_UDP_RANGE_END:-60000}:50000-60000/udp"
+      - "${LIVEKIT_RTC_BIND_HOST:-0.0.0.0}:${LIVEKIT_RTC_UDP_RANGE_START:-50000}-${LIVEKIT_RTC_UDP_RANGE_END:-50100}:${LIVEKIT_RTC_UDP_RANGE_START:-50000}-${LIVEKIT_RTC_UDP_RANGE_END:-50100}/udp"
     volumes:
       - ./livekit/agentium-livekit.yaml:/etc/livekit/agentium-livekit.yaml:ro
 

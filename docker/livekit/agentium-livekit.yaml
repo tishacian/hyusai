@@ -2,9 +2,9 @@ port: 7880
 
 __LIVEKIT_REDIS_BLOCK__
 rtc:
-  port_range_start: 50000
-  port_range_end: 60000
-  tcp_port: 7881
+  port_range_start: __LIVEKIT_RTC_UDP_RANGE_START__
+  port_range_end: __LIVEKIT_RTC_UDP_RANGE_END__
+  tcp_port: __LIVEKIT_RTC_TCP_PORT__
   use_external_ip: true
   allow_tcp_fallback: true
 
