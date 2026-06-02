@@ -78,6 +78,50 @@ async def test_add_vectors_batches_large_upserts(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_documents_aggregates_chunk_counts_in_one_scroll():
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.scroll.side_effect = [
+        (
+            [
+                SimpleNamespace(payload={"document_id": "doc-a", "document_filename": "a.pdf", "document_type": "pdf"}),
+                SimpleNamespace(payload={"document_id": "doc-a", "document_filename": "a.pdf", "document_type": "pdf"}),
+                SimpleNamespace(payload={"document_id": "doc-b", "document_filename": "b.txt", "document_type": "text"}),
+            ],
+            None,
+        )
+    ]
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    docs = await db.list_documents()
+
+    assert docs == [
+        {"document_id": "doc-a", "filename": "a.pdf", "document_type": "pdf", "chunk_count": 2, "chunks_count": 2},
+        {"document_id": "doc-b", "filename": "b.txt", "document_type": "text", "chunk_count": 1, "chunks_count": 1},
+    ]
+    client.scroll.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_list_documents_keeps_duplicate_document_ids_with_distinct_filenames():
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.scroll.return_value = (
+        [
+            SimpleNamespace(payload={"document_id": "same-doc", "document_filename": "first.pdf", "document_type": "pdf"}),
+            SimpleNamespace(payload={"document_id": "same-doc", "document_filename": "second.pdf", "document_type": "pdf"}),
+        ],
+        None,
+    )
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    docs = await db.list_documents()
+
+    assert [doc["filename"] for doc in docs] == ["first.pdf", "second.pdf"]
+    assert [doc["chunk_count"] for doc in docs] == [1, 1]
+
+
+@pytest.mark.asyncio
 async def test_search_returns_chunk_ids_and_clamps_score():
     client = MagicMock()
     client.collection_exists.return_value = True

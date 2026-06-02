@@ -380,6 +380,10 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             db.commit()
         update_job(db, job_id, progress=60, stage="indexing")
         db.commit()
+        try:
+            ingest_max_concurrency = int(getattr(settings, "document_ingest_max_concurrency", 8) or 8)
+        except (TypeError, ValueError):
+            ingest_max_concurrency = 8
         ingest_result = await doc_service.ingest_documents_batch(
             local_paths,
             workspace_id=workspace.id,
@@ -388,6 +392,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             document_metadata_by_name=document_metadata_by_name,
             parsed_documents_by_path=parsed_documents_by_path,
             document_ocr=ocr_overrides,
+            max_concurrency=max(1, ingest_max_concurrency),
         )
         source_results_by_name: dict[str, dict] = {}
         for index, item in enumerate(ingest_result.get("results") or []):
@@ -476,13 +481,16 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             deposit_summaries=deposit_summaries,
         )
 
+        source_document_count = len(collection.document_names or file_names or documents)
+
         result = {
             "ingest": ingest_result,
             "bm25": bm25,
             "vector_db_type": db_type,
             "collection_slug": collection.slug,
             "chunk_count": chunk_count,
-            "document_count": len(documents),
+            "document_count": source_document_count,
+            "indexed_document_count": len(documents),
             "deposit_files": deposit_summaries,
         }
         if wave_ledger_result:
@@ -491,7 +499,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             db,
             collection.id,
             status="ready",
-            document_count=len(documents),
+            document_count=source_document_count,
             chunk_count=chunk_count,
             document_names=list(collection.document_names or file_names),
         )

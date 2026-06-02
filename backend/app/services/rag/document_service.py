@@ -424,13 +424,24 @@ class DocumentService:
                 extra_document_meta = _document_extra_metadata(file_path, parsed_doc.filename, kwargs)
 
                 # Step 2: Generate embeddings for chunks (async batch)
-                chunk_texts = [chunk["content"] for chunk in parsed_doc.chunks]
+                indexable_chunks = [
+                    chunk for chunk in parsed_doc.chunks if str(chunk.get("content") or "").strip()
+                ]
+                if not indexable_chunks:
+                    return {
+                        "document_id": parsed_doc.id,
+                        "status": "success",
+                        "chunks_processed": 0,
+                        "filename": parsed_doc.filename,
+                        "message": "No non-empty chunks to index",
+                    }
+                chunk_texts = [str(chunk["content"]) for chunk in indexable_chunks]
                 embeddings = await self.embedder.embed_batch(chunk_texts)
                 
                 # Step 3: Prepare metadata
                 chunk_metadatas = []
                 chunk_ids = []
-                for i, chunk in enumerate(parsed_doc.chunks):
+                for i, chunk in enumerate(indexable_chunks):
                     chunk_metadatas.append({
                         "document_id": parsed_doc.id,
                         "document_filename": parsed_doc.filename,
@@ -471,7 +482,7 @@ class DocumentService:
                 return {
                     "document_id": parsed_doc.id,
                     "status": "success",
-                    "chunks_processed": len(parsed_doc.chunks),
+                    "chunks_processed": len(indexable_chunks),
                     "table_facts_processed": table_facts_count,
                     "document_facts_processed": document_facts_count,
                     "filename": parsed_doc.filename,

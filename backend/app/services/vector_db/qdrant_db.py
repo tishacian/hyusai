@@ -369,12 +369,17 @@ class QdrantVectorDB(VectorDBBase):
                         continue
                     if str(filename).endswith(".tmp"):
                         continue
-                    if doc_id not in seen:
-                        seen[str(doc_id)] = {
+                    key = f"{doc_id}:{filename}"
+                    if key not in seen:
+                        seen[key] = {
                             "document_id": doc_id,
                             "filename": filename,
                             "document_type": pl.get("document_type", "unknown"),
+                            "chunk_count": 0,
+                            "chunks_count": 0,
                         }
+                    seen[key]["chunk_count"] += 1
+                    seen[key]["chunks_count"] = seen[key]["chunk_count"]
                 if next_off is None:
                     break
             return list(seen.values())

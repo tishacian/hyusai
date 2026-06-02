@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     # is explicitly enabled; the canonical collection upload endpoint always
     # creates a WorkerJob and dispatches through this plane.
     document_ingest_async_enabled: bool = False
+    document_ingest_max_concurrency: int = 8
     worker_eager_mode: bool = False
     celery_broker_url: str = "amqp://guest:guest@localhost:5672//"
     celery_result_backend: Optional[str] = None
