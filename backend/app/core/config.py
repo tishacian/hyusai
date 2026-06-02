@@ -152,7 +152,7 @@ class Settings(BaseSettings):
     # timeout-bounded so it never delays the live cascade; `transcript.partial`
     # (raw) is never touched.
     voice_transcript_rewrite_enabled: bool = True
-    voice_transcript_rewrite_llm_enabled: bool = False
+    voice_transcript_rewrite_llm_enabled: bool = True
     voice_transcript_rewrite_timeout_ms: int = 1200
     voice_transcript_glossary_max_terms: int = 120
 
