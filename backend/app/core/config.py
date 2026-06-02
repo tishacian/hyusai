@@ -145,6 +145,17 @@ class Settings(BaseSettings):
     local_tts_endpoint_url: Optional[str] = None
     local_realtime_endpoint_url: Optional[str] = None
 
+    # Domain-aware transcript rewrite on the capture voice loop's `improved`/`final`
+    # stages. A hybrid glossary (workspace KB-derived + live plan topics + retrieved
+    # chunks) drives a deterministic Tier-1 correction (fuzzy near-homophones,
+    # acronym casing). The optional Tier-2 LLM pass stays OFF by default and is
+    # timeout-bounded so it never delays the live cascade; `transcript.partial`
+    # (raw) is never touched.
+    voice_transcript_rewrite_enabled: bool = True
+    voice_transcript_rewrite_llm_enabled: bool = False
+    voice_transcript_rewrite_timeout_ms: int = 1200
+    voice_transcript_glossary_max_terms: int = 120
+
     # Cascade TTS voice + steering. The steerable gpt-4o-mini-tts model accepts
     # an `instructions` field to control accent / persona / prosody; tts-1 and
     # tts-1-hd do NOT (instructions are dropped whenever the resolved model is

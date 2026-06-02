@@ -17,6 +17,7 @@ from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import decode_token
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.iam.dependencies import enforce_permission
 from app.models.expert_capture import ExpertCaptureSession
@@ -40,6 +41,10 @@ from app.services.voice_runtime import (
     resolve_voice_runtime_slug,
 )
 from app.services.voice_tandem_oracle import VoiceTandemOracle
+from app.services.voice_transcript_glossary import (
+    correct_transcript_segment,
+    resolve_glossary,
+)
 
 
 logger = get_logger(__name__)
@@ -703,11 +708,29 @@ class VoiceSessionGateway:
         # the raw STT text as the partial, then the cleaned text as the improved stage.
         segment_id = state.client_turn_id or str(uuid.uuid4())
         capture_session = self._capture_session(db, workspace.id, state.session_id)
+        # Domain-aware correction (hybrid glossary) feeds BOTH the improved stage
+        # and the committed text.final / downstream turn, so captured facts use the
+        # corrected wording. The raw transcript.partial below stays untouched, so no
+        # latency is added to what the expert sees first. Gated by config.
+        corrected_text = text
+        if text and settings.voice_transcript_rewrite_enabled:
+            try:
+                glossary = resolve_glossary(workspace, capture_session, state.last_retrieval_chunks)
+                if not glossary.is_empty:
+                    corrected_text = await correct_transcript_segment(
+                        text,
+                        glossary,
+                        llm_enabled=settings.voice_transcript_rewrite_llm_enabled,
+                        timeout_ms=settings.voice_transcript_rewrite_timeout_ms,
+                        workspace_id=workspace.id,
+                    )
+            except Exception:
+                corrected_text = text
         if text:
-            # Plan-aware reformulation: reframe the raw chunk against the relevant plan
-            # topic, not just disfluency cleanup. The UI labels it via reframed=True.
+            # Plan-aware reformulation: reframe the corrected chunk against the relevant
+            # plan topic, not just disfluency cleanup. The UI labels it via reframed=True.
             plan_topic_label = self._active_plan_topic_label(capture_session)
-            improved_text = reframe_transcript_segment(text, plan_topic_label=plan_topic_label)
+            improved_text = reframe_transcript_segment(corrected_text, plan_topic_label=plan_topic_label)
             await self._send(
                 websocket,
                 state,
@@ -732,7 +755,7 @@ class VoiceSessionGateway:
             {
                 "turn_id": state.client_turn_id,
                 "speaker": "expert",
-                "text": text,
+                "text": corrected_text,
                 "empty": not bool(text),
                 "reason": None if text else (ignored_reason or "empty_transcript"),
                 "confidence": transcript.get("confidence"),
@@ -767,7 +790,7 @@ class VoiceSessionGateway:
                     workspace_id=workspace.id,
                     session_id=capture_session.id,
                     client_turn_id=state.client_turn_id,
-                    text=text,
+                    text=corrected_text,
                     question_id=state.question_id,
                     retrieval_event_id=state.retrieval_event_id,
                     interruption_of_event_id=state.interruption_of_event_id,
@@ -785,7 +808,7 @@ class VoiceSessionGateway:
                     workspace_id=workspace.id,
                     session_id=capture_session.id,
                     speaker="expert",
-                    text=text,
+                    text=corrected_text,
                     question_id=state.question_id,
                     client_turn_id=state.client_turn_id,
                     retrieval_event_id=state.retrieval_event_id,
