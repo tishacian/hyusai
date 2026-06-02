@@ -332,17 +332,36 @@ class LiveKitService:
         metadata = _parse_metadata(room.get("metadata"))
         session_id = str(metadata.get("agentium_session_id") or "")
         workspace_id = str(metadata.get("workspace_id") or "")
+        room_name = str(room.get("name") or "")
+        session = None
+        if session_id and workspace_id:
+            session = (
+                db.query(ExpertCaptureSession)
+                .filter(ExpertCaptureSession.id == session_id, ExpertCaptureSession.workspace_id == workspace_id)
+                .first()
+            )
+        if not session and room_name:
+            candidates = (
+                db.query(ExpertCaptureSession)
+                .filter(ExpertCaptureSession.metrics.isnot(None))
+                .order_by(ExpertCaptureSession.updated_at.desc())
+                .limit(200)
+                .all()
+            )
+            for candidate in candidates:
+                livekit_metrics = (candidate.metrics or {}).get("livekit") or {}
+                if isinstance(livekit_metrics, dict) and livekit_metrics.get("room_name") == room_name:
+                    session = candidate
+                    session_id = candidate.id
+                    workspace_id = candidate.workspace_id
+                    break
         if not session_id or not workspace_id:
             return {
                 "recorded": False,
                 "reason": "missing_agentium_metadata",
                 "event": event_type,
+                "room_name": room_name or None,
             }
-        session = (
-            db.query(ExpertCaptureSession)
-            .filter(ExpertCaptureSession.id == session_id, ExpertCaptureSession.workspace_id == workspace_id)
-            .first()
-        )
         if not session:
             return {
                 "recorded": False,

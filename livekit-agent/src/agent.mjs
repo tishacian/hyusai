@@ -195,6 +195,19 @@ function sendVoiceGatewayEvent(bridge, type, payload = {}) {
   return true;
 }
 
+async function disconnectRoomSafely(room) {
+  try {
+    await room?.disconnect?.();
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        code: 'livekit_room_disconnect_ignored',
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+}
+
 function appendAudioFrame(session, frame) {
   const pcm = frameToPcmBuffer(frame);
   if (!pcm?.length) return false;
@@ -315,7 +328,7 @@ export async function handleControlEvent(session, event, participant, kind) {
   }
   sendVoiceGatewayEvent(session.voiceGateway, type, event.payload || {});
   if (type === 'session.close') {
-    await session.room.disconnect();
+    await disconnectRoomSafely(session.room);
   }
 }
 
@@ -458,11 +471,7 @@ export async function startSession(dispatch, options = {}) {
     info.connect_attempts = connectResult.attempts;
   } catch (error) {
     sessions.delete(sessionId);
-    try {
-      await room.disconnect();
-    } catch {
-      // best-effort cleanup after failed connect
-    }
+    await disconnectRoomSafely(room);
     throw error;
   }
   try {
@@ -521,7 +530,7 @@ export function createAgentiumLiveKitAgentServer() {
           if (session.voiceGateway?.socket && session.voiceGateway.open) {
             session.voiceGateway.socket.close(1000, 'shutdown-session');
           }
-          await session.room.disconnect();
+          await disconnectRoomSafely(session.room);
           sessions.delete(sessionId);
         }
         json(res, 200, { status: 'ok', session_id: sessionId });
@@ -551,7 +560,7 @@ async function shutdown(server) {
       if (session.voiceGateway?.socket && session.voiceGateway.open) {
         session.voiceGateway.socket.close(1000, 'shutdown');
       }
-      await session.room.disconnect();
+      await disconnectRoomSafely(session.room);
     } catch {
       // best-effort shutdown
     }

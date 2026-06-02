@@ -246,6 +246,37 @@ def test_livekit_record_webhook_event_updates_capture_metrics(monkeypatch, db_se
     assert livekit["events"][-1]["track_sid"] == "TR_1"
 
 
+def test_livekit_record_webhook_event_falls_back_to_known_room_name(monkeypatch, db_session):
+    _enable_livekit(monkeypatch)
+    session = ExpertCaptureSession(
+        id="capture-livekit-room-fallback",
+        workspace_id="workspace-livekit-room-fallback",
+        title="LiveKit capture",
+        objective="Capture LiveKit telemetry.",
+        created_by_user_id="user-1",
+        metrics={"livekit": {"room_name": "agentium-andritz-kc", "event_counts": {"room_started": 1}}},
+    )
+    db_session.add(session)
+    db_session.commit()
+
+    result = LiveKitService().record_webhook_event(
+        db_session,
+        {
+            "event": "track_published",
+            "room": {"name": "agentium-andritz-kc", "sid": "RM_1"},
+            "participant": {"identity": "expert-1", "sid": "PA_1", "name": "Expert"},
+            "track": {"sid": "TR_1", "name": "microphone", "type": "audio", "source": "microphone"},
+        },
+    )
+
+    assert result["recorded"] is True
+    db_session.refresh(session)
+    livekit = session.metrics["livekit"]
+    assert livekit["event_counts"]["room_started"] == 1
+    assert livekit["event_counts"]["track_published"] == 1
+    assert livekit["tracks"]["TR_1"]["status"] == "active"
+
+
 def test_livekit_record_webhook_event_ignores_unlinked_room(monkeypatch, db_session):
     _enable_livekit(monkeypatch)
 
