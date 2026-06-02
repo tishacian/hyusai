@@ -2,6 +2,7 @@ import base64
 import json
 import pytest
 
+from app.models.audit import AuditLog
 from app.models.context import Context
 from app.models.run import Run
 from app.models.user import User
@@ -1044,6 +1045,62 @@ def test_capture_turn_is_non_blocking_and_exposes_sorted_open_questions(db_sessi
 
 
 @pytest.mark.asyncio
+async def test_voice_gateway_barge_in_is_audited_and_metriced(db_session):
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-barge", name="GW Barge", slug="gw-barge")
+    user = User(id="user-gw-barge", username="barge@datategy.local", email="barge@datategy.local")
+    db_session.add_all([workspace, user])
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id="capture-barge", transport="livekit")
+    state.client_turn_id = "turn-before-barge"
+    state.interruption_of_event_id = "prompt-before-barge"
+    state.last_partial_text = "ancien partiel"
+    state.last_partial_chunk_count = 3
+    state.partial_stt_in_flight = True
+
+    await gateway._handle_event(
+        FakeWebSocket(),
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={
+            "type": "barge_in",
+            "payload": {
+                "turn_id": "turn-barge",
+                "prompt_event_id": "prompt-livekit-1",
+                "source": "livekit_control",
+            },
+        },
+    )
+
+    assert state.last_partial_text == ""
+    assert state.last_partial_chunk_count == 0
+    assert state.partial_stt_in_flight is False
+    assert [event_type for event_type, _ in sent] == ["runtime.metric", "barge_in"]
+    assert sent[0][1]["metric"] == "barge_in"
+    assert sent[0][1]["transport"] == "livekit"
+    assert sent[0][1]["turn_id"] == "turn-barge"
+    assert sent[0][1]["prompt_event_id"] == "prompt-livekit-1"
+    assert sent[1][1]["status"] == "accepted"
+
+    audit = db_session.query(AuditLog).filter_by(event_type="voice.barge_in").one()
+    assert audit.workspace_id == workspace.id
+    assert audit.actor == "barge@datategy.local"
+    assert audit.details["session_id"] == "capture-barge"
+    assert audit.details["transport"] == "livekit"
+    assert audit.details["prompt_event_id"] == "prompt-livekit-1"
+
+
+@pytest.mark.asyncio
 async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, monkeypatch):
     """Server-side incremental transcription: several audio.frame messages must emit
     live transcript.partial + oracle analysis BEFORE any audio.endpoint, while
@@ -1075,7 +1132,7 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
         def __init__(self) -> None:
             self.transcribe_calls = 0
 
-        async def transcribe(self, audio_bytes, *, filename=None, content_type=None):
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None, language=None):
             self.transcribe_calls += 1
             return {
                 "text": f"je règle la vitesse selon le grade de papier numéro {self.transcribe_calls}",
@@ -1153,6 +1210,78 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
     assert state.audio_chunks == []
     assert state.partial_stt_in_flight is False
     assert state.last_partial_text == ""
+
+
+@pytest.mark.asyncio
+async def test_gateway_skips_incremental_stt_for_livekit_endpoint_only_wav(db_session, monkeypatch):
+    """LiveKit sidecar sends one complete WAV at endpoint time. That frame must not
+    trigger the incremental STT path, otherwise the same turn is transcribed twice."""
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-lk", name="GW LiveKit", slug="gw-lk")
+    user = User(id="user-gw-lk", username="gwl@datategy.local", email="gwl@datategy.local")
+    db_session.add_all([workspace, user])
+
+    class FakeProvider:
+        def __init__(self) -> None:
+            self.transcribe_calls = 0
+
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None, language=None):
+            self.transcribe_calls += 1
+            return {
+                "text": "je règle la vitesse avec un seul segment livekit",
+                "provider": "fake",
+                "model": "fake-stt",
+            }
+
+    fake_provider = FakeProvider()
+    monkeypatch.setattr(gw, "get_voice_runtime_provider", lambda *a, **k: fake_provider)
+    monkeypatch.setattr(gw, "_PARTIAL_STT_MIN_INTERVAL_MS", 0)
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id="livekit-session", mode="conversation_only", transport="livekit")
+    state.oracle = gw.VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={
+            "type": "audio.frame",
+            "payload": {
+                "bytes_b64": base64.b64encode(b"RIFF....WAVEfmt data").decode(),
+                "turn_id": "seg-livekit-1",
+                "content_type": "audio/wav",
+                "incremental_transcription": False,
+            },
+        },
+    )
+
+    assert fake_provider.transcribe_calls == 0
+    assert "transcript.partial" not in [event_type for event_type, _ in sent]
+    assert state.audio_chunks
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "audio.endpoint", "payload": {"turn_id": "seg-livekit-1"}},
+    )
+
+    assert fake_provider.transcribe_calls == 1
+    assert "text.final" in [event_type for event_type, _ in sent]
+    assert state.audio_chunks == []
 
 
 def test_oracle_detects_generalized_numeric_contradiction():

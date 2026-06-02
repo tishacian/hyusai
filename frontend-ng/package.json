@@ -31,6 +31,7 @@
     "@ngrx/signals": "^20.0.0",
     "chart.js": "~4.4.0",
     "drawflow": "^0.0.60",
+    "livekit-client": "^2.19.1",
     "lucide-angular": "^0.577.0",
     "maplibre-gl": "^5.24.0",
     "ng2-charts": "^8.0.0",

@@ -6,6 +6,7 @@ Full execution streaming pipeline with real-time SSE decision_step events.
 import asyncio
 import re
 import time
+import unicodedata
 from collections.abc import Mapping
 from typing import Any, AsyncGenerator
 
@@ -64,6 +65,43 @@ _LENGTH_DETAIL_RE = re.compile(
 )
 
 _CITATION_RE = re.compile(r"\[(\d{1,2})\]")
+
+_ANDRITZ_CONTACT_QUERY_RE = re.compile(
+    r"\b("
+    r"contact|contacter|contactez|coordonn[ée]es|support|assistance|"
+    r"repr[ée]sentant|email|e-mail|mail|t[ée]l[ée]phone|phone|qui\s+appeler"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_ANDRITZ_CONTACT_FOOTER_RE = re.compile(
+    r"""
+    (?:\s*(?:[-*]\s*)?)?
+    (?:
+        (?:
+            (?:si\s+vous\s+(?:souhaitez|voulez|avez\s+besoin\s+de)[^\n.!?]{0,180})
+            |(?:pour\s+(?:plus|toute|davantage)[^\n.!?]{0,180})
+            |(?:for\s+(?:more|additional|further)[^\n.!?]{0,180})
+            |(?:if\s+you\s+(?:need|want|would\s+like)[^\n.!?]{0,180})
+        )
+        (?:merci\s+de\s+|veuillez\s+|please\s+)?
+        (?:contacter|contactez|contact|sollicitez|adressez-vous\s+a|reach\s+out\s+to)
+        [^\n.!?]{0,240}\bandritz\b[^\n.!?]*
+        |
+        (?:merci\s+de\s+|veuillez\s+|please\s+)?
+        (?:contacter|contactez|contact|sollicitez|adressez-vous\s+a|reach\s+out\s+to)
+        [^\n.!?]{0,240}\bandritz\b[^\n.!?]{0,120}
+        \b(?:information|informations|renseignement|renseignements|details|support|assistance|representant)\b
+        [^\n.!?]*
+    )
+    (?:\s*\[\d{1,2}\])?
+    [.!?]?
+    \s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+_ANDRITZ_CONTACT_STREAM_TAIL_CHARS = 480
 
 # A turn is only treated as a standalone (retrieval) question when it carries
 # enough signal. Very short pronoun/instruction-only turns in an ongoing
@@ -134,6 +172,67 @@ def _is_meta_followup(query: str, history: list[dict[str, Any]]) -> bool:
 
 def _cited_source_indices(text: str) -> set[int]:
     return {int(match) for match in _CITATION_RE.findall(text or "")}
+
+
+def _fold_for_policy(text: str) -> str:
+    folded = unicodedata.normalize("NFKD", text or "")
+    return "".join(ch for ch in folded if not unicodedata.combining(ch)).lower()
+
+
+def _query_requests_contact_info(query: str) -> bool:
+    return bool(_ANDRITZ_CONTACT_QUERY_RE.search(_fold_for_policy(query)))
+
+
+def _strip_andritz_contact_boilerplate(text: str, *, allow_contact_answer: bool = False) -> str:
+    """Remove supplier-document contact footers from generated chat answers.
+
+    Andritz manuals often contain public-facing closing boilerplate such as
+    "contact Andritz for more information". In Agentium the users are already
+    Andritz experts, so that footer is noise when copied as a final next step.
+    We only strip it from the tail and keep explicit contact-answer turns.
+    """
+
+    if allow_contact_answer:
+        return text
+    stripped = (text or "").rstrip()
+    if not stripped:
+        return text or ""
+    previous = None
+    while stripped and stripped != previous:
+        previous = stripped
+        stripped = _ANDRITZ_CONTACT_FOOTER_RE.sub("", stripped).rstrip()
+    return stripped
+
+
+class _AndritzContactBoilerplateStreamFilter:
+    """Hold a small response tail so copied contact footers never flash in chat."""
+
+    def __init__(self, *, enabled: bool = True, tail_chars: int = _ANDRITZ_CONTACT_STREAM_TAIL_CHARS):
+        self.enabled = enabled
+        self.tail_chars = tail_chars
+        self._tail = ""
+
+    def feed(self, chunk: str) -> str:
+        if not chunk:
+            return ""
+        if not self.enabled:
+            return chunk
+        self._tail += chunk
+        if len(self._tail) <= self.tail_chars:
+            return ""
+        flush_to = len(self._tail) - self.tail_chars
+        safe = self._tail[:flush_to]
+        self._tail = self._tail[flush_to:]
+        return safe
+
+    def flush(self) -> str:
+        if not self.enabled:
+            tail = self._tail
+            self._tail = ""
+            return tail
+        clean_tail = _strip_andritz_contact_boilerplate(self._tail)
+        self._tail = ""
+        return clean_tail
 
 # Generic/placeholder document titles that carry no information for an end
 # user. When the extracted title matches one of these we fall back to the
@@ -495,6 +594,7 @@ SYSTEM_PROMPT = """You are an intelligent assistant with access to a curated kno
 Answer questions accurately and concisely using the retrieved context.
 When the context contains relevant information, cite it specifically.
 If no relevant context is available, say so clearly rather than guessing.
+Do not reproduce generic supplier-document footers such as "contact Andritz for more information" as advice in the chat; Agentium users in the Andritz workspace are already Andritz experts.
 
 Be professional, precise, and helpful."""
 
@@ -598,7 +698,8 @@ Answer-shaping instructions:
 - Start with a concise synthesis of what the retrieved content says, not only with source locators.
 - Include the useful evidence/citations after the synthesis when workspace sources exist.
 - For broad questions, give 3 to 5 key points and stop before overloading the user.
-- If the retrieved content is too thin or contradictory, say that explicitly and name the gap."""
+- If the retrieved content is too thin or contradictory, say that explicitly and name the gap.
+- Do not end with generic document boilerplate asking the user to contact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details."""
 
 
 def _build_followup_user_prompt(*, query: str, wants_more_detail: bool) -> str:
@@ -1254,6 +1355,9 @@ class OmniRAGAgent(BaseAgent):
         max_output_tokens = 4000 if wants_more_detail else 2000
         sequence = 0
         accumulated = ""
+        stream_filter = _AndritzContactBoilerplateStreamFilter(
+            enabled=not _query_requests_contact_info(query)
+        )
         try:
             llm = self._get_llm()
             async for chunk_text in llm.stream_complete(
@@ -1264,15 +1368,17 @@ class OmniRAGAgent(BaseAgent):
                 max_tokens=max_output_tokens,
                 history=prompt_history,
             ):
-                sequence += 1
-                accumulated += chunk_text
-                yield {
-                    "chunk_type": "text",
-                    "content": chunk_text,
-                    "delta": chunk_text,
-                    "sequence": sequence,
-                    "is_final": False,
-                }
+                filtered_text = stream_filter.feed(chunk_text)
+                if filtered_text:
+                    sequence += 1
+                    accumulated += filtered_text
+                    yield {
+                        "chunk_type": "text",
+                        "content": filtered_text,
+                        "delta": filtered_text,
+                        "sequence": sequence,
+                        "is_final": False,
+                    }
         except Exception as e:
             logger.error("LLM generation failed", error=str(e))
             yield {"chunk_type": "error", "content": f"LLM generation error: {e}", "is_final": True}
@@ -1288,6 +1394,18 @@ class OmniRAGAgent(BaseAgent):
                 has_text=True,
             )
             return
+
+        final_filtered_text = stream_filter.flush()
+        if final_filtered_text:
+            sequence += 1
+            accumulated += final_filtered_text
+            yield {
+                "chunk_type": "text",
+                "content": final_filtered_text,
+                "delta": final_filtered_text,
+                "sequence": sequence,
+                "is_final": False,
+            }
 
         # Robustness: never surface an empty bubble ("(no response)"). gpt-5 can
         # occasionally return no output text (e.g. reasoning consumed the token

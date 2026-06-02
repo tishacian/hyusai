@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from app.agents.procurement_agent import (
+    _AndritzContactBoilerplateStreamFilter,
     SYSTEM_PROMPT,
     _assemble_context_and_sources,
     _build_rag_user_prompt,
     _grounding_policy_from_request,
+    _strip_andritz_contact_boilerplate,
     _system_prompt_with_grounding,
 )
 
@@ -86,3 +88,47 @@ def test_rag_prompt_requests_synthesis_before_source_locators():
     assert "Retrieved content synthesis brief" in prompt
     assert "Start with a concise synthesis" in prompt
     assert "not only with source locators" in prompt
+
+
+def test_rag_prompt_forbids_generic_andritz_contact_footer():
+    policy = _grounding_policy_from_request({"grounding_mode": "strict"})
+    prompt = _build_rag_user_prompt(
+        query="Que disent les documents sur la ligne BBA120 ?",
+        context_text="[1] Manual\nPour plus d'informations, contactez Andritz.",
+        keyword_hint="",
+        grounding_policy=policy,
+        has_retrieved_context=True,
+    )
+
+    assert "contact Andritz" in SYSTEM_PROMPT
+    assert "Do not end with generic document boilerplate" in prompt
+
+
+def test_strip_andritz_contact_boilerplate_from_answer_tail():
+    answer = (
+        "La ligne BBA120 combine hydroentanglement et contrôle de cadence.\n\n"
+        "Pour plus d'informations, contactez Andritz."
+    )
+
+    cleaned = _strip_andritz_contact_boilerplate(answer)
+
+    assert cleaned == "La ligne BBA120 combine hydroentanglement et contrôle de cadence."
+
+
+def test_strip_andritz_contact_boilerplate_preserves_explicit_contact_answers():
+    answer = "Le document indique de contacter le représentant Andritz pour plus d'informations."
+
+    assert _strip_andritz_contact_boilerplate(answer, allow_contact_answer=True) == answer
+
+
+def test_stream_filter_removes_chunked_andritz_contact_footer():
+    stream_filter = _AndritzContactBoilerplateStreamFilter(enabled=True, tail_chars=80)
+    emitted = ""
+
+    emitted += stream_filter.feed("La ligne BBA120 combine hydroentanglement et contrôle de cadence. ")
+    emitted += stream_filter.feed("Pour plus d'informations, ")
+    emitted += stream_filter.feed("contactez Andritz.")
+    emitted += stream_filter.flush()
+
+    assert "contactez Andritz" not in emitted
+    assert emitted == "La ligne BBA120 combine hydroentanglement et contrôle de cadence."

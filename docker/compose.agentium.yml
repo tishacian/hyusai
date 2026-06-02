@@ -40,6 +40,95 @@ services:
       retries: 6
       start_period: 20s
 
+  agentium-livekit:
+    image: livekit/livekit-server:${LIVEKIT_IMAGE_TAG:-v1.12.0}
+    container_name: agentium-livekit
+    restart: unless-stopped
+    profiles: ["realtime"]
+    networks:
+      - agentium-net
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        yaml_quote() {
+          printf "%s" "$$1" | sed "s/'/''/g"
+        }
+        redis_block=""
+        if [ -n "$${LIVEKIT_REDIS_ADDRESS:-}" ]; then
+          redis_block="$$(printf "redis:\n  address: '%s'" "$$(yaml_quote "$$LIVEKIT_REDIS_ADDRESS")")"
+          if [ -n "$${LIVEKIT_REDIS_USERNAME:-}" ]; then
+            redis_block="$$(printf "%s\n  username: '%s'" "$$redis_block" "$$(yaml_quote "$$LIVEKIT_REDIS_USERNAME")")"
+          fi
+          if [ -n "$${LIVEKIT_REDIS_PASSWORD:-}" ]; then
+            redis_block="$$(printf "%s\n  password: '%s'" "$$redis_block" "$$(yaml_quote "$$LIVEKIT_REDIS_PASSWORD")")"
+          fi
+          if [ -n "$${LIVEKIT_REDIS_DB:-}" ]; then
+            redis_block="$$(printf "%s\n  db: %s" "$$redis_block" "$$LIVEKIT_REDIS_DB")"
+          fi
+        fi
+        test -n "$${LIVEKIT_WEBHOOK_API_KEY:-$${LIVEKIT_API_KEY:-devkey}}"
+        awk \
+          -v webhook_key="$${LIVEKIT_WEBHOOK_API_KEY:-$${LIVEKIT_API_KEY:-devkey}}" \
+          -v redis_block="$$redis_block" \
+          '{ gsub("__LIVEKIT_WEBHOOK_API_KEY__", webhook_key); gsub("__LIVEKIT_REDIS_BLOCK__", redis_block); print }' \
+          /etc/livekit/agentium-livekit.yaml > /tmp/agentium-livekit.yaml
+        exec /livekit-server --config /tmp/agentium-livekit.yaml
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_KEYS:-${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-change-me-livekit-secret-at-least-32-chars}}"
+      LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_WEBHOOK_API_KEY:-${LIVEKIT_API_KEY:-devkey}}
+      LIVEKIT_REDIS_ADDRESS: ${LIVEKIT_REDIS_ADDRESS:-}
+      LIVEKIT_REDIS_USERNAME: ${LIVEKIT_REDIS_USERNAME:-}
+      LIVEKIT_REDIS_PASSWORD: ${LIVEKIT_REDIS_PASSWORD:-}
+      LIVEKIT_REDIS_DB: ${LIVEKIT_REDIS_DB:-}
+    ports:
+      - "127.0.0.1:${LIVEKIT_HTTP_HOST_PORT:-7880}:7880"
+      - "${LIVEKIT_RTC_BIND_HOST:-0.0.0.0}:${LIVEKIT_RTC_TCP_PORT:-7881}:7881"
+      - "${LIVEKIT_RTC_BIND_HOST:-0.0.0.0}:${LIVEKIT_RTC_UDP_RANGE_START:-50000}-${LIVEKIT_RTC_UDP_RANGE_END:-60000}:50000-60000/udp"
+    volumes:
+      - ./livekit/agentium-livekit.yaml:/etc/livekit/agentium-livekit.yaml:ro
+
+  agentium-livekit-redis:
+    image: redis:7.4-alpine
+    container_name: agentium-livekit-redis
+    restart: unless-stopped
+    profiles: ["realtime-scale"]
+    networks:
+      - agentium-net
+    volumes:
+      - agentium_livekit_redis:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  agentium-livekit-agent:
+    image: agentium-livekit-agent:${AGENTIUM_IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile.agentium-livekit-agent
+    container_name: agentium-livekit-agent
+    restart: unless-stopped
+    profiles: ["realtime"]
+    networks:
+      - agentium-net
+    environment:
+      LIVEKIT_AGENT_HOST: 0.0.0.0
+      LIVEKIT_AGENT_PORT: 8090
+      LIVEKIT_AGENT_CONNECT_ATTEMPTS: ${LIVEKIT_AGENT_CONNECT_ATTEMPTS:-6}
+      LIVEKIT_AGENT_CONNECT_RETRY_MS: ${LIVEKIT_AGENT_CONNECT_RETRY_MS:-500}
+      LIVEKIT_AGENT_CONNECT_MAX_RETRY_MS: ${LIVEKIT_AGENT_CONNECT_MAX_RETRY_MS:-3000}
+    depends_on:
+      - agentium-livekit
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
   agentium-migrate:
     image: agentium-backend:${AGENTIUM_IMAGE_TAG:-local}
     build:
@@ -80,6 +169,8 @@ services:
     environment:
       AGENTIUM_BACKEND_WORKERS: ${AGENTIUM_BACKEND_WORKERS:-3}
       AGENTIUM_BACKEND_TIMEOUT_KEEP_ALIVE: ${AGENTIUM_BACKEND_TIMEOUT_KEEP_ALIVE:-5}
+      LIVEKIT_AGENT_DISPATCH_URL: ${LIVEKIT_AGENT_DISPATCH_URL:-http://agentium-livekit-agent:8090/dispatch}
+      LIVEKIT_VOICE_GATEWAY_WS_URL: ${LIVEKIT_VOICE_GATEWAY_WS_URL:-ws://agentium-backend:8000/api/v1/voice/sessions}
     volumes:
       - ${AGENTIUM_OBJECT_STORE_PATH:-/home/ubuntu/agentium-data/object_store}:/data/object_store
       - ${AGENTIUM_SECURE_DEPOSIT_PATH:-/home/ubuntu/omnirag/backend/data/secure_deposit}:/data/secure_deposit
@@ -269,3 +360,5 @@ volumes:
     name: ${AGENTIUM_QDRANT_VOLUME:-qdrant_data}
   agentium_minio:
     name: agentium_minio
+  agentium_livekit_redis:
+    name: agentium_livekit_redis

@@ -145,6 +145,31 @@ class Settings(BaseSettings):
     local_tts_endpoint_url: Optional[str] = None
     local_realtime_endpoint_url: Optional[str] = None
 
+    # LiveKit transport lane. Disabled by default: backend_ws remains the
+    # production-safe voice transport until the realtime Docker profile is
+    # explicitly configured.
+    livekit_enabled: bool = False
+    livekit_url: Optional[str] = None
+    livekit_internal_url: Optional[str] = None
+    livekit_api_key: Optional[str] = None
+    livekit_api_secret: Optional[str] = None
+    livekit_webhook_api_key: Optional[str] = None
+    livekit_webhook_api_secret: Optional[str] = None
+    livekit_room_prefix: str = "agentium"
+    livekit_default_room_ttl_seconds: int = 3600
+    livekit_room_empty_timeout_seconds: int = 60
+    livekit_room_departure_timeout_seconds: int = 20
+    livekit_agent_identity_prefix: str = "agentium-agent"
+    livekit_agent_dispatch_url: Optional[str] = None
+    livekit_http_timeout_seconds: float = 5.0
+    livekit_voice_gateway_ws_url: Optional[str] = None
+    livekit_voice_bridge_token_ttl_seconds: int = 3600
+    livekit_redis_address: Optional[str] = None
+    livekit_turn_mode: str = "external_or_none"
+    livekit_agents_mode: str = "sidecar_http_bridge"
+    livekit_egress_enabled: bool = False
+    livekit_recording_allowed_workspace_slugs: str = ""
+
     # Domain-aware transcript rewrite on the capture voice loop's `improved`/`final`
     # stages. A hybrid glossary (workspace KB-derived + live plan topics + retrieved
     # chunks) drives a deterministic Tier-1 correction (fuzzy near-homophones,

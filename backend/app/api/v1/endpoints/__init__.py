@@ -14,6 +14,7 @@ __all__ = [
     "traces",
     "audit",
     "voice",
+    "livekit",
     "tasks",
     "evaluation",
     "intelligence",

@@ -4,12 +4,15 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom } from 'rxjs';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '@app/core/api.service';
+import { LiveKitConversationConnection, LiveKitConversationService } from '@app/core/livekit-conversation.service';
 import { PermissionsService } from '@app/core/permissions.service';
 import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-playback.service';
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
+
+type CaptureVoiceConnection = VoiceSessionConnection | LiveKitConversationConnection;
 
 interface CaptureQuestion {
   id: string;
@@ -2292,6 +2295,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly zoom = inject(ZoomContextService);
   private readonly voiceSession = inject(VoiceSessionService);
+  private readonly livekitConversation = inject(LiveKitConversationService);
   private readonly ttsPlaybackFactory = inject(VoiceTtsPlaybackService);
   private readonly workspace = inject(WorkspaceService);
   readonly permissions = inject(PermissionsService);
@@ -2561,9 +2565,11 @@ export class KnowledgeCaptureComponent implements OnInit {
   private lastPrefetchAt = 0;
   private currentClientTurnId: string | null = null;
   private activeAudio: HTMLAudioElement | null = null;
-  private voiceConnection: VoiceSessionConnection | null = null;
+  private voiceConnection: CaptureVoiceConnection | null = null;
   private readonly ttsPlayback = this.ttsPlaybackFactory.createController('knowledge_capture');
   private pendingVoiceFrameSends: Promise<void>[] = [];
+  private deferredLoopStopAfterStreamingTurn: Record<string, unknown> | null = null;
+  private closeVoiceAfterStreamingTurn = false;
   private revokedAudioUrls: string[] = [];
   private autoResumeTimer: ReturnType<typeof setTimeout> | null = null;
   private transcriptionWatchdog: number | null = null;
@@ -2952,13 +2958,14 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.activeSurface.set('session');
           this.loading.set(false);
           if (conversationOnly && armed) {
-            this.ensureVoiceConnection(typed);
-            const firstPrompt = this.currentPromptText();
-            if (firstPrompt && !this.isFreeConversationSession(typed)) {
-              this.speak(firstPrompt);
-            } else {
-              void this.startRecordingTurn();
-            }
+            void this.ensureVoiceConnection(typed).then(() => {
+              const firstPrompt = this.currentPromptText();
+              if (firstPrompt && !this.isFreeConversationSession(typed)) {
+                this.speak(firstPrompt);
+              } else {
+                void this.startRecordingTurn();
+              }
+            });
           }
         },
         error: () => {
@@ -5485,9 +5492,45 @@ export class KnowledgeCaptureComponent implements OnInit {
     return type.toUpperCase();
   }
 
-  private ensureVoiceConnection(session: CaptureSession): VoiceSessionConnection | null {
+  private async ensureVoiceConnection(session: CaptureSession): Promise<CaptureVoiceConnection | null> {
     if (this.conversationMode() !== 'conversation_only') return null;
     if (this.voiceConnection) return this.voiceConnection;
+    if (this.shouldPreferLiveKitTransport(session)) {
+      try {
+        const connection = await this.livekitConversation.open(session.id, {
+          runtime: session.voice_runtime || 'cascade_openai',
+          provider: session.voice_runtime || 'cascade_openai',
+          transport: 'livekit',
+          language: 'fr',
+          output_language: 'fr',
+          capability: 'voice2voice_interaction',
+          context_id: session.context_id || this.contextId || null,
+          system_id: session.system_id || this.systemId || null,
+          mode: 'conversation_only',
+          surface: 'knowledge_capture',
+          publishMicrophone: true,
+          dispatchAgent: true,
+          requireVoiceGateway: true,
+          metadata: {
+            capture_domain: this.selectedDomain,
+            mode: 'conversation_only',
+          },
+        });
+        this.voiceConnection = connection;
+        this.voiceConnection.events$
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe((event) => this.handleVoiceSessionEvent(event));
+        this.setVoiceNotice('Session LiveKit prête. Connexion du pont vocal Agentium en cours.', 'info');
+        return this.voiceConnection;
+      } catch {
+        this.voiceConnection = null;
+        this.setVoiceNotice('LiveKit indisponible ; bascule sur la session vocale WebSocket.', 'warning');
+      }
+    }
+    return this.ensureBackendVoiceConnection(session);
+  }
+
+  private ensureBackendVoiceConnection(session: CaptureSession): VoiceSessionConnection | null {
     try {
       this.voiceConnection = this.voiceSession.open(session.id);
       this.voiceConnection.events$
@@ -5515,9 +5558,50 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
   }
 
+  private shouldPreferLiveKitTransport(session: CaptureSession): boolean {
+    const runtime = String(session.voice_runtime || '').trim().toLowerCase();
+    if (runtime === 'livekit' || runtime === 'livekit_agent') return true;
+    const settings = this.asRecord(this.workspace.current()?.settings);
+    const voiceRuntime = this.asRecord(settings['voice_runtime']);
+    const livekit = this.asRecord(settings['livekit']);
+    const livekitEnabled =
+      voiceRuntime['livekit_enabled'] === true ||
+      settings['livekit_enabled'] === true ||
+      livekit['enabled'] === true;
+    const transport = String(
+      voiceRuntime['transport'] ||
+        voiceRuntime['default_transport'] ||
+        voiceRuntime['realtime_transport'] ||
+        livekit['transport'] ||
+        livekit['default_transport'] ||
+        settings['voice_transport'] ||
+        '',
+    )
+      .trim()
+      .toLowerCase();
+    return transport === 'livekit' || (livekitEnabled && !transport);
+  }
+
   private closeVoiceConnection(): void {
     this.voiceConnection?.close();
     this.voiceConnection = null;
+  }
+
+  private finalizeDeferredStreamingStop(): void {
+    const loopStopPayload = this.deferredLoopStopAfterStreamingTurn;
+    const shouldClose = this.closeVoiceAfterStreamingTurn;
+    this.deferredLoopStopAfterStreamingTurn = null;
+    this.closeVoiceAfterStreamingTurn = false;
+    if (loopStopPayload && this.voiceConnection) {
+      this.voiceConnection.loopStop(loopStopPayload);
+    }
+    if (shouldClose) {
+      this.releaseAudioStream();
+      this.closeVoiceConnection();
+      if (!this.recording() && !this.transcribing()) {
+        this.voiceState.set('idle');
+      }
+    }
   }
 
   runtimeLabel(runtime?: string | null): string {
@@ -5589,16 +5673,21 @@ export class KnowledgeCaptureComponent implements OnInit {
       if (text) {
         this.answer = text;
         this.setLiveImproved(this.voiceSegmentId(payload), text);
+        this.armConversationProcessingWatchdog();
       }
       this.clearTranscriptionWatchdog();
       this.transcribing.set(false);
       this.voiceState.set('thinking');
       this.setVoiceNotice('Transcription finalisée par la session vocale streaming.', 'info');
+      if (this.closeVoiceAfterStreamingTurn && payload['empty'] === true) {
+        this.finalizeDeferredStreamingStop();
+      }
       return;
     }
     if (event.type === 'conversation.step') {
       this.clearConversationProcessingWatchdog();
       this.applyConversationStepEvent(payload as Partial<ConversationStepResponse>);
+      this.finalizeDeferredStreamingStop();
       return;
     }
     if (event.type === 'evaluation.delta') {
@@ -5692,6 +5781,15 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (event.type === 'runtime.metric') {
       const metric = payload['metric'];
       const value = payload['value_ms'];
+      if (metric === 'livekit_agent_dispatched') {
+        if (payload['audio_bridge'] === 'voice_gateway_ready') {
+          this.setVoiceNotice('Pont vocal LiveKit relié au runtime Agentium.', 'info');
+        } else if (payload['audio_bridge'] === 'media_observer_ready') {
+          this.setVoiceNotice('LiveKit reçoit le média, mais le pont vocal Agentium n’est pas connecté ; WebSocket reste le fallback.', 'warning');
+        } else if (payload['audio_bridge'] === 'pending') {
+          this.setVoiceNotice('LiveKit est connecté en mode data. Le pont vocal Agentium reste indisponible ; WebSocket reste le fallback.', 'warning');
+        }
+      }
       if (metric === 'micro_turn') {
         this.voiceState.set('oracle_updating');
       }
@@ -5709,10 +5807,13 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     if (event.type === 'session.error') {
       const code = String(payload['code'] || '');
+      const deferredStop = Boolean(this.deferredLoopStopAfterStreamingTurn || this.closeVoiceAfterStreamingTurn);
+      this.clearConversationProcessingWatchdog();
       this.transcribing.set(false);
       this.voiceState.set('idle');
       this.setVoiceNotice(String(payload['message'] || 'Session vocale streaming indisponible.'), 'error');
-      if (code === 'synthesize_failed' && this.nextPrompt()) {
+      this.finalizeDeferredStreamingStop();
+      if (!deferredStop && code === 'synthesize_failed' && this.nextPrompt()) {
         this.speak(this.promptText(this.nextPrompt()));
       }
     }
@@ -5811,7 +5912,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     const session = this.session();
-    const connection = session ? this.ensureVoiceConnection(session) : null;
+    const connection = session ? await this.ensureVoiceConnection(session) : null;
     this.conversationSessionActive.set(true);
     connection?.loopStart({
       surface: 'knowledge_capture',
@@ -6009,6 +6110,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   stopConversation(): void {
     this.clearAutoResumeTimer();
     this.conversationSessionActive.set(false);
+    this.deferredLoopStopAfterStreamingTurn = null;
+    this.closeVoiceAfterStreamingTurn = false;
     this.voiceConnection?.loopStop({ surface: 'knowledge_capture', reason: 'user_stop' });
     this.stopSpeech(false);
     if (this.recorder) {
@@ -6361,7 +6464,8 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.lastPrefetchAt = 0;
     const session = this.session();
     if (session) {
-      this.ensureVoiceConnection(session)?.loopArmed({ surface: 'knowledge_capture', mode: 'conversation_loop' });
+      const connection = await this.ensureVoiceConnection(session);
+      connection?.loopArmed({ surface: 'knowledge_capture', mode: 'conversation_loop' });
     }
     if (!this.startAudioRecorder('Micro ouvert. Terminez le tour quand la réponse expert est complète.')) {
       this.conversationSessionActive.set(false);
@@ -6372,13 +6476,21 @@ export class KnowledgeCaptureComponent implements OnInit {
   private stopConversationSession(): void {
     this.conversationSessionActive.set(false);
     this.clearAutoResumeTimer();
-    this.voiceConnection?.loopStop({ surface: 'knowledge_capture', reason: 'user_stop' });
+    const loopStopPayload = { surface: 'knowledge_capture', reason: 'user_stop' };
     this.stopSpeech(false);
     this.setVoiceNotice(null);
     if (this.recording()) {
+      this.deferredLoopStopAfterStreamingTurn = loopStopPayload;
+      this.closeVoiceAfterStreamingTurn = true;
       this.recorder?.stop();
       this.recording.set(false);
+    } else if (this.transcribing() && this.voiceConnection) {
+      this.deferredLoopStopAfterStreamingTurn = loopStopPayload;
+      this.closeVoiceAfterStreamingTurn = true;
     } else if (!this.transcribing()) {
+      this.deferredLoopStopAfterStreamingTurn = null;
+      this.closeVoiceAfterStreamingTurn = false;
+      this.voiceConnection?.loopStop(loopStopPayload);
       this.releaseAudioStream();
       this.voiceState.set('idle');
       this.closeVoiceConnection();
@@ -6469,6 +6581,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.transcribing.set(false);
       this.voiceState.set('idle');
       this.releaseAudioStream();
+      this.finalizeDeferredStreamingStop();
       this.setVoiceNotice('La transcription prend trop de temps. Le micro est libéré, relancez un tour ou utilisez le texte.', 'error');
     }, 45000);
   }

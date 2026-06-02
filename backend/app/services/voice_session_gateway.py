@@ -40,6 +40,7 @@ from app.services.voice_runtime import (
     get_voice_runtime_provider,
     resolve_voice_runtime_slug,
 )
+from app.services.livekit_service import LiveKitService, LiveKitServiceError
 from app.services.voice_tandem_oracle import VoiceTandemOracle
 from app.services.voice_transcript_glossary import (
     correct_transcript_segment,
@@ -160,7 +161,7 @@ class VoiceSessionGateway:
         db: DBSession,
     ) -> None:
         await websocket.accept()
-        auth = self._authenticate(db, token=token, workspace_slug=workspace_slug)
+        auth = self._authenticate(db, token=token, workspace_slug=workspace_slug, session_id=session_id)
         if not auth:
             await self._send_error(websocket, "unauthorized", "Voice session authentication failed")
             await websocket.close(code=4401)
@@ -315,6 +316,30 @@ class VoiceSessionGateway:
             return
         if event_type == "barge_in":
             self._reset_partial_stt_state(state)
+            metric_payload = {
+                "metric": "barge_in",
+                "value_ms": 0,
+                "turn_id": payload.get("turn_id") or state.client_turn_id,
+                "prompt_event_id": payload.get("prompt_event_id"),
+                "interruption_of_event_id": payload.get("interruption_of_event_id")
+                or state.interruption_of_event_id,
+                "runtime": state.runtime,
+                "transport": state.transport,
+                "source": payload.get("source") or "client_control",
+            }
+            emit_audit_event(
+                workspace_id=workspace.id,
+                event_type="voice.barge_in",
+                actor=user.email or user.username or user.id,
+                details={
+                    "session_id": state.session_id,
+                    "runtime": state.runtime,
+                    "transport": state.transport,
+                    **payload,
+                },
+                db=db,
+            )
+            await self._send(websocket, state, "runtime.metric", metric_payload)
             await self._send(websocket, state, "barge_in", {"status": "accepted", **payload})
             return
         if event_type == "voice.command":
@@ -395,6 +420,8 @@ class VoiceSessionGateway:
             self._reset_partial_stt_state(state)
             await self._send(websocket, state, "runtime.metric", {"metric": "audio_started", "value_ms": 0})
         state.audio_chunks.append(chunk)
+        if payload.get("incremental_transcription") is False:
+            return
         await self._maybe_run_incremental_transcription(
             websocket, db, user=user, workspace=workspace, state=state
         )
@@ -1070,12 +1097,16 @@ class VoiceSessionGateway:
         *,
         token: Optional[str],
         workspace_slug: Optional[str],
+        session_id: Optional[str] = None,
     ) -> Optional[tuple[User, Workspace]]:
         if not token:
             return None
         raw = token.strip()
         if raw.lower().startswith("bearer "):
             raw = raw[7:].strip()
+        bridge_auth = self._authenticate_livekit_bridge(db, token=raw, workspace_slug=workspace_slug, session_id=session_id)
+        if bridge_auth:
+            return bridge_auth
         try:
             payload = decode_token(raw)
         except HTTPException:
@@ -1103,6 +1134,44 @@ class VoiceSessionGateway:
             )
             workspace = db.query(Workspace).filter(Workspace.id == membership.workspace_id).first() if membership else None
         if not workspace:
+            return None
+        membership = (
+            db.query(WorkspaceMember)
+            .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
+            .first()
+        )
+        if not membership:
+            return None
+        return user, workspace
+
+    def _authenticate_livekit_bridge(
+        self,
+        db: DBSession,
+        *,
+        token: str,
+        workspace_slug: Optional[str],
+        session_id: Optional[str],
+    ) -> Optional[tuple[User, Workspace]]:
+        try:
+            claims = LiveKitService().decode_voice_bridge_token(token, session_id=session_id)
+        except LiveKitServiceError:
+            return None
+        user_id = str(claims.get("user_id") or claims.get("sub") or "")
+        token_workspace_id = str(claims.get("workspace_id") or "")
+        token_workspace_slug = str(claims.get("workspace_slug") or "")
+        if workspace_slug and token_workspace_slug and workspace_slug != token_workspace_slug:
+            return None
+        user = db.query(User).filter(User.id == user_id, User.is_active == True).first() if user_id else None  # noqa: E712
+        workspace_query = db.query(Workspace).filter(
+            Workspace.is_active == True,  # noqa: E712
+            Workspace.deleted_at.is_(None),
+        )
+        workspace = None
+        if token_workspace_id:
+            workspace = workspace_query.filter(Workspace.id == token_workspace_id).first()
+        if not workspace and token_workspace_slug:
+            workspace = workspace_query.filter(Workspace.slug == token_workspace_slug).first()
+        if not user or not workspace:
             return None
         membership = (
             db.query(WorkspaceMember)

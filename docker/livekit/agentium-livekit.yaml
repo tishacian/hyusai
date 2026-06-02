@@ -1,0 +1,31 @@
+port: 7880
+
+__LIVEKIT_REDIS_BLOCK__
+rtc:
+  port_range_start: 50000
+  port_range_end: 60000
+  tcp_port: 7881
+  use_external_ip: true
+  allow_tcp_fallback: true
+
+room:
+  auto_create: false
+  empty_timeout: 60
+  departure_timeout: 20
+  enabled_codecs:
+    - mime: audio/opus
+    - mime: video/vp8
+
+audio:
+  active_level: 30
+  min_percentile: 40
+  update_interval: 500
+
+webhook:
+  api_key: __LIVEKIT_WEBHOOK_API_KEY__
+  urls:
+    - http://agentium-backend:8000/api/v1/livekit/webhooks
+
+logging:
+  level: info
+  pion_level: error

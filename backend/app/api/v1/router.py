@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     traces,
     audit,
     voice,
+    livekit,
     tasks,
     evaluation,
     intelligence,
@@ -66,6 +67,7 @@ api_router.include_router(presets.router, prefix="/presets", tags=["presets"])
 api_router.include_router(traces.router, prefix="/traces", tags=["traces (legacy alias of /runs)"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
 api_router.include_router(voice.router, prefix="/voice", tags=["voice"])
+api_router.include_router(livekit.router, prefix="/livekit", tags=["livekit"])
 api_router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(evaluation.router, prefix="/evaluation", tags=["evaluation"])
 api_router.include_router(intelligence.router, prefix="/intelligence", tags=["intelligence"])

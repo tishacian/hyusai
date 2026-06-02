@@ -155,6 +155,103 @@ docker compose -f compose.agentium.yml up -d agentium-backend agentium-frontend
 - Build/recreate **uniquement** `agentium-backend` et `agentium-frontend` (+
   `agentium-worker-cpu` si la logique worker a changé).
 
+### Cas realtime LiveKit
+
+LiveKit reste un déploiement applicatif, pas un déploiement `infra`, mais il a
+une contrainte supplémentaire : le serveur `agentium-livekit` ne lit pas tout le
+fichier backend `AGENTIUM_ENV_FILE`. Compose doit recevoir explicitement les
+clés LiveKit dans l'environnement du shell, sinon le serveur média peut démarrer
+avec les clés de démo pendant que le backend utilise les vraies clés VM.
+Si `LIVEKIT_WEBHOOK_API_KEY` est dédiée, elle doit être présente dans
+`LIVEKIT_KEYS` et le backend doit recevoir son secret via
+`LIVEKIT_WEBHOOK_API_SECRET`. Le fichier
+`docker/livekit/agentium-livekit.yaml` contient seulement un placeholder
+`__LIVEKIT_WEBHOOK_API_KEY__` ; le compose le remplace au démarrage du conteneur
+avec `LIVEKIT_WEBHOOK_API_KEY` avant de lancer `/livekit-server`.
+
+Depuis `/home/ubuntu/omnirag/docker` :
+
+```bash
+export AGENTIUM_ENV_FILE=./env/agentium.vm.env
+export AGENTIUM_POSTGRES_PASSWORD=$(grep -E '^AGENTIUM_POSTGRES_PASSWORD=' env/agentium.vm.env | cut -d= -f2-)
+export LIVEKIT_API_KEY="$(grep -E '^LIVEKIT_API_KEY=' env/agentium.vm.env | cut -d= -f2-)"
+export LIVEKIT_API_SECRET="$(grep -E '^LIVEKIT_API_SECRET=' env/agentium.vm.env | cut -d= -f2-)"
+export LIVEKIT_WEBHOOK_API_KEY="$(grep -E '^LIVEKIT_WEBHOOK_API_KEY=' env/agentium.vm.env | cut -d= -f2-)"
+export LIVEKIT_KEYS="$(grep -E '^LIVEKIT_KEYS=' env/agentium.vm.env | cut -d= -f2-)"
+test -n "$LIVEKIT_WEBHOOK_API_KEY" || export LIVEKIT_WEBHOOK_API_KEY="$LIVEKIT_API_KEY"
+test -n "$LIVEKIT_KEYS" || export LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET"
+
+docker compose -f compose.agentium.yml --profile realtime build agentium-backend agentium-frontend agentium-livekit-agent
+docker compose -f compose.agentium.yml --profile realtime up -d agentium-livekit agentium-backend agentium-frontend agentium-livekit-agent
+```
+
+Ne pas sourcer tout `env/agentium.vm.env` : certains champs peuvent contenir des
+espaces non quotés.
+
+Checks realtime minimum :
+
+```bash
+docker compose -f compose.agentium.yml --profile realtime ps agentium-livekit agentium-livekit-agent agentium-backend agentium-frontend
+docker inspect -f "{{.State.Health.Status}}" agentium-livekit-agent
+docker inspect -f "{{.State.Health.Status}}" agentium-backend
+docker exec agentium-backend python -c "from app.services.livekit_service import LiveKitService; c=LiveKitService().public_config(); print(c['enabled'], c['url'])"
+curl -fsS http://127.0.0.1:${AGENTIUM_FRONTEND_HOST_PORT:-8081}/healthz
+docker logs --tail=80 agentium-livekit-agent
+docker logs --tail=80 agentium-livekit
+docker ps --format '{{.Names}}\t{{.Status}}' | grep agentium-sftp
+```
+
+La session Knowledge Capture doit emettre au moins ces metriques data-channel :
+`livekit_agent_dispatched`, `session_started`, `livekit_agent_joined`,
+`time_to_first_text`, puis `livekit_barge_in_audio_reset` et `barge_in` si
+l'expert coupe l'IA. Le champ `connect_attempts` sur
+`livekit_agent_dispatched`/`session.ready` permet de diagnostiquer une latence de
+connexion LiveKit sans ouvrir les logs Node.
+
+Rollback realtime sans toucher l'infra :
+
+```bash
+cd /home/ubuntu/omnirag/docker
+export AGENTIUM_ENV_FILE=./env/agentium.vm.env
+export AGENTIUM_POSTGRES_PASSWORD=$(grep -E '^AGENTIUM_POSTGRES_PASSWORD=' env/agentium.vm.env | cut -d= -f2-)
+# Mettre LIVEKIT_ENABLED=false dans docker/env/agentium.vm.env ou dans les settings workspace.
+docker compose -f compose.agentium.yml up -d agentium-backend agentium-frontend
+docker compose -f compose.agentium.yml --profile realtime stop agentium-livekit-agent agentium-livekit
+```
+
+Le rollback remet l'UI sur `backend_ws` / `VoiceSessionGateway`. Il ne lance pas
+`--profile infra`, ne recrée pas Postgres/Qdrant/Keycloak et ne touche pas
+`agentium-sftp`.
+
+### Cas realtime-scale LiveKit / Redis
+
+Le profil `realtime-scale` est reserve au moment ou LiveKit doit tourner en
+multi-node ou ou l'on veut valider explicitement la couche Redis LiveKit. Il
+n'est pas requis pour la VM demo single-node.
+
+```bash
+cd /home/ubuntu/omnirag/docker
+export AGENTIUM_ENV_FILE=./env/agentium.vm.env
+export AGENTIUM_POSTGRES_PASSWORD=$(grep -E '^AGENTIUM_POSTGRES_PASSWORD=' env/agentium.vm.env | cut -d= -f2-)
+export LIVEKIT_API_KEY="$(grep -E '^LIVEKIT_API_KEY=' env/agentium.vm.env | cut -d= -f2-)"
+export LIVEKIT_API_SECRET="$(grep -E '^LIVEKIT_API_SECRET=' env/agentium.vm.env | cut -d= -f2-)"
+export LIVEKIT_WEBHOOK_API_KEY="$(grep -E '^LIVEKIT_WEBHOOK_API_KEY=' env/agentium.vm.env | cut -d= -f2-)"
+export LIVEKIT_KEYS="$(grep -E '^LIVEKIT_KEYS=' env/agentium.vm.env | cut -d= -f2-)"
+export LIVEKIT_REDIS_ADDRESS=agentium-livekit-redis:6379
+test -n "$LIVEKIT_WEBHOOK_API_KEY" || export LIVEKIT_WEBHOOK_API_KEY="$LIVEKIT_API_KEY"
+test -n "$LIVEKIT_KEYS" || export LIVEKIT_KEYS="$LIVEKIT_API_KEY: $LIVEKIT_API_SECRET"
+
+docker compose -f compose.agentium.yml --profile realtime --profile realtime-scale up -d agentium-livekit-redis agentium-livekit
+docker compose -f compose.agentium.yml --profile realtime --profile realtime-scale up -d agentium-backend agentium-frontend agentium-livekit-agent
+docker exec agentium-backend python -c "from app.services.livekit_service import LiveKitService; print(LiveKitService().public_config()['scale'])"
+```
+
+Ce profil ne doit pas etre ajoute a la commande de deploiement courant tant que
+le besoin multi-node n'est pas etabli. Si `LIVEKIT_REDIS_ADDRESS` est vide, le
+serveur LiveKit reste en single-node. L'egress/recording reste bloque par
+defaut (`LIVEKIT_EGRESS_ENABLED=false`) ; l'autorisation par workspace doit etre
+documentee avant tout enregistrement audio.
+
 ---
 
 ## 4. Vérification post-déploiement (obligatoire)
@@ -164,7 +261,7 @@ Un déploiement n'est « fini » que si ces checks passent.
 ```bash
 # Santé
 ssh omnirag-demo 'docker inspect -f "{{.State.Health.Status}}" agentium-backend'   # -> healthy
-ssh omnirag-demo 'curl -fsS -o /dev/null -w "%{http_code}\n" http://localhost:8000/health/live'  # -> 200
+ssh omnirag-demo 'curl -fsS -o /dev/null -w "%{http_code}\n" http://localhost:${AGENTIUM_BACKEND_HOST_PORT:-8001}/health/live'  # -> 200
 
 # Le code qui TOURNE = le commit attendu (pas juste le checkout hôte)
 ssh omnirag-demo 'docker exec agentium-backend python -c "import app; print(\"import ok\")"'
@@ -222,5 +319,5 @@ ssh omnirag-demo '
 '
 
 # --- VM : vérifier ---
-ssh omnirag-demo 'docker inspect -f "{{.State.Health.Status}}" agentium-backend && curl -fsS -o /dev/null -w "live=%{http_code}\n" http://localhost:8000/health/live'
+ssh omnirag-demo 'docker inspect -f "{{.State.Health.Status}}" agentium-backend && curl -fsS -o /dev/null -w "live=%{http_code}\n" http://localhost:${AGENTIUM_BACKEND_HOST_PORT:-8001}/health/live'
 ```
