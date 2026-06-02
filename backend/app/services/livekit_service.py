@@ -291,9 +291,13 @@ class LiveKitService:
 
     def validate_webhook_authorization(self, authorization: Optional[str], raw_body: bytes | str) -> Dict[str, Any]:
         self.require_configured()
-        if not authorization or not authorization.lower().startswith("bearer "):
-            raise LiveKitAuthError("Missing LiveKit webhook bearer token")
-        token = authorization.split(" ", 1)[1].strip()
+        if not authorization:
+            raise LiveKitAuthError("Missing LiveKit webhook authorization token")
+        token = authorization.strip()
+        if token.lower().startswith("bearer "):
+            token = token.split(" ", 1)[1].strip()
+        if not token:
+            raise LiveKitAuthError("Missing LiveKit webhook authorization token")
         try:
             issuer = settings.livekit_webhook_api_key or settings.livekit_api_key
             api_secret = settings.livekit_webhook_api_secret or settings.livekit_api_secret or ""

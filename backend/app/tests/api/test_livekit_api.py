@@ -244,7 +244,7 @@ def test_livekit_webhook_endpoint_persists_capture_metrics(db_session, monkeypat
 
     response = client.post(
         "/api/v1/livekit/webhooks",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/webhook+json"},
+        headers={"Authorization": token, "Content-Type": "application/webhook+json"},
         content=raw_payload,
     )
 

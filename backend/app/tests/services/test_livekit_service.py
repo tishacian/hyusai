@@ -156,9 +156,11 @@ def test_livekit_webhook_authorization_uses_dedicated_secret_when_configured(mon
         algorithm="HS256",
     )
 
-    claims = LiveKitService().validate_webhook_authorization(f"Bearer {token}", raw_body)
+    claims = LiveKitService().validate_webhook_authorization(token, raw_body)
+    bearer_claims = LiveKitService().validate_webhook_authorization(f"Bearer {token}", raw_body)
 
     assert claims["iss"] == "webhook-key"
+    assert bearer_claims["iss"] == "webhook-key"
     with pytest.raises(LiveKitServiceError):
         LiveKitService().validate_webhook_authorization(f"Bearer {wrong_secret_token}", raw_body)
     with pytest.raises(LiveKitServiceError):
