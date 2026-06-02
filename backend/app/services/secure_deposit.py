@@ -19,7 +19,7 @@ import tempfile
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import jwt
 from fastapi import HTTPException, UploadFile, status
@@ -562,6 +562,8 @@ def _read_supported_archive_documents(
     on_limit: str = "error",
     document_namespace: str | None = None,
     used_names: set[str] | None = None,
+    include_content: bool = True,
+    document_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Extract supported documents from a staged ZIP.
 
@@ -577,6 +579,8 @@ def _read_supported_archive_documents(
     used_names = used_names if used_names is not None else set()
     truncated_files = 0
     skipped_uncompressed_bytes = 0
+    accepted_files = 0
+    accepted_uncompressed_bytes = 0
 
     try:
         archive = zipfile.ZipFile(path)
@@ -594,7 +598,7 @@ def _read_supported_archive_documents(
             if info.flag_bits & 0x1:
                 raise HTTPException(status_code=422, detail=f"Encrypted ZIP member is not supported: {info.filename}")
             file_size = int(info.file_size or 0)
-            if len(documents) >= limit_files:
+            if accepted_files >= limit_files:
                 if on_limit == "truncate":
                     truncated_files += 1
                     continue
@@ -602,7 +606,7 @@ def _read_supported_archive_documents(
                     status_code=413,
                     detail=f"Archive contains more than {limit_files} supported documents",
                 )
-            if limit_bytes is not None and sum(int(doc.get("size_bytes") or 0) for doc in documents) + file_size > limit_bytes:
+            if limit_bytes is not None and accepted_uncompressed_bytes + file_size > limit_bytes:
                 if on_limit == "truncate":
                     truncated_files += 1
                     skipped_uncompressed_bytes += file_size
@@ -624,20 +628,27 @@ def _read_supported_archive_documents(
                 # name so collisions can be detected and legacy lookups mapped.
                 metadata["document_namespace"] = document_namespace
                 metadata["legacy_document_name"] = safe_relative_path(member_path.as_posix()).replace("/", "__")
-            documents.append(
-                {
-                    "archive_path": archive_path,
-                    "filename": document_name,
-                    "extension": ext,
-                    "size_bytes": file_size,
-                    "metadata": metadata,
-                    "content": archive.read(info),
-                }
-            )
+            document = {
+                "archive_path": archive_path,
+                "filename": document_name,
+                "extension": ext,
+                "size_bytes": file_size,
+                "metadata": metadata,
+            }
+            if include_content:
+                document["content"] = archive.read(info)
+            if document_callback is not None:
+                document_callback(document)
+            else:
+                documents.append(document)
+            accepted_files += 1
+            accepted_uncompressed_bytes += file_size
 
-    if not documents:
+    if accepted_files <= 0:
         raise HTTPException(status_code=422, detail="Archive contains no supported documents")
     stats = {
+        "document_count": accepted_files,
+        "uncompressed_bytes": accepted_uncompressed_bytes,
         "truncated_files": truncated_files,
         "skipped_uncompressed_bytes": skipped_uncompressed_bytes,
         "max_files": limit_files,

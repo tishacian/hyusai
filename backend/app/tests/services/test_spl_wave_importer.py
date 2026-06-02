@@ -36,6 +36,22 @@ def test_read_supported_archive_documents_truncates_on_limit(tmp_path: Path):
     assert stats["truncated_files"] == 3
 
 
+def test_read_supported_archive_documents_can_scan_without_content(tmp_path: Path):
+    archive_path = tmp_path / "sample.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("docs/manual.txt", "manual body")
+
+    documents, stats = _read_supported_archive_documents(
+        archive_path,
+        include_content=False,
+    )
+
+    assert len(documents) == 1
+    assert documents[0]["filename"] == "docs__manual.txt"
+    assert "content" not in documents[0]
+    assert stats["document_count"] == 1
+
+
 def test_read_supported_archive_documents_errors_on_limit(tmp_path: Path):
     archive_path = tmp_path / "sample.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:
@@ -533,3 +549,92 @@ def test_execute_wave_plan_collision_guard_no_clobber(db_session, monkeypatch, t
     )
     assert collision_name in refreshed.document_names
     assert stored_as in refreshed.document_names
+
+
+def test_execute_wave_plan_reindexes_existing_archive_documents(db_session, monkeypatch, tmp_path):
+    """Force-running a wave must queue existing source documents too.
+
+    This repairs cases where a prior promotion wrote originals/manifest entries
+    but Qdrant ended up with zero chunks.
+    """
+    from app.core.config import settings
+    from app.models.secure_deposit import DepositFile
+    from app.models.user import User
+    from app.models.workspace import Workspace
+    from app.services.knowledge_collections import create_or_get_collection, document_manifest_key, original_key
+    from app.services.object_store import get_object_store
+    from app.services.secure_deposit import create_link
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    monkeypatch.setattr(
+        "app.services.spl_wave_importer.dispatch_worker_job",
+        lambda _db, job: setattr(job, "celery_task_id", "fake-task-id") or "fake-task-id",
+    )
+
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    db_session.add_all([workspace, user])
+    db_session.flush()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="SPL wave test",
+        expires_at=None,
+        max_file_size_mb=1024,
+        allowed_extensions=["zip"],
+    )
+
+    archive_path = tmp_path / "Manual_ASY100.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("page1.pdf", "EXISTING")
+    deposit = DepositFile(
+        workspace_id=workspace.id,
+        access_link_id=link.id,
+        filename="Notices_Techniques_SPL/A/Manual_ASY100.zip",
+        object_key="obj/asy100",
+        status="promoted",
+        size_bytes=archive_path.stat().st_size,
+        sha256="hash-asy",
+    )
+    db_session.add(deposit)
+    db_session.commit()
+    monkeypatch.setattr("app.services.spl_wave_importer.staged_file_path", lambda _file: archive_path)
+
+    collection = create_or_get_collection(
+        db_session,
+        workspace=workspace,
+        name="andritz-notices-techniques-spl-pilot",
+        slug="andritz-notices-techniques-spl-pilot",
+    )
+    existing_name = "A__Manual_ASY100__page1.pdf"
+    collection.document_names = [existing_name]
+    store = get_object_store()
+    store.write_bytes(original_key(collection, existing_name), b"EXISTING")
+    import json as _json
+
+    store.write_text(
+        document_manifest_key(collection),
+        _json.dumps({existing_name: {"source_deposit_path": "Notices_Techniques_SPL/A/Manual_ASY100.zip"}}),
+    )
+    db_session.commit()
+
+    plan = build_wave_plan(
+        db_session,
+        workspace=workspace,
+        collection_slug=collection.slug,
+        archive_filenames=("Notices_Techniques_SPL/A/Manual_ASY100.zip",),
+        dry_run=False,
+        wave_id="spl_repair",
+    )
+    result = execute_wave_plan(db_session, workspace=workspace, user=user, plan=plan)
+
+    refreshed_job = (
+        db_session.query(__import__("app.models.knowledge_collection", fromlist=["WorkerJob"]).WorkerJob)
+        .filter_by(id=result["job_id"])
+        .one()
+    )
+    assert result["new_document_count"] == 0
+    assert result["job_document_count"] == 1
+    assert refreshed_job.result["ingest_options"]["document_names"] == [existing_name]

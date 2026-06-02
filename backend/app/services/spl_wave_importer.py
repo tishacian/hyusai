@@ -257,6 +257,7 @@ def inspect_archive_deposit_file(
             max_files=max_files,
             max_uncompressed_bytes=int(max_uncompressed_mb * 1024 * 1024),
             on_limit="truncate",
+            include_content=False,
         )
     except Exception as exc:  # noqa: BLE001
         base.promotable = False
@@ -680,6 +681,8 @@ def execute_wave_plan(
     document_names = list(collection.document_names or [])
     document_name_set = set(document_names)
     new_document_names: list[str] = []
+    job_document_names: list[str] = []
+    job_document_name_set: set[str] = set()
     promoted_archives: list[dict[str, Any]] = []
     promoted_deposit_files: list[DepositFile] = []
     collisions: list[dict[str, Any]] = []
@@ -701,19 +704,11 @@ def execute_wave_plan(
         source_path = staged_file_path(deposit_file)
         max_files, max_mb = _archive_limits(archive.filename, limits)
         namespace = archive_document_namespace(deposit_file.filename)
-        documents, stats = _read_supported_archive_documents(
-            source_path,
-            deposit_filename=deposit_file.filename,
-            max_files=max_files,
-            max_uncompressed_bytes=int(max_mb * 1024 * 1024),
-            on_limit="truncate",
-            document_namespace=namespace,
-            used_names=wave_used_names,
-        )
         item_documents: list[dict[str, Any]] = []
-        for document in documents:
+        new_source = str(deposit_file.filename or "")
+
+        def store_document(document: dict[str, Any]) -> None:
             document_name = str(document["filename"])
-            new_source = str(deposit_file.filename or "")
             # Collision guard: never clobber a document that already belongs to a
             # *different* source. Re-running the same archive (same source) is an
             # allowed idempotent refresh; a different source is disambiguated to a
@@ -735,11 +730,14 @@ def execute_wave_plan(
                     document_name = disambiguated
                     wave_used_names.add(document_name)
                     target_key = original_key(collection, document_name)
-            store.write_bytes(target_key, document["content"])
+            store.write_bytes(target_key, bytes(document.get("content") or b""))
             if document_name not in document_name_set:
                 document_names.append(document_name)
                 document_name_set.add(document_name)
                 new_document_names.append(document_name)
+            if document_name not in job_document_name_set:
+                job_document_names.append(document_name)
+                job_document_name_set.add(document_name)
             metadata = dict(document.get("metadata") or {})
             if metadata:
                 document_manifest[document_name] = metadata
@@ -750,6 +748,18 @@ def execute_wave_plan(
                     "size_bytes": document.get("size_bytes"),
                 }
             )
+
+        _ignored_documents, stats = _read_supported_archive_documents(
+            source_path,
+            deposit_filename=deposit_file.filename,
+            max_files=max_files,
+            max_uncompressed_bytes=int(max_mb * 1024 * 1024),
+            on_limit="truncate",
+            document_namespace=namespace,
+            used_names=wave_used_names,
+            include_content=True,
+            document_callback=store_document,
+        )
         promoted_archives.append(
             {
                 "file_id": deposit_file.id,
@@ -772,7 +782,7 @@ def execute_wave_plan(
             "indexing_status": "queued",
         }
 
-    if not new_document_names:
+    if not job_document_names:
         db.commit()
         return {
             "status": "noop",
@@ -794,14 +804,14 @@ def execute_wave_plan(
     job.result = {
         "ingest_options": {
             "mode": "incremental",
-            "document_names": new_document_names,
+            "document_names": job_document_names,
             "wave_id": plan.wave_id,
             "wave_ledger": {
                 "collection_slug": collection.slug,
                 "wave_id": plan.wave_id,
                 "filenames": promoted_filenames,
                 "job_id": job.id,
-                "new_document_count": len(new_document_names),
+                "new_document_count": len(job_document_names),
             },
         }
     }
@@ -824,6 +834,7 @@ def execute_wave_plan(
             "job_id": job.id,
             "wave_id": plan.wave_id,
             "new_document_count": len(new_document_names),
+            "job_document_count": len(job_document_names),
             "archives": promoted_filenames,
             "collision_count": len(collisions),
             "collisions": collisions[:50],
@@ -837,6 +848,7 @@ def execute_wave_plan(
         "celery_task_id": celery_task_id,
         "wave_id": plan.wave_id,
         "new_document_count": len(new_document_names),
+        "job_document_count": len(job_document_names),
         "promoted_archives": promoted_archives,
         "collisions": collisions,
     }
