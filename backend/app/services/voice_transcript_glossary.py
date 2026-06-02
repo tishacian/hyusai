@@ -32,6 +32,26 @@ from typing import Any, Iterable, List, Optional, Sequence
 # are excluded).
 _ACRONYM_RE = re.compile(r"[A-Z][A-Z0-9]{1,}")
 
+# Noise to exclude from *letter-only* acronyms (alphanumeric codes always pass):
+# HTML/markup tags, common structural words, English/French/German function words
+# and roman numerals that frequently appear ALLCAPS in technical notices. Keeping
+# these out of the glossary avoids over-correcting real lowercase words (e.g. a
+# French "section" must never be normalized to "SECTION").
+_ACRONYM_NOISE = frozenset(
+    {
+        "html", "head", "body", "frame", "frameset", "section", "span", "div",
+        "table", "thead", "tbody", "tr", "td", "th", "br", "hr", "ul", "ol", "li",
+        "img", "src", "href", "http", "https", "www", "url", "doc", "pdf", "page",
+        "the", "of", "and", "for", "with", "from", "this", "that", "every", "all",
+        "der", "die", "das", "und", "jede", "jeder", "den", "ein", "eine",
+        "les", "des", "une", "sur", "par", "aux", "ses", "est", "ont", "pas",
+        "tel", "fax", "phone", "email", "mail", "tel.", "info", "ref",
+        "ii", "iii", "iv", "vi", "vii", "viii", "ix", "xi", "xii", "xiii",
+        "sas", "ag", "sa", "gmbh", "inc", "ltd", "corp", "co", "llc",
+        "en", "de", "fr", "us", "uk", "eu", "no", "nr", "id",
+    }
+)
+
 # Word token (keeps accented French letters, intra-word apostrophes and hyphens).
 _WORD_RE = re.compile(r"[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9'’\-]*")
 
@@ -70,10 +90,21 @@ _FUZZY_LEN_DELTA_MAX = 2
 
 
 def extract_acronyms(text: str) -> List[str]:
-    """Return acronym / part-number style surface forms found in ``text``."""
+    """Return acronym / part-number style surface forms found in ``text``.
+
+    Alphanumeric codes (containing a digit, e.g. KD724, XS1) always pass.
+    Letter-only candidates are filtered against :data:`_ACRONYM_NOISE` so markup
+    tags and common ALLCAPS function words never enter the glossary.
+    """
     if not text:
         return []
-    return _ACRONYM_RE.findall(text)
+    out: List[str] = []
+    for surface in _ACRONYM_RE.findall(text):
+        if any(ch.isdigit() for ch in surface):
+            out.append(surface)
+        elif surface.lower() not in _ACRONYM_NOISE:
+            out.append(surface)
+    return out
 
 
 def _is_acronym_token(token: str) -> bool:

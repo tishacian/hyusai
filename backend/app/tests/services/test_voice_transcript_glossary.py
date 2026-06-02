@@ -32,6 +32,17 @@ def test_extract_acronyms_finds_codes_and_allcaps():
     assert "Le" not in acronyms
 
 
+def test_extract_acronyms_filters_markup_and_function_noise():
+    text = "<HTML><HEAD><BODY> SECTION FRAME THE OF — mais KD724 et BOM restent"
+    acronyms = extract_acronyms(text)
+    # Markup tags / common ALLCAPS words are dropped...
+    for noise in ("HTML", "HEAD", "BODY", "SECTION", "FRAME", "THE", "OF"):
+        assert noise not in acronyms
+    # ...while real domain codes survive.
+    assert "KD724" in acronyms
+    assert "BOM" in acronyms
+
+
 def test_extract_distinctive_terms_skips_stopwords_and_acronyms():
     text = "le cadre passe sous les injecteurs et la carde tourne"
     terms = [t.lower() for t in extract_distinctive_terms(text)]

@@ -124,12 +124,19 @@ async def _scan_chunk_texts(doc_svc: Any, *, scan_limit: int = 0) -> List[str]:
 
 
 def _build_terms(
-    texts: List[str], *, min_term_count: int, max_terms: int
+    texts: List[str],
+    *,
+    min_term_count: int,
+    max_terms: int,
+    acronym_ratio: float = 0.5,
 ) -> tuple[List[str], dict[str, Any]]:
     """Build an ordered, deduped, capped glossary surface list from chunk texts.
 
-    Acronyms first (any frequency), then distinctive terms meeting the frequency
-    floor, ordered by frequency. Dedupe is case-insensitive, first surface wins.
+    The cap is split between acronyms and distinctive domain nouns so neither
+    starves the other: acronyms get up to ``acronym_ratio`` of the cap, the rest
+    goes to distinctive terms (frequency-ranked, meeting ``min_term_count``).
+    Whichever category underfills donates its leftover budget to the other.
+    Dedupe is case-insensitive (first/most-frequent surface wins).
     """
     acronym_counts: Counter[str] = Counter()
     acronym_surface: dict[str, str] = {}
@@ -149,29 +156,43 @@ def _build_terms(
             if current is None or (surface[:1].isupper() and not current[:1].isupper()):
                 term_surface[key] = surface
 
+    acronyms_ranked = [acronym_surface[k] for k, _c in acronym_counts.most_common()]
+    distinctive_ranked = [
+        term_surface[k]
+        for k, count in term_counts.most_common()
+        if count >= min_term_count
+    ]
+
+    acronym_budget = min(len(acronyms_ranked), int(round(max_terms * acronym_ratio)))
+    distinctive_budget = max_terms - acronym_budget
+    # Donate unused capacity across categories so the cap is fully used.
+    if len(distinctive_ranked) < distinctive_budget:
+        acronym_budget = min(len(acronyms_ranked), max_terms - len(distinctive_ranked))
+        distinctive_budget = max_terms - acronym_budget
+
     ordered: List[str] = []
     seen: set = set()
-
-    for key, _count in acronym_counts.most_common():
+    for surface in acronyms_ranked[:acronym_budget]:
+        key = surface.lower()
         if key in seen:
             continue
         seen.add(key)
-        ordered.append(acronym_surface[key])
-
+        ordered.append(surface)
     distinctive_kept = 0
-    for key, count in term_counts.most_common():
-        if count < min_term_count:
-            continue
+    for surface in distinctive_ranked:
+        if distinctive_kept >= distinctive_budget:
+            break
+        key = surface.lower()
         if key in seen:
             continue
         seen.add(key)
-        ordered.append(term_surface[key])
+        ordered.append(surface)
         distinctive_kept += 1
 
     capped = ordered[:max_terms]
     stats = {
         "acronyms_unique": len(acronym_counts),
-        "distinctive_candidates": len(term_counts),
+        "distinctive_candidates": len(distinctive_ranked),
         "distinctive_kept": distinctive_kept,
         "terms_before_cap": len(ordered),
         "terms_after_cap": len(capped),
