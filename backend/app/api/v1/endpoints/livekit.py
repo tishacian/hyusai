@@ -1,6 +1,7 @@
 """LiveKit control-plane endpoints for realtime Agentium voice sessions."""
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -247,13 +248,14 @@ async def livekit_webhook(
     db: DBSession = Depends(get_db),
 ) -> Dict[str, Any]:
     service = LiveKitService()
+    raw_body = await request.body()
     try:
-        claims = service.validate_webhook_authorization(authorization)
+        claims = service.validate_webhook_authorization(authorization, raw_body)
     except LiveKitServiceError as exc:
         raise _livekit_http_error(exc) from exc
     try:
-        raw_payload = await request.json()
-    except ValueError as exc:
+        raw_payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+    except (UnicodeDecodeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_livekit_webhook_payload", "message": "Invalid JSON payload"}) from exc
     payload = raw_payload if isinstance(raw_payload, dict) else {}
     record = service.record_webhook_event(db, payload)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import base64
+import hmac
 import json
 import re
 import time
@@ -288,7 +289,7 @@ class LiveKitService:
             raise LiveKitServiceError("LiveKit voice bridge token does not match the requested session")
         return claims
 
-    def validate_webhook_authorization(self, authorization: Optional[str]) -> Dict[str, Any]:
+    def validate_webhook_authorization(self, authorization: Optional[str], raw_body: bytes | str) -> Dict[str, Any]:
         self.require_configured()
         if not authorization or not authorization.lower().startswith("bearer "):
             raise LiveKitAuthError("Missing LiveKit webhook bearer token")
@@ -296,13 +297,27 @@ class LiveKitService:
         try:
             issuer = settings.livekit_webhook_api_key or settings.livekit_api_key
             api_secret = settings.livekit_webhook_api_secret or settings.livekit_api_secret or ""
-            return jwt.decode(
+            claims = jwt.decode(
                 token,
                 api_secret,
                 algorithms=["HS256"],
                 issuer=issuer,
+                leeway=10,
                 options={"verify_aud": False},
             )
+            encoded_hash = claims.get("sha256")
+            if not encoded_hash:
+                raise LiveKitAuthError("Missing LiveKit webhook payload hash")
+            body_bytes = raw_body.encode("utf-8") if isinstance(raw_body, str) else raw_body
+            expected_hash = base64.b64decode(str(encoded_hash), validate=True)
+            actual_hash = hashlib.sha256(body_bytes).digest()
+            if not hmac.compare_digest(actual_hash, expected_hash):
+                raise LiveKitAuthError("Invalid LiveKit webhook payload hash")
+            return claims
+        except LiveKitAuthError:
+            raise
+        except (ValueError, TypeError) as exc:
+            raise LiveKitAuthError("Invalid LiveKit webhook payload hash") from exc
         except jwt.PyJWTError as exc:
             raise LiveKitAuthError("Invalid LiveKit webhook bearer token") from exc
 

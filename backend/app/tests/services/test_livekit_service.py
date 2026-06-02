@@ -1,5 +1,6 @@
 import json
 import base64
+import hashlib
 
 import jwt
 import pytest
@@ -142,22 +143,26 @@ def test_livekit_webhook_authorization_uses_dedicated_secret_when_configured(mon
     _enable_livekit(monkeypatch)
     monkeypatch.setattr(settings, "livekit_webhook_api_key", "webhook-key")
     monkeypatch.setattr(settings, "livekit_webhook_api_secret", "y" * 40)
+    raw_body = b'{"event":"room_started"}'
+    payload_hash = base64.b64encode(hashlib.sha256(raw_body).digest()).decode("ascii")
     token = jwt.encode(
-        {"iss": "webhook-key", "nbf": 1, "exp": 4_102_444_800},
+        {"iss": "webhook-key", "nbf": 1, "exp": 4_102_444_800, "sha256": payload_hash},
         settings.livekit_webhook_api_secret,
         algorithm="HS256",
     )
     wrong_secret_token = jwt.encode(
-        {"iss": "webhook-key", "nbf": 1, "exp": 4_102_444_800},
+        {"iss": "webhook-key", "nbf": 1, "exp": 4_102_444_800, "sha256": payload_hash},
         settings.livekit_api_secret,
         algorithm="HS256",
     )
 
-    claims = LiveKitService().validate_webhook_authorization(f"Bearer {token}")
+    claims = LiveKitService().validate_webhook_authorization(f"Bearer {token}", raw_body)
 
     assert claims["iss"] == "webhook-key"
     with pytest.raises(LiveKitServiceError):
-        LiveKitService().validate_webhook_authorization(f"Bearer {wrong_secret_token}")
+        LiveKitService().validate_webhook_authorization(f"Bearer {wrong_secret_token}", raw_body)
+    with pytest.raises(LiveKitServiceError):
+        LiveKitService().validate_webhook_authorization(f"Bearer {token}", b'{"event":"tampered"}')
 
 
 def test_voice_gateway_authenticates_livekit_bridge_token(monkeypatch, db_session):

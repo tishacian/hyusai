@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import time
 
@@ -224,20 +225,27 @@ def test_livekit_webhook_endpoint_persists_capture_metrics(db_session, monkeypat
         mode="conversation_only",
         created_by_user_id=user.id,
     )
+    payload = {
+        "event": "participant_joined",
+        "room": {"name": "agentium-andritz-kc", "sid": "RM_1", "metadata": json.dumps(metadata)},
+        "participant": {"identity": "expert-1", "sid": "PA_1", "name": "Expert"},
+    }
+    raw_payload = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     token = jwt.encode(
-        {"iss": settings.livekit_webhook_api_key, "nbf": int(time.time()) - 1, "exp": int(time.time()) + 60},
+        {
+            "iss": settings.livekit_webhook_api_key,
+            "nbf": int(time.time()) - 1,
+            "exp": int(time.time()) + 60,
+            "sha256": base64.b64encode(hashlib.sha256(raw_payload).digest()).decode("ascii"),
+        },
         settings.livekit_api_secret,
         algorithm="HS256",
     )
 
     response = client.post(
         "/api/v1/livekit/webhooks",
-        headers={"Authorization": f"Bearer {token}"},
-        json={
-            "event": "participant_joined",
-            "room": {"name": "agentium-andritz-kc", "sid": "RM_1", "metadata": json.dumps(metadata)},
-            "participant": {"identity": "expert-1", "sid": "PA_1", "name": "Expert"},
-        },
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/webhook+json"},
+        content=raw_payload,
     )
 
     assert response.status_code == 200
