@@ -5877,6 +5877,7 @@ def _ensure_rag_preset(db: DBSession, workspace: Workspace) -> None:
         "mode": "chah",
         "ragPipelineMode": "chah",
         "rag_pipeline_mode": "chah",
+        "ragVectorDBType": "qdrant",
         "ragCollectionName": "sentinel-ci-open-intelligence",
         "topK": 6,
         "ragTopK": 6,
