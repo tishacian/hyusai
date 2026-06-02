@@ -66,10 +66,11 @@ services:
             redis_block="$$(printf "%s\n  db: %s" "$$redis_block" "$$LIVEKIT_REDIS_DB")"
           fi
         fi
-        if [ -z "$${LIVEKIT_KEYS:-}" ] || [ "$${LIVEKIT_KEYS:-}" = ":" ]; then
-          LIVEKIT_KEYS="$${LIVEKIT_API_KEY:-devkey}: $${LIVEKIT_API_SECRET:-change-me-livekit-secret-at-least-32-chars}"
-        else
+        if [ -n "$${LIVEKIT_KEYS:-}" ]; then
           LIVEKIT_KEYS="$$(printf "%s" "$$LIVEKIT_KEYS" | sed -E 's/:([^[:space:]])/: \1/g')"
+        fi
+        if ! printf "%s" "$${LIVEKIT_KEYS:-}" | grep -Eq '^[^[:space:]:]+: [^[:space:]].*'; then
+          LIVEKIT_KEYS="$${LIVEKIT_API_KEY:-devkey}: $${LIVEKIT_API_SECRET:-change-me-livekit-secret-at-least-32-chars}"
         fi
         export LIVEKIT_KEYS
         test -n "$${LIVEKIT_WEBHOOK_API_KEY:-$${LIVEKIT_API_KEY:-devkey}}"
