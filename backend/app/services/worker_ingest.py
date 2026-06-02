@@ -253,7 +253,7 @@ async def _materialize_ingested_text(
     collection: KnowledgeCollection,
     local_path: Path,
     workspace_id: str | None = None,
-) -> None:
+):
     parser = DocumentParserFactory.get_parser(str(local_path))
     try:
         parsed = await parser.parse(str(local_path), ocr_config=resolve_ocr_config_for_workspace(workspace_id))
@@ -261,6 +261,8 @@ async def _materialize_ingested_text(
         parsed = await parser.parse(str(local_path))
     text = "\n\n".join(str(chunk.get("content", "")) for chunk in parsed.chunks if chunk.get("content"))
     get_object_store().write_text(ingested_key(collection, local_path.name), text)
+    parsed.raw_content = ""
+    return parsed
 
 
 async def _run_document_ingest_index_async(job_id: str) -> dict:
@@ -326,8 +328,18 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         update_job(db, job_id, progress=20, stage="parsing")
         db.commit()
 
-        for path in local_paths:
-            await _materialize_ingested_text(collection=collection, local_path=Path(path), workspace_id=workspace.id)
+        parsed_documents_by_path: dict[str, object] = {}
+        total_paths = max(1, len(local_paths))
+        for index, path in enumerate(local_paths, start=1):
+            parsed_documents_by_path[path] = await _materialize_ingested_text(
+                collection=collection,
+                local_path=Path(path),
+                workspace_id=workspace.id,
+            )
+            if index == len(local_paths) or index % 25 == 0:
+                parse_progress = 20 + int(20 * index / total_paths)
+                update_job(db, job_id, progress=min(40, parse_progress), stage=f"parsing {index}/{total_paths}")
+                db.commit()
 
         app_settings = get_resolved_settings(workspace_id=workspace.id)
         collection.embedding_model = settings.embedding_model
@@ -362,6 +374,7 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             collection_id=collection.id,
             collection_slug=collection.slug,
             document_metadata_by_name=document_metadata_by_name,
+            parsed_documents_by_path=parsed_documents_by_path,
         )
         source_results_by_name: dict[str, dict] = {}
         for index, item in enumerate(ingest_result.get("results") or []):

@@ -370,6 +370,7 @@ class DocumentService:
         Each document is processed asynchronously: parse -> chunk -> embed -> index
         """
         max_concurrency = kwargs.pop("max_concurrency", None)
+        parsed_documents_by_path = kwargs.pop("parsed_documents_by_path", None)
         try:
             max_concurrency = int(max_concurrency) if max_concurrency is not None else len(file_paths)
         except (TypeError, ValueError):
@@ -386,9 +387,15 @@ class DocumentService:
             """Process a single document through the full pipeline"""
             try:
                 # Step 1: Parse document (async)
-                parser = DocumentParserFactory.get_parser(file_path)
-                parse_kwargs = _kwargs_with_ocr_config(kwargs)
-                parsed_doc = await parser.parse(file_path, **parse_kwargs)
+                parsed_doc = None
+                if isinstance(parsed_documents_by_path, dict):
+                    parsed_doc = parsed_documents_by_path.get(file_path) or parsed_documents_by_path.get(Path(file_path).name)
+                if parsed_doc is None:
+                    parser = DocumentParserFactory.get_parser(file_path)
+                    parse_kwargs = _kwargs_with_ocr_config(kwargs)
+                    parsed_doc = await parser.parse(file_path, **parse_kwargs)
+                else:
+                    logger.info(f"Using pre-parsed document: {getattr(parsed_doc, 'filename', Path(file_path).name)}")
                 try:
                     from app.services.document_intelligence import ensure_document_artifacts
 

@@ -88,9 +88,12 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     )
     db_session.commit()
 
+    parse_calls = []
+
     class FakeParser:
         async def parse(self, _path):
-            return SimpleNamespace(chunks=[{"content": "hello world"}])
+            parse_calls.append(_path)
+            return SimpleNamespace(chunks=[{"content": "hello world"}], raw_content="hello world")
 
     class FakeDocumentService:
         def __init__(self, *args, **kwargs):
@@ -104,6 +107,10 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
         async def ingest_documents_batch(self, paths, **_kwargs):
             assert self.cleared is True
             assert _kwargs["document_metadata_by_name"]["manual.txt"]["project_code"] == "BBA120"
+            parsed_by_path = _kwargs["parsed_documents_by_path"]
+            assert set(parsed_by_path) == set(paths)
+            assert parsed_by_path[paths[0]].chunks == [{"content": "hello world"}]
+            assert parsed_by_path[paths[0]].raw_content == ""
             return {
                 "total": len(paths),
                 "successful": len(paths),
@@ -138,6 +145,7 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     assert refreshed_collection.status == "ready"
     assert refreshed_collection.document_count == 1
     assert refreshed_job.status == "completed"
+    assert len(parse_calls) == 1
     assert get_object_store().read_bytes(
         f"{collection.artifact_prefix}/ingested/manual.txt"
     ) == b"hello world"
