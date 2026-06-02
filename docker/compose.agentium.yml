@@ -66,7 +66,7 @@ services:
             redis_block="$$(printf "%s\n  db: %s" "$$redis_block" "$$LIVEKIT_REDIS_DB")"
           fi
         fi
-        if [ -z "$${LIVEKIT_KEYS:-}" ]; then
+        if [ -z "$${LIVEKIT_KEYS:-}" ] || [ "$${LIVEKIT_KEYS:-}" = ":" ]; then
           LIVEKIT_KEYS="$${LIVEKIT_API_KEY:-devkey}: $${LIVEKIT_API_SECRET:-change-me-livekit-secret-at-least-32-chars}"
         else
           LIVEKIT_KEYS="$$(printf "%s" "$$LIVEKIT_KEYS" | sed -E 's/:([^[:space:]])/: \1/g')"
@@ -83,7 +83,9 @@ services:
           /etc/livekit/agentium-livekit.yaml > /tmp/agentium-livekit.yaml
         exec /livekit-server --config /tmp/agentium-livekit.yaml
     environment:
-      LIVEKIT_KEYS: "${LIVEKIT_KEYS:-${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-change-me-livekit-secret-at-least-32-chars}}"
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-change-me-livekit-secret-at-least-32-chars}
+      LIVEKIT_KEYS: ${LIVEKIT_KEYS:-}
       LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_WEBHOOK_API_KEY:-${LIVEKIT_API_KEY:-devkey}}
       LIVEKIT_REDIS_ADDRESS: ${LIVEKIT_REDIS_ADDRESS:-}
       LIVEKIT_REDIS_USERNAME: ${LIVEKIT_REDIS_USERNAME:-}
