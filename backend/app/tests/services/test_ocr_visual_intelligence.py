@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from types import SimpleNamespace
 
 import pytest
@@ -141,6 +142,48 @@ def test_pdf_parser_honors_ocr_disabled_config():
         is True
     )
     assert parser._should_run_ocr([], use_ocr=False, ocr_config={"enabled": True, "scan_detection": False}) is False
+
+
+@pytest.mark.asyncio
+async def test_pdf_parser_uses_pymupdf_fast_path_without_pdfplumber(monkeypatch):
+    parser = AdvancedPDFParser()
+
+    async def fake_fast_path(_path):
+        return [{"page_number": 1, "text": "native text"}]
+
+    def guarded_import(name, *args, **kwargs):
+        if name == "pdfplumber":
+            raise AssertionError("pdfplumber should not run when PyMuPDF extracted text")
+        return original_import(name, *args, **kwargs)
+
+    original_import = builtins.__import__
+    monkeypatch.setattr(parser, "_extract_with_pymupdf_text", fake_fast_path)
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    pages = await parser._extract_with_markdown_converter("/tmp/native.pdf", ocr_config={"enabled": True})
+
+    assert pages == [{"page_number": 1, "text": "native text"}]
+
+
+@pytest.mark.asyncio
+async def test_pdf_parser_skips_heavy_fallback_when_ocr_disabled(monkeypatch):
+    parser = AdvancedPDFParser()
+
+    async def fake_fast_path(_path):
+        return []
+
+    def guarded_import(name, *args, **kwargs):
+        if name == "pdfplumber":
+            raise AssertionError("pdfplumber should not run for OCR-off baseline without native text")
+        return original_import(name, *args, **kwargs)
+
+    original_import = builtins.__import__
+    monkeypatch.setattr(parser, "_extract_with_pymupdf_text", fake_fast_path)
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    pages = await parser._extract_with_markdown_converter("/tmp/scanned.pdf", ocr_config={"enabled": False})
+
+    assert pages == []
 
 
 def test_openai_vision_enriches_low_confidence_ocr(tmp_path, monkeypatch):

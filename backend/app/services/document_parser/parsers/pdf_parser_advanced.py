@@ -41,7 +41,7 @@ class AdvancedPDFParser(BaseDocumentParser):
         ocr_artifacts: List[Dict[str, Any]] = []
         try:
             if use_markdown_converter:
-                pages_data = await self._extract_with_markdown_converter(file_path)
+                pages_data = await self._extract_with_markdown_converter(file_path, ocr_config=ocr_config)
                 if self._should_run_ocr(pages_data, use_ocr=use_ocr, ocr_config=ocr_config):
                     ocr_pages, ocr_artifacts = await self._extract_with_ocr(file_path, ocr_config)
                     if ocr_pages:
@@ -161,8 +161,13 @@ class AdvancedPDFParser(BaseDocumentParser):
 
         return chunks
 
-    async def _extract_with_markdown_converter(self, file_path: str) -> List[Dict]:
-        """Extract text using markdown converter (best quality)"""
+    async def _extract_with_markdown_converter(self, file_path: str, ocr_config: dict | None = None) -> List[Dict]:
+        """Extract text with a fast native-text path before heavier fallbacks."""
+        pymupdf_pages = await self._extract_with_pymupdf_text(file_path)
+        if pymupdf_pages:
+            return pymupdf_pages
+        if ocr_config is not None and not bool(ocr_config.get("enabled", settings.document_ocr_enabled)):
+            return pymupdf_pages
         try:
             import pdfplumber
 
@@ -184,6 +189,28 @@ class AdvancedPDFParser(BaseDocumentParser):
         except Exception as e:
             logger.error(f"Markdown converter extraction failed: {e}")
             raise
+
+    async def _extract_with_pymupdf_text(self, file_path: str) -> List[Dict]:
+        """Fast native PDF text extraction for large ingestion waves."""
+        loop = asyncio.get_event_loop()
+
+        def _extract() -> List[Dict]:
+            try:
+                import pymupdf
+            except ImportError:
+                return []
+            pages: List[Dict] = []
+            doc = pymupdf.open(file_path)
+            try:
+                for idx in range(len(doc)):
+                    text = doc[idx].get_text("text")
+                    if text and text.strip():
+                        pages.append({"page_number": idx + 1, "text": text})
+            finally:
+                doc.close()
+            return pages
+
+        return await loop.run_in_executor(None, _extract)
 
     def _should_run_ocr(self, pages_data: List[Dict], *, use_ocr: bool, ocr_config: dict | None = None) -> bool:
         config = ocr_config or {}
@@ -255,6 +282,20 @@ class AdvancedPDFParser(BaseDocumentParser):
 
         def _extract() -> List[Dict]:
             pages: List[Dict] = []
+            try:
+                import pymupdf
+                doc = pymupdf.open(file_path)
+                try:
+                    for idx in range(len(doc)):
+                        text = doc[idx].get_text("text")
+                        if text:
+                            pages.append({"page_number": idx + 1, "text": text})
+                    if pages:
+                        return pages
+                finally:
+                    doc.close()
+            except ImportError:
+                pass
             try:
                 import pdfplumber
                 with pdfplumber.open(file_path) as pdf:
