@@ -63,6 +63,32 @@ def test_worker_job_lifecycle_update(db_session):
     assert refreshed.result == {"ok": True}
 
 
+def test_worker_ingest_skips_terminal_job(db_session, monkeypatch):
+    ws = _workspace(db_session)
+    collection = create_collection(db_session, workspace=ws, name="Docs")
+    job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    job.status = "cancelled"
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        lambda _path: pytest.fail("terminal jobs must not parse documents"),
+    )
+
+    result = run_document_ingest_index(job.id)
+
+    db_session.expire_all()
+    refreshed = db_session.query(WorkerJob).filter(WorkerJob.id == job.id).one()
+    assert result["status"] == "skipped"
+    assert result["reason"] == "worker_job_already_terminal"
+    assert refreshed.status == "cancelled"
+
+
 def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     db_session,
     tmp_path,

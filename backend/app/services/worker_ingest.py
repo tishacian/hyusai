@@ -271,6 +271,14 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
     db = SessionLocal()
     temp_dir = Path(tempfile.mkdtemp(prefix="agentium-ingest-"))
     try:
+        existing_job = db.query(WorkerJob).filter(WorkerJob.id == job_id).first()
+        if existing_job and existing_job.status in ("completed", "failed", "cancelled"):
+            return {
+                "status": "skipped",
+                "reason": "worker_job_already_terminal",
+                "job_id": job_id,
+                "job_status": existing_job.status,
+            }
         job = update_job(db, job_id, status="running", progress=5, stage="copy_originals")
         if not job or not job.collection_id:
             db.commit()
