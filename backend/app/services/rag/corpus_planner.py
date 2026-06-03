@@ -465,6 +465,8 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
         return {}, 0.0, "", []
     if project_codes and any(item[1] for item in scored):
         scored = [item for item in scored if item[1]]
+    elif project_codes:
+        return {}, 0.0, f"No ledger source matched project/code {', '.join(project_codes[:3])}.", []
 
     ranked = sorted(scored, key=lambda item: (-item[0], str(getattr(item[2], "filename", "") or "").lower()))[:40]
     filenames: list[str] = []
