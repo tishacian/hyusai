@@ -445,6 +445,37 @@ def _retrieval_fallback_reason(state: Dict[str, Any]) -> Optional[Any]:
     return reason if reason else None
 
 
+def _dense_fast_degraded_reply(state: Dict[str, Any]) -> Optional[str]:
+    metrics = _retrieval_metrics(state)
+    dense_policy = str(state.get("dense_policy") or metrics.get("dense_policy") or "")
+    fallback_reason = str(_retrieval_fallback_reason(state) or "")
+    if dense_policy != "fast_scoped_dense_auto" or fallback_reason != "dense_unscoped_fast_policy":
+        return None
+    scope = state.get("retrieval_scope") if isinstance(state.get("retrieval_scope"), dict) else {}
+    try:
+        source_count = int(scope.get("source_count") or metrics.get("source_count") or 0)
+    except (TypeError, ValueError):
+        source_count = 0
+    try:
+        chunk_count = int(scope.get("chunk_count") or metrics.get("chunk_count") or 0)
+    except (TypeError, ValueError):
+        chunk_count = 0
+    parts = [
+        "Cette collection est trop dense pour une recherche globale instantanee.",
+        "J'ai donc evite le balayage complet des chunks et garde Quick Ask sur un perimetre sur.",
+    ]
+    if source_count or chunk_count:
+        parts.insert(
+            1,
+            f"Inventaire detecte: {source_count:,} sources et {chunk_count:,} chunks.".replace(",", " "),
+        )
+    if state.get("deep_job_id"):
+        parts.append("Un Deep Retrieval est deja en file pour raffiner la reponse en arriere-plan.")
+    else:
+        parts.append("Je lance un Deep Retrieval asynchrone pour raffiner la reponse sans bloquer le chat.")
+    return " ".join(parts)
+
+
 _SYSTEM_RETRIEVAL_FILTER_KEYS = {
     "collection",
     "collection_slug",
@@ -2269,6 +2300,18 @@ async def chat_stream(
                         ):
                             pipeline_start_time = _time.time()
                         yield _sse_data(chunk)
+                        if chunk.get("chunk_type") == "retrieval" and not full_content:
+                            degraded_reply = _dense_fast_degraded_reply(chunk_state)
+                            if degraded_reply:
+                                full_content.append(degraded_reply)
+                                yield _sse_data(
+                                    {
+                                        "chunk_type": "text",
+                                        "content": degraded_reply,
+                                        "is_final": False,
+                                    }
+                                )
+                                break
             except TimeoutError as exc:
                 metrics_collector.record_timeout("/api/v1/chat/stream", "chat_stream")
                 stream_status = "timeout"
