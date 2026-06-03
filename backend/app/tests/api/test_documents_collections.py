@@ -41,6 +41,96 @@ def test_list_collections_returns_ledger_items(db_session, monkeypatch):
     assert body["collections"] == ["policies"]
     assert body["items"][0]["name"] == "Policies"
     assert body["items"][0]["status"] == "created"
+    assert "document_names" not in body["items"][0]
+
+
+def test_collection_inventory_can_page_sources(db_session, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-inventory", name="Inventory", slug="inventory")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    collection.document_count = 3
+    collection.chunk_count = 33
+    db_session.add_all(
+        [
+            KnowledgeCollectionSource(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                filename=f"manual-{index}.pdf",
+                normalized_name=f"manual-{index}.pdf",
+                source_kind="pdf",
+                extension="pdf",
+                mime_type="application/pdf",
+                origin="upload",
+                chunk_count=10 + index,
+                status="ready",
+                source_metadata={"document_id": f"doc-{index}"},
+            )
+            for index in range(3)
+        ]
+    )
+    db_session.commit()
+
+    response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.id}/inventory?source_limit=2&source_offset=1"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source_count"] == 3
+    assert body["chunk_count"] == 33
+    assert body["sources_offset"] == 1
+    assert body["sources_limit"] == 2
+    assert body["sources_returned"] == 2
+    assert body["sources_has_more"] is False
+    assert [source["filename"] for source in body["sources"]] == ["manual-1.pdf", "manual-2.pdf"]
+
+
+def test_list_documents_uses_ledger_page_without_vector_scroll(db_session, monkeypatch):
+    ws = Workspace(id="ws-list", name="List", slug="list")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    db_session.add_all(
+        [
+            KnowledgeCollectionSource(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                filename=f"manual-{index}.pdf",
+                normalized_name=f"manual-{index}.pdf",
+                source_kind="pdf",
+                extension="pdf",
+                mime_type="application/pdf",
+                origin="upload",
+                size_bytes=100 + index,
+                chunk_count=index + 1,
+                status="ready",
+                source_metadata={"document_id": f"doc-{index}"},
+            )
+            for index in range(3)
+        ]
+    )
+    db_session.commit()
+
+    class ExplodingDocumentService:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("ledger-backed /list should not instantiate DocumentService")
+
+    monkeypatch.setattr(documents, "DocumentService", ExplodingDocumentService)
+
+    response = _client(db_session, ws).get(
+        f"/documents/list?collection_name={collection.slug}&limit=2&offset=1"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "ledger"
+    assert body["total"] == 3
+    assert body["has_more"] is False
+    assert [item["document_id"] for item in body["documents"]] == ["doc-1", "doc-2"]
+    assert body["documents"][0]["chunk_count"] == 2
 
 
 def test_collection_document_upload_creates_worker_job_and_stores_original(

@@ -8,8 +8,6 @@ import {
 } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
-import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
 import { ToastrService } from 'ngx-toastr';
 import { RouterLink } from '@angular/router';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -29,6 +27,21 @@ interface CollectionInfo {
   loading?: boolean;
 }
 
+interface CollectionItemPayload {
+  slug?: string;
+  name?: string;
+  document_count?: number;
+  source_count?: number;
+  chunk_count?: number;
+}
+
+interface CollectionsPayload {
+  collections?: string[];
+  items?: CollectionItemPayload[];
+  default?: string | null;
+  vector_db_type?: string;
+}
+
 interface DocItem {
   document_id: string;
   filename: string;
@@ -36,6 +49,14 @@ interface DocItem {
   mime_type?: string;
   uploaded_at?: string;
   size?: number;
+}
+
+interface DocumentListPayload {
+  documents?: DocItem[];
+  total?: number;
+  offset?: number;
+  limit?: number;
+  has_more?: boolean;
 }
 
 interface SearchResult {
@@ -352,6 +373,33 @@ interface SearchResult {
       } @else if (browseDocs().length === 0) {
         <app-empty-state icon="file-text" title="Empty collection" description="Upload documents to this collection." />
       } @else {
+        <div class="mb-3 flex items-center justify-between gap-2 text-xs text-gray-400">
+          <span class="font-mono">
+            {{ browseOffset() + 1 }}–{{ browseOffset() + browseDocs().length }} / {{ browseTotal() }}
+          </span>
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              title="Previous page"
+              aria-label="Previous page"
+              class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+              [disabled]="browseLoading() || browseOffset() === 0"
+              (click)="loadBrowsePage(browseOffset() > browsePageSize ? browseOffset() - browsePageSize : 0)"
+            >
+              <app-icon name="chevron-left" [size]="13" />
+            </button>
+            <button
+              type="button"
+              title="Next page"
+              aria-label="Next page"
+              class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+              [disabled]="browseLoading() || !browseHasMore()"
+              (click)="loadBrowsePage(browseOffset() + browsePageSize)"
+            >
+              <app-icon name="chevron-right" [size]="13" />
+            </button>
+          </div>
+        </div>
         <ul class="space-y-2">
           @for (d of browseDocs(); track d.document_id) {
             <li
@@ -563,6 +611,10 @@ export class KnowledgeBaseComponent implements OnInit {
   browseCollection = signal<string>('');
   browseDocs = signal<DocItem[]>([]);
   browseLoading = signal(false);
+  browseTotal = signal(0);
+  browseOffset = signal(0);
+  browseHasMore = signal(false);
+  readonly browsePageSize = 100;
 
   // Preview
   previewOpen = signal(false);
@@ -629,50 +681,32 @@ export class KnowledgeBaseComponent implements OnInit {
   loadCollections(): void {
     this.loadingCollections.set(true);
     this.http
-      .get<{ collections: string[]; default: string | null; vector_db_type: string }>(
+      .get<CollectionsPayload>(
         `${this.base}/collections`,
       )
       .subscribe({
         next: (res) => {
           const names = res?.collections ?? [];
           this.vectorDbType.set(res?.vector_db_type ?? '');
-          if (names.length === 0) {
+          const items = res?.items ?? [];
+          if (names.length === 0 && items.length === 0) {
             this.collections.set([]);
             this.loadingCollections.set(false);
             return;
           }
-          const infos: CollectionInfo[] = names.map((name) => ({
-            name,
-            chunks: 0,
-            docs: 0,
-            loading: true,
-          }));
+          const bySlug = new Map(items.map((item) => [item.slug || item.name || '', item]));
+          const displayItems = names.length ? names.map((name) => bySlug.get(name) ?? { slug: name }) : items;
+          const infos: CollectionInfo[] = displayItems.map((item) => {
+            const name = item.slug || item.name || '';
+            return {
+              name,
+              chunks: item.chunk_count ?? 0,
+              docs: item.source_count ?? item.document_count ?? 0,
+              loading: false,
+            };
+          }).filter((item) => !!item.name);
           this.collections.set(infos);
-          // Fetch per-collection stats in parallel.
-          forkJoin(
-            names.map((name) =>
-              forkJoin({
-                stats: this.http
-                  .get<{ total_chunks: number }>(
-                    `${this.base}/stats?collection_name=${encodeURIComponent(name)}`,
-                  )
-                  .pipe(catchError(() => of({ total_chunks: 0 }))),
-                list: this.http
-                  .get<{ total: number }>(
-                    `${this.base}/list?collection_name=${encodeURIComponent(name)}`,
-                  )
-                  .pipe(catchError(() => of({ total: 0 }))),
-              }),
-            ),
-          ).subscribe((results) => {
-            const merged = infos.map((inf, i) => ({
-              name: inf.name,
-              chunks: results[i]?.stats?.total_chunks ?? 0,
-              docs: results[i]?.list?.total ?? 0,
-            }));
-            this.collections.set(merged);
-            this.loadingCollections.set(false);
-          });
+          this.loadingCollections.set(false);
         },
         error: () => {
           this.collections.set([]);
@@ -783,16 +817,35 @@ export class KnowledgeBaseComponent implements OnInit {
   openBrowse(name: string): void {
     this.browseCollection.set(name);
     this.browseOpen.set(true);
+    this.browseDocs.set([]);
+    this.browseTotal.set(0);
+    this.browseOffset.set(0);
+    this.browseHasMore.set(false);
+    this.loadBrowsePage(0);
+  }
+
+  loadBrowsePage(offset: number): void {
+    const name = this.browseCollection();
+    if (!name) return;
+    const safeOffset = Math.max(0, offset);
     this.browseLoading.set(true);
     this.http
-      .get<{ documents: DocItem[] }>(`${this.base}/list?collection_name=${encodeURIComponent(name)}`)
+      .get<DocumentListPayload>(
+        `${this.base}/list?collection_name=${encodeURIComponent(name)}&limit=${this.browsePageSize}&offset=${safeOffset}`,
+      )
       .subscribe({
         next: (res) => {
           this.browseDocs.set(res?.documents ?? []);
+          this.browseTotal.set(res?.total ?? 0);
+          this.browseOffset.set(res?.offset ?? safeOffset);
+          this.browseHasMore.set(!!res?.has_more);
           this.browseLoading.set(false);
         },
         error: () => {
           this.browseDocs.set([]);
+          this.browseTotal.set(0);
+          this.browseOffset.set(safeOffset);
+          this.browseHasMore.set(false);
           this.browseLoading.set(false);
         },
       });

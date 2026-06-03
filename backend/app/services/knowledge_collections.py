@@ -250,11 +250,16 @@ def collection_inventory(
     *,
     collection: KnowledgeCollection,
     include_sources: bool = True,
+    source_limit: int | None = None,
+    source_offset: int = 0,
 ) -> dict[str, Any]:
     rows = collection_source_rows(db, collection=collection)
     by_kind = Counter(row.source_kind or "document" for row in rows)
     by_extension = Counter((row.extension or "unknown") for row in rows)
     by_status = Counter(row.status or "unknown" for row in rows)
+    safe_offset = max(0, int(source_offset or 0))
+    safe_limit = None if source_limit is None else max(0, int(source_limit))
+    source_rows = rows[safe_offset:] if safe_limit is None else rows[safe_offset : safe_offset + safe_limit]
     sources = [
         {
             "id": row.id,
@@ -270,7 +275,7 @@ def collection_inventory(
             "last_error": row.last_error,
             "metadata": row.source_metadata or {},
         }
-        for row in rows
+        for row in source_rows
     ]
     total_chunks = sum(int(row.chunk_count or 0) for row in rows) or (collection.chunk_count or 0)
     return {
@@ -285,6 +290,10 @@ def collection_inventory(
         "by_extension": dict(sorted(by_extension.items())),
         "by_status": dict(sorted(by_status.items())),
         "sources": sources if include_sources else [],
+        "sources_offset": safe_offset,
+        "sources_limit": safe_limit,
+        "sources_returned": len(sources) if include_sources else 0,
+        "sources_has_more": include_sources and (safe_offset + len(sources) < len(rows)),
     }
 
 
@@ -448,11 +457,16 @@ async def serialize_collection(
     vector_db_type: str,
     workspace_slug: str,
     include_metrics: bool = False,
+    include_document_names: bool = False,
+    include_source_facets: bool = False,
     store: ObjectStore | None = None,
 ) -> dict[str, Any]:
-    try:
-        source_rows = [row for row in (collection.sources or []) if row.status != "deleted"]
-    except Exception:
+    if include_source_facets:
+        try:
+            source_rows = [row for row in (collection.sources or []) if row.status != "deleted"]
+        except Exception:
+            source_rows = []
+    else:
         source_rows = []
     source_count = len(source_rows) or (collection.document_count or len(collection.document_names or []))
     source_kind_counts = Counter(row.source_kind or "document" for row in source_rows)
@@ -467,7 +481,6 @@ async def serialize_collection(
         "created_at": collection.created_at.isoformat() if collection.created_at else None,
         "updated_at": collection.updated_at.isoformat() if collection.updated_at else None,
         "created_by_user_id": collection.created_by_user_id,
-        "document_names": collection.document_names or [],
         "document_count": collection.document_count or 0,
         "source_count": source_count,
         "source_kind_counts": dict(sorted(source_kind_counts.items())),
@@ -481,6 +494,8 @@ async def serialize_collection(
         "last_error": collection.last_error,
         "is_embedded": collection.status == "ready",
     }
+    if include_document_names:
+        payload["document_names"] = collection.document_names or []
     if include_metrics:
         store = store or get_object_store()
         original_key_prefix = store.key(collection.artifact_prefix, "original")

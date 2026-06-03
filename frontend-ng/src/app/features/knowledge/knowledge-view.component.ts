@@ -50,10 +50,13 @@ interface DocRow {
   mime_type?: string;
   uploaded_at?: string;
   size?: number;
+  status?: string;
+  source_id?: string;
 }
 
 interface StatsPayload {
   collection_name?: string;
+  vector_db_type?: string;
   total_chunks?: number;
   vector_dim?: number | null;
   cache_stats?: Record<string, unknown> | null;
@@ -82,8 +85,37 @@ interface ChunksPayload {
 
 interface CollectionsPayload {
   collections?: string[];
+  items?: Array<{
+    slug?: string;
+    name?: string;
+    document_count?: number;
+    source_count?: number;
+    chunk_count?: number;
+  }>;
   vector_db_type?: string;
   default?: string | null;
+}
+
+interface InventorySourcePayload {
+  id?: string;
+  filename: string;
+  chunk_count?: number;
+  mime_type?: string;
+  size_bytes?: number;
+  status?: string;
+  indexed_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+interface InventoryPayload {
+  source_count?: number;
+  document_count?: number;
+  chunk_count?: number;
+  sources?: InventorySourcePayload[];
+  sources_offset?: number;
+  sources_limit?: number | null;
+  sources_returned?: number;
+  sources_has_more?: boolean;
 }
 
 interface KnowledgeScopeApi {
@@ -269,6 +301,33 @@ type KbTabId =
                 }
               </tbody>
             </table>
+            <div class="flex items-center justify-between gap-3 border-t border-white/5 px-4 py-3 text-xs text-gray-400">
+              <span class="font-mono">
+                {{ sourceOffset() + 1 }}–{{ sourceOffset() + sources().length }} / {{ sourceTotal() }}
+              </span>
+              <div class="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  title="Previous page"
+                  aria-label="Previous page"
+                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                  [disabled]="loadingSources() || sourceOffset() === 0"
+                  (click)="loadSources(sourceOffset() > sourcePageSize ? sourceOffset() - sourcePageSize : 0)"
+                >
+                  <app-icon name="chevron-left" [size]="13" />
+                </button>
+                <button
+                  type="button"
+                  title="Next page"
+                  aria-label="Next page"
+                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                  [disabled]="loadingSources() || !sourcesHasMore()"
+                  (click)="loadSources(sourceOffset() + sourcePageSize)"
+                >
+                  <app-icon name="chevron-right" [size]="13" />
+                </button>
+              </div>
+            </div>
           </div>
         }
       </ck-tab>
@@ -1125,6 +1184,10 @@ export class KnowledgeViewComponent implements OnInit {
   readonly vectorDbType = signal<string>('');
 
   readonly sources = signal<DocRow[]>([]);
+  readonly sourceTotal = signal(0);
+  readonly sourceOffset = signal(0);
+  readonly sourcesHasMore = signal(false);
+  readonly sourcePageSize = 50;
   readonly bindings = signal<System[]>([]);
   readonly knowledgeGuides = signal<KnowledgeGuide[]>([]);
   readonly knowledgeScopes = signal<KnowledgeScopeApi[]>([]);
@@ -1434,6 +1497,41 @@ export class KnowledgeViewComponent implements OnInit {
       });
   }
 
+  loadSources(offset: number): void {
+    if (!this.kbId) return;
+    const safeOffset = Math.max(0, offset);
+    this.loadingSources.set(true);
+    this.http
+      .get<InventoryPayload>(
+        `${this.base}/collections/${encodeURIComponent(this.kbId)}/inventory?source_limit=${this.sourcePageSize}&source_offset=${safeOffset}`,
+      )
+      .pipe(catchError(() => of<InventoryPayload>({ sources: [], source_count: 0 })))
+      .subscribe((payload) => this.applyInventoryPage(payload, safeOffset));
+  }
+
+  private applyInventoryPage(payload: InventoryPayload, requestedOffset: number): void {
+    const documents = (payload.sources ?? []).map((source) => {
+      const metadata = source.metadata ?? {};
+      const documentId = String(metadata['document_id'] || source.id || source.filename);
+      return {
+        document_id: documentId,
+        source_id: source.id,
+        filename: source.filename,
+        chunk_count: source.chunk_count ?? 0,
+        chunks_count: source.chunk_count ?? 0,
+        mime_type: source.mime_type,
+        uploaded_at: source.indexed_at || undefined,
+        size: source.size_bytes,
+        status: source.status,
+      } satisfies DocRow;
+    });
+    this.sources.set(documents);
+    this.sourceTotal.set(payload.source_count ?? payload.document_count ?? documents.length);
+    this.sourceOffset.set(payload.sources_offset ?? requestedOffset);
+    this.sourcesHasMore.set(!!payload.sources_has_more);
+    this.loadingSources.set(false);
+  }
+
   private loadAll(): void {
     if (!this.kbId) {
       this.loading.set(false);
@@ -1447,11 +1545,11 @@ export class KnowledgeViewComponent implements OnInit {
       stats: this.http
         .get<StatsPayload>(`${this.base}/stats?collection_name=${q}`)
         .pipe(catchError(() => of<StatsPayload>({}))),
-      list: this.http
-        .get<{ documents?: DocRow[]; total?: number }>(
-          `${this.base}/list?collection_name=${q}`,
+      inventory: this.http
+        .get<InventoryPayload>(
+          `${this.base}/collections/${q}/inventory?source_limit=${this.sourcePageSize}&source_offset=0`,
         )
-        .pipe(catchError(() => of({ documents: [], total: 0 }))),
+        .pipe(catchError(() => of<InventoryPayload>({ sources: [], source_count: 0 }))),
       meta: this.http
         .get<CollectionsPayload>(`${this.base}/collections`)
         .pipe(catchError(() => of<CollectionsPayload>({}))),
@@ -1461,18 +1559,13 @@ export class KnowledgeViewComponent implements OnInit {
       scopes: this.api
         .get<{ scopes: KnowledgeScopeApi[] }>('/knowledge/scopes')
         .pipe(catchError(() => of({ scopes: [] }))),
-    }).subscribe(({ stats, list, meta, guides, scopes }) => {
-      this.chunkCount.set(stats.total_chunks ?? 0);
+    }).subscribe(({ stats, inventory, meta, guides, scopes }) => {
+      this.chunkCount.set(stats.total_chunks ?? inventory.chunk_count ?? 0);
       this.vectorDim.set(stats.vector_dim ?? null);
-      this.vectorDbType.set(meta.vector_db_type ?? '');
-      const documents = (list.documents ?? []).map((doc) => ({
-        ...doc,
-        chunk_count: doc.chunk_count ?? doc.chunks_count ?? 0,
-      }));
-      this.sources.set(documents);
-      this.docCount.set(list.total ?? (list.documents?.length ?? 0));
+      this.vectorDbType.set(stats.vector_db_type ?? meta.vector_db_type ?? '');
+      this.applyInventoryPage(inventory, 0);
+      this.docCount.set(inventory.document_count ?? inventory.source_count ?? this.sources().length);
       this.loading.set(false);
-      this.loadingSources.set(false);
       this.knowledgeGuides.set(guides.items || []);
       this.knowledgeScopes.set(scopes.scopes || []);
       this.hydrateGuideEditor();

@@ -26,6 +26,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import (
     collection_inventory,
+    collection_source_rows,
     create_or_get_collection,
     create_collection as create_knowledge_collection,
     create_worker_job,
@@ -111,6 +112,23 @@ def _attach_collection_job_diagnostics(payload: dict, jobs: list[WorkerJob]) -> 
         "failed": sum(1 for job in jobs if job.status == "failed"),
     }
     return payload
+
+
+def _source_row_to_document(row: Any) -> dict[str, Any]:
+    metadata = dict(row.source_metadata or {})
+    document_id = metadata.get("document_id") or row.normalized_name or row.filename or row.id
+    return {
+        "document_id": str(document_id),
+        "filename": row.filename,
+        "chunk_count": int(row.chunk_count or 0),
+        "chunks_count": int(row.chunk_count or 0),
+        "document_type": row.source_kind,
+        "mime_type": row.mime_type,
+        "uploaded_at": row.indexed_at.isoformat() if row.indexed_at else None,
+        "size": row.size_bytes,
+        "status": row.status,
+        "source_id": row.id,
+    }
 
 
 async def _queue_collection_ingest(
@@ -1214,6 +1232,7 @@ async def list_collections(
                 vector_db_type=db_type,
                 workspace_slug=workspace.slug,
                 include_metrics=False,
+                include_document_names=False,
             )
             for row in rows
         ]
@@ -1313,6 +1332,7 @@ async def create_collection(
             vector_db_type=db_type,
             workspace_slug=workspace.slug,
             include_metrics=True,
+            include_document_names=False,
         )
         return {
             "status": "success",
@@ -1342,6 +1362,8 @@ async def create_collection(
 async def get_collection_detail(
     collection_id: str,
     vector_db_type: Optional[str] = Query(None),
+    source_limit: int = Query(50, ge=0, le=500),
+    source_offset: int = Query(0, ge=0),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
@@ -1364,14 +1386,23 @@ async def get_collection_detail(
         vector_db_type=db_type,
         workspace_slug=workspace.slug,
         include_metrics=True,
+        include_document_names=False,
     )
-    payload["inventory"] = collection_inventory(db, collection=row, include_sources=True)
+    payload["inventory"] = collection_inventory(
+        db,
+        collection=row,
+        include_sources=True,
+        source_limit=source_limit,
+        source_offset=source_offset,
+    )
     return _attach_collection_job_diagnostics(payload, jobs)
 
 
 @router.get("/collections/{collection_id}/inventory")
 async def get_collection_inventory(
     collection_id: str,
+    source_limit: int | None = Query(default=None, ge=0, le=1000),
+    source_offset: int = Query(0, ge=0),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
@@ -1381,7 +1412,13 @@ async def get_collection_inventory(
         workspace_id=workspace.id,
         collection_ref=collection_id,
     )
-    return collection_inventory(db, collection=row, include_sources=True)
+    return collection_inventory(
+        db,
+        collection=row,
+        include_sources=True,
+        source_limit=source_limit,
+        source_offset=source_offset,
+    )
 
 
 @router.patch("/collections/{collection_id}")
@@ -1410,6 +1447,7 @@ async def patch_collection(
         vector_db_type=db_type,
         workspace_slug=workspace.slug,
         include_metrics=True,
+        include_document_names=False,
     )
 
 
@@ -1568,11 +1606,54 @@ async def delete_collection(
 async def list_documents(
     collection_name: str = Query("documents"),
     vector_db_type: Optional[str] = Query(None),
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ):
-    """List all documents in a collection (scoped to current workspace)."""
+    """List documents in a collection (scoped to current workspace).
+
+    Ledger-backed collections can be served from SQL, avoiding a full vector
+    scroll on very large Qdrant collections. Legacy vector-only collections
+    still fall back to the historical vector listing.
+    """
     try:
         db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+        safe_offset = max(0, int(offset or 0))
+
+        try:
+            collection = get_collection_or_404(
+                db,
+                workspace_id=workspace.id,
+                collection_ref=collection_name,
+            )
+            source_rows = collection_source_rows(db, collection=collection)
+        except HTTPException:
+            collection = None
+            source_rows = []
+
+        if collection is not None and source_rows:
+            source_rows = [
+                row
+                for row in source_rows
+                if not str(row.filename or "").startswith(".")
+                and not str(row.filename or "").endswith(".tmp")
+            ]
+            total = len(source_rows)
+            page_rows = source_rows[safe_offset:]
+            if limit is not None:
+                page_rows = page_rows[: int(limit)]
+            documents = [_source_row_to_document(row) for row in page_rows]
+            return {
+                "collection_name": collection_name,
+                "vector_db_type": db_type,
+                "documents": documents,
+                "total": total,
+                "limit": limit,
+                "offset": safe_offset,
+                "has_more": safe_offset + len(documents) < total,
+                "source": "ledger",
+            }
 
         doc_service = DocumentService(
             collection_name=collection_name, vector_db_type=db_type, workspace_slug=workspace.slug
@@ -1588,11 +1669,20 @@ async def list_documents(
             and doc.get("document_id")  # Ensure document_id exists
         ]
 
+        total = len(filtered_documents)
+        page_documents = filtered_documents[safe_offset:]
+        if limit is not None:
+            page_documents = page_documents[: int(limit)]
+
         return {
             "collection_name": collection_name,
             "vector_db_type": db_type,
-            "documents": filtered_documents,
-            "total": len(filtered_documents),
+            "documents": page_documents,
+            "total": total,
+            "limit": limit,
+            "offset": safe_offset,
+            "has_more": safe_offset + len(page_documents) < total,
+            "source": "vector",
         }
 
     except Exception as e:
