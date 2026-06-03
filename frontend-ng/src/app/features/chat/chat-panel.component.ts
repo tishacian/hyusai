@@ -121,6 +121,9 @@ interface ChatMessage {
     deepProgress?: number | null;
     deepStage?: string | null;
     deepPollUrl?: string | null;
+    deepAnswer?: string | null;
+    deepAnswerStatus?: string | null;
+    deepAnswerModel?: string | null;
     deepSummary?: {
       chunksRetrieved?: number | null;
       sourcesReturned?: number | null;
@@ -1274,6 +1277,20 @@ const STEP_ICONS: Record<string, string> = {
                     <span class="basis-full text-[10px] text-gray-500">
                       Le job continue côté serveur; ce suivi se met à jour via {{ deepInfo.deepPollUrl || '/documents/jobs/' + deepInfo.deepJobId }}.
                     </span>
+                  }
+                  @if (deepInfo.deepAnswer) {
+                    <div class="basis-full rounded bg-violet-500/5 p-3 text-[12px] leading-relaxed text-gray-200 ring-1 ring-violet-500/10">
+                      <div class="mb-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wider text-violet-300">
+                        <span>Réponse Deep Search</span>
+                        @if (deepInfo.deepAnswerStatus) {
+                          <span class="font-mono normal-case tracking-normal text-violet-300/70">{{ deepInfo.deepAnswerStatus }}</span>
+                        }
+                        @if (deepInfo.deepAnswerModel) {
+                          <span class="font-mono normal-case tracking-normal text-gray-500">{{ deepInfo.deepAnswerModel }}</span>
+                        }
+                      </div>
+                      <div class="whitespace-pre-wrap">{{ deepInfo.deepAnswer }}</div>
+                    </div>
                   }
                 </div>
                 @if (deepInfo.deepDetailsOpen) {
@@ -4895,6 +4912,7 @@ export class ChatPanelComponent implements AfterViewInit {
       progress?: number | null,
       stage?: string | null,
       sources?: Source[],
+      answer?: { text?: string | null; status?: string | null; model?: string | null },
     ): void => {
       this.messages.update((messages) =>
         messages.map((msg) => {
@@ -4908,10 +4926,23 @@ export class ChatPanelComponent implements AfterViewInit {
               deepStage: stage ?? msg.retrievalInfo.deepStage ?? null,
               deepSummary: summary ?? msg.retrievalInfo.deepSummary ?? null,
               deepSources: sources?.length ? sources : msg.retrievalInfo.deepSources,
+              deepAnswer: answer?.text ?? msg.retrievalInfo.deepAnswer ?? null,
+              deepAnswerStatus: answer?.status ?? msg.retrievalInfo.deepAnswerStatus ?? null,
+              deepAnswerModel: answer?.model ?? msg.retrievalInfo.deepAnswerModel ?? null,
             },
           };
         }),
       );
+    };
+    const parseAnswer = (job: { result?: unknown }): { text?: string | null; status?: string | null; model?: string | null } => {
+      const result = job.result;
+      if (!this.isRecord(result)) return {};
+      const text = typeof result['answer'] === 'string' ? (result['answer'] as string).trim() : '';
+      const status = typeof result['answer_status'] === 'string' ? (result['answer_status'] as string) : null;
+      const provider = typeof result['answer_provider'] === 'string' ? (result['answer_provider'] as string) : null;
+      const model = typeof result['answer_model'] === 'string' ? (result['answer_model'] as string) : null;
+      const modelLabel = provider && model ? `${provider}/${model}` : model;
+      return { text: text || null, status, model: modelLabel };
     };
     const parseSummary = (job: { result?: unknown }): NonNullable<ChatMessage['retrievalInfo']>['deepSummary'] => {
       const result = job.result;
@@ -4979,7 +5010,7 @@ export class ChatPanelComponent implements AfterViewInit {
           const status = String(job?.status || 'queued');
           const progress = typeof job?.progress === 'number' ? job.progress : null;
           const stage = typeof job?.stage === 'string' ? job.stage : null;
-          updateStatus(status, parseSummary(job), progress, stage, this.deepSourcesFromJob(job));
+          updateStatus(status, parseSummary(job), progress, stage, this.deepSourcesFromJob(job), parseAnswer(job));
           if (status === 'queued' || status === 'running') {
             window.setTimeout(tick, 2000);
           } else {

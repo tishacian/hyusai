@@ -10,6 +10,7 @@ from app.services.knowledge_collections import create_collection, create_worker_
 from app.services.knowledge_collections import serialize_job
 from app.services.worker_deep_retrieval import (
     _compact_deep_retrieval_sources,
+    _extractive_deep_answer,
     _run_deep_retrieval_async,
     _summarize_deep_retrieval_context,
 )
@@ -79,6 +80,23 @@ def test_compact_deep_retrieval_sources_limits_payload_without_vectors():
     assert "embedding" not in preview[0]["metadata"]
 
 
+def test_extractive_deep_answer_provides_readable_fallback():
+    answer = _extractive_deep_answer(
+        "Comment nettoyer une pompe ?",
+        [
+            {
+                "title": "Maintenance manual.pdf",
+                "snippet": "Nettoyer le filtre, verifier les joints, puis remonter les composants.",
+            }
+        ],
+        warning="llm_unavailable",
+    )
+
+    assert "Maintenance manual.pdf" in answer
+    assert "Nettoyer le filtre" in answer
+    assert "llm_unavailable" in answer
+
+
 def test_serialize_deep_retrieval_job_omits_heavy_context_by_default():
     job = WorkerJob(
         id="job-deep",
@@ -89,6 +107,8 @@ def test_serialize_deep_retrieval_job_omits_heavy_context_by_default():
         progress=100,
         result={
             "stage": "deep_completed",
+            "answer": "Refined answer",
+            "answer_status": "llm_synthesized",
             "summary": {"chunks_retrieved": 2},
             "sources_preview": [{"id": "chunk-1"}],
             "retrieval_context": {"chunks": ["large", "payload"]},
@@ -99,6 +119,7 @@ def test_serialize_deep_retrieval_job_omits_heavy_context_by_default():
     detailed = serialize_job(job, include_retrieval_context=True)
 
     assert compact["result"]["summary"] == {"chunks_retrieved": 2}
+    assert compact["result"]["answer"] == "Refined answer"
     assert compact["result"]["sources_preview"] == [{"id": "chunk-1"}]
     assert compact["result"]["retrieval_context_omitted"] is True
     assert "retrieval_context" not in compact["result"]
@@ -119,7 +140,11 @@ async def test_deep_retrieval_worker_preserves_initial_job_metadata(db_session, 
             "metrics": {"duration_ms": 42, "dense_policy": "deep_hierarchical_dense"},
         }
 
+    async def fake_llm_answer(_payload, _prompt):
+        return {"answer": "Reponse approfondie fondee sur deep context.", "provider": "test", "model": "test-model"}
+
     monkeypatch.setattr("app.services.worker_deep_retrieval.retrieve_rag_context", fake_retrieve)
+    monkeypatch.setattr("app.services.worker_deep_retrieval._llm_deep_answer", fake_llm_answer)
     workspace = Workspace(id="ws-deep-worker", name="Deep Worker", slug="deep-worker")
     db_session.add(workspace)
     db_session.commit()
@@ -151,6 +176,9 @@ async def test_deep_retrieval_worker_preserves_initial_job_metadata(db_session, 
     assert result["fallback_reason"] == "retrieval_deadline_exceeded"
     assert result["request"]["latency_profile"] == "deep"
     assert result["summary"]["chunks_retrieved"] == 1
+    assert result["answer"] == "Reponse approfondie fondee sur deep context."
+    assert result["answer_status"] == "llm_synthesized"
+    assert result["answer_model"] == "test-model"
     assert result["sources_preview"][0]["filename"] == "manual.html"
     assert refreshed.result["trigger"] == "auto_fast_refinement"
 
@@ -203,3 +231,5 @@ async def test_deep_retrieval_timeout_completes_with_partial_result(db_session, 
     assert result["summary"]["fallback_reason"] == "deep_retrieval_deadline_exceeded"
     assert result["summary"]["dense_policy"] == "fast_scoped_dense_auto"
     assert result["sources_preview"] == [{"id": "source-1"}]
+    assert result["answer"] == "fast answer"
+    assert result["answer_status"] == "partial_fast_answer"

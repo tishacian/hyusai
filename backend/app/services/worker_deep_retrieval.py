@@ -15,6 +15,9 @@ logger = get_logger(__name__)
 
 _MAX_SOURCE_PREVIEW = 12
 _MAX_SOURCE_SNIPPET_CHARS = 1200
+_MAX_SYNTHESIS_SOURCES = 8
+_MAX_SYNTHESIS_CHARS = 9000
+_MAX_SYNTHESIS_TOKENS = 900
 _PREVIEW_METADATA_KEYS = (
     "chunk_id",
     "chunk_index",
@@ -151,6 +154,128 @@ def _summarize_deep_retrieval_context(context: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _model_preferences(payload: dict[str, Any]) -> tuple[str, str]:
+    preferences = payload.get("agent_preferences")
+    model_preferences = (
+        preferences.get("model_preferences")
+        if isinstance(preferences, dict) and isinstance(preferences.get("model_preferences"), dict)
+        else {}
+    )
+    provider = str(model_preferences.get("provider") or settings.default_provider or "openai")
+    if provider == "ollama":
+        model = str(model_preferences.get("model") or settings.ollama_default_model)
+    else:
+        model = str(model_preferences.get("model") or settings.default_model or "gpt-4o-mini")
+    return provider, model
+
+
+def _extractive_deep_answer(
+    query: str,
+    sources_preview: list[dict[str, Any]],
+    *,
+    warning: str | None = None,
+) -> str:
+    if not sources_preview:
+        base = (
+            "Deep Search n'a pas retrouve de passages exploitables pour reformuler la reponse. "
+            "Les sources disponibles ne permettent pas encore de conclure avec confiance."
+        )
+        return f"{base}\n\nNote: {warning}" if warning else base
+    lines = [
+        "Deep Search a retrouve des passages supplementaires. Voici une reformulation prudente fondee sur les meilleurs extraits:",
+        "",
+    ]
+    for index, source in enumerate(sources_preview[:5], start=1):
+        title = source.get("title") or source.get("filename") or source.get("document_id") or f"Source {index}"
+        snippet = _compact_text(source.get("snippet") or source.get("content"), max_chars=420)
+        if not snippet:
+            continue
+        lines.append(f"{index}. {title}: {snippet}")
+    if warning:
+        lines.extend(["", f"Note: synthese LLM indisponible ({warning}); affichage extractif."])
+    return "\n".join(lines).strip()
+
+
+def _synthesis_prompt(query: str, sources_preview: list[dict[str, Any]]) -> str:
+    excerpts: list[str] = []
+    budget = 0
+    for index, source in enumerate(sources_preview[:_MAX_SYNTHESIS_SOURCES], start=1):
+        title = str(source.get("title") or source.get("filename") or source.get("document_id") or f"Source {index}")
+        page = source.get("page")
+        locator = f", page {page}" if page is not None else ""
+        snippet = _compact_text(source.get("snippet") or source.get("content"), max_chars=1100)
+        block = f"[{index}] {title}{locator}\n{snippet}"
+        if budget + len(block) > _MAX_SYNTHESIS_CHARS:
+            break
+        budget += len(block)
+        excerpts.append(block)
+    return (
+        "Question utilisateur:\n"
+        f"{query}\n\n"
+        "Extraits Deep Search:\n"
+        f"{chr(10).join(excerpts)}\n\n"
+        "Redige une reponse finale en francais si la question est en francais, sinon dans la langue de la question. "
+        "Appuie-toi uniquement sur les extraits ci-dessus. Si les extraits sont insuffisants, dis-le clairement. "
+        "Sois concret, cite les documents utiles par leur nom, et garde la reponse concise."
+    )
+
+
+async def _llm_deep_answer(payload: dict[str, Any], prompt: str) -> dict[str, Any]:
+    from app.llm.llm import LLM
+
+    provider, model = _model_preferences(payload)
+    llm = LLM(provider=provider, api_key=settings.openai_api_key if provider == "openai" else None)
+    answer = await llm.complete(
+        prompt=prompt,
+        model=model,
+        system_prompt=(
+            "You are Agentium's Deep Search synthesizer. Produce grounded, concise answers from retrieved evidence only."
+        ),
+        temperature=0.1,
+        max_tokens=_MAX_SYNTHESIS_TOKENS,
+    )
+    return {"answer": _compact_text(answer, max_chars=6000), "provider": provider, "model": model}
+
+
+async def _synthesize_deep_answer(
+    payload: dict[str, Any],
+    context: dict[str, Any],
+    sources_preview: list[dict[str, Any]],
+) -> dict[str, Any]:
+    query = str(payload.get("query") or "").strip()
+    if not query:
+        return {
+            "answer": _extractive_deep_answer("", sources_preview, warning="query_missing"),
+            "answer_status": "extractive_fallback",
+            "synthesis_error": "query_missing",
+        }
+    if not sources_preview:
+        return {
+            "answer": _extractive_deep_answer(query, sources_preview),
+            "answer_status": "no_evidence",
+        }
+    prompt = _synthesis_prompt(query, sources_preview)
+    timeout = max(8.0, min(25.0, float(settings.rag_deep_retrieval_deadline_seconds) * 0.25))
+    try:
+        llm_result = await asyncio.wait_for(_llm_deep_answer(payload, prompt), timeout=timeout)
+        answer = str(llm_result.get("answer") or "").strip()
+        if not answer:
+            raise RuntimeError("empty_deep_answer")
+        return {
+            "answer": answer,
+            "answer_status": "llm_synthesized",
+            "answer_model": llm_result.get("model"),
+            "answer_provider": llm_result.get("provider"),
+        }
+    except Exception as exc:  # noqa: BLE001 - deep answer should degrade to an extractive result.
+        logger.warning("deep retrieval synthesis fallback", error=str(exc))
+        return {
+            "answer": _extractive_deep_answer(query, sources_preview, warning=str(exc)),
+            "answer_status": "extractive_fallback",
+            "synthesis_error": str(exc),
+        }
+
+
 async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
     with SessionLocal() as db:
         job = db.query(WorkerJob).filter(WorkerJob.id == job_id).first()
@@ -192,8 +317,17 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "status": "running",
         }
         with SessionLocal() as db:
-            update_job(db, job_id, progress=85, result=summarize_payload, stage="deep_summarize")
+            update_job(db, job_id, progress=72, result=summarize_payload, stage="deep_summarize")
             db.commit()
+        synthesis_payload = {
+            **summarize_payload,
+            "stage": "deep_synthesize",
+            "status": "running",
+        }
+        with SessionLocal() as db:
+            update_job(db, job_id, progress=88, result=synthesis_payload, stage="deep_synthesize")
+            db.commit()
+        answer_payload = await _synthesize_deep_answer(payload, context, sources_preview)
         result = {
             **job_metadata,
             "request": payload,
@@ -201,6 +335,7 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "retrieval_context_available": True,
             "sources_preview": sources_preview,
             "summary": summary,
+            **answer_payload,
             "stage": "deep_completed",
             "status": "completed",
         }
@@ -234,6 +369,11 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "duration_ms": int(float(settings.rag_deep_retrieval_deadline_seconds) * 1000),
             "partial": True,
         }
+        partial_answer = (
+            partial_result.get("answer_preview")
+            if isinstance(partial_result.get("answer_preview"), str)
+            else None
+        )
         result = {
             **job_metadata,
             "request": payload,
@@ -242,6 +382,13 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "retrieval_context_available": False,
             "sources_preview": sources_preview,
             "summary": summary,
+            "answer": partial_answer
+            or _extractive_deep_answer(
+                str(payload.get("query") or ""),
+                sources_preview,
+                warning="deep_retrieval_deadline_exceeded",
+            ),
+            "answer_status": "partial_fast_answer" if partial_answer else "extractive_fallback",
             "fallback_reason": "deep_retrieval_deadline_exceeded",
             "warning": "Deep retrieval reached its latency budget; showing the partial fast result.",
         }
