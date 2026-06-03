@@ -12,7 +12,11 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import SessionLocal
-from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource, WorkerJob
+from app.models.knowledge_collection import (
+    KnowledgeCollection,
+    KnowledgeCollectionSource,
+    WorkerJob,
+)
 from app.models.secure_deposit import DepositFile
 from app.models.workspace import Workspace
 from app.services.document_parser.factory import DocumentParserFactory
@@ -37,7 +41,9 @@ from app.services.ocr import resolve_ocr_config_for_workspace
 logger = get_logger(__name__)
 
 
-def _load_document_metadata_manifest(collection: KnowledgeCollection) -> dict[str, dict]:
+def _load_document_metadata_manifest(
+    collection: KnowledgeCollection,
+) -> dict[str, dict]:
     store = get_object_store()
     key = document_manifest_key(collection)
     if not store.exists(key):
@@ -45,7 +51,11 @@ def _load_document_metadata_manifest(collection: KnowledgeCollection) -> dict[st
     try:
         payload = json.loads(store.read_bytes(key).decode("utf-8"))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("document ingest worker could not read document metadata manifest", collection_id=collection.id, error=str(exc))
+        logger.warning(
+            "document ingest worker could not read document metadata manifest",
+            collection_id=collection.id,
+            error=str(exc),
+        )
         return {}
     if not isinstance(payload, dict):
         return {}
@@ -60,7 +70,9 @@ def _source_result_status(item: dict) -> str:
     return "ready" if item.get("status") == "success" else "error"
 
 
-def _verification_status(*, document_count: int, indexed_count: int, error_count: int, chunk_count: int) -> str:
+def _verification_status(
+    *, document_count: int, indexed_count: int, error_count: int, chunk_count: int
+) -> str:
     if document_count <= 0:
         return "unknown"
     if error_count > 0 and indexed_count > 0:
@@ -100,7 +112,10 @@ def _finalize_linked_deposit_files(
 
     rows = (
         db.query(DepositFile)
-        .filter(DepositFile.worker_job_id == job.id, DepositFile.workspace_id == job.workspace_id)
+        .filter(
+            DepositFile.worker_job_id == job.id,
+            DepositFile.workspace_id == job.workspace_id,
+        )
         .all()
     )
     if not rows:
@@ -118,7 +133,11 @@ def _finalize_linked_deposit_files(
         document_names = [
             name
             for name in all_names
-            if str((document_metadata_by_name.get(name) or {}).get("source_deposit_path") or "") == str(row.filename or "")
+            if str(
+                (document_metadata_by_name.get(name) or {}).get("source_deposit_path")
+                or ""
+            )
+            == str(row.filename or "")
         ]
         if not document_names and len(rows) == 1:
             document_names = all_names
@@ -131,7 +150,10 @@ def _finalize_linked_deposit_files(
             source_row = source_rows.get(name)
             item = source_results_by_name.get(name) or {}
             status = source_row.status if source_row else _source_result_status(item)
-            chunks = int((source_row.chunk_count if source_row else item.get("chunks_processed")) or 0)
+            chunks = int(
+                (source_row.chunk_count if source_row else item.get("chunks_processed"))
+                or 0
+            )
             if status in {"ready", "indexed"}:
                 indexed_count += 1
             elif status == "error":
@@ -142,7 +164,10 @@ def _finalize_linked_deposit_files(
                     "document_name": name,
                     "status": status,
                     "chunk_count": chunks,
-                    "error": (source_row.last_error if source_row else item.get("error")) or None,
+                    "error": (
+                        source_row.last_error if source_row else item.get("error")
+                    )
+                    or None,
                 }
             )
 
@@ -184,10 +209,15 @@ def _finalize_linked_deposit_files(
     return summaries
 
 
-def _mark_linked_deposit_files_failed(db, *, job_id: str, workspace_id: str, error: str) -> None:
+def _mark_linked_deposit_files_failed(
+    db, *, job_id: str, workspace_id: str, error: str
+) -> None:
     rows = (
         db.query(DepositFile)
-        .filter(DepositFile.worker_job_id == job_id, DepositFile.workspace_id == workspace_id)
+        .filter(
+            DepositFile.worker_job_id == job_id,
+            DepositFile.workspace_id == workspace_id,
+        )
         .all()
     )
     for row in rows:
@@ -226,7 +256,9 @@ def _record_wave_ledger_if_verified(
         }
     from app.services.spl_wave_importer import record_wave_ledger
 
-    filenames = [str(name) for name in wave_ledger.get("filenames") or [] if str(name).strip()]
+    filenames = [
+        str(name) for name in wave_ledger.get("filenames") or [] if str(name).strip()
+    ]
     collection_slug = str(wave_ledger.get("collection_slug") or "")
     wave_id = str(wave_ledger.get("wave_id") or ingest_options.get("wave_id") or "")
     if not filenames or not collection_slug or not wave_id:
@@ -261,7 +293,9 @@ async def _materialize_ingested_text(
         parsed = await parser.parse(str(local_path), ocr_config=ocr_config)
     except TypeError:
         parsed = await parser.parse(str(local_path))
-    text = "\n\n".join(str(chunk.get("content", "")) for chunk in parsed.chunks if chunk.get("content"))
+    text = "\n\n".join(
+        str(chunk.get("content", "")) for chunk in parsed.chunks if chunk.get("content")
+    )
     get_object_store().write_text(ingested_key(collection, local_path.name), text)
     parsed.raw_content = ""
     return parsed
@@ -279,15 +313,27 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 "job_id": job_id,
                 "job_status": existing_job.status,
             }
-        job = update_job(db, job_id, status="running", progress=5, stage="copy_originals")
+        job = update_job(
+            db, job_id, status="running", progress=5, stage="copy_originals"
+        )
         if not job or not job.collection_id:
             db.commit()
-            raise ValueError(f"Worker job {job_id!r} not found or not linked to a collection")
+            raise ValueError(
+                f"Worker job {job_id!r} not found or not linked to a collection"
+            )
 
         ingest_options = dict((job.result or {}).get("ingest_options") or {})
         ingest_mode = str(ingest_options.get("mode") or "full")
-        incremental_names = [str(name) for name in (ingest_options.get("document_names") or []) if str(name).strip()]
-        ocr_overrides = ingest_options.get("document_ocr") if isinstance(ingest_options.get("document_ocr"), dict) else None
+        incremental_names = [
+            str(name)
+            for name in (ingest_options.get("document_names") or [])
+            if str(name).strip()
+        ]
+        ocr_overrides = (
+            ingest_options.get("document_ocr")
+            if isinstance(ingest_options.get("document_ocr"), dict)
+            else None
+        )
 
         collection = (
             db.query(KnowledgeCollection)
@@ -309,7 +355,11 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         store = get_object_store()
         file_names = list(collection.document_names or [])
         if incremental_names:
-            file_names = [name for name in incremental_names if name in set(collection.document_names or [])]
+            file_names = [
+                name
+                for name in incremental_names
+                if name in set(collection.document_names or [])
+            ]
         elif ingest_mode == "incremental" and collection.document_names:
             file_names = list(collection.document_names or [])
         document_metadata_by_name = _load_document_metadata_manifest(collection)
@@ -317,7 +367,9 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             prefix = store.key(collection.artifact_prefix, "original")
             file_names = [Path(k).name for k in store.list_keys(prefix)]
         if not file_names:
-            raise ValueError(f"No original documents found for collection {collection.id}")
+            raise ValueError(
+                f"No original documents found for collection {collection.id}"
+            )
 
         local_paths: list[str] = []
         for name in file_names:
@@ -326,12 +378,17 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 collection=collection,
                 filename=name,
                 status="ingesting",
-                origin=(document_metadata_by_name.get(name) or {}).get("origin") or "upload",
+                origin=(document_metadata_by_name.get(name) or {}).get("origin")
+                or "upload",
             )
             dest = temp_dir / Path(name).name
-            legacy_name = (document_metadata_by_name.get(name) or {}).get("legacy_document_name")
+            legacy_name = (document_metadata_by_name.get(name) or {}).get(
+                "legacy_document_name"
+            )
             store.copy_to_local(
-                resolve_original_key(collection, name, legacy_name=legacy_name, store=store),
+                resolve_original_key(
+                    collection, name, legacy_name=legacy_name, store=store
+                ),
                 dest,
             )
             local_paths.append(str(dest))
@@ -342,20 +399,36 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         parsed_documents_by_path: dict[str, object] = {}
         total_paths = max(1, len(local_paths))
         for index, path in enumerate(local_paths, start=1):
-            parsed_documents_by_path[path] = await _materialize_ingested_text(
-                collection=collection,
-                local_path=Path(path),
-                workspace_id=workspace.id,
-                ocr_overrides=ocr_overrides,
-            )
+            try:
+                parsed_documents_by_path[path] = await _materialize_ingested_text(
+                    collection=collection,
+                    local_path=Path(path),
+                    workspace_id=workspace.id,
+                    ocr_overrides=ocr_overrides,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "document ingest worker could not materialize ingested text",
+                    filename=file_names[index - 1]
+                    if index - 1 < len(file_names)
+                    else Path(path).name,
+                    error=str(exc),
+                )
             if index == len(local_paths) or index % 25 == 0:
                 parse_progress = 20 + int(20 * index / total_paths)
-                update_job(db, job_id, progress=min(40, parse_progress), stage=f"parsing {index}/{total_paths}")
+                update_job(
+                    db,
+                    job_id,
+                    progress=min(40, parse_progress),
+                    stage=f"parsing {index}/{total_paths}",
+                )
                 db.commit()
 
         app_settings = get_resolved_settings(workspace_id=workspace.id)
         collection.embedding_model = settings.embedding_model
-        collection.chunking_method = app_settings.get("ragChunkingMethod", "recursive_character")
+        collection.chunking_method = app_settings.get(
+            "ragChunkingMethod", "recursive_character"
+        )
         collection.chunking_params = {
             "chunk_size": app_settings.get("ragChunkSize", 1000),
             "chunk_overlap": app_settings.get("ragChunkOverlap", 200),
@@ -375,13 +448,19 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             # first so a reindex cannot accumulate duplicate chunks with fresh temp
             # file-derived IDs.
             await doc_service.clear_all_documents()
-            clear_collection_table_facts(db, workspace_id=workspace.id, collection_id=collection.id)
-            clear_collection_document_facts(db, workspace_id=workspace.id, collection_id=collection.id)
+            clear_collection_table_facts(
+                db, workspace_id=workspace.id, collection_id=collection.id
+            )
+            clear_collection_document_facts(
+                db, workspace_id=workspace.id, collection_id=collection.id
+            )
             db.commit()
         update_job(db, job_id, progress=60, stage="indexing")
         db.commit()
         try:
-            ingest_max_concurrency = int(getattr(settings, "document_ingest_max_concurrency", 8) or 8)
+            ingest_max_concurrency = int(
+                getattr(settings, "document_ingest_max_concurrency", 8) or 8
+            )
         except (TypeError, ValueError):
             ingest_max_concurrency = 8
         ingest_result = await doc_service.ingest_documents_batch(
@@ -398,7 +477,9 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         for index, item in enumerate(ingest_result.get("results") or []):
             if not isinstance(item, dict):
                 continue
-            filename = file_names[index] if index < len(file_names) else item.get("filename")
+            filename = (
+                file_names[index] if index < len(file_names) else item.get("filename")
+            )
             filename = filename or Path(str(item.get("document_id") or "")).name
             if not filename:
                 continue
@@ -409,7 +490,10 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 collection=collection,
                 filename=str(filename),
                 status=status,
-                origin=(document_metadata_by_name.get(str(filename)) or {}).get("origin") or "upload",
+                origin=(document_metadata_by_name.get(str(filename)) or {}).get(
+                    "origin"
+                )
+                or "upload",
                 chunk_count=int(item.get("chunks_processed") or 0),
                 source_metadata={
                     "document_id": item.get("document_id"),
@@ -481,7 +565,9 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             deposit_summaries=deposit_summaries,
         )
 
-        source_document_count = len(collection.document_names or file_names or documents)
+        source_document_count = len(
+            collection.document_names or file_names or documents
+        )
 
         result = {
             "ingest": ingest_result,
@@ -503,7 +589,9 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
             chunk_count=chunk_count,
             document_names=list(collection.document_names or file_names),
         )
-        update_job(db, job_id, status="completed", progress=100, result=result, stage="ready")
+        update_job(
+            db, job_id, status="completed", progress=100, result=result, stage="ready"
+        )
         db.commit()
         return result
     except Exception as exc:
@@ -511,8 +599,12 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
         db.rollback()
         job = db.query(WorkerJob).filter(WorkerJob.id == job_id).first()
         if job and job.collection_id:
-            update_collection_status(db, job.collection_id, status="error", last_error=str(exc))
-            _mark_linked_deposit_files_failed(db, job_id=job.id, workspace_id=job.workspace_id, error=str(exc))
+            update_collection_status(
+                db, job.collection_id, status="error", last_error=str(exc)
+            )
+            _mark_linked_deposit_files_failed(
+                db, job_id=job.id, workspace_id=job.workspace_id, error=str(exc)
+            )
         update_job(db, job_id, status="failed", progress=100, error=str(exc))
         db.commit()
         raise

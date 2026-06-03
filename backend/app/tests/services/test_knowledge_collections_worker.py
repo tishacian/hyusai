@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from app.core.config import settings
-from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.knowledge_collection import (
+    KnowledgeCollection,
+    KnowledgeCollectionSource,
+    WorkerJob,
+)
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -52,7 +57,9 @@ def test_worker_job_lifecycle_update(db_session):
     )
 
     update_job(db_session, job.id, status="running", progress=50)
-    update_job(db_session, job.id, status="completed", progress=100, result={"ok": True})
+    update_job(
+        db_session, job.id, status="completed", progress=100, result={"ok": True}
+    )
     db_session.commit()
 
     refreshed = db_session.query(WorkerJob).filter(WorkerJob.id == job.id).one()
@@ -107,10 +114,19 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
         collection_id=collection.id,
         kind="document_ingest_index",
     )
-    get_object_store().write_bytes(original_key(collection, "manual.txt"), b"hello world")
+    get_object_store().write_bytes(
+        original_key(collection, "manual.txt"), b"hello world"
+    )
     get_object_store().write_text(
         document_manifest_key(collection),
-        json.dumps({"manual.txt": {"project_code": "BBA120", "source_family": "operating_manual"}}),
+        json.dumps(
+            {
+                "manual.txt": {
+                    "project_code": "BBA120",
+                    "source_family": "operating_manual",
+                }
+            }
+        ),
     )
     db_session.commit()
 
@@ -119,7 +135,9 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     class FakeParser:
         async def parse(self, _path):
             parse_calls.append(_path)
-            return SimpleNamespace(chunks=[{"content": "hello world"}], raw_content="hello world")
+            return SimpleNamespace(
+                chunks=[{"content": "hello world"}], raw_content="hello world"
+            )
 
     class FakeDocumentService:
         def __init__(self, *args, **kwargs):
@@ -132,7 +150,10 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
 
         async def ingest_documents_batch(self, paths, **_kwargs):
             assert self.cleared is True
-            assert _kwargs["document_metadata_by_name"]["manual.txt"]["project_code"] == "BBA120"
+            assert (
+                _kwargs["document_metadata_by_name"]["manual.txt"]["project_code"]
+                == "BBA120"
+            )
             parsed_by_path = _kwargs["parsed_documents_by_path"]
             assert set(parsed_by_path) == set(paths)
             assert parsed_by_path[paths[0]].chunks == [{"content": "hello world"}]
@@ -157,14 +178,18 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
         "app.services.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: FakeParser(),
     )
-    monkeypatch.setattr("app.services.worker_ingest.DocumentService", FakeDocumentService)
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentService", FakeDocumentService
+    )
     monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
 
     result = run_document_ingest_index(job.id)
 
     db_session.expire_all()
     refreshed_collection = (
-        db_session.query(KnowledgeCollection).filter(KnowledgeCollection.id == collection.id).one()
+        db_session.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.id == collection.id)
+        .one()
     )
     refreshed_job = db_session.query(WorkerJob).filter(WorkerJob.id == job.id).one()
     assert result["chunk_count"] == 1
@@ -172,9 +197,102 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
     assert refreshed_collection.document_count == 1
     assert refreshed_job.status == "completed"
     assert len(parse_calls) == 1
-    assert get_object_store().read_bytes(
-        f"{collection.artifact_prefix}/ingested/manual.txt"
-    ) == b"hello world"
+    assert (
+        get_object_store().read_bytes(
+            f"{collection.artifact_prefix}/ingested/manual.txt"
+        )
+        == b"hello world"
+    )
+
+
+def test_worker_ingest_materialize_error_becomes_document_error(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "default_vector_db_type", "faiss")
+
+    ws = _workspace(db_session)
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    collection.document_names = ["good.pdf", "broken.pdf"]
+    job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    get_object_store().write_bytes(original_key(collection, "good.pdf"), b"hello world")
+    get_object_store().write_bytes(original_key(collection, "broken.pdf"), b"not a pdf")
+    db_session.commit()
+
+    class FakeParser:
+        async def parse(self, path, **_kwargs):
+            if Path(path).name == "broken.pdf":
+                raise RuntimeError("cannot open pdf")
+            return SimpleNamespace(
+                chunks=[{"content": "hello world"}], raw_content="hello world"
+            )
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            self.vector_db = object()
+
+        async def clear_all_documents(self):
+            return True
+
+        async def ingest_documents_batch(self, paths, **kwargs):
+            parsed_by_path = kwargs["parsed_documents_by_path"]
+            assert [Path(path).name for path in parsed_by_path] == ["good.pdf"]
+            return {
+                "total": len(paths),
+                "successful": 1,
+                "failed": 1,
+                "results": [
+                    {"status": "success", "chunks_processed": 1},
+                    {
+                        "status": "error",
+                        "chunks_processed": 0,
+                        "error": "cannot open pdf",
+                    },
+                ],
+            }
+
+        async def get_document_count(self):
+            return 1
+
+        async def list_documents(self):
+            return [{"document_id": "doc-1", "filename": "good.pdf"}]
+
+    async def fake_bm25(**_kwargs):
+        return {"status": "ready", "chunk_count": 1}
+
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        lambda _path: FakeParser(),
+    )
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentService", FakeDocumentService
+    )
+    monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
+
+    result = run_document_ingest_index(job.id)
+
+    db_session.expire_all()
+    refreshed_job = db_session.query(WorkerJob).filter(WorkerJob.id == job.id).one()
+    broken_source = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(
+            KnowledgeCollectionSource.collection_id == collection.id,
+            KnowledgeCollectionSource.filename == "broken.pdf",
+        )
+        .one()
+    )
+    assert refreshed_job.status == "completed"
+    assert result["ingest"]["failed"] == 1
+    assert broken_source.status == "error"
+    assert broken_source.last_error == "cannot open pdf"
 
 
 def test_worker_ingest_finalizes_deposit_file_and_records_wave_ledger(
@@ -198,7 +316,9 @@ def test_worker_ingest_finalizes_deposit_file_and_records_wave_ledger(
     )
     document_name = "B__Manual_BHX100_revD__Carding__page1.pdf"
     collection.document_names = [document_name]
-    get_object_store().write_bytes(original_key(collection, document_name), b"hello carding")
+    get_object_store().write_bytes(
+        original_key(collection, document_name), b"hello carding"
+    )
     get_object_store().write_text(
         document_manifest_key(collection),
         json.dumps(
@@ -270,7 +390,13 @@ def test_worker_ingest_finalizes_deposit_file_and_records_wave_ledger(
                 "total": len(paths),
                 "successful": len(paths),
                 "failed": 0,
-                "results": [{"status": "success", "filename": "ignored.pdf", "chunks_processed": 2}],
+                "results": [
+                    {
+                        "status": "success",
+                        "filename": "ignored.pdf",
+                        "chunks_processed": 2,
+                    }
+                ],
             }
 
         async def get_document_count(self):
@@ -286,21 +412,30 @@ def test_worker_ingest_finalizes_deposit_file_and_records_wave_ledger(
         "app.services.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: FakeParser(),
     )
-    monkeypatch.setattr("app.services.worker_ingest.DocumentService", FakeDocumentService)
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentService", FakeDocumentService
+    )
     monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
 
     result = run_document_ingest_index(job.id)
 
     db_session.expire_all()
-    refreshed_deposit = db_session.query(DepositFile).filter(DepositFile.id == deposit.id).one()
+    refreshed_deposit = (
+        db_session.query(DepositFile).filter(DepositFile.id == deposit.id).one()
+    )
     refreshed_ws = db_session.query(Workspace).filter(Workspace.id == ws.id).one()
     assert refreshed_deposit.status == "promoted"
     assert refreshed_deposit.promotion_result["indexing_status"] == "indexed"
-    assert refreshed_deposit.promotion_result["indexing_verification"]["chunk_count"] == 2
+    assert (
+        refreshed_deposit.promotion_result["indexing_verification"]["chunk_count"] == 2
+    )
     assert result["deposit_files"][0]["indexing_status"] == "indexed"
     assert result["wave_ledger"]["status"] == "recorded"
     ledger = refreshed_ws.settings["spl_wave_ledger"][collection.slug]
-    assert "Notices_Techniques_SPL/B/Manual_BHX100_revD.zip" in ledger["promoted_filenames"]
+    assert (
+        "Notices_Techniques_SPL/B/Manual_BHX100_revD.zip"
+        in ledger["promoted_filenames"]
+    )
 
 
 def test_worker_ingest_defers_large_bm25_to_worker_job(
@@ -321,7 +456,9 @@ def test_worker_ingest_defers_large_bm25_to_worker_job(
         collection_id=collection.id,
         kind="document_ingest_index",
     )
-    get_object_store().write_bytes(original_key(collection, "manual.txt"), b"hello world")
+    get_object_store().write_bytes(
+        original_key(collection, "manual.txt"), b"hello world"
+    )
     db_session.commit()
 
     class FakeParser:
@@ -366,16 +503,22 @@ def test_worker_ingest_defers_large_bm25_to_worker_job(
         "app.services.worker_ingest.DocumentParserFactory.get_parser",
         lambda _path: FakeParser(),
     )
-    monkeypatch.setattr("app.services.worker_ingest.DocumentService", FakeDocumentService)
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentService", FakeDocumentService
+    )
     monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
-    monkeypatch.setattr("app.services.worker_dispatch.dispatch_worker_job", fake_dispatch)
+    monkeypatch.setattr(
+        "app.services.worker_dispatch.dispatch_worker_job", fake_dispatch
+    )
 
     result = run_document_ingest_index(job.id)
 
     db_session.expire_all()
     bm25_job = (
         db_session.query(WorkerJob)
-        .filter(WorkerJob.collection_id == collection.id, WorkerJob.kind == "bm25_rebuild")
+        .filter(
+            WorkerJob.collection_id == collection.id, WorkerJob.kind == "bm25_rebuild"
+        )
         .one()
     )
     refreshed_ingest = db_session.query(WorkerJob).filter(WorkerJob.id == job.id).one()
