@@ -53,6 +53,40 @@ def test_read_supported_archive_documents_can_scan_without_content(tmp_path: Pat
     assert stats["document_count"] == 1
 
 
+def test_read_supported_archive_documents_bounds_namespaced_document_names(tmp_path: Path):
+    archive_path = tmp_path / "sample.zip"
+    deep_name = "/".join(
+        [
+            "AKI300",
+            "files",
+            "section_IV",
+            "Dryer-unit",
+            "sub-section_4",
+            "IV.1. Dryer manual",
+            "BID520541 Hydro-Dry System",
+            "3. Purchased Components",
+            "Section 2 - Burners",
+            "50S1013376-Docu-English",
+            "5. Suppliers documentatio",
+            "Actuator_ Reversing - SQM5 Document No. 7815_en.pdf",
+        ]
+    )
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr(deep_name, "manual body")
+
+    documents, stats = _read_supported_archive_documents(
+        archive_path,
+        document_namespace="A__AKI300",
+        include_content=False,
+    )
+
+    assert stats["document_count"] == 1
+    assert len(documents[0]["filename"]) <= 220
+    assert documents[0]["filename"].startswith("A__AKI300__")
+    assert documents[0]["filename"].endswith(".pdf")
+    assert "__" in documents[0]["filename"]
+
+
 def test_read_supported_archive_documents_errors_on_limit(tmp_path: Path):
     archive_path = tmp_path / "sample.zip"
     with zipfile.ZipFile(archive_path, "w") as archive:

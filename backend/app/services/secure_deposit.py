@@ -446,6 +446,28 @@ def _unique_archive_name(path: str, used: set[str]) -> str:
     return unique
 
 
+_ARCHIVE_DOCUMENT_NAME_MAX_CHARS = 220
+
+
+def _bounded_archive_document_name(name: str) -> str:
+    if len(name) <= _ARCHIVE_DOCUMENT_NAME_MAX_CHARS:
+        return name
+
+    suffix = PurePosixPath(name).suffix
+    if len(suffix) > 16:
+        suffix = ""
+    stem = name[: -len(suffix)] if suffix else name
+    digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
+    marker = f"__{digest}__"
+    budget = max(8, _ARCHIVE_DOCUMENT_NAME_MAX_CHARS - len(suffix) - len(marker))
+    head_budget = max(4, budget * 2 // 3)
+    tail_budget = max(4, budget - head_budget)
+    head = stem[:head_budget].rstrip(" ._-")
+    tail = stem[-tail_budget:].lstrip(" ._-")
+    bounded = f"{head}{marker}{tail}{suffix}"
+    return bounded[:_ARCHIVE_DOCUMENT_NAME_MAX_CHARS]
+
+
 def _validated_archive_member_path(info: zipfile.ZipInfo) -> PurePosixPath | None:
     raw_name = str(info.filename or "").replace("\\", "/").strip()
     if not raw_name or info.is_dir():
@@ -496,7 +518,7 @@ def _archive_document_name(
     flattened = safe_path.replace("/", "__")
     if namespace:
         flattened = f"{namespace}__{flattened}"
-    return _unique_archive_name(flattened, used)
+    return _unique_archive_name(_bounded_archive_document_name(flattened), used)
 
 
 def _extract_andritz_project_reference(*values: str | None) -> dict[str, str]:
