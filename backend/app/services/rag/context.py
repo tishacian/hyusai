@@ -1312,6 +1312,12 @@ async def retrieve_rag_context(
     finally:
         planner_db.close()
     if corpus_plan is not None:
+        planned_collections = corpus_plan.retrieval_scope.get("collections") if isinstance(corpus_plan.retrieval_scope, Mapping) else None
+        if isinstance(planned_collections, list) and planned_collections:
+            profile["collections"] = [str(item) for item in planned_collections if str(item or "").strip()]
+            if profile["collections"]:
+                profile["collection"] = profile["collections"][0]
+                collections = profile["collections"]
         profile["top_k"] = corpus_plan.top_k
         profile["candidate_pool_k"] = corpus_plan.candidate_pool_k
         profile["synthesis_k"] = corpus_plan.synthesis_k
@@ -1422,7 +1428,7 @@ async def retrieve_rag_context(
 
     try:
         if doc_svc is None:
-            doc_svc = build_document_service(request)
+            doc_svc = _document_service_for_profile(profile, str(profile["collection"]))
     except Exception as exc:  # noqa: BLE001
         metrics.update(
             {

@@ -467,7 +467,7 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
             collection=collection,
             filename=filename,
             status="ready",
-            chunk_count=50,
+            chunk_count=150,
         )
     db_session.commit()
     profile = {
@@ -516,6 +516,21 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
     assert "Etachrom B.PDF" in etachrom_plan.filters["document_filename"]
     assert "IN 07 A- EXH injector cartridge cleaning.pdf" in injector_plan.filters["document_filename"]
     assert "DCI 110__PERFO-TE-OM-10-5 EN-C.pdf" in dci_plan.filters["document_filename"]
+
+    narrow_plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": bba_collection.slug,
+            "collections": [bba_collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "fast",
+            "rag_mode": "auto",
+        },
+        query="Peux-tu retrouver la Spare Parts List du projet ACO150 ?",
+    )
+    assert narrow_plan.retrieval_scope["collections"] == [spl_collection.slug]
+    assert narrow_plan.dense_policy == "fast_scoped_dense"
+    assert "spare part list ACO150.pdf" in narrow_plan.filters["document_filename"]
 
 
 async def test_dense_collection_quick_ask_uses_coarse_inventory_without_global_search(db_session, monkeypatch):

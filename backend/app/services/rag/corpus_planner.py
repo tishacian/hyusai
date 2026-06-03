@@ -248,6 +248,17 @@ def _rows_for_collections(db: DBSession, collections: list[str], workspace_id: s
     return rows, collection_rows
 
 
+def _workspace_collections(db: DBSession, workspace_id: str | None) -> list[KnowledgeCollection]:
+    if not workspace_id:
+        return []
+    return (
+        db.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.workspace_id == workspace_id)
+        .order_by(KnowledgeCollection.updated_at.desc())
+        .all()
+    )
+
+
 def _corpus_version(rows: list[Any], collection_rows: list[KnowledgeCollection]) -> str:
     values: list[str] = []
     for row in collection_rows:
@@ -317,6 +328,14 @@ def _row_search_payload(row: Any) -> tuple[str, str]:
     return _search_text(joined), _compact_text(joined)
 
 
+def _row_collection_ref(row: Any) -> str | None:
+    collection = getattr(row, "collection", None)
+    if collection is None:
+        return None
+    ref = str(getattr(collection, "slug", "") or getattr(collection, "id", "") or "").strip()
+    return ref or None
+
+
 def _query_project_codes(query: str) -> list[str]:
     folded = _fold_text(query).upper()
     codes: list[str] = []
@@ -369,9 +388,9 @@ def _expanded_query_terms(query: str) -> list[str]:
     return terms[:24]
 
 
-def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, str]:
+def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, str, list[str]]:
     if not rows:
-        return {}, 0.0, ""
+        return {}, 0.0, "", []
     terms = _expanded_query_terms(query)
     project_codes = _query_project_codes(query)
     compact_query = _compact_text(query)
@@ -383,9 +402,9 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
         )
     )
     if not terms and not project_codes:
-        return {}, 0.0, ""
+        return {}, 0.0, "", []
 
-    scored: list[tuple[float, Any]] = []
+    scored: list[tuple[float, bool, Any]] = []
     for row in rows:
         filename = str(getattr(row, "filename", "") or "")
         if not filename:
@@ -441,24 +460,30 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
             score += min(max(int(getattr(row, "chunk_count", 0) or 0), 0), 100) / 200.0
         threshold = 6.0 if project_codes else 7.0
         if score >= threshold:
-            scored.append((score, row))
+            scored.append((score, matched_project, row))
     if not scored:
-        return {}, 0.0, ""
+        return {}, 0.0, "", []
+    if project_codes and any(item[1] for item in scored):
+        scored = [item for item in scored if item[1]]
 
-    ranked = sorted(scored, key=lambda item: (-item[0], str(getattr(item[1], "filename", "") or "").lower()))[:40]
+    ranked = sorted(scored, key=lambda item: (-item[0], str(getattr(item[2], "filename", "") or "").lower()))[:40]
     filenames: list[str] = []
-    for _, row in ranked:
+    collection_refs: list[str] = []
+    for _, _matched_project, row in ranked:
         filename = str(getattr(row, "filename", "") or "").strip()
         if filename and filename not in filenames:
             filenames.append(filename)
+        collection_ref = _row_collection_ref(row)
+        if collection_ref and collection_ref not in collection_refs:
+            collection_refs.append(collection_ref)
     if not filenames:
-        return {}, 0.0, ""
+        return {}, 0.0, "", []
     top_score = float(ranked[0][0])
     confidence = min(0.94, 0.66 + min(top_score, 12.0) / 35.0)
     reason = f"ledger source scope matched {len(filenames)} candidate document(s)"
     if project_codes:
         reason += f" for project/code {', '.join(project_codes[:3])}"
-    return {"document_filename": filenames}, confidence, reason
+    return {"document_filename": filenames}, confidence, reason, collection_refs
 
 
 def _candidate_project_codes(rows: list[Any]) -> set[str]:
@@ -858,7 +883,25 @@ def plan_corpus(
         deep_retrieval=profile.get("deep_retrieval") or (request or {}).get("deep_retrieval"),
     )
     collections = [str(item) for item in (profile.get("collections") or [profile.get("collection") or "documents"]) if item]
-    rows, collection_rows = _rows_for_collections(db, collections, str(profile.get("workspace_id") or "") or None)
+    workspace_id = str(profile.get("workspace_id") or "") or None
+    rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
+    workspace_rows = rows
+    if workspace_id:
+        workspace_collection_refs = [
+            str(row.slug or row.id)
+            for row in _workspace_collections(db, workspace_id)
+            if str(row.slug or row.id)
+        ]
+        if workspace_collection_refs and set(workspace_collection_refs) != set(collections):
+            candidate_rows, _candidate_collection_rows = _rows_for_collections(db, workspace_collection_refs, workspace_id)
+            if candidate_rows:
+                workspace_rows = candidate_rows
+    intent = classify_intent(query)
+    inferred_filters, confidence, reason = _infer_filters(query, workspace_rows)
+    ledger_filters, ledger_confidence, ledger_reason, ledger_collections = _infer_ledger_document_scope(query, workspace_rows)
+    if ledger_collections:
+        collections = ledger_collections
+        rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
     ledger_source_count = len(rows)
     collection_source_count = sum(int(c.document_count or 0) for c in collection_rows)
     ledger_chunk_count = sum(int(getattr(row, "chunk_count", 0) or 0) for row in rows)
@@ -869,9 +912,6 @@ def plan_corpus(
         chunk_count > int(settings.rag_dense_chunk_threshold)
         or source_count > int(settings.rag_dense_source_threshold)
     )
-    intent = classify_intent(query)
-    inferred_filters, confidence, reason = _infer_filters(query, rows)
-    ledger_filters, ledger_confidence, ledger_reason = _infer_ledger_document_scope(query, rows)
     if ledger_filters:
         # Source-ledger matches are the preferred coarse layer for dense
         # workspaces. Avoid AND-ing project/archive metadata with filenames:
