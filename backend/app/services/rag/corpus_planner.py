@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -29,7 +30,7 @@ LatencyProfile = str
 _CATALOGUE_RE = re.compile(
     r"\b("
     r"disposes?-?tu|as[-\s]?tu|donn[ée]es?|data|datasets?|catalogue|inventaire|"
-    r"sources?|fichiers?|documents?|collections?|types?|formats?|extensions?|"
+    r"sources?|fichiers?|docs?|documents?|collections?|types?|formats?|extensions?|"
     r"combien|nombre|count|how\s+many|what\s+data|available\s+data"
     r")\b",
     re.IGNORECASE,
@@ -46,7 +47,11 @@ _PROCEDURE_RE = re.compile(
 )
 _AUDIT_RE = re.compile(r"\b(audit|diagnostic|qualit[ée]|coverage|couverture|clusters?)\b", re.IGNORECASE)
 _CONTENT_SEARCH_HINT_RE = re.compile(
-    r"\b(parle(?:nt)?|about|sur|contien(?:t|nent)|mentionn(?:e|ent)|trait(?:e|ent)|concerne)\b",
+    r"\b(parle(?:nt)?|about|sur|contien(?:t|nent)|mentionn(?:e|ent)|trait(?:e|ent)|concerne|couvre|covers?)\b",
+    re.IGNORECASE,
+)
+_SOURCE_LOOKUP_HINT_RE = re.compile(
+    r"\b(retrouve(?:r)?|retrouver|find|locate|source|document|fichier|file|manual|manuel|notice|couvre|covers?)\b",
     re.IGNORECASE,
 )
 _DOCUMENT_DISCOVERY_RE = re.compile(
@@ -157,7 +162,7 @@ def is_catalogue_query(query: str) -> bool:
         return False
     if _CATALOGUE_PHRASE_RE.search(text):
         return True
-    return bool(_CATALOGUE_RE.search(text) and re.search(r"\b(data|donn[ée]es?|documents?|sources?|fichiers?|collections?)\b", text, re.IGNORECASE))
+    return bool(_CATALOGUE_RE.search(text) and re.search(r"\b(data|donn[ée]es?|docs?|documents?|sources?|fichiers?|collections?)\b", text, re.IGNORECASE))
 
 
 def classify_intent(query: str) -> str:
@@ -167,6 +172,12 @@ def classify_intent(query: str) -> str:
         and _CONTENT_SEARCH_HINT_RE.search(text)
     ):
         return "content_search"
+    if (
+        re.search(r"\b(?:quel|quelle|which|what|peux[-\s]?tu|can\s+you)\b", text, re.IGNORECASE)
+        and _SOURCE_LOOKUP_HINT_RE.search(text)
+        and not re.search(r"\b(combien|nombre|count|how\s+many|types?|formats?|extensions?)\b", text, re.IGNORECASE)
+    ):
+        return "source_lookup"
     if is_catalogue_query(text):
         return "catalogue"
     if _AUDIT_RE.search(text):
@@ -253,6 +264,201 @@ def _corpus_version(rows: list[Any], collection_rows: list[KnowledgeCollection])
 def _source_metadata(row: Any) -> dict[str, Any]:
     value = getattr(row, "source_metadata", None)
     return dict(value or {}) if isinstance(value, Mapping) else {}
+
+
+def _fold_text(value: Any) -> str:
+    raw = str(value or "")
+    folded = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    return folded.lower()
+
+
+def _search_text(value: Any) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", _fold_text(value)).split())
+
+
+def _compact_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _fold_text(value))
+
+
+def _row_search_payload(row: Any) -> tuple[str, str]:
+    meta = _source_metadata(row)
+    values: list[str] = [
+        getattr(row, "filename", "") or "",
+        getattr(row, "normalized_name", "") or "",
+        getattr(row, "source_kind", "") or "",
+        getattr(row, "extension", "") or "",
+        getattr(row, "mime_type", "") or "",
+    ]
+    collection = getattr(row, "collection", None)
+    if collection is not None:
+        values.extend(
+            [
+                getattr(collection, "slug", "") or "",
+                getattr(collection, "name", "") or "",
+                getattr(collection, "display_name", "") or "",
+            ]
+        )
+    for key in (
+        "document_id",
+        "document_filename",
+        "project_code",
+        "project",
+        "machine",
+        "line",
+        "archive_name",
+        "source",
+        "title",
+        "language",
+    ):
+        value = meta.get(key)
+        if isinstance(value, (str, int, float)):
+            values.append(str(value))
+    joined = " ".join(values)
+    return _search_text(joined), _compact_text(joined)
+
+
+def _query_project_codes(query: str) -> list[str]:
+    folded = _fold_text(query).upper()
+    codes: list[str] = []
+    for match in _PROJECT_CODE_RE.findall(folded):
+        compact = _compact_text(match).upper()
+        if len(compact) >= 5 and compact not in codes:
+            codes.append(compact)
+    for prefix, suffix in re.findall(r"\b([A-Z]{2,}[A-Z0-9]*)\s*[-_/ ]\s*(\d{2,}[A-Z0-9]*)\b", folded):
+        compact = f"{prefix}{suffix}".upper()
+        if len(compact) >= 5 and compact not in codes:
+            codes.append(compact)
+    return codes
+
+
+def _expanded_query_terms(query: str) -> list[str]:
+    text = _search_text(query)
+    terms: list[str] = []
+
+    def add(*values: str) -> None:
+        for value in values:
+            cleaned = _search_text(value)
+            if len(cleaned) >= 3 and cleaned not in terms:
+                terms.append(cleaned)
+
+    for token in text.split():
+        if len(token) >= 3 and token not in _QUERY_STOPWORDS:
+            add(token)
+    if "spare" in text or "parts" in text or "piece" in text:
+        add("spare", "parts", "spare parts", "spare parts list", "spl")
+    if "injecteur" in text or "injector" in text or "cartouche" in text or "cartridge" in text:
+        add("injecteur", "injector", "cartouche", "cartridge", "cleaning", "nettoyage", "autoclamped")
+    if "nettoy" in text or "clean" in text:
+        add("cleaning", "clean", "nettoyage")
+    if "strip" in text or "carrier" in text:
+        add("strip", "carrier", "strip carrier", "stripcarrier")
+    if "pompe" in text or "pump" in text:
+        add("pompe", "pump")
+    if "convoyeur" in text or "conveyor" in text:
+        add("convoyeur", "conveyor")
+    if "armoire" in text or "pneumatique" in text or "pneumatic" in text:
+        add("armoire", "pneumatique", "pneumatic", "cabinet", "nomenclature")
+    if "filtration" in text or "filtering" in text:
+        add("filtration", "filtering", "filter")
+    if "vacuum" in text:
+        add("vacuum")
+    if "maintenance" in text:
+        add("maintenance")
+    if "def" in text and "strips" in text:
+        add("def strips", "strips")
+    return terms[:24]
+
+
+def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, str]:
+    if not rows:
+        return {}, 0.0, ""
+    terms = _expanded_query_terms(query)
+    project_codes = _query_project_codes(query)
+    compact_query = _compact_text(query)
+    has_source_lookup_signal = bool(
+        re.search(
+            r"\b(spare|parts?|spl|document|docs?|fichier|source|manual|manuel|notice|pompe|pump|inject|strip|carrier|maintenance|convoyeur|conveyor|cabinet|pneumatic|pneumatique|table|feuille|sheet)\b",
+            _search_text(query),
+            re.IGNORECASE,
+        )
+    )
+    if not terms and not project_codes:
+        return {}, 0.0, ""
+
+    scored: list[tuple[float, Any]] = []
+    for row in rows:
+        filename = str(getattr(row, "filename", "") or "")
+        if not filename:
+            continue
+        haystack, compact_haystack = _row_search_payload(row)
+        score = 0.0
+        matched_project = False
+        for code in project_codes:
+            if code and code.lower() in compact_haystack:
+                matched_project = True
+                score += 9.0
+        if project_codes and not matched_project:
+            # A project-qualified question should not be polluted by another
+            # project unless the filename is an exceptionally strong phrase hit.
+            score -= 4.0
+        for term in terms:
+            compact_term = _compact_text(term)
+            if not compact_term or len(compact_term) < 3:
+                continue
+            if f" {term} " in f" {haystack} ":
+                score += 2.2
+            elif compact_term in compact_haystack:
+                score += 1.5
+        if "sparepartslist" in compact_query and "sparepartslist" in compact_haystack:
+            score += 8.0
+        elif all(token in compact_query for token in ("spare", "parts")) and all(token in compact_haystack for token in ("spare", "parts")):
+            score += 5.0
+        if "stripcarrier" in compact_query and "stripcarrier" in compact_haystack:
+            score += 6.0
+        if "uracakd724" in compact_query and "uracakd724" in compact_haystack:
+            score += 8.0
+        elif "uraca" in compact_query and "uraca" in compact_haystack:
+            score += 4.0
+        if "etachrom" in compact_query and "etachrom" in compact_haystack:
+            score += 7.0
+        if "pneumaticcabinet" in compact_query and "pneumaticcabinet" in compact_haystack:
+            score += 8.0
+        elif "pneumatic" in compact_query and "cabinet" in compact_query and "pneumatic" in compact_haystack and "cabinet" in compact_haystack:
+            score += 5.0
+        if "geotex" in compact_query and "geotex" in compact_haystack:
+            score += 8.0
+        if ("filtration" in compact_query or "filtering" in compact_query) and "filtration" in compact_haystack:
+            score += 3.0
+        if "vacuum" in compact_query and "vacuum" in compact_haystack:
+            score += 3.0
+        if ("conveyor" in compact_query or "convoyeur" in compact_query) and "conveyor" in compact_haystack:
+            score += 4.0
+        if ("injecteur" in compact_query or "injector" in compact_query) and ("injecteur" in compact_haystack or "injector" in compact_haystack):
+            score += 3.5
+        if ("cartouche" in compact_query or "cartridge" in compact_query) and "cartridge" in compact_haystack:
+            score += 3.0
+        if has_source_lookup_signal:
+            score += min(max(int(getattr(row, "chunk_count", 0) or 0), 0), 100) / 200.0
+        threshold = 6.0 if project_codes else 7.0
+        if score >= threshold:
+            scored.append((score, row))
+    if not scored:
+        return {}, 0.0, ""
+
+    ranked = sorted(scored, key=lambda item: (-item[0], str(getattr(item[1], "filename", "") or "").lower()))[:40]
+    filenames: list[str] = []
+    for _, row in ranked:
+        filename = str(getattr(row, "filename", "") or "").strip()
+        if filename and filename not in filenames:
+            filenames.append(filename)
+    if not filenames:
+        return {}, 0.0, ""
+    top_score = float(ranked[0][0])
+    confidence = min(0.94, 0.66 + min(top_score, 12.0) / 35.0)
+    reason = f"ledger source scope matched {len(filenames)} candidate document(s)"
+    if project_codes:
+        reason += f" for project/code {', '.join(project_codes[:3])}"
+    return {"document_filename": filenames}, confidence, reason
 
 
 def _candidate_project_codes(rows: list[Any]) -> set[str]:
@@ -665,6 +871,20 @@ def plan_corpus(
     )
     intent = classify_intent(query)
     inferred_filters, confidence, reason = _infer_filters(query, rows)
+    ledger_filters, ledger_confidence, ledger_reason = _infer_ledger_document_scope(query, rows)
+    if ledger_filters:
+        # Source-ledger matches are the preferred coarse layer for dense
+        # workspaces. Avoid AND-ing project/archive metadata with filenames:
+        # older Qdrant payloads may not have those fields even when the ledger
+        # does, and the filename filter is already the precise scope.
+        retained = {
+            key: value
+            for key, value in inferred_filters.items()
+            if key in {"source_kind", "extension", "status", "language"}
+        }
+        inferred_filters = {**retained, **ledger_filters}
+        confidence = max(confidence, ledger_confidence)
+        reason = ledger_reason
     explicit_filters = _request_filters(request)
     filters = {**inferred_filters, **explicit_filters}
     if explicit_filters:

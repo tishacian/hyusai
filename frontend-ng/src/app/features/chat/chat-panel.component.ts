@@ -1218,54 +1218,79 @@ const STEP_ICONS: Record<string, string> = {
                 </div>
               }
 
-              @if (msg.retrievalInfo?.deepStatus === 'completed' && msg.retrievalInfo?.deepSummary; as deep) {
+              @if (msg.retrievalInfo?.deepJobId && msg.retrievalInfo; as deepInfo) {
                 <div
                   class="ml-0 mt-1 rounded-md px-3 py-2 bg-violet-500/5 ring-1 ring-violet-500/15 flex flex-wrap items-center gap-2 text-[11px] text-gray-700 dark:text-gray-300"
-                  [title]="deepRetrievalTitle(msg.retrievalInfo!)"
+                  [title]="deepRetrievalTitle(deepInfo)"
                 >
-                  <app-icon [name]="deepRetrievalPartial(msg.retrievalInfo!) ? 'alert-triangle' : 'check'" [size]="11" class="text-violet-300 shrink-0" />
-                  <span class="font-medium text-violet-300">{{ deepRetrievalPartial(msg.retrievalInfo!) ? 'Deep retrieval partial' : 'Deep retrieval' }}</span>
-                  @if (deep.chunksRetrieved != null) {
-                    <span class="font-mono text-gray-500">· {{ deep.chunksRetrieved }} passages</span>
+                  @if (deepInfo.deepStatus === 'completed' && deepRetrievalPartial(deepInfo)) {
+                    <app-icon name="alert-triangle" [size]="11" class="text-violet-300 shrink-0" />
+                  } @else if (deepInfo.deepStatus === 'completed') {
+                    <app-icon name="check" [size]="11" class="text-violet-300 shrink-0" />
+                  } @else if (deepInfo.deepStatus === 'failed' || deepInfo.deepStatus === 'cancelled') {
+                    <app-icon name="x-circle" [size]="11" class="text-red-300 shrink-0" />
+                  } @else {
+                    <app-icon name="loader" [size]="11" class="animate-spin text-violet-300 shrink-0" />
                   }
-                  @if (deep.sourcesReturned != null) {
-                    <span class="font-mono text-gray-500">· {{ deep.sourcesReturned }} sources</span>
+                  <span class="font-medium text-violet-300">{{ deepRetrievalLabel(deepInfo) }}</span>
+                  @if (deepInfo.deepStage) {
+                    <span class="font-mono text-gray-500">· {{ deepInfo.deepStage }}</span>
                   }
-                  @if (deepTopSourceLabels(deep).length) {
-                    <span class="truncate text-gray-500">
-                      · {{ deepTopSourceLabels(deep).join(' · ') }}
+                  @if (deepInfo.deepSummary; as deep) {
+                    @if (deep.chunksRetrieved != null) {
+                      <span class="font-mono text-gray-500">· {{ deep.chunksRetrieved }} passages</span>
+                    }
+                    @if (deep.sourcesReturned != null) {
+                      <span class="font-mono text-gray-500">· {{ deep.sourcesReturned }} sources</span>
+                    }
+                    @if (deepTopSourceLabels(deep).length) {
+                      <span class="truncate text-gray-500">
+                        · {{ deepTopSourceLabels(deep).join(' · ') }}
+                      </span>
+                    }
+                  }
+                  <span class="font-mono text-[10px] text-violet-300/70" [title]="deepInfo.deepPollUrl || deepInfo.deepJobId || ''">
+                    · job persistant
+                  </span>
+                  <button
+                    type="button"
+                    class="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-violet-300 hover:bg-violet-500/10 transition"
+                    [disabled]="deepInfo.deepDetailsLoading"
+                    (click)="toggleDeepRetrievalDetails(msg)"
+                  >
+                    <app-icon
+                      [name]="deepInfo.deepDetailsOpen ? 'chevron-down' : 'chevron-right'"
+                      [size]="11"
+                    />
+                    Details
+                  </button>
+                  <div class="basis-full h-1 overflow-hidden rounded bg-violet-500/10">
+                    <span
+                      class="block h-full rounded bg-violet-300 transition-all duration-500"
+                      [style.width.%]="deepRetrievalProgressValue(deepInfo)"
+                    ></span>
+                  </div>
+                  @if (deepRetrievalRunning(deepInfo)) {
+                    <span class="basis-full text-[10px] text-gray-500">
+                      Le job continue côté serveur; ce suivi se met à jour via {{ deepInfo.deepPollUrl || '/documents/jobs/' + deepInfo.deepJobId }}.
                     </span>
                   }
-                  @if (msg.retrievalInfo?.deepJobId) {
-                    <button
-                      type="button"
-                      class="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-violet-300 hover:bg-violet-500/10 transition"
-                      [disabled]="msg.retrievalInfo?.deepDetailsLoading"
-                      (click)="toggleDeepRetrievalDetails(msg)"
-                    >
-                      <app-icon
-                        [name]="msg.retrievalInfo?.deepDetailsOpen ? 'chevron-down' : 'chevron-right'"
-                        [size]="11"
-                      />
-                      Details
-                    </button>
-                  }
                 </div>
-                @if (msg.retrievalInfo?.deepDetailsOpen) {
+                @if (deepInfo.deepDetailsOpen) {
                   <div class="ml-0 mt-1 rounded-md bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-violet-500/10 overflow-hidden">
-                    @if (msg.retrievalInfo?.deepDetailsLoading) {
+                    @if (deepInfo.deepDetailsLoading) {
                       <div class="flex items-center gap-2 px-3 py-2 text-[11px] text-gray-500">
                         <app-icon name="loader" [size]="12" class="animate-spin text-violet-300" />
                         Loading deep retrieval passages
                       </div>
-                    } @else if (msg.retrievalInfo?.deepDetailsError) {
+                    } @else if (deepInfo.deepDetailsError) {
                       <div class="flex items-center gap-2 px-3 py-2 text-[11px] text-red-300">
                         <app-icon name="x-circle" [size]="12" />
-                        {{ msg.retrievalInfo?.deepDetailsError }}
+                        {{ deepInfo.deepDetailsError }}
                       </div>
-                    } @else if (msg.retrievalInfo?.deepSources?.length) {
+                    } @else if (deepInfo.deepSources?.length) {
                       <ol class="divide-y divide-white/5">
-                        @for (src of msg.retrievalInfo!.deepSources!.slice(0, 8); track $index; let i = $index) {
+                        @for (src of deepInfo.deepSources!.slice(0, 8); track $index; let i = $index) {
                           <li class="px-3 py-2 text-[12px]">
                             <div class="flex items-center gap-2 mb-0.5">
                               <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-violet-500/15 text-violet-300">
@@ -2316,6 +2341,8 @@ export class ChatPanelComponent implements AfterViewInit {
   userInput = '';
   private chatSessionId: string | null = null;
   private chatSessionSignature: string | null = null;
+  private readonly deepRetrievalStorageKey = 'agentium:pending-deep-retrieval-jobs';
+  private readonly activeDeepRetrievalPolls = new Set<string>();
   private creatingChatSession = false;
 
   readonly ragModeChoices = RAG_MODE_CHOICES;
@@ -2776,6 +2803,7 @@ export class ChatPanelComponent implements AfterViewInit {
     this.health.load().subscribe();
     this.loadReasoningTemplates();
     this.loadVoiceRuntimes();
+    queueMicrotask(() => this.restorePendingDeepRetrievalJobs());
     this.destroyRef.onDestroy(() => {
       this.clearVoiceLoopRearmTimer();
       this.voiceLoop.dispose();
@@ -3937,6 +3965,21 @@ export class ChatPanelComponent implements AfterViewInit {
     return info.deepStage === 'deep_timeout' || info.deepSummary?.partial === true;
   }
 
+  deepRetrievalRunning(info: NonNullable<ChatMessage['retrievalInfo']>): boolean {
+    return info.deepStatus === 'queued' || info.deepStatus === 'running' || !info.deepStatus;
+  }
+
+  deepRetrievalProgressValue(info: NonNullable<ChatMessage['retrievalInfo']>): number {
+    if (info.deepStatus === 'completed') return 100;
+    if (info.deepStatus === 'failed' || info.deepStatus === 'cancelled') return 100;
+    const progress = typeof info.deepProgress === 'number' && Number.isFinite(info.deepProgress)
+      ? info.deepProgress
+      : info.deepStatus === 'running'
+        ? 25
+        : 8;
+    return Math.max(4, Math.min(100, Math.round(progress)));
+  }
+
   deepTopSourceLabels(summary: NonNullable<NonNullable<ChatMessage['retrievalInfo']>['deepSummary']>): string[] {
     return (summary.topSources || [])
       .slice(0, 3)
@@ -4098,6 +4141,69 @@ export class ChatPanelComponent implements AfterViewInit {
         metadata: meta,
       } satisfies Source;
     });
+  }
+
+  private pendingDeepRetrievalJobs(): Array<{ jobId: string; pollUrl?: string | null; query?: string | null; createdAt: number }> {
+    try {
+      const raw = window.localStorage.getItem(this.deepRetrievalStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(parsed)) return [];
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      return parsed
+        .filter((item): item is { jobId: string; pollUrl?: string | null; query?: string | null; createdAt: number } =>
+          this.isRecord(item)
+          && typeof item['jobId'] === 'string'
+          && item['jobId'].trim().length > 0
+          && typeof item['createdAt'] === 'number'
+          && item['createdAt'] >= cutoff,
+        );
+    } catch {
+      return [];
+    }
+  }
+
+  private persistPendingDeepRetrievalJobs(
+    jobs: Array<{ jobId: string; pollUrl?: string | null; query?: string | null; createdAt: number }>,
+  ): void {
+    try {
+      window.localStorage.setItem(this.deepRetrievalStorageKey, JSON.stringify(jobs.slice(-12)));
+    } catch {
+      // Local storage is best-effort only; the server-side WorkerJob remains authoritative.
+    }
+  }
+
+  private rememberPendingDeepRetrievalJob(jobId: string, pollUrl: string | null, query: string): void {
+    const jobs = this.pendingDeepRetrievalJobs().filter((item) => item.jobId !== jobId);
+    jobs.push({ jobId, pollUrl, query, createdAt: Date.now() });
+    this.persistPendingDeepRetrievalJobs(jobs);
+  }
+
+  private forgetPendingDeepRetrievalJob(jobId: string): void {
+    this.persistPendingDeepRetrievalJobs(this.pendingDeepRetrievalJobs().filter((item) => item.jobId !== jobId));
+  }
+
+  private restorePendingDeepRetrievalJobs(): void {
+    for (const job of this.pendingDeepRetrievalJobs()) {
+      if (this.messages().some((msg) => msg.retrievalInfo?.deepJobId === job.jobId)) continue;
+      const assistantId = cryptoId();
+      const queryLabel = job.query ? ` pour "${job.query}"` : '';
+      this.messages.update((msgs) => [
+        ...msgs,
+        {
+          id: assistantId,
+          role: 'assistant',
+          content: `Deep Retrieval en cours${queryLabel}. Le job continue côté serveur.`,
+          retrievalInfo: {
+            deepJobId: job.jobId,
+            deepPollUrl: job.pollUrl || `/documents/jobs/${job.jobId}`,
+            deepStatus: 'queued',
+            deepProgress: 0,
+            deepStage: 'resume_polling',
+          },
+        } satisfies ChatMessage,
+      ]);
+      this.startDeepRetrievalPolling(assistantId, job.jobId, job.pollUrl || null);
+    }
   }
 
   retrievalPolicyTitle(info: NonNullable<ChatMessage['retrievalInfo']>): string {
@@ -4475,6 +4581,7 @@ export class ChatPanelComponent implements AfterViewInit {
             };
             this.messages.update((m) => [...m, assistantMsg]);
             if (retrievalInfo?.deepJobId) {
+              this.rememberPendingDeepRetrievalJob(retrievalInfo.deepJobId, retrievalInfo.deepPollUrl || null, text);
               this.startDeepRetrievalPolling(assistantId, retrievalInfo.deepJobId, retrievalInfo.deepPollUrl || null);
             }
             this.streaming.set(false);
@@ -4584,6 +4691,8 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   private startDeepRetrievalPolling(messageId: string, jobId: string, pollUrl?: string | null): void {
+    if (this.activeDeepRetrievalPolls.has(jobId)) return;
+    this.activeDeepRetrievalPolls.add(jobId);
     let attempts = 0;
     const maxAttempts = 60;
     const updateStatus = (
@@ -4665,7 +4774,11 @@ export class ChatPanelComponent implements AfterViewInit {
       ? pollUrl
       : `/documents/jobs/${encodeURIComponent(jobId)}`;
     const tick = (): void => {
-      if (attempts >= maxAttempts) return;
+      if (attempts >= maxAttempts) {
+        this.activeDeepRetrievalPolls.delete(jobId);
+        updateStatus('running', undefined, null, 'poll_window_elapsed');
+        return;
+      }
       attempts += 1;
       this.api.get<{ status?: string; progress?: number; stage?: string | null; result?: unknown }>(jobPath).subscribe({
         next: (job) => {
@@ -4675,10 +4788,14 @@ export class ChatPanelComponent implements AfterViewInit {
           updateStatus(status, parseSummary(job), progress, stage, this.deepSourcesFromJob(job));
           if (status === 'queued' || status === 'running') {
             window.setTimeout(tick, 2000);
+          } else {
+            this.activeDeepRetrievalPolls.delete(jobId);
+            this.forgetPendingDeepRetrievalJob(jobId);
           }
         },
         error: () => {
           updateStatus('failed', undefined, null, 'poll_failed');
+          this.activeDeepRetrievalPolls.delete(jobId);
         },
       });
     };

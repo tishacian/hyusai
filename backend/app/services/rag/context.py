@@ -84,7 +84,7 @@ _INVENTORY_OBJECT_RE = re.compile(
 _CONTENT_SEARCH_HINT_RE = re.compile(
     r"\b("
     r"sur|about|parle(?:nt)?|contien(?:t|nent)|mentionn(?:e|ent)|trait(?:e|ent)|"
-    r"au\s+sujet|concerne|d[ée]tail|r[ée]sume|explique"
+    r"au\s+sujet|concerne|couvre|covers?|d[ée]tail|r[ée]sume|explique"
     r")\b",
     re.IGNORECASE,
 )

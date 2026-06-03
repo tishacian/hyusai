@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from app.core.config import settings
 from app.services.rag import context as rag_context
-from app.services.rag.corpus_planner import plan_corpus
+from app.services.rag.corpus_planner import is_catalogue_query, plan_corpus
 from app.services.rag.context import get_retrieval_profile, retrieve_rag_context
 from app.services.rag.summary_artifacts import rebuild_summary_index_artifact
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
@@ -439,6 +439,83 @@ def test_corpus_planner_accepts_system_scope_filter_fields(db_session):
         "language": "fr",
     }
     assert plan.scope_confidence == 0.95
+
+
+def test_catalogue_query_accepts_docs_abbreviation():
+    assert is_catalogue_query("combien de docs as tu ?")
+    assert is_catalogue_query("quels types de docs as-tu ?")
+
+
+def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monkeypatch):
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-planner-golden-spl", name="Planner Golden SPL", slug="planner-golden")
+    db_session.add(workspace)
+    db_session.commit()
+    spl_collection = create_collection(db_session, workspace=workspace, name="Dense SPL")
+    bba_collection = create_collection(db_session, workspace=workspace, name="Manuals BBA120")
+    injector_collection = create_collection(db_session, workspace=workspace, name="Injectors DCI110 ACO")
+    for collection, filename in (
+        (spl_collection, "spare part list ACO150.pdf"),
+        (bba_collection, "Spare Parts List_BBA120.pdf"),
+        (bba_collection, "Etachrom B.PDF"),
+        (injector_collection, "IN 07 A- EXH injector cartridge cleaning.pdf"),
+        (injector_collection, "DCI 110__PERFO-TE-OM-10-5 EN-C.pdf"),
+    ):
+        upsert_collection_source(
+            db_session,
+            collection=collection,
+            filename=filename,
+            status="ready",
+            chunk_count=50,
+        )
+    db_session.commit()
+    profile = {
+        "collection": spl_collection.slug,
+        "collections": [spl_collection.slug, bba_collection.slug, injector_collection.slug],
+        "workspace_id": workspace.id,
+        "latency_profile": "fast",
+        "rag_mode": "chah",
+    }
+
+    aco_plan = plan_corpus(
+        db=db_session,
+        profile=profile,
+        query="Peux-tu retrouver la Spare Parts List du projet ACO150 ?",
+    )
+    bba_plan = plan_corpus(
+        db=db_session,
+        profile=profile,
+        query="Peux-tu retrouver la Spare Parts List du projet BBA120 ?",
+    )
+    etachrom_plan = plan_corpus(
+        db=db_session,
+        profile=profile,
+        query="Quel document couvre la pompe KSB Etachrom dans BBA120 ?",
+    )
+    injector_plan = plan_corpus(
+        db=db_session,
+        profile=profile,
+        query="Comment dois-je nettoyer les cartouches d'injecteurs ?",
+    )
+    dci_plan = plan_corpus(
+        db=db_session,
+        profile=profile,
+        query="Comment retirer le strip-carrier d'un injecteur dans DCI110 ?",
+    )
+
+    for plan in (aco_plan, bba_plan, etachrom_plan, injector_plan, dci_plan):
+        assert plan.dense_policy == "fast_scoped_dense"
+        assert plan.fallback_reason is None
+        assert "document_filename" in plan.filters
+        assert plan.retrieval_plan["layers"]["dense_qdrant"]["enabled"] is True
+        assert plan.retrieval_plan["layers"]["deep_async"]["enabled"] is False
+
+    assert "spare part list ACO150.pdf" in aco_plan.filters["document_filename"]
+    assert "Spare Parts List_BBA120.pdf" in bba_plan.filters["document_filename"]
+    assert "Etachrom B.PDF" in etachrom_plan.filters["document_filename"]
+    assert "IN 07 A- EXH injector cartridge cleaning.pdf" in injector_plan.filters["document_filename"]
+    assert "DCI 110__PERFO-TE-OM-10-5 EN-C.pdf" in dci_plan.filters["document_filename"]
 
 
 async def test_dense_collection_quick_ask_uses_coarse_inventory_without_global_search(db_session, monkeypatch):
