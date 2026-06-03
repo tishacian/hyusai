@@ -532,6 +532,26 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
     assert narrow_plan.dense_policy == "fast_scoped_dense"
     assert "spare part list ACO150.pdf" in narrow_plan.filters["document_filename"]
 
+    legacy_collection = create_collection(db_session, workspace=workspace, name="Legacy Document Names")
+    legacy_collection.document_names = ["Legacy Spare Parts List ACO999.pdf"]
+    legacy_collection.document_count = 1
+    legacy_collection.chunk_count = 150
+    db_session.commit()
+    legacy_plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": bba_collection.slug,
+            "collections": [bba_collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "fast",
+            "rag_mode": "auto",
+        },
+        query="Peux-tu retrouver la Spare Parts List du projet ACO999 ?",
+    )
+    assert legacy_plan.retrieval_scope["collections"] == [legacy_collection.slug]
+    assert legacy_plan.dense_policy == "fast_scoped_dense"
+    assert "Legacy Spare Parts List ACO999.pdf" in legacy_plan.filters["document_filename"]
+
 
 async def test_dense_collection_quick_ask_uses_coarse_inventory_without_global_search(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)

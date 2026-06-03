@@ -12,6 +12,7 @@ import unicodedata
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
+from types import SimpleNamespace
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
@@ -244,8 +245,67 @@ def _rows_for_collections(db: DBSession, collections: list[str], workspace_id: s
         if not collection:
             continue
         collection_rows.append(collection)
-        rows.extend(collection_source_rows(db, collection=collection))
+        source_rows = collection_source_rows(db, collection=collection)
+        for row in source_rows:
+            if getattr(row, "collection", None) is None:
+                try:
+                    row.collection = collection
+                except Exception:
+                    pass
+        rows.extend(source_rows)
+        rows.extend(_missing_document_name_rows(collection, source_rows))
     return rows, collection_rows
+
+
+def _source_kind_from_name(filename: str) -> str:
+    ext = Path(filename).suffix.lower().lstrip(".")
+    if ext == "pdf":
+        return "pdf"
+    if ext in {"html", "htm", "md", "txt", "xml"}:
+        return "markup" if ext in {"html", "htm", "xml"} else "text"
+    if ext in {"xlsx", "xls", "xlsm", "csv"}:
+        return "spreadsheet"
+    if ext in {"jpg", "jpeg", "png", "tif", "tiff"}:
+        return "image"
+    if ext in {"doc", "docx"}:
+        return "document"
+    return "document"
+
+
+def _missing_document_name_rows(collection: KnowledgeCollection, existing_rows: list[Any]) -> list[Any]:
+    names = [str(name or "").strip() for name in (collection.document_names or []) if str(name or "").strip()]
+    if not names:
+        return []
+    existing = {
+        _search_text(getattr(row, "filename", "") or getattr(row, "normalized_name", "") or "")
+        for row in existing_rows
+    }
+    fallback: list[Any] = []
+    for index, filename in enumerate(names):
+        normalized = " ".join(filename.split())
+        if _search_text(normalized) in existing:
+            continue
+        ext = Path(normalized).suffix.lower().lstrip(".")
+        fallback.append(
+            SimpleNamespace(
+                id=f"document-name-{collection.id}-{index}",
+                workspace_id=collection.workspace_id,
+                collection_id=collection.id,
+                filename=normalized,
+                normalized_name=normalized,
+                source_kind=_source_kind_from_name(normalized),
+                extension=ext,
+                mime_type="",
+                origin="legacy_document_names",
+                size_bytes=None,
+                chunk_count=0,
+                status=collection.status or "ready",
+                source_metadata={"fallback": True},
+                updated_at=collection.updated_at,
+                collection=collection,
+            )
+        )
+    return fallback
 
 
 def _workspace_collections(db: DBSession, workspace_id: str | None) -> list[KnowledgeCollection]:
@@ -546,7 +606,8 @@ def _infer_filters(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, 
     # select a candidate set, not carry the whole corpus.
     source_hits: list[str] = []
     words = {w for w in re.findall(r"[a-z0-9]{4,}", lower) if len(w) >= 4}
-    if words:
+    query_project_codes = _query_project_codes(text)
+    if words and (not query_project_codes or matched_codes):
         scored: list[tuple[int, Any]] = []
         for row in rows:
             filename = str(getattr(row, "filename", "") or "")
