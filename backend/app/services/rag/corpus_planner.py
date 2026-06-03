@@ -1017,7 +1017,15 @@ def plan_corpus(
         if spreadsheet_collections:
             collections = spreadsheet_collections
             rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
-            inferred_filters = {"source_kind": "spreadsheet"}
+            # The collection selection is already the system scope. Do not add
+            # source_kind/extension payload filters here: older spreadsheet
+            # Qdrant payloads do not carry those fields, so the filter would
+            # erase valid table chunks such as GEOTEX "Def strips".
+            inferred_filters = {
+                key: value
+                for key, value in inferred_filters.items()
+                if key not in {"source_kind", "extension"}
+            }
             confidence = max(confidence, 0.72)
             reason = f"table value lookup scoped retrieval to {len(spreadsheet_collections)} spreadsheet collection(s)"
     ledger_source_count = len(rows)

@@ -447,6 +447,45 @@ def test_catalogue_query_accepts_docs_abbreviation():
     assert classify_intent("Dans les fichiers NON-WOVENS France, que vaut le label B dans la table Def strips ?") == "content_search"
 
 
+def test_table_value_lookup_scopes_to_spreadsheets_without_payload_kind_filter(db_session):
+    workspace = Workspace(id="ws-planner-table-spreadsheet", name="Planner Tables", slug="planner-tables")
+    db_session.add(workspace)
+    db_session.commit()
+    manuals_collection = create_collection(db_session, workspace=workspace, name="Manuals")
+    spreadsheet_collection = create_collection(db_session, workspace=workspace, name="NON-WOVENS France Excel")
+    upsert_collection_source(
+        db_session,
+        collection=manuals_collection,
+        filename="BBA120 manual.pdf",
+        status="ready",
+        chunk_count=12,
+    )
+    upsert_collection_source(
+        db_session,
+        collection=spreadsheet_collection,
+        filename="1-NON-WOVENS/FRANCE/GEOTEX/GEOTEX-SPL-Y25.05.22-PIL.xlsx",
+        status="ready",
+        chunk_count=80,
+    )
+    db_session.commit()
+
+    plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": manuals_collection.slug,
+            "collections": [manuals_collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "fast",
+            "rag_mode": "chah",
+        },
+        query="Dans les fichiers NON-WOVENS France, que vaut le label B dans la table Def strips ?",
+    )
+
+    assert plan.retrieval_scope["collections"] == [spreadsheet_collection.slug]
+    assert "source_kind" not in plan.filters
+    assert "extension" not in plan.filters
+
+
 def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
