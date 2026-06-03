@@ -405,6 +405,20 @@ def _row_collection_ref(row: Any) -> str | None:
     return ref or None
 
 
+def _spreadsheet_collection_refs(rows: list[Any]) -> list[str]:
+    refs: list[str] = []
+    for row in rows:
+        kind = str(getattr(row, "source_kind", "") or "").lower()
+        ext = str(getattr(row, "extension", "") or "").lower().lstrip(".")
+        filename = str(getattr(row, "filename", "") or "").lower()
+        if kind != "spreadsheet" and ext not in {"xlsx", "xls", "xlsm", "csv"} and not filename.endswith((".xlsx", ".xls", ".xlsm", ".csv")):
+            continue
+        ref = _row_collection_ref(row)
+        if ref and ref not in refs:
+            refs.append(ref)
+    return refs
+
+
 def _query_project_codes(query: str) -> list[str]:
     folded = _fold_text(query).upper()
     codes: list[str] = []
@@ -974,6 +988,14 @@ def plan_corpus(
     if ledger_collections:
         collections = ledger_collections
         rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
+    elif _TABLE_VALUE_LOOKUP_RE.search(query):
+        spreadsheet_collections = _spreadsheet_collection_refs(workspace_rows)
+        if spreadsheet_collections:
+            collections = spreadsheet_collections
+            rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
+            inferred_filters = {"source_kind": "spreadsheet"}
+            confidence = max(confidence, 0.72)
+            reason = f"table value lookup scoped retrieval to {len(spreadsheet_collections)} spreadsheet collection(s)"
     ledger_source_count = len(rows)
     collection_source_count = sum(int(c.document_count or 0) for c in collection_rows)
     ledger_chunk_count = sum(int(getattr(row, "chunk_count", 0) or 0) for row in rows)
