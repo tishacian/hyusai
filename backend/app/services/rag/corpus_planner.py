@@ -165,6 +165,12 @@ def is_catalogue_query(query: str) -> bool:
     text = str(query or "").strip()
     if not text:
         return False
+    if re.search(
+        r"\b(?:quel|quelle|which|what)\b.*\b(?:source|document|fichier|file)\b.*\b(?:contient|contains?)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return False
     if _CATALOGUE_PHRASE_RE.search(text):
         return True
     return bool(_CATALOGUE_RE.search(text) and re.search(r"\b(data|donn[ée]es?|docs?|documents?|sources?|fichiers?|collections?)\b", text, re.IGNORECASE))

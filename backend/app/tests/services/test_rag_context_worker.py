@@ -444,7 +444,9 @@ def test_corpus_planner_accepts_system_scope_filter_fields(db_session):
 def test_catalogue_query_accepts_docs_abbreviation():
     assert is_catalogue_query("combien de docs as tu ?")
     assert is_catalogue_query("quels types de docs as-tu ?")
+    assert not is_catalogue_query("quelle source contient Filtering cartridge LM 300 ?")
     assert classify_intent("Dans les fichiers NON-WOVENS France, que vaut le label B dans la table Def strips ?") == "content_search"
+    assert classify_intent("Dans le projet AKK200, quelle source contient Filtering cartridge LM 300 ?") == "source_lookup"
 
 
 def test_table_value_lookup_scopes_to_spreadsheets_without_payload_kind_filter(db_session):
