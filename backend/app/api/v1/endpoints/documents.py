@@ -1734,10 +1734,39 @@ async def get_collection_diagnostics(
     drift_status = "unknown"
     if drift is not None:
         drift_status = "ok" if drift_abs == 0 else ("warning" if drift_abs <= 5000 else "drift")
+    dense = bool((vector_points or ledger_chunks) > 100_000 or int(inventory.get("source_count") or 0) > 5_000)
+    offline_sample = 5_000 if dense else min(max(vector_points or ledger_chunks or 0, 0), 500)
+    offline_artifact_key = get_object_store().key(
+        row.artifact_prefix,
+        "derived",
+        "embedding-clusters",
+        "latest.json",
+    )
+    offline_clustering = {
+        "state": "recommended" if dense and supported_graph and (vector_points or ledger_chunks) else "not_needed",
+        "reason": (
+            "Use a manually launched offline artifact if the live sampled graph becomes slow or unstable."
+            if dense
+            else "Live sampled graph is sufficient at the current corpus size."
+        ),
+        "launch_policy": "manual_only",
+        "auto_run": False,
+        "worker_kind": "embedding_cluster_artifact",
+        "worker_configured": False,
+        "artifact_key": offline_artifact_key,
+        "default_sample": offline_sample,
+        "max_live_sample": 500,
+        "stratification": ["source_kind", "project_code", "source", "chunk_count_bucket"],
+        "stores_vectors": False,
+    }
     feature_status = {
         "graph": {
             "state": "available" if supported_graph and (vector_points or 0) > 0 else "disabled",
             "reason": "Sampled only for dense collections." if supported_graph else "Vector store does not expose graph sampling.",
+        },
+        "offline_clustering": {
+            "state": offline_clustering["state"],
+            "reason": offline_clustering["reason"],
         },
         "document_facts": {
             "state": "available" if sum(document_fact_counts.values()) > 0 else "empty",
@@ -1754,7 +1783,6 @@ async def get_collection_diagnostics(
             "reason": "No structured table facts are indexed for this collection.",
         },
     }
-    dense = bool((vector_points or ledger_chunks) > 100_000 or int(inventory.get("source_count") or 0) > 5_000)
     return {
         "collection_id": row.id,
         "collection_slug": row.slug,
@@ -1789,6 +1817,7 @@ async def get_collection_diagnostics(
             "total": sum(table_fact_counts.values()),
             "by_type": table_fact_counts,
         },
+        "offline_clustering": offline_clustering,
         "feature_status": feature_status,
     }
 

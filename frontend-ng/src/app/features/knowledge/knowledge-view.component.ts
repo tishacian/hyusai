@@ -166,6 +166,19 @@ interface CollectionDiagnosticsPayload {
     total?: number;
     by_type?: Record<string, number>;
   };
+  offline_clustering?: {
+    state?: string;
+    reason?: string;
+    launch_policy?: string;
+    auto_run?: boolean;
+    worker_kind?: string;
+    worker_configured?: boolean;
+    artifact_key?: string;
+    default_sample?: number;
+    max_live_sample?: number;
+    stratification?: string[];
+    stores_vectors?: boolean;
+  };
   feature_status?: Record<string, { state?: string; reason?: string }>;
 }
 
@@ -1342,6 +1355,35 @@ type KbTabId =
               <p class="rounded border border-white/10 bg-black/20 p-3 font-mono text-[11px] text-gray-300">
                 collection={{ kbId }} · vector={{ vectorDbType() || 'unknown' }} · docs={{ docCount() }} · chunks={{ chunkCount() }} · drift={{ diagnostics()?.drift ?? '—' }}
               </p>
+              @if (diagnostics()?.offline_clustering) {
+                <article class="rounded border border-white/10 bg-black/20 p-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="font-medium text-gray-200">Offline clustering artifact</span>
+                    <span class="rounded px-2 py-0.5 font-mono text-[10px]" [class.bg-amber-500/10]="diagnostics()?.offline_clustering?.state === 'recommended'" [class.text-amber-200]="diagnostics()?.offline_clustering?.state === 'recommended'" [class.bg-white/5]="diagnostics()?.offline_clustering?.state !== 'recommended'" [class.text-gray-400]="diagnostics()?.offline_clustering?.state !== 'recommended'">
+                      {{ diagnostics()?.offline_clustering?.state || 'unknown' }}
+                    </span>
+                  </div>
+                  <p class="mt-2 text-gray-500">{{ diagnostics()?.offline_clustering?.reason }}</p>
+                  <dl class="mt-3 grid gap-2 text-[11px] md:grid-cols-2">
+                    <div>
+                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Launch</dt>
+                      <dd class="text-gray-300">{{ diagnostics()?.offline_clustering?.launch_policy || 'manual_only' }}</dd>
+                    </div>
+                    <div>
+                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Sample</dt>
+                      <dd class="text-gray-300 tabular-nums">{{ diagnostics()?.offline_clustering?.default_sample ?? '—' }}</dd>
+                    </div>
+                    <div class="md:col-span-2">
+                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Artifact</dt>
+                      <dd class="break-all font-mono text-gray-300">{{ diagnostics()?.offline_clustering?.artifact_key || '—' }}</dd>
+                    </div>
+                    <div class="md:col-span-2">
+                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Stratification</dt>
+                      <dd class="text-gray-300">{{ (diagnostics()?.offline_clustering?.stratification || []).join(', ') || '—' }}</dd>
+                    </div>
+                  </dl>
+                </article>
+              }
             </div>
           </article>
         </section>
@@ -1586,6 +1628,7 @@ export class KnowledgeViewComponent implements OnInit {
     const status = this.diagnostics()?.feature_status ?? {};
     return [
       ['Graph', status['graph']],
+      ['Offline clustering', status['offline_clustering']],
       ['Document facts', status['document_facts']],
       ['OCR', status['ocr']],
       ['Table facts', status['table_facts']],

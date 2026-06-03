@@ -316,6 +316,11 @@ def test_collection_diagnostics_reports_drift_and_fact_coverage(db_session, monk
     assert body["drift_status"] == "warning"
     assert body["document_facts"]["by_type"] == {"document_warning": 1}
     assert body["table_facts"]["by_type"] == {"spreadsheet_cell_fact": 1}
+    assert body["offline_clustering"]["launch_policy"] == "manual_only"
+    assert body["offline_clustering"]["auto_run"] is False
+    assert body["offline_clustering"]["stores_vectors"] is False
+    assert body["offline_clustering"]["artifact_key"].endswith("/derived/embedding-clusters/latest.json")
+    assert body["feature_status"]["offline_clustering"]["state"] == "not_needed"
 
 
 def test_list_documents_uses_ledger_page_without_vector_scroll(db_session, monkeypatch):
