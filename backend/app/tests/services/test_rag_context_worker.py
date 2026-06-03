@@ -458,6 +458,8 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
     injector_collection = create_collection(db_session, workspace=workspace, name="Injectors DCI110 ACO")
     for collection, filename in (
         (spl_collection, "spare part list ACO150.pdf"),
+        (spl_collection, "ACO150__fichiers__menu__index.html"),
+        (spl_collection, "ACO150__fichiers__pictures__fond.jpg"),
         (bba_collection, "Spare Parts List_BBA120.pdf"),
         (bba_collection, "Etachrom B.PDF"),
         (injector_collection, "IN 07 A- EXH injector cartridge cleaning.pdf"),
@@ -513,6 +515,8 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
         assert plan.retrieval_plan["layers"]["deep_async"]["enabled"] is False
 
     assert "spare part list ACO150.pdf" in aco_plan.filters["document_filename"]
+    assert "ACO150__fichiers__menu__index.html" not in aco_plan.filters["document_filename"]
+    assert "ACO150__fichiers__pictures__fond.jpg" not in aco_plan.filters["document_filename"]
     assert "Spare Parts List_BBA120.pdf" in bba_plan.filters["document_filename"]
     assert "Etachrom B.PDF" in etachrom_plan.filters["document_filename"]
     assert "IN 07 A- EXH injector cartridge cleaning.pdf" in injector_plan.filters["document_filename"]
@@ -532,6 +536,7 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
     assert narrow_plan.retrieval_scope["collections"] == [spl_collection.slug]
     assert narrow_plan.dense_policy == "fast_scoped_dense"
     assert "spare part list ACO150.pdf" in narrow_plan.filters["document_filename"]
+    assert "ACO150__fichiers__menu__index.html" not in narrow_plan.filters["document_filename"]
 
     legacy_collection = create_collection(db_session, workspace=workspace, name="Legacy Document Names")
     legacy_collection.document_names = ["Legacy Spare Parts List ACO999.pdf"]

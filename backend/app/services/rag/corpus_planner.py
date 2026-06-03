@@ -487,7 +487,7 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
     if not terms and not project_codes:
         return {}, 0.0, "", []
 
-    scored: list[tuple[float, bool, Any]] = []
+    scored: list[tuple[float, bool, bool, Any]] = []
     for row in rows:
         filename = str(getattr(row, "filename", "") or "")
         if not filename:
@@ -495,6 +495,7 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
         haystack, compact_haystack = _row_search_payload(row)
         score = 0.0
         matched_project = False
+        strong_phrase_match = False
         for code in project_codes:
             if code and code.lower() in compact_haystack:
                 matched_project = True
@@ -511,50 +512,73 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
                 score += 2.2
             elif compact_term in compact_haystack:
                 score += 1.5
-        if "sparepartslist" in compact_query and "sparepartslist" in compact_haystack:
+        query_spare_parts_list = "spare" in compact_query and "part" in compact_query and "list" in compact_query
+        row_spare_parts_list = "spare" in compact_haystack and "part" in compact_haystack and "list" in compact_haystack
+        if query_spare_parts_list and row_spare_parts_list:
             score += 8.0
+            strong_phrase_match = True
         elif all(token in compact_query for token in ("spare", "parts")) and all(token in compact_haystack for token in ("spare", "parts")):
             score += 5.0
+            strong_phrase_match = True
         if "stripcarrier" in compact_query and "stripcarrier" in compact_haystack:
             score += 6.0
+            strong_phrase_match = True
         if "uracakd724" in compact_query and "uracakd724" in compact_haystack:
             score += 8.0
+            strong_phrase_match = True
         elif "uraca" in compact_query and "uraca" in compact_haystack:
             score += 4.0
+            strong_phrase_match = True
         if "etachrom" in compact_query and "etachrom" in compact_haystack:
             score += 7.0
+            strong_phrase_match = True
         if "pneumaticcabinet" in compact_query and "pneumaticcabinet" in compact_haystack:
             score += 8.0
+            strong_phrase_match = True
         elif "pneumatic" in compact_query and "cabinet" in compact_query and "pneumatic" in compact_haystack and "cabinet" in compact_haystack:
             score += 5.0
+            strong_phrase_match = True
         if "geotex" in compact_query and "geotex" in compact_haystack:
             score += 8.0
+            strong_phrase_match = True
         if ("filtration" in compact_query or "filtering" in compact_query) and "filtration" in compact_haystack:
             score += 3.0
+            strong_phrase_match = True
         if "vacuum" in compact_query and "vacuum" in compact_haystack:
             score += 3.0
+            strong_phrase_match = True
         if ("conveyor" in compact_query or "convoyeur" in compact_query) and "conveyor" in compact_haystack:
             score += 4.0
+            strong_phrase_match = True
         if ("injecteur" in compact_query or "injector" in compact_query) and ("injecteur" in compact_haystack or "injector" in compact_haystack):
             score += 3.5
+            strong_phrase_match = True
         if ("cartouche" in compact_query or "cartridge" in compact_query) and "cartridge" in compact_haystack:
             score += 3.0
+            strong_phrase_match = True
         if has_source_lookup_signal:
             score += min(max(int(getattr(row, "chunk_count", 0) or 0), 0), 100) / 200.0
         threshold = 6.0 if project_codes else 7.0
         if score >= threshold:
-            scored.append((score, matched_project, row))
+            scored.append((score, matched_project, strong_phrase_match, row))
     if not scored:
         return {}, 0.0, "", []
     if project_codes and any(item[1] for item in scored):
         scored = [item for item in scored if item[1]]
+        phrase_scored = [item for item in scored if item[2]]
+        if phrase_scored:
+            scored = phrase_scored
     elif project_codes:
         return {}, 0.0, f"No ledger source matched project/code {', '.join(project_codes[:3])}.", []
+    else:
+        phrase_scored = [item for item in scored if item[2]]
+        if phrase_scored:
+            scored = phrase_scored
 
-    ranked = sorted(scored, key=lambda item: (-item[0], str(getattr(item[2], "filename", "") or "").lower()))[:40]
+    ranked = sorted(scored, key=lambda item: (-item[0], str(getattr(item[3], "filename", "") or "").lower()))[:20]
     filenames: list[str] = []
     collection_refs: list[str] = []
-    for _, _matched_project, row in ranked:
+    for _, _matched_project, _strong_phrase_match, row in ranked:
         filename = str(getattr(row, "filename", "") or "").strip()
         if filename and filename not in filenames:
             filenames.append(filename)
