@@ -37,6 +37,12 @@ class VectorDBBase(ABC):
         """Get total number of vectors"""
         pass
 
+    async def count_payloads(self, filters: Optional[Dict] = None) -> Optional[int]:
+        """Count vectors matching payload filters when the store can do so cheaply."""
+        if filters:
+            return None
+        return await self.get_count()
+
     async def list_payloads(
         self,
         filters: Optional[Dict] = None,

@@ -252,14 +252,60 @@ def collection_inventory(
     include_sources: bool = True,
     source_limit: int | None = None,
     source_offset: int = 0,
+    q: str | None = None,
+    source_kind: str | None = None,
+    extension: str | None = None,
+    status: str | None = None,
+    sort: str = "filename",
+    sort_dir: str = "asc",
 ) -> dict[str, Any]:
     rows = collection_source_rows(db, collection=collection)
     by_kind = Counter(row.source_kind or "document" for row in rows)
     by_extension = Counter((row.extension or "unknown") for row in rows)
     by_status = Counter(row.status or "unknown" for row in rows)
+    filtered_rows = list(rows)
+    needle = (q or "").strip().lower()
+    if needle:
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if needle in str(row.filename or "").lower()
+            or needle in str(row.normalized_name or "").lower()
+            or needle in str(row.mime_type or "").lower()
+            or needle in str(row.source_kind or "").lower()
+            or needle in str(row.extension or "").lower()
+        ]
+    if source_kind:
+        wanted = source_kind.strip().lower()
+        filtered_rows = [row for row in filtered_rows if str(row.source_kind or "").lower() == wanted]
+    if extension:
+        wanted = extension.strip().lower().lstrip(".")
+        filtered_rows = [row for row in filtered_rows if str(row.extension or "").lower().lstrip(".") == wanted]
+    if status:
+        wanted = status.strip().lower()
+        filtered_rows = [row for row in filtered_rows if str(row.status or "").lower() == wanted]
+
+    sort_key = (sort or "filename").strip().lower()
+    reverse = (sort_dir or "asc").strip().lower() == "desc"
+    if sort_key == "chunk_count":
+        key_fn = lambda row: (int(row.chunk_count or 0), str(row.filename or "").lower())
+    elif sort_key == "indexed_at":
+        key_fn = lambda row: (row.indexed_at or datetime.min, str(row.filename or "").lower())
+    elif sort_key == "status":
+        key_fn = lambda row: (str(row.status or ""), str(row.filename or "").lower())
+    elif sort_key == "source_kind":
+        key_fn = lambda row: (str(row.source_kind or ""), str(row.filename or "").lower())
+    else:
+        key_fn = lambda row: str(row.filename or "").lower()
+    filtered_rows = sorted(filtered_rows, key=key_fn, reverse=reverse)
+
     safe_offset = max(0, int(source_offset or 0))
     safe_limit = None if source_limit is None else max(0, int(source_limit))
-    source_rows = rows[safe_offset:] if safe_limit is None else rows[safe_offset : safe_offset + safe_limit]
+    source_rows = (
+        filtered_rows[safe_offset:]
+        if safe_limit is None
+        else filtered_rows[safe_offset : safe_offset + safe_limit]
+    )
     sources = [
         {
             "id": row.id,
@@ -278,22 +324,85 @@ def collection_inventory(
         for row in source_rows
     ]
     total_chunks = sum(int(row.chunk_count or 0) for row in rows) or (collection.chunk_count or 0)
+    top_sources = [
+        {
+            "id": row.id,
+            "filename": row.filename,
+            "source_kind": row.source_kind,
+            "extension": row.extension,
+            "chunk_count": int(row.chunk_count or 0),
+            "status": row.status,
+            "metadata": row.source_metadata or {},
+        }
+        for row in sorted(rows, key=lambda item: int(item.chunk_count or 0), reverse=True)[:20]
+    ]
+    buckets = {
+        "0": {"sources": 0, "chunks": 0},
+        "1-5": {"sources": 0, "chunks": 0},
+        "6-50": {"sources": 0, "chunks": 0},
+        "51-200": {"sources": 0, "chunks": 0},
+        "201-1000": {"sources": 0, "chunks": 0},
+        ">1000": {"sources": 0, "chunks": 0},
+    }
+    chunk_counts = sorted(int(row.chunk_count or 0) for row in rows)
+    for count in chunk_counts:
+        if count == 0:
+            bucket = "0"
+        elif count <= 5:
+            bucket = "1-5"
+        elif count <= 50:
+            bucket = "6-50"
+        elif count <= 200:
+            bucket = "51-200"
+        elif count <= 1000:
+            bucket = "201-1000"
+        else:
+            bucket = ">1000"
+        buckets[bucket]["sources"] += 1
+        buckets[bucket]["chunks"] += count
+
+    def percentile(value: float) -> int:
+        if not chunk_counts:
+            return 0
+        index = min(len(chunk_counts) - 1, max(0, round((len(chunk_counts) - 1) * value)))
+        return int(chunk_counts[index])
+
     return {
         "collection_id": collection.id,
         "collection_slug": collection.slug,
         "collection_name": collection.name,
         "status": collection.status,
         "source_count": len(rows),
+        "sources_total": len(filtered_rows),
         "document_count": len(rows) or (collection.document_count or len(collection.document_names or [])),
         "chunk_count": total_chunks,
         "by_kind": dict(sorted(by_kind.items())),
         "by_extension": dict(sorted(by_extension.items())),
         "by_status": dict(sorted(by_status.items())),
+        "top_sources": top_sources,
+        "chunk_buckets": buckets,
+        "chunk_percentiles": {
+            "p50": percentile(0.50),
+            "p90": percentile(0.90),
+            "p95": percentile(0.95),
+            "p99": percentile(0.99),
+        },
+        "zero_chunk_sources": sum(1 for row in rows if int(row.chunk_count or 0) == 0),
+        "error_sources": sum(1 for row in rows if str(row.status or "").lower() == "error"),
+        "heavy_sources": sum(1 for row in rows if int(row.chunk_count or 0) > 1000),
+        "source_filters": {
+            "q": q or "",
+            "source_kind": source_kind or "",
+            "extension": extension or "",
+            "status": status or "",
+            "sort": sort_key,
+            "sort_dir": "desc" if reverse else "asc",
+        },
         "sources": sources if include_sources else [],
         "sources_offset": safe_offset,
         "sources_limit": safe_limit,
         "sources_returned": len(sources) if include_sources else 0,
-        "sources_has_more": include_sources and (safe_offset + len(sources) < len(rows)),
+        "sources_has_more": include_sources and (safe_offset + len(sources) < len(filtered_rows)),
     }
 
 

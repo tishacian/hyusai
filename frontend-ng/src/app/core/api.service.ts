@@ -149,6 +149,10 @@ export interface TableFactList {
   vector_db_type: string;
   items: TableFactItem[];
   total_returned: number;
+  total?: number;
+  has_more?: boolean;
+  by_type?: Record<string, number>;
+  total_is_exact?: boolean;
   limit: number;
   offset: number;
 }
@@ -189,6 +193,9 @@ export interface DocumentFactList {
   collection_name: string;
   items: DocumentFactItem[];
   total_returned: number;
+  total?: number;
+  has_more?: boolean;
+  by_type?: Record<string, number>;
   limit: number;
   offset: number;
 }

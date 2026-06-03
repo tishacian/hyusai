@@ -209,6 +209,21 @@ class QdrantVectorDB(VectorDBBase):
 
         return await loop.run_in_executor(None, _c)
 
+    async def count_payloads(self, filters: Optional[Dict[str, Any]] = None) -> Optional[int]:
+        if self.client is None or not self.client.collection_exists(self.collection_name):
+            return 0
+        loop = asyncio.get_event_loop()
+        qf = self._filters_to_qdrant(filters)
+
+        def _c():
+            return self.client.count(
+                collection_name=self.collection_name,
+                count_filter=qf,
+                exact=True,
+            ).count
+
+        return await loop.run_in_executor(None, _c)
+
     async def get_all_ids(self) -> List[str]:
         if self.client is None or not self.client.collection_exists(self.collection_name):
             return []

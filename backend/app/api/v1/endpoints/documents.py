@@ -1,9 +1,12 @@
 """Document management endpoints"""
 
+import asyncio
 import mimetypes
 import os
 import shutil
 import tempfile
+import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote
@@ -13,6 +16,7 @@ import numpy as np
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
@@ -22,6 +26,7 @@ from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
 from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
+from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import (
@@ -46,6 +51,8 @@ from app.services.worker_dispatch import dispatch_worker_job
 
 logger = get_logger(__name__)
 router = APIRouter()
+_GRAPH_CACHE_TTL_SECONDS = 120
+_GRAPH_CACHE: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
 
 UPLOADS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))),
@@ -404,10 +411,93 @@ async def list_table_facts(
     offset: int = Query(0, ge=0),
     vector_db_type: Optional[str] = Query(None),
     workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ):
     """List spreadsheet facts/chunks for Knowledge diagnostics."""
     try:
         db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+        base_query = db.query(KnowledgeTableFact).filter(
+            KnowledgeTableFact.workspace_id == workspace.id,
+            KnowledgeTableFact.collection_slug == collection_name,
+        )
+        if sheet_name:
+            base_query = base_query.filter(KnowledgeTableFact.sheet_name == sheet_name)
+        if q:
+            like = f"%{q}%"
+            base_query = base_query.filter(
+                KnowledgeTableFact.content.ilike(like)
+                | KnowledgeTableFact.document_filename.ilike(like)
+                | KnowledgeTableFact.sheet_name.ilike(like)
+                | KnowledgeTableFact.cell_ref.ilike(like)
+                | KnowledgeTableFact.cell_range.ilike(like)
+                | KnowledgeTableFact.row_label.ilike(like)
+                | KnowledgeTableFact.column_header.ilike(like)
+                | KnowledgeTableFact.subject.ilike(like)
+                | KnowledgeTableFact.measure.ilike(like)
+                | KnowledgeTableFact.value_raw.ilike(like)
+            )
+        by_type = {
+            str(kind): int(count)
+            for kind, count in (
+                base_query.with_entities(KnowledgeTableFact.semantic_type, func.count())
+                .group_by(KnowledgeTableFact.semantic_type)
+                .all()
+            )
+        }
+        query = base_query
+        if semantic_type:
+            query = query.filter(KnowledgeTableFact.semantic_type == semantic_type)
+        total = query.count()
+        if total:
+            rows = (
+                query.order_by(
+                    KnowledgeTableFact.document_filename,
+                    KnowledgeTableFact.sheet_name,
+                    KnowledgeTableFact.row_index,
+                    KnowledgeTableFact.column_index,
+                )
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+            items = [
+                {
+                    "content": row.content,
+                    "semantic_type": row.semantic_type,
+                    "document_id": row.document_id,
+                    "document_filename": row.document_filename,
+                    "sheet_name": row.sheet_name,
+                    "cell_ref": row.cell_ref,
+                    "cell_range": row.cell_range,
+                    "row_start": row.row_index,
+                    "row_end": row.row_index,
+                    "row_label": row.row_label,
+                    "column_header": row.column_header,
+                    "unit": row.unit,
+                    "table_region_id": row.table_region_id,
+                    "interpretation_note": None,
+                    "chunk_index": None,
+                    "subject": row.subject,
+                    "measure": row.measure,
+                    "value_raw": row.value_raw,
+                    "value_numeric": row.value_numeric,
+                }
+                for row in rows
+            ]
+            return {
+                "collection_name": collection_name,
+                "vector_db_type": db_type,
+                "items": items,
+                "total_returned": len(items),
+                "total": total,
+                "has_more": offset + len(items) < total,
+                "by_type": by_type,
+                "limit": limit,
+                "offset": offset,
+                "total_is_exact": True,
+                "source": "ledger",
+            }
+
         doc_service = DocumentService(
             collection_name=collection_name,
             vector_db_type=db_type,
@@ -440,13 +530,19 @@ async def list_table_facts(
             }
             for row in rows
         ]
+        fallback_by_type = dict(sorted(Counter(str(item.get("semantic_type") or "spreadsheet") for item in items).items()))
         return {
             "collection_name": collection_name,
             "vector_db_type": db_type,
             "items": items,
             "total_returned": len(items),
+            "total": len(items),
+            "has_more": len(items) >= limit,
+            "by_type": fallback_by_type,
             "limit": limit,
             "offset": offset,
+            "total_is_exact": False,
+            "source": "vector",
         }
     except Exception as e:
         logger.error(f"Error listing table facts: {e}", exc_info=True)
@@ -464,21 +560,31 @@ def list_document_facts(
     db: DBSession = Depends(get_db),
 ):
     """List structured document facts for Knowledge diagnostics."""
-    query = db.query(KnowledgeDocumentFact).filter(
+    base_query = db.query(KnowledgeDocumentFact).filter(
         KnowledgeDocumentFact.workspace_id == workspace.id,
         KnowledgeDocumentFact.collection_slug == collection_name,
     )
-    if semantic_type:
-        query = query.filter(KnowledgeDocumentFact.semantic_type == semantic_type)
     if q:
         like = f"%{q}%"
-        query = query.filter(
+        base_query = base_query.filter(
             KnowledgeDocumentFact.content.ilike(like)
             | KnowledgeDocumentFact.document_filename.ilike(like)
             | KnowledgeDocumentFact.subject.ilike(like)
             | KnowledgeDocumentFact.value_raw.ilike(like)
             | KnowledgeDocumentFact.section_path.ilike(like)
         )
+    by_type = {
+        str(kind): int(count)
+        for kind, count in (
+            base_query.with_entities(KnowledgeDocumentFact.semantic_type, func.count())
+            .group_by(KnowledgeDocumentFact.semantic_type)
+            .all()
+        )
+    }
+    query = base_query
+    if semantic_type:
+        query = query.filter(KnowledgeDocumentFact.semantic_type == semantic_type)
+    total = query.count()
     rows = (
         query.order_by(KnowledgeDocumentFact.document_filename, KnowledgeDocumentFact.page, KnowledgeDocumentFact.paragraph_index)
         .offset(offset)
@@ -510,6 +616,9 @@ def list_document_facts(
             for row in rows
         ],
         "total_returned": len(rows),
+        "total": total,
+        "has_more": offset + len(rows) < total,
+        "by_type": by_type,
         "limit": limit,
         "offset": offset,
     }
@@ -886,6 +995,7 @@ async def list_document_chunks(
     offset: int = Query(0, ge=0),
     max_chars: int = Query(800, ge=80, le=8000),
     workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ):
     """Browse indexed chunks (vector payloads) for a collection or document.
 
@@ -901,6 +1011,30 @@ async def list_document_chunks(
             workspace_slug=workspace.slug,
         )
         filters = {"document_id": document_id} if document_id else None
+        total: int | None = None
+        total_is_exact = False
+        try:
+            if document_id:
+                collection = get_collection_or_404(
+                    db,
+                    workspace_id=workspace.id,
+                    collection_ref=collection_name,
+                )
+                for row in collection_source_rows(db, collection=collection):
+                    metadata = dict(row.source_metadata or {})
+                    row_doc_id = metadata.get("document_id") or row.normalized_name or row.filename or row.id
+                    if str(row_doc_id) == str(document_id):
+                        total = int(row.chunk_count or 0)
+                        total_is_exact = True
+                        break
+            if total is None:
+                total = await doc_service.vector_db.count_payloads(filters=filters)
+                total_is_exact = total is not None
+            if total is None and not document_id:
+                total = await doc_service.get_document_count()
+                total_is_exact = True
+        except Exception as exc:  # noqa: BLE001 - diagnostics only.
+            logger.warning("Could not compute chunk total", error=str(exc), collection=collection_name)
         payloads = await doc_service.vector_db.list_payloads(
             filters=filters, limit=limit, offset=offset
         )
@@ -928,7 +1062,14 @@ async def list_document_chunks(
             "limit": limit,
             "offset": offset,
             "count": len(chunks),
-            "has_more": len(chunks) >= limit,
+            "total": total if total is not None else len(chunks),
+            "total_is_exact": total_is_exact,
+            "has_more": (offset + len(chunks) < total) if total is not None else len(chunks) >= limit,
+            "navigation_note": (
+                "Global chunk browsing is paginated over a dense vector collection; use document filters for audit-grade navigation."
+                if not document_id
+                else ""
+            ),
             "chunks": chunks,
         }
     except HTTPException:
@@ -1004,6 +1145,9 @@ def _build_embedding_graph(
                 "section_path": pl.get("section_path"),
                 "page": pl.get("page") or pl.get("page_number"),
                 "snippet": content[:180],
+                "source_kind": pl.get("source_kind") or pl.get("document_type"),
+                "project_code": pl.get("project_code"),
+                "archive_name": pl.get("archive_name"),
                 "x": float(coords[idx][0]) if len(coords) else 0.5,
                 "y": float(coords[idx][1]) if len(coords) else 0.5,
             }
@@ -1041,6 +1185,7 @@ async def embedding_graph(
     neighbors: int = Query(4, ge=1, le=15),
     min_score: float = Query(0.55, ge=0.0, le=1.0),
     workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ):
     """Embedding map: 2D projection of sampled chunks + similarity edges.
 
@@ -1051,18 +1196,50 @@ async def embedding_graph(
     """
     try:
         db_type = _resolve_document_vector_db_type(workspace)
+        collection = None
+        try:
+            collection = get_collection_or_404(
+                db,
+                workspace_id=workspace.id,
+                collection_ref=collection_name,
+            )
+        except HTTPException:
+            collection = None
+        cache_key = (
+            workspace.id,
+            collection_name,
+            document_id or "",
+            int(sample),
+            int(neighbors),
+            round(float(min_score), 4),
+            collection.updated_at.isoformat() if collection and collection.updated_at else "",
+        )
+        cached = _GRAPH_CACHE.get(cache_key)
+        if cached and time.time() - cached[0] < _GRAPH_CACHE_TTL_SECONDS:
+            payload = dict(cached[1])
+            payload["cached"] = True
+            return payload
+
         doc_service = DocumentService(
             collection_name=collection_name,
             vector_db_type=db_type,
             workspace_slug=workspace.slug,
         )
+        total_chunks = await doc_service.get_document_count()
         filters = {"document_id": document_id} if document_id else None
-        rows = await doc_service.vector_db.sample_chunk_vectors(limit=sample, filters=filters)
+        try:
+            rows = await asyncio.wait_for(
+                doc_service.vector_db.sample_chunk_vectors(limit=sample, filters=filters),
+                timeout=8,
+            )
+        except asyncio.TimeoutError:
+            rows = []
         if not rows:
             return {
                 "collection_name": collection_name,
                 "document_id": document_id,
                 "sample": 0,
+                "total_chunks": total_chunks,
                 "neighbors": neighbors,
                 "min_score": min_score,
                 "vector_dim": None,
@@ -1070,12 +1247,44 @@ async def embedding_graph(
                 "nodes": [],
                 "edges": [],
                 "supported": db_type == "qdrant" or db_type == "faiss",
+                "cached": False,
+                "warnings": ["No sampled vectors were returned before the graph timeout."],
             }
-        graph = _build_embedding_graph(rows, neighbors=neighbors, min_score=min_score)
-        return {
+        warnings: list[str] = []
+        try:
+            graph = await asyncio.wait_for(
+                asyncio.to_thread(_build_embedding_graph, rows, neighbors=neighbors, min_score=min_score),
+                timeout=8,
+            )
+        except asyncio.TimeoutError:
+            graph = {
+                "nodes": [
+                    {
+                        "id": idx,
+                        "point_id": row.get("id"),
+                        "document_id": (row.get("payload") or {}).get("document_id"),
+                        "document_filename": (row.get("payload") or {}).get("document_filename"),
+                        "chunk_index": (row.get("payload") or {}).get("chunk_index"),
+                        "section_path": (row.get("payload") or {}).get("section_path"),
+                        "page": (row.get("payload") or {}).get("page") or (row.get("payload") or {}).get("page_number"),
+                        "snippet": str((row.get("payload") or {}).get("content") or "")[:180],
+                        "source_kind": (row.get("payload") or {}).get("source_kind") or (row.get("payload") or {}).get("document_type"),
+                        "project_code": (row.get("payload") or {}).get("project_code"),
+                        "archive_name": (row.get("payload") or {}).get("archive_name"),
+                        "x": 0.5,
+                        "y": 0.5,
+                    }
+                    for idx, row in enumerate(rows)
+                ],
+                "edges": [],
+                "projection": "timeout",
+            }
+            warnings.append("Projection timed out; showing sampled nodes without cluster layout.")
+        payload = {
             "collection_name": collection_name,
             "document_id": document_id,
             "sample": len(rows),
+            "total_chunks": total_chunks,
             "neighbors": neighbors,
             "min_score": min_score,
             "vector_dim": len(rows[0]["vector"]),
@@ -1083,7 +1292,16 @@ async def embedding_graph(
             "nodes": graph["nodes"],
             "edges": graph["edges"],
             "supported": True,
+            "cached": False,
+            "warnings": warnings
+            + (
+                ["Dense collection: this map is sampled and not exhaustive."]
+                if total_chunks > 100_000
+                else []
+            ),
         }
+        _GRAPH_CACHE[cache_key] = (time.time(), payload)
+        return payload
     except HTTPException:
         raise
     except Exception as e:
@@ -1364,6 +1582,12 @@ async def get_collection_detail(
     vector_db_type: Optional[str] = Query(None),
     source_limit: int = Query(50, ge=0, le=500),
     source_offset: int = Query(0, ge=0),
+    q: Optional[str] = Query(None),
+    source_kind: Optional[str] = Query(None),
+    extension: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    sort: str = Query("filename"),
+    sort_dir: str = Query("asc"),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
@@ -1394,6 +1618,12 @@ async def get_collection_detail(
         include_sources=True,
         source_limit=source_limit,
         source_offset=source_offset,
+        q=q,
+        source_kind=source_kind,
+        extension=extension,
+        status=status,
+        sort=sort,
+        sort_dir=sort_dir,
     )
     return _attach_collection_job_diagnostics(payload, jobs)
 
@@ -1403,6 +1633,12 @@ async def get_collection_inventory(
     collection_id: str,
     source_limit: int | None = Query(default=None, ge=0, le=1000),
     source_offset: int = Query(0, ge=0),
+    q: Optional[str] = Query(None),
+    source_kind: Optional[str] = Query(None),
+    extension: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    sort: str = Query("filename"),
+    sort_dir: str = Query("asc"),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
@@ -1418,7 +1654,143 @@ async def get_collection_inventory(
         include_sources=True,
         source_limit=source_limit,
         source_offset=source_offset,
+        q=q,
+        source_kind=source_kind,
+        extension=extension,
+        status=status,
+        sort=sort,
+        sort_dir=sort_dir,
     )
+
+
+@router.get("/collections/{collection_id}/diagnostics")
+async def get_collection_diagnostics(
+    collection_id: str,
+    vector_db_type: Optional[str] = Query(None),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Return corpus quality and scalability diagnostics for a collection."""
+    row = get_collection_or_404(
+        db,
+        workspace_id=workspace.id,
+        collection_ref=collection_id,
+    )
+    db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
+    inventory = collection_inventory(db, collection=row, include_sources=False)
+    vector_points: int | None = None
+    vector_dim = None
+    supported_graph = db_type in {"qdrant", "faiss"}
+    try:
+        doc_service = DocumentService(
+            collection_name=row.slug,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
+        vector_points = await doc_service.get_document_count()
+        vector_dim = getattr(doc_service.vector_db, "dimension", None)
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not block the page.
+        logger.warning("Could not compute vector diagnostics", error=str(exc), collection=row.slug)
+
+    document_fact_counts = {
+        str(kind): int(count)
+        for kind, count in (
+            db.query(KnowledgeDocumentFact.semantic_type, func.count())
+            .filter(
+                KnowledgeDocumentFact.workspace_id == workspace.id,
+                KnowledgeDocumentFact.collection_id == row.id,
+            )
+            .group_by(KnowledgeDocumentFact.semantic_type)
+            .all()
+        )
+    }
+    document_fact_doc_types = {
+        str(kind or "unknown"): int(count)
+        for kind, count in (
+            db.query(KnowledgeDocumentFact.document_type, func.count(func.distinct(KnowledgeDocumentFact.document_id)))
+            .filter(
+                KnowledgeDocumentFact.workspace_id == workspace.id,
+                KnowledgeDocumentFact.collection_id == row.id,
+            )
+            .group_by(KnowledgeDocumentFact.document_type)
+            .all()
+        )
+    }
+    table_fact_counts = {
+        str(kind): int(count)
+        for kind, count in (
+            db.query(KnowledgeTableFact.semantic_type, func.count())
+            .filter(
+                KnowledgeTableFact.workspace_id == workspace.id,
+                KnowledgeTableFact.collection_id == row.id,
+            )
+            .group_by(KnowledgeTableFact.semantic_type)
+            .all()
+        )
+    }
+    ledger_chunks = int(inventory.get("chunk_count") or 0)
+    drift = None if vector_points is None else int(vector_points - ledger_chunks)
+    drift_abs = abs(drift or 0)
+    drift_status = "unknown"
+    if drift is not None:
+        drift_status = "ok" if drift_abs == 0 else ("warning" if drift_abs <= 5000 else "drift")
+    feature_status = {
+        "graph": {
+            "state": "available" if supported_graph and (vector_points or 0) > 0 else "disabled",
+            "reason": "Sampled only for dense collections." if supported_graph else "Vector store does not expose graph sampling.",
+        },
+        "document_facts": {
+            "state": "available" if sum(document_fact_counts.values()) > 0 else "empty",
+            "reason": "Structured document facts are present." if document_fact_counts else "No document facts are indexed.",
+        },
+        "ocr": {
+            "state": "available"
+            if any(key in document_fact_counts for key in ("document_ocr_text", "visual_text_block", "visual_parameter", "visual_warning"))
+            else "empty",
+            "reason": "No OCR/visual fact layer exists for this collection.",
+        },
+        "table_facts": {
+            "state": "available" if sum(table_fact_counts.values()) > 0 else "empty",
+            "reason": "No structured table facts are indexed for this collection.",
+        },
+    }
+    dense = bool((vector_points or ledger_chunks) > 100_000 or int(inventory.get("source_count") or 0) > 5_000)
+    return {
+        "collection_id": row.id,
+        "collection_slug": row.slug,
+        "collection_name": row.name,
+        "status": row.status,
+        "vector_db_type": db_type,
+        "vector_points": vector_points,
+        "vector_dim": vector_dim,
+        "ledger_source_count": inventory.get("source_count", 0),
+        "ledger_document_count": row.document_count or 0,
+        "ledger_chunk_sum": ledger_chunks,
+        "document_names_count": len(row.document_names or []),
+        "drift": drift,
+        "drift_status": drift_status,
+        "dense": dense,
+        "dense_thresholds": {"chunks": 100_000, "sources": 5_000},
+        "chunk_buckets": inventory.get("chunk_buckets", {}),
+        "chunk_percentiles": inventory.get("chunk_percentiles", {}),
+        "top_sources": inventory.get("top_sources", []),
+        "zero_chunk_sources": inventory.get("zero_chunk_sources", 0),
+        "error_sources": inventory.get("error_sources", 0),
+        "heavy_sources": inventory.get("heavy_sources", 0),
+        "by_kind": inventory.get("by_kind", {}),
+        "by_extension": inventory.get("by_extension", {}),
+        "by_status": inventory.get("by_status", {}),
+        "document_facts": {
+            "total": sum(document_fact_counts.values()),
+            "by_type": document_fact_counts,
+            "docs_by_document_type": document_fact_doc_types,
+        },
+        "table_facts": {
+            "total": sum(table_fact_counts.values()),
+            "by_type": table_fact_counts,
+        },
+        "feature_status": feature_status,
+    }
 
 
 @router.patch("/collections/{collection_id}")

@@ -9,7 +9,7 @@ import {
 import { HttpClient } from '@angular/common/http';
 import { SlicePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { forkJoin, of } from 'rxjs';
+import { forkJoin, Observable, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import {
   CkObjectHeaderComponent,
@@ -45,6 +45,8 @@ import {
 interface DocRow {
   document_id: string;
   filename: string;
+  source_kind?: string;
+  extension?: string;
   chunk_count?: number;
   chunks_count?: number;
   mime_type?: string;
@@ -80,6 +82,9 @@ interface ChunksPayload {
   count: number;
   offset: number;
   has_more: boolean;
+  total?: number;
+  total_is_exact?: boolean;
+  navigation_note?: string;
   chunks: ChunkRow[];
 }
 
@@ -99,6 +104,8 @@ interface CollectionsPayload {
 interface InventorySourcePayload {
   id?: string;
   filename: string;
+  source_kind?: string;
+  extension?: string;
   chunk_count?: number;
   mime_type?: string;
   size_bytes?: number;
@@ -109,6 +116,7 @@ interface InventorySourcePayload {
 
 interface InventoryPayload {
   source_count?: number;
+  sources_total?: number;
   document_count?: number;
   chunk_count?: number;
   sources?: InventorySourcePayload[];
@@ -116,6 +124,49 @@ interface InventoryPayload {
   sources_limit?: number | null;
   sources_returned?: number;
   sources_has_more?: boolean;
+  by_kind?: Record<string, number>;
+  by_extension?: Record<string, number>;
+  by_status?: Record<string, number>;
+  top_sources?: InventorySourcePayload[];
+  chunk_buckets?: Record<string, { sources: number; chunks: number }>;
+  chunk_percentiles?: Record<string, number>;
+  zero_chunk_sources?: number;
+  error_sources?: number;
+  heavy_sources?: number;
+}
+
+interface CollectionDiagnosticsPayload {
+  collection_id?: string;
+  collection_slug?: string;
+  vector_db_type?: string;
+  vector_points?: number | null;
+  vector_dim?: number | null;
+  ledger_source_count?: number;
+  ledger_document_count?: number;
+  ledger_chunk_sum?: number;
+  document_names_count?: number;
+  drift?: number | null;
+  drift_status?: 'ok' | 'warning' | 'drift' | 'unknown';
+  dense?: boolean;
+  chunk_buckets?: Record<string, { sources: number; chunks: number }>;
+  chunk_percentiles?: Record<string, number>;
+  top_sources?: InventorySourcePayload[];
+  zero_chunk_sources?: number;
+  error_sources?: number;
+  heavy_sources?: number;
+  by_kind?: Record<string, number>;
+  by_extension?: Record<string, number>;
+  by_status?: Record<string, number>;
+  document_facts?: {
+    total?: number;
+    by_type?: Record<string, number>;
+    docs_by_document_type?: Record<string, number>;
+  };
+  table_facts?: {
+    total?: number;
+    by_type?: Record<string, number>;
+  };
+  feature_status?: Record<string, { state?: string; reason?: string }>;
 }
 
 interface KnowledgeScopeApi {
@@ -253,10 +304,125 @@ type KbTabId =
               Lens: <span class="font-mono text-brand-300">{{ lens() }}</span>
             </p>
           </div>
+          @if (diagnostics()) {
+            <div class="grid gap-3 border-t border-white/5 pt-4 md:grid-cols-4">
+              <article class="rounded border border-white/10 bg-black/20 p-3">
+                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Density</div>
+                <div class="mt-1 text-sm font-semibold" [class.text-amber-200]="diagnostics()?.dense" [class.text-emerald-200]="!diagnostics()?.dense">
+                  {{ diagnostics()?.dense ? 'Dense corpus' : 'Standard corpus' }}
+                </div>
+                <p class="mt-1 text-[11px] text-gray-500">Threshold: 100k chunks or 5k sources.</p>
+              </article>
+              <article class="rounded border border-white/10 bg-black/20 p-3">
+                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Vector points</div>
+                <div class="mt-1 text-sm font-semibold text-white tabular-nums">{{ diagnostics()?.vector_points ?? '—' }}</div>
+                <p class="mt-1 text-[11px] text-gray-500">Qdrant points currently addressable.</p>
+              </article>
+              <article class="rounded border border-white/10 bg-black/20 p-3">
+                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Ledger chunks</div>
+                <div class="mt-1 text-sm font-semibold text-white tabular-nums">{{ diagnostics()?.ledger_chunk_sum ?? '—' }}</div>
+                <p class="mt-1 text-[11px] text-gray-500">Chunk sum from active sources.</p>
+              </article>
+              <article class="rounded border p-3" [class.border-emerald-400/25]="diagnostics()?.drift_status === 'ok'" [class.border-amber-400/25]="diagnostics()?.drift_status !== 'ok'" [class.bg-emerald-500/10]="diagnostics()?.drift_status === 'ok'" [class.bg-amber-500/10]="diagnostics()?.drift_status !== 'ok'">
+                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Drift</div>
+                <div class="mt-1 text-sm font-semibold text-white tabular-nums">{{ diagnostics()?.drift ?? '—' }}</div>
+                <p class="mt-1 text-[11px] text-gray-500">{{ diagnostics()?.drift_status || 'unknown' }}</p>
+              </article>
+            </div>
+          }
         </section>
       </ck-tab>
 
       <ck-tab id="sources" label="Sources">
+        <section class="t-card rounded-md p-4 mb-4">
+          <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_140px_140px_170px]">
+            <label class="block">
+              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Search sources</span>
+              <input
+                type="search"
+                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                placeholder="Filename, type, extension…"
+                [value]="sourceQuery()"
+                (input)="sourceQuery.set($any($event.target).value)"
+                (keydown.enter)="loadSources(0)"
+              />
+            </label>
+            <label class="block">
+              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Kind</span>
+              <select
+                class="w-full rounded bg-black/25 border border-white/10 px-2 py-2 text-sm text-white outline-none focus:border-brand-400"
+                [value]="sourceKindFilter()"
+                (change)="sourceKindFilter.set($any($event.target).value); loadSources(0)"
+              >
+                <option value="">All kinds</option>
+                @for (item of sourceKindOptions(); track item.key) {
+                  <option [value]="item.key">{{ item.key }} ({{ item.count }})</option>
+                }
+              </select>
+            </label>
+            <label class="block">
+              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Extension</span>
+              <select
+                class="w-full rounded bg-black/25 border border-white/10 px-2 py-2 text-sm text-white outline-none focus:border-brand-400"
+                [value]="sourceExtensionFilter()"
+                (change)="sourceExtensionFilter.set($any($event.target).value); loadSources(0)"
+              >
+                <option value="">All ext.</option>
+                @for (item of sourceExtensionOptions(); track item.key) {
+                  <option [value]="item.key">{{ item.key }} ({{ item.count }})</option>
+                }
+              </select>
+            </label>
+            <label class="block">
+              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Status</span>
+              <select
+                class="w-full rounded bg-black/25 border border-white/10 px-2 py-2 text-sm text-white outline-none focus:border-brand-400"
+                [value]="sourceStatusFilter()"
+                (change)="sourceStatusFilter.set($any($event.target).value); loadSources(0)"
+              >
+                <option value="">All status</option>
+                @for (item of sourceStatusOptions(); track item.key) {
+                  <option [value]="item.key">{{ item.key }} ({{ item.count }})</option>
+                }
+              </select>
+            </label>
+            <div class="grid grid-cols-[1fr_auto] gap-2">
+              <label class="block">
+                <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Sort</span>
+                <select
+                  class="w-full rounded bg-black/25 border border-white/10 px-2 py-2 text-sm text-white outline-none focus:border-brand-400"
+                  [value]="sourceSort()"
+                  (change)="sourceSort.set($any($event.target).value); loadSources(0)"
+                >
+                  <option value="filename">Filename</option>
+                  <option value="chunk_count">Chunks</option>
+                  <option value="indexed_at">Indexed</option>
+                  <option value="status">Status</option>
+                  <option value="source_kind">Kind</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                title="Toggle sort direction"
+                aria-label="Toggle sort direction"
+                class="mt-5 inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                (click)="toggleSourceSortDir()"
+              >
+                <app-icon [name]="sourceSortDir() === 'asc' ? 'arrow-up' : 'arrow-down'" [size]="14" />
+              </button>
+            </div>
+          </div>
+          <div class="mt-3 flex items-center justify-between gap-3 text-xs text-gray-500">
+            <span>{{ sourceTotal() }} filtered / {{ sourceGlobalTotal() }} total sources</span>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+              (click)="loadSources(0)"
+            >
+              <app-icon name="search" [size]="13" /> Apply
+            </button>
+          </div>
+        </section>
         @if (loadingSources()) {
           <div class="t-card rounded-md p-5 text-center text-gray-400 text-sm">
             <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
@@ -349,10 +515,10 @@ type KbTabId =
             </div>
           </div>
 
-          @if (sources().length > 0) {
+          @if (topSources().length > 0) {
             <div class="border-t border-white/5 pt-3">
               <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 mb-2">
-                Distribution by document
+                Top sources by chunks
               </div>
               <div class="space-y-1.5">
                 @for (s of topSources(); track s.document_id) {
@@ -368,6 +534,25 @@ type KbTabId =
                   </div>
                 }
               </div>
+            </div>
+          }
+          @if (chunkBucketRows().length > 0) {
+            <div class="grid gap-2 border-t border-white/5 pt-3 md:grid-cols-6">
+              @for (bucket of chunkBucketRows(); track bucket.label) {
+                <article class="rounded border border-white/10 bg-black/20 p-3">
+                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ bucket.label }}</div>
+                  <div class="mt-1 text-sm font-semibold text-white tabular-nums">{{ bucket.sources }}</div>
+                  <p class="mt-1 text-[11px] text-gray-500">{{ bucket.chunks }} chunks</p>
+                </article>
+              }
+            </div>
+          }
+          @if (chunkPercentiles()['p50'] !== undefined) {
+            <div class="flex flex-wrap gap-2 border-t border-white/5 pt-3 text-xs text-gray-400">
+              <span class="rounded bg-white/5 px-2 py-1 ring-1 ring-white/10">p50 {{ chunkPercentiles()['p50'] }}</span>
+              <span class="rounded bg-white/5 px-2 py-1 ring-1 ring-white/10">p90 {{ chunkPercentiles()['p90'] }}</span>
+              <span class="rounded bg-white/5 px-2 py-1 ring-1 ring-white/10">p95 {{ chunkPercentiles()['p95'] }}</span>
+              <span class="rounded bg-white/5 px-2 py-1 ring-1 ring-white/10">p99 {{ chunkPercentiles()['p99'] }}</span>
             </div>
           }
         </section>
@@ -413,6 +598,11 @@ type KbTabId =
               No chunks loaded yet. Use “Load” to fetch chunk bodies.
             </div>
           } @else {
+            @if (chunkNavigationNote()) {
+              <div class="border-b border-amber-400/15 bg-amber-500/10 px-5 py-2 text-xs text-amber-100">
+                {{ chunkNavigationNote() }}
+              </div>
+            }
             <ul class="divide-y divide-white/5">
               @for (c of chunks(); track c.point_id) {
                 <li class="px-5 py-3.5 space-y-2">
@@ -435,7 +625,12 @@ type KbTabId =
               }
             </ul>
             <div class="px-5 py-3 border-t border-white/5 flex items-center justify-between text-xs text-gray-400">
-              <span>Showing {{ chunkOffset() + 1 }}–{{ chunkOffset() + chunks().length }}</span>
+              <span>
+                Showing {{ chunkOffset() + 1 }}–{{ chunkOffset() + chunks().length }} / {{ chunkTotal() || '—' }}
+                @if (!chunkTotalExact()) {
+                  <span class="text-amber-200">(estimated)</span>
+                }
+              </span>
               <div class="flex items-center gap-2">
                 <button
                   type="button"
@@ -462,6 +657,8 @@ type KbTabId =
       <ck-tab id="graph" label="Graph">
         <app-embedding-map
           [collection]="kbId"
+          [active]="activeTab() === 'graph'"
+          [documents]="sources()"
           (previewRequested)="previewFromNode($event)"
         />
       </ck-tab>
@@ -477,6 +674,9 @@ type KbTabId =
               <p class="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
                 Headings, procedures, warnings and tables are extracted from PDF, DOCX,
                 Markdown and HTML manuals so retrieval can cite pages and sections, not only chunks.
+              </p>
+              <p class="mt-2 text-[11px] text-gray-500">
+                {{ documentFacts().length }} loaded / {{ documentFactTotal() }} total document facts
               </p>
             </div>
             <button
@@ -546,6 +746,9 @@ type KbTabId =
                 Browse extracted procedures, warnings, parameters, definitions and evidence locators.
                 These facts complement table facts and vector chunks.
               </p>
+              <p class="mt-2 text-[11px] text-gray-500">
+                {{ documentFacts().length }} loaded / {{ documentFactTotal() }} total document facts
+              </p>
             </div>
             <button
               type="button"
@@ -572,7 +775,7 @@ type KbTabId =
               <select
                 class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
                 [value]="documentFactType()"
-                (change)="documentFactType.set($any($event.target).value); loadDocumentFacts()"
+                (change)="documentFactType.set($any($event.target).value); loadDocumentFacts(0)"
               >
                 <option value="">All document facts</option>
                 <option value="document_heading">Headings</option>
@@ -640,6 +843,31 @@ type KbTabId =
                 </article>
               }
             </div>
+            <div class="flex items-center justify-between border-t border-white/5 px-5 py-3 text-xs text-gray-400">
+              <span>{{ documentFactOffset() + 1 }}–{{ documentFactOffset() + documentFacts().length }} / {{ documentFactTotal() }}</span>
+              <div class="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  title="Previous page"
+                  aria-label="Previous page"
+                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                  [disabled]="loadingDocumentFacts() || documentFactOffset() === 0"
+                  (click)="loadDocumentFacts(documentFactOffset() > documentFactPageSize ? documentFactOffset() - documentFactPageSize : 0)"
+                >
+                  <app-icon name="chevron-left" [size]="13" />
+                </button>
+                <button
+                  type="button"
+                  title="Next page"
+                  aria-label="Next page"
+                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                  [disabled]="loadingDocumentFacts() || !documentFactsHasMore()"
+                  (click)="loadDocumentFacts(documentFactOffset() + documentFactPageSize)"
+                >
+                  <app-icon name="chevron-right" [size]="13" />
+                </button>
+              </div>
+            </div>
           }
         </section>
       </ck-tab>
@@ -656,6 +884,9 @@ type KbTabId =
                 Inspect text extracted from scanned PDFs and images. V1 stores OCR blocks as
                 document facts, V1.5 exposes them here, and V2 can route/enrich through
                 service providers such as PP-OCR, Tesseract or vision fallback.
+              </p>
+              <p class="mt-2 text-[11px] text-gray-500">
+                {{ ocrFacts().length }} loaded / {{ ocrFactTotal() }} total OCR or visual facts
               </p>
             </div>
             <button
@@ -765,6 +996,9 @@ type KbTabId =
                 Browse the indexed workbook facts used by chat: schema, row chunks,
                 cell facts, table facts and semantic sentences with sheet/cell metadata.
               </p>
+              <p class="mt-2 text-[11px] text-gray-500">
+                {{ tableFacts().length }} loaded / {{ tableFactTotal() }} total table facts
+              </p>
             </div>
             <button
               type="button"
@@ -791,7 +1025,7 @@ type KbTabId =
               <select
                 class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
                 [value]="tableFactType()"
-                (change)="tableFactType.set($any($event.target).value); loadTableFacts()"
+                (change)="tableFactType.set($any($event.target).value); loadTableFacts(0)"
               >
                 <option value="">All table views</option>
                 <option value="spreadsheet_cell_fact">Cell facts</option>
@@ -815,7 +1049,7 @@ type KbTabId =
           </div>
           @if (!loadingTableFacts() && tableFacts().length > 0) {
             <div class="px-5 py-2 border-b border-white/5 text-[11px] text-gray-500">
-              {{ visibleTableFacts().length }} résultat(s) affiché(s) sur {{ tableFacts().length }} chargé(s). Les faits suspects restent visibles pour audit.
+              {{ visibleTableFacts().length }} résultat(s) affiché(s) sur {{ tableFactTotal() }} total. Les faits suspects restent visibles pour audit.
             </div>
           }
           @if (loadingTableFacts()) {
@@ -872,6 +1106,31 @@ type KbTabId =
                   }
                 </article>
               }
+            </div>
+            <div class="flex items-center justify-between border-t border-white/5 px-5 py-3 text-xs text-gray-400">
+              <span>{{ tableFactOffset() + 1 }}–{{ tableFactOffset() + tableFacts().length }} / {{ tableFactTotal() }}</span>
+              <div class="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  title="Previous page"
+                  aria-label="Previous page"
+                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                  [disabled]="loadingTableFacts() || tableFactOffset() === 0"
+                  (click)="loadTableFacts(tableFactOffset() > tableFactPageSize ? tableFactOffset() - tableFactPageSize : 0)"
+                >
+                  <app-icon name="chevron-left" [size]="13" />
+                </button>
+                <button
+                  type="button"
+                  title="Next page"
+                  aria-label="Next page"
+                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                  [disabled]="loadingTableFacts() || !tableFactsHasMore()"
+                  (click)="loadTableFacts(tableFactOffset() + tableFactPageSize)"
+                >
+                  <app-icon name="chevron-right" [size]="13" />
+                </button>
+              </div>
             </div>
           }
         </section>
@@ -1031,6 +1290,12 @@ type KbTabId =
           <article class="t-card rounded-md p-5">
             <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Index health</div>
             <h3 class="mt-1 text-base font-semibold text-white">Collection diagnostics</h3>
+            @if (loadingDiagnostics()) {
+              <p class="mt-3 text-sm text-gray-400">
+                <app-icon name="loader-2" [size]="14" class="mr-2 inline-block animate-spin" />
+                Loading corpus diagnostics…
+              </p>
+            }
             <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
               @for (row of diagnosticRows(); track row.label) {
                 <div class="rounded border border-white/10 bg-black/20 p-3">
@@ -1040,22 +1305,42 @@ type KbTabId =
                 </div>
               }
             </dl>
+            @if (diagnostics()) {
+              <div class="mt-4 grid gap-3 text-xs md:grid-cols-3">
+                <div class="rounded border border-white/10 bg-black/20 p-3">
+                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Zero chunks</div>
+                  <div class="mt-1 text-lg font-semibold text-white">{{ diagnostics()?.zero_chunk_sources ?? 0 }}</div>
+                </div>
+                <div class="rounded border border-white/10 bg-black/20 p-3">
+                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Errors</div>
+                  <div class="mt-1 text-lg font-semibold text-white">{{ diagnostics()?.error_sources ?? 0 }}</div>
+                </div>
+                <div class="rounded border border-white/10 bg-black/20 p-3">
+                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Heavy sources</div>
+                  <div class="mt-1 text-lg font-semibold text-white">{{ diagnostics()?.heavy_sources ?? 0 }}</div>
+                </div>
+              </div>
+            }
           </article>
           <article class="t-card rounded-md p-5">
             <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Retrieval layers</div>
             <h3 class="mt-1 text-base font-semibold text-white">How this collection is queried</h3>
             <div class="mt-4 space-y-3 text-xs leading-relaxed text-gray-400">
-              <p>
-                Vector chunks remain the broad semantic locator. Table facts support
-                cell-level lookup and calculations. Document facts support page,
-                section, warning, procedure and parameter evidence.
-              </p>
-              <p>
-                Knowledge Guides are injected as interpretation context and query hints,
-                but raw document/table facts stay the proof layer for cited answers.
-              </p>
+              @for (row of featureRows(); track row.label) {
+                <article class="rounded border border-white/10 bg-black/20 p-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="font-medium text-gray-200">{{ row.label }}</span>
+                    <span class="rounded px-2 py-0.5 font-mono text-[10px]" [class.bg-emerald-500/10]="row.state === 'available'" [class.text-emerald-200]="row.state === 'available'" [class.bg-white/5]="row.state !== 'available'" [class.text-gray-400]="row.state !== 'available'">
+                      {{ row.state }}
+                    </span>
+                  </div>
+                  @if (row.reason) {
+                    <p class="mt-2 text-gray-500">{{ row.reason }}</p>
+                  }
+                </article>
+              }
               <p class="rounded border border-white/10 bg-black/20 p-3 font-mono text-[11px] text-gray-300">
-                collection={{ kbId }} · vector={{ vectorDbType() || 'unknown' }} · docs={{ docCount() }} · chunks={{ chunkCount() }}
+                collection={{ kbId }} · vector={{ vectorDbType() || 'unknown' }} · docs={{ docCount() }} · chunks={{ chunkCount() }} · drift={{ diagnostics()?.drift ?? '—' }}
               </p>
             </div>
           </article>
@@ -1166,6 +1451,9 @@ export class KnowledgeViewComponent implements OnInit {
   readonly chunks = signal<ChunkRow[]>([]);
   readonly loadingChunks = signal(false);
   readonly chunkOffset = signal(0);
+  readonly chunkTotal = signal(0);
+  readonly chunkTotalExact = signal(false);
+  readonly chunkNavigationNote = signal('');
   readonly chunksHasMore = signal(false);
   readonly chunkDocFilter = signal('');
 
@@ -1175,6 +1463,7 @@ export class KnowledgeViewComponent implements OnInit {
   readonly loadingTableFacts = signal(false);
   readonly loadingDocumentFacts = signal(false);
   readonly loadingOcrFacts = signal(false);
+  readonly loadingDiagnostics = signal(false);
   readonly savingGuide = signal(false);
   readonly guideError = signal<string | null>(null);
 
@@ -1185,13 +1474,31 @@ export class KnowledgeViewComponent implements OnInit {
 
   readonly sources = signal<DocRow[]>([]);
   readonly sourceTotal = signal(0);
+  readonly sourceGlobalTotal = signal(0);
   readonly sourceOffset = signal(0);
   readonly sourcesHasMore = signal(false);
   readonly sourcePageSize = 50;
+  readonly sourceQuery = signal('');
+  readonly sourceKindFilter = signal('');
+  readonly sourceExtensionFilter = signal('');
+  readonly sourceStatusFilter = signal('');
+  readonly sourceSort = signal('filename');
+  readonly sourceSortDir = signal<'asc' | 'desc'>('asc');
+  readonly sourceKinds = signal<Record<string, number>>({});
+  readonly sourceExtensions = signal<Record<string, number>>({});
+  readonly sourceStatuses = signal<Record<string, number>>({});
+  readonly globalTopSources = signal<DocRow[]>([]);
+  readonly chunkBuckets = signal<Record<string, { sources: number; chunks: number }>>({});
+  readonly chunkPercentiles = signal<Record<string, number>>({});
   readonly bindings = signal<System[]>([]);
   readonly knowledgeGuides = signal<KnowledgeGuide[]>([]);
   readonly knowledgeScopes = signal<KnowledgeScopeApi[]>([]);
   readonly tableFacts = signal<TableFactItem[]>([]);
+  readonly tableFactTotal = signal(0);
+  readonly tableFactOffset = signal(0);
+  readonly tableFactsHasMore = signal(false);
+  readonly tableFactByType = signal<Record<string, number>>({});
+  readonly tableFactPageSize = 120;
   readonly visibleTableFacts = computed(() => {
     const query = this.tableFactQuery().trim().toLowerCase();
     const sheet = this.tableFactSheet().trim().toLowerCase();
@@ -1202,7 +1509,15 @@ export class KnowledgeViewComponent implements OnInit {
     });
   });
   readonly documentFacts = signal<DocumentFactItem[]>([]);
+  readonly documentFactTotal = signal(0);
+  readonly documentFactOffset = signal(0);
+  readonly documentFactsHasMore = signal(false);
+  readonly documentFactByType = signal<Record<string, number>>({});
+  readonly documentFactPageSize = 160;
   readonly ocrFacts = signal<DocumentFactItem[]>([]);
+  readonly ocrFactTotal = signal(0);
+  readonly ocrFactByType = signal<Record<string, number>>({});
+  readonly diagnostics = signal<CollectionDiagnosticsPayload | null>(null);
   readonly tableFactQuery = signal('');
   readonly tableFactType = signal('');
   readonly tableFactSheet = signal('');
@@ -1252,10 +1567,33 @@ export class KnowledgeViewComponent implements OnInit {
   });
 
   readonly topSources = computed(() => {
-    const sorted = [...this.sources()].sort(
-      (a, b) => (b.chunk_count ?? 0) - (a.chunk_count ?? 0),
-    );
-    return sorted.slice(0, 10);
+    return this.globalTopSources().slice(0, 10);
+  });
+
+  readonly sourceKindOptions = computed(() => this.entriesByCount(this.sourceKinds()));
+  readonly sourceExtensionOptions = computed(() => this.entriesByCount(this.sourceExtensions()));
+  readonly sourceStatusOptions = computed(() => this.entriesByCount(this.sourceStatuses()));
+  readonly chunkBucketRows = computed(() => {
+    const order = ['0', '1-5', '6-50', '51-200', '201-1000', '>1000'];
+    const buckets = this.chunkBuckets();
+    return order.map((label) => ({
+      label,
+      sources: buckets[label]?.sources ?? 0,
+      chunks: buckets[label]?.chunks ?? 0,
+    }));
+  });
+  readonly featureRows = computed(() => {
+    const status = this.diagnostics()?.feature_status ?? {};
+    return [
+      ['Graph', status['graph']],
+      ['Document facts', status['document_facts']],
+      ['OCR', status['ocr']],
+      ['Table facts', status['table_facts']],
+    ].map(([label, value]) => ({
+      label: String(label),
+      state: (value as { state?: string; reason?: string } | undefined)?.state || 'unknown',
+      reason: (value as { state?: string; reason?: string } | undefined)?.reason || '',
+    }));
   });
 
   readonly guideRows = computed<KnowledgeGuideRow[]>(() => {
@@ -1292,8 +1630,8 @@ export class KnowledgeViewComponent implements OnInit {
   );
 
   readonly documentStructureGroups = computed(() => {
-    const facts = this.documentFacts();
-    const count = (type: string) => facts.filter((fact) => fact.semantic_type === type).length;
+    const byType = this.documentFactByType();
+    const count = (type: string) => byType[type] ?? 0;
     return [
       {
         type: 'Headings',
@@ -1354,18 +1692,18 @@ export class KnowledgeViewComponent implements OnInit {
     },
     {
       label: 'Table facts',
-      value: this.loadingTableFacts() ? '…' : String(this.tableFacts().length),
-      hint: 'Loaded sample of structured spreadsheet facts.',
+      value: this.loadingTableFacts() ? '…' : String(this.tableFactTotal()),
+      hint: 'Structured spreadsheet facts in this collection.',
     },
     {
       label: 'Document facts',
-      value: this.loadingDocumentFacts() ? '…' : String(this.documentFacts().length),
-      hint: 'Loaded sample of structured manual/procedure facts.',
+      value: this.loadingDocumentFacts() ? '…' : String(this.documentFactTotal()),
+      hint: 'Structured manual/procedure facts in this collection.',
     },
     {
       label: 'OCR evidence',
-      value: this.loadingOcrFacts() ? '…' : String(this.ocrFacts().length),
-      hint: 'Loaded sample of visual text evidence from scanned PDFs or images.',
+      value: this.loadingOcrFacts() ? '…' : String(this.ocrFactTotal()),
+      hint: 'OCR/visual facts indexed for this collection.',
     },
     {
       label: 'Guides',
@@ -1422,17 +1760,20 @@ export class KnowledgeViewComponent implements OnInit {
 
   onTabChange(id: string): void {
     this.activeTab.set(id as KbTabId);
+    if (id === 'diagnostics' && !this.diagnostics()) {
+      this.loadDiagnostics();
+    }
     if (id === 'table-facts' && this.tableFacts().length === 0) {
-      this.loadTableFacts();
+      this.loadTableFacts(0);
     }
     if ((id === 'structure' || id === 'facts' || id === 'diagnostics') && this.documentFacts().length === 0) {
-      this.loadDocumentFacts();
+      this.loadDocumentFacts(0);
     }
     if (id === 'ocr' && this.ocrFacts().length === 0) {
       this.loadOcrFacts();
     }
     if (id === 'diagnostics' && this.tableFacts().length === 0) {
-      this.loadTableFacts();
+      this.loadTableFacts(0);
     }
     if (id === 'diagnostics' && this.ocrFacts().length === 0) {
       this.loadOcrFacts();
@@ -1443,6 +1784,91 @@ export class KnowledgeViewComponent implements OnInit {
     const max = this.topSources()[0]?.chunk_count ?? 1;
     if (!n || max === 0) return 0;
     return Math.max(3, Math.min(100, (n / max) * 100));
+  }
+
+  toggleSourceSortDir(): void {
+    this.sourceSortDir.set(this.sourceSortDir() === 'asc' ? 'desc' : 'asc');
+    this.loadSources(0);
+  }
+
+  private sourceInventoryUrl(offset: number): string {
+    const params = new URLSearchParams({
+      source_limit: String(this.sourcePageSize),
+      source_offset: String(Math.max(0, offset)),
+      sort: this.sourceSort(),
+      sort_dir: this.sourceSortDir(),
+    });
+    if (this.sourceQuery().trim()) params.set('q', this.sourceQuery().trim());
+    if (this.sourceKindFilter()) params.set('source_kind', this.sourceKindFilter());
+    if (this.sourceExtensionFilter()) params.set('extension', this.sourceExtensionFilter());
+    if (this.sourceStatusFilter()) params.set('status', this.sourceStatusFilter());
+    return `${this.base}/collections/${encodeURIComponent(this.kbId)}/inventory?${params.toString()}`;
+  }
+
+  private entriesByCount(record: Record<string, number>): Array<{ key: string; count: number }> {
+    return Object.entries(record || {})
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  }
+
+  private applyDiagnostics(payload: CollectionDiagnosticsPayload): void {
+    this.diagnostics.set(payload);
+    if (payload.vector_points !== null && payload.vector_points !== undefined) {
+      this.chunkCount.set(payload.vector_points);
+    }
+    if (payload.vector_dim !== null && payload.vector_dim !== undefined) {
+      this.vectorDim.set(payload.vector_dim);
+    }
+    if (payload.vector_db_type) {
+      this.vectorDbType.set(payload.vector_db_type);
+    }
+    if (payload.ledger_source_count !== undefined) {
+      this.sourceGlobalTotal.set(payload.ledger_source_count);
+    }
+    if (payload.top_sources) {
+      this.globalTopSources.set(payload.top_sources.map((source) => {
+        const metadata = source.metadata ?? {};
+        const documentId = String(metadata['document_id'] || source.id || source.filename);
+        return {
+          document_id: documentId,
+          source_id: source.id,
+          filename: source.filename,
+          source_kind: source.source_kind,
+          extension: source.extension,
+          chunk_count: source.chunk_count ?? 0,
+          chunks_count: source.chunk_count ?? 0,
+          mime_type: source.mime_type,
+          uploaded_at: source.indexed_at || undefined,
+          size: source.size_bytes,
+          status: source.status,
+        } satisfies DocRow;
+      }));
+    }
+    if (payload.chunk_buckets) this.chunkBuckets.set(payload.chunk_buckets);
+    if (payload.chunk_percentiles) this.chunkPercentiles.set(payload.chunk_percentiles);
+    if (payload.by_kind) this.sourceKinds.set(payload.by_kind);
+    if (payload.by_extension) this.sourceExtensions.set(payload.by_extension);
+    if (payload.by_status) this.sourceStatuses.set(payload.by_status);
+    if (payload.document_facts) {
+      this.documentFactTotal.set(payload.document_facts.total ?? 0);
+      this.documentFactByType.set(payload.document_facts.by_type ?? {});
+    }
+    if (payload.table_facts) {
+      this.tableFactTotal.set(payload.table_facts.total ?? 0);
+      this.tableFactByType.set(payload.table_facts.by_type ?? {});
+    }
+  }
+
+  loadDiagnostics(): void {
+    if (!this.kbId) return;
+    this.loadingDiagnostics.set(true);
+    this.http
+      .get<CollectionDiagnosticsPayload>(`${this.base}/collections/${encodeURIComponent(this.kbId)}/diagnostics`)
+      .pipe(catchError(() => of<CollectionDiagnosticsPayload | null>(null)))
+      .subscribe((payload) => {
+        if (payload) this.applyDiagnostics(payload);
+        this.loadingDiagnostics.set(false);
+      });
   }
 
   previewDocument(doc: DocRow): void {
@@ -1492,6 +1918,9 @@ export class KnowledgeViewComponent implements OnInit {
       .subscribe((payload) => {
         this.chunks.set(payload.chunks ?? []);
         this.chunkOffset.set(safeOffset);
+        this.chunkTotal.set(payload.total ?? payload.count ?? 0);
+        this.chunkTotalExact.set(!!payload.total_is_exact);
+        this.chunkNavigationNote.set(payload.navigation_note || '');
         this.chunksHasMore.set(!!payload.has_more);
         this.loadingChunks.set(false);
       });
@@ -1503,7 +1932,7 @@ export class KnowledgeViewComponent implements OnInit {
     this.loadingSources.set(true);
     this.http
       .get<InventoryPayload>(
-        `${this.base}/collections/${encodeURIComponent(this.kbId)}/inventory?source_limit=${this.sourcePageSize}&source_offset=${safeOffset}`,
+        this.sourceInventoryUrl(safeOffset),
       )
       .pipe(catchError(() => of<InventoryPayload>({ sources: [], source_count: 0 })))
       .subscribe((payload) => this.applyInventoryPage(payload, safeOffset));
@@ -1517,6 +1946,8 @@ export class KnowledgeViewComponent implements OnInit {
         document_id: documentId,
         source_id: source.id,
         filename: source.filename,
+        source_kind: source.source_kind,
+        extension: source.extension,
         chunk_count: source.chunk_count ?? 0,
         chunks_count: source.chunk_count ?? 0,
         mime_type: source.mime_type,
@@ -1526,9 +1957,32 @@ export class KnowledgeViewComponent implements OnInit {
       } satisfies DocRow;
     });
     this.sources.set(documents);
-    this.sourceTotal.set(payload.source_count ?? payload.document_count ?? documents.length);
+    this.sourceTotal.set(payload.sources_total ?? payload.source_count ?? payload.document_count ?? documents.length);
+    this.sourceGlobalTotal.set(payload.source_count ?? payload.document_count ?? documents.length);
     this.sourceOffset.set(payload.sources_offset ?? requestedOffset);
     this.sourcesHasMore.set(!!payload.sources_has_more);
+    this.sourceKinds.set(payload.by_kind ?? {});
+    this.sourceExtensions.set(payload.by_extension ?? {});
+    this.sourceStatuses.set(payload.by_status ?? {});
+    this.globalTopSources.set((payload.top_sources ?? []).map((source) => {
+      const metadata = source.metadata ?? {};
+      const documentId = String(metadata['document_id'] || source.id || source.filename);
+      return {
+        document_id: documentId,
+        source_id: source.id,
+        filename: source.filename,
+        source_kind: source.source_kind,
+        extension: source.extension,
+        chunk_count: source.chunk_count ?? 0,
+        chunks_count: source.chunk_count ?? 0,
+        mime_type: source.mime_type,
+        uploaded_at: source.indexed_at || undefined,
+        size: source.size_bytes,
+        status: source.status,
+      } satisfies DocRow;
+    }));
+    this.chunkBuckets.set(payload.chunk_buckets ?? {});
+    this.chunkPercentiles.set(payload.chunk_percentiles ?? {});
     this.loadingSources.set(false);
   }
 
@@ -1547,9 +2001,12 @@ export class KnowledgeViewComponent implements OnInit {
         .pipe(catchError(() => of<StatsPayload>({}))),
       inventory: this.http
         .get<InventoryPayload>(
-          `${this.base}/collections/${q}/inventory?source_limit=${this.sourcePageSize}&source_offset=0`,
+          this.sourceInventoryUrl(0),
         )
         .pipe(catchError(() => of<InventoryPayload>({ sources: [], source_count: 0 }))),
+      diagnostics: this.http
+        .get<CollectionDiagnosticsPayload>(`${this.base}/collections/${q}/diagnostics`)
+        .pipe(catchError(() => of<CollectionDiagnosticsPayload | null>(null))),
       meta: this.http
         .get<CollectionsPayload>(`${this.base}/collections`)
         .pipe(catchError(() => of<CollectionsPayload>({}))),
@@ -1559,11 +2016,14 @@ export class KnowledgeViewComponent implements OnInit {
       scopes: this.api
         .get<{ scopes: KnowledgeScopeApi[] }>('/knowledge/scopes')
         .pipe(catchError(() => of({ scopes: [] }))),
-    }).subscribe(({ stats, inventory, meta, guides, scopes }) => {
+    }).subscribe(({ stats, inventory, diagnostics, meta, guides, scopes }) => {
       this.chunkCount.set(stats.total_chunks ?? inventory.chunk_count ?? 0);
       this.vectorDim.set(stats.vector_dim ?? null);
       this.vectorDbType.set(stats.vector_db_type ?? meta.vector_db_type ?? '');
       this.applyInventoryPage(inventory, 0);
+      if (diagnostics) {
+        this.applyDiagnostics(diagnostics);
+      }
       this.docCount.set(inventory.document_count ?? inventory.source_count ?? this.sources().length);
       this.loading.set(false);
       this.knowledgeGuides.set(guides.items || []);
@@ -1589,8 +2049,9 @@ export class KnowledgeViewComponent implements OnInit {
     });
   }
 
-  loadTableFacts(): void {
+  loadTableFacts(offset = 0): void {
     if (!this.kbId) return;
+    const safeOffset = Math.max(0, offset);
     this.loadingTableFacts.set(true);
     this.api
       .listTableFacts({
@@ -1598,11 +2059,16 @@ export class KnowledgeViewComponent implements OnInit {
         semantic_type: this.tableFactType() || undefined,
         sheet_name: this.tableFactSheet() || undefined,
         q: this.tableFactQuery() || undefined,
-        limit: 120,
+        limit: this.tableFactPageSize,
+        offset: safeOffset,
       })
       .pipe(catchError(() => of({ items: [] } as any)))
       .subscribe((payload) => {
         this.tableFacts.set(payload.items || []);
+        this.tableFactTotal.set(payload.total ?? payload.total_returned ?? payload.items?.length ?? 0);
+        this.tableFactOffset.set(payload.offset ?? safeOffset);
+        this.tableFactsHasMore.set(!!payload.has_more);
+        this.tableFactByType.set(payload.by_type || {});
         this.loadingTableFacts.set(false);
       });
   }
@@ -1652,7 +2118,7 @@ export class KnowledgeViewComponent implements OnInit {
     }
     this.tableFactReloadTimer = setTimeout(() => {
       this.tableFactReloadTimer = null;
-      this.loadTableFacts();
+      this.loadTableFacts(0);
     }, 350);
   }
 
@@ -1684,19 +2150,25 @@ export class KnowledgeViewComponent implements OnInit {
       .trim();
   }
 
-  loadDocumentFacts(): void {
+  loadDocumentFacts(offset = 0): void {
     if (!this.kbId) return;
+    const safeOffset = Math.max(0, offset);
     this.loadingDocumentFacts.set(true);
     this.api
       .listDocumentFacts({
         collection_name: this.kbId,
         semantic_type: this.documentFactType() || undefined,
         q: this.documentFactQuery() || undefined,
-        limit: 160,
+        limit: this.documentFactPageSize,
+        offset: safeOffset,
       })
       .pipe(catchError(() => of({ items: [] } as any)))
       .subscribe((payload) => {
         this.documentFacts.set(payload.items || []);
+        this.documentFactTotal.set(payload.total ?? payload.total_returned ?? payload.items?.length ?? 0);
+        this.documentFactOffset.set(payload.offset ?? safeOffset);
+        this.documentFactsHasMore.set(!!payload.has_more);
+        this.documentFactByType.set(payload.by_type || {});
         this.loadingDocumentFacts.set(false);
       });
   }
@@ -1706,7 +2178,7 @@ export class KnowledgeViewComponent implements OnInit {
     this.loadingOcrFacts.set(true);
     const type = this.ocrFactType();
     const query = this.ocrFactQuery() || undefined;
-    const request = type
+    const request: Observable<{ items?: DocumentFactItem[]; total?: number; total_returned?: number; by_type?: Record<string, number> }> = type
       ? this.api.listDocumentFacts({
           collection_name: this.kbId,
           semantic_type: type,
@@ -1741,6 +2213,8 @@ export class KnowledgeViewComponent implements OnInit {
         ]).pipe(
           map((payloads) => ({
             items: payloads.flatMap((payload) => payload.items || []),
+            total: payloads.reduce((sum, payload) => sum + (payload.total ?? payload.total_returned ?? 0), 0),
+            by_type: payloads.reduce((acc, payload) => ({ ...acc, ...(payload.by_type || {}) }), {} as Record<string, number>),
           })),
         );
 
@@ -1748,6 +2222,8 @@ export class KnowledgeViewComponent implements OnInit {
       .pipe(catchError(() => of({ items: [] } as any)))
       .subscribe((payload) => {
         this.ocrFacts.set(this.dedupeOcrFacts(payload.items || []));
+        this.ocrFactTotal.set(payload.total ?? payload.total_returned ?? payload.items?.length ?? 0);
+        this.ocrFactByType.set(payload.by_type || {});
         this.loadingOcrFacts.set(false);
       });
   }
