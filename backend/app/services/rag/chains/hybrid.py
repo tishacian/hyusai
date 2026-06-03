@@ -1,7 +1,7 @@
-"""Hybrid RAG chain — BM25 + dense fused with score-adaptive ranking.
+"""Hybrid RAG chain — sparse + dense retrieval fused with RRF.
 
 Feature-equivalent of the main branch of `src/customchain.py` + the
-"HAH rag" pipeline it ships: two-pass hybrid retrieval with RRF-style
+"HAH rag" pipeline it ships: two-pass layered retrieval with RRF-style
 fusion. Under the hood this selects `rag_pipeline_mode='hah'` in the
 retrieval pipeline (HAH = Hybrid Answer Harvesting).
 """

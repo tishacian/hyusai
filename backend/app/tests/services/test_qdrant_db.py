@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from app.core.config import settings
-from app.services.vector_db.qdrant_db import QdrantVectorDB
+from app.services.vector_db.qdrant_db import QdrantVectorDB, _PAYLOAD_INDEX_FIELDS
 
 
 def test_point_id_is_deterministic_per_collection():
@@ -27,6 +27,8 @@ async def test_create_index_creates_when_missing():
     await db.create_index(dimension=4)
     client.collection_exists.assert_called_with("my_col")
     client.create_collection.assert_called_once()
+    indexed_fields = {call.kwargs["field_name"] for call in client.create_payload_index.call_args_list}
+    assert set(_PAYLOAD_INDEX_FIELDS) <= indexed_fields
     assert db._dimension == 4
 
 
@@ -37,6 +39,7 @@ async def test_create_index_skips_when_exists():
     db = QdrantVectorDB(collection_name="my_col", client=client)
     await db.create_index(dimension=8)
     client.create_collection.assert_not_called()
+    assert client.create_payload_index.call_count >= 1
 
 
 @pytest.mark.asyncio
@@ -143,12 +146,40 @@ async def test_search_returns_chunk_ids_and_clamps_score():
 
 
 @pytest.mark.asyncio
+async def test_filtered_search_lazily_ensures_payload_indexes_once():
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.query_points.return_value = SimpleNamespace(points=[])
+    db = QdrantVectorDB(collection_name="col", client=client)
+    q = np.array([1.0, 0.0], dtype=np.float32)
+
+    await db.search(q, top_k=5, filters={"document_id": ["a", "b"]})
+    first_count = client.create_payload_index.call_count
+    await db.search(q, top_k=5, filters={"document_id": ["c"]})
+
+    assert first_count >= len(_PAYLOAD_INDEX_FIELDS)
+    assert client.create_payload_index.call_count == first_count
+
+
+@pytest.mark.asyncio
 async def test_search_empty_when_collection_missing():
     client = MagicMock()
     client.collection_exists.return_value = False
     db = QdrantVectorDB(collection_name="col", client=client)
     out = await db.search(np.array([1.0, 0.0]), top_k=3)
     assert out == []
+
+
+def test_filters_to_qdrant_supports_match_any_lists():
+    db = QdrantVectorDB(collection_name="col", client=MagicMock())
+    qfilter = db._filters_to_qdrant({"document_id": ["a", "b"], "source_kind": "html"})
+
+    assert qfilter is not None
+    assert len(qfilter.must) == 2
+    doc_condition = next(item for item in qfilter.must if item.key == "document_id")
+    kind_condition = next(item for item in qfilter.must if item.key == "source_kind")
+    assert list(doc_condition.match.any) == ["a", "b"]
+    assert kind_condition.match.value == "html"
 
 
 @pytest.mark.asyncio
@@ -186,6 +217,43 @@ async def test_get_all_ids_scrolls_payload_chunk_ids():
     db = QdrantVectorDB(collection_name="col", client=client)
     ids = await db.get_all_ids()
     assert ids == ["c1", "c2"]
+
+
+@pytest.mark.asyncio
+async def test_get_by_document_id_ensures_payload_indexes():
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.scroll.return_value = (
+        [
+            SimpleNamespace(id="p1", payload={"chunk_id": "c1"}),
+            SimpleNamespace(id="p2", payload={"chunk_id": "c2"}),
+        ],
+        None,
+    )
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    ids = await db.get_by_document_id("doc-1")
+
+    assert ids == ["c1", "c2"]
+    indexed_fields = {call.kwargs["field_name"] for call in client.create_payload_index.call_args_list}
+    assert "document_id" in indexed_fields
+
+
+@pytest.mark.asyncio
+async def test_get_document_metadata_ensures_payload_indexes():
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.scroll.return_value = (
+        [SimpleNamespace(id="p1", payload={"document_id": "doc-1", "title": "Manual"})],
+        None,
+    )
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    metadata = await db.get_document_metadata("doc-1")
+
+    assert metadata["title"] == "Manual"
+    indexed_fields = {call.kwargs["field_name"] for call in client.create_payload_index.call_args_list}
+    assert "document_id" in indexed_fields
 
 
 def test_get_metadatas_for_chunk_ids_sync():

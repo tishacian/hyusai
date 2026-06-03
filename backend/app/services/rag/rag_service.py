@@ -39,6 +39,14 @@ async def answer(
     model: Optional[str] = None,
     provider: Optional[str] = None,
     top_k: Optional[int] = None,
+    candidate_pool_k: Optional[int] = None,
+    synthesis_k: Optional[int] = None,
+    source_display_k: Optional[int] = None,
+    latency_profile: Optional[str] = None,
+    deep_retrieval: Optional[bool] = None,
+    retrieval_filters: Optional[Dict[str, Any]] = None,
+    knowledge_scope: Optional[str] = None,
+    context_collection: Optional[str] = None,
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     system_prompt: Optional[str] = None,
@@ -98,12 +106,34 @@ async def answer(
         request_dict["prompt_type"] = prompt_type
     if top_k is not None:
         request_dict["top_k"] = top_k
+    if candidate_pool_k is not None:
+        request_dict["candidate_pool_k"] = candidate_pool_k
+    if synthesis_k is not None:
+        request_dict["synthesis_k"] = synthesis_k
+    if source_display_k is not None:
+        request_dict["source_display_k"] = source_display_k
+    if latency_profile:
+        request_dict["latency_profile"] = latency_profile
+    if deep_retrieval is not None:
+        request_dict["deep_retrieval"] = bool(deep_retrieval)
+    if retrieval_filters:
+        request_dict["retrieval_filters"] = dict(retrieval_filters)
+    if knowledge_scope:
+        request_dict["knowledge_scope"] = knowledge_scope
+    if context_collection:
+        request_dict["context_collection"] = context_collection
     if temperature is not None:
         request_dict["temperature"] = temperature
     if max_tokens is not None:
         request_dict["max_tokens"] = max_tokens
     if system_prompt:
         request_dict["system_prompt"] = system_prompt
+    try:
+        from app.services.rag.context import apply_retrieval_profile_to_request
+
+        apply_retrieval_profile_to_request(request_dict)
+    except Exception as exc:  # noqa: BLE001 - the orchestrator still applies the same policy before search.
+        logger.warning("rag_service.answer: retrieval budget preflight failed", error=str(exc))
 
     text_parts: List[str] = []
     reasoning_trace: Any = None
@@ -114,38 +144,54 @@ async def answer(
         "rag_mode": rag_mode_override,
         "prompt_type": prompt_type,
     }
+    retrieval_details: Dict[str, Any] = {}
+    rag_context: Any = None
 
     try:
-        async for chunk in orchestrator.process_request(request_dict):
-            if first_id is None:
-                first_id = chunk.get("id")
-            if chunk.get("chunk_type") == "text":
-                content = chunk.get("content", "")
-                text_parts.append(content)
-                if token_sink is not None and content:
-                    try:
-                        token_sink(content)
-                    except Exception:  # noqa: BLE001
-                        logger.debug(
-                            "rag_service.answer: token_sink raised, dropping chunk",
-                            exc_info=True,
+        stream = orchestrator.process_request(request_dict)
+        try:
+            async for chunk in stream:
+                if first_id is None:
+                    first_id = chunk.get("id")
+                if chunk.get("chunk_type") == "text":
+                    content = chunk.get("content", "")
+                    text_parts.append(content)
+                    if token_sink is not None and content:
+                        try:
+                            token_sink(content)
+                        except Exception:  # noqa: BLE001
+                            logger.debug(
+                                "rag_service.answer: token_sink raised, dropping chunk",
+                                exc_info=True,
+                            )
+                if chunk.get("reasoning_trace"):
+                    reasoning_trace = chunk.get("reasoning_trace")
+                if chunk.get("sources"):
+                    sources = chunk.get("sources")
+                if chunk.get("chunk_type") == "retrieval":
+                    details = chunk.get("details")
+                    if isinstance(details, dict):
+                        retrieval_details.update(
+                            {key: value for key, value in details.items() if value is not None}
                         )
-            if chunk.get("reasoning_trace"):
-                reasoning_trace = chunk.get("reasoning_trace")
-            if chunk.get("sources"):
-                sources = chunk.get("sources")
-            if chunk.get("chunk_type") == "decision_step" and chunk.get("decision_step"):
-                step = chunk.get("decision_step")
-                existing = next(
-                    (i for i, ds in enumerate(decision_steps) if ds.get("id") == step.get("id")),
-                    None,
-                )
-                if existing is not None:
-                    decision_steps[existing] = step
-                else:
-                    decision_steps.append(step)
-            if chunk.get("is_final"):
-                break
+                    if chunk.get("rag_context"):
+                        rag_context = chunk.get("rag_context")
+                if chunk.get("chunk_type") == "decision_step" and chunk.get("decision_step"):
+                    step = chunk.get("decision_step")
+                    existing = next(
+                        (i for i, ds in enumerate(decision_steps) if ds.get("id") == step.get("id")),
+                        None,
+                    )
+                    if existing is not None:
+                        decision_steps[existing] = step
+                    else:
+                        decision_steps.append(step)
+                if chunk.get("is_final"):
+                    break
+        finally:
+            close = getattr(stream, "aclose", None)
+            if callable(close):
+                await close()
     except Exception as exc:  # noqa: BLE001
         logger.exception("rag_service.answer: orchestrator stream failed", error=str(exc))
         meta["error"] = str(exc)
@@ -155,6 +201,25 @@ async def answer(
         citations = sources
     elif isinstance(sources, dict):
         citations = sources.get("citations") or sources.get("items") or []
+    if retrieval_details:
+        meta["retrieval"] = retrieval_details
+        for key in (
+            "retrieval_scope",
+            "retrieval_plan",
+            "scope_confidence",
+            "scope_reason",
+            "dense_policy",
+            "fallback_reason",
+            "latency_budget",
+            "deep_retrieval_recommended",
+            "deep_job_id",
+            "deep_poll_url",
+            "deep_status",
+        ):
+            if key in retrieval_details:
+                meta[key] = retrieval_details[key]
+    if rag_context is not None:
+        meta["rag_context"] = rag_context
 
     return {
         "id": first_id,

@@ -263,7 +263,7 @@ const CHUNKING_METHODS = [
                 (change)="patch({ ragUseHybridSearch: $any($event.target).checked })"
                 class="accent-brand-500"
               />
-              Use hybrid search (vector + BM25)
+              Use hybrid search (sparse + dense)
             </label>
             @if (draft().ragUseHybridSearch) {
               <div class="grid grid-cols-2 gap-4">
@@ -281,7 +281,7 @@ const CHUNKING_METHODS = [
                 </div>
                 <div>
                   <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
-                    BM25 weight
+                    Sparse weight
                   </label>
                   <input
                     type="number"

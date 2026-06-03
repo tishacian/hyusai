@@ -732,7 +732,7 @@ class OmniRAGAgent(BaseAgent):
         )
         self._llm = None
         # Cache DocumentService instances by (workspace_slug, collection, vector_db_type)
-        # so we don't rebuild the reranker + BM25 on every request, but still keep
+        # so we don't rebuild retrieval helpers on every request, but still keep
         # each tenant's index isolated. A single shared instance (the pre-D8
         # behaviour) routed every workspace to the same unscoped collection and
         # never honored the per-workspace `ragVectorDBType` preset — drop-and-ask
@@ -927,7 +927,6 @@ class OmniRAGAgent(BaseAgent):
         )
 
         # ── Step 4: Knowledge Retrieval (inline or worker-backed) ──
-        from app.services.rag.mode_selector import resolve_retrieval_mode
         from app.services.rag.context import (
             await_rag_retrieval_task,
             dispatch_rag_retrieval_task,
@@ -945,40 +944,22 @@ class OmniRAGAgent(BaseAgent):
             if is_followup or settings.rag_retrieval_worker_enabled or is_multi_collection
             else self._get_document_service(request)
         )
+        mode_label = "planner_pending"
         if is_multi_collection:
-            use_hybrid = True
-            mode_label = "multi_collection"
             mode_reason = f"Knowledge Scope {profile.get('knowledge_scope') or 'workspace_default'} across {len(collections)} collections"
         else:
-            use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
-                doc_svc, profile["query"], rag_mode
-            )
-        retriever_name = "HybridRetriever" if use_hybrid else "VectorRetriever"
-        retriever_title = (
-            "Vector search + BM25 (RRF)" if use_hybrid else "Vector search (naive)"
-        )
+            mode_reason = "CorpusPlanner will infer system scope and dense/sparse policy before retrieval."
         budget_line = (
             f"candidate_pool_k: {profile.get('candidate_pool_k')} · "
             f"synthesis_k: {profile.get('synthesis_k')} · "
             f"sources: {profile.get('source_display_k')}"
         )
+        retriever_name = "PlannerBoundedRetriever"
+        retriever_title = profile.get("scope_label") or "Budget-aware retrieval"
         method_line = (
-            f"Method: Reciprocal Rank Fusion · {budget_line}"
-            if use_hybrid
-            else f"Method: dense vector similarity · {budget_line}"
+            "Method: planner selects inventory, facts, summaries, dense and sparse layers "
+            f"under latency budget · {budget_line}"
         )
-        if mode_label == "hah_backend":
-            retriever_name = "HAHBackendRetriever"
-            retriever_title = "Two-pass hybrid + RRF (HAH-like)"
-            method_line = f"Method: pass1 hybrid → pseudo-document → pass2 hybrid → RRF merge · {budget_line}"
-        elif mode_label == "chah_backend":
-            retriever_name = "CHAHBackendRetriever"
-            retriever_title = "Parallel hybrid + RRF (C-HAH-like)"
-            method_line = f"Method: parallel hybrid over query variants → RRF merge · {budget_line}"
-        elif mode_label == "multi_collection":
-            retriever_name = "KnowledgeScopeRetriever"
-            retriever_title = f"{profile.get('scope_label') or 'Knowledge Scope'}"
-            method_line = f"Method: {rag_mode or 'auto'} per collection → RRF merge · {budget_line}"
 
         step_start = time.time()
         sid = f"kb-retrieval-{uid}"
@@ -995,7 +976,17 @@ class OmniRAGAgent(BaseAgent):
             "candidate_pool_k": profile.get("candidate_pool_k"),
             "synthesis_k": profile.get("synthesis_k"),
             "source_display_k": profile.get("source_display_k"),
-            "pipeline": mode_label,
+            "latency_profile": profile.get("latency_profile"),
+            "latency_budget": profile.get("latency_budget")
+            or {
+                "profile": profile.get("latency_profile"),
+                "deadline_seconds": profile.get("deadline_seconds"),
+                "candidate_pool_k": profile.get("candidate_pool_k"),
+                "top_k": profile.get("top_k"),
+            },
+            "pipeline": "planner_pending",
+            "requested_mode": rag_mode or "auto",
+            "planner_preview_mode": mode_label,
             "task_id": None,
             "grounding_mode": grounding_policy.get("mode"),
             "grounding_policy": grounding_policy,
@@ -1018,7 +1009,7 @@ class OmniRAGAgent(BaseAgent):
                 retriever_name,
                 retriever_title,
                 "Searching knowledge base",
-                f"{mode_label} — {mode_reason}\n{method_line}\nQuery: \"{profile['query'][:80]}…\"",
+                f"Planner pending — {mode_reason}\n{method_line}\nQuery: \"{profile['query'][:80]}…\"",
             )
             yield retrieval_event(
                 "started",
@@ -1060,14 +1051,25 @@ class OmniRAGAgent(BaseAgent):
                 yield retrieval_event(
                     "timeout",
                     details={**base_retrieval_details, "task_id": retrieval_task_id},
-                    message="Retrieval worker timed out; falling back to inline retrieval",
+                    message="Retrieval worker timed out; returning bounded partial context",
                 )
-                fallback_doc_svc = None if is_multi_collection else (doc_svc or self._get_document_service(request))
-                retrieval_context = await retrieve_rag_context(
-                    request,
-                    doc_svc=fallback_doc_svc,
-                    fallback_reason="worker_timeout",
-                )
+                retrieval_context = {
+                    "chunks": [],
+                    "scores": [],
+                    "metadatas": [],
+                    "pipeline": "retrieval_timeout",
+                    "label": "Retrieval deadline",
+                    "reason": "Retrieval worker exceeded its latency budget.",
+                    "detail": "Deep Retrieval can continue asynchronously without blocking the chat stream.",
+                    "metrics": {
+                        "no_context": True,
+                        "fallback": True,
+                        "fallback_reason": "worker_timeout",
+                        "task_id": retrieval_task_id,
+                        "deep_retrieval_recommended": True,
+                    },
+                    "deep_retrieval_recommended": True,
+                }
             except Exception as exc:  # noqa: BLE001
                 retrieval_fallback = True
                 logger.warning("RAG retrieval worker failed", error=str(exc))
@@ -1078,14 +1080,25 @@ class OmniRAGAgent(BaseAgent):
                         "task_id": retrieval_task_id,
                         "error": str(exc),
                     },
-                    message="Retrieval worker failed; falling back to inline retrieval",
+                    message="Retrieval worker failed; returning bounded partial context",
                 )
-                fallback_doc_svc = None if is_multi_collection else (doc_svc or self._get_document_service(request))
-                retrieval_context = await retrieve_rag_context(
-                    request,
-                    doc_svc=fallback_doc_svc,
-                    fallback_reason="worker_error",
-                )
+                retrieval_context = {
+                    "chunks": [],
+                    "scores": [],
+                    "metadatas": [],
+                    "pipeline": "retrieval_error",
+                    "label": "Retrieval worker error",
+                    "reason": "Retrieval worker failed before returning context.",
+                    "detail": str(exc),
+                    "metrics": {
+                        "no_context": True,
+                        "fallback": True,
+                        "fallback_reason": "worker_error",
+                        "task_id": retrieval_task_id,
+                        "deep_retrieval_recommended": True,
+                    },
+                    "deep_retrieval_recommended": True,
+                }
         else:
             retrieval_context = await retrieve_rag_context(request, doc_svc=doc_svc)
 
@@ -1097,16 +1110,48 @@ class OmniRAGAgent(BaseAgent):
         n_chunks = len(retrieval_context["chunks"])
         scores = retrieval_context.get("scores", [])
         top_score = f"{scores[0]:.3f}" if scores else "—"
-        if str(retrieval_context.get("pipeline", "")).startswith("multi_"):
+        actual_pipeline = str(retrieval_context.get("pipeline") or "")
+        actual_dense_policy = str(
+            retrieval_context.get("dense_policy")
+            or (retrieval_context.get("metrics") or {}).get("dense_policy")
+            or ""
+        )
+        if actual_pipeline.startswith("multi_"):
             done_method = "Knowledge Scope multi-collection RRF"
-        elif retrieval_context.get("pipeline") == "hah_backend":
-            done_method = "HAH-like two-pass + RRF"
-        elif retrieval_context.get("pipeline") == "chah_backend":
-            done_method = "C-HAH-like parallel + RRF"
+        elif actual_pipeline == "hah_backend":
+            done_method = "HAH layered retrieval + RRF"
+        elif actual_pipeline == "chah_backend":
+            done_method = "C-HAH composite retrieval + RRF"
+        elif actual_pipeline == "collection_inventory":
+            done_method = "SQL inventory"
+        elif actual_pipeline == "dense_coarse_inventory":
+            done_method = "Dense-corpus guardrail inventory"
+        elif actual_dense_policy.startswith("fast_scoped_dense") or actual_pipeline == "naive":
+            done_method = "Payload-filtered dense retrieval"
+        elif actual_pipeline == "hybrid":
+            done_method = "Budget-aware sparse+dense retrieval"
         else:
-            done_method = (
-                "RRF (Vector + BM25)" if use_hybrid else "Dense cosine similarity"
-            )
+            done_method = "Planner-bounded retrieval"
+        actual_retriever_name = "PlannerBoundedRetriever"
+        actual_retriever_title = retrieval_context.get("label") or retriever_title
+        if actual_pipeline.startswith("multi_"):
+            actual_retriever_name = "KnowledgeScopeRetriever"
+            actual_retriever_title = profile.get("scope_label") or "Knowledge Scope"
+        elif actual_pipeline == "hah_backend":
+            actual_retriever_name = "HAHBackendRetriever"
+            actual_retriever_title = "HAH layered retrieval"
+        elif actual_pipeline == "chah_backend":
+            actual_retriever_name = "CHAHBackendRetriever"
+            actual_retriever_title = "C-HAH composite retrieval"
+        elif actual_pipeline in {"collection_inventory", "dense_coarse_inventory"}:
+            actual_retriever_name = "InventoryRetriever"
+            actual_retriever_title = "SQL inventory / diagnostics"
+        elif actual_dense_policy.startswith("fast_scoped_dense") or actual_pipeline == "naive":
+            actual_retriever_name = "VectorRetriever"
+            actual_retriever_title = "Payload-filtered dense retrieval"
+        elif actual_pipeline == "hybrid":
+            actual_retriever_name = "SparseDenseRetriever"
+            actual_retriever_title = "Budget-aware sparse + dense retrieval"
 
         done_detail = (
             f"Top score: {top_score} · {done_method}"
@@ -1136,8 +1181,8 @@ class OmniRAGAgent(BaseAgent):
                 sid,
                 "completed",
                 "retrieve",
-                retriever_name,
-                retriever_title,
+                actual_retriever_name,
+                actual_retriever_title,
                 f"Retrieved {n_chunks} chunks",
                 done_detail,
                 duration=self._ms_since(step_start),
@@ -1457,6 +1502,36 @@ class OmniRAGAgent(BaseAgent):
             completed_step["sources"] = final_sources
         yield completed_step
 
+        if not is_followup:
+            retrieval_metrics = retrieval_context.setdefault("metrics", {})
+            retrieval_metrics["llm_ms"] = llm_duration_ms
+            stage_timings = retrieval_metrics.get("stage_timings")
+            if not isinstance(stage_timings, dict):
+                stage_timings = {}
+            stage_timings["llm_ms"] = llm_duration_ms
+            retrieval_total_ms = retrieval_metrics.get("duration_ms") or stage_timings.get("retrieval_ms")
+            if retrieval_total_ms is not None:
+                try:
+                    stage_timings["total_ms"] = int(retrieval_total_ms) + int(llm_duration_ms)
+                except (TypeError, ValueError):
+                    stage_timings["total_ms"] = llm_duration_ms
+            else:
+                stage_timings.setdefault("total_ms", llm_duration_ms)
+            retrieval_metrics["stage_timings"] = stage_timings
+            yield retrieval_event(
+                "observability",
+                details={
+                    **base_retrieval_details,
+                    **retrieval_metrics,
+                    "task_id": retrieval_task_id,
+                    "chunks_retrieved": n_chunks,
+                    "pipeline": retrieval_context.get("pipeline"),
+                    "grounding_mode": grounding_policy.get("mode"),
+                    "grounding_policy": grounding_policy,
+                },
+                message="Retrieval observability updated",
+            )
+
         yield {
             "chunk_type": "text",
             "content": "",
@@ -1511,23 +1586,15 @@ class OmniRAGAgent(BaseAgent):
         use_hybrid: bool = True,
         request: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        doc_svc = self._get_document_service(request)
-        if doc_svc is None:
-            return {"chunks": [], "scores": [], "metadatas": []}
+        from app.services.rag.context import retrieve_rag_context
+
+        payload = dict(request or {})
+        payload["query"] = query
+        payload.setdefault("latency_profile", "fast")
+        if not use_hybrid:
+            payload.setdefault("rag_pipeline_mode", "naive")
         try:
-            results = await doc_svc.search(query, top_k=5, use_hybrid=use_hybrid)
-            chunks, scores, metadatas = [], [], []
-            for r in results:
-                metadata = r.get("metadata", {}) or {}
-                content = r.get("content") or metadata.get("content", "")
-                if content:
-                    chunks.append(content)
-                    scores.append(r.get("combined_score") or r.get("score", 0.0))
-                    # Keep the full chunk metadata alongside the text so the
-                    # caller can build real citations (document_title, page,
-                    # docmeta-sourced keywords) instead of "Policy chunk N".
-                    metadatas.append(metadata)
-            return {"chunks": chunks, "scores": scores, "metadatas": metadatas}
+            return await retrieve_rag_context(payload)
         except Exception as e:
             logger.warning("Retrieval failed", error=str(e))
             return {"chunks": [], "scores": [], "metadatas": []}

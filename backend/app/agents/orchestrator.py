@@ -270,8 +270,9 @@ class AgentOrchestrator:
             capability_id=request.get("capability_id"),
             system_id=request.get("system_id"),
         )
-        hybrid = app_settings.get("ragUseHybridSearch", True)
-        strategy = "Hybrid (vector + BM25)" if hybrid else "Vector similarity"
+        requested_hybrid = app_settings.get("ragUseHybridSearch", True)
+        requested_strategy = "hybrid-capable" if requested_hybrid else "dense-preferred"
+        strategy = f"Corpus planner ({requested_strategy} preset)"
 
         yield {
             "chunk_type": "decision_step",
@@ -282,7 +283,11 @@ class AgentOrchestrator:
                 "model": model_name,
                 "status": "active",
                 "title": "Determining optimal retrieval strategy",
-                "description": f"Strategy: {strategy}\nSources: Vector store ({app_settings.get('ragCollectionName', 'documents')})\nTop-K: {app_settings.get('ragTopK', 5)}",
+                "description": (
+                    f"Strategy: {strategy}\n"
+                    f"Sources: Vector store ({app_settings.get('ragCollectionName', 'documents')})\n"
+                    f"Top-K: {app_settings.get('ragTopK', 5)}"
+                ),
             }
         }
 

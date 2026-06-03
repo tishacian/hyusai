@@ -182,6 +182,18 @@ interface CollectionDiagnosticsPayload {
   feature_status?: Record<string, { state?: string; reason?: string }>;
 }
 
+interface WorkerJobPayload {
+  id?: string;
+  kind?: string;
+  status?: string;
+  progress?: number;
+  stage?: string | null;
+  error?: string | null;
+  poll_url?: string;
+  task_id?: string | null;
+  result?: Record<string, unknown>;
+}
+
 interface KnowledgeScopeApi {
   key: string;
   label?: string | null;
@@ -1355,6 +1367,79 @@ type KbTabId =
               <p class="rounded border border-white/10 bg-black/20 p-3 font-mono text-[11px] text-gray-300">
                 collection={{ kbId }} · vector={{ vectorDbType() || 'unknown' }} · docs={{ docCount() }} · chunks={{ chunkCount() }} · drift={{ diagnostics()?.drift ?? '—' }}
               </p>
+              <article class="rounded border border-white/10 bg-black/20 p-3">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <span class="font-medium text-gray-200">Retrieval artifacts</span>
+                  @if (retrievalArtifactJob(); as job) {
+                    <span class="rounded bg-white/5 px-2 py-0.5 font-mono text-[10px] text-gray-300">
+                      {{ artifactJobLabel(job) }}
+                    </span>
+                  }
+                </div>
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                    [disabled]="artifactJobLaunching() !== null"
+                    title="Rebuild document/section summary artifacts"
+                    (click)="launchRetrievalArtifactJob('summary_index_rebuild')"
+                  >
+                    @if (artifactJobLaunching() === 'summary_index_rebuild') {
+                      <app-icon name="loader-2" [size]="13" class="animate-spin" />
+                    } @else {
+                      <app-icon name="file-text" [size]="13" />
+                    }
+                    Summaries
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                    [disabled]="artifactJobLaunching() !== null"
+                    title="Rebuild production sparse retrieval artifact"
+                    (click)="launchRetrievalArtifactJob('sparse_index_rebuild')"
+                  >
+                    @if (artifactJobLaunching() === 'sparse_index_rebuild') {
+                      <app-icon name="loader-2" [size]="13" class="animate-spin" />
+                    } @else {
+                      <app-icon name="search" [size]="13" />
+                    }
+                    Sparse
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                    [disabled]="artifactJobLaunching() !== null"
+                    title="Prepare experimental Qdrant sparse reindex job"
+                    (click)="launchRetrievalArtifactJob('qdrant_sparse_reindex')"
+                  >
+                    @if (artifactJobLaunching() === 'qdrant_sparse_reindex') {
+                      <app-icon name="loader-2" [size]="13" class="animate-spin" />
+                    } @else {
+                      <app-icon name="database" [size]="13" />
+                    }
+                    Qdrant sparse
+                  </button>
+                </div>
+                @if (artifactJobError()) {
+                  <p class="mt-2 text-[11px] text-red-300">{{ artifactJobError() }}</p>
+                }
+                @if (retrievalArtifactJob(); as job) {
+                  <dl class="mt-3 grid gap-2 text-[11px] md:grid-cols-3">
+                    <div>
+                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Status</dt>
+                      <dd class="text-gray-300">{{ job.status || 'queued' }}</dd>
+                    </div>
+                    <div>
+                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Progress</dt>
+                      <dd class="text-gray-300 tabular-nums">{{ job.progress ?? 0 }}%</dd>
+                    </div>
+                    <div>
+                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Stage</dt>
+                      <dd class="text-gray-300">{{ job.stage || job.result?.['stage'] || 'queued' }}</dd>
+                    </div>
+                  </dl>
+                }
+              </article>
               @if (diagnostics()?.offline_clustering) {
                 <article class="rounded border border-white/10 bg-black/20 p-3">
                   <div class="flex items-center justify-between gap-3">
@@ -1560,6 +1645,9 @@ export class KnowledgeViewComponent implements OnInit {
   readonly ocrFactTotal = signal(0);
   readonly ocrFactByType = signal<Record<string, number>>({});
   readonly diagnostics = signal<CollectionDiagnosticsPayload | null>(null);
+  readonly retrievalArtifactJob = signal<WorkerJobPayload | null>(null);
+  readonly artifactJobLaunching = signal<string | null>(null);
+  readonly artifactJobError = signal<string | null>(null);
   readonly tableFactQuery = signal('');
   readonly tableFactType = signal('');
   readonly tableFactSheet = signal('');
@@ -1912,6 +2000,58 @@ export class KnowledgeViewComponent implements OnInit {
         if (payload) this.applyDiagnostics(payload);
         this.loadingDiagnostics.set(false);
       });
+  }
+
+  artifactJobLabel(job: WorkerJobPayload): string {
+    const status = job.status || 'queued';
+    const progress = typeof job.progress === 'number' ? `${Math.round(job.progress)}%` : '0%';
+    const kind = job.kind ? job.kind.replaceAll('_', ' ') : 'artifact job';
+    return `${kind} · ${status} · ${progress}`;
+  }
+
+  launchRetrievalArtifactJob(kind: 'summary_index_rebuild' | 'sparse_index_rebuild' | 'qdrant_sparse_reindex'): void {
+    if (!this.kbId || this.artifactJobLaunching()) return;
+    this.artifactJobLaunching.set(kind);
+    this.artifactJobError.set(null);
+    this.http
+      .post<WorkerJobPayload>(`${this.base}/collections/${encodeURIComponent(this.kbId)}/retrieval-artifact-jobs`, {
+        kind,
+      })
+      .pipe(catchError((err) => {
+        this.artifactJobError.set(err?.error?.detail || 'Could not launch retrieval artifact job.');
+        return of<WorkerJobPayload | null>(null);
+      }))
+      .subscribe((job) => {
+        this.artifactJobLaunching.set(null);
+        if (!job) return;
+        this.retrievalArtifactJob.set(job);
+        if (job.id && (job.status === 'queued' || job.status === 'running')) {
+          this.pollRetrievalArtifactJob(job.id);
+        } else if (job.status === 'completed') {
+          this.loadDiagnostics();
+        }
+      });
+  }
+
+  private pollRetrievalArtifactJob(jobId: string, attempt = 0): void {
+    if (attempt > 90) return;
+    window.setTimeout(() => {
+      this.http
+        .get<WorkerJobPayload>(`${this.base}/jobs/${encodeURIComponent(jobId)}`)
+        .pipe(catchError((err) => {
+          this.artifactJobError.set(err?.error?.detail || 'Could not refresh retrieval artifact job.');
+          return of<WorkerJobPayload | null>(null);
+        }))
+        .subscribe((job) => {
+          if (!job) return;
+          this.retrievalArtifactJob.set(job);
+          if (job.status === 'queued' || job.status === 'running') {
+            this.pollRetrievalArtifactJob(jobId, attempt + 1);
+          } else {
+            this.loadDiagnostics();
+          }
+        });
+    }, 2000);
   }
 
   previewDocument(doc: DocRow): void {

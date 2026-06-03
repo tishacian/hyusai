@@ -73,9 +73,9 @@ const EXECUTION_MODES: {
 ];
 
 const RAG_PIPELINES: { id: string; canonical: string; label: string; description: string }[] = [
-  { id: 'OmniRAG', canonical: 'chah', label: 'OmniRAG (C-HAH)', description: 'Composite hybrid, parallel variants + RRF' },
-  { id: 'HAH', canonical: 'hah', label: 'HAH', description: 'Two-pass hybrid answer harvesting' },
-  { id: 'Hybrid', canonical: 'hybrid', label: 'Hybrid', description: 'BM25 + dense, single-pass' },
+  { id: 'OmniRAG', canonical: 'chah', label: 'OmniRAG (C-HAH)', description: 'Composite, budget-aware variants + RRF' },
+  { id: 'HAH', canonical: 'hah', label: 'HAH', description: 'Hierarchical answer harvesting' },
+  { id: 'Hybrid', canonical: 'hybrid', label: 'Hybrid', description: 'Sparse + dense, single-pass' },
   { id: 'Semantic', canonical: 'naive', label: 'Semantic', description: 'Dense vectors only, single-pass' },
   { id: 'None', canonical: 'auto', label: 'Direct LLM', description: 'No retrieval — LLM only' },
 ];

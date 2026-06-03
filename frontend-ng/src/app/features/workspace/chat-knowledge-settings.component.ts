@@ -2084,7 +2084,7 @@ export class ChatKnowledgeSettingsComponent {
     const scope = this.effectiveScopeLabel();
     return scope && scope !== 'workspace'
       ? `Ask a sourced question using ${scope}.`
-      : 'Ask a workspace question, or choose a Knowledge source before sending.';
+      : 'Ask a workspace question. Agentium will route retrieval automatically and cite the sources used.';
   });
 
   readonly effectiveChatPlaceholder = computed(() => {

@@ -891,7 +891,7 @@ export class SystemViewComponent implements OnInit {
         key: 'retrieve',
         name: 'Retrieve',
         icon: 'database',
-        description: 'Hybrid search over your collections (dense + BM25).',
+        description: 'Planner-bounded retrieval over your collections.',
         configureLabel: 'Collections',
         route: '/knowledge',
         tone: 'violet',

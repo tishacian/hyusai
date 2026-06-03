@@ -4,7 +4,7 @@ import asyncio
 import tempfile
 import os
 import numpy as np
-from app.services.rag.document_service import DocumentService
+from app.services.rag.document_service import DocumentService, _document_extra_metadata
 from app.services.vector_db.factory import VectorDBFactory
 
 
@@ -72,6 +72,35 @@ Natural language processing helps computers understand human language."""
         os.unlink(temp_path)
 
 
+def test_document_extra_metadata_adds_scope_fields_and_merges_manifest():
+    metadata = _document_extra_metadata(
+        "/tmp/A__ACJ100__manual.html",
+        "A__ACJ100__manual.html",
+        {
+            "collection_slug": "andritz-spl",
+            "document_metadata_by_name": {
+                "A__ACJ100__manual.html": {
+                    "project_code": "ACJ100",
+                    "archive_name": "A",
+                    "source_kind": "manual_override",
+                }
+            },
+            "document_metadata": {
+                "project_code": "ACJ100-DIRECT",
+            },
+        },
+    )
+
+    assert metadata["collection_slug"] == "andritz-spl"
+    assert metadata["collection"] == "andritz-spl"
+    assert metadata["document_filename"] == "A__ACJ100__manual.html"
+    assert metadata["extension"] == "html"
+    assert metadata["status"] == "ready"
+    assert metadata["archive_name"] == "A"
+    assert metadata["source_kind"] == "manual_override"
+    assert metadata["project_code"] == "ACJ100-DIRECT"
+
+
 @pytest.mark.asyncio
 async def test_document_ingestion(sample_text_file, fake_vector_db):
     """Test document ingestion"""
@@ -100,6 +129,96 @@ async def test_document_search(sample_text_file, fake_vector_db):
     assert "id" in results[0]
     assert "score" in results[0]
     assert "metadata" in results[0]
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_does_not_runtime_bm25_when_count_unknown():
+    class FakeEmbedder:
+        async def embed(self, query):
+            return np.array([1.0, 0.0])
+
+    class CountUnknownVectorDb:
+        async def get_count(self):
+            raise RuntimeError("count unavailable")
+
+        async def get_all_ids(self):
+            raise AssertionError("search must not warm BM25 when count is unknown")
+
+        async def search(self, query_embedding, top_k: int = 10, filters=None):
+            return [
+                {
+                    "id": "chunk-1",
+                    "score": 0.9,
+                    "metadata": {"content": "vector-only evidence"},
+                }
+            ]
+
+    service = object.__new__(DocumentService)
+    service.collection_name = "dense-or-unknown"
+    service.vector_db_type = "qdrant"
+    service.workspace_slug = None
+    service.vector_db = CountUnknownVectorDb()
+    service.embedder = FakeEmbedder()
+    service.use_hybrid = True
+    service.allow_runtime_bm25 = True
+    service.use_cache = False
+    service.cache = None
+    service.cache_namespace = "test"
+    service._documents_cache = []
+    service.ensemble_retriever = None
+    service.contextual_retriever = None
+    service.use_reranker = False
+    service.reranker = None
+
+    results = await service.search("what is available?", top_k=1, use_hybrid=True)
+
+    assert results[0]["content"] == "vector-only evidence"
+    assert results[0]["bm25_score"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_does_not_runtime_bm25_without_explicit_opt_in():
+    class FakeEmbedder:
+        async def embed(self, query):
+            return np.array([1.0, 0.0])
+
+    class NoRuntimeWarmupVectorDb:
+        async def get_count(self):
+            raise AssertionError("search must not count vectors when runtime BM25 is disabled")
+
+        async def get_all_ids(self):
+            raise AssertionError("search must not warm BM25 without explicit opt-in")
+
+        async def search(self, query_embedding, top_k: int = 10, filters=None):
+            return [
+                {
+                    "id": "chunk-1",
+                    "score": 0.9,
+                    "metadata": {"content": "vector-only evidence"},
+                }
+            ]
+
+    service = object.__new__(DocumentService)
+    service.collection_name = "small-but-prod-default"
+    service.vector_db_type = "qdrant"
+    service.workspace_slug = None
+    service.vector_db = NoRuntimeWarmupVectorDb()
+    service.embedder = FakeEmbedder()
+    service.use_hybrid = True
+    service.allow_runtime_bm25 = False
+    service.use_cache = False
+    service.cache = None
+    service.cache_namespace = "test"
+    service._documents_cache = []
+    service.ensemble_retriever = None
+    service.contextual_retriever = None
+    service.use_reranker = False
+    service.reranker = None
+
+    results = await service.search("what is available?", top_k=1, use_hybrid=True)
+
+    assert results[0]["content"] == "vector-only evidence"
+    assert results[0]["bm25_score"] == 0.0
 
 
 @pytest.mark.asyncio

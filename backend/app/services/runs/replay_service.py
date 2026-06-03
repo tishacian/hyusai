@@ -71,6 +71,14 @@ _TOPLEVEL_KEYS = {
     "max_tokens",
     "temperature",
     "top_k",
+    "candidate_pool_k",
+    "synthesis_k",
+    "source_display_k",
+    "latency_profile",
+    "deep_retrieval",
+    "retrieval_filters",
+    "knowledge_scope",
+    "context_collection",
     "similarity_threshold",
 }
 
@@ -210,6 +218,12 @@ async def replay_run_async(
         workspace_id=parent.workspace_id or "",
         overrides=overrides or {},
     )
+    try:
+        from app.services.rag.context import apply_retrieval_profile_to_request
+
+        apply_retrieval_profile_to_request(request_dict)
+    except Exception as exc:  # noqa: BLE001 - the selected agent still replans before retrieval.
+        logger.warning("run_replay: retrieval budget preflight failed", error=str(exc))
 
     # Lazy import to avoid pulling the orchestrator into module-load
     # cycles during tests.
@@ -225,10 +239,16 @@ async def replay_run_async(
     chunks = []
     error_text: Optional[str] = None
     try:
-        async for chunk in orchestrator.process_request(request_dict):
-            chunks.append(chunk)
-            if chunk.get("is_final"):
-                break
+        stream = orchestrator.process_request(request_dict)
+        try:
+            async for chunk in stream:
+                chunks.append(chunk)
+                if chunk.get("is_final"):
+                    break
+        finally:
+            close = getattr(stream, "aclose", None)
+            if callable(close):
+                await close()
     except Exception as exc:  # noqa: BLE001
         error_text = repr(exc)
         logger.error("run_replay: orchestrator failed", error=error_text)
@@ -241,11 +261,63 @@ async def replay_run_async(
     )
     sources = []
     reasoning_trace: Optional[Any] = None
+    retrieval_details: Dict[str, Any] = {}
+    rag_context: Optional[Any] = None
+    decision_steps: list[Dict[str, Any]] = []
     for c in chunks:
         if c.get("chunk_type") == "sources" and isinstance(c.get("sources"), list):
             sources = c["sources"]
+        elif isinstance(c.get("sources"), list):
+            sources = c["sources"]
         if c.get("chunk_type") == "reasoning_trace":
             reasoning_trace = c.get("reasoning_trace") or c.get("trace")
+        elif c.get("reasoning_trace"):
+            reasoning_trace = c.get("reasoning_trace")
+        if c.get("chunk_type") == "retrieval":
+            details = c.get("details")
+            if isinstance(details, dict):
+                retrieval_details.update(
+                    {key: value for key, value in details.items() if value is not None}
+                )
+            if c.get("rag_context") is not None:
+                rag_context = c.get("rag_context")
+        if c.get("chunk_type") == "decision_step" and isinstance(c.get("decision_step"), dict):
+            step = c["decision_step"]
+            existing_index = next(
+                (index for index, item in enumerate(decision_steps) if item.get("id") == step.get("id")),
+                None,
+            )
+            if existing_index is None:
+                decision_steps.append(step)
+            else:
+                decision_steps[existing_index] = step
+
+    output_ref: Dict[str, Any] = {
+        "response": response_text,
+        "sources": sources or [],
+        "reasoning_trace": reasoning_trace,
+    }
+    if decision_steps:
+        output_ref["decision_steps"] = decision_steps
+    if retrieval_details:
+        output_ref["retrieval_metrics"] = retrieval_details
+        for key in (
+            "retrieval_scope",
+            "retrieval_plan",
+            "scope_confidence",
+            "scope_reason",
+            "dense_policy",
+            "fallback_reason",
+            "latency_budget",
+            "deep_retrieval_recommended",
+            "deep_job_id",
+            "deep_poll_url",
+            "deep_status",
+        ):
+            if key in retrieval_details:
+                output_ref[key] = retrieval_details[key]
+    if rag_context is not None:
+        output_ref["rag_context"] = rag_context
 
     new_run = Run(
         id=str(uuid.uuid4()),
@@ -257,11 +329,7 @@ async def replay_run_async(
         parent_run_id=parent.id,
         replay_overrides=overrides or {},
         input_ref={"query": request_dict.get("query") or ""},
-        output_ref={
-            "response": response_text,
-            "sources": sources or [],
-            "reasoning_trace": reasoning_trace,
-        },
+        output_ref=output_ref,
         started_at=started_at,
         completed_at=completed_at,
         duration_ms=duration_ms,

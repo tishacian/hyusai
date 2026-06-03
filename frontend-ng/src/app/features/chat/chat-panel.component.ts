@@ -100,6 +100,41 @@ interface ChatMessage {
   durationMs?: number;
   ragMode?: string | null;
   promptType?: string | null;
+  retrievalInfo?: {
+    densePolicy?: string | null;
+    fallbackReason?: string | null;
+    retrievalScope?: Record<string, unknown> | null;
+    retrievalPlan?: Record<string, unknown> | null;
+    scopeReason?: string | null;
+    scopeConfidence?: number | null;
+    latencyProfile?: string | null;
+    latencyBudget?: {
+      profile?: string | null;
+      deadlineSeconds?: number | null;
+      candidatePoolK?: number | null;
+      topK?: number | null;
+    } | null;
+    stageTimings?: Record<string, number | null> | null;
+    candidateCounts?: Record<string, number | null> | null;
+    deepJobId?: string | null;
+    deepStatus?: string | null;
+    deepProgress?: number | null;
+    deepStage?: string | null;
+    deepPollUrl?: string | null;
+    deepSummary?: {
+      chunksRetrieved?: number | null;
+      sourcesReturned?: number | null;
+      topSources?: Array<{ label?: string | null; chunks?: number | null }>;
+      pipeline?: string | null;
+      topScore?: number | null;
+      partial?: boolean | null;
+      fallbackReason?: string | null;
+    } | null;
+    deepDetailsOpen?: boolean;
+    deepDetailsLoading?: boolean;
+    deepDetailsError?: string | null;
+    deepSources?: Source[];
+  } | null;
   // Canonical Run id for this turn — lets the auto-QA polling loop attach its
   // verdict to the right bubble once the judge finishes.
   runId?: string | null;
@@ -232,9 +267,9 @@ type VoiceTransportChoice = 'batch_http' | 'backend_ws';
 const RAG_MODE_CHOICES: { slug: RagModeChoice; label: string; hint: string }[] = [
   { slug: 'auto', label: 'Auto', hint: 'Use workspace default' },
   { slug: 'naive', label: 'Naive', hint: 'Single-pass vector retrieval' },
-  { slug: 'hybrid', label: 'Hybrid', hint: 'BM25 + dense, RRF fusion' },
-  { slug: 'hah', label: 'HAH', hint: 'Hybrid Answer Harvesting (two-pass)' },
-  { slug: 'chah', label: 'C-HAH', hint: 'Composite HAH (parallel variants)' },
+  { slug: 'hybrid', label: 'Hybrid', hint: 'Sparse + dense, budget-aware' },
+  { slug: 'hah', label: 'HAH', hint: 'Hierarchical Answer Harvesting' },
+  { slug: 'chah', label: 'C-HAH', hint: 'Composite HAH, budget-aware' },
 ];
 
 const RAG_SLUG_TO_PRESET: Record<RagModeChoice, string> = {
@@ -1125,6 +1160,34 @@ const STEP_ICONS: Record<string, string> = {
                       {{ msg.ragMode!.toUpperCase() }}
                     </span>
                   }
+                  @if (msg.retrievalInfo; as retrieval) {
+                    @if (retrievalBadgeVisible(retrieval)) {
+                      <span
+                        class="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/20"
+                        [title]="retrievalPolicyTitle(retrieval)"
+                      >
+                        <app-icon name="radar" [size]="10" />
+                        {{ retrievalPolicyLabel(retrieval) }}
+                      </span>
+                    }
+                    @if (retrieval.deepJobId) {
+                      <span
+                        class="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                        [title]="deepRetrievalTitle(retrieval)"
+                      >
+                        @if (retrieval.deepStatus === 'completed' && deepRetrievalPartial(retrieval)) {
+                          <app-icon name="alert-triangle" [size]="10" />
+                        } @else if (retrieval.deepStatus === 'completed') {
+                          <app-icon name="check" [size]="10" />
+                        } @else if (retrieval.deepStatus === 'failed' || retrieval.deepStatus === 'cancelled') {
+                          <app-icon name="x-circle" [size]="10" />
+                        } @else {
+                          <app-icon name="loader" [size]="10" class="animate-spin" />
+                        }
+                        {{ deepRetrievalLabel(retrieval) }}
+                      </span>
+                    }
+                  }
                   @if (msg.promptType) {
                     <span
                       class="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/20"
@@ -1153,6 +1216,101 @@ const STEP_ICONS: Record<string, string> = {
                     Quality
                   </a>
                 </div>
+              }
+
+              @if (msg.retrievalInfo?.deepStatus === 'completed' && msg.retrievalInfo?.deepSummary; as deep) {
+                <div
+                  class="ml-0 mt-1 rounded-md px-3 py-2 bg-violet-500/5 ring-1 ring-violet-500/15 flex flex-wrap items-center gap-2 text-[11px] text-gray-700 dark:text-gray-300"
+                  [title]="deepRetrievalTitle(msg.retrievalInfo!)"
+                >
+                  <app-icon [name]="deepRetrievalPartial(msg.retrievalInfo!) ? 'alert-triangle' : 'check'" [size]="11" class="text-violet-300 shrink-0" />
+                  <span class="font-medium text-violet-300">{{ deepRetrievalPartial(msg.retrievalInfo!) ? 'Deep retrieval partial' : 'Deep retrieval' }}</span>
+                  @if (deep.chunksRetrieved != null) {
+                    <span class="font-mono text-gray-500">· {{ deep.chunksRetrieved }} passages</span>
+                  }
+                  @if (deep.sourcesReturned != null) {
+                    <span class="font-mono text-gray-500">· {{ deep.sourcesReturned }} sources</span>
+                  }
+                  @if (deepTopSourceLabels(deep).length) {
+                    <span class="truncate text-gray-500">
+                      · {{ deepTopSourceLabels(deep).join(' · ') }}
+                    </span>
+                  }
+                  @if (msg.retrievalInfo?.deepJobId) {
+                    <button
+                      type="button"
+                      class="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-violet-300 hover:bg-violet-500/10 transition"
+                      [disabled]="msg.retrievalInfo?.deepDetailsLoading"
+                      (click)="toggleDeepRetrievalDetails(msg)"
+                    >
+                      <app-icon
+                        [name]="msg.retrievalInfo?.deepDetailsOpen ? 'chevron-down' : 'chevron-right'"
+                        [size]="11"
+                      />
+                      Details
+                    </button>
+                  }
+                </div>
+                @if (msg.retrievalInfo?.deepDetailsOpen) {
+                  <div class="ml-0 mt-1 rounded-md bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-violet-500/10 overflow-hidden">
+                    @if (msg.retrievalInfo?.deepDetailsLoading) {
+                      <div class="flex items-center gap-2 px-3 py-2 text-[11px] text-gray-500">
+                        <app-icon name="loader" [size]="12" class="animate-spin text-violet-300" />
+                        Loading deep retrieval passages
+                      </div>
+                    } @else if (msg.retrievalInfo?.deepDetailsError) {
+                      <div class="flex items-center gap-2 px-3 py-2 text-[11px] text-red-300">
+                        <app-icon name="x-circle" [size]="12" />
+                        {{ msg.retrievalInfo?.deepDetailsError }}
+                      </div>
+                    } @else if (msg.retrievalInfo?.deepSources?.length) {
+                      <ol class="divide-y divide-white/5">
+                        @for (src of msg.retrievalInfo!.deepSources!.slice(0, 8); track $index; let i = $index) {
+                          <li class="px-3 py-2 text-[12px]">
+                            <div class="flex items-center gap-2 mb-0.5">
+                              <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-violet-500/15 text-violet-300">
+                                {{ i + 1 }}
+                              </span>
+                              <span class="font-medium text-gray-900 dark:text-white truncate">
+                                {{ sourceTitle(src) }}
+                              </span>
+                              @if (sourceLocator(src); as loc) {
+                                <span class="font-mono text-[10px] text-violet-300/80 shrink min-w-0 max-w-[14rem] truncate" [title]="loc.tooltip">
+                                  · {{ loc.label }}
+                                </span>
+                              }
+                              @if (src.score != null) {
+                                <span class="ml-auto font-mono text-[10px] text-emerald-500 dark:text-emerald-400 shrink-0">
+                                  {{ scoreDisplay(src.score) }}
+                                </span>
+                              }
+                              @if (canPreviewSource(src)) {
+                                <button
+                                  type="button"
+                                  class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-violet-300 hover:bg-white/5 transition"
+                                  [class.ml-auto]="src.score == null"
+                                  title="Preview source document"
+                                  (click)="previewSource(src); $event.stopPropagation()"
+                                >
+                                  <app-icon name="eye" [size]="12" />
+                                </button>
+                              }
+                            </div>
+                            @if (sourceSnippet(src); as snippet) {
+                              <p class="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-3">
+                                {{ snippet }}
+                              </p>
+                            }
+                          </li>
+                        }
+                      </ol>
+                    } @else {
+                      <div class="px-3 py-2 text-[11px] text-gray-500">
+                        Deep retrieval completed without displayable passages.
+                      </div>
+                    }
+                  </div>
+                }
               }
 
               <!-- Post-chat audit toolbar -->
@@ -2333,7 +2491,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (this.activeKnowledgeScope()) {
       return `Ask a sourced question using ${this.scopeLabel(this.activeKnowledgeScope())}.`;
     }
-    return 'Ask a workspace question, or choose a Knowledge source before sending.';
+    return 'Ask a workspace question. Agentium will route retrieval automatically and cite the sources used.';
   });
   readonly inputPlaceholder = computed(() => {
     const configured = this.workspaceChatConfig().placeholder;
@@ -3641,6 +3799,35 @@ export class ChatPanelComponent implements AfterViewInit {
     return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
+  private finiteNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }
+
+  private parseLatencyBudget(value: unknown): NonNullable<NonNullable<ChatMessage['retrievalInfo']>['latencyBudget']> | null {
+    if (!this.isRecord(value)) return null;
+    const profile = typeof value['profile'] === 'string' ? (value['profile'] as string) : null;
+    return {
+      profile,
+      deadlineSeconds: this.finiteNumber(value['deadline_seconds'] ?? value['deadlineSeconds']),
+      candidatePoolK: this.finiteNumber(value['candidate_pool_k'] ?? value['candidatePoolK']),
+      topK: this.finiteNumber(value['top_k'] ?? value['topK']),
+    };
+  }
+
+  private parseNumberRecord(value: unknown): Record<string, number | null> | null {
+    if (!this.isRecord(value)) return null;
+    const out: Record<string, number | null> = {};
+    Object.entries(value).forEach(([key, raw]) => {
+      out[key] = this.finiteNumber(raw);
+    });
+    return Object.keys(out).length ? out : null;
+  }
+
   private groundingDefaultMode(value: unknown): GroundingMode | null {
     if (!this.isRecord(value)) return null;
     const mode = value['default_mode'];
@@ -3688,6 +3875,386 @@ export class ChatPanelComponent implements AfterViewInit {
     if (m) return Number(m[1]);
     if (Array.isArray(raw.scores)) return (raw.scores as unknown[]).length;
     return null;
+  }
+
+  retrievalPolicyLabel(info: NonNullable<ChatMessage['retrievalInfo']>): string {
+    const budget = this.retrievalBudgetShortLabel(info);
+    const scope = this.retrievalScopeChipLabel(info.retrievalScope);
+    if (info.deepJobId) return 'Refine';
+    let label = 'Retrieval';
+    const policy = info.densePolicy || '';
+    if (policy === 'catalogue_inventory') label = 'Catalogue';
+    else if (policy === 'deep_hierarchical_dense') label = 'Deep';
+    else if (policy === 'fast_scoped_dense_auto') label = 'Guardrail';
+    else if (policy.startsWith('fast_scoped_dense')) label = 'Auto scoped';
+    else if (info.latencyProfile === 'fast') label = 'Fast';
+    else if (info.latencyProfile === 'balanced') label = 'Balanced';
+    return [label, scope, budget].filter(Boolean).join(' · ');
+  }
+
+  retrievalBadgeVisible(info: NonNullable<ChatMessage['retrievalInfo']>): boolean {
+    return !!(info.deepJobId || info.densePolicy || info.retrievalScope || info.latencyProfile === 'deep');
+  }
+
+  deepRetrievalLabel(info: NonNullable<ChatMessage['retrievalInfo']>): string {
+    if (info.deepStatus === 'completed') {
+      const count = info.deepSummary?.chunksRetrieved;
+      if (this.deepRetrievalPartial(info)) {
+        return typeof count === 'number' ? `Deep partial · ${count}` : 'Deep partial';
+      }
+      return typeof count === 'number' ? `Deep done · ${count}` : 'Deep done';
+    }
+    if (info.deepStatus === 'failed') return 'Deep failed';
+    if (info.deepStatus === 'cancelled') return 'Deep stopped';
+    if (typeof info.deepProgress === 'number' && info.deepProgress > 0) {
+      return `Deep ${Math.round(info.deepProgress)}%`;
+    }
+    if (info.deepStatus === 'queued') return 'Deep queued';
+    return info.deepStage ? 'Deep running' : 'Deep';
+  }
+
+  deepRetrievalTitle(info: NonNullable<ChatMessage['retrievalInfo']>): string {
+    const parts = [`Deep retrieval job ${info.deepJobId || ''}`.trim()];
+    if (info.deepStatus) parts.push(`status ${info.deepStatus}`);
+    if (info.deepStage) parts.push(`stage ${info.deepStage}`);
+    if (typeof info.deepProgress === 'number') parts.push(`progress ${Math.round(info.deepProgress)}%`);
+    const summary = info.deepSummary;
+    if (summary) {
+      if (typeof summary.chunksRetrieved === 'number') parts.push(`${summary.chunksRetrieved} chunks`);
+      if (typeof summary.sourcesReturned === 'number') parts.push(`${summary.sourcesReturned} sources`);
+      if (summary.pipeline) parts.push(`pipeline ${summary.pipeline}`);
+      if (summary.fallbackReason) parts.push(`fallback ${summary.fallbackReason}`);
+      const topSources = (summary.topSources || [])
+        .slice(0, 3)
+        .map((source) => source.label || '')
+        .filter(Boolean);
+      if (topSources.length) parts.push(`top ${topSources.join(', ')}`);
+    }
+    return parts.join(' · ');
+  }
+
+  deepRetrievalPartial(info: NonNullable<ChatMessage['retrievalInfo']>): boolean {
+    return info.deepStage === 'deep_timeout' || info.deepSummary?.partial === true;
+  }
+
+  deepTopSourceLabels(summary: NonNullable<NonNullable<ChatMessage['retrievalInfo']>['deepSummary']>): string[] {
+    return (summary.topSources || [])
+      .slice(0, 3)
+      .map((source) => {
+        const label = source.label || '';
+        const short = label.length > 42 ? `${label.slice(0, 39)}...` : label;
+        return source.chunks != null ? `${short} (${source.chunks})` : short;
+      })
+      .filter(Boolean);
+  }
+
+  toggleDeepRetrievalDetails(msg: ChatMessage): void {
+    const info = msg.retrievalInfo;
+    const jobId = info?.deepJobId;
+    if (!info || !jobId) return;
+    if (info.deepDetailsOpen) {
+      this.patchMessageRetrievalInfo(msg.id, { deepDetailsOpen: false });
+      return;
+    }
+    if (info.deepSources || info.deepDetailsError) {
+      this.patchMessageRetrievalInfo(msg.id, { deepDetailsOpen: true });
+      return;
+    }
+    this.patchMessageRetrievalInfo(msg.id, {
+      deepDetailsOpen: true,
+      deepDetailsLoading: true,
+      deepDetailsError: null,
+    });
+    const jobPath = this.deepRetrievalJobPath(info, jobId);
+    this.api
+      .get<{ result?: unknown; status?: string }>(jobPath)
+      .subscribe({
+        next: (job) => {
+          const sources = this.deepSourcesFromJob(job);
+          if (sources.length || job.status !== 'completed') {
+            this.patchMessageRetrievalInfo(msg.id, {
+              deepDetailsLoading: false,
+              deepDetailsError: null,
+              deepSources: sources,
+            });
+            return;
+          }
+          this.api
+            .get<{ result?: unknown; status?: string }>(jobPath, { include_context: 'true' })
+            .subscribe({
+              next: (detailedJob) => {
+                this.patchMessageRetrievalInfo(msg.id, {
+                  deepDetailsLoading: false,
+                  deepDetailsError: null,
+                  deepSources: this.deepSourcesFromJob(detailedJob),
+                });
+              },
+              error: () => {
+                this.patchMessageRetrievalInfo(msg.id, {
+                  deepDetailsLoading: false,
+                  deepDetailsError: 'Could not load deep retrieval details.',
+                });
+              },
+            });
+        },
+        error: () => {
+          this.patchMessageRetrievalInfo(msg.id, {
+            deepDetailsLoading: false,
+            deepDetailsError: 'Could not load deep retrieval details.',
+          });
+        },
+      });
+  }
+
+  private deepRetrievalJobPath(
+    info: NonNullable<ChatMessage['retrievalInfo']>,
+    fallbackJobId: string,
+  ): string {
+    const path = String(info.deepPollUrl || '').trim();
+    if (path.startsWith('/documents/jobs/')) return path;
+    return `/documents/jobs/${encodeURIComponent(fallbackJobId)}`;
+  }
+
+  private patchMessageRetrievalInfo(
+    messageId: string,
+    patch: Partial<NonNullable<ChatMessage['retrievalInfo']>>,
+  ): void {
+    this.messages.update((messages) =>
+      messages.map((msg) => {
+        if (msg.id !== messageId || !msg.retrievalInfo) return msg;
+        return {
+          ...msg,
+          retrievalInfo: {
+            ...msg.retrievalInfo,
+            ...patch,
+          },
+        };
+      }),
+    );
+  }
+
+  private deepSourcesFromJob(job: { result?: unknown }): Source[] {
+    const result = job.result;
+    if (!this.isRecord(result)) return [];
+    const partialResult = this.isRecord(result['partial_result'])
+      ? (result['partial_result'] as Record<string, unknown>)
+      : null;
+    const sourcePreview = Array.isArray(result['sources_preview'])
+      ? (result['sources_preview'] as unknown[])
+      : partialResult && Array.isArray(partialResult['sources_preview'])
+        ? (partialResult['sources_preview'] as unknown[])
+        : null;
+    if (sourcePreview) {
+      const preview = sourcePreview
+        .filter((source): source is Record<string, unknown> => this.isRecord(source))
+        .map((source, index) => {
+          const meta = this.isRecord(source['metadata']) ? (source['metadata'] as Record<string, unknown>) : {};
+          return {
+            id: (source['id'] as string | undefined) || (meta['chunk_id'] as string | undefined) || `deep-preview:${index}`,
+            document_id: (source['document_id'] as string | undefined) || (meta['document_id'] as string | undefined),
+            title: (source['title'] as string | undefined) || (meta['document_title'] as string | undefined),
+            filename: (source['filename'] as string | undefined) || (meta['document_filename'] as string | undefined),
+            snippet: (source['snippet'] as string | undefined) || (source['content'] as string | undefined),
+            content: (source['content'] as string | undefined) || (source['snippet'] as string | undefined),
+            score: typeof source['score'] === 'number' ? (source['score'] as number) : undefined,
+            collection: (source['collection'] as string | undefined) || (meta['collection'] as string | undefined),
+            collection_name:
+              (source['collection_name'] as string | undefined) || (meta['collection_name'] as string | undefined),
+            page: typeof source['page'] === 'number' ? (source['page'] as number) : undefined,
+            metadata: meta,
+          } satisfies Source;
+        });
+      if (preview.length) return preview;
+    }
+    if (!this.isRecord(result['retrieval_context'])) return [];
+    const context = result['retrieval_context'];
+    const chunks = Array.isArray(context['chunks']) ? context['chunks'] : [];
+    const scores = Array.isArray(context['scores']) ? context['scores'] : [];
+    const metadatas = Array.isArray(context['metadatas']) ? context['metadatas'] : [];
+    const collection = typeof context['collection'] === 'string' ? (context['collection'] as string) : undefined;
+    return chunks.map((chunk, index) => {
+      const meta = this.isRecord(metadatas[index]) ? (metadatas[index] as Record<string, unknown>) : {};
+      const score = typeof scores[index] === 'number' ? (scores[index] as number) : undefined;
+      const filename =
+        (meta['filename'] as string | undefined) ||
+        (meta['document_filename'] as string | undefined) ||
+        (meta['source'] as string | undefined);
+      const title =
+        (meta['document_title'] as string | undefined) ||
+        (meta['title'] as string | undefined) ||
+        filename;
+      const documentId = (meta['document_id'] as string | undefined) || (meta['id'] as string | undefined);
+      return {
+        id: (meta['chunk_id'] as string | undefined) || `${documentId || 'deep'}:${index}`,
+        document_id: documentId,
+        title,
+        filename,
+        snippet: typeof chunk === 'string' ? chunk : String(chunk ?? ''),
+        content: typeof chunk === 'string' ? chunk : String(chunk ?? ''),
+        score,
+        collection: (meta['collection'] as string | undefined) || (meta['collection_name'] as string | undefined) || collection,
+        collection_name: (meta['collection_name'] as string | undefined) || (meta['collection'] as string | undefined) || collection,
+        page: typeof meta['page'] === 'number' ? (meta['page'] as number) : undefined,
+        metadata: meta,
+      } satisfies Source;
+    });
+  }
+
+  retrievalPolicyTitle(info: NonNullable<ChatMessage['retrievalInfo']>): string {
+    const parts: string[] = [];
+    if (info.scopeReason) parts.push(info.scopeReason);
+    const scopeSummary = this.retrievalScopeSummary(info.retrievalScope);
+    if (scopeSummary) parts.push(`scope ${scopeSummary}`);
+    if (typeof info.scopeConfidence === 'number') {
+      parts.push(`confidence ${Math.round(info.scopeConfidence * 100)}%`);
+    }
+    if (info.densePolicy) parts.push(`policy ${info.densePolicy}`);
+    if (info.fallbackReason) parts.push(`fallback ${info.fallbackReason}`);
+    const budget = this.retrievalBudgetTitle(info);
+    if (budget) parts.push(budget);
+    else if (info.latencyProfile) parts.push(`profile ${info.latencyProfile}`);
+    const layerSummary = this.retrievalPlanLayerSummary(info.retrievalPlan);
+    if (layerSummary) parts.push(layerSummary);
+    const timingSummary = this.retrievalTimingSummary(info.stageTimings);
+    if (timingSummary) parts.push(timingSummary);
+    const countSummary = this.retrievalCountSummary(info.candidateCounts);
+    if (countSummary) parts.push(countSummary);
+    return parts.join(' · ') || 'System-inferred retrieval policy';
+  }
+
+  private retrievalScopeSummary(scope: Record<string, unknown> | null | undefined): string | null {
+    if (!this.isRecord(scope)) return null;
+    const filters = this.isRecord(scope['filters']) ? (scope['filters'] as Record<string, unknown>) : {};
+    const fields: Array<[string, string]> = [
+      ['project_code', 'project'],
+      ['archive_name', 'archive'],
+      ['source_kind', 'kind'],
+      ['extension', 'ext'],
+      ['status', 'status'],
+      ['language', 'lang'],
+      ['document_filename', 'file'],
+      ['document_id', 'doc'],
+    ];
+    const parts = fields
+      .map(([key, label]) => {
+        const rendered = this.renderScopeValue(filters[key]);
+        return rendered ? `${label} ${rendered}` : null;
+      })
+      .filter((part): part is string => !!part);
+    if (parts.length) return parts.slice(0, 4).join(', ');
+    const fallbackParts: string[] = [];
+    if (typeof scope['intent'] === 'string') fallbackParts.push(`intent ${scope['intent']}`);
+    const sourceCount = this.finiteNumber(scope['source_count'] ?? scope['sourceCount']);
+    const chunkCount = this.finiteNumber(scope['chunk_count'] ?? scope['chunkCount']);
+    if (typeof sourceCount === 'number') fallbackParts.push(`${Math.round(sourceCount)} sources`);
+    if (typeof chunkCount === 'number') fallbackParts.push(`${Math.round(chunkCount)} chunks`);
+    return fallbackParts.slice(0, 3).join(', ') || null;
+  }
+
+  private retrievalScopeChipLabel(scope: Record<string, unknown> | null | undefined): string | null {
+    if (!this.isRecord(scope)) return null;
+    const filters = this.isRecord(scope['filters']) ? (scope['filters'] as Record<string, unknown>) : {};
+    for (const key of ['project_code', 'archive_name', 'source_kind', 'extension', 'document_filename']) {
+      const rendered = this.renderScopeValue(filters[key]);
+      if (rendered) return this.truncateScopeChip(rendered);
+    }
+    return null;
+  }
+
+  private renderScopeValue(value: unknown): string | null {
+    if (Array.isArray(value)) {
+      const cleaned = value.map((item) => String(item ?? '').trim()).filter(Boolean);
+      if (!cleaned.length) return null;
+      if (cleaned.length > 3) return `${cleaned.length} selected`;
+      return cleaned.map((item) => this.truncateScopeValue(item)).join(', ');
+    }
+    if (this.isRecord(value)) {
+      const nested = Object.values(value).find((item) => item !== null && item !== undefined && item !== '');
+      return this.renderScopeValue(nested);
+    }
+    const text = String(value ?? '').trim();
+    return text ? this.truncateScopeValue(text) : null;
+  }
+
+  private truncateScopeValue(value: string): string {
+    return value.length > 34 ? `${value.slice(0, 31)}...` : value;
+  }
+
+  private truncateScopeChip(value: string): string {
+    return value.length > 18 ? `${value.slice(0, 15)}...` : value;
+  }
+
+  private retrievalBudgetShortLabel(info: NonNullable<ChatMessage['retrievalInfo']>): string | null {
+    const budget = info.latencyBudget;
+    const seconds = budget?.deadlineSeconds;
+    if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0) {
+      return `${Math.round(seconds)}s`;
+    }
+    return null;
+  }
+
+  private retrievalBudgetTitle(info: NonNullable<ChatMessage['retrievalInfo']>): string | null {
+    const budget = info.latencyBudget;
+    if (!budget) return null;
+    const parts: string[] = [];
+    if (budget.profile) parts.push(`profile ${budget.profile}`);
+    if (typeof budget.deadlineSeconds === 'number') parts.push(`deadline ${budget.deadlineSeconds}s`);
+    if (typeof budget.candidatePoolK === 'number') parts.push(`candidate pool ${budget.candidatePoolK}`);
+    if (typeof budget.topK === 'number') parts.push(`top k ${budget.topK}`);
+    return parts.join(', ') || null;
+  }
+
+  private retrievalPlanLayerSummary(plan: Record<string, unknown> | null | undefined): string | null {
+    if (!plan || typeof plan !== 'object') return null;
+    const layers = plan['layers'];
+    if (!layers || typeof layers !== 'object') return null;
+    const active: string[] = [];
+    Object.entries(layers as Record<string, unknown>).forEach(([key, raw]) => {
+      if (!raw || typeof raw !== 'object') return;
+      const layer = raw as Record<string, unknown>;
+      if (layer['enabled'] === true) active.push(key);
+    });
+    if (!active.length) return null;
+    const deadline = typeof plan['deadline_ms'] === 'number' ? ` / ${Math.round((plan['deadline_ms'] as number) / 1000)}s` : '';
+    return `layers ${active.slice(0, 6).join(', ')}${active.length > 6 ? ', ...' : ''}${deadline}`;
+  }
+
+  private retrievalTimingSummary(timings: Record<string, number | null> | null | undefined): string | null {
+    if (!timings) return null;
+    const labels: Array<[string, string]> = [
+      ['planner_ms', 'plan'],
+      ['inventory_ms', 'inventory'],
+      ['qdrant_ms', 'qdrant'],
+      ['sparse_ms', 'sparse'],
+      ['rerank_ms', 'rerank'],
+      ['context_build_ms', 'context'],
+      ['table_facts_ms', 'tables'],
+      ['llm_ms', 'llm'],
+      ['total_ms', 'total'],
+    ];
+    const parts = labels
+      .map(([key, label]) => {
+        const value = timings[key];
+        return typeof value === 'number' ? `${label} ${Math.round(value)}ms` : null;
+      })
+      .filter((part): part is string => !!part);
+    return parts.length ? `timings ${parts.join(', ')}` : null;
+  }
+
+  private retrievalCountSummary(counts: Record<string, number | null> | null | undefined): string | null {
+    if (!counts) return null;
+    const chunks = counts['chunks_retrieved'];
+    const raw = counts['raw_chunks_retrieved'];
+    const pool = counts['candidate_pool_k'];
+    const corpusChunks = counts['chunk_count'];
+    const exactTables = counts['exact_table_hits'];
+    const bits: string[] = [];
+    if (typeof chunks === 'number') bits.push(`loaded ${chunks}`);
+    if (typeof raw === 'number' && raw !== chunks) bits.push(`raw ${raw}`);
+    if (typeof exactTables === 'number' && exactTables > 0) bits.push(`exact tables ${exactTables}`);
+    if (typeof pool === 'number') bits.push(`pool ${pool}`);
+    if (typeof corpusChunks === 'number') bits.push(`corpus ${corpusChunks}`);
+    return bits.length ? `counts ${bits.join(', ')}` : null;
   }
 
   onKey(e: KeyboardEvent): void {
@@ -3746,6 +4313,7 @@ export class ChatPanelComponent implements AfterViewInit {
     let sources: Source[] | undefined;
     let mapCommand: Record<string, unknown> | undefined;
     let turnRunId: string | undefined;
+    let retrievalInfo: ChatMessage['retrievalInfo'] = null;
 
     const ragOverride = this.ragModeOverride();
     const promptTypeSel = this.promptType();
@@ -3762,9 +4330,10 @@ export class ChatPanelComponent implements AfterViewInit {
         temperature: s.temperature,
         max_tokens: s.maxTokens,
         top_k: s.ragTopK,
-        candidate_pool_k: s.ragCandidatePoolK ?? Math.max((s.ragSynthesisK ?? 12) * 4, 40),
+        candidate_pool_k: Math.min(s.ragCandidatePoolK ?? Math.max((s.ragSynthesisK ?? 12) * 4, 40), 20),
         synthesis_k: s.ragSynthesisK ?? Math.max(s.ragTopK ?? 5, 12),
         source_display_k: s.ragSourceDisplayK ?? Math.min(Math.max(s.ragTopK ?? 5, 5), 8),
+        latency_profile: 'fast',
         similarity_threshold: s.ragSimilarityThreshold,
         // Per-query retrieval override wins over workspace default.
         rag_pipeline_mode: ragOverride !== 'auto' ? ragOverride : s.ragPipelineMode,
@@ -3803,6 +4372,49 @@ export class ChatPanelComponent implements AfterViewInit {
             const step = chunk.decision_step as DecisionStep;
             reasoning = upsertStep(reasoning, step);
             this.liveSteps.set([...reasoning]);
+          } else if (chunk.chunk_type === 'retrieval') {
+            const details = (((chunk as Record<string, unknown>)['details'] as Record<string, unknown> | undefined) || {});
+            const latencyBudget = this.parseLatencyBudget(details['latency_budget']);
+            const stageTimings = this.parseNumberRecord(details['stage_timings']);
+            const candidateCounts = this.parseNumberRecord(details['candidate_counts']);
+            retrievalInfo = {
+              ...(retrievalInfo || {}),
+              densePolicy: (details['dense_policy'] as string | undefined) ?? retrievalInfo?.densePolicy ?? null,
+              fallbackReason:
+                (details['fallback_reason'] as string | undefined)
+                ?? (details['retrieval_fallback'] as string | undefined)
+                ?? retrievalInfo?.fallbackReason
+                ?? null,
+              retrievalPlan:
+                this.isRecord(details['retrieval_plan'])
+                  ? (details['retrieval_plan'] as Record<string, unknown>)
+                  : retrievalInfo?.retrievalPlan ?? null,
+              retrievalScope:
+                this.isRecord(details['retrieval_scope'])
+                  ? (details['retrieval_scope'] as Record<string, unknown>)
+                  : retrievalInfo?.retrievalScope ?? null,
+              scopeReason: (details['scope_reason'] as string | undefined) ?? retrievalInfo?.scopeReason ?? null,
+              scopeConfidence:
+                typeof details['scope_confidence'] === 'number'
+                  ? (details['scope_confidence'] as number)
+                  : retrievalInfo?.scopeConfidence ?? null,
+              latencyProfile:
+                (details['latency_profile'] as string | undefined)
+                ?? latencyBudget?.profile
+                ?? retrievalInfo?.latencyProfile
+                ?? null,
+              latencyBudget: latencyBudget ?? retrievalInfo?.latencyBudget ?? null,
+              stageTimings: stageTimings ?? retrievalInfo?.stageTimings ?? null,
+              candidateCounts: candidateCounts ?? retrievalInfo?.candidateCounts ?? null,
+              deepJobId: (details['deep_job_id'] as string | undefined) ?? retrievalInfo?.deepJobId ?? null,
+              deepStatus: (details['deep_status'] as string | undefined) ?? retrievalInfo?.deepStatus ?? null,
+              deepProgress:
+                typeof details['deep_progress'] === 'number'
+                  ? (details['deep_progress'] as number)
+                  : retrievalInfo?.deepProgress ?? null,
+              deepStage: (details['deep_stage'] as string | undefined) ?? retrievalInfo?.deepStage ?? null,
+              deepPollUrl: (details['deep_poll_url'] as string | undefined) ?? retrievalInfo?.deepPollUrl ?? null,
+            };
           } else if (chunk.chunk_type === 'error' && chunk.content) {
             buffer += `\n\n⚠ ${chunk.content}`;
             this.streamBuffer.set(buffer);
@@ -3857,10 +4469,14 @@ export class ChatPanelComponent implements AfterViewInit {
               durationMs,
               ragMode: ragOverride !== 'auto' ? ragOverride : null,
               promptType: promptTypeSel !== 'auto' ? promptTypeSel : null,
+              retrievalInfo,
               runId: turnRunId ?? null,
               qaReview: null,
             };
             this.messages.update((m) => [...m, assistantMsg]);
+            if (retrievalInfo?.deepJobId) {
+              this.startDeepRetrievalPolling(assistantId, retrievalInfo.deepJobId, retrievalInfo.deepPollUrl || null);
+            }
             this.streaming.set(false);
             this.streamBuffer.set('');
             this.liveSteps.set([]);
@@ -3965,6 +4581,108 @@ export class ChatPanelComponent implements AfterViewInit {
       });
     };
     window.setTimeout(tick, 1500);
+  }
+
+  private startDeepRetrievalPolling(messageId: string, jobId: string, pollUrl?: string | null): void {
+    let attempts = 0;
+    const maxAttempts = 60;
+    const updateStatus = (
+      status: string,
+      summary?: NonNullable<ChatMessage['retrievalInfo']>['deepSummary'],
+      progress?: number | null,
+      stage?: string | null,
+      sources?: Source[],
+    ): void => {
+      this.messages.update((messages) =>
+        messages.map((msg) => {
+          if (msg.id !== messageId || !msg.retrievalInfo) return msg;
+          return {
+            ...msg,
+            retrievalInfo: {
+              ...msg.retrievalInfo,
+              deepStatus: status,
+              deepProgress: progress ?? msg.retrievalInfo.deepProgress ?? null,
+              deepStage: stage ?? msg.retrievalInfo.deepStage ?? null,
+              deepSummary: summary ?? msg.retrievalInfo.deepSummary ?? null,
+              deepSources: sources?.length ? sources : msg.retrievalInfo.deepSources,
+            },
+          };
+        }),
+      );
+    };
+    const parseSummary = (job: { result?: unknown }): NonNullable<ChatMessage['retrievalInfo']>['deepSummary'] => {
+      const result = job.result;
+      if (!this.isRecord(result)) return null;
+      const partialResult = this.isRecord(result['partial_result'])
+        ? (result['partial_result'] as Record<string, unknown>)
+        : null;
+      if (!this.isRecord(result['summary'])) {
+        const retrievalSummary = partialResult && this.isRecord(partialResult['retrieval_summary'])
+          ? (partialResult['retrieval_summary'] as Record<string, unknown>)
+          : null;
+        if (!retrievalSummary) return null;
+        return {
+          chunksRetrieved:
+            typeof retrievalSummary['chunks_retrieved'] === 'number'
+              ? (retrievalSummary['chunks_retrieved'] as number)
+              : null,
+          sourcesReturned: null,
+          topScore: null,
+          pipeline: typeof retrievalSummary['dense_policy'] === 'string'
+            ? (retrievalSummary['dense_policy'] as string)
+            : null,
+          partial: false,
+          fallbackReason:
+            typeof retrievalSummary['fallback_reason'] === 'string'
+              ? (retrievalSummary['fallback_reason'] as string)
+              : null,
+          topSources: [],
+        };
+      }
+      const summary = result['summary'];
+      const topSourcesRaw = Array.isArray(summary['top_sources']) ? summary['top_sources'] : [];
+      return {
+        chunksRetrieved:
+          typeof summary['chunks_retrieved'] === 'number' ? (summary['chunks_retrieved'] as number) : null,
+        sourcesReturned:
+          typeof summary['sources_returned'] === 'number' ? (summary['sources_returned'] as number) : null,
+        topScore: typeof summary['top_score'] === 'number' ? (summary['top_score'] as number) : null,
+        pipeline: typeof summary['pipeline'] === 'string' ? (summary['pipeline'] as string) : null,
+        partial: summary['partial'] === true || result['status'] === 'completed_partial' || result['stage'] === 'deep_timeout',
+        fallbackReason:
+          typeof summary['fallback_reason'] === 'string'
+            ? (summary['fallback_reason'] as string)
+            : null,
+        topSources: topSourcesRaw
+          .filter((source): source is Record<string, unknown> => this.isRecord(source))
+          .map((source) => ({
+            label: typeof source['label'] === 'string' ? (source['label'] as string) : null,
+            chunks: typeof source['chunks'] === 'number' ? (source['chunks'] as number) : null,
+          })),
+      };
+    };
+    const jobPath = pollUrl && pollUrl.startsWith('/documents/jobs/')
+      ? pollUrl
+      : `/documents/jobs/${encodeURIComponent(jobId)}`;
+    const tick = (): void => {
+      if (attempts >= maxAttempts) return;
+      attempts += 1;
+      this.api.get<{ status?: string; progress?: number; stage?: string | null; result?: unknown }>(jobPath).subscribe({
+        next: (job) => {
+          const status = String(job?.status || 'queued');
+          const progress = typeof job?.progress === 'number' ? job.progress : null;
+          const stage = typeof job?.stage === 'string' ? job.stage : null;
+          updateStatus(status, parseSummary(job), progress, stage, this.deepSourcesFromJob(job));
+          if (status === 'queued' || status === 'running') {
+            window.setTimeout(tick, 2000);
+          }
+        },
+        error: () => {
+          updateStatus('failed', undefined, null, 'poll_failed');
+        },
+      });
+    };
+    window.setTimeout(tick, 2000);
   }
 
   private showBreachToast(res: {

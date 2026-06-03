@@ -101,6 +101,34 @@ def test_build_request_dict_forwards_unknown_keys_to_custom_overrides(db_session
     assert extras == {"future_knob": True, "pipeline_variant": "exp-3"}
 
 
+def test_build_request_dict_promotes_retrieval_policy_fields(db_session) -> None:
+    parent = _make_parent(db_session)
+    req = replay_service._build_request_dict(
+        parent=parent,
+        workspace_slug="ws-1-slug",
+        workspace_id="ws-1",
+        overrides={
+            "latency_profile": "balanced",
+            "candidate_pool_k": 80,
+            "synthesis_k": 24,
+            "source_display_k": 8,
+            "retrieval_filters": {"project_code": "ACJ100"},
+            "knowledge_scope": "andritz_spl",
+            "context_collection": "andritz-notices-techniques-spl-pilot",
+            "future_knob": True,
+        },
+    )
+
+    assert req["latency_profile"] == "balanced"
+    assert req["candidate_pool_k"] == 80
+    assert req["synthesis_k"] == 24
+    assert req["source_display_k"] == 8
+    assert req["retrieval_filters"] == {"project_code": "ACJ100"}
+    assert req["knowledge_scope"] == "andritz_spl"
+    assert req["context_collection"] == "andritz-notices-techniques-spl-pilot"
+    assert req["agent_preferences"]["custom_overrides"] == {"future_knob": True}
+
+
 def test_build_request_dict_carries_system_id(db_session) -> None:
     parent = _make_parent(db_session, system_id="sys-abc")
     req = replay_service._build_request_dict(
@@ -234,6 +262,91 @@ async def test_replay_persists_new_run_and_audits(
     assert audit.details["parent_run_id"] == parent.id
     assert audit.details["new_run_id"] == new_run.id
     assert audit.details["source_decision_id"] == "dec-1"
+
+
+@pytest.mark.asyncio
+async def test_replay_clamps_untrusted_retrieval_budget(
+    db_session, stub_orchestrator, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.services.runs.replay_service.schedule_eval", lambda _id: None
+    )
+
+    parent = _make_parent(db_session, trigger="chat")
+    await replay_service.replay_run_async(
+        db=db_session,
+        parent=parent,
+        workspace_slug="ws-1-slug",
+        overrides={
+            "query": "audit SPL",
+            "rag_pipeline_mode": "chah",
+            "top_k": 999,
+            "candidate_pool_k": 999,
+            "synthesis_k": 999,
+            "source_display_k": 999,
+        },
+    )
+
+    assert stub_orchestrator.last_request["latency_profile"] == "fast"
+    assert stub_orchestrator.last_request["top_k"] == 8
+    assert stub_orchestrator.last_request["candidate_pool_k"] == 20
+    assert stub_orchestrator.last_request["synthesis_k"] == 12
+    assert stub_orchestrator.last_request["source_display_k"] == 8
+    assert stub_orchestrator.last_request["latency_budget"]["candidate_pool_k"] == 20
+
+
+@pytest.mark.asyncio
+async def test_replay_persists_retrieval_metadata(db_session, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.runs.replay_service.schedule_eval", lambda _id: None
+    )
+    stub = _StubOrchestrator(
+        [
+            {
+                "chunk_type": "decision_step",
+                "decision_step": {"id": "retrieve-1", "type": "retrieve", "status": "completed"},
+            },
+            {
+                "chunk_type": "retrieval",
+                "details": {
+                    "dense_policy": "fast_scoped_dense",
+                    "fallback_reason": "sparse_unavailable",
+                    "retrieval_scope": {"filters": {"project_code": "ACJ100"}},
+                    "scope_confidence": 0.82,
+                    "latency_budget": {"profile": "fast", "candidate_pool_k": 20},
+                },
+                "rag_context": {"chunks": ["evidence"], "scores": [0.8], "metadatas": []},
+            },
+            {
+                "chunk_type": "text",
+                "content": "answer",
+                "sources": [{"title": "Manual"}],
+                "reasoning_trace": [{"step": "retrieve"}],
+                "is_final": True,
+            },
+        ]
+    )
+    import app.api.v1.endpoints.agents as agents_mod
+
+    monkeypatch.setattr(agents_mod, "get_orchestrator", lambda: stub)
+
+    parent = _make_parent(db_session, trigger="chat")
+    new_run, _ = await replay_service.replay_run_async(
+        db=db_session,
+        parent=parent,
+        workspace_slug="ws-1-slug",
+        overrides={"query": "replay SPL"},
+    )
+
+    assert new_run.output_ref["sources"] == [{"title": "Manual"}]
+    assert new_run.output_ref["reasoning_trace"] == [{"step": "retrieve"}]
+    assert new_run.output_ref["decision_steps"][0]["id"] == "retrieve-1"
+    assert new_run.output_ref["retrieval_metrics"]["dense_policy"] == "fast_scoped_dense"
+    assert new_run.output_ref["dense_policy"] == "fast_scoped_dense"
+    assert new_run.output_ref["fallback_reason"] == "sparse_unavailable"
+    assert new_run.output_ref["retrieval_scope"] == {"filters": {"project_code": "ACJ100"}}
+    assert new_run.output_ref["latency_budget"] == {"profile": "fast", "candidate_pool_k": 20}
+    assert new_run.output_ref["rag_context"]["chunks"] == ["evidence"]
 
 
 @pytest.mark.asyncio

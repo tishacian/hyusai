@@ -3,9 +3,6 @@ import asyncio
 from typing import Dict, Any, AsyncGenerator
 from app.agents.base import BaseAgent
 from app.services.models import ModelService
-from app.services.vector_store import VectorStore
-from app.services.rag.document_service import DocumentService
-from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
@@ -23,8 +20,7 @@ class RAGAgent(BaseAgent):
             agent_type="rag"
         )
         self.model_service = ModelService()
-        self.vector_store = VectorStore()
-        self.document_service = DocumentService()  # New RAG document service
+        self.vector_store = None
         self.initialized = False
     
     async def initialize(self) -> None:
@@ -33,7 +29,13 @@ class RAGAgent(BaseAgent):
             try:
                 # Check model availability
                 await self.model_service.ollama_client.health_check()
-                # Initialize vector store
+                # Initialize legacy vector store lazily. Planned RAG retrieval
+                # no longer depends on this Chroma-backed path, so an optional
+                # dependency mismatch must not make the agent unimportable.
+                if self.vector_store is None:
+                    from app.services.vector_store import VectorStore
+
+                    self.vector_store = VectorStore()
                 await self.vector_store.get_collection_stats()
             except Exception as e:
                 logger.warning("RAG agent initialization warning", error=str(e))
@@ -58,18 +60,8 @@ class RAGAgent(BaseAgent):
             "model_preferences", {}
         ).get("model", app_settings.get("defaultModel", settings.ollama_default_model))
         top_k = request.get("top_k", app_settings.get("ragTopK", 5))
-        similarity_threshold = request.get("similarity_threshold", app_settings.get("ragSimilarityThreshold", 0.2))
-        
-        collection_name = app_settings.get("ragCollectionName", "documents")
-        vector_db_type = resolve_vector_db_type(app_settings)
         workspace_slug = request.get("workspace_slug")
 
-        document_service = DocumentService(
-            collection_name=collection_name,
-            vector_db_type=vector_db_type,
-            workspace_slug=workspace_slug,
-        )
-        
         # Get conversation history from context (long-term memory)
         conversation_history = []
         if request.get("context", {}).get("conversation_history"):
@@ -143,10 +135,19 @@ class RAGAgent(BaseAgent):
         }
         
         # Decision Step 3: Retrieve relevant documents
+        from app.services.rag.context import apply_retrieval_profile_to_request, retrieve_rag_context
+
         retrieve_start = time.time()
         retrieve_id = f"retrieve-{id(query)}"
-        use_hybrid = app_settings.get("ragUseHybridSearch", True)
-        retrieval_method = "RRF (Reciprocal Rank Fusion)" if use_hybrid else "Vector Search"
+        retrieval_request = dict(request)
+        retrieval_request["query"] = query
+        retrieval_request["workspace_slug"] = workspace_slug
+        if retrieval_request.get("top_k") is None:
+            retrieval_request["top_k"] = top_k
+        if retrieval_request.get("latency_profile") is None:
+            retrieval_request["latency_profile"] = "fast"
+        profile = apply_retrieval_profile_to_request(retrieval_request)
+        retrieval_method = "Planned Retrieval"
         
         yield {
             "chunk_type": "decision_step",
@@ -156,95 +157,85 @@ class RAGAgent(BaseAgent):
                 "component": "Retriever",
                 "status": "active",
                 "title": f"Retrieving top candidates ({retrieval_method})",
-                "description": f"Searching collection '{collection_name}' ({vector_db_type})\nMethod: {retrieval_method}\nRequested top_k: {top_k}\nSimilarity threshold: {similarity_threshold}...",
+                "description": (
+                    f"Searching collection '{profile['collection']}' ({profile['vector_db']})\n"
+                    f"Method: planner-bounded {profile.get('latency_profile')}\n"
+                    f"top_k: {profile.get('top_k')} · candidate_pool_k: {profile.get('candidate_pool_k')}..."
+                ),
             }
         }
         
-        logger.info("Retrieving documents", query=query[:50], top_k=top_k, similarity_threshold=similarity_threshold, collection_name=collection_name, vector_db_type=vector_db_type, use_hybrid=use_hybrid, enable_rag=app_settings.get("enableRAG", True))
+        logger.info(
+            "Retrieving documents via planned RAG context",
+            query=query[:50],
+            top_k=profile.get("top_k"),
+            candidate_pool_k=profile.get("candidate_pool_k"),
+            collection_name=profile.get("collection"),
+            vector_db_type=profile.get("vector_db"),
+            latency_profile=profile.get("latency_profile"),
+            enable_rag=app_settings.get("enableRAG", True),
+        )
         try:
-            # Use document service with the selected collection
-            try:
-                # Retrieve exactly top_k results (no multiplication)
-                # The similarity threshold filtering happens in the search method
-                retrieval_results_raw = await document_service.search(
-                    query, 
-                    top_k=top_k,  # Use exact top_k value from settings
-                    use_hybrid=use_hybrid
+            retrieval_context = await retrieve_rag_context(retrieval_request)
+            chunks = retrieval_context.get("chunks") if isinstance(retrieval_context.get("chunks"), list) else []
+            scores_raw = retrieval_context.get("scores") if isinstance(retrieval_context.get("scores"), list) else []
+            metadatas_raw = retrieval_context.get("metadatas") if isinstance(retrieval_context.get("metadatas"), list) else []
+            metrics = retrieval_context.get("metrics") if isinstance(retrieval_context.get("metrics"), dict) else {}
+            retrieval_results = []
+            for index, content in enumerate(chunks):
+                text = str(content or "").strip()
+                if not text:
+                    continue
+                metadata = metadatas_raw[index] if index < len(metadatas_raw) and isinstance(metadatas_raw[index], dict) else {}
+                raw_score = scores_raw[index] if index < len(scores_raw) else 0.0
+                try:
+                    score = float(raw_score)
+                except (TypeError, ValueError):
+                    score = 0.0
+                retrieval_results.append(
+                    {
+                        "content": text,
+                        "score": score,
+                        "metadata": metadata,
+                        "id": metadata.get("chunk_id") or metadata.get("id") or f"planned:{index}",
+                        "vector_score": score,
+                        "bm25_score": 0.0,
+                    }
                 )
-                logger.info(f"Retrieved {len(retrieval_results_raw)} results from collection '{collection_name}' (vector_db: {vector_db_type}, requested top_k={top_k}, use_hybrid={use_hybrid})")
-                
-                # Convert to expected format - content can be in metadata or directly in result
-                retrieval_results = []
-                scores_before_threshold = [r.get("combined_score") or r.get("score", 0.0) for r in retrieval_results_raw]
-                max_score = max(scores_before_threshold) if scores_before_threshold else 0.0
-                original_threshold = similarity_threshold
-                threshold_was_adaptive = False
-                
-                # If threshold filters out all results, use adaptive threshold (50% of max score or 0.2, whichever is lower)
-                if max_score < similarity_threshold and len(retrieval_results_raw) > 0:
-                    adaptive_threshold = min(max_score * 0.5, 0.2)
-                    logger.warning(f"Similarity threshold {similarity_threshold} too high (max score: {max_score:.4f}). Using adaptive threshold: {adaptive_threshold:.4f}")
-                    similarity_threshold = adaptive_threshold
-                    threshold_was_adaptive = True
-                
-                for r in retrieval_results_raw:
-                    # Use combined_score if available (from RRF), otherwise use score
-                    score = r.get("combined_score") or r.get("score", 0.0)
-                    if score >= similarity_threshold:
-                        # Content can be in metadata.content or directly in result
-                        content = r.get("content") or r.get("metadata", {}).get("content", "")
-                        if not content:
-                            # Try to get from metadata directly
-                            metadata = r.get("metadata", {})
-                            content = metadata.get("content", "") or metadata.get("text", "")
-                        
-                        if content:  # Only add if we have content
-                            retrieval_results.append({
-                                "content": content,
-                                "score": score,
-                                "metadata": r.get("metadata", {}),
-                                "id": r.get("id", ""),
-                                "vector_score": r.get("vector_score", 0.0),
-                                "bm25_score": r.get("bm25_score", 0.0),
-                            })
-                
-                # Ensure we return exactly top_k results (or as many as available above threshold)
-                retrieval_results = retrieval_results[:top_k]
-                logger.info(f"Final results: {len(retrieval_results)} chunks (requested top_k={top_k}, threshold={similarity_threshold:.4f}, max_score={max_score:.4f}, vector_db={vector_db_type})")
-            except Exception as e:
-                logger.error(f"Document service search failed: {e}", exc_info=True)
-                retrieval_results = []
-            
+            retrieval_results = retrieval_results[: int(profile.get("source_display_k") or top_k or 5)]
+            retrieval_method = str(
+                metrics.get("dense_policy")
+                or retrieval_context.get("pipeline")
+                or retrieval_context.get("mode_label")
+                or "planned"
+            )
+            logger.info(
+                "Retrieved planned RAG context",
+                chunks=len(retrieval_results),
+                collection=profile.get("collection"),
+                pipeline=retrieval_context.get("pipeline"),
+                dense_policy=metrics.get("dense_policy"),
+                fallback_reason=metrics.get("fallback_reason"),
+            )
+
             retrieve_duration = int((time.time() - retrieve_start) * 1000)
             scores = [r.get("score", 0.0) for r in retrieval_results[:5]] if retrieval_results else []
             
             # Build description with retrieval details
             if retrieval_results:
-                method_desc = f"Method: {retrieval_method}"
-                if use_hybrid and any(r.get("vector_score", 0) > 0 and r.get("bm25_score", 0) > 0 for r in retrieval_results):
-                    method_desc += " (Hybrid: Vector + BM25)"
-                elif use_hybrid:
-                    method_desc += " (Hybrid: Vector only)"
-                else:
-                    method_desc += " (Vector only)"
-                
-                threshold_info = f"threshold ({similarity_threshold:.3f})"
-                if threshold_was_adaptive:
-                    threshold_info += f" [adaptive, original: {original_threshold:.3f}]"
-                
                 description = (
-                    f"Retrieved {len(retrieval_results)} chunks from collection '{collection_name}' ({vector_db_type})\n"
-                    f"{method_desc}\n"
-                    f"Filtered by similarity {threshold_info}\n"
+                    f"Retrieved {len(retrieval_results)} chunks from collection '{profile['collection']}' ({profile['vector_db']})\n"
+                    f"Method: {retrieval_method}\n"
+                    f"Budget: {profile.get('latency_profile')} · candidate_pool_k {profile.get('candidate_pool_k')}\n"
                     f"Top score: {scores[0]:.3f}" if scores else "No documents found"
                 )
             else:
                 description = (
-                    f"No chunks retrieved from collection '{collection_name}' ({vector_db_type})\n"
+                    f"No chunks retrieved from collection '{profile['collection']}' ({profile['vector_db']})\n"
                     f"Possible reasons:\n"
                     f"- Collection may be empty\n"
-                    f"- No documents match similarity threshold ({similarity_threshold})\n"
-                    f"- Query may not match indexed content"
+                    f"- Planner returned an inventory/fallback answer without chunk context\n"
+                    f"- Query may need deep retrieval refinement"
                 )
             
             yield {
@@ -259,19 +250,20 @@ class RAGAgent(BaseAgent):
                     "description": description,
                     "scores": scores,
                     "details": [
-                        f"Collection: {collection_name} ({vector_db_type})",
-                        f"Retrieved: {len(retrieval_results)}/{top_k} documents",
+                        f"Collection: {profile['collection']} ({profile['vector_db']})",
+                        f"Retrieved: {len(retrieval_results)}/{profile.get('top_k')} documents",
                         f"Top score: {scores[0]:.3f}" if scores else "No documents found",
                         f"Method: {retrieval_method}",
+                        f"Latency profile: {profile.get('latency_profile')}",
                     ] if retrieval_results else [
-                        f"Collection: {collection_name} ({vector_db_type})",
-                        f"Retrieved: 0/{top_k} documents",
-                        f"Similarity threshold: {similarity_threshold}",
+                        f"Collection: {profile['collection']} ({profile['vector_db']})",
+                        f"Retrieved: 0/{profile.get('top_k')} documents",
+                        f"Latency profile: {profile.get('latency_profile')}",
                     ]
                 }
             }
         except Exception as e:
-            logger.warning("Vector store search failed", error=str(e))
+            logger.warning("Planned RAG retrieval failed", error=str(e))
             retrieval_results = []
             yield {
                 "chunk_type": "decision_step",

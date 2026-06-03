@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, List, Literal, Optional
 
@@ -21,6 +22,7 @@ from app.services.rag.retrieval_policy import (
     query_variants_from_policy,
     rerank_results_with_policy,
 )
+from app.services.rag.sparse_backends import get_sparse_backend
 
 if TYPE_CHECKING:
     from app.services.rag.document_service import DocumentService
@@ -64,6 +66,89 @@ _DATE_DMY_RE = re.compile(r"\b([0-3]?\d)[/-]([01]?\d)[/-](20\d{2}|19\d{2})\b")
 _DATE_YMD_RE = re.compile(r"\b(20\d{2}|19\d{2})[/-]([01]?\d)[/-]([0-3]?\d)\b")
 
 
+async def _doc_search_compat(
+    doc_svc: "DocumentService",
+    query: str,
+    *,
+    top_k: int,
+    filters: dict[str, Any] | None,
+    use_hybrid: bool,
+) -> list[dict[str, Any]]:
+    if filters is None:
+        return await doc_svc.search(query, top_k=top_k, use_hybrid=use_hybrid)
+    try:
+        return await doc_svc.search(query, top_k=top_k, filters=filters, use_hybrid=use_hybrid)
+    except TypeError as exc:
+        if "filter" not in str(exc):
+            raise
+        return await doc_svc.search(query, top_k=top_k, use_hybrid=use_hybrid)
+
+
+async def _timed_doc_search(
+    doc_svc: "DocumentService",
+    query: str,
+    *,
+    top_k: int,
+    filters: dict[str, Any] | None,
+    use_hybrid: bool,
+) -> tuple[list[dict[str, Any]], int]:
+    started = time.perf_counter()
+    rows = await _doc_search_compat(doc_svc, query, top_k=top_k, filters=filters, use_hybrid=use_hybrid)
+    return list(rows or []), int((time.perf_counter() - started) * 1000)
+
+
+async def _timed_sparse_search(
+    sparse_backend: Any,
+    query: str,
+    *,
+    collection: str,
+    filters: dict[str, Any] | None,
+    top_k: int,
+    deadline_seconds: float | None,
+) -> tuple[list[dict[str, Any]], int]:
+    started = time.perf_counter()
+    rows = await sparse_backend.search(
+        query,
+        collection=collection,
+        filters=filters,
+        top_k=top_k,
+        deadline_seconds=deadline_seconds,
+    )
+    return list(rows or []), int((time.perf_counter() - started) * 1000)
+
+
+def _deadline_at(deadline_seconds: float | None) -> float | None:
+    if deadline_seconds is None:
+        return None
+    try:
+        deadline = float(deadline_seconds)
+    except (TypeError, ValueError):
+        return None
+    if deadline <= 0:
+        return time.perf_counter()
+    return time.perf_counter() + deadline
+
+
+def _remaining_deadline(deadline_at: float | None, fallback_seconds: float | None = None) -> float | None:
+    if deadline_at is None:
+        return fallback_seconds
+    return max(deadline_at - time.perf_counter(), 0.001)
+
+
+async def _cancel_pending_tasks(pending: set[asyncio.Task[Any]], *, label: str) -> None:
+    if not pending:
+        return
+    for task in pending:
+        task.cancel()
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*pending, return_exceptions=True),
+            timeout=0.05,
+        )
+    except TimeoutError:
+        logger.debug("retrieval tasks still cancelling", label=label, pending=len(pending))
+
+
 @dataclass
 class RetrievalPipelineResult:
     """Unified contract for ``retrieve_for_mode``."""
@@ -85,6 +170,7 @@ class RetrievalPipelineResult:
     # instead of the legacy "Policy chunk N" placeholder. ``default_factory``
     # keeps back-compat for callers that only read chunks/scores.
     metadatas: List[dict] = field(default_factory=list)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -149,6 +235,76 @@ def _result_content_score(r: dict[str, Any]) -> tuple[str, float]:
     content = r.get("content") or (r.get("metadata") or {}).get("content", "")
     score = float(r.get("combined_score") or r.get("score") or 0.0)
     return content.strip(), score
+
+
+def _with_sparse_metadata(
+    rows: list[dict[str, Any]],
+    *,
+    backend: str,
+    status: str,
+    fallback_reason: str | None,
+    sparse_results: int,
+    dense_elapsed_ms: int | None = None,
+    sparse_elapsed_ms: int | None = None,
+    retrieval_elapsed_ms: int | None = None,
+    deadline_seconds: float | None = None,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        copy = dict(row or {})
+        meta = dict(copy.get("metadata") or {})
+        meta["sparse_backend"] = backend
+        meta["sparse_status"] = status
+        meta["sparse_results"] = sparse_results
+        if dense_elapsed_ms is not None:
+            meta["dense_elapsed_ms"] = dense_elapsed_ms
+        if sparse_elapsed_ms is not None:
+            meta["sparse_elapsed_ms"] = sparse_elapsed_ms
+        elif copy.get("sparse_elapsed_ms") is not None:
+            meta["sparse_elapsed_ms"] = copy.get("sparse_elapsed_ms")
+        if retrieval_elapsed_ms is not None:
+            meta["retrieval_elapsed_ms"] = retrieval_elapsed_ms
+        if deadline_seconds is not None:
+            meta["retrieval_deadline_seconds"] = deadline_seconds
+        if fallback_reason:
+            meta["sparse_fallback_reason"] = fallback_reason
+        copy["metadata"] = meta
+        out.append(copy)
+    return out
+
+
+def _sparse_diagnostics_from_metas(metas: list[dict[str, Any]]) -> dict[str, Any]:
+    for meta in metas or []:
+        if not isinstance(meta, dict):
+            continue
+        if meta.get("sparse_backend") or meta.get("sparse_status") or meta.get("sparse_fallback_reason"):
+            payload = {
+                "sparse_backend": meta.get("sparse_backend"),
+                "sparse_status": meta.get("sparse_status"),
+                "sparse_results": meta.get("sparse_results"),
+            }
+            if meta.get("sparse_fallback_reason"):
+                payload["sparse_fallback_reason"] = meta.get("sparse_fallback_reason")
+            for key in ("dense_elapsed_ms", "sparse_elapsed_ms", "retrieval_elapsed_ms", "retrieval_deadline_seconds"):
+                if meta.get(key) is not None:
+                    payload[key] = meta.get(key)
+            return payload
+    return {}
+
+
+def _exact_table_diagnostics(
+    *,
+    attempted: bool,
+    hits: int,
+    elapsed_ms: int,
+) -> dict[str, Any]:
+    if not attempted and hits <= 0:
+        return {}
+    return {
+        "exact_table_attempted": bool(attempted),
+        "exact_table_hits": int(hits),
+        "exact_table_elapsed_ms": int(elapsed_ms),
+    }
 
 
 def _merge_rrf(result_lists: List[List[dict[str, Any]]], top_k: int) -> List[dict[str, Any]]:
@@ -231,11 +387,155 @@ def _results_to_chunks_scores_metas(
     return chunks, scores, metas
 
 
+async def _search_documents(
+    doc_svc: "DocumentService",
+    query: str,
+    *,
+    top_k: int,
+    filters: dict[str, Any] | None = None,
+    use_hybrid: bool = True,
+    allow_legacy_hybrid: bool = True,
+    deadline_seconds: float | None = None,
+) -> list[dict[str, Any]]:
+    """Run one bounded retrieval layer.
+
+    ``allow_legacy_hybrid=False`` is the dense-corpus guardrail: it prevents the
+    in-process BM25 warmup path and fuses dense results with the configured
+    sparse service instead.
+    """
+    top_k = max(1, int(top_k or 1))
+    if use_hybrid and not allow_legacy_hybrid:
+        retrieval_started = time.perf_counter()
+        sparse_backend = get_sparse_backend()
+        sparse_backend_name = getattr(sparse_backend, "name", "unknown")
+        sparse_configured = not (
+            sparse_backend_name == "disabled"
+            or (
+                sparse_backend_name == "opensearch"
+                and hasattr(sparse_backend, "base_url")
+                and not getattr(sparse_backend, "base_url", "")
+            )
+        )
+        sparse_status = (
+            "disabled"
+            if sparse_backend_name == "disabled"
+            else ("unavailable" if not sparse_configured else "pending")
+        )
+        sparse_fallback_reason: str | None = (
+            "sparse_disabled"
+            if sparse_backend_name == "disabled"
+            else ("sparse_unavailable" if not sparse_configured else None)
+        )
+        dense_task = asyncio.create_task(
+            _timed_doc_search(doc_svc, query, top_k=top_k, filters=filters, use_hybrid=False)
+        )
+        sparse_task = (
+            asyncio.create_task(
+                _timed_sparse_search(
+                    sparse_backend,
+                    query,
+                    collection=getattr(doc_svc, "collection_name", "documents"),
+                    filters=filters,
+                    top_k=top_k,
+                    deadline_seconds=deadline_seconds,
+                )
+            )
+            if sparse_configured
+            else None
+        )
+        tasks = {dense_task}
+        if sparse_task is not None:
+            tasks.add(sparse_task)
+        done, pending = await asyncio.wait(
+            tasks,
+            timeout=max(0.001, float(deadline_seconds or 2.0)),
+        )
+        await _cancel_pending_tasks(pending, label="sparse_dense_fanout")
+        if sparse_task is not None and sparse_task in pending:
+            sparse_status = "timeout"
+            sparse_fallback_reason = "sparse_timeout"
+        dense_results: list[dict[str, Any]] = []
+        sparse_results: list[dict[str, Any]] = []
+        dense_elapsed_ms: int | None = None
+        sparse_elapsed_ms: int | None = None
+        if dense_task in done:
+            try:
+                dense_results, dense_elapsed_ms = dense_task.result()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("dense retrieval layer failed", error=str(exc))
+        if sparse_task is not None and sparse_task in done:
+            try:
+                sparse_results, sparse_elapsed_ms = sparse_task.result()
+                if sparse_results:
+                    sparse_status = "ok"
+                    sparse_fallback_reason = None
+                elif sparse_status != "disabled":
+                    sparse_status = "empty"
+                    sparse_fallback_reason = f"sparse_{sparse_backend_name}_empty_or_unavailable"
+            except Exception as exc:  # noqa: BLE001
+                sparse_status = "error"
+                sparse_fallback_reason = "sparse_error"
+                logger.warning("sparse retrieval layer failed", error=str(exc))
+        retrieval_elapsed_ms = int((time.perf_counter() - retrieval_started) * 1000)
+        if sparse_results:
+            merged = _merge_rrf(
+                [
+                    _with_sparse_metadata(
+                        dense_results,
+                        backend=sparse_backend_name,
+                        status=sparse_status,
+                        fallback_reason=sparse_fallback_reason,
+                        sparse_results=len(sparse_results),
+                        dense_elapsed_ms=dense_elapsed_ms,
+                        sparse_elapsed_ms=sparse_elapsed_ms,
+                        retrieval_elapsed_ms=retrieval_elapsed_ms,
+                        deadline_seconds=deadline_seconds,
+                    ),
+                    _with_sparse_metadata(
+                        sparse_results,
+                        backend=sparse_backend_name,
+                        status=sparse_status,
+                        fallback_reason=sparse_fallback_reason,
+                        sparse_results=len(sparse_results),
+                        dense_elapsed_ms=dense_elapsed_ms,
+                        sparse_elapsed_ms=sparse_elapsed_ms,
+                        retrieval_elapsed_ms=retrieval_elapsed_ms,
+                        deadline_seconds=deadline_seconds,
+                    ),
+                ],
+                top_k=top_k,
+            )
+            return merged
+        return _with_sparse_metadata(
+            dense_results[:top_k],
+            backend=sparse_backend_name,
+            status=sparse_status,
+            fallback_reason=sparse_fallback_reason,
+            sparse_results=0,
+            dense_elapsed_ms=dense_elapsed_ms,
+            sparse_elapsed_ms=sparse_elapsed_ms,
+            retrieval_elapsed_ms=retrieval_elapsed_ms,
+            deadline_seconds=deadline_seconds,
+        )
+
+    search_coro = _doc_search_compat(doc_svc, query, top_k=top_k, filters=filters, use_hybrid=use_hybrid)
+    if deadline_seconds is not None:
+        try:
+            return await asyncio.wait_for(search_coro, timeout=max(0.001, float(deadline_seconds)))
+        except TimeoutError:
+            return []
+    return await search_coro
+
+
 async def retrieve_hah_like(
     doc_svc: "DocumentService",
     query: str,
     top_k: int = 5,
     retrieval_policy: RetrievalPolicy | None = None,
+    filters: dict[str, Any] | None = None,
+    use_hybrid: bool = True,
+    allow_legacy_hybrid: bool = True,
+    deadline_seconds: float | None = None,
 ) -> RetrievalPipelineResult:
     """Two-pass retrieval: query → contexts → pseudo-document → second search → RRF merge.
 
@@ -254,8 +554,17 @@ async def retrieve_hah_like(
             metadatas=[],
         )
 
+    deadline_at = _deadline_at(deadline_seconds)
     first_k = min(max(top_k * 2, top_k), HAH_FIRST_PASS_CAP)
-    pass1 = await doc_svc.search(q, top_k=first_k, use_hybrid=True)
+    pass1 = await _search_documents(
+        doc_svc,
+        q,
+        top_k=first_k,
+        filters=filters,
+        use_hybrid=use_hybrid,
+        allow_legacy_hybrid=allow_legacy_hybrid,
+        deadline_seconds=_remaining_deadline(deadline_at, deadline_seconds),
+    )
     pass1 = rerank_results_with_policy(pass1, q, retrieval_policy)
     if not pass1:
         return RetrievalPipelineResult(
@@ -274,24 +583,39 @@ async def retrieve_hah_like(
         if c:
             parts.append(c)
     pseudo = ". ".join(parts)[:HAH_PSEUDO_DOC_MAX_CHARS]
-    pass2 = await doc_svc.search(pseudo, top_k=min(HAH_SECOND_PASS_CAP, first_k + 8), use_hybrid=True)
+    remaining_seconds = _remaining_deadline(deadline_at, deadline_seconds)
+    pass2 = []
+    if deadline_at is None or float(remaining_seconds or 0.0) > 0.001:
+        pass2 = await _search_documents(
+            doc_svc,
+            pseudo,
+            top_k=min(HAH_SECOND_PASS_CAP, first_k + 8),
+            filters=filters,
+            use_hybrid=use_hybrid,
+            allow_legacy_hybrid=allow_legacy_hybrid,
+            deadline_seconds=remaining_seconds,
+        )
     pass2 = rerank_results_with_policy(pass2, q, retrieval_policy)
 
     merged = _merge_rrf([pass1, pass2] if pass2 else [pass1], top_k=top_k)
     chunks, scores, metas = _results_to_chunks_scores_metas(merged)
+    diagnostics = _sparse_diagnostics_from_metas(metas)
     detail = (
-        f"Pass1: hybrid top_{first_k}; pseudo-doc ~{len(pseudo)} chars; "
-        f"Pass2: hybrid top_{min(HAH_SECOND_PASS_CAP, first_k + 8)}; RRF merge → {len(chunks)} chunks"
+        f"Pass1: layered top_{first_k}; pseudo-doc ~{len(pseudo)} chars; "
+        f"Pass2: layered top_{min(HAH_SECOND_PASS_CAP, first_k + 8)}; RRF merge → {len(chunks)} chunks"
     )
+    if diagnostics:
+        detail = f"{detail}; sparse={diagnostics.get('sparse_status')}:{diagnostics.get('sparse_backend')}"
     logger.info("HAH-like retrieval complete", pass1=len(pass1), pass2=len(pass2), merged=len(chunks))
     return RetrievalPipelineResult(
         chunks=chunks,
         scores=scores,
         pipeline="hah_backend",
         label="HAH (backend)",
-        reason="Two-pass hybrid retrieval + RRF merge (aligned with customchain invoke_async pattern)",
+        reason="Two-pass layered retrieval + RRF merge (aligned with HAH budget-aware pattern)",
         detail=detail,
         metadatas=metas,
+        diagnostics=diagnostics,
     )
 
 
@@ -302,6 +626,14 @@ def _query_variants(
 ) -> list[str]:
     q = question.strip()
     variants = [q]
+    policy_variants = query_variants_from_policy(q, retrieval_policy)
+    policy_variants = sorted(
+        policy_variants,
+        key=lambda value: (0 if q and q in value else 1, -len(str(value))),
+    )
+    variants.extend(policy_variants)
+    if query_hints and q:
+        variants.append(f"{q}\n\nKnowledge guide hints:\n{str(query_hints)[:900]}")
     if len(q) > CHAH_QUERY_TRUNC:
         variants.append(q[:CHAH_QUERY_TRUNC].rsplit(" ", 1)[0].strip() or q[:CHAH_QUERY_TRUNC])
     words = re.split(r"\s+", q)
@@ -309,7 +641,6 @@ def _query_variants(
         variants.append(" ".join(words[:CHAH_MAX_WORDS_HEAD]))
     table_plan = TableQueryPlanner().plan(q, query_hints=query_hints)
     variants.extend(table_plan.variants)
-    variants.extend(query_variants_from_policy(q, retrieval_policy))
     # dedupe while preserving order
     seen: set[str] = set()
     out: list[str] = []
@@ -697,6 +1028,8 @@ async def _exact_table_fact_candidates(
     plan: TableQueryPlan,
     *,
     top_k: int,
+    filters: dict[str, Any] | None = None,
+    deadline_at: float | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch exact table facts by payload before dense/BM25 ranking.
 
@@ -709,16 +1042,70 @@ async def _exact_table_fact_candidates(
 
     payloads: list[dict[str, Any]] = []
 
-    async def collect(**kwargs: Any) -> None:
+    def deadline_remaining() -> float | None:
+        if deadline_at is None:
+            return None
+        return deadline_at - time.perf_counter()
+
+    def finalize_payloads() -> list[dict[str, Any]]:
+        scored: list[tuple[int, dict[str, Any]]] = []
+        seen: set[str] = set()
+        for payload in payloads:
+            content = str(payload.get("content") or "")
+            if not content:
+                continue
+            key = str(payload.get("chunk_id") or payload.get("point_id") or _content_key(content))
+            if key in seen:
+                continue
+            seen.add(key)
+            score = _score_table_payload(payload, query, plan)
+            if score <= 35:
+                continue
+            scored.append((score, _payload_to_result(payload, score=min(0.999, score / 160.0))))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [row for _, row in scored[: max(top_k * 2, top_k + 4)]]
+
+    async def collect(**kwargs: Any) -> bool:
+        remaining = deadline_remaining()
+        if remaining is not None and remaining <= 0:
+            return False
+
+        async def call_with_scope():
+            return await doc_svc.list_table_facts(
+                limit=120,
+                payload_filters=filters,
+                **kwargs,
+            )
+
+        async def call_without_scope():
+            return await doc_svc.list_table_facts(limit=120, **kwargs)
+
+        async def bounded(call_factory):
+            current_remaining = deadline_remaining()
+            if current_remaining is None:
+                return await call_factory()
+            if current_remaining <= 0:
+                raise TimeoutError()
+            return await asyncio.wait_for(call_factory(), timeout=max(0.001, current_remaining))
+
         try:
-            rows = await doc_svc.list_table_facts(limit=120, **kwargs)
+            rows = await bounded(call_with_scope)
         except TypeError:
             # Older/fake services in tests may not accept newly added filters.
-            return
+            try:
+                rows = await bounded(call_without_scope)
+            except TimeoutError:
+                return False
+            except Exception:
+                return True
+        except TimeoutError:
+            return False
         except Exception as exc:  # pragma: no cover - defensive production guard
             logger.debug("Exact table fact lookup failed", error=str(exc), filters=kwargs)
-            return
+            return True
         payloads.extend(dict(row) for row in rows)
+        return True
 
     fact_types = (
         "spreadsheet_cell_fact",
@@ -737,44 +1124,34 @@ async def _exact_table_fact_candidates(
     for label in plan.labels[:4]:
         for sheet in label_sheets:
             for stype in fact_types:
-                await collect(semantic_type=stype, sheet_name=sheet, row_label=label)
+                if not await collect(semantic_type=stype, sheet_name=sheet, row_label=label):
+                    return finalize_payloads()
         for stype in fact_types[:3]:
-            await collect(semantic_type=stype, row_label=label)
+            if not await collect(semantic_type=stype, row_label=label):
+                return finalize_payloads()
 
     for code in plan.trial_codes[:4]:
         for stype in ("spreadsheet_table_fact", "spreadsheet_row"):
-            await collect(semantic_type=stype, column_header=code)
+            if not await collect(semantic_type=stype, column_header=code):
+                return finalize_payloads()
         test_number = _trial_code_number(code)
         if test_number:
-            await collect(semantic_type="spreadsheet_row", sheet_name=f"test {test_number}")
+            if not await collect(semantic_type="spreadsheet_row", sheet_name=f"test {test_number}"):
+                return finalize_payloads()
             for metric in plan.metric_terms[:4]:
-                await collect(
+                if not await collect(
                     semantic_type="spreadsheet_table_fact",
                     sheet_name=f"test {test_number}",
                     row_label=metric,
-                )
+                ):
+                    return finalize_payloads()
 
     for sheet in plan.sheet_names[:3]:
         if not plan.labels:
-            await collect(semantic_type="spreadsheet_row", sheet_name=sheet, query=query[:80])
+            if not await collect(semantic_type="spreadsheet_row", sheet_name=sheet, query=query[:80]):
+                return finalize_payloads()
 
-    scored: list[tuple[int, dict[str, Any]]] = []
-    seen: set[str] = set()
-    for payload in payloads:
-        content = str(payload.get("content") or "")
-        if not content:
-            continue
-        key = str(payload.get("chunk_id") or payload.get("point_id") or _content_key(content))
-        if key in seen:
-            continue
-        seen.add(key)
-        score = _score_table_payload(payload, query, plan)
-        if score <= 35:
-            continue
-        scored.append((score, _payload_to_result(payload, score=min(0.999, score / 160.0))))
-
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return [row for _, row in scored[: max(top_k * 2, top_k + 4)]]
+    return finalize_payloads()
 
 
 def _is_spreadsheet_evidence(content: str) -> bool:
@@ -839,6 +1216,12 @@ async def retrieve_chah_like(
     top_k: int = 5,
     query_hints: str | None = None,
     retrieval_policy: RetrievalPolicy | None = None,
+    filters: dict[str, Any] | None = None,
+    use_hybrid: bool = True,
+    allow_legacy_hybrid: bool = True,
+    deadline_seconds: float | None = None,
+    max_variants: int = 3,
+    max_candidates: int = 80,
 ) -> RetrievalPipelineResult:
     """Parallel retrieval over query variants + RRF merge (C-HAH-like).
 
@@ -857,42 +1240,92 @@ async def retrieve_chah_like(
             metadatas=[],
         )
 
+    deadline_at = _deadline_at(deadline_seconds)
     table_plan = TableQueryPlanner().plan(q, query_hints=query_hints)
-    exact_rows = await _exact_table_fact_candidates(doc_svc, q, table_plan, top_k=top_k)
-    variants = _query_variants(q, query_hints=query_hints, retrieval_policy=retrieval_policy)
+    exact_started = time.perf_counter()
+    exact_rows = await _exact_table_fact_candidates(
+        doc_svc,
+        q,
+        table_plan,
+        top_k=top_k,
+        filters=filters,
+        deadline_at=deadline_at,
+    )
+    exact_table_elapsed_ms = int((time.perf_counter() - exact_started) * 1000)
+    variants = _query_variants(q, query_hints=query_hints, retrieval_policy=retrieval_policy)[
+        : max(1, int(max_variants or 3))
+    ]
     # Per-variant fan-out. A deliberately wide top_k (document-discovery widening
     # in context.py passes top_k≈40) digs deeper per variant so specific annex /
     # operating-manual docs reach the pool; for any normal top_k (< 30) this is the
     # exact original ``min(12, top_k + 7)`` cap, so non-discovery is unchanged.
-    per_variant_k = top_k if top_k >= 30 else min(12, top_k + 7)
-    searches = [doc_svc.search(v, top_k=per_variant_k, use_hybrid=True) for v in variants]
-    lists = await asyncio.gather(*searches)
+    per_variant_k = min(top_k if top_k >= 30 else min(12, top_k + 7), max(1, int(max_candidates or 80)))
+    remaining_seconds = _remaining_deadline(deadline_at, deadline_seconds)
+    tasks = [
+        asyncio.create_task(
+            _search_documents(
+                doc_svc,
+                v,
+                top_k=per_variant_k,
+                filters=filters,
+                use_hybrid=use_hybrid,
+                allow_legacy_hybrid=allow_legacy_hybrid,
+                deadline_seconds=remaining_seconds,
+            )
+        )
+        for v in variants
+        if deadline_at is None or float(remaining_seconds or 0.0) > 0.001
+    ]
+    done, pending = await asyncio.wait(
+        tasks,
+        timeout=max(0.001, float(remaining_seconds or 4.0)),
+    ) if tasks else (set(), set())
+    await _cancel_pending_tasks(pending, label="chah_variants")
+    lists = []
+    for task in tasks:
+        if task not in done:
+            continue
+        try:
+            lists.append(task.result() or [])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("C-HAH variant search failed", error=str(exc))
     lists = [rerank_results_with_policy(list(rows or []), q, retrieval_policy) for rows in lists]
     # Cap the RRF merge pool. The ceiling scales with top_k so a deliberately wide
     # caller gets a wide candidate pool; for normal top_k (≤30) this is identical
     # to ``min(…, 30)``.
-    candidate_k = min(max(top_k * 4, top_k + 10), max(30, top_k))
+    candidate_k = min(max(top_k * 4, top_k + 10), max(top_k, int(max_candidates or 80)))
     merged = _prioritise_spreadsheet_label_matches(
         _merge_rrf(list(lists), top_k=candidate_k),
         q,
     )
     merged = _prepend_exact_table_candidates(exact_rows, merged)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(merged)
+    diagnostics = {
+        **_sparse_diagnostics_from_metas(metas),
+        **_exact_table_diagnostics(
+            attempted=table_plan.is_table_query,
+            hits=len(exact_rows),
+            elapsed_ms=exact_table_elapsed_ms,
+        ),
+    }
     v_preview = repr(variants)[:200]
     detail = (
-        f"Parallel hybrid searches: {len(variants)} query variant(s); "
+        f"Parallel layered searches: {len(lists)}/{len(variants)} query variant(s); "
         f"RRF candidate merge top_{candidate_k}; exact_table_hits={len(exact_rows)} "
         f"→ {len(chunks)} chunks. Variants: {v_preview}"
     )
+    if diagnostics:
+        detail = f"{detail}; sparse={diagnostics.get('sparse_status')}:{diagnostics.get('sparse_backend')}"
     logger.info("C-HAH-like retrieval complete", variants=len(variants), merged=len(chunks))
     return RetrievalPipelineResult(
         chunks=chunks,
         scores=scores,
         pipeline="chah_backend",
         label="C-HAH (backend)",
-        reason="Parallel hybrid retrieval over query variants + RRF merge",
+        reason="Parallel budget-aware layered retrieval over query variants + RRF merge",
         detail=detail,
         metadatas=metas,
+        diagnostics=diagnostics,
     )
 
 
@@ -910,6 +1343,11 @@ async def retrieve_for_mode(
     hah_chah_enabled: bool = True,
     query_hints: str | None = None,
     retrieval_policy: RetrievalPolicy | None = None,
+    filters: dict[str, Any] | None = None,
+    deadline_seconds: float | None = None,
+    max_variants: int = 3,
+    max_candidates: int = 80,
+    allow_legacy_hybrid: bool = True,
 ) -> RetrievalPipelineResult:
     """
     Single entry for RAG retrieval by pipeline mode.
@@ -931,7 +1369,16 @@ async def retrieve_for_mode(
     m = _normalize_mode(mode)
 
     if hah_chah_enabled and m in ("hah", "hah_rag", "hah rag"):
-        return await retrieve_hah_like(doc_svc, query, top_k=top_k, retrieval_policy=retrieval_policy)
+        return await retrieve_hah_like(
+            doc_svc,
+            query,
+            top_k=top_k,
+            retrieval_policy=retrieval_policy,
+            filters=filters,
+            use_hybrid=use_hybrid,
+            allow_legacy_hybrid=allow_legacy_hybrid,
+            deadline_seconds=deadline_seconds,
+        )
     if hah_chah_enabled and m in ("chah", "c-hah", "c_hah", "hahcomposite", "hah_composite"):
         return await retrieve_chah_like(
             doc_svc,
@@ -939,31 +1386,67 @@ async def retrieve_for_mode(
             top_k=top_k,
             query_hints=query_hints,
             retrieval_policy=retrieval_policy,
+            filters=filters,
+            use_hybrid=use_hybrid,
+            allow_legacy_hybrid=allow_legacy_hybrid,
+            deadline_seconds=deadline_seconds,
+            max_variants=max_variants,
+            max_candidates=max_candidates,
         )
 
+    deadline_at = _deadline_at(deadline_seconds)
     table_plan = TableQueryPlanner().plan(query, query_hints=query_hints)
-    exact_rows = await _exact_table_fact_candidates(doc_svc, query, table_plan, top_k=top_k)
+    exact_started = time.perf_counter()
+    exact_rows = await _exact_table_fact_candidates(
+        doc_svc,
+        query,
+        table_plan,
+        top_k=top_k,
+        filters=filters,
+        deadline_at=deadline_at,
+    )
+    exact_table_elapsed_ms = int((time.perf_counter() - exact_started) * 1000)
     search_query = query
     if query_hints:
         search_query = f"{query}\n\nKnowledge guide hints:\n{str(query_hints)[:900]}"
     candidate_k = top_k
     if table_plan.is_table_query:
         candidate_k = min(max(top_k * 4, top_k + 10), 30)
-    results = await doc_svc.search(search_query, top_k=candidate_k, use_hybrid=use_hybrid)
+    results = await _search_documents(
+        doc_svc,
+        search_query,
+        top_k=candidate_k,
+        filters=filters,
+        use_hybrid=use_hybrid,
+        allow_legacy_hybrid=allow_legacy_hybrid,
+        deadline_seconds=_remaining_deadline(deadline_at, deadline_seconds),
+    )
     results = rerank_results_with_policy(results, query, retrieval_policy)
     results = _prioritise_spreadsheet_label_matches(results, query)
     results = _prepend_exact_table_candidates(exact_rows, results)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(results)
+    diagnostics = {
+        **_sparse_diagnostics_from_metas(metas),
+        **_exact_table_diagnostics(
+            attempted=table_plan.is_table_query,
+            hits=len(exact_rows),
+            elapsed_ms=exact_table_elapsed_ms,
+        ),
+    }
     pipe: Literal["naive", "hybrid"] = "hybrid" if use_hybrid else "naive"
+    detail = (
+        f"use_hybrid={use_hybrid} top_k={top_k} candidate_k={candidate_k} "
+        f"exact_table_hits={len(exact_rows)}"
+    )
+    if diagnostics:
+        detail = f"{detail}; sparse={diagnostics.get('sparse_status')}:{diagnostics.get('sparse_backend')}"
     return RetrievalPipelineResult(
         chunks=chunks,
         scores=scores,
         pipeline=pipe,
         label="vector_only" if not use_hybrid else "hybrid_rrf",
         reason="Standard DocumentService.search",
-        detail=(
-            f"use_hybrid={use_hybrid} top_k={top_k} candidate_k={candidate_k} "
-            f"exact_table_hits={len(exact_rows)}"
-        ),
+        detail=detail,
         metadatas=metas,
+        diagnostics=diagnostics,
     )

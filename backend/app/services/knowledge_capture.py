@@ -1015,31 +1015,28 @@ async def _retrieve_context_chunks_async(
     try:
         ctx = _load_context(db, workspace_id, session.context_id)
         collection_name = _resolve_collection_name(ctx)
-        from app.core.settings_manager import get_resolved_settings
-        from app.services.rag.document_service import DocumentService
-        from app.services.rag.pipeline_retrieval import retrieve_for_mode
-        from app.services.rag.vector_store_config import resolve_vector_db_type
+        from app.services.rag.context import retrieve_rag_context
 
-        app_settings = get_resolved_settings(
-            workspace_id=workspace_id,
-            capability_id=session.capability_id,
-            system_id=session.system_id,
+        result = await retrieve_rag_context(
+            {
+                "query": text,
+                "workspace_id": workspace_id,
+                "workspace_slug": workspace_slug,
+                "capability_id": session.capability_id,
+                "system_id": session.system_id,
+                "context_collection": collection_name,
+                "latency_profile": "fast",
+                "rag_pipeline_mode": "auto",
+                "top_k": max(1, min(top_k, 8)),
+                "source_display_k": max(1, min(top_k, 8)),
+                "candidate_pool_k": 20,
+            }
         )
-        vector_db_type = resolve_vector_db_type(app_settings)
-        doc_svc = DocumentService(
-            collection_name=collection_name,
-            vector_db_type=vector_db_type,
-            workspace_slug=workspace_slug,
+        return (
+            list(result.get("chunks") or []),
+            list(result.get("metadatas") or []),
+            list(result.get("scores") or []),
         )
-        result = await retrieve_for_mode(
-            doc_svc,
-            text,
-            "chah",
-            top_k=max(1, min(top_k, 8)),
-            use_hybrid=True,
-            hah_chah_enabled=True,
-        )
-        return list(result.chunks), list(result.metadatas or []), list(result.scores or [])
     except Exception:
         return [], [], []
 
@@ -2726,6 +2723,7 @@ def process_conversation_step(
     last_proposal_id: Optional[str],
     actor_user_id: Optional[str] = None,
     actor_label: Optional[str] = None,
+    contradiction_candidates: Optional[List[Dict[str, Any]]] = None,
     proposal_acceptance_validator: Optional[Callable[[KnowledgeUpdateProposal], None]] = None,
 ) -> Dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
@@ -2765,6 +2763,7 @@ def process_conversation_step(
             interruption_of_event_id=interruption_of_event_id,
             turn_kind=turn_kind,
             actor_user_id=actor_user_id,
+            contradiction_candidates=contradiction_candidates,
         )
         action_taken = "turn_appended"
         next_prompt = turn_payload.get("next_prompt")
@@ -2782,6 +2781,7 @@ def process_conversation_step(
                 interruption_of_event_id=interruption_of_event_id,
                 turn_kind="answer",
                 actor_user_id=actor_user_id,
+                contradiction_candidates=contradiction_candidates,
             )
         session = get_session(db, workspace_id=workspace_id, session_id=session_id)
         if _session_has_proposal_material(db, workspace_id=workspace_id, session=session):
@@ -3009,7 +3009,6 @@ def relance_to_suggestions(relance: Optional[Dict[str, Optional[str]]]) -> List[
     kind = str(relance.get("kind") or "relance")
     return [
         {
-            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge-capture:{kind}:{text}")),
             "kind": kind,
             "text": text,
         }
@@ -3095,7 +3094,7 @@ def structure_capture_payload(
         "open_questions": open_questions,
         "transcript": [],
         "transcript_events": [],
-        "amendments": [],
+        "amendments": amendments,
         "knowledge_sheet_template": template_id,
         "report_markdown": markdown,
         "recommended_ingestion": {
@@ -4189,49 +4188,39 @@ async def prefetch_capture_retrieval(
     try:
         ctx = _load_context(db, workspace_id, session.context_id)
         collection_name = _resolve_collection_name(ctx)
-        from app.core.settings_manager import get_resolved_settings
-        from app.services.rag.document_service import DocumentService
-        from app.services.rag.pipeline_retrieval import retrieve_for_mode
-        from app.services.rag.vector_store_config import resolve_vector_db_type
+        from app.services.rag.context import retrieve_rag_context
 
-        app_settings = get_resolved_settings(
-            workspace_id=workspace_id,
-            capability_id=session.capability_id,
-            system_id=session.system_id,
-        )
-        vector_db_type = resolve_vector_db_type(app_settings)
-        doc_svc = DocumentService(
-            collection_name=collection_name,
-            vector_db_type=vector_db_type,
-            workspace_slug=workspace_slug,
-        )
-        # Live prefetch forces dense-only vector search regardless of the requested
-        # mode. The hybrid/CHAH paths build an in-memory BM25 index from the whole
-        # collection on first use (~2.8-3.8s cold for large collections) and the
-        # per-process worker caches cannot be warmed reliably across the gunicorn
-        # worker pool, so chah/hybrid prefetch blew RETRIEVAL_PREFETCH_TIMEOUT_SECONDS
-        # and returned zero chunks (empty "Contexte retrouvé" panel). Dense-only
-        # qdrant search is ~0.2-1.0s cold on any worker and needs no full-collection load.
-        result = await asyncio.wait_for(
-            retrieve_for_mode(
-                doc_svc,
-                text,
-                "dense",
-                top_k=max(1, min(top_k, 8)),
-                use_hybrid=False,
-                hah_chah_enabled=False,
+        retrieval_context = await asyncio.wait_for(
+            retrieve_rag_context(
+                {
+                    "query": text,
+                    "workspace_id": workspace_id,
+                    "workspace_slug": workspace_slug,
+                    "capability_id": session.capability_id,
+                    "system_id": session.system_id,
+                    "context_collection": collection_name,
+                    "latency_profile": "fast",
+                    "rag_pipeline_mode": "auto",
+                    "top_k": max(1, min(top_k, 8)),
+                    "source_display_k": max(1, min(top_k, 8)),
+                    "candidate_pool_k": 20,
+                }
             ),
             timeout=timeout_seconds,
         )
-        chunks = result.chunks
-        scores = result.scores
-        metadatas = result.metadatas
+        metrics = retrieval_context.get("metrics") if isinstance(retrieval_context.get("metrics"), dict) else {}
+        chunks = list(retrieval_context.get("chunks") or [])
+        scores = list(retrieval_context.get("scores") or [])
+        metadatas = list(retrieval_context.get("metadatas") or [])
         detail = {
-            "pipeline": result.pipeline,
-            "label": result.label,
-            "reason": result.reason,
-            "detail": result.detail,
-            "vector_db_type": vector_db_type,
+            "pipeline": retrieval_context.get("pipeline"),
+            "label": retrieval_context.get("label"),
+            "reason": retrieval_context.get("reason"),
+            "detail": retrieval_context.get("detail"),
+            "vector_db_type": metrics.get("vector_db_type"),
+            "dense_policy": metrics.get("dense_policy"),
+            "scope_confidence": metrics.get("scope_confidence"),
+            "fallback_reason": metrics.get("fallback_reason"),
         }
     except TimeoutError:
         status = "timeout"

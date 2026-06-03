@@ -324,7 +324,7 @@ interface SearchResult {
         </div>
         <label class="flex items-center gap-2 text-xs text-gray-400 mt-2 cursor-pointer">
           <input type="checkbox" [(ngModel)]="useHybrid" name="sh" class="accent-brand-500" />
-          Use hybrid (BM25 + vector)
+          Use hybrid (sparse + vector)
         </label>
       </form>
 

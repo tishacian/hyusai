@@ -51,7 +51,11 @@ interface EmbeddingGraphPayload {
   collection_name: string;
   document_id?: string | null;
   sample: number;
+  sample_requested?: number;
+  sample_cap?: number;
+  sample_capped?: boolean;
   total_chunks?: number;
+  total_is_dense?: boolean;
   neighbors: number;
   min_score: number;
   vector_dim?: number | null;
@@ -228,6 +232,9 @@ interface PlottedEdge {
               <div class="rounded border border-white/10 bg-black/20 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-gray-500">Sample</div>
                 <div class="mt-1 font-semibold text-white tabular-nums">{{ graph()?.sample || 0 }} / {{ graph()?.total_chunks || '—' }}</div>
+                @if (graph()?.sample_capped) {
+                  <div class="mt-1 text-[10px] text-amber-100">cap {{ graph()?.sample_cap }}</div>
+                }
               </div>
               <div class="rounded border border-white/10 bg-black/20 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-gray-500">Projection</div>
@@ -342,7 +349,8 @@ export class EmbeddingMapComponent {
   readonly graphSummary = computed(() => {
     const graph = this.graph();
     if (!graph) return 'Sampled embedding clusters load on demand.';
-    return `${graph.sample} sampled chunk(s), ${graph.edges?.length || 0} similarity edge(s), ${graph.projection} projection.`;
+    const cap = graph.sample_capped ? `, capped from ${graph.sample_requested}` : '';
+    return `${graph.sample} sampled chunk(s)${cap}, ${graph.edges?.length || 0} similarity edge(s), ${graph.projection} projection.`;
   });
 
   constructor() {

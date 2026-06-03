@@ -19,11 +19,11 @@ const PROVIDERS: ProviderOption[] = [
 ];
 
 const RAG_MODES = [
-  { value: 'auto', label: 'Auto', desc: 'Heuristic routing between modes' },
-  { value: 'naive', label: 'Naive', desc: 'Vector similarity only' },
-  { value: 'hybrid', label: 'Hybrid', desc: 'Vector + BM25 fusion' },
-  { value: 'hah', label: 'HAH', desc: 'Hierarchical agentic heuristic' },
-  { value: 'chah', label: 'CHAH', desc: 'Contextual hierarchical agentic heuristic' },
+  { value: 'auto', label: 'Auto', desc: 'Planner-routed, budget-aware retrieval' },
+  { value: 'naive', label: 'Naive', desc: 'Dense vectors only' },
+  { value: 'hybrid', label: 'Hybrid', desc: 'Sparse + dense when budget allows' },
+  { value: 'hah', label: 'HAH', desc: 'Expert hierarchical retrieval' },
+  { value: 'chah', label: 'CHAH', desc: 'Expert composite hierarchical retrieval' },
 ] as const;
 
 @Component({
@@ -223,7 +223,7 @@ const RAG_MODES = [
           <div class="flex items-center justify-between py-2 border-t border-white/5 pt-3">
             <div>
               <div class="text-sm text-white font-medium">Hybrid search</div>
-              <div class="text-[11px] text-gray-500">Fuse vector + BM25 scores</div>
+              <div class="text-[11px] text-gray-500">Planner-bounded sparse + dense retrieval</div>
             </div>
             <button
               type="button"
@@ -259,7 +259,7 @@ const RAG_MODES = [
               </div>
               <div>
                 <div class="flex justify-between items-baseline">
-                  <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">BM25 weight</label>
+                  <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Sparse weight</label>
                   <span class="font-mono text-xs text-brand-300">{{ fmt(draft().ragBM25Weight, 2) }}</span>
                 </div>
                 <input

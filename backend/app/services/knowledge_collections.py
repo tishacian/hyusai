@@ -256,6 +256,11 @@ def collection_inventory(
     source_kind: str | None = None,
     extension: str | None = None,
     status: str | None = None,
+    project_code: str | None = None,
+    archive_name: str | None = None,
+    document_id: str | list[str] | None = None,
+    document_filename: str | list[str] | None = None,
+    language: str | None = None,
     sort: str = "filename",
     sort_dir: str = "asc",
 ) -> dict[str, Any]:
@@ -284,6 +289,56 @@ def collection_inventory(
     if status:
         wanted = status.strip().lower()
         filtered_rows = [row for row in filtered_rows if str(row.status or "").lower() == wanted]
+    if project_code:
+        wanted = project_code.strip().lower()
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if wanted in {
+                str((row.source_metadata or {}).get("project_code") or "").lower(),
+                str((row.source_metadata or {}).get("project") or "").lower(),
+                str((row.source_metadata or {}).get("machine") or "").lower(),
+                str((row.source_metadata or {}).get("line") or "").lower(),
+            }
+            or wanted in str(row.filename or "").lower()
+        ]
+    if archive_name:
+        wanted = archive_name.strip().lower()
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if wanted == str((row.source_metadata or {}).get("archive_name") or "").lower()
+            or wanted in str(row.filename or "").lower()
+        ]
+
+    def _wanted_values(value: str | list[str] | None) -> set[str]:
+        if value is None:
+            return set()
+        raw_values = value if isinstance(value, list) else [value]
+        return {str(item).strip().lower() for item in raw_values if str(item).strip()}
+
+    wanted_document_ids = _wanted_values(document_id)
+    if wanted_document_ids:
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if str((row.source_metadata or {}).get("document_id") or "").lower() in wanted_document_ids
+        ]
+    wanted_filenames = _wanted_values(document_filename)
+    if wanted_filenames:
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if str(row.filename or "").lower() in wanted_filenames
+            or str(row.normalized_name or "").lower() in wanted_filenames
+        ]
+    if language:
+        wanted = language.strip().lower()
+        filtered_rows = [
+            row
+            for row in filtered_rows
+            if str((row.source_metadata or {}).get("language") or "").lower() == wanted
+        ]
 
     sort_key = (sort or "filename").strip().lower()
     reverse = (sort_dir or "asc").strip().lower() == "desc"
@@ -395,6 +450,11 @@ def collection_inventory(
             "source_kind": source_kind or "",
             "extension": extension or "",
             "status": status or "",
+            "project_code": project_code or "",
+            "archive_name": archive_name or "",
+            "document_id": sorted(wanted_document_ids),
+            "document_filename": sorted(wanted_filenames),
+            "language": language or "",
             "sort": sort_key,
             "sort_dir": "desc" if reverse else "asc",
         },
@@ -540,8 +600,15 @@ def document_manifest_key(collection: KnowledgeCollection) -> str:
     return get_object_store().key(collection.artifact_prefix, "metadata", "document-manifest.json")
 
 
-def serialize_job(job: WorkerJob) -> dict[str, Any]:
-    result = job.result or {}
+def serialize_job(job: WorkerJob, *, include_retrieval_context: bool = False) -> dict[str, Any]:
+    result = dict(job.result or {})
+    if (
+        job.kind == "rag_deep_retrieval"
+        and not include_retrieval_context
+        and "retrieval_context" in result
+    ):
+        result.pop("retrieval_context", None)
+        result["retrieval_context_omitted"] = True
     return {
         "id": job.id,
         "workspace_id": job.workspace_id,
@@ -553,6 +620,7 @@ def serialize_job(job: WorkerJob) -> dict[str, Any]:
         "error": job.error,
         "stage": result.get("stage"),
         "result": result,
+        "poll_url": f"/documents/jobs/{job.id}",
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,

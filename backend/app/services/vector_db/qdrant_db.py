@@ -16,6 +16,18 @@ logger = get_logger(__name__)
 
 # Fixed namespace for deterministic UUID point ids from string chunk ids
 _CHUNK_ID_NAMESPACE = uuid.UUID("018f3f8e-7b4e-7f3a-9c0d-4a6b8e1c2d30")
+_PAYLOAD_INDEX_FIELDS = (
+    "collection",
+    "collection_slug",
+    "document_id",
+    "document_filename",
+    "source_kind",
+    "extension",
+    "project_code",
+    "archive_name",
+    "language",
+    "status",
+)
 
 
 def _sanitize_payload(metadata: Dict[str, Any]) -> Dict[str, Any]:
@@ -50,6 +62,7 @@ class QdrantVectorDB(VectorDBBase):
         self.collection_name = collection_name
         self.client = client
         self._dimension: Optional[int] = None
+        self._payload_indexes_ensured = False
 
     def _point_id(self, chunk_id: str) -> str:
         return str(uuid.uuid5(_CHUNK_ID_NAMESPACE, f"{self.collection_name}:{chunk_id}"))
@@ -76,11 +89,13 @@ class QdrantVectorDB(VectorDBBase):
 
         self._dimension = dimension
         if self.client.collection_exists(self.collection_name):
+            self._ensure_payload_indexes()
             return
         self.client.create_collection(
             collection_name=self.collection_name,
             vectors_config=VectorParams(size=dimension, distance=Distance.COSINE),
         )
+        self._ensure_payload_indexes()
         logger.info(f"Created Qdrant collection '{self.collection_name}' dim={dimension}")
 
     def _ensure_collection(self, dimension: int):
@@ -92,6 +107,38 @@ class QdrantVectorDB(VectorDBBase):
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(size=dimension, distance=Distance.COSINE),
             )
+            self._ensure_payload_indexes()
+
+    def _ensure_payload_indexes(self):
+        if self.client is None:
+            return
+        try:
+            from qdrant_client.models import PayloadSchemaType
+        except Exception:  # pragma: no cover - old client fallback
+            PayloadSchemaType = None  # type: ignore
+        for field in _PAYLOAD_INDEX_FIELDS:
+            try:
+                kwargs = {
+                    "collection_name": self.collection_name,
+                    "field_name": field,
+                    "wait": False,
+                }
+                if PayloadSchemaType is not None:
+                    kwargs["field_schema"] = PayloadSchemaType.KEYWORD
+                self.client.create_payload_index(**kwargs)
+            except Exception as exc:  # noqa: BLE001 - idempotent/index-exists path.
+                logger.debug(
+                    "Qdrant payload index skipped",
+                    collection=self.collection_name,
+                    field=field,
+                    error=str(exc),
+                )
+        self._payload_indexes_ensured = True
+
+    def _ensure_payload_indexes_once(self):
+        if self._payload_indexes_ensured or self.client is None:
+            return
+        self._ensure_payload_indexes()
 
     async def add_vectors(
         self, vectors: np.ndarray, metadatas: List[Dict], ids: List[str]
@@ -131,11 +178,18 @@ class QdrantVectorDB(VectorDBBase):
     def _filters_to_qdrant(self, filters: Optional[Dict]) -> Optional[Any]:
         if not filters:
             return None
-        from qdrant_client.models import FieldCondition, Filter, MatchValue
+        from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 
         must = []
         for key, value in filters.items():
-            must.append(FieldCondition(key=str(key), match=MatchValue(value=value)))
+            if value in (None, "", []):
+                continue
+            if isinstance(value, (list, tuple, set)):
+                values = [item for item in value if item not in (None, "")]
+                if values:
+                    must.append(FieldCondition(key=str(key), match=MatchAny(any=list(values))))
+            else:
+                must.append(FieldCondition(key=str(key), match=MatchValue(value=value)))
         return Filter(must=must) if must else None
 
     async def search(
@@ -148,6 +202,8 @@ class QdrantVectorDB(VectorDBBase):
 
         loop = asyncio.get_event_loop()
         qf = self._filters_to_qdrant(filters)
+        if qf is not None:
+            self._ensure_payload_indexes_once()
 
         def _search():
             qn = np.linalg.norm(query_vector)
@@ -214,6 +270,8 @@ class QdrantVectorDB(VectorDBBase):
             return 0
         loop = asyncio.get_event_loop()
         qf = self._filters_to_qdrant(filters)
+        if qf is not None:
+            self._ensure_payload_indexes_once()
 
         def _c():
             return self.client.count(
@@ -260,6 +318,7 @@ class QdrantVectorDB(VectorDBBase):
 
         loop = asyncio.get_event_loop()
         flt = Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))])
+        self._ensure_payload_indexes_once()
 
         def _scroll():
             chunk_ids: List[str] = []
@@ -299,6 +358,7 @@ class QdrantVectorDB(VectorDBBase):
 
         loop = asyncio.get_event_loop()
         flt = Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))])
+        self._ensure_payload_indexes_once()
 
         def _scroll_first():
             records, _ = self.client.scroll(
@@ -326,6 +386,8 @@ class QdrantVectorDB(VectorDBBase):
         limit = max(1, min(int(limit or 100), 500))
         offset_count = max(0, int(offset or 0))
         qf = self._filters_to_qdrant(filters)
+        if qf is not None:
+            self._ensure_payload_indexes_once()
         loop = asyncio.get_event_loop()
 
         def _scroll_payloads():
@@ -411,6 +473,8 @@ class QdrantVectorDB(VectorDBBase):
             return []
         limit = max(1, min(int(limit or 200), 1000))
         qf = self._filters_to_qdrant(filters)
+        if qf is not None:
+            self._ensure_payload_indexes_once()
         loop = asyncio.get_event_loop()
 
         def _as_vector(raw) -> Optional[List[float]]:

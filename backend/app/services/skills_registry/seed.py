@@ -15,6 +15,22 @@ from app.models.capability import Capability
 from app.models.skill import Skill
 
 
+RETRIEVAL_POLICY_PROPERTIES: Dict[str, Any] = {
+    "top_k": {"type": "integer", "default": 5},
+    "candidate_pool_k": {"type": "integer"},
+    "synthesis_k": {"type": "integer"},
+    "source_display_k": {"type": "integer"},
+    "rag_pipeline_mode": {"type": "string", "enum": ["auto", "vector", "dense", "hybrid", "hah", "chah"]},
+    "latency_profile": {"type": "string", "enum": ["fast", "balanced", "deep"]},
+    "deep_retrieval": {"type": "boolean"},
+    "knowledge_scope": {"type": "string"},
+    "collection": {"type": "string"},
+    "collection_name": {"type": "string"},
+    "context_collection": {"type": "string"},
+    "retrieval_filters": {"type": "object"},
+}
+
+
 # ---- Skills ----------------------------------------------------------------
 # (slug, version, name, description, type, provider, certification, execution,
 #  pricing, input_schema, output_schema)
@@ -32,6 +48,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "input_schema": {"type": "object", "required": ["query"], "properties": {
             "query": {"type": "string"},
             "context_id": {"type": "string"},
+            **RETRIEVAL_POLICY_PROPERTIES,
         }},
         "output_schema": {"type": "object", "properties": {
             "answer": {"type": "string"},
@@ -43,7 +60,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "slug": "semantic_search_v1",
         "version": "1",
         "name": "Semantic Search",
-        "description": "Vector + lexical hybrid search over the knowledge base.",
+        "description": "Budget-aware sparse+dense search over the knowledge base.",
         "type": "retrieval",
         "provider": "internal",
         "certification_level": "production",
@@ -51,7 +68,9 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "pricing": {"unit": "per_call", "unit_price": 0.0008, "currency": "USD"},
         "input_schema": {"type": "object", "required": ["query"], "properties": {
             "query": {"type": "string"},
-            "top_k": {"type": "integer", "default": 5},
+            "mode": {"type": "string"},
+            "rag_pipeline_mode": {"type": "string"},
+            **RETRIEVAL_POLICY_PROPERTIES,
         }},
         "output_schema": {"type": "object", "properties": {
             "results": {"type": "array"},
@@ -988,7 +1007,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "input_schema": {"type": "object", "required": ["query"], "properties": {
             "query": {"type": "string"},
             "context_id": {"type": "string"},
-            "top_k": {"type": "integer", "default": 5},
+            **RETRIEVAL_POLICY_PROPERTIES,
         }},
         "output_schema": {"type": "object", "properties": {
             "answer": {"type": "string"},
@@ -1000,7 +1019,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "slug": "chain_hybrid_v1",
         "version": "1",
         "name": "RAG Chain · Hybrid (HAH)",
-        "description": "Two-pass hybrid retrieval (BM25 + dense) with RRF fusion before the LLM answer.",
+        "description": "Two-pass sparse+dense retrieval with RRF fusion before the LLM answer.",
         "type": "rag",
         "provider": "internal",
         "certification_level": "production",
@@ -1009,7 +1028,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "input_schema": {"type": "object", "required": ["query"], "properties": {
             "query": {"type": "string"},
             "context_id": {"type": "string"},
-            "top_k": {"type": "integer", "default": 5},
+            **RETRIEVAL_POLICY_PROPERTIES,
         }},
         "output_schema": {"type": "object", "properties": {
             "answer": {"type": "string"},
@@ -1021,7 +1040,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "slug": "chain_mixed_hah_v1",
         "version": "1",
         "name": "RAG Chain · Composite HAH (C-HAH)",
-        "description": "Parallel multi-strategy retrieval: runs several query rephrasings concurrently and fuses via RRF before the LLM answer.",
+        "description": "Budget-aware C-HAH retrieval: runs scoped query variants and fuses via RRF before the LLM answer.",
         "type": "rag",
         "provider": "internal",
         "certification_level": "production",
@@ -1030,7 +1049,7 @@ SEED_SKILLS: List[Dict[str, Any]] = [
         "input_schema": {"type": "object", "required": ["query"], "properties": {
             "query": {"type": "string"},
             "context_id": {"type": "string"},
-            "top_k": {"type": "integer", "default": 5},
+            **RETRIEVAL_POLICY_PROPERTIES,
         }},
         "output_schema": {"type": "object", "properties": {
             "answer": {"type": "string"},

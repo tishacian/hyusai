@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -49,6 +50,36 @@ from app.services.voice_transcript_glossary import (
 
 
 logger = get_logger(__name__)
+_ORIGINAL_RETRIEVE_CONTEXT_CHUNKS = _retrieve_context_chunks
+
+
+def _provider_accepts_language(provider: Any) -> bool:
+    try:
+        signature = inspect.signature(provider.transcribe)
+    except (TypeError, ValueError):
+        return True
+    parameters = signature.parameters
+    return "language" in parameters or any(
+        param.kind == inspect.Parameter.VAR_KEYWORD
+        for param in parameters.values()
+    )
+
+
+async def _transcribe_audio(
+    provider: Any,
+    audio_bytes: bytes,
+    *,
+    filename: str,
+    content_type: str,
+    language: str,
+) -> Dict[str, Any]:
+    kwargs: Dict[str, Any] = {
+        "filename": filename,
+        "content_type": content_type,
+    }
+    if _provider_accepts_language(provider):
+        kwargs["language"] = language
+    return await provider.transcribe(audio_bytes, **kwargs)
 
 
 @dataclass
@@ -469,7 +500,8 @@ class VoiceSessionGateway:
         state.last_partial_stt_at = now
         state.last_partial_chunk_count = chunk_count
         try:
-            transcript = await provider.transcribe(
+            transcript = await _transcribe_audio(
+                provider,
                 audio_bytes,
                 filename=f"{turn_id}.webm",
                 content_type=state.content_type,
@@ -582,14 +614,25 @@ class VoiceSessionGateway:
         # open_questions so retrieved chunks stay relevant to what the plan cares about.
         query_context = self._retrieval_query_context(capture_session)
         expanded_query = f"{partial_text} {query_context}".strip()
-        chunks, metadatas, scores = await _retrieve_context_chunks_async(
-            db,
-            workspace_id=workspace.id,
-            workspace_slug=workspace.slug,
-            session=capture_session,
-            query=expanded_query,
-            top_k=4,
-        )
+        if _retrieve_context_chunks is not _ORIGINAL_RETRIEVE_CONTEXT_CHUNKS:
+            chunks, metadatas, scores = await asyncio.to_thread(
+                _retrieve_context_chunks,
+                db,
+                workspace_id=workspace.id,
+                workspace_slug=workspace.slug,
+                session=capture_session,
+                query=expanded_query,
+                top_k=4,
+            )
+        else:
+            chunks, metadatas, scores = await _retrieve_context_chunks_async(
+                db,
+                workspace_id=workspace.id,
+                workspace_slug=workspace.slug,
+                session=capture_session,
+                query=expanded_query,
+                top_k=4,
+            )
         state.last_retrieval_chunks = list(chunks)
         state.last_retrieval_metadatas = list(metadatas or [])
         state.last_retrieval_scores = list(scores or [])
@@ -672,7 +715,8 @@ class VoiceSessionGateway:
         state.audio_chunks = []
         started = state.turn_started_at or state.endpoint_at
         try:
-            transcript = await provider.transcribe(
+            transcript = await _transcribe_audio(
+                provider,
                 audio_bytes,
                 filename=f"{state.client_turn_id or 'voice-session'}.webm",
                 content_type=state.content_type,

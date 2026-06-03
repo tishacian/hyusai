@@ -23,6 +23,8 @@ from app.services.retrieval.fusion_method import FusionMethod
 from app.services.tracing.rag_tracer import get_tracer, TraceStepType
 from app.services.rag.cache import get_cache
 from app.services.document_meta import extract_document_metadata
+from app.services.knowledge_collections import source_kind_for
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 
@@ -41,22 +43,31 @@ def _chunk_extra_metadata(chunk: Dict) -> Dict:
 
 
 def _document_extra_metadata(file_path: str, parsed_filename: str | None, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    direct = kwargs.get("document_metadata")
-    if isinstance(direct, dict):
-        return {str(key): value for key, value in direct.items() if value is not None}
-
+    metadata: Dict[str, Any] = {}
     by_name = kwargs.get("document_metadata_by_name")
-    if not isinstance(by_name, dict):
-        return {}
-
     candidates = [Path(file_path).name]
     if parsed_filename:
         candidates.append(str(parsed_filename))
-    for candidate in candidates:
-        metadata = by_name.get(candidate)
-        if isinstance(metadata, dict):
-            return {str(key): value for key, value in metadata.items() if value is not None}
-    return {}
+    if isinstance(by_name, dict):
+        for candidate in candidates:
+            named = by_name.get(candidate)
+            if isinstance(named, dict):
+                metadata.update({str(key): value for key, value in named.items() if value is not None})
+                break
+
+    direct = kwargs.get("document_metadata")
+    if isinstance(direct, dict):
+        metadata.update({str(key): value for key, value in direct.items() if value is not None})
+
+    filename = str(parsed_filename or Path(file_path).name or "")
+    suffix = Path(filename).suffix.lower().lstrip(".")
+    metadata.setdefault("collection_slug", kwargs.get("collection_slug"))
+    metadata.setdefault("collection", kwargs.get("collection_slug"))
+    metadata.setdefault("document_filename", filename or None)
+    metadata.setdefault("source_kind", source_kind_for(filename, metadata.get("mime_type") or metadata.get("content_type")))
+    metadata.setdefault("extension", suffix)
+    metadata.setdefault("status", "ready")
+    return {str(key): value for key, value in metadata.items() if value is not None and value != ""}
 
 
 def _persist_table_facts_if_configured(parsed_doc, kwargs: Dict) -> int:
@@ -167,6 +178,7 @@ class DocumentService:
         fusion_method: FusionMethod = FusionMethod.SCORE_ADAPTIVE,
         use_reranker: bool = True,
         workspace_slug: Optional[str] = None,
+        allow_runtime_bm25: Optional[bool] = None,
     ):
         self.collection_name = collection_name
         self.vector_db_type = vector_db_type
@@ -177,6 +189,11 @@ class DocumentService:
         )
         self.embedding_dimension = self.embedder.get_dimension()
         self.use_hybrid = use_hybrid
+        self.allow_runtime_bm25 = (
+            bool(settings.rag_allow_runtime_bm25)
+            if allow_runtime_bm25 is None
+            else bool(allow_runtime_bm25)
+        )
         self.use_reranker = use_reranker
         self.use_cache = use_cache
         self.cache = get_cache() if use_cache else None
@@ -327,8 +344,10 @@ class DocumentService:
             table_facts_count = _persist_table_facts_if_configured(parsed_doc, kwargs)
             document_facts_count = _persist_document_facts_if_configured(parsed_doc, kwargs)
             
-            # Update BM25 cache if using hybrid retrieval
-            if self.use_hybrid:
+            # Runtime BM25 is legacy/opt-in. Production sparse retrieval is
+            # served by external/offline artifacts so ingest never silently
+            # builds an in-memory sparse index for large corpora.
+            if self.use_hybrid and self.allow_runtime_bm25:
                 self._documents_cache.extend(chunk_texts)
                 # Fit BM25 with documents (IDs and metadatas optional for single document)
                 self.bm25_retriever.fit(self._documents_cache)
@@ -466,8 +485,8 @@ class DocumentService:
                 table_facts_count = _persist_table_facts_if_configured(parsed_doc, kwargs)
                 document_facts_count = _persist_document_facts_if_configured(parsed_doc, kwargs)
                 
-                # Update BM25 cache (will be rebuilt after all documents are processed)
-                if self.use_hybrid:
+                # Update BM25 cache only for explicit legacy runtime BM25.
+                if self.use_hybrid and self.allow_runtime_bm25:
                     self._documents_cache.extend(chunk_texts)
                     # Store document IDs and metadatas for BM25 fitting
                     if not hasattr(self, '_document_ids_cache'):
@@ -521,7 +540,7 @@ class DocumentService:
                 processed_results.append(result)
         
         # Rebuild BM25 index after all documents are processed
-        if self.use_hybrid and self._documents_cache:
+        if self.use_hybrid and self.allow_runtime_bm25 and self._documents_cache:
             try:
                 document_ids = getattr(self, '_document_ids_cache', [f"doc_{i}" for i in range(len(self._documents_cache))])
                 document_metadatas = getattr(self, '_document_metadatas_cache', [{}] * len(self._documents_cache))
@@ -553,6 +572,34 @@ class DocumentService:
         """Search documents by query"""
         use_hybrid = use_hybrid if use_hybrid is not None else self.use_hybrid
         use_cache = use_cache if use_cache is not None else self.use_cache
+        if use_hybrid:
+            count: int | None = None
+            disable_reason: str | None = None
+            if not self.allow_runtime_bm25:
+                disable_reason = "runtime_bm25_disabled"
+            else:
+                try:
+                    count = await self.get_document_count()
+                except Exception as exc:  # noqa: BLE001
+                    disable_reason = "vector_count_unavailable"
+                    count = None
+                    logger.warning(
+                        "Runtime BM25 disabled because vector count is unavailable",
+                        collection=self.collection_name,
+                        error=str(exc),
+                    )
+            if self.allow_runtime_bm25 and count is not None and count > int(settings.rag_dense_chunk_threshold):
+                disable_reason = "dense_collection"
+            if disable_reason:
+                logger.warning(
+                    "Runtime BM25 disabled for collection; falling back to vector-only",
+                    collection=self.collection_name,
+                    reason=disable_reason,
+                    count=count,
+                    threshold=settings.rag_dense_chunk_threshold,
+                    allow_runtime_bm25=self.allow_runtime_bm25,
+                )
+                use_hybrid = False
         
         # Check cache first
         if use_cache and self.cache:
@@ -834,11 +881,26 @@ class DocumentService:
         row_label: Optional[str] = None,
         column_header: Optional[str] = None,
         query: Optional[str] = None,
+        payload_filters: Optional[Dict[str, Any]] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> List[Dict]:
         """List spreadsheet-oriented payloads for diagnostics and UI browsing."""
-        filters: Dict[str, str] = {}
+        filters: Dict[str, Any] = {}
+        if payload_filters:
+            for key in (
+                "document_id",
+                "document_filename",
+                "source_kind",
+                "extension",
+                "project_code",
+                "archive_name",
+                "language",
+                "status",
+            ):
+                value = payload_filters.get(key)
+                if value not in (None, "", []):
+                    filters[key] = value
         if semantic_type:
             filters["semantic_type"] = semantic_type
         if sheet_name:

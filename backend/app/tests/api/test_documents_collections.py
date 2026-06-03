@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
+import numpy as np
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -108,7 +110,7 @@ def test_collection_inventory_filters_sorts_and_returns_global_aggregates(db_ses
                 origin="upload",
                 chunk_count=10,
                 status="ready",
-                source_metadata={"document_id": "small"},
+                source_metadata={"document_id": "small", "project_code": "ACJ100"},
             ),
             KnowledgeCollectionSource(
                 workspace_id=ws.id,
@@ -121,7 +123,7 @@ def test_collection_inventory_filters_sorts_and_returns_global_aggregates(db_ses
                 origin="upload",
                 chunk_count=1200,
                 status="ready",
-                source_metadata={"document_id": "large"},
+                source_metadata={"document_id": "large", "project_code": "ZZZ900"},
             ),
             KnowledgeCollectionSource(
                 workspace_id=ws.id,
@@ -151,6 +153,62 @@ def test_collection_inventory_filters_sorts_and_returns_global_aggregates(db_ses
     assert body["heavy_sources"] == 1
     assert body["chunk_buckets"][">1000"]["sources"] == 1
     assert [source["filename"] for source in body["sources"]] == ["manual-large.pdf", "manual-small.pdf"]
+
+    scoped_response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.slug}/inventory?project_code=ACJ100"
+    )
+    assert scoped_response.status_code == 200
+    scoped_body = scoped_response.json()
+    assert scoped_body["source_count"] == 3
+    assert scoped_body["sources_total"] == 1
+    assert scoped_body["source_filters"]["project_code"] == "ACJ100"
+    assert [source["filename"] for source in scoped_body["sources"]] == ["manual-small.pdf"]
+
+
+def test_document_preview_resolves_source_from_ledger_without_vector_listing(db_session, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-ledger-preview", name="Ledger Preview", slug="ledger-preview")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    filename = "manual.txt"
+    db_session.add(
+        KnowledgeCollectionSource(
+            workspace_id=ws.id,
+            collection_id=collection.id,
+            filename=filename,
+            normalized_name=filename,
+            source_kind="text",
+            extension="txt",
+            mime_type="text/plain",
+            origin="upload",
+            chunk_count=1,
+            status="ready",
+            source_metadata={"document_id": "doc-ledger"},
+        )
+    )
+    get_object_store().write_text(documents.original_key(collection, filename), "ledger preview")
+    db_session.commit()
+
+    class ExplodingDocumentService:
+        def __init__(self, *args, **kwargs):  # noqa: D401, ARG002
+            pass
+
+        async def list_documents(self):
+            raise AssertionError("ledger-backed preview must not list vector documents")
+
+    monkeypatch.setattr(documents, "DocumentService", ExplodingDocumentService)
+
+    client = _client(db_session, ws)
+    preview = client.get(f"/documents/doc-ledger/rich-preview?collection_name={collection.slug}")
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["filename"] == filename
+    assert preview.json()["content"] == "ledger preview"
+
+    raw = client.get(f"/documents/doc-ledger/raw?collection_name={collection.slug}")
+    assert raw.status_code == 200
+    assert raw.text == "ledger preview"
 
 
 def test_list_chunks_returns_exact_ledger_total_for_document(db_session, monkeypatch):
@@ -204,6 +262,139 @@ def test_list_chunks_returns_exact_ledger_total_for_document(db_session, monkeyp
     assert body["total_is_exact"] is True
     assert body["has_more"] is True
     assert len(body["chunks"]) == 2
+
+
+def test_document_search_skips_dense_unscoped_global_search(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(settings, "rag_dense_source_threshold", 2)
+    ws = Workspace(id="ws-doc-search-dense", name="Doc Search Dense", slug="doc-search-dense")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Dense SPL")
+    collection.document_count = 3
+    collection.chunk_count = 150
+    db_session.commit()
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            self.collection_name = kwargs.get("collection_name")
+
+        async def get_document_count(self):
+            return 150
+
+        async def search(self, *args, **kwargs):  # noqa: ARG002
+            raise AssertionError("dense unscoped /documents/search must not search globally")
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+
+    response = _client(db_session, ws).post(
+        "/documents/search",
+        json={
+            "query": "Analyse les procedures SPL",
+            "collection_name": collection.slug,
+            "use_hybrid": True,
+            "top_k": 999,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["results"] == []
+    assert body["total"] == 0
+    assert body["dense_policy"] == "fast_scoped_dense_auto"
+    assert body["fallback_reason"] in {"dense_unscoped_fast_policy", "dense_unscoped_search_skipped"}
+    assert body["latency_budget"]["candidate_pool_k"] <= 20
+    assert body["retrieval_plan"]["guardrails"]["global_chunk_search_allowed"] is False
+
+
+def test_document_search_dense_scoped_is_vector_only_and_bounded(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(settings, "rag_dense_source_threshold", 2)
+    ws = Workspace(id="ws-doc-search-scoped", name="Doc Search Scoped", slug="doc-search-scoped")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Dense Scoped SPL")
+    collection.document_count = 3
+    collection.chunk_count = 150
+    db_session.commit()
+    captured: dict = {}
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            captured["init"] = kwargs
+
+        async def get_document_count(self):
+            return 150
+
+        async def search(self, query, top_k=10, filters=None, use_hybrid=None):  # noqa: ARG002
+            captured["search"] = {
+                "top_k": top_k,
+                "filters": filters,
+                "use_hybrid": use_hybrid,
+            }
+            return [{"content": "scoped result", "metadata": {"source_kind": "markup"}, "score": 0.8}]
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+
+    response = _client(db_session, ws).post(
+        "/documents/search",
+        json={
+            "query": "Explique la procedure SPL",
+            "collection_name": collection.slug,
+            "filters": {"source_kind": "markup"},
+            "use_hybrid": True,
+            "top_k": 999,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["dense_policy"] == "fast_scoped_dense"
+    assert captured["init"]["use_hybrid"] is False
+    assert captured["search"]["use_hybrid"] is False
+    assert captured["search"]["top_k"] <= 20
+    assert captured["search"]["filters"] == {"source_kind": "markup"}
+
+
+def test_document_search_returns_budget_fallback_on_timeout(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "rag_fast_retrieval_deadline_seconds", 0.01)
+    ws = Workspace(id="ws-doc-search-timeout", name="Doc Search Timeout", slug="doc-search-timeout")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Timeout Manuals")
+    collection.document_count = 1
+    collection.chunk_count = 5
+    db_session.commit()
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def get_document_count(self):
+            return 5
+
+        async def search(self, *args, **kwargs):  # noqa: ARG002
+            await asyncio.sleep(0.2)
+            return [{"content": "late", "score": 0.9, "metadata": {}}]
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+
+    response = _client(db_session, ws).post(
+        "/documents/search",
+        json={
+            "query": "Explique la procedure SPL",
+            "collection_name": collection.slug,
+            "use_hybrid": False,
+            "top_k": 3,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["results"] == []
+    assert body["fallback_reason"] == "retrieval_deadline_exceeded"
+    assert body["latency_budget"]["deadline_seconds"] == 0.01
 
 
 def test_document_facts_return_total_has_more_and_type_counts(db_session):
@@ -321,6 +512,72 @@ def test_collection_diagnostics_reports_drift_and_fact_coverage(db_session, monk
     assert body["offline_clustering"]["stores_vectors"] is False
     assert body["offline_clustering"]["artifact_key"].endswith("/derived/embedding-clusters/latest.json")
     assert body["feature_status"]["offline_clustering"]["state"] == "not_needed"
+
+
+def test_embedding_graph_caps_dense_sample_and_hides_raw_vectors(db_session, monkeypatch):
+    documents._GRAPH_CACHE.clear()
+    ws = Workspace(id="ws-graph", name="Graph", slug="graph")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    collection.document_count = settings.rag_dense_source_threshold + 1
+    collection.chunk_count = settings.rag_dense_chunk_threshold + 1
+    db_session.commit()
+
+    class FakeVectorDB:
+        def __init__(self):
+            self.calls = []
+
+        async def sample_chunk_vectors(self, limit=200, filters=None):
+            self.calls.append((limit, filters))
+            return [
+                {
+                    "id": f"point-{index}",
+                    "vector": [float(index), float(index + 1), 1.0],
+                    "payload": {
+                        "document_id": f"doc-{index}",
+                        "document_filename": f"manual-{index}.pdf",
+                        "chunk_index": index,
+                        "content": f"chunk content {index}",
+                        "source_kind": "pdf",
+                    },
+                }
+                for index in range(4)
+            ]
+
+    fake_vector_db = FakeVectorDB()
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            self.vector_db = fake_vector_db
+
+        async def get_document_count(self):
+            return settings.rag_dense_chunk_threshold + 1
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+    monkeypatch.setattr(
+        documents,
+        "_project_2d",
+        lambda matrix: (np.asarray(matrix, dtype=float)[:, :2], "pca"),
+    )
+
+    response = _client(db_session, ws).get(
+        f"/documents/graph?collection_name={collection.slug}&sample=1000"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert fake_vector_db.calls == [(500, None)]
+    assert body["sample"] == 4
+    assert body["sample_requested"] == 1000
+    assert body["sample_cap"] == 500
+    assert body["sample_capped"] is True
+    assert body["total_is_dense"] is True
+    assert any("sampled and not exhaustive" in warning for warning in body["warnings"])
+    assert any("capped to 500" in warning for warning in body["warnings"])
+    assert body["vector_dim"] == 3
+    assert body["nodes"]
+    assert all("vector" not in node and "embedding" not in node for node in body["nodes"])
 
 
 def test_list_documents_uses_ledger_page_without_vector_scroll(db_session, monkeypatch):
@@ -474,6 +731,99 @@ def test_collection_detail_exposes_storage_vector_and_bm25_diagnostics(
     inventory = inventory_response.json()
     assert inventory["source_count"] == 1
     assert inventory["sources"][0]["filename"] == "manual.txt"
+
+
+def test_collection_retrieval_artifact_job_dry_run_does_not_create_job(db_session):
+    ws = Workspace(id="ws-artifact-dry-run", name="Artifact Dry Run", slug="artifact-dry-run")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    db_session.commit()
+
+    response = _client(db_session, ws).post(
+        f"/documents/collections/{collection.id}/retrieval-artifact-jobs",
+        json={"kind": "summary_index_rebuild", "dry_run": True},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "dry_run"
+    assert body["would_create_job"] is True
+    assert body["would_dispatch"] is True
+    assert body["poll_url"] is None
+    assert body["collection_slug"] == collection.slug
+    assert db_session.query(WorkerJob).filter(WorkerJob.collection_id == collection.id).count() == 0
+
+
+def test_collection_retrieval_artifact_job_queues_manual_worker(db_session, monkeypatch):
+    ws = Workspace(id="ws-artifact-job", name="Artifact Job", slug="artifact-job")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    db_session.commit()
+
+    def fake_dispatch(_db, job, **kwargs):
+        assert kwargs["allow_inline_fallback"] is False
+        job.celery_task_id = "task-summary"
+        return "task-summary"
+
+    monkeypatch.setattr(documents, "dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, ws).post(
+        f"/documents/collections/{collection.slug}/retrieval-artifact-jobs",
+        json={"kind": "summary_index_rebuild"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kind"] == "summary_index_rebuild"
+    assert body["collection_id"] == collection.id
+    assert body["poll_url"] == f"/documents/jobs/{body['id']}"
+    assert body["task_id"] == "task-summary"
+    job = db_session.query(WorkerJob).filter(WorkerJob.id == body["id"]).one()
+    assert job.kind == "summary_index_rebuild"
+    assert job.collection_id == collection.id
+    assert job.result["launch_policy"] == "manual_only"
+    assert job.result["requested_by"] == "user-1"
+
+
+def test_get_worker_job_returns_poll_url_and_omits_deep_context_by_default(db_session):
+    ws = Workspace(id="ws-job-poll", name="Job Poll", slug="job-poll")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="rag_deep_retrieval",
+    )
+    job.status = "completed"
+    job.progress = 100
+    job.result = {
+        "stage": "deep_completed",
+        "summary": {"chunks_retrieved": 1},
+        "sources_preview": [{"title": "Manual", "snippet": "preview"}],
+        "retrieval_context": {"chunks": ["heavy"], "scores": [0.9], "metadatas": [{}]},
+    }
+    db_session.commit()
+
+    client = _client(db_session, ws)
+    light = client.get(f"/documents/jobs/{job.id}")
+
+    assert light.status_code == 200
+    light_body = light.json()
+    assert light_body["poll_url"] == f"/documents/jobs/{job.id}"
+    assert light_body["result"]["retrieval_context_omitted"] is True
+    assert "retrieval_context" not in light_body["result"]
+    assert light_body["result"]["sources_preview"][0]["title"] == "Manual"
+
+    detailed = client.get(f"/documents/jobs/{job.id}", params={"include_context": "true"})
+
+    assert detailed.status_code == 200
+    detailed_body = detailed.json()
+    assert detailed_body["poll_url"] == f"/documents/jobs/{job.id}"
+    assert detailed_body["result"]["retrieval_context"]["chunks"] == ["heavy"]
 
 
 def test_delete_collection_removes_ledger_and_store(

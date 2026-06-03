@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.services.rag import pipeline_retrieval
 from app.services.rag.pipeline_retrieval import (
     _merge_rrf,
     _prioritise_spreadsheet_label_matches,
     _query_variants,
+    _search_documents,
     retrieve_chah_like,
     retrieve_for_mode,
     retrieve_hah_like,
@@ -77,6 +81,75 @@ class ExactTableFactService:
                 1,
             ),
         ][:top_k]
+
+
+class DisabledSparseBackend:
+    name = "disabled"
+
+    async def search(self, *args, **kwargs):  # noqa: ARG002
+        return []
+
+
+class SparseOkBackend:
+    name = "opensearch"
+
+    async def search(self, *args, **kwargs):  # noqa: ARG002
+        return [
+            _mk_result("sparse opensearch evidence long enough for rrf merge", 1.2, 10)
+        ]
+
+
+class OpenSearchUnconfiguredBackend:
+    name = "opensearch"
+    base_url = ""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def search(self, *args, **kwargs):  # noqa: ARG002
+        self.calls += 1
+        return [_mk_result("should not be called without opensearch url", 1.0, 0)]
+
+
+class SlowSearchService:
+    def __init__(self, delay: float = 0.2):
+        self.delay = delay
+        self.calls: list[str] = []
+
+    async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid: bool = True):  # noqa: ARG002
+        self.calls.append(query)
+        await asyncio.sleep(self.delay)
+        return [_mk_result("slow evidence that should miss tiny deadline", 0.7, 0)][:top_k]
+
+
+class CancellableSearchService:
+    collection_name = "dense-kb"
+
+    def __init__(self):
+        self.cancelled = 0
+
+    async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid: bool = True):  # noqa: ARG002
+        try:
+            await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            self.cancelled += 1
+            raise
+        return [_mk_result("late dense evidence", 0.4, 0)]
+
+
+class CancellableSparseBackend:
+    name = "opensearch"
+
+    def __init__(self):
+        self.cancelled = 0
+
+    async def search(self, *args, **kwargs):  # noqa: ARG002
+        try:
+            await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            self.cancelled += 1
+            raise
+        return [_mk_result("late sparse evidence", 0.9, 0)]
 
 
 def test_merge_rrf_dedupes_and_orders():
@@ -265,6 +338,9 @@ async def test_retrieve_for_mode_prepends_exact_table_payload_before_noisy_searc
     assert "B = 85" in out.chunks[0]
     assert out.metadatas[0]["cell_ref"] == "B2"
     assert "exact_table_hits=" in out.detail
+    assert out.diagnostics["exact_table_attempted"] is True
+    assert out.diagnostics["exact_table_hits"] >= 1
+    assert out.diagnostics["exact_table_elapsed_ms"] >= 0
 
 
 @pytest.mark.asyncio
@@ -291,6 +367,137 @@ async def test_retrieve_chah_like_parallel():
     assert out.pipeline == "chah_backend"
     assert doc.search.called
     assert len(out.chunks) >= 1
+
+
+@pytest.mark.asyncio
+async def test_chah_exact_table_facts_receive_payload_scope():
+    class ScopedTableFactService:
+        def __init__(self):
+            self.fact_calls: list[dict] = []
+
+        async def list_table_facts(self, **kwargs):
+            self.fact_calls.append(dict(kwargs))
+            return []
+
+        async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid: bool = True):  # noqa: ARG002
+            return [_mk_result("scoped vector result long enough for merge", 0.7, 0)]
+
+    doc = ScopedTableFactService()
+    filters = {"document_id": ["doc-1"], "project_code": "ACJ100"}
+
+    await retrieve_chah_like(
+        doc,
+        "Quel est le diamètre B dans Def strips ?",
+        top_k=3,
+        filters=filters,
+    )
+
+    assert doc.fact_calls
+    assert all(call.get("payload_filters") == filters for call in doc.fact_calls)
+
+
+@pytest.mark.asyncio
+async def test_chah_exact_table_facts_share_deadline_budget():
+    class SlowFactAndSearchService:
+        def __init__(self):
+            self.fact_calls = 0
+            self.search_calls: list[str] = []
+
+        async def list_table_facts(self, **kwargs):  # noqa: ARG002
+            self.fact_calls += 1
+            await asyncio.sleep(0.2)
+            return [
+                {
+                    "chunk_id": "late-fact",
+                    "semantic_type": "spreadsheet_cell_fact",
+                    "sheet_name": "Def strips",
+                    "row_label": "B",
+                    "content": 'Spreadsheet cell fact: sheet="Def strips" label="B" value="85"',
+                }
+            ]
+
+        async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid: bool = True):  # noqa: ARG002
+            self.search_calls.append(query)
+            await asyncio.sleep(0.2)
+            return [_mk_result("slow vector result should miss deadline", 0.6, 0)]
+
+    doc = SlowFactAndSearchService()
+    started = time.perf_counter()
+
+    out = await retrieve_chah_like(
+        doc,
+        "Quel est le diamètre B dans Def strips ?",
+        top_k=3,
+        use_hybrid=False,
+        deadline_seconds=0.01,
+        max_variants=3,
+    )
+
+    assert out.chunks == []
+    assert doc.fact_calls == 1
+    assert out.diagnostics["exact_table_attempted"] is True
+    assert out.diagnostics["exact_table_hits"] == 0
+    assert out.diagnostics["exact_table_elapsed_ms"] >= 0
+    assert time.perf_counter() - started < 0.12
+
+
+@pytest.mark.asyncio
+async def test_search_documents_honors_sub_200ms_deadline():
+    doc = SlowSearchService(delay=0.2)
+    started = time.perf_counter()
+
+    rows = await _search_documents(
+        doc,
+        "slow query",
+        top_k=1,
+        use_hybrid=False,
+        deadline_seconds=0.01,
+    )
+
+    assert rows == []
+    assert doc.calls == ["slow query"]
+    assert time.perf_counter() - started < 0.12
+
+
+@pytest.mark.asyncio
+async def test_chah_uses_shared_variant_deadline():
+    doc = SlowSearchService(delay=0.2)
+    started = time.perf_counter()
+
+    out = await retrieve_chah_like(
+        doc,
+        "What are the requirements for deployment?",
+        top_k=3,
+        use_hybrid=False,
+        deadline_seconds=0.01,
+        max_variants=3,
+    )
+
+    assert out.chunks == []
+    assert len(doc.calls) <= 3
+    assert time.perf_counter() - started < 0.12
+
+
+@pytest.mark.asyncio
+async def test_sparse_dense_fanout_cleans_up_pending_tasks(monkeypatch):
+    doc = CancellableSearchService()
+    sparse = CancellableSparseBackend()
+    monkeypatch.setattr(pipeline_retrieval, "get_sparse_backend", lambda: sparse)
+
+    started = time.perf_counter()
+    rows = await _search_documents(
+        doc,
+        "slow query",
+        top_k=2,
+        use_hybrid=True,
+        allow_legacy_hybrid=False,
+        deadline_seconds=0.01,
+    )
+
+    assert rows == []
+    assert doc.cancelled == 1
+    assert sparse.cancelled == 1
+    assert time.perf_counter() - started < 0.12
 
 
 @pytest.mark.asyncio
@@ -389,3 +596,84 @@ async def test_retrieve_for_mode_naive():
     )
     assert out.pipeline == "naive"
     doc.search.assert_awaited_once_with("q", top_k=2, use_hybrid=False)
+
+
+@pytest.mark.asyncio
+async def test_dense_guardrail_hybrid_marks_disabled_sparse(monkeypatch):
+    monkeypatch.setattr(pipeline_retrieval, "get_sparse_backend", lambda: DisabledSparseBackend())
+    doc = MagicMock()
+    doc.collection_name = "dense-kb"
+    doc.search = AsyncMock(return_value=[_mk_result("dense vector evidence long enough", 0.7, 0)])
+
+    out = await retrieve_for_mode(
+        doc,
+        "q",
+        "hybrid",
+        top_k=2,
+        use_hybrid=True,
+        allow_legacy_hybrid=False,
+    )
+
+    assert out.pipeline == "hybrid"
+    assert out.diagnostics["sparse_backend"] == "disabled"
+    assert out.diagnostics["sparse_status"] == "disabled"
+    assert out.diagnostics["sparse_fallback_reason"] == "sparse_disabled"
+    assert out.diagnostics["dense_elapsed_ms"] >= 0
+    assert out.diagnostics["retrieval_elapsed_ms"] >= 0
+    assert "retrieval_deadline_seconds" not in out.metadatas[0]
+    assert out.metadatas[0]["sparse_fallback_reason"] == "sparse_disabled"
+    assert "sparse=disabled:disabled" in out.detail
+    doc.search.assert_awaited_once()
+    assert doc.search.await_args.kwargs["use_hybrid"] is False
+
+
+@pytest.mark.asyncio
+async def test_dense_guardrail_hybrid_marks_unconfigured_opensearch_sparse(monkeypatch):
+    sparse = OpenSearchUnconfiguredBackend()
+    monkeypatch.setattr(pipeline_retrieval, "get_sparse_backend", lambda: sparse)
+    doc = MagicMock()
+    doc.collection_name = "dense-kb"
+    doc.search = AsyncMock(return_value=[_mk_result("dense vector evidence long enough", 0.7, 0)])
+
+    out = await retrieve_for_mode(
+        doc,
+        "q",
+        "hybrid",
+        top_k=2,
+        use_hybrid=True,
+        allow_legacy_hybrid=False,
+    )
+
+    assert out.diagnostics["sparse_backend"] == "opensearch"
+    assert out.diagnostics["sparse_status"] == "unavailable"
+    assert out.diagnostics["sparse_fallback_reason"] == "sparse_unavailable"
+    assert out.metadatas[0]["sparse_fallback_reason"] == "sparse_unavailable"
+    assert sparse.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_dense_guardrail_hybrid_marks_sparse_ok(monkeypatch):
+    monkeypatch.setattr(pipeline_retrieval, "get_sparse_backend", lambda: SparseOkBackend())
+    doc = MagicMock()
+    doc.collection_name = "dense-kb"
+    doc.search = AsyncMock(return_value=[_mk_result("dense vector evidence long enough", 0.7, 0)])
+
+    out = await retrieve_for_mode(
+        doc,
+        "q",
+        "hybrid",
+        top_k=2,
+        use_hybrid=True,
+        allow_legacy_hybrid=False,
+        deadline_seconds=3,
+    )
+
+    assert out.pipeline == "hybrid"
+    assert out.diagnostics["sparse_backend"] == "opensearch"
+    assert out.diagnostics["sparse_status"] == "ok"
+    assert out.diagnostics["sparse_results"] == 1
+    assert out.diagnostics["dense_elapsed_ms"] >= 0
+    assert out.diagnostics["sparse_elapsed_ms"] >= 0
+    assert out.diagnostics["retrieval_elapsed_ms"] >= 0
+    assert 2.9 <= out.diagnostics["retrieval_deadline_seconds"] <= 3
+    assert "sparse=ok:opensearch" in out.detail

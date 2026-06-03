@@ -8,8 +8,10 @@ from fastapi.testclient import TestClient
 from app.api.v1.endpoints import chat
 from app.core.config import settings
 from app.models.context import Context
+from app.models.knowledge_collection import WorkerJob
 from app.models.run import Run
 from app.models.workspace import Workspace
+from app.services.knowledge_collections import create_collection
 from app.services.workspace_maps import ensure_workspace_map_seed
 
 
@@ -52,6 +54,14 @@ class HappyOrchestrator:
                 "pipeline": "hybrid",
                 "task_id": "task-1",
                 "fallback": False,
+                "retrieval_plan": {
+                    "profile": "fast",
+                    "layers": {
+                        "dense_qdrant": {"enabled": True},
+                        "rerank": {"enabled": True},
+                    },
+                    "guardrails": {"user_scope_required": False},
+                },
             },
             "rag_context": {
                 "chunks": ["context"],
@@ -65,6 +75,35 @@ class HappyOrchestrator:
             "chunk_type": "text",
             "content": "answer",
             "sources": [{"title": "Manual"}],
+            "is_final": False,
+        }
+        yield {
+            "chunk_type": "retrieval",
+            "phase": "observability",
+            "content": "",
+            "details": {
+                "duration_ms": 12,
+                "chunks_retrieved": 1,
+                "collection": "documents",
+                "vector_db": "faiss",
+                "pipeline": "hybrid",
+                "task_id": "task-1",
+                "fallback": False,
+                "stage_timings": {
+                    "retrieval_ms": 12,
+                    "llm_ms": 34,
+                    "total_ms": 46,
+                },
+                "llm_ms": 34,
+                "retrieval_plan": {
+                    "profile": "fast",
+                    "layers": {
+                        "dense_qdrant": {"enabled": True},
+                        "rerank": {"enabled": True},
+                    },
+                    "guardrails": {"user_scope_required": False},
+                },
+            },
             "is_final": False,
         }
         yield {"chunk_type": "text", "content": "", "is_final": True}
@@ -86,6 +125,55 @@ class CapturingOrchestrator:
         yield {"chunk_type": "text", "content": "", "is_final": True}
 
 
+class DeepRecommendedOrchestrator:
+    async def process_request(self, _request):
+        yield {
+            "chunk_type": "retrieval",
+            "phase": "completed",
+            "content": "",
+            "details": {
+                "duration_ms": 8000,
+                "chunks_retrieved": 0,
+                "collection": "documents",
+                "pipeline": "retrieval_timeout",
+                "fallback": True,
+                "fallback_reason": "retrieval_deadline_exceeded",
+                "deep_retrieval_recommended": True,
+                "dense_policy": "fast_scoped_dense_auto",
+                "scope_confidence": 0.2,
+                "scope_reason": "Dense corpus fast policy selected an internal scope.",
+                "latency_budget": {"profile": "fast", "deadline_seconds": 8, "candidate_pool_k": 20},
+                "retrieval_scope": {
+                    "collections": ["documents"],
+                    "filters": {
+                        "collection_slug": "documents",
+                        "project_code": "ACJ100",
+                        "document_id": ["doc-1", "doc-2"],
+                    },
+                    "intent": "procedure",
+                    "dense": True,
+                    "confidence": 0.2,
+                    "reason": "Dense corpus fast policy selected an internal scope.",
+                },
+            },
+            "rag_context": {
+                "chunks": [],
+                "scores": [],
+                "metadatas": [],
+                "metrics": {
+                    "chunks_retrieved": 0,
+                    "no_context": True,
+                    "fallback": True,
+                    "fallback_reason": "retrieval_deadline_exceeded",
+                    "deep_retrieval_recommended": True,
+                },
+            },
+            "is_final": False,
+        }
+        yield {"chunk_type": "text", "content": "fast answer", "is_final": False}
+        yield {"chunk_type": "text", "content": "", "is_final": True}
+
+
 def test_chat_stream_emits_stable_retrieval_eval_and_persists_run(db_session, monkeypatch):
     workspace = Workspace(id="ws-chat", name="Chat", slug="chat")
     db_session.add(workspace)
@@ -101,6 +189,7 @@ def test_chat_stream_emits_stable_retrieval_eval_and_persists_run(db_session, mo
     assert '"chunk_type": "retrieval"' in body
     assert '"phase": "started"' in body
     assert '"phase": "completed"' in body
+    assert '"phase": "observability"' in body
     assert '"chunk_type": "eval_pending"' in body
     assert "data: [DONE]" in body
 
@@ -108,6 +197,9 @@ def test_chat_stream_emits_stable_retrieval_eval_and_persists_run(db_session, mo
     assert run.output_ref["response"] == "answer"
     assert run.output_ref["retrieval_worker_task_id"] == "task-1"
     assert run.output_ref["retrieval_metrics"]["chunks_retrieved"] == 1
+    assert run.output_ref["retrieval_metrics"]["llm_ms"] == 34
+    assert run.output_ref["retrieval_metrics"]["stage_timings"]["llm_ms"] == 34
+    assert run.output_ref["retrieval_plan"]["guardrails"]["user_scope_required"] is False
     assert run.output_ref["rag_context"]["chunks"] == ["context"]
 
 
@@ -137,6 +229,300 @@ def test_chat_stream_uses_selected_context_collection(db_session, monkeypatch):
     assert orchestrator.last_request["context"]["context_id"] == "ctx-context-chat"
     run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
     assert run.output_ref["context_id"] == "ctx-context-chat"
+
+
+def test_chat_stream_clamps_untrusted_fast_retrieval_budget(db_session, monkeypatch):
+    workspace = Workspace(id="ws-budget-chat", name="Budget Chat", slug="budget-chat")
+    db_session.add(workspace)
+    db_session.commit()
+    orchestrator = CapturingOrchestrator()
+
+    response = _client(db_session, workspace, orchestrator, monkeypatch).post(
+        "/chat/stream",
+        json={
+            "query": "Analyse globale SPL",
+            "top_k": 999,
+            "candidate_pool_k": 999,
+            "synthesis_k": 999,
+            "source_display_k": 999,
+        },
+    )
+
+    assert response.status_code == 200
+    assert orchestrator.last_request["latency_profile"] == "fast"
+    assert orchestrator.last_request["top_k"] == 8
+    assert orchestrator.last_request["candidate_pool_k"] == 20
+    assert orchestrator.last_request["synthesis_k"] == 12
+    assert orchestrator.last_request["source_display_k"] == 8
+    assert orchestrator.last_request["latency_budget"]["candidate_pool_k"] == 20
+
+
+def test_retrieval_plan_preview_routes_catalogue_to_inventory(db_session, monkeypatch):
+    monkeypatch.setattr(chat.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(chat.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-plan-catalogue", name="Plan Catalogue", slug="plan-catalogue")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="SPL")
+    collection.document_count = 3
+    collection.chunk_count = 150
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/retrieval-plan-preview",
+        json={
+            "query": "De quelles donnees disposes-tu ?",
+            "retrieval_filters": {"collection_slug": collection.slug},
+            "rag_pipeline_mode": "chah",
+            "top_k": 999,
+            "candidate_pool_k": 999,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["planner_only"] is True
+    assert body["collection"] == collection.slug
+    assert body["intent"] == "catalogue"
+    assert body["dense"] is True
+    assert body["dense_policy"] == "catalogue_inventory"
+    assert body["candidate_pool_k"] <= 20
+    assert body["retrieval_plan"]["layers"]["dense_qdrant"]["enabled"] is False
+    assert body["retrieval_plan"]["guardrails"]["user_scope_required"] is False
+    assert body["filters"] == {}
+
+
+def test_retrieval_plan_preview_downgrades_dense_quick_chah(db_session, monkeypatch):
+    monkeypatch.setattr(chat.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(chat.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-plan-dense", name="Plan Dense", slug="plan-dense")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Dense SPL")
+    collection.document_count = 3
+    collection.chunk_count = 150
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/retrieval-plan-preview",
+        json={
+            "query": "Analyse les procedures de securite SPL",
+            "retrieval_filters": {"collection_slug": collection.slug},
+            "rag_pipeline_mode": "chah",
+            "top_k": 999,
+            "candidate_pool_k": 999,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["collection"] == collection.slug
+    assert body["intent"] == "procedure"
+    assert body["dense_policy"] == "fast_scoped_dense_auto"
+    assert body["use_hybrid"] is False
+    assert body["allow_hah_chah"] is False
+    assert body["allow_legacy_hybrid"] is False
+    assert body["candidate_pool_k"] <= 20
+    assert body["max_candidates"] <= 20
+    assert body["retrieval_plan"]["layers"]["hah_chah"]["enabled"] is False
+    assert body["retrieval_plan"]["layers"]["sparse"]["enabled"] is False
+    assert body["retrieval_plan"]["guardrails"]["global_chunk_search_allowed"] is False
+    assert body["retrieval_plan"]["guardrails"]["user_scope_required"] is False
+    assert body["deep_retrieval_recommended"] is True
+    assert body["filters"] == {}
+
+
+def test_chat_deep_retrieval_job_queues_worker_payload(db_session, monkeypatch):
+    workspace = Workspace(id="ws-deep-job", name="Deep Job", slug="deep-job")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="documents")
+    db_session.commit()
+
+    def fake_dispatch(_db, job, **_kwargs):
+        job.celery_task_id = "task-deep"
+        return "task-deep"
+
+    monkeypatch.setattr("app.services.worker_dispatch.dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/deep-retrieval-jobs",
+        json={
+            "query": "Analyse les procédures",
+            "knowledge_scope": None,
+            "context_id": None,
+            "context_mode": None,
+            "rag_pipeline_mode": "chah",
+            "retrieval_filters": {"source_kind": "html"},
+            "top_k": 999,
+            "candidate_pool_k": 999,
+            "synthesis_k": 999,
+            "source_display_k": 999,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kind"] == "rag_deep_retrieval"
+    assert body["poll_url"] == f"/documents/jobs/{body['id']}"
+    job = db_session.query(WorkerJob).filter(WorkerJob.id == body["id"]).one()
+    assert job.result["request"]["latency_profile"] == "deep"
+    assert job.result["request"]["deep_retrieval"] is True
+    assert job.result["request"]["top_k"] == 24
+    assert job.result["request"]["candidate_pool_k"] == 200
+    assert job.result["request"]["synthesis_k"] == 48
+    assert job.result["request"]["source_display_k"] == 24
+    assert job.result["request"]["retrieval_filters"] == {"source_kind": "html"}
+    assert job.collection_id == collection.id
+
+
+def test_chat_stream_auto_queues_deep_job_for_degraded_retrieval(db_session, monkeypatch):
+    workspace = Workspace(id="ws-auto-deep", name="Auto Deep", slug="auto-deep")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="documents")
+    db_session.commit()
+
+    def fake_dispatch(_db, job, **_kwargs):
+        job.celery_task_id = "task-auto-deep"
+        return "task-auto-deep"
+
+    monkeypatch.setattr("app.services.worker_dispatch.dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, workspace, DeepRecommendedOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={"query": "Analyse complète des procédures SPL"},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert '"phase": "deep_queued"' in body
+    assert '"deep_job_id"' in body
+    assert "fast answer" in body
+
+    job = db_session.query(WorkerJob).filter(WorkerJob.workspace_id == workspace.id).one()
+    assert job.kind == "rag_deep_retrieval"
+    assert job.collection_id == collection.id
+    assert job.result["trigger"] == "auto_fast_refinement"
+    assert job.result["request"]["latency_profile"] == "deep"
+    assert job.result["request"]["deep_retrieval"] is True
+    assert job.result["request"]["top_k"] == 8
+    assert job.result["request"]["candidate_pool_k"] == 80
+    assert job.result["request"]["synthesis_k"] == 24
+    assert job.result["partial_result"]["answer_preview"] == "fast answer"
+    assert job.result["request"]["retrieval_filters"] == {
+        "collection_slug": "documents",
+        "project_code": "ACJ100",
+        "document_id": ["doc-1", "doc-2"],
+    }
+    assert job.result["parent_retrieval"]["inferred_filters_forwarded"] is True
+    assert sorted(job.result["parent_retrieval"]["forwarded_filter_keys"]) == [
+        "collection_slug",
+        "document_id",
+        "project_code",
+    ]
+
+    run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.output_ref["deep_job_id"] == job.id
+
+
+def test_auto_deep_filter_merge_preserves_explicit_system_filters():
+    request = {
+        "retrieval_filters": {
+            "source_kind": "pdf",
+            "collection_slug": "documents",
+        }
+    }
+    state = {
+        "retrieval_scope": {
+            "filters": {
+                "source_kind": "html",
+                "project_code": "ACJ100",
+                "document_id": ["doc-1", "doc-1", "doc-2"],
+                "ignored": "value",
+            }
+        }
+    }
+
+    merged, forwarded = chat._merge_inferred_retrieval_filters(request, state)
+
+    assert merged == {
+        "source_kind": "pdf",
+        "collection_slug": "documents",
+        "project_code": "ACJ100",
+        "document_id": ["doc-1", "doc-2"],
+    }
+    assert request["retrieval_filters"] == merged
+    assert forwarded == ["project_code", "document_id"]
+
+
+def test_chat_completion_returns_degraded_retrieval_metadata(db_session, monkeypatch):
+    workspace = Workspace(id="ws-completion-degraded", name="Completion Degraded", slug="completion-degraded")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="documents")
+    db_session.commit()
+
+    def fake_dispatch(_db, job, **_kwargs):
+        job.celery_task_id = "task-completion-deep"
+        return "task-completion-deep"
+
+    monkeypatch.setattr("app.services.worker_dispatch.dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, workspace, DeepRecommendedOrchestrator(), monkeypatch).post(
+        "/chat/completion",
+        json={"query": "Analyse complète des procédures SPL"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["content"] == "fast answer"
+    assert body["dense_policy"] == "fast_scoped_dense_auto"
+    assert body["retrieval_fallback"] == "retrieval_deadline_exceeded"
+    assert body["fallback_reason"] == "retrieval_deadline_exceeded"
+    assert body["deep_retrieval_recommended"] is True
+    assert body["deep_job_id"]
+    assert body["deep_job"]["deep_task_id"] == "task-completion-deep"
+
+    job = db_session.query(WorkerJob).filter(WorkerJob.workspace_id == workspace.id).one()
+    assert job.kind == "rag_deep_retrieval"
+    assert job.collection_id == collection.id
+    assert job.result["parent_retrieval"]["fallback_reason"] == "retrieval_deadline_exceeded"
+
+    run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.output_ref["fallback_reason"] == "retrieval_deadline_exceeded"
+    assert run.output_ref["retrieval_fallback"] == "retrieval_deadline_exceeded"
+    assert run.output_ref["deep_job_id"] == job.id
+
+
+def test_worker_dispatch_queue_only_does_not_inline_deep_retrieval(db_session, monkeypatch):
+    from app.services.knowledge_collections import create_worker_job
+    from app.services.worker_dispatch import dispatch_worker_job
+
+    workspace = Workspace(id="ws-dispatch-queue-only", name="Queue Only", slug="queue-only")
+    db_session.add(workspace)
+    db_session.commit()
+    job = create_worker_job(
+        db_session,
+        workspace_id=workspace.id,
+        collection_id=None,
+        kind="rag_deep_retrieval",
+    )
+    db_session.commit()
+
+    def fail_inline(_job_id):
+        raise AssertionError("deep retrieval must not run inline")
+
+    monkeypatch.setattr(settings, "worker_eager_mode", False)
+    monkeypatch.setattr("app.services.worker_dispatch.run_deep_retrieval", fail_inline)
+
+    task_id = dispatch_worker_job(db_session, job, allow_inline_fallback=False)
+
+    db_session.refresh(job)
+    assert task_id is None
+    assert job.status == "queued"
+    assert job.result["stage"] == "dispatch_pending"
+    assert job.result["dispatch_warning"] == "worker_dispatch_unavailable"
 
 
 def test_chat_stream_vigie_defaults_to_balanced_grounding(db_session, monkeypatch):
@@ -276,6 +662,8 @@ def test_chat_stream_timeout_returns_controlled_error(db_session, monkeypatch):
 
     assert response.status_code == 200
     assert '"code": "CHAT_STREAM_TIMEOUT"' in response.text
+    assert '"fallback_reason": "chat_stream_timeout"' in response.text
+    assert '"partial_answer_chars"' in response.text
     assert "data: [DONE]" in response.text
     assert db_session.query(Run).filter(Run.workspace_id == workspace.id).count() == 0
 

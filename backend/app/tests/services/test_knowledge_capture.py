@@ -652,25 +652,26 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
     db_session.add_all([workspace, context])
     seed_skills_and_capabilities(db_session)
 
-    class FakeDocumentService:
-        def __init__(self, collection_name="documents", workspace_slug=None, **kwargs):
-            self.collection_name = collection_name
-            self.workspace_slug = workspace_slug
+    seen_retrieval: dict = {}
 
-    async def fake_retrieve_for_mode(doc_svc, query, mode, **kwargs):
-        class Result:
-            chunks = ["Le rapport CRM indique que la vibration suit un changement de rouleau."]
-            scores = [0.91]
-            metadatas = [{"title": "CRM maintenance", "source": "crm"}]
-            pipeline = "chah_backend"
-            label = "C-HAH (backend)"
-            reason = "fake retrieval"
-            detail = f"{doc_svc.collection_name}:{mode}:{query[:8]}"
+    async def fake_retrieve_rag_context(request):
+        seen_retrieval.update(request)
+        return {
+            "chunks": ["Le rapport CRM indique que la vibration suit un changement de rouleau."],
+            "scores": [0.91],
+            "metadatas": [{"title": "CRM maintenance", "source": "crm"}],
+            "pipeline": "fast_scoped_dense",
+            "label": "Planner bounded retrieval",
+            "reason": "fake retrieval",
+            "detail": "demo-knowledge:auto",
+            "metrics": {
+                "vector_db_type": "qdrant",
+                "dense_policy": "fast_scoped_dense",
+                "scope_confidence": 0.8,
+            },
+        }
 
-        return Result()
-
-    monkeypatch.setattr("app.services.rag.document_service.DocumentService", FakeDocumentService)
-    monkeypatch.setattr("app.services.rag.pipeline_retrieval.retrieve_for_mode", fake_retrieve_for_mode)
+    monkeypatch.setattr("app.services.rag.context.retrieve_rag_context", fake_retrieve_rag_context)
 
     session = create_capture_plan(
         db_session,
@@ -699,6 +700,9 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
     assert prefetch["event_id"]
     assert prefetch["chunks"]
     assert prefetch["collection_name"] == "demo-knowledge"
+    assert seen_retrieval["context_collection"] == "demo-knowledge"
+    assert seen_retrieval["latency_profile"] == "fast"
+    assert seen_retrieval["candidate_pool_k"] == 20
 
     partial_event = next(
         event

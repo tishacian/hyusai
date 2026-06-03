@@ -8,7 +8,7 @@ import tempfile
 import time
 from collections import Counter
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from urllib.parse import quote
 
 import numpy as np
@@ -48,11 +48,13 @@ from app.services.rag.document_service import DocumentService
 from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.secure_deposit import build_file_preview, preview_needs_file_bytes
 from app.services.worker_dispatch import dispatch_worker_job
+from app.services.worker_offline_retrieval_artifacts import SUPPORTED_KINDS as SUPPORTED_RETRIEVAL_ARTIFACT_KINDS
 
 logger = get_logger(__name__)
 router = APIRouter()
 _GRAPH_CACHE_TTL_SECONDS = 120
 _GRAPH_CACHE: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
+_GRAPH_DENSE_SAMPLE_CAP = 500
 
 UPLOADS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))),
@@ -68,7 +70,8 @@ class DocumentSearchRequest(BaseModel):
     top_k: int = 10
     filters: Optional[dict] = None
     collection_name: str = "documents"
-    use_hybrid: bool = True  # Enable hybrid search by default
+    use_hybrid: bool = True
+    latency_profile: Literal["fast", "balanced", "deep"] = "fast"
 
 
 class DocumentSearchResponse(BaseModel):
@@ -76,6 +79,13 @@ class DocumentSearchResponse(BaseModel):
 
     results: list[dict]
     total: int
+    retrieval_plan: Optional[dict] = None
+    retrieval_scope: Optional[dict] = None
+    dense_policy: Optional[str] = None
+    fallback_reason: Optional[str] = None
+    latency_budget: Optional[dict] = None
+    total_available: Optional[int] = None
+    total_is_dense: bool = False
 
 
 class CollectionCreateRequest(BaseModel):
@@ -87,6 +97,11 @@ class CollectionCreateRequest(BaseModel):
 class CollectionPatchRequest(BaseModel):
     name: str | None = None
     description: str | None = None
+
+
+class RetrievalArtifactJobRequest(BaseModel):
+    kind: Literal["summary_index_rebuild", "sparse_index_rebuild", "qdrant_sparse_reindex"]
+    dry_run: bool = False
 
 
 def _resolve_document_vector_db_type(
@@ -136,6 +151,33 @@ def _source_row_to_document(row: Any) -> dict[str, Any]:
         "status": row.status,
         "source_id": row.id,
     }
+
+
+def _source_row_document_id(row: Any) -> str:
+    metadata = dict(getattr(row, "source_metadata", None) or {})
+    document_id = metadata.get("document_id") or row.normalized_name or row.filename or row.id
+    return str(document_id)
+
+
+def _ledger_document_for_id(
+    db: DBSession,
+    workspace: Workspace,
+    collection_name: str,
+    document_id: str,
+) -> Optional[dict[str, Any]]:
+    try:
+        collection = get_collection_or_404(
+            db,
+            workspace_id=workspace.id,
+            collection_ref=collection_name,
+        )
+    except HTTPException:
+        return None
+    target = str(document_id)
+    for row in collection_source_rows(db, collection=collection):
+        if _source_row_document_id(row) == target:
+            return _source_row_to_document(row)
+    return None
 
 
 async def _queue_collection_ingest(
@@ -373,27 +415,134 @@ async def upload_documents_batch(
 async def search_documents(
     request: DocumentSearchRequest,
     workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ):
-    """Search documents"""
+    """Search documents with the same dense-corpus guardrails as chat retrieval."""
     try:
         db_type = _resolve_document_vector_db_type(workspace)
+        raw_filters = dict(request.filters or {})
+        system_scope = raw_filters.get("collection_slug") or raw_filters.get("collection")
+        collection_name = str(system_scope or request.collection_name or "documents").strip() or "documents"
+        payload_filters = {
+            key: value
+            for key, value in raw_filters.items()
+            if key not in {"collection", "collection_slug"}
+        }
+        requested_top_k = max(1, int(request.top_k or 10))
+        retrieval_request = {
+            "query": request.query,
+            "workspace_id": workspace.id,
+            "workspace_slug": workspace.slug,
+            "latency_profile": request.latency_profile,
+            "rag_pipeline_mode": "hybrid" if request.use_hybrid else "naive",
+            "top_k": requested_top_k,
+            "candidate_pool_k": requested_top_k,
+            "retrieval_filters": {"collection_slug": collection_name, **payload_filters},
+        }
+        from app.services.rag.context import get_retrieval_profile
+        from app.services.rag.corpus_planner import plan_corpus
+
+        profile = get_retrieval_profile(retrieval_request)
+        planner_request = dict(retrieval_request)
+        planner_request["retrieval_filters"] = dict(profile.get("retrieval_filters") or {})
+        plan = plan_corpus(
+            db=db,
+            profile=profile,
+            query=str(profile.get("query") or request.query),
+            request=planner_request,
+        )
 
         doc_service = DocumentService(
-            collection_name=request.collection_name,
+            collection_name=str(profile.get("collection") or collection_name),
             vector_db_type=db_type,
-            use_hybrid=request.use_hybrid,
+            use_hybrid=bool(request.use_hybrid and plan.allow_legacy_hybrid and (plan.use_hybrid is not False)),
             workspace_slug=workspace.slug,
         )
-        results = await doc_service.search(
-            query=request.query,
-            top_k=request.top_k,
-            filters=request.filters,
-            use_hybrid=request.use_hybrid,
+        vector_count: int | None = None
+        try:
+            vector_count = int(await doc_service.get_document_count())
+        except Exception as exc:  # noqa: BLE001 - search can still run bounded.
+            logger.warning("Could not compute document search vector count", error=str(exc), collection=collection_name)
+
+        dense_from_vectors = bool(
+            vector_count is not None
+            and vector_count > int(getattr(settings, "rag_dense_chunk_threshold", 100_000) or 100_000)
         )
+        effective_filters = dict(plan.filters or {})
+        dense_unscoped = bool((plan.dense or dense_from_vectors) and not effective_filters)
+        if plan.intent == "catalogue" or dense_unscoped:
+            fallback_reason = (
+                "catalogue_query_inventory_preferred"
+                if plan.intent == "catalogue"
+                else plan.fallback_reason or "dense_unscoped_search_skipped"
+            )
+            return DocumentSearchResponse(
+                results=[],
+                total=0,
+                retrieval_plan=plan.retrieval_plan,
+                retrieval_scope=plan.retrieval_scope,
+                dense_policy=plan.dense_policy if plan.dense else "fast_scoped_dense_auto",
+                fallback_reason=fallback_reason,
+                latency_budget={
+                    "profile": plan.latency_profile,
+                    "deadline_seconds": plan.deadline_seconds,
+                    "top_k": plan.top_k,
+                    "candidate_pool_k": plan.candidate_pool_k,
+                },
+                total_available=vector_count,
+                total_is_dense=bool(plan.dense or dense_from_vectors),
+            )
+
+        effective_top_k = max(1, min(requested_top_k, plan.candidate_pool_k))
+        effective_use_hybrid = bool(
+            request.use_hybrid
+            and plan.use_hybrid is not False
+            and plan.allow_legacy_hybrid
+            and not (plan.dense or dense_from_vectors)
+        )
+        try:
+            results = await asyncio.wait_for(
+                doc_service.search(
+                    query=request.query,
+                    top_k=effective_top_k,
+                    filters=effective_filters or None,
+                    use_hybrid=effective_use_hybrid,
+                ),
+                timeout=max(0.001, float(plan.deadline_seconds or settings.rag_fast_retrieval_deadline_seconds)),
+            )
+        except TimeoutError:
+            return DocumentSearchResponse(
+                results=[],
+                total=0,
+                retrieval_plan=plan.retrieval_plan,
+                retrieval_scope=plan.retrieval_scope,
+                dense_policy=plan.dense_policy,
+                fallback_reason="retrieval_deadline_exceeded",
+                latency_budget={
+                    "profile": plan.latency_profile,
+                    "deadline_seconds": plan.deadline_seconds,
+                    "top_k": plan.top_k,
+                    "candidate_pool_k": plan.candidate_pool_k,
+                },
+                total_available=vector_count,
+                total_is_dense=bool(plan.dense or dense_from_vectors),
+            )
 
         return DocumentSearchResponse(
             results=results,
             total=len(results),
+            retrieval_plan=plan.retrieval_plan,
+            retrieval_scope=plan.retrieval_scope,
+            dense_policy=plan.dense_policy,
+            fallback_reason=plan.fallback_reason,
+            latency_budget={
+                "profile": plan.latency_profile,
+                "deadline_seconds": plan.deadline_seconds,
+                "top_k": plan.top_k,
+                "candidate_pool_k": plan.candidate_pool_k,
+            },
+            total_available=vector_count,
+            total_is_dense=bool(plan.dense or dense_from_vectors),
         )
 
     except Exception as e:
@@ -717,8 +866,22 @@ def _resolve_original_meta(
 
 
 async def _document_filename_for_id(
-    doc_service: DocumentService, document_id: str
+    db: DBSession,
+    workspace: Workspace,
+    collection_name: str,
+    document_id: str,
+    doc_service: Optional[DocumentService] = None,
 ) -> Optional[str]:
+    ledger_doc = _ledger_document_for_id(db, workspace, collection_name, document_id)
+    if ledger_doc:
+        return ledger_doc.get("filename") or ledger_doc.get("document_filename") or ""
+    if doc_service is None:
+        db_type = _resolve_document_vector_db_type(workspace)
+        doc_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
     documents = await doc_service.list_documents()
     doc = next((d for d in documents if d.get("document_id") == document_id), None)
     if not doc:
@@ -766,17 +929,20 @@ async def preview_document(
     document_id: str,
     collection_name: str = Query("documents"),
     workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ):
     """Return raw content of a document for preview (text) or redirect info for binary files."""
     try:
         db_type = _resolve_document_vector_db_type(workspace)
-        doc_service = DocumentService(
-            collection_name=collection_name,
-            vector_db_type=db_type,
-            workspace_slug=workspace.slug,
-        )
-        documents = await doc_service.list_documents()
-        doc = next((d for d in documents if d.get("document_id") == document_id), None)
+        doc = _ledger_document_for_id(db, workspace, collection_name, document_id)
+        if doc is None:
+            doc_service = DocumentService(
+                collection_name=collection_name,
+                vector_db_type=db_type,
+                workspace_slug=workspace.slug,
+            )
+            documents = await doc_service.list_documents()
+            doc = next((d for d in documents if d.get("document_id") == document_id), None)
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -818,17 +984,20 @@ async def serve_document_file(
     document_id: str,
     collection_name: str = Query("documents"),
     workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
 ):
     """Serve the original uploaded file (PDF, DOCX, etc.) for in-browser viewing."""
     try:
         db_type = _resolve_document_vector_db_type(workspace)
-        doc_service = DocumentService(
-            collection_name=collection_name,
-            vector_db_type=db_type,
-            workspace_slug=workspace.slug,
-        )
-        documents = await doc_service.list_documents()
-        doc = next((d for d in documents if d.get("document_id") == document_id), None)
+        doc = _ledger_document_for_id(db, workspace, collection_name, document_id)
+        if doc is None:
+            doc_service = DocumentService(
+                collection_name=collection_name,
+                vector_db_type=db_type,
+                workspace_slug=workspace.slug,
+            )
+            documents = await doc_service.list_documents()
+            doc = next((d for d in documents if d.get("document_id") == document_id), None)
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -881,13 +1050,12 @@ async def rich_preview_document(
     try:
         resolved_name = filename
         if not resolved_name:
-            db_type = _resolve_document_vector_db_type(workspace)
-            doc_service = DocumentService(
-                collection_name=collection_name,
-                vector_db_type=db_type,
-                workspace_slug=workspace.slug,
+            resolved_name = await _document_filename_for_id(
+                db,
+                workspace,
+                collection_name,
+                document_id,
             )
-            resolved_name = await _document_filename_for_id(doc_service, document_id)
         if not resolved_name:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -955,13 +1123,12 @@ async def serve_document_raw(
     try:
         resolved_name = filename
         if not resolved_name:
-            db_type = _resolve_document_vector_db_type(workspace)
-            doc_service = DocumentService(
-                collection_name=collection_name,
-                vector_db_type=db_type,
-                workspace_slug=workspace.slug,
+            resolved_name = await _document_filename_for_id(
+                db,
+                workspace,
+                collection_name,
+                document_id,
             )
-            resolved_name = await _document_filename_for_id(doc_service, document_id)
         if not resolved_name:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -1177,6 +1344,18 @@ def _build_embedding_graph(
     return {"nodes": nodes, "edges": edges, "projection": projection}
 
 
+def _is_dense_graph_request(
+    *,
+    collection: KnowledgeCollection | None,
+    total_chunks: int,
+) -> bool:
+    chunk_threshold = int(getattr(settings, "rag_dense_chunk_threshold", 100_000) or 100_000)
+    source_threshold = int(getattr(settings, "rag_dense_source_threshold", 5_000) or 5_000)
+    ledger_chunks = int(getattr(collection, "chunk_count", 0) or 0) if collection else 0
+    ledger_sources = int(getattr(collection, "document_count", 0) or 0) if collection else 0
+    return max(int(total_chunks or 0), ledger_chunks) > chunk_threshold or ledger_sources > source_threshold
+
+
 @router.get("/graph")
 async def embedding_graph(
     collection_name: str = Query("documents"),
@@ -1205,14 +1384,27 @@ async def embedding_graph(
             )
         except HTTPException:
             collection = None
+        doc_service = DocumentService(
+            collection_name=collection_name,
+            vector_db_type=db_type,
+            workspace_slug=workspace.slug,
+        )
+        total_chunks = await doc_service.get_document_count()
+        is_dense = _is_dense_graph_request(collection=collection, total_chunks=total_chunks)
+        sample_cap = _GRAPH_DENSE_SAMPLE_CAP if is_dense else 1000
+        requested_sample = int(sample)
+        effective_sample = max(10, min(requested_sample, sample_cap))
+        sample_capped = effective_sample < requested_sample
         cache_key = (
             workspace.id,
             collection_name,
             document_id or "",
-            int(sample),
+            requested_sample,
+            effective_sample,
             int(neighbors),
             round(float(min_score), 4),
             collection.updated_at.isoformat() if collection and collection.updated_at else "",
+            int(total_chunks or 0),
         )
         cached = _GRAPH_CACHE.get(cache_key)
         if cached and time.time() - cached[0] < _GRAPH_CACHE_TTL_SECONDS:
@@ -1220,16 +1412,15 @@ async def embedding_graph(
             payload["cached"] = True
             return payload
 
-        doc_service = DocumentService(
-            collection_name=collection_name,
-            vector_db_type=db_type,
-            workspace_slug=workspace.slug,
-        )
-        total_chunks = await doc_service.get_document_count()
         filters = {"document_id": document_id} if document_id else None
+        warnings: list[str] = []
+        if is_dense:
+            warnings.append("Dense collection: this map is sampled and not exhaustive.")
+        if sample_capped:
+            warnings.append(f"Sample capped to {effective_sample} nodes for interactive latency.")
         try:
             rows = await asyncio.wait_for(
-                doc_service.vector_db.sample_chunk_vectors(limit=sample, filters=filters),
+                doc_service.vector_db.sample_chunk_vectors(limit=effective_sample, filters=filters),
                 timeout=8,
             )
         except asyncio.TimeoutError:
@@ -1239,7 +1430,11 @@ async def embedding_graph(
                 "collection_name": collection_name,
                 "document_id": document_id,
                 "sample": 0,
+                "sample_requested": requested_sample,
+                "sample_cap": sample_cap,
+                "sample_capped": sample_capped,
                 "total_chunks": total_chunks,
+                "total_is_dense": is_dense,
                 "neighbors": neighbors,
                 "min_score": min_score,
                 "vector_dim": None,
@@ -1248,9 +1443,8 @@ async def embedding_graph(
                 "edges": [],
                 "supported": db_type == "qdrant" or db_type == "faiss",
                 "cached": False,
-                "warnings": ["No sampled vectors were returned before the graph timeout."],
+                "warnings": ["No sampled vectors were returned before the graph timeout."] + warnings,
             }
-        warnings: list[str] = []
         try:
             graph = await asyncio.wait_for(
                 asyncio.to_thread(_build_embedding_graph, rows, neighbors=neighbors, min_score=min_score),
@@ -1284,21 +1478,20 @@ async def embedding_graph(
             "collection_name": collection_name,
             "document_id": document_id,
             "sample": len(rows),
+            "sample_requested": requested_sample,
+            "sample_cap": sample_cap,
+            "sample_capped": sample_capped,
             "total_chunks": total_chunks,
+            "total_is_dense": is_dense,
             "neighbors": neighbors,
             "min_score": min_score,
-            "vector_dim": len(rows[0]["vector"]),
+            "vector_dim": len(rows[0].get("vector") or []),
             "projection": graph["projection"],
             "nodes": graph["nodes"],
             "edges": graph["edges"],
             "supported": True,
             "cached": False,
-            "warnings": warnings
-            + (
-                ["Dense collection: this map is sampled and not exhaustive."]
-                if total_chunks > 100_000
-                else []
-            ),
+            "warnings": warnings,
         }
         _GRAPH_CACHE[cache_key] = (time.time(), payload)
         return payload
@@ -1586,6 +1779,9 @@ async def get_collection_detail(
     source_kind: Optional[str] = Query(None),
     extension: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    project_code: Optional[str] = Query(None),
+    archive_name: Optional[str] = Query(None),
+    language: Optional[str] = Query(None),
     sort: str = Query("filename"),
     sort_dir: str = Query("asc"),
     workspace: Workspace = Depends(get_current_workspace),
@@ -1622,6 +1818,9 @@ async def get_collection_detail(
         source_kind=source_kind,
         extension=extension,
         status=status,
+        project_code=project_code,
+        archive_name=archive_name,
+        language=language,
         sort=sort,
         sort_dir=sort_dir,
     )
@@ -1637,6 +1836,9 @@ async def get_collection_inventory(
     source_kind: Optional[str] = Query(None),
     extension: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    project_code: Optional[str] = Query(None),
+    archive_name: Optional[str] = Query(None),
+    language: Optional[str] = Query(None),
     sort: str = Query("filename"),
     sort_dir: str = Query("asc"),
     workspace: Workspace = Depends(get_current_workspace),
@@ -1658,6 +1860,9 @@ async def get_collection_inventory(
         source_kind=source_kind,
         extension=extension,
         status=status,
+        project_code=project_code,
+        archive_name=archive_name,
+        language=language,
         sort=sort,
         sort_dir=sort_dir,
     )
@@ -1822,6 +2027,59 @@ async def get_collection_diagnostics(
     }
 
 
+@router.post("/collections/{collection_id}/retrieval-artifact-jobs")
+async def create_retrieval_artifact_job(
+    collection_id: str,
+    payload: RetrievalArtifactJobRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Queue a manual offline retrieval artifact job for a collection."""
+    row = get_collection_or_404(
+        db,
+        workspace_id=workspace.id,
+        collection_ref=collection_id,
+    )
+    if payload.kind not in SUPPORTED_RETRIEVAL_ARTIFACT_KINDS:
+        raise HTTPException(status_code=422, detail="Unsupported retrieval artifact job kind")
+    base_result = {
+        "stage": "dry_run" if payload.dry_run else "queued",
+        "launch_policy": "manual_only",
+        "requested_by": getattr(user, "id", None),
+        "collection_slug": row.slug,
+        "collection_id": row.id,
+        "kind": payload.kind,
+        "auto_run": False,
+        "dry_run": bool(payload.dry_run),
+    }
+    if payload.dry_run:
+        return {
+            **base_result,
+            "status": "dry_run",
+            "supported_kinds": sorted(SUPPORTED_RETRIEVAL_ARTIFACT_KINDS),
+            "would_create_job": True,
+            "would_dispatch": True,
+            "poll_url": None,
+        }
+
+    job = create_worker_job(
+        db,
+        workspace_id=workspace.id,
+        collection_id=row.id,
+        kind=payload.kind,
+    )
+    job.result = base_result
+    db.commit()
+    task_id = dispatch_worker_job(db, job, allow_inline_fallback=False)
+    db.commit()
+    refreshed = db.query(WorkerJob).filter(WorkerJob.id == job.id).first() or job
+    result = serialize_job(refreshed)
+    result["poll_url"] = f"/documents/jobs/{refreshed.id}"
+    result["task_id"] = task_id
+    return result
+
+
 @router.patch("/collections/{collection_id}")
 async def patch_collection(
     collection_id: str,
@@ -1876,6 +2134,7 @@ async def upload_collection_documents(
 @router.get("/jobs/{job_id}")
 async def get_worker_job(
     job_id: str,
+    include_context: bool = Query(False, description="Include heavy deep retrieval context when explicitly requested."),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
@@ -1886,7 +2145,7 @@ async def get_worker_job(
     )
     if not job:
         raise HTTPException(status_code=404, detail="Worker job not found")
-    return serialize_job(job)
+    return serialize_job(job, include_retrieval_context=include_context)
 
 
 @router.delete("/collections/{collection_name}")

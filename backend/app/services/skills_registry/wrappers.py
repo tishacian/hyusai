@@ -31,6 +31,36 @@ logger = get_logger(__name__)
 SkillCallable = Callable[[Dict[str, Any], Optional[Dict[str, Any]]], Awaitable[Dict[str, Any]]]
 
 
+def _rag_runtime_kwargs(payload: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    kwargs: Dict[str, Any] = {}
+    for key in ("top_k", "candidate_pool_k", "synthesis_k", "source_display_k"):
+        value = payload.get(key)
+        if value is not None:
+            kwargs[key] = value
+    latency_profile = payload.get("latency_profile") or ctx.get("latency_profile")
+    if latency_profile:
+        kwargs["latency_profile"] = latency_profile
+    if payload.get("deep_retrieval") is not None:
+        kwargs["deep_retrieval"] = bool(payload.get("deep_retrieval"))
+    retrieval_filters = payload.get("retrieval_filters")
+    if isinstance(retrieval_filters, dict):
+        kwargs["retrieval_filters"] = retrieval_filters
+    knowledge_scope = payload.get("knowledge_scope") or ctx.get("knowledge_scope")
+    if knowledge_scope:
+        kwargs["knowledge_scope"] = knowledge_scope
+    context_collection = (
+        payload.get("collection")
+        or payload.get("collection_name")
+        or payload.get("context_collection")
+        or ctx.get("collection")
+        or ctx.get("collection_name")
+        or ctx.get("context_collection")
+    )
+    if context_collection:
+        kwargs["context_collection"] = context_collection
+    return kwargs
+
+
 # ---------------------------------------------------------------------------
 # Fallbacks
 # ---------------------------------------------------------------------------
@@ -71,6 +101,8 @@ async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, An
         prompt_type=payload.get("prompt_type") or ctx.get("default_prompt_type"),
         model=payload.get("model") or ctx.get("default_model"),
         provider=payload.get("provider"),
+        workspace_slug=ctx.get("workspace_slug") or payload.get("workspace_slug"),
+        **_rag_runtime_kwargs(payload, ctx),
         # Forward the run-engine sink so the orchestrator's text
         # chunks are rebroadcast as SSE token_delta events in real
         # time (Vague D / D2). Non-streaming callers simply don't pass
@@ -86,29 +118,49 @@ async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, An
 
 
 async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    from app.services.rag.document_service import DocumentService
-    from app.services.rag.pipeline_retrieval import retrieve_for_mode
+    from app.services.rag.context import apply_retrieval_profile_to_request, retrieve_rag_context
 
     ctx = ctx or {}
-    workspace_slug = ctx.get("workspace_slug")
-    doc_svc = DocumentService(workspace_slug=workspace_slug)
-    top_k = int(payload.get("top_k", 5))
-    mode = payload.get("mode") or "hybrid"
-    result = await retrieve_for_mode(
-        doc_svc,
-        payload["query"],
-        mode=mode,
-        top_k=top_k,
-        use_hybrid=mode != "naive",
-    )
+    runtime_kwargs = _rag_runtime_kwargs(payload, ctx)
+    top_k = int(runtime_kwargs.get("top_k", payload.get("top_k", 5)))
+    request = {
+        "query": payload["query"],
+        "workspace_id": ctx.get("workspace_id") or payload.get("workspace_id"),
+        "workspace_slug": ctx.get("workspace_slug") or payload.get("workspace_slug"),
+        "capability_id": ctx.get("capability_id") or payload.get("capability_id"),
+        "system_id": ctx.get("system_id") or payload.get("system_id"),
+        "knowledge_scope": payload.get("knowledge_scope") or ctx.get("knowledge_scope"),
+        "rag_pipeline_mode": payload.get("mode") or payload.get("rag_pipeline_mode") or "auto",
+        "top_k": top_k,
+        "latency_profile": "fast",
+        **runtime_kwargs,
+    }
+    request = {key: value for key, value in request.items() if value is not None}
+    apply_retrieval_profile_to_request(request)
+    result = await retrieve_rag_context(request)
+    chunks = list(result.get("chunks") or [])
+    scores = list(result.get("scores") or [])
+    metadatas = list(result.get("metadatas") or [])
+    metrics = dict(result.get("metrics") or {})
     return {
         "results": [
-            {"content": c, "score": s} for c, s in zip(result.chunks, result.scores)
+            {
+                "content": content,
+                "score": scores[index] if index < len(scores) else None,
+                "metadata": metadatas[index] if index < len(metadatas) else {},
+            }
+            for index, content in enumerate(chunks)
         ],
-        "pipeline": result.pipeline,
-        "label": result.label,
-        "reason": result.reason,
-        "detail": result.detail,
+        "pipeline": result.get("pipeline"),
+        "label": result.get("label"),
+        "reason": result.get("reason"),
+        "detail": result.get("detail"),
+        "retrieval_scope": metrics.get("retrieval_scope") or result.get("retrieval_scope"),
+        "scope_confidence": metrics.get("scope_confidence"),
+        "scope_reason": metrics.get("scope_reason"),
+        "dense_policy": metrics.get("dense_policy"),
+        "fallback_reason": metrics.get("fallback_reason"),
+        "latency_budget": metrics.get("latency_budget"),
     }
 
 
@@ -1740,7 +1792,8 @@ async def _chain_naive_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]]
         query=payload["query"],
         context_id=payload.get("context_id"),
         workspace_id=ctx.get("workspace_id"),
-        top_k=payload.get("top_k"),
+        workspace_slug=ctx.get("workspace_slug") or payload.get("workspace_slug"),
+        **_rag_runtime_kwargs(payload, ctx),
     )
 
 
@@ -1752,7 +1805,8 @@ async def _chain_hybrid_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]
         query=payload["query"],
         context_id=payload.get("context_id"),
         workspace_id=ctx.get("workspace_id"),
-        top_k=payload.get("top_k"),
+        workspace_slug=ctx.get("workspace_slug") or payload.get("workspace_slug"),
+        **_rag_runtime_kwargs(payload, ctx),
     )
 
 
@@ -1764,7 +1818,8 @@ async def _chain_mixed_hah_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
         query=payload["query"],
         context_id=payload.get("context_id"),
         workspace_id=ctx.get("workspace_id"),
-        top_k=payload.get("top_k"),
+        workspace_slug=ctx.get("workspace_slug") or payload.get("workspace_slug"),
+        **_rag_runtime_kwargs(payload, ctx),
     )
 
 
@@ -1777,7 +1832,7 @@ async def _chain_mixed_hah_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
 # wrapper is self-contained (loggers, stubs, in-process helpers).
 _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "llm_rag_answer_v1":       (_llm_rag_answer_v1,       "app.services.rag.rag_service",          "bound"),
-    "semantic_search_v1":      (_semantic_search_v1,      "app.services.rag.pipeline_retrieval",   "bound"),
+    "semantic_search_v1":      (_semantic_search_v1,      "app.services.rag.context",              "bound"),
     "document_ingestion_v1":   (_document_ingestion_v1,   "app.services.rag.document_service",     "bound"),
     "eval_radar_v1":           (_eval_radar_v1,           "app.services.evaluation.judge",         "bound"),
     "claim_audit_v1":          (_claim_audit_v1,          "app.services.evaluation.judge",         "bound"),

@@ -20,7 +20,15 @@ from app.db.base import Base
 
 
 COLLECTION_STATUSES = ("created", "queued", "ingesting", "embedding", "ready", "error")
-WORKER_JOB_KINDS = ("document_ingest_index", "vector_reindex", "bm25_rebuild")
+WORKER_JOB_KINDS = (
+    "document_ingest_index",
+    "vector_reindex",
+    "bm25_rebuild",
+    "rag_deep_retrieval",
+    "sparse_index_rebuild",
+    "summary_index_rebuild",
+    "qdrant_sparse_reindex",
+)
 WORKER_JOB_STATUSES = ("queued", "running", "completed", "failed", "cancelled")
 
 
@@ -126,7 +134,7 @@ class WorkerJob(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('document_ingest_index', 'vector_reindex', 'bm25_rebuild')",
+            "kind IN ('document_ingest_index', 'vector_reindex', 'bm25_rebuild', 'rag_deep_retrieval', 'sparse_index_rebuild', 'summary_index_rebuild', 'qdrant_sparse_reindex')",
             name="ck_worker_jobs_kind",
         ),
         CheckConstraint(

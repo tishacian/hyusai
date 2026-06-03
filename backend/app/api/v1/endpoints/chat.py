@@ -68,6 +68,9 @@ class ChatRequest(BaseModel):
     candidate_pool_k: Optional[int] = None
     synthesis_k: Optional[int] = None
     source_display_k: Optional[int] = None
+    latency_profile: Optional[Literal["fast", "balanced", "deep"]] = None
+    deep_retrieval: Optional[bool] = None
+    retrieval_filters: Optional[Dict[str, Any]] = None
     similarity_threshold: Optional[float] = None
     system_prompt: Optional[str] = None
     # RAG mode: auto | naive | hybrid | hah | chah — see docs/rag-rd-papai-mapping.md
@@ -195,6 +198,89 @@ def _apply_context_to_chat_request(
             request_dict["knowledge_scope"] = str(knowledge_scope)
 
 
+def _int_budget(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(1, parsed)
+
+
+def _apply_retrieval_budget_policy(request_dict: Dict[str, Any]) -> None:
+    """Clamp retrieval fan-out before any orchestrator sees the request."""
+    agent_preferences = request_dict.get("agent_preferences") if isinstance(request_dict.get("agent_preferences"), dict) else {}
+    raw_profile = str(request_dict.get("latency_profile") or agent_preferences.get("latency_profile") or "").strip().lower()
+    if request_dict.get("deep_retrieval") or raw_profile == "deep":
+        profile = "deep"
+    elif raw_profile == "balanced":
+        profile = "balanced"
+    else:
+        profile = "fast"
+
+    explicit_top_k = request_dict.get("top_k") is not None
+    explicit_budget = any(
+        request_dict.get(key) is not None
+        for key in ("candidate_pool_k", "synthesis_k", "source_display_k")
+    )
+    if profile == "deep":
+        top_default = 8
+        source_default = 8
+        synthesis_default = 24
+        candidate_default = 80
+    elif profile == "balanced":
+        top_default = 8
+        source_default = 8
+        synthesis_default = 16
+        candidate_default = 40
+    else:
+        top_default = 5
+        source_default = 5
+        synthesis_default = 12
+        candidate_default = 20
+
+    top_k = _int_budget(request_dict.get("top_k"), top_default)
+    source_display_default = top_k if explicit_top_k else min(max(top_k, source_default), 24 if profile != "fast" else 8)
+    source_display_k = _int_budget(request_dict.get("source_display_k"), source_display_default)
+    synthesis_base = top_k if explicit_top_k and not explicit_budget else max(top_k, source_display_k, synthesis_default)
+    synthesis_k = _int_budget(request_dict.get("synthesis_k"), synthesis_base)
+    candidate_base = top_k if explicit_top_k and not explicit_budget else max(synthesis_k, candidate_default)
+    candidate_pool_k = _int_budget(request_dict.get("candidate_pool_k"), candidate_base)
+
+    if profile == "fast":
+        top_k = min(top_k, 8)
+        source_display_k = min(source_display_k, 8)
+        synthesis_k = min(max(synthesis_k, source_display_k), 12)
+        candidate_pool_k = min(max(candidate_pool_k, synthesis_k), 20)
+    elif profile == "balanced":
+        top_k = min(top_k, 12)
+        source_display_k = min(source_display_k, 24)
+        synthesis_k = min(max(synthesis_k, source_display_k), 24)
+        candidate_pool_k = min(max(candidate_pool_k, synthesis_k), 80)
+    else:
+        top_k = min(top_k, 24)
+        source_display_k = min(source_display_k, 24)
+        synthesis_k = min(max(synthesis_k, source_display_k), 48)
+        candidate_pool_k = min(max(candidate_pool_k, synthesis_k), 200)
+
+    request_dict["latency_profile"] = profile
+    request_dict["top_k"] = top_k
+    request_dict["source_display_k"] = source_display_k
+    request_dict["synthesis_k"] = synthesis_k
+    request_dict["candidate_pool_k"] = candidate_pool_k
+    request_dict["latency_budget"] = {
+        "profile": profile,
+        "deadline_seconds": (
+            settings.rag_deep_retrieval_deadline_seconds
+            if profile == "deep"
+            else min(settings.rag_fast_retrieval_deadline_seconds * 2, 20.0)
+            if profile == "balanced"
+            else settings.rag_fast_retrieval_deadline_seconds
+        ),
+        "top_k": top_k,
+        "candidate_pool_k": candidate_pool_k,
+    }
+
+
 def _persist_chat_run(
     db: Session,
     *,
@@ -320,6 +406,20 @@ def _collect_chat_chunk(
             state["knowledge_scope"] = details.get("scope")
         if details.get("collections_touched"):
             state["collections_touched"] = details.get("collections_touched")
+        for key in (
+            "retrieval_scope",
+            "retrieval_plan",
+            "scope_confidence",
+            "scope_reason",
+            "dense_policy",
+            "latency_budget",
+            "deep_retrieval_recommended",
+            "deep_job_id",
+            "deep_poll_url",
+            "deep_status",
+        ):
+            if details.get(key) is not None:
+                state[key] = details.get(key)
     if chunk.get("chunk_type") == "decision_step" and chunk.get("decision_step"):
         decision_step = chunk.get("decision_step")
         existing_index = next(
@@ -330,6 +430,300 @@ def _collect_chat_chunk(
             decision_steps[existing_index] = decision_step
         else:
             decision_steps.append(decision_step)
+
+
+def _retrieval_metrics(state: Dict[str, Any]) -> Dict[str, Any]:
+    metrics = state.get("retrieval_metrics")
+    return metrics if isinstance(metrics, dict) else {}
+
+
+def _retrieval_fallback_reason(state: Dict[str, Any]) -> Optional[Any]:
+    fallback = state.get("retrieval_fallback")
+    if isinstance(fallback, str) and fallback:
+        return fallback
+    reason = _retrieval_metrics(state).get("fallback_reason")
+    return reason if reason else None
+
+
+_SYSTEM_RETRIEVAL_FILTER_KEYS = {
+    "collection",
+    "collection_slug",
+    "document_id",
+    "document_filename",
+    "source_kind",
+    "extension",
+    "status",
+    "project_code",
+    "archive_name",
+    "language",
+}
+
+
+def _clean_system_retrieval_filter_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned or None
+    if isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        out: list[Any] = []
+        for item in value:
+            cleaned = _clean_system_retrieval_filter_value(item)
+            if cleaned is not None and cleaned not in out:
+                out.append(cleaned)
+        return out or None
+    return None
+
+
+def _inferred_scope_filters(state: Dict[str, Any]) -> Dict[str, Any]:
+    scope = state.get("retrieval_scope")
+    if not isinstance(scope, dict):
+        metrics_scope = _retrieval_metrics(state).get("retrieval_scope")
+        scope = metrics_scope if isinstance(metrics_scope, dict) else {}
+    raw_filters = scope.get("filters") if isinstance(scope, dict) else {}
+    if not isinstance(raw_filters, dict):
+        return {}
+    filters: Dict[str, Any] = {}
+    for key, value in raw_filters.items():
+        if key not in _SYSTEM_RETRIEVAL_FILTER_KEYS:
+            continue
+        cleaned = _clean_system_retrieval_filter_value(value)
+        if cleaned is not None:
+            filters[key] = cleaned
+    return filters
+
+
+def _merge_inferred_retrieval_filters(
+    request_dict: Dict[str, Any],
+    state: Dict[str, Any],
+) -> tuple[Dict[str, Any], list[str]]:
+    inferred = _inferred_scope_filters(state)
+    if not inferred:
+        return {}, []
+    existing = (
+        dict(request_dict.get("retrieval_filters"))
+        if isinstance(request_dict.get("retrieval_filters"), dict)
+        else {}
+    )
+    merged = dict(existing)
+    forwarded: list[str] = []
+    for key, value in inferred.items():
+        if key in merged and _clean_system_retrieval_filter_value(merged.get(key)) is not None:
+            continue
+        merged[key] = value
+        forwarded.append(key)
+    request_dict["retrieval_filters"] = merged
+    return merged, forwarded
+
+
+def _should_queue_auto_deep_retrieval(request_dict: Dict[str, Any], state: Dict[str, Any]) -> bool:
+    if not settings.rag_auto_deep_retrieval_enabled:
+        return False
+    if request_dict.get("deep_retrieval") or request_dict.get("latency_profile") == "deep":
+        return False
+    if state.get("deep_job_id"):
+        return False
+
+    metrics = _retrieval_metrics(state)
+    dense_policy = str(state.get("dense_policy") or metrics.get("dense_policy") or "")
+    fallback_reason = _retrieval_fallback_reason(state)
+    recommended = bool(
+        state.get("deep_retrieval_recommended")
+        or metrics.get("deep_retrieval_recommended")
+        or fallback_reason in {"retrieval_deadline_exceeded", "worker_timeout", "worker_error"}
+    )
+    if not recommended:
+        return False
+
+    try:
+        confidence = float(state.get("scope_confidence") or metrics.get("scope_confidence") or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    try:
+        chunks_retrieved = int(metrics.get("chunks_retrieved") or 0)
+    except (TypeError, ValueError):
+        chunks_retrieved = 0
+    no_context = bool(metrics.get("no_context") or chunks_retrieved == 0)
+    degraded_reasons = {
+        "retrieval_deadline_exceeded",
+        "worker_timeout",
+        "worker_error",
+        "document_service_unavailable",
+    }
+    if str(fallback_reason or "") in degraded_reasons:
+        return True
+    if dense_policy.startswith("fast_scoped_dense") and no_context:
+        return confidence < float(settings.rag_auto_deep_retrieval_min_confidence)
+    if dense_policy == "fast_scoped_dense_auto":
+        return bool(settings.rag_auto_deep_retrieval_dense_unscoped)
+    return False
+
+
+def _compact_job_text(value: Any, *, max_chars: int = 1200) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 3)].rstrip() + "..."
+
+
+def _compact_job_sources(sources: Any, *, limit: int = 8) -> list[Dict[str, Any]]:
+    if not isinstance(sources, list):
+        return []
+    allowed = (
+        "id",
+        "document_id",
+        "title",
+        "filename",
+        "source",
+        "source_name",
+        "collection",
+        "collection_name",
+        "collection_slug",
+        "page",
+        "score",
+        "source_kind",
+        "extension",
+        "project_code",
+        "archive_name",
+        "snippet",
+        "content",
+        "text",
+        "metadata",
+    )
+    metadata_allowed = {
+        "chunk_id",
+        "chunk_index",
+        "document_id",
+        "document_title",
+        "document_filename",
+        "source_kind",
+        "extension",
+        "project_code",
+        "archive_name",
+        "language",
+        "status",
+        "page",
+        "section",
+        "section_title",
+    }
+    compact: list[Dict[str, Any]] = []
+    for raw in sources[: max(0, limit)]:
+        if not isinstance(raw, dict):
+            continue
+        item: Dict[str, Any] = {}
+        for key in allowed:
+            value = raw.get(key)
+            if value is None:
+                continue
+            if key in {"snippet", "content", "text"}:
+                item[key] = _compact_job_text(value)
+            elif key == "metadata" and isinstance(value, dict):
+                item[key] = {
+                    meta_key: meta_value
+                    for meta_key, meta_value in value.items()
+                    if meta_key in metadata_allowed and meta_value is not None
+                }
+            elif isinstance(value, (str, int, float, bool)):
+                item[key] = value
+        if item:
+            compact.append(item)
+    return compact
+
+
+def _queue_auto_deep_retrieval_job(
+    *,
+    db: Session,
+    workspace: Workspace,
+    request_dict: Dict[str, Any],
+    state: Dict[str, Any],
+    partial_answer: Optional[str] = None,
+    partial_sources: Any = None,
+) -> Optional[Dict[str, Any]]:
+    if not _should_queue_auto_deep_retrieval(request_dict, state):
+        return None
+
+    from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+    from app.services.knowledge_collections import create_worker_job
+    from app.services.rag.context import get_retrieval_profile
+    from app.services.worker_dispatch import dispatch_worker_job
+
+    payload = dict(request_dict)
+    payload["latency_profile"] = "deep"
+    payload["deep_retrieval"] = True
+    payload["auto_deep_retrieval"] = True
+    _, forwarded_filter_keys = _merge_inferred_retrieval_filters(payload, state)
+    for key in ("top_k", "candidate_pool_k", "synthesis_k", "source_display_k"):
+        payload.pop(key, None)
+    _apply_retrieval_budget_policy(payload)
+    profile = get_retrieval_profile(payload)
+    collection_ref = profile.get("collection")
+    collection = None
+    if collection_ref:
+        collection = (
+            db.query(KnowledgeCollection)
+            .filter(
+                ((KnowledgeCollection.slug == collection_ref) | (KnowledgeCollection.id == collection_ref)),
+                KnowledgeCollection.workspace_id == workspace.id,
+            )
+            .first()
+        )
+    job = create_worker_job(
+        db,
+        workspace_id=workspace.id,
+        collection_id=collection.id if collection else None,
+        kind="rag_deep_retrieval",
+    )
+    compact_sources = _compact_job_sources(partial_sources)
+    partial_result: Dict[str, Any] = {}
+    if partial_answer and partial_answer.strip():
+        answer_preview = " ".join(partial_answer.split())
+        partial_result["answer_preview"] = answer_preview[:3997] + "..." if len(answer_preview) > 4000 else answer_preview
+    if compact_sources:
+        partial_result["sources_preview"] = compact_sources
+    metrics = _retrieval_metrics(state)
+    fallback_reason = _retrieval_fallback_reason(state)
+    if metrics:
+        partial_result["retrieval_summary"] = {
+            "chunks_retrieved": metrics.get("chunks_retrieved"),
+            "fallback_reason": fallback_reason,
+            "dense_policy": state.get("dense_policy") or metrics.get("dense_policy"),
+            "scope_confidence": state.get("scope_confidence") or metrics.get("scope_confidence"),
+        }
+    job.result = {
+        "stage": "queued",
+        "request": payload,
+        "latency_profile": "deep",
+        "trigger": "auto_fast_refinement",
+        "partial_result": partial_result or None,
+        "parent_retrieval": {
+            "dense_policy": state.get("dense_policy"),
+            "scope_confidence": state.get("scope_confidence"),
+            "scope_reason": state.get("scope_reason"),
+            "fallback_reason": fallback_reason,
+            "retrieval_scope": state.get("retrieval_scope"),
+            "inferred_filters_forwarded": bool(forwarded_filter_keys),
+            "forwarded_filter_keys": forwarded_filter_keys,
+        },
+    }
+    db.commit()
+    task_id = dispatch_worker_job(db, job, allow_inline_fallback=False)
+    db.commit()
+    refreshed = db.query(WorkerJob).filter(WorkerJob.id == job.id).first() or job
+    state["deep_job_id"] = refreshed.id
+    state["deep_poll_url"] = f"/documents/jobs/{refreshed.id}"
+    state["deep_status"] = refreshed.status
+    state["deep_retrieval_recommended"] = True
+    refreshed_result = refreshed.result if isinstance(refreshed.result, dict) else {}
+    return {
+        "deep_job_id": refreshed.id,
+        "deep_task_id": task_id,
+        "deep_poll_url": state["deep_poll_url"],
+        "deep_status": refreshed.status,
+        "deep_progress": refreshed.progress,
+        "deep_stage": refreshed_result.get("stage"),
+    }
 
 
 def _vigie_executive_quick_reply(
@@ -816,6 +1210,7 @@ async def chat_completion(
             request_dict["max_tokens"] = app_settings.get("maxTokens", 2000)
         if request.temperature is None:
             request_dict["temperature"] = app_settings.get("temperature", 0.7)
+        _apply_retrieval_budget_policy(request_dict)
         chunks = []
         decision_steps = []  # Collect decision pipeline steps
         import time
@@ -829,6 +1224,16 @@ async def chat_completion(
             "retrieval_fallback": None,
             "knowledge_scope": None,
             "collections_touched": None,
+            "retrieval_scope": None,
+            "retrieval_plan": None,
+            "scope_confidence": None,
+            "scope_reason": None,
+            "dense_policy": None,
+            "latency_budget": None,
+            "deep_retrieval_recommended": None,
+            "deep_job_id": None,
+            "deep_poll_url": None,
+            "deep_status": None,
             "grounding_policy": grounding_policy,
         }
         full_content: list[str] = []
@@ -864,6 +1269,20 @@ async def chat_completion(
         except ValidationError as e:
             logger.warning("Response validation warning", error=str(e))
             # Don't fail, just log warning
+
+        deep_job_payload = None
+        try:
+            deep_job_payload = _queue_auto_deep_retrieval_job(
+                db=db,
+                workspace=workspace,
+                request_dict=request_dict,
+                state=chunk_state,
+                partial_answer=content,
+                partial_sources=chunk_state.get("sources"),
+            )
+        except Exception as exc:  # noqa: BLE001 - deep refinement must never break chat.
+            logger.warning("Auto deep retrieval queue failed", error=str(exc))
+        fallback_reason = _retrieval_fallback_reason(chunk_state)
         
         # Save messages to database if session_id provided
         if request.session_id:
@@ -886,6 +1305,18 @@ async def chat_completion(
                 "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                 "grounding_mode": grounding_policy["mode"],
                 "grounding_policy": grounding_policy,
+                "retrieval_scope": chunk_state.get("retrieval_scope"),
+                "retrieval_plan": chunk_state.get("retrieval_plan"),
+                "scope_confidence": chunk_state.get("scope_confidence"),
+                "scope_reason": chunk_state.get("scope_reason"),
+                "dense_policy": chunk_state.get("dense_policy"),
+                "retrieval_fallback": chunk_state.get("retrieval_fallback"),
+                "fallback_reason": fallback_reason,
+                "latency_budget": chunk_state.get("latency_budget"),
+                "deep_retrieval_recommended": chunk_state.get("deep_retrieval_recommended"),
+                "deep_job_id": chunk_state.get("deep_job_id"),
+                "deep_poll_url": chunk_state.get("deep_poll_url"),
+                "deep_status": chunk_state.get("deep_status"),
             }
             
             # Add decision steps if any were collected
@@ -925,11 +1356,22 @@ async def chat_completion(
                 "retrieval_metrics": chunk_state["retrieval_metrics"],
                 "retrieval_worker_task_id": chunk_state["retrieval_worker_task_id"],
                 "retrieval_fallback": chunk_state["retrieval_fallback"],
+                "fallback_reason": fallback_reason,
                 "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                 "context_id": request.context_id,
                 "context_mode": request.context_mode,
                 "assistant_profile": request.assistant_profile,
                 "collections_touched": chunk_state.get("collections_touched"),
+                "retrieval_scope": chunk_state.get("retrieval_scope"),
+                "retrieval_plan": chunk_state.get("retrieval_plan"),
+                "scope_confidence": chunk_state.get("scope_confidence"),
+                "scope_reason": chunk_state.get("scope_reason"),
+                "dense_policy": chunk_state.get("dense_policy"),
+                "latency_budget": chunk_state.get("latency_budget"),
+                "deep_retrieval_recommended": chunk_state.get("deep_retrieval_recommended"),
+                "deep_job_id": chunk_state.get("deep_job_id"),
+                "deep_poll_url": chunk_state.get("deep_poll_url"),
+                "deep_status": chunk_state.get("deep_status"),
                 "grounding_mode": grounding_policy["mode"],
                 "grounding_policy": grounding_policy,
             },
@@ -941,6 +1383,19 @@ async def chat_completion(
             "content": content,
             "reasoning_trace": chunk_state["reasoning_trace"],
             "sources": chunk_state["sources"],
+            "retrieval_scope": chunk_state.get("retrieval_scope"),
+            "retrieval_plan": chunk_state.get("retrieval_plan"),
+            "scope_confidence": chunk_state.get("scope_confidence"),
+            "scope_reason": chunk_state.get("scope_reason"),
+            "dense_policy": chunk_state.get("dense_policy"),
+            "retrieval_fallback": chunk_state.get("retrieval_fallback"),
+            "fallback_reason": fallback_reason,
+            "latency_budget": chunk_state.get("latency_budget"),
+            "deep_retrieval_recommended": chunk_state.get("deep_retrieval_recommended"),
+            "deep_job_id": chunk_state.get("deep_job_id"),
+            "deep_poll_url": chunk_state.get("deep_poll_url"),
+            "deep_status": chunk_state.get("deep_status"),
+            "deep_job": deep_job_payload,
             "status": "completed",
         }
     except HTTPException:
@@ -948,6 +1403,151 @@ async def chat_completion(
     except Exception as e:
         logger.error("Chat completion error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/deep-retrieval-jobs")
+async def create_deep_retrieval_job(
+    request: ChatRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Queue a deep retrieval job without blocking the chat stream."""
+    from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+    from app.services.knowledge_collections import create_worker_job, serialize_job
+    from app.services.rag.context import get_retrieval_profile
+    from app.services.worker_dispatch import dispatch_worker_job
+
+    try:
+        validated_query = query_validator.validate(request.query)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    chat_context = _resolve_chat_context(
+        db,
+        workspace_id=workspace.id,
+        candidate=request.context_id,
+    )
+    if request.context_id and chat_context is None:
+        raise HTTPException(status_code=404, detail="Chat context not found")
+
+    request_dict = request.model_dump()
+    request_dict["query"] = validated_query
+    request_dict["workspace_slug"] = workspace.slug
+    request_dict["workspace_id"] = workspace.id
+    request_dict["latency_profile"] = "deep"
+    request_dict["deep_retrieval"] = True
+    if request.rag_mode_override:
+        request_dict["rag_pipeline_mode"] = request.rag_mode_override
+    _apply_context_to_chat_request(request_dict, chat_context)
+    _apply_retrieval_budget_policy(request_dict)
+
+    profile = get_retrieval_profile(request_dict)
+    collection_ref = profile.get("collection")
+    collection = (
+        db.query(KnowledgeCollection)
+        .filter(
+            ((KnowledgeCollection.slug == collection_ref) | (KnowledgeCollection.id == collection_ref)),
+            KnowledgeCollection.workspace_id == workspace.id,
+        )
+        .first()
+    )
+    job = create_worker_job(
+        db,
+        workspace_id=workspace.id,
+        collection_id=collection.id if collection else None,
+        kind="rag_deep_retrieval",
+    )
+    job.result = {
+        "stage": "queued",
+        "request": request_dict,
+        "latency_profile": "deep",
+    }
+    db.commit()
+    task_id = dispatch_worker_job(db, job, allow_inline_fallback=False)
+    db.commit()
+    refreshed = db.query(WorkerJob).filter(WorkerJob.id == job.id).first() or job
+    payload = serialize_job(refreshed)
+    payload["poll_url"] = f"/documents/jobs/{job.id}"
+    payload["task_id"] = task_id
+    return payload
+
+
+@router.post("/retrieval-plan-preview")
+async def preview_retrieval_plan(
+    request: ChatRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the planner decision without running Qdrant, sparse, rerank, or LLM."""
+    from app.services.rag.context import get_retrieval_profile
+    from app.services.rag.corpus_planner import plan_corpus
+
+    try:
+        validated_query = query_validator.validate(request.query)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    chat_context = _resolve_chat_context(
+        db,
+        workspace_id=workspace.id,
+        candidate=request.context_id,
+    )
+    if request.context_id and chat_context is None:
+        raise HTTPException(status_code=404, detail="Chat context not found")
+
+    request_dict = request.model_dump()
+    request_dict["query"] = validated_query
+    request_dict["workspace_slug"] = workspace.slug
+    request_dict["workspace_id"] = workspace.id
+    if request.rag_mode_override:
+        request_dict["rag_pipeline_mode"] = request.rag_mode_override
+    _apply_context_to_chat_request(request_dict, chat_context)
+    _apply_retrieval_budget_policy(request_dict)
+    profile = get_retrieval_profile(request_dict)
+    planner_request = dict(request_dict)
+    planner_request["retrieval_filters"] = dict(profile.get("retrieval_filters") or {})
+    plan = plan_corpus(
+        db=db,
+        profile=profile,
+        query=str(profile.get("query") or validated_query),
+        request=planner_request,
+    )
+    return {
+        "query": validated_query,
+        "planner_only": True,
+        "collection": profile.get("collection"),
+        "collections": profile.get("collections") or [],
+        "knowledge_scope": profile.get("knowledge_scope"),
+        "rag_mode": profile.get("rag_mode"),
+        "latency_profile": plan.latency_profile,
+        "top_k": plan.top_k,
+        "candidate_pool_k": plan.candidate_pool_k,
+        "synthesis_k": plan.synthesis_k,
+        "source_display_k": plan.source_display_k,
+        "latency_budget": {
+            "profile": plan.latency_profile,
+            "deadline_seconds": plan.deadline_seconds,
+            "top_k": plan.top_k,
+            "candidate_pool_k": plan.candidate_pool_k,
+        },
+        "intent": plan.intent,
+        "dense": plan.dense,
+        "retrieval_scope": plan.retrieval_scope,
+        "retrieval_plan": plan.retrieval_plan,
+        "scope_confidence": plan.scope_confidence,
+        "scope_reason": plan.scope_reason,
+        "dense_policy": plan.dense_policy,
+        "fallback_reason": plan.fallback_reason,
+        "deep_retrieval_recommended": plan.deep_retrieval_recommended,
+        "filters": plan.filters,
+        "use_hybrid": plan.use_hybrid,
+        "allow_hah_chah": plan.allow_hah_chah,
+        "allow_legacy_hybrid": plan.allow_legacy_hybrid,
+        "max_variants": plan.max_variants,
+        "max_candidates": plan.max_candidates,
+    }
 
 
 @router.post("/stream")
@@ -1577,6 +2177,16 @@ async def chat_stream(
                 "retrieval_fallback": None,
                 "knowledge_scope": None,
                 "collections_touched": None,
+                "retrieval_scope": None,
+                "retrieval_plan": None,
+                "scope_confidence": None,
+                "scope_reason": None,
+                "dense_policy": None,
+                "latency_budget": None,
+                "deep_retrieval_recommended": None,
+                "deep_job_id": None,
+                "deep_poll_url": None,
+                "deep_status": None,
                 "grounding_policy": grounding_policy,
             }
             import time as _time
@@ -1640,6 +2250,7 @@ async def chat_stream(
                 request_dict["source_display_k"] = request.source_display_k
             if request.similarity_threshold is not None:
                 request_dict["similarity_threshold"] = request.similarity_threshold
+            _apply_retrieval_budget_policy(request_dict)
             
             stream_error = None
             try:
@@ -1661,11 +2272,26 @@ async def chat_stream(
             except TimeoutError as exc:
                 metrics_collector.record_timeout("/api/v1/chat/stream", "chat_stream")
                 stream_status = "timeout"
+                partial_chars = len("".join(full_content))
+                deep_recommended = bool(
+                    chunk_state.get("deep_retrieval_recommended")
+                    or (_retrieval_metrics(chunk_state).get("deep_retrieval_recommended"))
+                )
                 stream_error = _error_chunk(
                     "CHAT_STREAM_TIMEOUT",
-                    f"Chat stream exceeded {settings.chat_stream_timeout_seconds:.0f}s",
+                    (
+                        f"Chat turn exceeded its {settings.chat_stream_timeout_seconds:.0f}s budget. "
+                        "Any partial answer and retrieved context were preserved; deeper retrieval can continue "
+                        "asynchronously when the retrieval policy recommends it."
+                    ),
                     recoverable=True,
-                    details={"timeout_seconds": settings.chat_stream_timeout_seconds},
+                    details={
+                        "timeout_seconds": settings.chat_stream_timeout_seconds,
+                        "partial_answer_chars": partial_chars,
+                        "retrieval_context_available": bool(chunk_state.get("rag_context")),
+                        "deep_retrieval_recommended": deep_recommended,
+                        "fallback_reason": "chat_stream_timeout",
+                    },
                 )
                 logger.warning("Chat stream timed out", error=str(exc))
             except Exception as exc:  # noqa: BLE001
@@ -1679,12 +2305,49 @@ async def chat_stream(
 
             if stream_error:
                 yield _sse_data(stream_error)
+
+            deep_job_payload = None
+            try:
+                deep_job_payload = _queue_auto_deep_retrieval_job(
+                    db=db,
+                    workspace=workspace,
+                    request_dict=request_dict,
+                    state=chunk_state,
+                    partial_answer="".join(full_content),
+                    partial_sources=chunk_state.get("sources"),
+                )
+            except Exception as exc:  # noqa: BLE001 - refinement is best-effort.
+                logger.warning("Auto deep retrieval queue failed", error=str(exc))
+            if deep_job_payload:
+                yield _sse_data(
+                    {
+                        "chunk_type": "retrieval",
+                        "phase": "deep_queued",
+                        "content": "",
+                        "message": "Deep retrieval queued",
+                        "details": {
+                            **deep_job_payload,
+                            "deep_retrieval_recommended": True,
+                            "deep_job_id": deep_job_payload.get("deep_job_id"),
+                            "deep_poll_url": deep_job_payload.get("deep_poll_url"),
+                            "deep_status": deep_job_payload.get("deep_status"),
+                            "latency_profile": "deep",
+                            "dense_policy": chunk_state.get("dense_policy"),
+                            "retrieval_plan": chunk_state.get("retrieval_plan"),
+                            "scope_confidence": chunk_state.get("scope_confidence"),
+                            "scope_reason": chunk_state.get("scope_reason"),
+                            "latency_budget": chunk_state.get("latency_budget"),
+                        },
+                        "is_final": False,
+                    }
+                )
             
             # Calculate total pipeline time
             if pipeline_start_time:
                 pipeline_total_time = int((_time.time() - pipeline_start_time) * 1000)
             else:
                 pipeline_total_time = None
+            fallback_reason = _retrieval_fallback_reason(chunk_state)
             
             # Save assistant message after streaming completes
             if request.session_id and full_content:
@@ -1697,6 +2360,18 @@ async def chat_stream(
                     "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                     "grounding_mode": grounding_policy["mode"],
                     "grounding_policy": grounding_policy,
+                    "retrieval_scope": chunk_state.get("retrieval_scope"),
+                    "retrieval_plan": chunk_state.get("retrieval_plan"),
+                    "scope_confidence": chunk_state.get("scope_confidence"),
+                    "scope_reason": chunk_state.get("scope_reason"),
+                    "dense_policy": chunk_state.get("dense_policy"),
+                    "retrieval_fallback": chunk_state.get("retrieval_fallback"),
+                    "fallback_reason": fallback_reason,
+                    "latency_budget": chunk_state.get("latency_budget"),
+                    "deep_retrieval_recommended": chunk_state.get("deep_retrieval_recommended"),
+                    "deep_job_id": chunk_state.get("deep_job_id"),
+                    "deep_poll_url": chunk_state.get("deep_poll_url"),
+                    "deep_status": chunk_state.get("deep_status"),
                 }
                 
                 # Add decision steps if any were collected
@@ -1745,11 +2420,22 @@ async def chat_stream(
                         "retrieval_metrics": chunk_state["retrieval_metrics"],
                         "retrieval_worker_task_id": chunk_state["retrieval_worker_task_id"],
                         "retrieval_fallback": chunk_state["retrieval_fallback"],
+                        "fallback_reason": fallback_reason,
                         "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                         "context_id": request.context_id,
                         "context_mode": request.context_mode,
                         "assistant_profile": request.assistant_profile,
                         "collections_touched": chunk_state.get("collections_touched"),
+                        "retrieval_scope": chunk_state.get("retrieval_scope"),
+                        "retrieval_plan": chunk_state.get("retrieval_plan"),
+                        "scope_confidence": chunk_state.get("scope_confidence"),
+                        "scope_reason": chunk_state.get("scope_reason"),
+                        "dense_policy": chunk_state.get("dense_policy"),
+                        "latency_budget": chunk_state.get("latency_budget"),
+                        "deep_retrieval_recommended": chunk_state.get("deep_retrieval_recommended"),
+                        "deep_job_id": chunk_state.get("deep_job_id"),
+                        "deep_poll_url": chunk_state.get("deep_poll_url"),
+                        "deep_status": chunk_state.get("deep_status"),
                         "grounding_mode": grounding_policy["mode"],
                         "grounding_policy": grounding_policy,
                     },
