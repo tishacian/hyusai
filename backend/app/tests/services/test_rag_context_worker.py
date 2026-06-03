@@ -482,8 +482,7 @@ def test_table_value_lookup_scopes_to_spreadsheets_without_payload_kind_filter(d
     )
 
     assert plan.retrieval_scope["collections"] == [spreadsheet_collection.slug]
-    assert "source_kind" not in plan.filters
-    assert "extension" not in plan.filters
+    assert plan.filters == {}
 
 
 def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monkeypatch):

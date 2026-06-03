@@ -1009,25 +1009,26 @@ def plan_corpus(
     intent = classify_intent(query)
     inferred_filters, confidence, reason = _infer_filters(query, workspace_rows)
     ledger_filters, ledger_confidence, ledger_reason, ledger_collections = _infer_ledger_document_scope(query, workspace_rows)
-    if ledger_collections:
+    table_lookup_collections = _spreadsheet_collection_refs(workspace_rows) if _TABLE_VALUE_LOOKUP_RE.search(query) else []
+    if table_lookup_collections:
+        collections = table_lookup_collections
+        rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
+        # The collection selection is already the system scope. Do not add
+        # payload filters here: older spreadsheet Qdrant payloads may miss
+        # kind/extension fields, and broad filename-overlap document_id
+        # filters can erase valid table chunks such as GEOTEX "Def strips".
+        inferred_filters = {
+            key: value
+            for key, value in inferred_filters.items()
+            if key not in {"source_kind", "extension", "document_id", "document_filename", "project_code", "archive_name"}
+        }
+        ledger_filters = {}
+        ledger_collections = []
+        confidence = max(confidence, 0.72)
+        reason = f"table value lookup scoped retrieval to {len(table_lookup_collections)} spreadsheet collection(s)"
+    elif ledger_collections:
         collections = ledger_collections
         rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
-    elif _TABLE_VALUE_LOOKUP_RE.search(query):
-        spreadsheet_collections = _spreadsheet_collection_refs(workspace_rows)
-        if spreadsheet_collections:
-            collections = spreadsheet_collections
-            rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
-            # The collection selection is already the system scope. Do not add
-            # source_kind/extension payload filters here: older spreadsheet
-            # Qdrant payloads do not carry those fields, so the filter would
-            # erase valid table chunks such as GEOTEX "Def strips".
-            inferred_filters = {
-                key: value
-                for key, value in inferred_filters.items()
-                if key not in {"source_kind", "extension"}
-            }
-            confidence = max(confidence, 0.72)
-            reason = f"table value lookup scoped retrieval to {len(spreadsheet_collections)} spreadsheet collection(s)"
     ledger_source_count = len(rows)
     collection_source_count = sum(int(c.document_count or 0) for c in collection_rows)
     ledger_chunk_count = sum(int(getattr(row, "chunk_count", 0) or 0) for row in rows)
