@@ -4281,7 +4281,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
   private restoreServerDeepRetrievalJobs(): void {
     this.api
-      .get<{ items?: unknown[] }>('/documents/jobs?kind=rag_deep_retrieval&status=queued,running,completed&limit=12')
+      .get<{ items?: unknown[] }>('/documents/jobs?kind=rag_deep_retrieval&status=queued,running&limit=12')
       .subscribe({
         next: (payload) => {
           const jobs = Array.isArray(payload?.items) ? payload.items : [];
@@ -4293,18 +4293,18 @@ export class ChatPanelComponent implements AfterViewInit {
             const request = this.isRecord(result['request']) ? (result['request'] as Record<string, unknown>) : {};
             const query = typeof request['query'] === 'string' ? (request['query'] as string) : null;
             const status = typeof raw['status'] === 'string' ? (raw['status'] as string) : 'queued';
+            if (status !== 'queued' && status !== 'running') continue;
             const progress = typeof raw['progress'] === 'number' ? (raw['progress'] as number) : 0;
             const stage = typeof raw['stage'] === 'string' ? (raw['stage'] as string) : null;
             const pollUrl = typeof raw['poll_url'] === 'string' ? (raw['poll_url'] as string) : `/documents/jobs/${jobId}`;
             const assistantId = cryptoId();
             const queryLabel = query ? ` pour "${query}"` : '';
-            const restoredLabel = status === 'completed' ? 'Deep Retrieval terminé retrouvé' : 'Deep Retrieval en cours retrouvé';
             this.messages.update((msgs) => [
               ...msgs,
               {
                 id: assistantId,
                 role: 'assistant',
-                content: `${restoredLabel}${queryLabel}. Le job est suivi côté serveur.`,
+                content: `Deep Retrieval en cours retrouvé${queryLabel}. Le job est suivi côté serveur.`,
                 retrievalInfo: {
                   deepJobId: jobId,
                   deepPollUrl: pollUrl,
@@ -4314,9 +4314,7 @@ export class ChatPanelComponent implements AfterViewInit {
                 },
               } satisfies ChatMessage,
             ]);
-            if (status === 'queued' || status === 'running') {
-              this.rememberPendingDeepRetrievalJob(jobId, pollUrl, query || 'Deep Retrieval');
-            }
+            this.rememberPendingDeepRetrievalJob(jobId, pollUrl, query || 'Deep Retrieval');
             this.startDeepRetrievalPolling(assistantId, jobId, pollUrl);
           }
         },
