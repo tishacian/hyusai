@@ -632,7 +632,8 @@ def _build_retrieval_plan(
         },
         "guardrails": {
             "allow_legacy_hybrid": allow_legacy_hybrid,
-            "global_chunk_search_allowed": not (dense and not scoped),
+            "global_chunk_search_allowed": not dense,
+            "scoped_chunk_search_allowed": not (dense and not scoped),
             "user_scope_required": False,
         },
     }
@@ -669,7 +670,7 @@ def plan_corpus(
     if explicit_filters:
         confidence = max(confidence, 0.95)
         reason = f"System/agent retrieval filters supplied: {', '.join(sorted(explicit_filters))}."
-    elif dense and not filters and intent != "catalogue":
+    elif dense and not filters and intent != "catalogue" and latency_profile != "fast":
         fact_filters, fact_confidence, fact_reason = _infer_fact_document_scope(
             db,
             collection_rows=collection_rows,
@@ -691,6 +692,23 @@ def plan_corpus(
                 confidence = max(confidence, summary_confidence)
                 reason = summary_reason
             elif summary_reason:
+                reason = f"{reason} Summary artifact scope unavailable: {summary_reason}."
+    elif dense and not filters and intent != "catalogue":
+        summary_filters, summary_confidence, summary_reason = _infer_summary_document_scope(
+            collection_rows=collection_rows,
+            query=query,
+            limit=20,
+        )
+        if summary_filters:
+            filters = summary_filters
+            confidence = max(confidence, summary_confidence)
+            reason = summary_reason
+        else:
+            reason = (
+                "Dense fast retrieval skipped expensive fact scope inference; "
+                "using inventory/diagnostics and queued deep refinement."
+            )
+            if summary_reason:
                 reason = f"{reason} Summary artifact scope unavailable: {summary_reason}."
 
     if latency_profile == "deep":
