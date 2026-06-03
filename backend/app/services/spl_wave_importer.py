@@ -343,7 +343,7 @@ def build_wave_plan(
     )
     ledger = get_wave_ledger(workspace, collection_slug=collection_slug)
     promoted_filenames = set(ledger.get("promoted_filenames") or [])
-    by_name = {str(row.filename or ""): row for row in list_spl_zip_deposits(db, workspace_id=workspace.id)}
+    by_name = _deposit_by_unique_filename(db, workspace_id=workspace.id)
     for filename in archive_filenames:
         if skip_ledger and filename in promoted_filenames:
             plan.skipped_ledger.append(filename)
@@ -441,11 +441,16 @@ def _deposit_by_unique_filename(
     *,
     workspace_id: str,
 ) -> dict[str, DepositFile]:
+    def _score(row: DepositFile) -> tuple[int, float, datetime]:
+        status_rank = 0 if row.status == "rejected" else 1
+        uploaded_at = row.uploaded_at or datetime.min
+        return (status_rank, float(row.size_bytes or 0), uploaded_at)
+
     by_name: dict[str, DepositFile] = {}
     for row in list_spl_zip_deposits(db, workspace_id=workspace_id):
         filename = str(row.filename or "")
         existing = by_name.get(filename)
-        if existing is None or float(row.size_bytes or 0) > float(existing.size_bytes or 0):
+        if existing is None or _score(row) > _score(existing):
             by_name[filename] = row
     return by_name
 
@@ -730,7 +735,7 @@ def execute_wave_plan(
     # authoritative detector for collisions against the *existing* corpus.
     wave_used_names: set[str] = set()
 
-    by_name = {str(row.filename or ""): row for row in list_spl_zip_deposits(db, workspace_id=workspace.id)}
+    by_name = _deposit_by_unique_filename(db, workspace_id=workspace.id)
     for archive in plan.archives:
         if not archive.promotable or archive.deposit_file_id == "":
             continue

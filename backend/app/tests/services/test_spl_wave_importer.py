@@ -485,6 +485,88 @@ def test_build_v3_archive_wave_plan_targets_exact_archive(db_session, monkeypatc
     assert skipped.skipped_ledger == [target]
 
 
+def test_v3_archive_wave_prefers_received_duplicate_over_rejected(db_session, monkeypatch, tmp_path):
+    from app.core.config import settings
+    from app.models.secure_deposit import DepositFile
+    from app.models.user import User
+    from app.models.workspace import Workspace
+    from app.services.secure_deposit import create_link
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    monkeypatch.setattr(
+        "app.services.spl_wave_importer.dispatch_worker_job",
+        lambda _db, job: setattr(job, "celery_task_id", "fake-task-id") or "fake-task-id",
+    )
+
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    user = User(id="user-1", username="thib", email="thibaud.ishacian@datategy.net")
+    db_session.add_all([workspace, user])
+    db_session.flush()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="SPL duplicate test",
+        expires_at=None,
+        max_file_size_mb=10240,
+        allowed_extensions=["zip"],
+    )
+
+    archive_path = tmp_path / "Manual_BIO100 rev A.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("bio/manual.txt", "bio")
+
+    filename = "Notices_Techniques_SPL/B/Manual_BIO100 rev A.zip"
+    received = DepositFile(
+        workspace_id=workspace.id,
+        access_link_id=link.id,
+        filename=filename,
+        object_key="obj-bio-received",
+        status="received",
+        size_bytes=archive_path.stat().st_size,
+        sha256="hash-bio-received",
+    )
+    rejected = DepositFile(
+        workspace_id=workspace.id,
+        access_link_id=link.id,
+        filename=filename,
+        object_key="obj-bio-rejected",
+        status="rejected",
+        size_bytes=archive_path.stat().st_size + 4096,
+        sha256="hash-bio-rejected",
+        rejection_reason="superseded by retry cleanup",
+    )
+    db_session.add_all([received, rejected])
+    db_session.commit()
+
+    def _fake_staged(deposit_file):
+        if deposit_file.id == received.id:
+            return archive_path
+        raise AssertionError("rejected duplicate should not be selected")
+
+    monkeypatch.setattr("app.services.spl_wave_importer.staged_file_path", _fake_staged)
+
+    plan = build_v3_archive_wave_plan(
+        db_session,
+        workspace=workspace,
+        collection_slug="andritz-notices-techniques-spl-pilot",
+        archive_filenames=[filename],
+        dry_run=False,
+    )
+
+    assert plan.archives[0].deposit_file_id == received.id
+    assert plan.archives[0].promotable is True
+    assert plan.total_documents == 1
+
+    result = execute_wave_plan(db_session, workspace=workspace, user=user, plan=plan)
+    assert result["status"] == "queued"
+    assert result["promoted_archives"][0]["file_id"] == received.id
+    db_session.expire_all()
+    assert db_session.query(DepositFile).filter_by(id=received.id).one().status == "promoted"
+    assert db_session.query(DepositFile).filter_by(id=rejected.id).one().status == "rejected"
+
+
 # --- Collision-prevention fix (source-namespaced document identity) ----------
 
 
