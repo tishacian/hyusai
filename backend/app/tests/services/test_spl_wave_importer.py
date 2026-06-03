@@ -53,6 +53,29 @@ def test_read_supported_archive_documents_can_scan_without_content(tmp_path: Pat
     assert stats["document_count"] == 1
 
 
+def test_read_supported_archive_documents_truncates_unreadable_members(tmp_path: Path):
+    archive_path = tmp_path / "sample.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("docs/bad.pdf", "bad body")
+        archive.writestr("docs/good.pdf", "good body")
+    with zipfile.ZipFile(archive_path) as archive:
+        bad_offset = archive.getinfo("docs/bad.pdf").header_offset
+    with archive_path.open("r+b") as archive_file:
+        archive_file.seek(bad_offset)
+        archive_file.write(b"BAD!")
+
+    documents, stats = _read_supported_archive_documents(
+        archive_path,
+        on_limit="truncate",
+    )
+
+    assert [document["archive_path"] for document in documents] == ["docs/good.pdf"]
+    assert stats["document_count"] == 1
+    assert stats["truncated_files"] == 1
+    assert stats["skipped_read_error_count"] == 1
+    assert stats["skipped_read_errors"][0]["archive_path"] == "docs/bad.pdf"
+
+
 def test_read_supported_archive_documents_bounds_namespaced_document_names(tmp_path: Path):
     archive_path = tmp_path / "sample.zip"
     deep_name = "/".join(

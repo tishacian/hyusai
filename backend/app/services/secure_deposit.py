@@ -601,6 +601,8 @@ def _read_supported_archive_documents(
     used_names = used_names if used_names is not None else set()
     truncated_files = 0
     skipped_uncompressed_bytes = 0
+    skipped_read_error_count = 0
+    skipped_read_errors: list[dict[str, str]] = []
     accepted_files = 0
     accepted_uncompressed_bytes = 0
 
@@ -658,7 +660,19 @@ def _read_supported_archive_documents(
                 "metadata": metadata,
             }
             if include_content:
-                document["content"] = archive.read(info)
+                try:
+                    document["content"] = archive.read(info)
+                except (zipfile.BadZipFile, RuntimeError, OSError, EOFError) as exc:
+                    if on_limit == "truncate":
+                        truncated_files += 1
+                        skipped_read_error_count += 1
+                        if len(skipped_read_errors) < 50:
+                            skipped_read_errors.append({"archive_path": archive_path, "reason": str(exc)[:200]})
+                        continue
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"ZIP member could not be read: {info.filename}",
+                    ) from exc
             if document_callback is not None:
                 document_callback(document)
             else:
@@ -673,6 +687,8 @@ def _read_supported_archive_documents(
         "uncompressed_bytes": accepted_uncompressed_bytes,
         "truncated_files": truncated_files,
         "skipped_uncompressed_bytes": skipped_uncompressed_bytes,
+        "skipped_read_error_count": skipped_read_error_count,
+        "skipped_read_errors": skipped_read_errors,
         "max_files": limit_files,
         "max_uncompressed_bytes": limit_bytes,
     }
