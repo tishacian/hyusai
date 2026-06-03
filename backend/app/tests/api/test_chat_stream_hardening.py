@@ -376,6 +376,21 @@ def test_chat_deep_retrieval_job_queues_worker_payload(db_session, monkeypatch):
     assert job.collection_id == collection.id
 
 
+def test_dense_unscoped_guardrail_queues_auto_deep_retrieval():
+    state = {
+        "dense_policy": "fast_scoped_dense_auto",
+        "retrieval_fallback": "dense_unscoped_fast_policy",
+        "scope_confidence": 0.0,
+        "retrieval_metrics": {
+            "chunks_retrieved": 0,
+            "no_context": True,
+            "fallback_reason": "dense_unscoped_fast_policy",
+        },
+    }
+
+    assert chat._should_queue_auto_deep_retrieval({"latency_profile": "fast"}, state) is True
+
+
 def test_chat_stream_auto_queues_deep_job_for_degraded_retrieval(db_session, monkeypatch):
     workspace = Workspace(id="ws-auto-deep", name="Auto Deep", slug="auto-deep")
     db_session.add(workspace)

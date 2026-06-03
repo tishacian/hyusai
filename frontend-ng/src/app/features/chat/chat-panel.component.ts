@@ -1366,6 +1366,24 @@ const STEP_ICONS: Record<string, string> = {
                 >
                   <app-icon name="copy" [size]="12" />
                 </button>
+                <button
+                  type="button"
+                  class="p-1 rounded hover:bg-violet-500/10 transition flex items-center gap-1 text-violet-300 disabled:opacity-50"
+                  title="Launch persistent Deep Search for this answer"
+                  [disabled]="!!msg.retrievalInfo?.deepJobId || deepSearchLaunchingId() === msg.id"
+                  (click)="launchDeepSearch(msg)"
+                >
+                  @if (deepSearchLaunchingId() === msg.id) {
+                    <app-icon name="loader-2" [size]="12" class="animate-spin" />
+                    <span>Deep…</span>
+                  } @else if (msg.retrievalInfo?.deepJobId) {
+                    <app-icon name="check" [size]="12" />
+                    <span>Deep tracked</span>
+                  } @else {
+                    <app-icon name="search" [size]="12" />
+                    <span>Deep search</span>
+                  }
+                </button>
                 @if (!isDemoMode()) {
                   <button
                     type="button"
@@ -1502,6 +1520,39 @@ const STEP_ICONS: Record<string, string> = {
                 >
                   {{ streamBuffer() }}<span class="inline-block w-1.5 h-4 bg-brand-400 ml-0.5 animate-pulse align-middle"></span>
                 </div>
+              </div>
+            }
+            @if (liveRetrievalInfo()?.deepJobId && liveRetrievalInfo(); as deepInfo) {
+              <div
+                class="ml-0 mt-1 rounded-md px-3 py-2 bg-violet-500/5 ring-1 ring-violet-500/15 flex flex-wrap items-center gap-2 text-[11px] text-gray-700 dark:text-gray-300"
+                [title]="deepRetrievalTitle(deepInfo)"
+                aria-live="polite"
+              >
+                @if (deepInfo.deepStatus === 'completed') {
+                  <app-icon name="check" [size]="11" class="text-violet-300 shrink-0" />
+                } @else if (deepInfo.deepStatus === 'failed' || deepInfo.deepStatus === 'cancelled') {
+                  <app-icon name="x-circle" [size]="11" class="text-red-300 shrink-0" />
+                } @else {
+                  <app-icon name="loader" [size]="11" class="animate-spin text-violet-300 shrink-0" />
+                }
+                <span class="font-medium text-violet-300">{{ deepRetrievalLabel(deepInfo) }}</span>
+                @if (deepInfo.deepStage) {
+                  <span class="font-mono text-gray-500">· {{ deepInfo.deepStage }}</span>
+                }
+                <span class="font-mono text-[10px] text-violet-300/70" [title]="deepInfo.deepPollUrl || deepInfo.deepJobId || ''">
+                  · job persistant
+                </span>
+                <div class="basis-full h-1 overflow-hidden rounded bg-violet-500/10">
+                  <span
+                    class="block h-full rounded bg-violet-300 transition-all duration-500"
+                    [style.width.%]="deepRetrievalProgressValue(deepInfo)"
+                  ></span>
+                </div>
+                @if (deepRetrievalRunning(deepInfo)) {
+                  <span class="basis-full text-[10px] text-gray-500">
+                    Deep Search continue côté serveur; le suivi restera disponible après la réponse.
+                  </span>
+                }
               </div>
             }
           </div>
@@ -2297,6 +2348,7 @@ export class ChatPanelComponent implements AfterViewInit {
   streaming = signal(false);
   streamBuffer = signal('');
   liveSteps = signal<DecisionStep[]>([]);
+  liveRetrievalInfo = signal<ChatMessage['retrievalInfo']>(null);
   evaluatingId = signal<string | null>(null);
 
   /**
@@ -2726,6 +2778,7 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly sourcePreviewOpen = signal(false);
   readonly sourcePreviewUrl = signal<string | null>(null);
   readonly sourcePreviewTitle = signal('');
+  readonly deepSearchLaunchingId = signal<string | null>(null);
   /**
    * Expanded evaluation steps, keyed by ``"${messageId}:${stepId}"``. Kept
    * separate from ``openTrails`` so operators can dive into a specific
@@ -4067,11 +4120,11 @@ export class ChatPanelComponent implements AfterViewInit {
   ): void {
     this.messages.update((messages) =>
       messages.map((msg) => {
-        if (msg.id !== messageId || !msg.retrievalInfo) return msg;
+        if (msg.id !== messageId) return msg;
         return {
           ...msg,
           retrievalInfo: {
-            ...msg.retrievalInfo,
+            ...(msg.retrievalInfo || {}),
             ...patch,
           },
         };
@@ -4457,6 +4510,7 @@ export class ChatPanelComponent implements AfterViewInit {
     this.streaming.set(true);
     this.streamBuffer.set('');
     this.liveSteps.set([]);
+    this.liveRetrievalInfo.set(null);
     this.streamStart = Date.now();
     this.resetTtsPipeline();
     if (this.ttsEnabled()) {
@@ -4571,6 +4625,7 @@ export class ChatPanelComponent implements AfterViewInit {
               deepStage: (details['deep_stage'] as string | undefined) ?? retrievalInfo?.deepStage ?? null,
               deepPollUrl: (details['deep_poll_url'] as string | undefined) ?? retrievalInfo?.deepPollUrl ?? null,
             };
+            this.liveRetrievalInfo.set(retrievalInfo);
           } else if (chunk.chunk_type === 'error' && chunk.content) {
             buffer += `\n\n⚠ ${chunk.content}`;
             this.streamBuffer.set(buffer);
@@ -4637,6 +4692,7 @@ export class ChatPanelComponent implements AfterViewInit {
             this.streaming.set(false);
             this.streamBuffer.set('');
             this.liveSteps.set([]);
+            this.liveRetrievalInfo.set(null);
             this.persistLastEvalContext(text, buffer);
             this.logAudit('chat_query', {
               message_id: assistantId,
@@ -4661,6 +4717,7 @@ export class ChatPanelComponent implements AfterViewInit {
           this.streaming.set(false);
           this.streamBuffer.set('');
           this.liveSteps.set([]);
+          this.liveRetrievalInfo.set(null);
           if (this.ttsEnabled()) this.resetTtsPipeline();
           this.scheduleVoiceLoopRearm();
           this.focusComposer();
@@ -4672,10 +4729,97 @@ export class ChatPanelComponent implements AfterViewInit {
     this.messages.set([]);
     this.streamBuffer.set('');
     this.liveSteps.set([]);
+    this.liveRetrievalInfo.set(null);
     this.openTrails.set(new Set());
     this.chatSessionId = null;
     this.chatSessionSignature = null;
     this.creatingChatSession = false;
+  }
+
+  launchDeepSearch(msg: ChatMessage): void {
+    if (msg.role !== 'assistant' || msg.retrievalInfo?.deepJobId || this.deepSearchLaunchingId() === msg.id) return;
+    const query = this.previousUserQueryFor(msg.id);
+    if (!query) {
+      this.toast.error('Could not find the source question for this Deep Search.', 'Deep Search');
+      return;
+    }
+    const s = this.settings.settings();
+    const ragOverride = this.ragModeOverride();
+    const promptTypeSel = this.promptType();
+    this.deepSearchLaunchingId.set(msg.id);
+    this.api
+      .post<{
+        id?: string;
+        poll_url?: string;
+        status?: string;
+        progress?: number;
+        stage?: string | null;
+      }>('/chat/deep-retrieval-jobs', {
+        query,
+        agent_id: this.systemId(),
+        session_id: this.chatSessionId,
+        context_id: this.contextId(),
+        context_mode: this.contextId() ? this.sessionDocsMode() : null,
+        stream: false,
+        include_reasoning: true,
+        include_sources: true,
+        temperature: s.temperature,
+        max_tokens: s.maxTokens,
+        latency_profile: 'deep',
+        deep_retrieval: true,
+        rag_pipeline_mode: ragOverride !== 'auto' ? ragOverride : s.ragPipelineMode,
+        rag_mode_override: ragOverride !== 'auto' ? ragOverride : null,
+        prompt_type: promptTypeSel !== 'auto' ? promptTypeSel : null,
+        knowledge_scope: this.activeKnowledgeScope(),
+        assistant_profile: this.activeAssistantProfile()?.key ?? this.assistantProfileKey(),
+        grounding_mode: this.groundingMode(),
+        system_prompt: (s['systemPrompt'] as string | undefined) ?? null,
+        agent_preferences: {
+          model_preferences: {
+            model: s.defaultModel,
+            provider: s.defaultProvider,
+          },
+        },
+      })
+      .subscribe({
+        next: (job) => {
+          const jobId = typeof job?.id === 'string' ? job.id : '';
+          if (!jobId) {
+            this.toast.error('Deep Search job was not created.', 'Deep Search');
+            this.deepSearchLaunchingId.set(null);
+            return;
+          }
+          const pollUrl = typeof job.poll_url === 'string' ? job.poll_url : `/documents/jobs/${jobId}`;
+          this.patchMessageRetrievalInfo(msg.id, {
+            deepJobId: jobId,
+            deepPollUrl: pollUrl,
+            deepStatus: typeof job.status === 'string' ? job.status : 'queued',
+            deepProgress: typeof job.progress === 'number' ? job.progress : 0,
+            deepStage: typeof job.stage === 'string' ? job.stage : 'manual_deep_search',
+            deepDetailsOpen: false,
+            deepDetailsLoading: false,
+            deepDetailsError: null,
+          });
+          this.rememberPendingDeepRetrievalJob(jobId, pollUrl, query);
+          this.startDeepRetrievalPolling(msg.id, jobId, pollUrl);
+          this.deepSearchLaunchingId.set(null);
+        },
+        error: () => {
+          this.deepSearchLaunchingId.set(null);
+          this.toast.error('Could not launch Deep Search.', 'Deep Search');
+        },
+      });
+  }
+
+  private previousUserQueryFor(messageId: string): string | null {
+    const messages = this.messages();
+    const index = messages.findIndex((message) => message.id === messageId);
+    if (index < 0) return null;
+    for (let i = index - 1; i >= 0; i -= 1) {
+      const candidate = messages[i];
+      if (candidate.role === 'user' && candidate.content.trim()) return candidate.content.trim();
+    }
+    return null;
   }
 
   private currentChatSessionSignature(): string {

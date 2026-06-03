@@ -563,7 +563,12 @@ def _should_queue_auto_deep_retrieval(request_dict: Dict[str, Any], state: Dict[
     recommended = bool(
         state.get("deep_retrieval_recommended")
         or metrics.get("deep_retrieval_recommended")
-        or fallback_reason in {"retrieval_deadline_exceeded", "worker_timeout", "worker_error"}
+        or fallback_reason in {
+            "retrieval_deadline_exceeded",
+            "worker_timeout",
+            "worker_error",
+            "dense_unscoped_fast_policy",
+        }
     )
     if not recommended:
         return False
