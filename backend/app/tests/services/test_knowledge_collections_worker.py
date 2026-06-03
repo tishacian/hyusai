@@ -23,6 +23,7 @@ from app.services.knowledge_collections import (
     update_job,
 )
 from app.services.object_store import get_object_store
+from app.services.rag.bm25_store import rebuild_bm25_artifact
 from app.services.worker_bm25 import run_bm25_rebuild
 from app.services.worker_ingest import run_document_ingest_index
 
@@ -562,3 +563,33 @@ def test_bm25_rebuild_worker_forces_sidecar_rebuild(db_session, monkeypatch):
     assert refreshed.progress == 100
     assert refreshed.result["bm25"]["forced"] is True
     assert result["bm25"]["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_bm25_rebuild_skips_above_hard_chunk_limit(
+    db_session, monkeypatch
+):
+    ws = _workspace(db_session, slug="bm25-limit")
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    monkeypatch.setattr(settings, "bm25_rebuild_max_chunks", 10)
+
+    class FakeVectorDb:
+        async def get_count(self):
+            return 11
+
+        async def get_all_ids(self):
+            raise AssertionError("BM25 rebuild should not load oversized collections")
+
+    result = await rebuild_bm25_artifact(
+        collection=collection,
+        vector_db=FakeVectorDb(),
+        force=True,
+    )
+
+    assert result == {
+        "status": "skipped",
+        "reason": "collection_too_large",
+        "chunk_count": 11,
+        "max_chunks": 10,
+        "forced": True,
+    }

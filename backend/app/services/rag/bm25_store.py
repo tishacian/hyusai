@@ -28,6 +28,14 @@ async def rebuild_bm25_artifact(
     count = await vector_db.get_count()
     if count <= 0:
         return {"status": "skipped", "reason": "empty_collection", "chunk_count": 0}
+    if settings.bm25_rebuild_max_chunks > 0 and count > settings.bm25_rebuild_max_chunks:
+        return {
+            "status": "skipped",
+            "reason": "collection_too_large",
+            "chunk_count": count,
+            "max_chunks": settings.bm25_rebuild_max_chunks,
+            "forced": force,
+        }
     if count > settings.bm25_rebuild_inline_max_chunks and not force:
         return {
             "status": "deferred",

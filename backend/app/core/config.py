@@ -112,6 +112,7 @@ class Settings(BaseSettings):
     rag_retrieval_worker_timeout_seconds: float = 120.0
     chat_stream_timeout_seconds: float = 180.0
     bm25_rebuild_inline_max_chunks: int = 50000
+    bm25_rebuild_max_chunks: int = 600000
 
     # OpenAI Responses API rollout. The chat-completions path remains the
     # default until explicitly enabled per environment.
