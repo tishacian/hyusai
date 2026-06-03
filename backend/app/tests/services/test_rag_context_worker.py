@@ -485,6 +485,45 @@ def test_table_value_lookup_scopes_to_spreadsheets_without_payload_kind_filter(d
     assert plan.filters == {}
 
 
+def test_ledger_source_scope_drops_legacy_payload_status_filter(db_session, monkeypatch):
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-planner-ledger-status", name="Planner Ledger Status", slug="planner-ledger-status")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Dense SPL")
+    for filename in (
+        "ARA200__fichiers__users manual__section 3__conveyor.html",
+        "ARA200__fichiers__users manual__Annexes__520-convoyeur__conveyor-jetlace-gb b.pdf",
+        "ARA200__fichiers__menu__index.html",
+    ):
+        upsert_collection_source(
+            db_session,
+            collection=collection,
+            filename=filename,
+            status="ready",
+            chunk_count=150,
+        )
+    db_session.commit()
+
+    plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "fast",
+            "rag_mode": "chah",
+        },
+        query="Quels documents de convoyeur sont indexés pour ARA200 ?",
+    )
+
+    assert plan.dense_policy == "fast_scoped_dense"
+    assert "status" not in plan.filters
+    assert "document_filename" in plan.filters
+    assert "ARA200__fichiers__users manual__section 3__conveyor.html" in plan.filters["document_filename"]
+
+
 def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
@@ -498,6 +537,8 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
         (spl_collection, "spare part list ACO150.pdf"),
         (spl_collection, "ACO150__fichiers__menu__index.html"),
         (spl_collection, "ACO150__fichiers__pictures__fond.jpg"),
+        (spl_collection, "AKK200__English version__files__section_IV__Hydroentanglement-unit__sub-section_6__Spare Parts List AKK200_Ind A.pdf"),
+        (spl_collection, "AKK200__English version__files__section_IV__Hydroentanglement-unit__sub-section_4__Filtration_maintenance.html"),
         (bba_collection, "Spare Parts List_BBA120.pdf"),
         (bba_collection, "Etachrom B.PDF"),
         (injector_collection, "IN 07 A- EXH injector cartridge cleaning.pdf"),
@@ -544,8 +585,13 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
         profile=profile,
         query="Comment retirer le strip-carrier d'un injecteur dans DCI110 ?",
     )
+    akk_parts_plan = plan_corpus(
+        db=db_session,
+        profile=profile,
+        query="Dans le projet AKK200, quelle source contient Filtering cartridge LM 300 et O-ring string D. 3,6 ?",
+    )
 
-    for plan in (aco_plan, bba_plan, etachrom_plan, injector_plan, dci_plan):
+    for plan in (aco_plan, bba_plan, etachrom_plan, injector_plan, dci_plan, akk_parts_plan):
         assert plan.dense_policy == "fast_scoped_dense"
         assert plan.fallback_reason is None
         assert "document_filename" in plan.filters
@@ -559,6 +605,14 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
     assert "Etachrom B.PDF" in etachrom_plan.filters["document_filename"]
     assert "IN 07 A- EXH injector cartridge cleaning.pdf" in injector_plan.filters["document_filename"]
     assert "DCI 110__PERFO-TE-OM-10-5 EN-C.pdf" in dci_plan.filters["document_filename"]
+    assert (
+        "AKK200__English version__files__section_IV__Hydroentanglement-unit__sub-section_6__Spare Parts List AKK200_Ind A.pdf"
+        in akk_parts_plan.filters["document_filename"]
+    )
+    assert (
+        "AKK200__English version__files__section_IV__Hydroentanglement-unit__sub-section_4__Filtration_maintenance.html"
+        not in akk_parts_plan.filters["document_filename"]
+    )
 
     narrow_plan = plan_corpus(
         db=db_session,

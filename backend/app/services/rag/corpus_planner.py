@@ -486,6 +486,12 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
     )
     if not terms and not project_codes:
         return {}, 0.0, "", []
+    part_name_lookup = (
+        "filteringcartridge" in compact_query
+        or ("filtering" in compact_query and "cartridge" in compact_query)
+        or "oring" in compact_query
+        or "oringstring" in compact_query
+    )
 
     scored: list[tuple[float, bool, bool, Any]] = []
     for row in rows:
@@ -516,6 +522,9 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
         row_spare_parts_list = "spare" in compact_haystack and "part" in compact_haystack and "list" in compact_haystack
         if query_spare_parts_list and row_spare_parts_list:
             score += 8.0
+            strong_phrase_match = True
+        elif row_spare_parts_list and part_name_lookup:
+            score += 7.0
             strong_phrase_match = True
         elif all(token in compact_query for token in ("spare", "parts")) and all(token in compact_haystack for token in ("spare", "parts")):
             score += 5.0
@@ -565,6 +574,14 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
         return {}, 0.0, "", []
     if project_codes and any(item[1] for item in scored):
         scored = [item for item in scored if item[1]]
+        if part_name_lookup:
+            spare_scored = [
+                item
+                for item in scored
+                if all(token in _compact_text(getattr(item[3], "filename", "") or "") for token in ("spare", "part", "list"))
+            ]
+            if spare_scored:
+                scored = spare_scored
         phrase_scored = [item for item in scored if item[2]]
         if phrase_scored:
             scored = phrase_scored
@@ -1044,12 +1061,7 @@ def plan_corpus(
         # workspaces. Avoid AND-ing project/archive metadata with filenames:
         # older Qdrant payloads may not have those fields even when the ledger
         # does, and the filename filter is already the precise scope.
-        retained = {
-            key: value
-            for key, value in inferred_filters.items()
-            if key in {"source_kind", "extension", "status", "language"}
-        }
-        inferred_filters = {**retained, **ledger_filters}
+        inferred_filters = dict(ledger_filters)
         confidence = max(confidence, ledger_confidence)
         reason = ledger_reason
     explicit_filters = _request_filters(request)
