@@ -92,6 +92,10 @@ _DOCUMENT_DISCOVERY_RE = re.compile(
     r"\bquels?\s+documents?\b.*\b(?:parle(?:nt)?|pour|sur|concerne|concernent|de\s+[a-z0-9_-]{3,})\b",
     re.IGNORECASE,
 )
+_TABLE_VALUE_LOOKUP_RE = re.compile(
+    r"\b(que\s+vaut|valeur|value|label|table|feuille|sheet|cellule|cell|ligne|row|colonne|column)\b",
+    re.IGNORECASE,
+)
 
 
 # Document-discovery queries ("quels documents… ?") need a wide candidate pool
@@ -139,6 +143,12 @@ def is_collection_inventory_query(query: str) -> bool:
     if _DOCUMENT_DISCOVERY_RE.search(text) or (
         re.search(r"\b(?:quels?|which|what)\b", text, re.IGNORECASE)
         and _CONTENT_SEARCH_HINT_RE.search(text)
+    ):
+        return False
+    if _TABLE_VALUE_LOOKUP_RE.search(text) and not re.search(
+        r"\b(combien|nombre|count|how\s+many|types?|formats?|extensions?)\b",
+        text,
+        re.IGNORECASE,
     ):
         return False
     if is_catalogue_query(text):

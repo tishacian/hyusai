@@ -59,6 +59,10 @@ _DOCUMENT_DISCOVERY_RE = re.compile(
     r"\bquels?\s+documents?\b.*\b(?:parle(?:nt)?|pour|sur|concerne|concernent|de\s+[a-z0-9_-]{3,})\b",
     re.IGNORECASE,
 )
+_TABLE_VALUE_LOOKUP_RE = re.compile(
+    r"\b(que\s+vaut|valeur|value|label|table|feuille|sheet|cellule|cell|ligne|row|colonne|column)\b",
+    re.IGNORECASE,
+)
 _EXTENSION_ALIASES = {
     "pdf": ("pdf",),
     "excel": ("spreadsheet", "xlsx", "xls", "xlsm"),
@@ -173,6 +177,12 @@ def classify_intent(query: str) -> str:
         and _CONTENT_SEARCH_HINT_RE.search(text)
     ):
         return "content_search"
+    if _TABLE_VALUE_LOOKUP_RE.search(text) and not re.search(
+        r"\b(combien|nombre|count|how\s+many|types?|formats?|extensions?)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return "content_search"
     if (
         re.search(r"\b(?:quel|quelle|which|what|peux[-\s]?tu|can\s+you)\b", text, re.IGNORECASE)
         and _SOURCE_LOOKUP_HINT_RE.search(text)
@@ -247,11 +257,10 @@ def _rows_for_collections(db: DBSession, collections: list[str], workspace_id: s
         collection_rows.append(collection)
         source_rows = collection_source_rows(db, collection=collection)
         for row in source_rows:
-            if getattr(row, "collection", None) is None:
-                try:
-                    row.collection = collection
-                except Exception:
-                    pass
+            try:
+                row.collection = collection
+            except Exception:
+                pass
         rows.extend(source_rows)
         rows.extend(_missing_document_name_rows(collection, source_rows))
     return rows, collection_rows

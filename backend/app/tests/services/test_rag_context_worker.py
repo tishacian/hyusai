@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from app.core.config import settings
 from app.services.rag import context as rag_context
-from app.services.rag.corpus_planner import is_catalogue_query, plan_corpus
+from app.services.rag.corpus_planner import classify_intent, is_catalogue_query, plan_corpus
 from app.services.rag.context import get_retrieval_profile, retrieve_rag_context
 from app.services.rag.summary_artifacts import rebuild_summary_index_artifact
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
@@ -444,6 +444,7 @@ def test_corpus_planner_accepts_system_scope_filter_fields(db_session):
 def test_catalogue_query_accepts_docs_abbreviation():
     assert is_catalogue_query("combien de docs as tu ?")
     assert is_catalogue_query("quels types de docs as-tu ?")
+    assert classify_intent("Dans les fichiers NON-WOVENS France, que vaut le label B dans la table Def strips ?") == "content_search"
 
 
 def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monkeypatch):
