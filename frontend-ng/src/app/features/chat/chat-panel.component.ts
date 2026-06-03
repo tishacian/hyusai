@@ -2803,7 +2803,10 @@ export class ChatPanelComponent implements AfterViewInit {
     this.health.load().subscribe();
     this.loadReasoningTemplates();
     this.loadVoiceRuntimes();
-    queueMicrotask(() => this.restorePendingDeepRetrievalJobs());
+    queueMicrotask(() => {
+      this.restorePendingDeepRetrievalJobs();
+      this.restoreServerDeepRetrievalJobs();
+    });
     this.destroyRef.onDestroy(() => {
       this.clearVoiceLoopRearmTimer();
       this.voiceLoop.dispose();
@@ -4204,6 +4207,53 @@ export class ChatPanelComponent implements AfterViewInit {
       ]);
       this.startDeepRetrievalPolling(assistantId, job.jobId, job.pollUrl || null);
     }
+  }
+
+  private restoreServerDeepRetrievalJobs(): void {
+    this.api
+      .get<{ items?: unknown[] }>('/documents/jobs?kind=rag_deep_retrieval&status=queued,running,completed&limit=12')
+      .subscribe({
+        next: (payload) => {
+          const jobs = Array.isArray(payload?.items) ? payload.items : [];
+          for (const raw of jobs) {
+            if (!this.isRecord(raw)) continue;
+            const jobId = typeof raw['id'] === 'string' ? raw['id'] : '';
+            if (!jobId || this.messages().some((msg) => msg.retrievalInfo?.deepJobId === jobId)) continue;
+            const result = this.isRecord(raw['result']) ? (raw['result'] as Record<string, unknown>) : {};
+            const request = this.isRecord(result['request']) ? (result['request'] as Record<string, unknown>) : {};
+            const query = typeof request['query'] === 'string' ? (request['query'] as string) : null;
+            const status = typeof raw['status'] === 'string' ? (raw['status'] as string) : 'queued';
+            const progress = typeof raw['progress'] === 'number' ? (raw['progress'] as number) : 0;
+            const stage = typeof raw['stage'] === 'string' ? (raw['stage'] as string) : null;
+            const pollUrl = typeof raw['poll_url'] === 'string' ? (raw['poll_url'] as string) : `/documents/jobs/${jobId}`;
+            const assistantId = cryptoId();
+            const queryLabel = query ? ` pour "${query}"` : '';
+            const restoredLabel = status === 'completed' ? 'Deep Retrieval terminé retrouvé' : 'Deep Retrieval en cours retrouvé';
+            this.messages.update((msgs) => [
+              ...msgs,
+              {
+                id: assistantId,
+                role: 'assistant',
+                content: `${restoredLabel}${queryLabel}. Le job est suivi côté serveur.`,
+                retrievalInfo: {
+                  deepJobId: jobId,
+                  deepPollUrl: pollUrl,
+                  deepStatus: status,
+                  deepProgress: progress,
+                  deepStage: stage || 'server_restore',
+                },
+              } satisfies ChatMessage,
+            ]);
+            if (status === 'queued' || status === 'running') {
+              this.rememberPendingDeepRetrievalJob(jobId, pollUrl, query || 'Deep Retrieval');
+            }
+            this.startDeepRetrievalPolling(assistantId, jobId, pollUrl);
+          }
+        },
+        error: () => {
+          // Best-effort restore only; localStorage polling and the server job remain intact.
+        },
+      });
   }
 
   retrievalPolicyTitle(info: NonNullable<ChatMessage['retrievalInfo']>): string {

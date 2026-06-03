@@ -22,6 +22,8 @@ from app.core.logging import get_logger
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_collection import KnowledgeCollection
 from app.services.knowledge_collections import collection_source_rows
+from app.services.rag.retrieval_policy import RetrievalPolicy
+from app.services.rag.source_facets import expanded_terms_for_query, score_source_family_match
 from app.services.rag.summary_artifacts import load_summary_index_records
 
 logger = get_logger(__name__)
@@ -439,7 +441,16 @@ def _query_project_codes(query: str) -> list[str]:
     return codes
 
 
-def _expanded_query_terms(query: str) -> list[str]:
+def _is_broad_format_scope_query(query: str) -> bool:
+    text = _search_text(query)
+    if not re.search(r"\b(fichiers?|files?|documents?|sources?|docs?)\b", text):
+        return False
+    if not any(re.search(rf"\b{re.escape(token)}\b", text) for token in (*_EXTENSION_ALIASES, *_SOURCE_KIND_ALIASES)):
+        return False
+    return not bool(_query_project_codes(query) or re.search(r"\b(retrouve(?:r)?|find|locate)\b", text))
+
+
+def _expanded_query_terms(query: str, policy: RetrievalPolicy | None = None) -> list[str]:
     text = _search_text(query)
     terms: list[str] = []
 
@@ -452,36 +463,23 @@ def _expanded_query_terms(query: str) -> list[str]:
     for token in text.split():
         if len(token) >= 3 and token not in _QUERY_STOPWORDS:
             add(token)
-    if "spare" in text or "parts" in text or "piece" in text:
-        add("spare", "parts", "spare parts", "spare parts list", "spl")
-    if "injecteur" in text or "injector" in text or "cartouche" in text or "cartridge" in text:
-        add("injecteur", "injector", "cartouche", "cartridge", "cleaning", "nettoyage", "autoclamped")
-    if "nettoy" in text or "clean" in text:
-        add("cleaning", "clean", "nettoyage")
-    if "strip" in text or "carrier" in text:
-        add("strip", "carrier", "strip carrier", "stripcarrier")
-    if "pompe" in text or "pump" in text:
-        add("pompe", "pump")
-    if "convoyeur" in text or "conveyor" in text:
-        add("convoyeur", "conveyor")
-    if "armoire" in text or "pneumatique" in text or "pneumatic" in text:
-        add("armoire", "pneumatique", "pneumatic", "cabinet", "nomenclature")
-    if "filtration" in text or "filtering" in text:
-        add("filtration", "filtering", "filter")
-    if "vacuum" in text:
-        add("vacuum")
-    if "maintenance" in text:
-        add("maintenance")
-    if "def" in text and "strips" in text:
-        add("def strips", "strips")
-    return terms[:24]
+    add(*expanded_terms_for_query(query, policy))
+    return terms[:40]
 
 
-def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, str, list[str]]:
+def _infer_ledger_document_scope(
+    query: str,
+    rows: list[Any],
+    *,
+    policy: RetrievalPolicy | None = None,
+) -> tuple[dict[str, Any], float, str, list[str]]:
     if not rows:
         return {}, 0.0, "", []
-    terms = _expanded_query_terms(query)
+    terms = _expanded_query_terms(query, policy)
+    family_expanded_terms = {_search_text(term) for term in expanded_terms_for_query(query, policy)}
     project_codes = _query_project_codes(query)
+    if not project_codes and _is_broad_format_scope_query(query):
+        return {}, 0.0, "", []
     compact_query = _compact_text(query)
     has_source_lookup_signal = bool(
         re.search(
@@ -492,12 +490,6 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
     )
     if not terms and not project_codes:
         return {}, 0.0, "", []
-    part_name_lookup = (
-        "filteringcartridge" in compact_query
-        or ("filtering" in compact_query and "cartridge" in compact_query)
-        or "oring" in compact_query
-        or "oringstring" in compact_query
-    )
 
     scored: list[tuple[float, bool, bool, Any]] = []
     for row in rows:
@@ -505,13 +497,29 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
         if not filename:
             continue
         haystack, compact_haystack = _row_search_payload(row)
+        source_metadata = _source_metadata(row)
+        source_only_text = " ".join(
+            str(value or "")
+            for value in (
+                filename,
+                getattr(row, "normalized_name", ""),
+                getattr(row, "source_kind", ""),
+                getattr(row, "extension", ""),
+                getattr(row, "mime_type", ""),
+                *source_metadata.values(),
+            )
+        )
+        source_only_compact = _compact_text(source_only_text)
         score = 0.0
         matched_project = False
         strong_phrase_match = False
         for code in project_codes:
-            if code and code.lower() in compact_haystack:
+            if code and code.lower() in source_only_compact:
                 matched_project = True
-                score += 9.0
+                score += 12.0
+            elif code and code.lower() in compact_haystack:
+                matched_project = True
+                score += 4.0
         if project_codes and not matched_project:
             # A project-qualified question should not be polluted by another
             # project unless the filename is an exceptionally strong phrase hit.
@@ -524,53 +532,24 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
                 score += 2.2
             elif compact_term in compact_haystack:
                 score += 1.5
-        query_spare_parts_list = "spare" in compact_query and "part" in compact_query and "list" in compact_query
-        row_spare_parts_list = "spare" in compact_haystack and "part" in compact_haystack and "list" in compact_haystack
-        if query_spare_parts_list and row_spare_parts_list:
-            score += 8.0
+            is_project_term = compact_term.upper() in project_codes
+            is_family_term = _search_text(term) in family_expanded_terms
+            if len(compact_term) >= 5 and compact_term in source_only_compact and not is_project_term and not is_family_term:
+                score += 8.0
+        family_score, family_matches = score_source_family_match(
+            query=query,
+            row_text=source_only_text,
+            metadata=source_metadata,
+            policy=policy,
+        )
+        if family_score:
+            score += family_score
             strong_phrase_match = True
-        elif row_spare_parts_list and part_name_lookup:
-            score += 7.0
-            strong_phrase_match = True
-        elif all(token in compact_query for token in ("spare", "parts")) and all(token in compact_haystack for token in ("spare", "parts")):
-            score += 5.0
-            strong_phrase_match = True
-        if "stripcarrier" in compact_query and "stripcarrier" in compact_haystack:
-            score += 6.0
-            strong_phrase_match = True
-        if "uracakd724" in compact_query and "uracakd724" in compact_haystack:
-            score += 8.0
-            strong_phrase_match = True
-        elif "uraca" in compact_query and "uraca" in compact_haystack:
+        if compact_query and compact_query in compact_haystack:
             score += 4.0
             strong_phrase_match = True
-        if "etachrom" in compact_query and "etachrom" in compact_haystack:
-            score += 7.0
-            strong_phrase_match = True
-        if "pneumaticcabinet" in compact_query and "pneumaticcabinet" in compact_haystack:
-            score += 8.0
-            strong_phrase_match = True
-        elif "pneumatic" in compact_query and "cabinet" in compact_query and "pneumatic" in compact_haystack and "cabinet" in compact_haystack:
-            score += 5.0
-            strong_phrase_match = True
-        if "geotex" in compact_query and "geotex" in compact_haystack:
-            score += 8.0
-            strong_phrase_match = True
-        if ("filtration" in compact_query or "filtering" in compact_query) and "filtration" in compact_haystack:
-            score += 3.0
-            strong_phrase_match = True
-        if "vacuum" in compact_query and "vacuum" in compact_haystack:
-            score += 3.0
-            strong_phrase_match = True
-        if ("conveyor" in compact_query or "convoyeur" in compact_query) and "conveyor" in compact_haystack:
-            score += 4.0
-            strong_phrase_match = True
-        if ("injecteur" in compact_query or "injector" in compact_query) and ("injecteur" in compact_haystack or "injector" in compact_haystack):
-            score += 3.5
-            strong_phrase_match = True
-        if ("cartouche" in compact_query or "cartridge" in compact_query) and "cartridge" in compact_haystack:
-            score += 3.0
-            strong_phrase_match = True
+        elif any(len(_compact_text(term)) >= 6 and _compact_text(term) in compact_haystack for term in terms):
+            strong_phrase_match = strong_phrase_match or bool(family_matches)
         if has_source_lookup_signal:
             score += min(max(int(getattr(row, "chunk_count", 0) or 0), 0), 100) / 200.0
         threshold = 6.0 if project_codes else 7.0
@@ -580,16 +559,8 @@ def _infer_ledger_document_scope(query: str, rows: list[Any]) -> tuple[dict[str,
         return {}, 0.0, "", []
     if project_codes and any(item[1] for item in scored):
         scored = [item for item in scored if item[1]]
-        if part_name_lookup:
-            spare_scored = [
-                item
-                for item in scored
-                if all(token in _compact_text(getattr(item[3], "filename", "") or "") for token in ("spare", "part", "list"))
-            ]
-            if spare_scored:
-                scored = spare_scored
         phrase_scored = [item for item in scored if item[2]]
-        if phrase_scored:
+        if phrase_scored and max(item[0] for item in phrase_scored) >= max(item[0] for item in scored):
             scored = phrase_scored
     elif project_codes:
         return {}, 0.0, f"No ledger source matched project/code {', '.join(project_codes[:3])}.", []
@@ -1009,6 +980,7 @@ def plan_corpus(
     profile: Mapping[str, Any],
     query: str,
     request: Mapping[str, Any] | None = None,
+    retrieval_policy: RetrievalPolicy | None = None,
 ) -> CorpusPlan:
     started = time.time()
     latency_profile = normalize_latency_profile(
@@ -1030,8 +1002,16 @@ def plan_corpus(
             if candidate_rows:
                 workspace_rows = candidate_rows
     intent = classify_intent(query)
+    explicit_filters = _request_filters(request)
     inferred_filters, confidence, reason = _infer_filters(query, workspace_rows)
-    ledger_filters, ledger_confidence, ledger_reason, ledger_collections = _infer_ledger_document_scope(query, workspace_rows)
+    if explicit_filters:
+        ledger_filters, ledger_confidence, ledger_reason, ledger_collections = {}, 0.0, "", []
+    else:
+        ledger_filters, ledger_confidence, ledger_reason, ledger_collections = _infer_ledger_document_scope(
+            query,
+            workspace_rows,
+            policy=retrieval_policy,
+        )
     table_lookup_collections = _spreadsheet_collection_refs(workspace_rows) if _TABLE_VALUE_LOOKUP_RE.search(query) else []
     if table_lookup_collections:
         collections = table_lookup_collections
@@ -1070,7 +1050,6 @@ def plan_corpus(
         inferred_filters = dict(ledger_filters)
         confidence = max(confidence, ledger_confidence)
         reason = ledger_reason
-    explicit_filters = _request_filters(request)
     filters = {**inferred_filters, **explicit_filters}
     if explicit_filters:
         confidence = max(confidence, 0.95)

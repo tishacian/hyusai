@@ -826,6 +826,52 @@ def test_get_worker_job_returns_poll_url_and_omits_deep_context_by_default(db_se
     assert detailed_body["result"]["retrieval_context"]["chunks"] == ["heavy"]
 
 
+def test_list_worker_jobs_filters_recent_deep_retrieval_jobs(db_session):
+    ws = Workspace(id="ws-job-list", name="Job List", slug="job-list")
+    other = Workspace(id="ws-job-list-other", name="Other", slug="job-list-other")
+    db_session.add_all([ws, other])
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    other_collection = create_collection(db_session, workspace=other, name="Other Manuals")
+    running = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="rag_deep_retrieval",
+    )
+    running.status = "running"
+    running.progress = 35
+    running.result = {"request": {"query": "Deep question"}}
+    completed = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="rag_deep_retrieval",
+    )
+    completed.status = "completed"
+    completed.progress = 100
+    completed.result = {"request": {"query": "Finished question"}}
+    hidden = create_worker_job(
+        db_session,
+        workspace_id=other.id,
+        collection_id=other_collection.id,
+        kind="rag_deep_retrieval",
+    )
+    hidden.status = "running"
+    db_session.commit()
+
+    response = _client(db_session, ws).get(
+        f"/documents/jobs?kind=rag_deep_retrieval&status=queued,running,completed&collection_id={collection.slug}&limit=10"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    ids = {item["id"] for item in body["items"]}
+    assert ids == {running.id, completed.id}
+    assert body["total_returned"] == 2
+    assert all(item["poll_url"] == f"/documents/jobs/{item['id']}" for item in body["items"])
+
+
 def test_delete_collection_removes_ledger_and_store(
     db_session,
     tmp_path,

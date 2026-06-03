@@ -1,0 +1,126 @@
+{
+  "id": "andritz_spl_dense_v1",
+  "description": "Dense SPL retrieval golden batch. Validates sources and evidence terms, never generated answer prose.",
+  "cases": [
+    {
+      "id": "spl_001_injector_cartridge_cleaning",
+      "query": "Comment dois-je nettoyer les cartouches d'injecteurs ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["inj autoclamped.pdf"],
+      "expected_evidence_terms": ["injector", "cartridge", "clean"],
+      "expected_intent": "procedure",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_002_dci110_strip_carrier",
+      "query": "Comment retirer le strip-carrier d'un injecteur dans DCI110 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["DCI 110__PERFO-TE-OM-10-5 EN-C.pdf"],
+      "expected_evidence_terms": ["strip", "carrier", "DCI110"],
+      "expected_intent": "procedure",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_003_aco140_spl",
+      "query": "Peux-tu retrouver la Spare Parts List du projet ACO140 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["spare part list ACO140 ind a.pdf"],
+      "expected_evidence_terms": ["ACO140", "spare", "part"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_004_aco150_spl",
+      "query": "Peux-tu retrouver la Spare Parts List du projet ACO150 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["spare part list ACO150.pdf"],
+      "expected_evidence_terms": ["ACO150", "spare", "part"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_005_bba120_spl",
+      "query": "Peux-tu retrouver la Spare Parts List du projet BBA120 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["Spare Parts List_BBA120.pdf"],
+      "expected_evidence_terms": ["BBA120", "spare", "part"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_006_bba120_uraca_kd724",
+      "query": "Quels documents existent pour la pompe HP URACA KD724 du projet BBA120 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["URACA KD724", "Chapter 00", "Chapter 01", "Chapter 08"],
+      "expected_evidence_terms": ["BBA120", "URACA", "KD724"],
+      "expected_intent": "content_search",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_007_bba120_ksb_etachrom",
+      "query": "Quel document couvre la pompe KSB Etachrom dans BBA120 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["Etachrom B.PDF"],
+      "expected_evidence_terms": ["BBA120", "KSB", "Etachrom"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_008_akk200_filtration_vacuum",
+      "query": "Quelle procedure de maintenance concerne la filtration et le vacuum dans AKK200 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["Filtration_maintenance.html", "Vacuum_maintenance.html", "Filtration_vacuum_maintenance.html"],
+      "expected_evidence_terms": ["AKK200", "filtration", "vacuum"],
+      "expected_intent": "procedure",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_009_ara200_conveyor",
+      "query": "Quels documents de convoyeur sont indexes pour ARA200 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["conveyor.html", "conveyor-jetlace-gb b.pdf"],
+      "expected_evidence_terms": ["ARA200", "conveyor"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_010_ara200_pneumatic_cabinet",
+      "query": "Quel document decrit l'armoire pneumatique de ARA200 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["pneumatic cabinet.pdf"],
+      "expected_evidence_terms": ["ARA200", "pneumatic", "cabinet"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_011_akk200_filtering_cartridge_oring",
+      "query": "Dans le projet AKK200, quelle source contient Filtering cartridge LM 300 et O-ring string D. 3,6 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["Spare Parts List AKK200_Ind A.pdf"],
+      "expected_evidence_terms": ["AKK200", "Filtering cartridge", "O-ring"],
+      "expected_intent": "content_search",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    },
+    {
+      "id": "spl_012_geotex_def_strips_label_b",
+      "query": "Dans les fichiers NON-WOVENS France, que vaut le label B dans la table Def strips ?",
+      "collection": "andritz-non-wovens-france-excel-pilot",
+      "expected_sources": ["GEOTEX-SPL-Y25.05.22-PIL.xlsx"],
+      "expected_evidence_terms": ["Def strips", "B", "85"],
+      "expected_intent": "content_search",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "fast"
+    }
+  ]
+}

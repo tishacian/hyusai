@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from datetime import date, datetime
 from hashlib import sha1, sha256
 from typing import Any
+from uuid import uuid4
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -318,6 +319,10 @@ def _finalize_retrieval_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     metrics["retrieval_ms"] = retrieval_ms
     metrics["stage_timings"] = stage_timings
     metrics["candidate_counts"] = candidate_counts
+    trace = metrics.get("retrieval_trace")
+    if isinstance(trace, dict):
+        trace["timings"] = stage_timings
+        trace["candidate_counts"] = candidate_counts
     return metrics
 
 
@@ -735,24 +740,46 @@ def _retrieve_collection_inventory_context(
             "source_display_k": profile.get("source_display_k"),
         }
     )
+    chunks = [summary] if inventories else []
+    scores = [1.0] if inventories else []
+    metadatas = [
+        {
+            "source_type": "collection_inventory",
+            "semantic_type": "collection_inventory",
+            "title": "Inventaire Knowledge collection",
+            "document_filename": "knowledge-collection-inventory",
+            "collection": ", ".join(touched),
+            "collection_name": ", ".join(touched),
+            "citation_label": "Inventaire Knowledge collection",
+        }
+    ] if inventories else []
+    selected_sources = _selected_source_trace(chunks, scores, metadatas)
+    metrics["selected_sources"] = selected_sources
+    metrics["retrieval_trace"] = {
+        "trace_id": str(uuid4()),
+        "planner": {
+            "intent": (metrics.get("retrieval_scope") or {}).get("intent")
+            if isinstance(metrics.get("retrieval_scope"), Mapping)
+            else None,
+            "dense": (metrics.get("retrieval_scope") or {}).get("dense")
+            if isinstance(metrics.get("retrieval_scope"), Mapping)
+            else None,
+            "dense_policy": metrics.get("dense_policy"),
+        },
+        "scope": metrics.get("retrieval_scope"),
+        "policy": metrics.get("retrieval_plan"),
+        "layers": (metrics.get("retrieval_plan") or {}).get("layers")
+        if isinstance(metrics.get("retrieval_plan"), Mapping)
+        else {},
+        "selected_sources": selected_sources,
+        "failures": [metrics.get("fallback_reason")] if metrics.get("fallback_reason") else [],
+    }
     _finalize_retrieval_metrics(metrics)
     return _jsonable(
         {
-            "chunks": [summary] if inventories else [],
-            "scores": [1.0] if inventories else [],
-            "metadatas": [
-                {
-                    "source_type": "collection_inventory",
-                    "semantic_type": "collection_inventory",
-                    "title": "Inventaire Knowledge collection",
-                    "document_filename": "knowledge-collection-inventory",
-                    "collection": ", ".join(touched),
-                    "collection_name": ", ".join(touched),
-                    "citation_label": "Inventaire Knowledge collection",
-                }
-            ]
-            if inventories
-            else [],
+            "chunks": chunks,
+            "scores": scores,
+            "metadatas": metadatas,
             "pipeline": "collection_inventory",
             "label": profile.get("scope_label") or "Collection inventory",
             "reason": "Inventory/cardinality query answered from KnowledgeCollectionSource ledger",
@@ -788,6 +815,7 @@ def _retrieve_collection_inventory_context(
             "dense_policy": metrics.get("dense_policy"),
             "fallback_reason": metrics.get("fallback_reason"),
             "latency_budget": metrics.get("latency_budget"),
+            "retrieval_trace": metrics.get("retrieval_trace"),
             "deep_retrieval_recommended": metrics.get("deep_retrieval_recommended"),
             "collections_touched": touched,
             "collection_errors": [],
@@ -1117,6 +1145,45 @@ def _source_identity(meta: Mapping[str, Any]) -> str:
     return ""
 
 
+def _selected_source_trace(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    *,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    """Compact, serialisable source trace for replay/evaluation."""
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, meta in enumerate(metadatas[: max(0, limit * 2)]):
+        if not isinstance(meta, Mapping):
+            continue
+        identity = _source_identity(meta)
+        if not identity or identity in seen:
+            continue
+        seen.add(identity)
+        snippet = " ".join(str(chunks[index] if index < len(chunks) else "").split())[:240]
+        try:
+            score = float(scores[index]) if index < len(scores) else None
+        except (TypeError, ValueError):
+            score = None
+        selected.append(
+            {
+                "rank": len(selected) + 1,
+                "source": identity,
+                "document_id": meta.get("document_id"),
+                "document_filename": meta.get("document_filename") or meta.get("filename"),
+                "source_family": meta.get("source_family"),
+                "project_code": meta.get("project_code"),
+                "score": score,
+                "snippet": snippet,
+            }
+        )
+        if len(selected) >= limit:
+            break
+    return selected
+
+
 def _spreadsheet_near_key(chunk: Any, meta: Mapping[str, Any]) -> str | None:
     """Return a cautious near-duplicate key for repeated spreadsheet boilerplate.
 
@@ -1316,6 +1383,7 @@ async def retrieve_rag_context(
             profile=profile,
             query=retrieval_query,
             request=planner_request,
+            retrieval_policy=retrieval_policy,
         )
     except Exception as exc:  # noqa: BLE001 - planner must never block chat.
         logger.warning("rag_context: corpus planner failed", error=str(exc))
@@ -1688,6 +1756,27 @@ async def retrieve_rag_context(
             **retrieval_diagnostics,
         }
     )
+    selected_sources = _selected_source_trace(chunks, scores, metadatas)
+    metrics["selected_sources"] = selected_sources
+    metrics["retrieval_trace"] = {
+        "trace_id": str(uuid4()),
+        "planner": {
+            "intent": (metrics.get("retrieval_scope") or {}).get("intent")
+            if isinstance(metrics.get("retrieval_scope"), Mapping)
+            else None,
+            "dense": (metrics.get("retrieval_scope") or {}).get("dense")
+            if isinstance(metrics.get("retrieval_scope"), Mapping)
+            else None,
+            "dense_policy": metrics.get("dense_policy"),
+        },
+        "scope": metrics.get("retrieval_scope"),
+        "policy": metrics.get("retrieval_plan"),
+        "layers": (metrics.get("retrieval_plan") or {}).get("layers")
+        if isinstance(metrics.get("retrieval_plan"), Mapping)
+        else {},
+        "selected_sources": selected_sources,
+        "failures": [metrics.get("fallback_reason")] if metrics.get("fallback_reason") else [],
+    }
     _finalize_retrieval_metrics(metrics)
     payload = _jsonable(
         {
@@ -1726,6 +1815,7 @@ async def retrieve_rag_context(
             "dense_policy": metrics.get("dense_policy"),
             "fallback_reason": metrics.get("fallback_reason"),
             "latency_budget": metrics.get("latency_budget"),
+            "retrieval_trace": metrics.get("retrieval_trace"),
             "deep_retrieval_recommended": metrics.get("deep_retrieval_recommended"),
             "collections_touched": [profile["collection"]],
             "collection_errors": [],
@@ -2020,6 +2110,27 @@ async def _retrieve_multi_collection_context(
             "sparse_by_collection": sparse_by_collection,
         }
     )
+    selected_sources = _selected_source_trace(chunks, scores, metadatas)
+    metrics["selected_sources"] = selected_sources
+    metrics["retrieval_trace"] = {
+        "trace_id": str(uuid4()),
+        "planner": {
+            "intent": (metrics.get("retrieval_scope") or {}).get("intent")
+            if isinstance(metrics.get("retrieval_scope"), Mapping)
+            else None,
+            "dense": (metrics.get("retrieval_scope") or {}).get("dense")
+            if isinstance(metrics.get("retrieval_scope"), Mapping)
+            else None,
+            "dense_policy": metrics.get("dense_policy"),
+        },
+        "scope": metrics.get("retrieval_scope"),
+        "policy": metrics.get("retrieval_plan"),
+        "layers": (metrics.get("retrieval_plan") or {}).get("layers")
+        if isinstance(metrics.get("retrieval_plan"), Mapping)
+        else {},
+        "selected_sources": selected_sources,
+        "failures": [metrics.get("fallback_reason")] if metrics.get("fallback_reason") else [],
+    }
     _finalize_retrieval_metrics(metrics)
     return _jsonable(
         {
@@ -2061,6 +2172,7 @@ async def _retrieve_multi_collection_context(
             "dense_policy": metrics.get("dense_policy"),
             "fallback_reason": metrics.get("fallback_reason"),
             "latency_budget": metrics.get("latency_budget"),
+            "retrieval_trace": metrics.get("retrieval_trace"),
             "deep_retrieval_recommended": metrics.get("deep_retrieval_recommended"),
         }
     )

@@ -2131,6 +2131,54 @@ async def upload_collection_documents(
     )
 
 
+@router.get("/jobs")
+async def list_worker_jobs(
+    kind: str | None = Query(None, description="Optional WorkerJob kind filter."),
+    status: str | None = Query(None, description="Comma-separated status filter."),
+    collection_id: str | None = Query(None, description="Optional collection id or slug filter."),
+    limit: int = Query(20, ge=1, le=100),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """List recent worker jobs in the current workspace.
+
+    Deep Retrieval jobs are server-side state. This endpoint lets the UI recover
+    running/recent jobs after a browser reload or closed session.
+    """
+    query = db.query(WorkerJob).filter(WorkerJob.workspace_id == workspace.id)
+    if kind:
+        query = query.filter(WorkerJob.kind == kind.strip())
+    statuses = [item.strip() for item in str(status or "").split(",") if item.strip()]
+    if statuses:
+        query = query.filter(WorkerJob.status.in_(statuses))
+    if collection_id:
+        collection = (
+            db.query(KnowledgeCollection)
+            .filter(
+                KnowledgeCollection.workspace_id == workspace.id,
+                (
+                    (KnowledgeCollection.id == collection_id)
+                    | (KnowledgeCollection.slug == collection_id)
+                    | (KnowledgeCollection.name == collection_id)
+                ),
+            )
+            .first()
+        )
+        if not collection:
+            return {"items": [], "total_returned": 0, "limit": limit}
+        query = query.filter(WorkerJob.collection_id == collection.id)
+    jobs = (
+        query.order_by(WorkerJob.updated_at.desc(), WorkerJob.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {
+        "items": [serialize_job(job) for job in jobs],
+        "total_returned": len(jobs),
+        "limit": limit,
+    }
+
+
 @router.get("/jobs/{job_id}")
 async def get_worker_job(
     job_id: str,
