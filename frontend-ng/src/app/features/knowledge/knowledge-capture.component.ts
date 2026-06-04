@@ -289,6 +289,7 @@ interface CaptureProposal {
     publication?: {
       category?: string | null;
       destination?: string | null;
+      destination_scope?: string | null;
       final_title?: string | null;
       include_unresolved_questions?: boolean;
       suggested?: boolean;
@@ -3538,7 +3539,10 @@ export class KnowledgeCaptureComponent implements OnInit {
       ? category
       : 'other';
     this.publicationDestination = String(
+      publication.destination_scope ||
       publication.destination ||
+      metadata['publication_destination_scope'] ||
+      metadata['publication_destination_scope_suggested'] ||
       metadata['publication_destination'] ||
       metadata['publication_destination_suggested'] ||
       '',
@@ -5372,6 +5376,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         .publishCaptureProposal(proposalId, {
           category: this.publicationCategory,
           destination: this.effectivePublicationDestination(),
+          destination_scope: this.effectivePublicationDestination(),
           final_title: this.effectivePublicationFinalTitle(),
           include_unresolved_questions: true,
         })

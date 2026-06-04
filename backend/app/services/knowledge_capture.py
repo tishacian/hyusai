@@ -2558,6 +2558,7 @@ async def publish_proposal_to_knowledge(
     publication_destination = (
         _clean_optional_string(destination)
         or _clean_optional_string(publication_meta.get("destination"))
+        or _clean_optional_string(publication_meta.get("destination_scope"))
         or _resolve_collection_name(ctx)
     )
     publication_title = (
@@ -2572,7 +2573,9 @@ async def publish_proposal_to_knowledge(
         metadata["publication_category"] = publication_category
     if publication_destination:
         publication_meta["destination"] = publication_destination
+        publication_meta["destination_scope"] = publication_destination
         metadata["publication_destination"] = publication_destination
+        metadata["publication_destination_scope"] = publication_destination
     if publication_title:
         publication_meta["final_title"] = publication_title
         metadata["publication_final_title"] = publication_title
@@ -2656,6 +2659,7 @@ async def publish_proposal_to_knowledge(
             "collection": collection.slug,
             "category": publication_category,
             "destination": publication_destination,
+            "destination_scope": publication_destination,
             "final_title": publication_title,
             "export_urls": export_urls,
         },
@@ -2669,6 +2673,7 @@ async def publish_proposal_to_knowledge(
         "status": result.get("status"),
         "category": publication_category,
         "destination": publication_destination,
+        "destination_scope": publication_destination,
         "final_title": publication_title,
         "export_urls": export_urls,
     }
@@ -3516,7 +3521,11 @@ def _apply_publication_defaults(
     if isinstance(existing, dict):
         publication.update(existing)
     category = _clean_optional_string(publication.get("category")) or _suggest_publication_category(session, payload)
-    destination = _clean_optional_string(publication.get("destination")) or _resolve_collection_name(ctx)
+    destination = (
+        _clean_optional_string(publication.get("destination"))
+        or _clean_optional_string(publication.get("destination_scope"))
+        or _resolve_collection_name(ctx)
+    )
     recommended = payload.get("recommended_ingestion") if isinstance(payload.get("recommended_ingestion"), dict) else {}
     final_title = (
         _clean_optional_string(publication.get("final_title"))
@@ -3528,6 +3537,7 @@ def _apply_publication_defaults(
         {
             "category": category,
             "destination": destination,
+            "destination_scope": destination,
             "final_title": final_title,
             "include_unresolved_questions": True,
             "suggested": bool(not previous_publication),
@@ -3537,6 +3547,7 @@ def _apply_publication_defaults(
     metadata = dict(recommended.get("metadata") or {})
     metadata.setdefault("publication_category_suggested", category)
     metadata.setdefault("publication_destination_suggested", destination)
+    metadata.setdefault("publication_destination_scope_suggested", destination)
     recommended["metadata"] = metadata
     payload["recommended_ingestion"] = recommended
     return payload

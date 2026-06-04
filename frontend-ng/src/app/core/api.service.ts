@@ -508,6 +508,7 @@ export class ApiService {
     body?: {
       category?: string | null;
       destination?: string | null;
+      destination_scope?: string | null;
       final_title?: string | null;
       include_unresolved_questions?: boolean;
     },

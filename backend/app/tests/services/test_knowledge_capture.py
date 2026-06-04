@@ -609,9 +609,14 @@ def test_update_proposal_adds_publication_defaults_and_preserves_editor_choices(
     publication = proposal.proposal["publication"]
     assert publication["category"] == "maintenance"
     assert publication["destination"] == "maintenance-capture-knowledge"
+    assert publication["destination_scope"] == "maintenance-capture-knowledge"
     assert publication["final_title"] == proposal.proposal["recommended_ingestion"]["title"]
     assert publication["include_unresolved_questions"] is True
     assert proposal.proposal["recommended_ingestion"]["metadata"]["publication_category_suggested"] == "maintenance"
+    assert (
+        proposal.proposal["recommended_ingestion"]["metadata"]["publication_destination_scope_suggested"]
+        == "maintenance-capture-knowledge"
+    )
 
     payload = dict(proposal.proposal)
     payload["publication"] = {**publication, "category": "commercial", "destination": "custom-destination"}
@@ -621,6 +626,7 @@ def test_update_proposal_adds_publication_defaults_and_preserves_editor_choices(
     regenerated = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session.id)
     assert regenerated.proposal["publication"]["category"] == "commercial"
     assert regenerated.proposal["publication"]["destination"] == "custom-destination"
+    assert regenerated.proposal["publication"]["destination_scope"] == "custom-destination"
 
 
 def test_plan_framed_report_labels_unassigned_facts_as_out_of_plan(db_session):
@@ -766,8 +772,11 @@ async def test_publish_persists_export_urls(db_session, monkeypatch):
 
     expected_url = "/api/v1/documents/doc%20published%2Fid/raw"
     assert result["export_urls"] == {"download_url": expected_url, "raw_url": expected_url}
+    assert result["destination"] == "capture-export-knowledge"
+    assert result["destination_scope"] == "capture-export-knowledge"
     db_session.refresh(reviewed)
     assert reviewed.proposal["publication"]["export_urls"] == result["export_urls"]
+    assert reviewed.proposal["publication"]["destination_scope"] == "capture-export-knowledge"
 
 
 def test_conversation_only_step_flow_requires_voice_confirmation(db_session):

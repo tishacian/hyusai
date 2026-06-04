@@ -302,6 +302,7 @@ class ProposalExportRequest(BaseModel):
 class ProposalPublishRequest(BaseModel):
     category: Optional[str] = None
     destination: Optional[str] = None
+    destination_scope: Optional[str] = None
     final_title: Optional[str] = None
     include_unresolved_questions: bool = True
 
@@ -1583,7 +1584,7 @@ async def publish_capture_proposal(
             proposal_id=proposal_id,
             actor_label=_actor_label(user),
             category=body.category if body else None,
-            destination=body.destination if body else None,
+            destination=(body.destination_scope or body.destination) if body else None,
             final_title=body.final_title if body else None,
             include_unresolved_questions=body.include_unresolved_questions if body else None,
         )
