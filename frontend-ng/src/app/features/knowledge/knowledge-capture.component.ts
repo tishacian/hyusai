@@ -4389,10 +4389,10 @@ export class KnowledgeCaptureComponent implements OnInit {
       idle: 'Prêt',
       listening: 'Écoute en cours',
       partial_transcribing: 'Transcription',
-      retrieving: 'Préparation',
-      oracle_updating: 'Analyse qualité',
-      thinking: 'Analyse',
-      speaking: 'Restitution',
+      retrieving: 'Repères en préparation',
+      oracle_updating: 'Questions à jour',
+      thinking: 'Organisation des notes',
+      speaking: 'Lecture en cours',
       interrupted: 'Interrompu',
     };
     return labels[this.voiceState()];
@@ -4402,12 +4402,12 @@ export class KnowledgeCaptureComponent implements OnInit {
     const rr = this.retrieval();
     if (rr.chunks.length) return `${rr.chunks.length} repère(s) utile(s)`;
     if (rr.status === 'searching') {
-      return 'Recherche en parallèle';
+      return 'Repères en préparation';
     }
     if (rr.status === 'ready' || rr.status === 'completed') return 'Aucun repère utile';
-    if (rr.status === 'late') return 'Contexte arrivé tard';
+    if (rr.status === 'late') return 'Repères arrivés tard';
     if (rr.status === 'timeout') return 'Timeout, on continue';
-    if (rr.status === 'error') return 'Contexte indisponible';
+    if (rr.status === 'error') return 'Repères indisponibles';
     return 'En attente';
   }
 
@@ -5572,12 +5572,12 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.speaking()) return 'L’IA pose la question';
     if (this.recording()) return 'Réponse expert en cours';
     if (this.transcribing()) return 'Traitement du tour';
-    if (this.voiceState() === 'oracle_updating') return 'Analyse qualité en cours';
-    if (this.voiceState() === 'thinking') return 'Évaluation de la réponse';
+    if (this.voiceState() === 'oracle_updating') return 'Questions IA mises à jour';
+    if (this.voiceState() === 'thinking') return 'Organisation des notes';
     if (this.proposal()) return 'Rapport prêt';
     const step = this.lastConversationStep();
     if (step?.action_taken === 'proposal_deferred_insufficient_facts') return 'Détail expert nécessaire';
-    return this.conversationMode() === 'conversation_only' ? 'Boucle conversationnelle prête' : 'Capture guidée prête';
+    return this.conversationMode() === 'conversation_only' ? 'Conversation prête' : 'Capture guidée prête';
   }
 
   conversationStageRows(session: CaptureSession): ConversationStageRow[] {
@@ -6498,11 +6498,11 @@ export class KnowledgeCaptureComponent implements OnInit {
       const value = payload['value_ms'];
       if (metric === 'livekit_agent_dispatched') {
         if (payload['audio_bridge'] === 'voice_gateway_ready') {
-          this.setVoiceNotice('Pont vocal LiveKit relié au runtime Agentium.', 'info');
+          this.setVoiceNotice('Audio prêt pour la capture.', 'info');
         } else if (payload['audio_bridge'] === 'media_observer_ready') {
-          this.setVoiceNotice('LiveKit reçoit le média, mais le pont vocal Agentium n’est pas connecté ; WebSocket reste le fallback.', 'warning');
+          this.setVoiceNotice('Audio reçu, bascule en mode secours si nécessaire.', 'warning');
         } else if (payload['audio_bridge'] === 'pending') {
-          this.setVoiceNotice('LiveKit est connecté en mode data. Le pont vocal Agentium reste indisponible ; WebSocket reste le fallback.', 'warning');
+          this.setVoiceNotice('Connexion audio en cours, mode secours disponible.', 'warning');
         }
       }
       if (metric === 'micro_turn') {
@@ -6733,13 +6733,13 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.recording()) return 'Écoute de la réponse expert';
     if (this.transcribing()) return 'Finalisation de la transcription';
     if (this.speaking()) return 'L’IA parle';
-    if (this.voiceState() === 'retrieving') return 'Recherche du contexte';
-    if (this.voiceState() === 'oracle_updating') return 'Analyse qualité en cours';
-    if (this.voiceState() === 'thinking') return 'Évaluation de la réponse';
+    if (this.voiceState() === 'retrieving') return 'Préparation de repères';
+    if (this.voiceState() === 'oracle_updating') return 'Questions IA mises à jour';
+    if (this.voiceState() === 'thinking') return 'Organisation des notes';
     if (this.conversationMode() === 'conversation_only' && this.conversationSessionActive()) {
-      return 'Conversation armée';
+      return 'Conversation prête';
     }
-    return this.conversationMode() === 'conversation_only' ? 'Prêt pour la conversation autonome' : 'Prêt pour la capture manuelle';
+    return this.conversationMode() === 'conversation_only' ? 'Prêt à écouter' : 'Prêt pour la capture';
   }
 
   voiceNoticeClass(): string {
