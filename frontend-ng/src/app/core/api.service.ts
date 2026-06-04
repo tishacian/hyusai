@@ -502,7 +502,12 @@ export class ApiService {
 
   publishCaptureProposal(
     proposalId: string,
-    body?: { category?: string | null; destination?: string | null; final_title?: string | null },
+    body?: {
+      category?: string | null;
+      destination?: string | null;
+      final_title?: string | null;
+      include_unresolved_questions?: boolean;
+    },
   ): Observable<unknown> {
     return this.post(`/knowledge-capture/proposals/${proposalId}/publish`, body || {});
   }

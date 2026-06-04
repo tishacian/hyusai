@@ -1545,45 +1545,47 @@ interface ProposalFact {
                 </section>
                 }
 
-                <section class="t-card rounded-lg p-4">
-                  <div class="flex items-center justify-between gap-3">
-                    <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Contexte retrouvé</p>
-                      <h3 class="text-sm font-semibold text-white">{{ retrievalLabel() }}</h3>
-                    </div>
-                    @if (retrieval().latency_ms !== undefined) {
-                      <span class="text-xs text-gray-500">{{ retrieval().latency_ms }} ms</span>
-                    }
-                  </div>
-                  @if (retrieval().chunks.length) {
-                    <div class="mt-3 space-y-2">
-                      @for (chunk of retrieval().chunks.slice(0, 3); track retrievalChunkTrack($index, chunk); let ci = $index) {
-                        <div class="rounded bg-black/20 border border-white/10 p-3">
-                          <div class="flex items-start justify-between gap-2">
-                            <p class="text-xs text-gray-400 line-clamp-3">{{ chunk }}</p>
-                            @if (canPreviewRetrievalChunk(ci)) {
-                              <button
-                                type="button"
-                                class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-brand-300 hover:bg-white/5 transition"
-                                title="Prévisualiser la source"
-                                (click)="previewRetrievalChunk(ci)"
-                              >
-                                <app-icon name="eye" [size]="12" />
-                              </button>
-                            }
-                          </div>
-                          @if (retrievalChunkTitle(ci); as srcTitle) {
-                            <p class="mt-1.5 text-[10px] uppercase tracking-wider text-gray-600 truncate">{{ srcTitle }}</p>
-                          }
-                        </div>
+                @if (!isDemoMode() && showAdvancedSetup()) {
+                  <section class="t-card rounded-lg p-4">
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Contexte retrouvé</p>
+                        <h3 class="text-sm font-semibold text-white">{{ retrievalLabel() }}</h3>
+                      </div>
+                      @if (retrieval().latency_ms !== undefined) {
+                        <span class="text-xs text-gray-500">{{ retrieval().latency_ms }} ms</span>
                       }
                     </div>
-                  } @else {
-                    <p class="mt-3 text-xs text-gray-500 leading-relaxed">
-                      Les passages utiles apparaissent ici dès que la réponse devient assez précise. La conversation ne les attend pas.
-                    </p>
-                  }
-                </section>
+                    @if (retrieval().chunks.length) {
+                      <div class="mt-3 space-y-2">
+                        @for (chunk of retrieval().chunks.slice(0, 3); track retrievalChunkTrack($index, chunk); let ci = $index) {
+                          <div class="rounded bg-black/20 border border-white/10 p-3">
+                            <div class="flex items-start justify-between gap-2">
+                              <p class="text-xs text-gray-400 line-clamp-3">{{ chunk }}</p>
+                              @if (canPreviewRetrievalChunk(ci)) {
+                                <button
+                                  type="button"
+                                  class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-brand-300 hover:bg-white/5 transition"
+                                  title="Prévisualiser la source"
+                                  (click)="previewRetrievalChunk(ci)"
+                                >
+                                  <app-icon name="eye" [size]="12" />
+                                </button>
+                              }
+                            </div>
+                            @if (retrievalChunkTitle(ci); as srcTitle) {
+                              <p class="mt-1.5 text-[10px] uppercase tracking-wider text-gray-600 truncate">{{ srcTitle }}</p>
+                            }
+                          </div>
+                        }
+                      </div>
+                    } @else {
+                      <p class="mt-3 text-xs text-gray-500 leading-relaxed">
+                        Les passages utiles apparaissent ici dès que la réponse devient assez précise. La conversation ne les attend pas.
+                      </p>
+                    }
+                  </section>
+                }
                 }
 
                 @if (proposal(); as p) {
@@ -5312,6 +5314,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           category: this.publicationCategory,
           destination: this.effectivePublicationDestination(),
           final_title: this.effectivePublicationFinalTitle(),
+          include_unresolved_questions: true,
         })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
