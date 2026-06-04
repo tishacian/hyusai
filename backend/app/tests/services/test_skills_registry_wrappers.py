@@ -93,6 +93,7 @@ def test_seed_rag_skills_expose_retrieval_policy_contract():
         "source_display_k",
         "rag_pipeline_mode",
         "latency_profile",
+        "retrieval_profile",
         "deep_retrieval",
         "knowledge_scope",
         "collection",
@@ -172,6 +173,7 @@ async def test_llm_rag_answer_wrapper_forwards_scope_and_budget(monkeypatch):
             "top_k": 99,
             "candidate_pool_k": 999,
             "latency_profile": "balanced",
+            "retrieval_profile": "chat",
             "collection": "andritz-notices-techniques-spl-pilot",
             "retrieval_filters": {"project_code": "ACJ100"},
         },
@@ -188,6 +190,7 @@ async def test_llm_rag_answer_wrapper_forwards_scope_and_budget(monkeypatch):
     assert captured["top_k"] == 12
     assert captured["candidate_pool_k"] == 80
     assert captured["latency_profile"] == "balanced"
+    assert captured["retrieval_profile"] == "chat"
     assert captured["latency_budget"]["profile"] == "balanced"
     assert captured["latency_budget"]["candidate_pool_k"] == 80
     assert captured["context_collection"] == "andritz-notices-techniques-spl-pilot"

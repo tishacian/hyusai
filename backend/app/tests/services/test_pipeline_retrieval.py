@@ -6,6 +6,7 @@ import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
 
+import numpy as np
 import pytest
 
 from app.services.rag import pipeline_retrieval
@@ -109,6 +110,55 @@ class OpenSearchUnconfiguredBackend:
     async def search(self, *args, **kwargs):  # noqa: ARG002
         self.calls += 1
         return [_mk_result("should not be called without opensearch url", 1.0, 0)]
+
+
+class QdrantSparseBackendFake:
+    name = "qdrant_sparse"
+
+    def __init__(self):
+        self.calls = 0
+
+    async def search(self, *args, **kwargs):  # noqa: ARG002
+        self.calls += 1
+        return [_mk_result("client sparse fallback should not run", 0.8, 0)]
+
+
+class FakeEmbedder:
+    async def embed(self, query: str):  # noqa: ARG002
+        return np.array([1.0, 0.0], dtype=np.float32)
+
+
+class QdrantServerHybridVectorDb:
+    collection_name = "andritz__docs"
+
+    def __init__(self):
+        self.calls = []
+
+    async def search_hybrid(self, query_vector, query_text, top_k=10, filters=None, search_params=None):
+        self.calls.append((query_vector, query_text, top_k, filters, search_params))
+        return [
+            {
+                "id": "server-1",
+                "content": "qdrant server fused evidence long enough",
+                "score": 0.91,
+                "combined_score": 0.91,
+                "metadata": {
+                    "document_id": "doc-1",
+                    "sparse_backend": "qdrant_sparse",
+                    "sparse_status": "ok",
+                    "sparse_fusion": "server_rrf",
+                },
+            }
+        ]
+
+
+class QdrantServerHybridDocService:
+    collection_name = "logical-docs"
+
+    def __init__(self):
+        self.embedder = FakeEmbedder()
+        self.vector_db = QdrantServerHybridVectorDb()
+        self.search = AsyncMock(return_value=[_mk_result("dense fallback should not run", 0.4, 0)])
 
 
 class SlowSearchService:
@@ -648,6 +698,32 @@ async def test_dense_guardrail_hybrid_marks_unconfigured_opensearch_sparse(monke
     assert out.diagnostics["sparse_status"] == "unavailable"
     assert out.diagnostics["sparse_fallback_reason"] == "sparse_unavailable"
     assert out.metadatas[0]["sparse_fallback_reason"] == "sparse_unavailable"
+    assert sparse.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_dense_guardrail_qdrant_sparse_uses_server_prefetch_fusion(monkeypatch):
+    sparse = QdrantSparseBackendFake()
+    doc = QdrantServerHybridDocService()
+    monkeypatch.setattr(pipeline_retrieval, "get_sparse_backend", lambda: sparse)
+
+    out = await retrieve_for_mode(
+        doc,
+        "KD724 pump",
+        "hybrid",
+        top_k=2,
+        use_hybrid=True,
+        allow_legacy_hybrid=False,
+        retrieval_profile="chat",
+    )
+
+    assert out.pipeline == "hybrid"
+    assert out.chunks == ["qdrant server fused evidence long enough"]
+    assert out.diagnostics["sparse_backend"] == "qdrant_sparse"
+    assert out.diagnostics["sparse_status"] == "ok"
+    assert out.metadatas[0]["sparse_fusion"] == "server_rrf"
+    assert doc.vector_db.calls[0][4] == {"retrieval_profile": "chat"}
+    doc.search.assert_not_awaited()
     assert sparse.calls == 0
 
 

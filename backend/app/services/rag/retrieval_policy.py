@@ -35,6 +35,28 @@ _DEFAULT_NAVIGATION_TERMS = (
     "back",
     "menu",
 )
+_VALIDATED_PROVENANCE_VALUES = {
+    "accepted",
+    "approved",
+    "certified",
+    "official",
+    "published",
+    "ready",
+    "reviewed",
+    "trusted",
+    "validated",
+    "verified",
+}
+_PROVENANCE_KEYS = (
+    "status",
+    "review_status",
+    "validation_status",
+    "publication_status",
+    "source_status",
+    "source_quality",
+    "provenance_status",
+    "trust_level",
+)
 
 
 @dataclass(frozen=True)
@@ -403,11 +425,12 @@ def score_result_with_policy(
     policy: RetrievalPolicy | None,
     is_document_discovery: bool = False,
 ) -> int:
-    if not policy or not policy.enabled:
-        return 0
     metadata = metadata or {}
     haystack = f"{content}\n{_metadata_text(metadata)}"
-    score = 0
+    score = provenance_boost_score(metadata)
+
+    if not policy or not policy.enabled:
+        return score
 
     required_terms = required_terms_from_query(query, policy)
     matched_required_terms = [term for term in required_terms if _contains_any_term_form(haystack, term)]
@@ -462,6 +485,28 @@ def score_result_with_policy(
     return score
 
 
+def provenance_boost_score(metadata: Mapping[str, Any] | None) -> int:
+    """Small deterministic trust boost for reviewed/official sources.
+
+    This is intentionally weaker than domain-policy boosts such as exact
+    project-code matches. It is mainly a tiebreaker so validated workspace
+    sources outrank generic copies when semantic scores are close.
+    """
+    metadata = metadata or {}
+    boost = 0
+    for key in _PROVENANCE_KEYS:
+        value = metadata.get(key)
+        values = value if isinstance(value, (list, tuple, set)) else [value]
+        if any(str(item or "").strip().lower() in _VALIDATED_PROVENANCE_VALUES for item in values):
+            boost += 4
+            break
+    source_kind = str(metadata.get("source_kind") or metadata.get("source_type") or "").strip().lower()
+    source_family = str(metadata.get("source_family") or "").strip().lower()
+    if source_kind in {"official", "manual", "notice", "pdf"} or source_family in {"official", "validated_source"}:
+        boost += 2
+    return min(boost, 6)
+
+
 def matched_required_terms(
     *,
     content: str,
@@ -481,10 +526,12 @@ def rerank_results_with_policy(
     query: str,
     policy: RetrievalPolicy | None,
 ) -> list[dict[str, Any]]:
-    if not policy or not policy.enabled or not results:
+    if not results:
         return results
     is_document_discovery = is_document_discovery_query(query)
     ranked: list[tuple[int, float, int, dict[str, Any]]] = []
+    has_policy_ranking = bool(policy and policy.enabled)
+    has_provenance_boost = False
     for index, row in enumerate(results):
         metadata = _as_mapping(row.get("metadata"))
         content = str(row.get("content") or metadata.get("content") or "")
@@ -495,11 +542,14 @@ def rerank_results_with_policy(
             policy=policy,
             is_document_discovery=is_document_discovery,
         )
+        has_provenance_boost = has_provenance_boost or bool(provenance_boost_score(metadata))
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score
             row = {**row, "metadata": metadata}
         raw_score = float(row.get("combined_score") or row.get("score") or 0.0)
         ranked.append((policy_score, raw_score, -index, row))
+    if not has_policy_ranking and not has_provenance_boost:
+        return results
     ranked.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
     return [row for _, _, _, row in ranked]
 
@@ -512,10 +562,12 @@ def rerank_aligned_with_policy(
     query: str,
     policy: RetrievalPolicy | None,
 ) -> tuple[list[str], list[float], list[dict[str, Any]]]:
-    if not policy or not policy.enabled or not chunks:
+    if not chunks:
         return chunks, scores, metadatas
     is_document_discovery = is_document_discovery_query(query)
     rows: list[tuple[int, float, int, str, float, dict[str, Any]]] = []
+    has_policy_ranking = bool(policy and policy.enabled)
+    has_provenance_boost = False
     for index, chunk in enumerate(chunks):
         metadata = dict(metadatas[index] if index < len(metadatas) else {})
         policy_score = score_result_with_policy(
@@ -525,10 +577,13 @@ def rerank_aligned_with_policy(
             policy=policy,
             is_document_discovery=is_document_discovery,
         )
+        has_provenance_boost = has_provenance_boost or bool(provenance_boost_score(metadata))
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score
         score = float(scores[index]) if index < len(scores) else 0.0
         rows.append((policy_score, score, -index, chunk, score, metadata))
+    if not has_policy_ranking and not has_provenance_boost:
+        return chunks, scores, metadatas
     rows.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
     return (
         [row[3] for row in rows],

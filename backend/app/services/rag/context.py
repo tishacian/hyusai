@@ -29,6 +29,7 @@ from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_
 from app.services.rag.mode_selector import resolve_retrieval_mode
 from app.services.rag.corpus_planner import is_catalogue_query, normalize_latency_profile, plan_corpus
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
+from app.services.rag.retrieval_profiles import normalize_retrieval_profile_name, retrieval_profile_for
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
     clarification_from_policy,
@@ -165,6 +166,84 @@ def _explicit_mode(value: Any) -> str | None:
     if not mode or mode == "auto":
         return None
     return mode
+
+
+def _similarity_threshold() -> float:
+    try:
+        return max(0.0, min(1.0, float(getattr(settings, "rag_similarity_threshold", 0.0) or 0.0)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _is_threshold_exempt_metadata(metadata: Mapping[str, Any]) -> bool:
+    source_type = str(metadata.get("source_type") or metadata.get("type") or "").strip().lower()
+    semantic_type = str(metadata.get("semantic_type") or "").strip().lower()
+    return source_type in {
+        "knowledge_guide",
+        "summary_artifact",
+        "table_analysis",
+        "document_analysis",
+        "collection_inventory",
+        "dense_coarse_guardrail",
+    } or semantic_type in {
+        "knowledge_guide",
+        "summary_artifact",
+        "table_analysis",
+        "document_analysis",
+        "collection_inventory",
+        "dense_coarse_guardrail",
+    }
+
+
+def _apply_similarity_threshold(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    *,
+    pipeline: str | None,
+) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
+    """Apply the configured dense-similarity gate to vector-like scores.
+
+    RRF/HAH scores are rank-fusion weights, not cosine similarities. Applying a
+    cosine threshold to those values would drop good sparse/exact evidence, so
+    the threshold is enforced only on the pure dense/vector path.
+    """
+    threshold = _similarity_threshold()
+    if threshold <= 0 or not chunks:
+        return chunks, scores, metadatas, {
+            "score_threshold": threshold,
+            "score_threshold_applied": False,
+            "score_threshold_filtered": 0,
+            "score_threshold_skipped_reason": "disabled" if threshold <= 0 else "empty",
+        }
+
+    if str(pipeline or "").strip().lower() != "naive":
+        return chunks, scores, metadatas, {
+            "score_threshold": threshold,
+            "score_threshold_applied": False,
+            "score_threshold_filtered": 0,
+            "score_threshold_skipped_reason": "non_vector_score_scale",
+        }
+
+    kept_chunks: list[str] = []
+    kept_scores: list[float] = []
+    kept_metadatas: list[dict[str, Any]] = []
+    removed = 0
+    for index, chunk in enumerate(chunks):
+        score = float(scores[index]) if index < len(scores) else 0.0
+        metadata = dict(metadatas[index] if index < len(metadatas) else {})
+        if score >= threshold or _is_threshold_exempt_metadata(metadata):
+            kept_chunks.append(chunk)
+            kept_scores.append(score)
+            kept_metadatas.append(metadata)
+        else:
+            removed += 1
+    return kept_chunks, kept_scores, kept_metadatas, {
+        "score_threshold": threshold,
+        "score_threshold_applied": True,
+        "score_threshold_filtered": removed,
+        "score_threshold_skipped_reason": None,
+    }
 
 
 def _conversation_history(request: dict[str, Any]) -> list[dict[str, Any]]:
@@ -370,21 +449,35 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
                 collections.append(context_collection)
             scope["collection_slugs"] = collections
             scope["label"] = f"{scope.get('label') or scope.get('key') or 'Knowledge'} + Session docs"
-    scope_default_mode = scope.get("default_mode")
-    if scope_default_mode == "auto":
-        scope_default_mode = None
     agent_preferences = request.get("agent_preferences") or {}
-    rag_mode = (
-        _explicit_mode(request.get("rag_pipeline_mode"))
-        or _explicit_mode(agent_preferences.get("rag_pipeline_mode"))
-        or scope_default_mode
-        or app_settings.get("ragPipelineMode")
-        or app_settings.get("mode")
-    )
     latency_profile = normalize_latency_profile(
         request.get("latency_profile") or agent_preferences.get("latency_profile"),
         deep_retrieval=request.get("deep_retrieval") or agent_preferences.get("deep_retrieval"),
     )
+    retrieval_profile = normalize_retrieval_profile_name(
+        request.get("retrieval_profile") or agent_preferences.get("retrieval_profile"),
+        latency_profile=latency_profile,
+    )
+    profile_contract = retrieval_profile_for(retrieval_profile)
+    if retrieval_profile == "oracle_fast":
+        latency_profile = profile_contract.latency_profile
+    elif retrieval_profile == "deep_async":
+        latency_profile = profile_contract.latency_profile
+    scope_default_mode = scope.get("default_mode")
+    if scope_default_mode == "auto":
+        scope_default_mode = None
+    explicit_rag_mode = (
+        _explicit_mode(request.get("rag_pipeline_mode"))
+        or _explicit_mode(agent_preferences.get("rag_pipeline_mode"))
+    )
+    rag_mode = (
+        explicit_rag_mode
+        or scope_default_mode
+        or app_settings.get("ragPipelineMode")
+        or app_settings.get("mode")
+    )
+    if retrieval_profile == "oracle_fast":
+        rag_mode = explicit_rag_mode or profile_contract.force_mode or "naive"
     explicit_top_k = request.get("top_k") is not None
     top_k = _int_or_default(
         request.get("top_k") or scope.get("top_k") or app_settings.get("ragTopK"),
@@ -434,11 +527,19 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         synthesis_k = min(max(synthesis_k, source_display_k), 48)
         candidate_pool_k = min(max(candidate_pool_k, synthesis_k), 200)
     deadline_seconds = _deadline_seconds_for_profile(latency_profile)
+    if retrieval_profile == "oracle_fast":
+        top_k = min(top_k, profile_contract.max_top_k)
+        source_display_k = min(source_display_k, profile_contract.max_source_display_k)
+        synthesis_k = min(max(synthesis_k, source_display_k), profile_contract.max_synthesis_k)
+        candidate_pool_k = min(max(candidate_pool_k, synthesis_k), profile_contract.max_candidate_pool_k)
+        deadline_seconds = profile_contract.deadline_seconds or deadline_seconds
     collections = scope.get("collection_slugs") or [fallback_collection]
     vector_db_type = resolve_vector_db_type(app_settings)
     return {
         "query": _history_augmented_query(request),
         "rag_mode": rag_mode,
+        "retrieval_profile": retrieval_profile,
+        "retrieval_profile_contract": profile_contract.as_dict(),
         "top_k": top_k,
         "candidate_pool_k": candidate_pool_k,
         "synthesis_k": synthesis_k,
@@ -455,6 +556,8 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         "deadline_seconds": deadline_seconds,
         "latency_budget": {
             "profile": latency_profile,
+            "retrieval_profile": retrieval_profile,
+            "allow_cross_encoder": profile_contract.allow_cross_encoder,
             "deadline_seconds": deadline_seconds,
             "top_k": top_k,
             "candidate_pool_k": candidate_pool_k,
@@ -476,6 +579,7 @@ def apply_retrieval_profile_to_request(request: dict[str, Any]) -> dict[str, Any
         "synthesis_k",
         "source_display_k",
         "latency_profile",
+        "retrieval_profile",
         "latency_budget",
     ):
         request[key] = profile[key]
@@ -815,6 +919,7 @@ def _retrieve_collection_inventory_context(
             "dense_policy": metrics.get("dense_policy"),
             "fallback_reason": metrics.get("fallback_reason"),
             "latency_budget": metrics.get("latency_budget"),
+            "retrieval_profile": profile.get("retrieval_profile"),
             "retrieval_trace": metrics.get("retrieval_trace"),
             "deep_retrieval_recommended": metrics.get("deep_retrieval_recommended"),
             "collections_touched": touched,
@@ -1247,6 +1352,68 @@ def _dedupe_aligned_results(
     return deduped_chunks, deduped_scores, deduped_metadatas, removed
 
 
+def _document_diversity_key(metadata: Mapping[str, Any], index: int) -> str:
+    for key in ("document_id", "source_id", "document_filename", "filename", "source_path", "object_key"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            return value
+    return f"_chunk_{index}"
+
+
+def _diversify_aligned_by_document(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
+    target = min(max(0, int(limit or 0)), len(chunks))
+    if target <= 1:
+        return chunks, scores, metadatas, {
+            "document_diversity_applied": False,
+            "document_diversity_groups": len(chunks),
+            "document_diversity_limit": target,
+        }
+
+    buckets: OrderedDict[str, list[int]] = OrderedDict()
+    for index, metadata in enumerate(metadatas):
+        buckets.setdefault(_document_diversity_key(metadata or {}, index), []).append(index)
+    if len(buckets) <= 1:
+        return chunks, scores, metadatas, {
+            "document_diversity_applied": False,
+            "document_diversity_groups": len(buckets),
+            "document_diversity_limit": target,
+        }
+
+    selected: list[int] = []
+    keys = list(buckets)
+    while len(selected) < target and keys:
+        next_keys: list[str] = []
+        for key in keys:
+            queue = buckets.get(key) or []
+            if not queue:
+                continue
+            selected.append(queue.pop(0))
+            if queue:
+                next_keys.append(key)
+            if len(selected) >= target:
+                break
+        keys = next_keys
+    selected_set = set(selected)
+    reordered_indices = [*selected, *[index for index in range(len(chunks)) if index not in selected_set]]
+    changed = reordered_indices[:target] != list(range(target))
+    return (
+        [chunks[index] for index in reordered_indices],
+        [scores[index] if index < len(scores) else 0.0 for index in reordered_indices],
+        [metadatas[index] if index < len(metadatas) else {} for index in reordered_indices],
+        {
+            "document_diversity_applied": changed,
+            "document_diversity_groups": len(buckets),
+            "document_diversity_limit": target,
+        },
+    )
+
+
 def retrieval_event(
     phase: str,
     *,
@@ -1424,6 +1591,9 @@ async def retrieve_rag_context(
         "collection": profile["collection"],
         "collections": collections,
         "vector_db": profile["vector_db"],
+        "profile": profile.get("retrieval_profile"),
+        "retrieval_profile": profile.get("retrieval_profile"),
+        "retrieval_profile_contract": profile.get("retrieval_profile_contract"),
         "top_k": profile["top_k"],
         "candidate_pool_k": profile["candidate_pool_k"],
         "synthesis_k": profile["synthesis_k"],
@@ -1440,6 +1610,7 @@ async def retrieve_rag_context(
         "latency_profile": profile.get("latency_profile"),
         "latency_budget": {
             "profile": profile.get("latency_profile"),
+            "retrieval_profile": profile.get("retrieval_profile"),
             "deadline_seconds": profile.get("deadline_seconds")
             or _deadline_seconds_for_profile(str(profile.get("latency_profile") or "fast")),
             "top_k": profile["top_k"],
@@ -1605,6 +1776,7 @@ async def retrieve_rag_context(
                 max_variants=max_variants,
                 max_candidates=max_candidates,
                 allow_legacy_hybrid=allow_legacy_hybrid,
+                retrieval_profile=profile.get("retrieval_profile"),
             ),
             timeout=deadline_seconds,
         )
@@ -1667,6 +1839,14 @@ async def retrieve_rag_context(
     retrieval_diagnostics = {
         key: value for key, value in (getattr(result, "diagnostics", {}) or {}).items() if value is not None
     }
+    sparse_status = str(retrieval_diagnostics.get("sparse_status") or "").strip().lower()
+    dense_only = bool(
+        not use_hybrid
+        or (
+            retrieval_diagnostics.get("sparse_backend")
+            and sparse_status not in {"ok"}
+        )
+    )
     metadatas = []
     for meta in result.metadatas or []:
         annotated = dict(meta or {})
@@ -1692,6 +1872,18 @@ async def retrieve_rag_context(
         metadatas,
         query=retrieval_query,
         policy=retrieval_policy,
+    )
+    chunks, scores, metadatas, threshold_metrics = _apply_similarity_threshold(
+        chunks,
+        scores,
+        metadatas,
+        pipeline=result.pipeline,
+    )
+    chunks, scores, metadatas, diversity_metrics = _diversify_aligned_by_document(
+        chunks,
+        scores,
+        metadatas,
+        limit=synthesis_k,
     )
     if len(chunks) > synthesis_k:
         # The wide candidate pool exists to improve recall before policy rerank /
@@ -1747,11 +1939,14 @@ async def retrieve_rag_context(
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
             "retrieval_constraints": retrieval_constraints,
+            **threshold_metrics,
+            **diversity_metrics,
             "candidate_pool_k": profile["candidate_pool_k"],
             "synthesis_k": profile["synthesis_k"],
             "source_display_k": profile["source_display_k"],
             "pipeline": result.pipeline,
             "mode_label": mode_label,
+            "dense_only": dense_only,
             "no_context": len(chunks) == 0,
             **retrieval_diagnostics,
         }
@@ -1815,6 +2010,7 @@ async def retrieve_rag_context(
             "dense_policy": metrics.get("dense_policy"),
             "fallback_reason": metrics.get("fallback_reason"),
             "latency_budget": metrics.get("latency_budget"),
+            "retrieval_profile": profile.get("retrieval_profile"),
             "retrieval_trace": metrics.get("retrieval_trace"),
             "deep_retrieval_recommended": metrics.get("deep_retrieval_recommended"),
             "collections_touched": [profile["collection"]],
@@ -1962,6 +2158,7 @@ async def _retrieve_multi_collection_context(
                     max_variants=max_variants,
                     max_candidates=max_candidates,
                     allow_legacy_hybrid=allow_legacy_hybrid,
+                    retrieval_profile=profile.get("retrieval_profile"),
                 ),
                 timeout=remaining_seconds,
             )
@@ -2033,6 +2230,18 @@ async def _retrieve_multi_collection_context(
         query=retrieval_query,
         policy=retrieval_policy,
     )
+    chunks, scores, metadatas, threshold_metrics = _apply_similarity_threshold(
+        chunks,
+        scores,
+        metadatas,
+        pipeline="multi",
+    )
+    chunks, scores, metadatas, diversity_metrics = _diversify_aligned_by_document(
+        chunks,
+        scores,
+        metadatas,
+        limit=synthesis_k,
+    )
     if len(chunks) > synthesis_k:
         # The wide fused pool only existed to feed policy rerank / dedupe; trim
         # to the synthesis budget before prompt assembly.
@@ -2068,6 +2277,12 @@ async def _retrieve_multi_collection_context(
         for item in collection_results
         if item.get("diagnostics")
     }
+    sparse_statuses = [
+        str((item.get("diagnostics") or {}).get("sparse_status") or "").strip().lower()
+        for item in collection_results
+        if (item.get("diagnostics") or {}).get("sparse_backend")
+    ]
+    dense_only = bool(not sparse_statuses or all(status != "ok" for status in sparse_statuses))
     dense_elapsed_values = [
         _int_or_none((item.get("diagnostics") or {}).get("dense_elapsed_ms"))
         for item in collection_results
@@ -2094,11 +2309,14 @@ async def _retrieve_multi_collection_context(
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
             "retrieval_constraints": retrieval_constraints,
+            **threshold_metrics,
+            **diversity_metrics,
             "candidate_pool_k": profile["candidate_pool_k"],
             "synthesis_k": profile["synthesis_k"],
             "source_display_k": profile["source_display_k"],
             "pipeline": f"multi_{profile['rag_mode'] or 'auto'}",
             "mode_label": "multi_collection",
+            "dense_only": dense_only,
             "no_context": len(chunks) == 0,
             "collections_touched": touched,
             "collection_errors": collection_errors,
@@ -2172,6 +2390,7 @@ async def _retrieve_multi_collection_context(
             "dense_policy": metrics.get("dense_policy"),
             "fallback_reason": metrics.get("fallback_reason"),
             "latency_budget": metrics.get("latency_budget"),
+            "retrieval_profile": profile.get("retrieval_profile"),
             "retrieval_trace": metrics.get("retrieval_trace"),
             "deep_retrieval_recommended": metrics.get("deep_retrieval_recommended"),
         }

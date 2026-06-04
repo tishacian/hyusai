@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import math
+import re
 import uuid
+from collections import Counter
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -28,6 +32,10 @@ _PAYLOAD_INDEX_FIELDS = (
     "language",
     "status",
 )
+_DENSE_VECTOR_NAME = "dense"
+_SPARSE_VECTOR_NAME = "sparse"
+_SPARSE_HASH_BUCKETS = 2_000_003
+_SPARSE_TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]{2,}")
 
 
 def _sanitize_payload(metadata: Dict[str, Any]) -> Dict[str, Any]:
@@ -51,6 +59,92 @@ def _batch_size() -> int:
     return max(1, size)
 
 
+def _qdrant_sparse_enabled() -> bool:
+    return bool(getattr(settings, "rag_qdrant_sparse_enabled", False))
+
+
+def _sparse_index(token: str) -> int:
+    digest = hashlib.blake2b(token.encode("utf-8", errors="ignore"), digest_size=8).digest()
+    return int.from_bytes(digest, "big") % _SPARSE_HASH_BUCKETS
+
+
+def _sparse_vector_from_text(text: str) -> Any:
+    from qdrant_client.models import SparseVector
+
+    tokens = [token.lower() for token in _SPARSE_TOKEN_RE.findall(text or "")]
+    if not tokens:
+        return SparseVector(indices=[], values=[])
+    counts = Counter(tokens)
+    buckets: dict[int, float] = {}
+    for token, count in counts.items():
+        buckets[_sparse_index(token)] = buckets.get(_sparse_index(token), 0.0) + math.log1p(float(count))
+    norm = math.sqrt(sum(value * value for value in buckets.values())) or 1.0
+    ordered = sorted(buckets)
+    return SparseVector(
+        indices=ordered,
+        values=[float(buckets[index] / norm) for index in ordered],
+    )
+
+
+def _qdrant_search_params(search_params: Optional[Dict[str, Any]]) -> Any:
+    if not search_params:
+        return None
+    from qdrant_client.models import QuantizationSearchParams, SearchParams
+
+    profile = str(search_params.get("retrieval_profile") or "").strip().lower()
+    explicit_ef = search_params.get("hnsw_ef")
+    hnsw_ef: int | None = None
+    try:
+        if explicit_ef is not None:
+            hnsw_ef = max(1, int(explicit_ef))
+    except (TypeError, ValueError):
+        hnsw_ef = None
+    if hnsw_ef is None:
+        profile_to_ef = {
+            "oracle_fast": getattr(settings, "rag_qdrant_oracle_hnsw_ef", 32),
+            "chat": getattr(settings, "rag_qdrant_chat_hnsw_ef", 64),
+            "deep_async": getattr(settings, "rag_qdrant_deep_hnsw_ef", 128),
+        }
+        try:
+            hnsw_ef = int(profile_to_ef.get(profile) or 0) or None
+        except (TypeError, ValueError):
+            hnsw_ef = None
+    quantization = None
+    if profile in {"oracle_fast", "chat"} and bool(getattr(settings, "rag_qdrant_quantized_search_enabled", True)):
+        quantization = QuantizationSearchParams(ignore=False, rescore=True)
+    elif profile == "deep_async":
+        quantization = QuantizationSearchParams(ignore=True)
+    if hnsw_ef is None and quantization is None:
+        return None
+    return SearchParams(hnsw_ef=hnsw_ef, quantization=quantization)
+
+
+def _qdrant_fusion(search_params: Optional[Dict[str, Any]]) -> Any:
+    from qdrant_client.models import Fusion
+
+    requested = str((search_params or {}).get("fusion") or getattr(settings, "rag_qdrant_hybrid_fusion", "rrf"))
+    requested = requested.strip().lower()
+    if requested == "dbsf":
+        return Fusion.DBSF
+    return Fusion.RRF
+
+
+def _dense_vector_from_raw(raw: Any) -> Optional[List[float]]:
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        raw = raw.get(_DENSE_VECTOR_NAME) or next(
+            (value for value in raw.values() if isinstance(value, (list, tuple))),
+            None,
+        )
+    if raw is None:
+        return None
+    try:
+        return [float(value) for value in raw]
+    except (TypeError, ValueError):
+        return None
+
+
 class QdrantVectorDB(VectorDBBase):
     """Qdrant-backed vectors; string chunk ids mapped to UUID point ids + payload."""
 
@@ -66,6 +160,40 @@ class QdrantVectorDB(VectorDBBase):
 
     def _point_id(self, chunk_id: str) -> str:
         return str(uuid.uuid5(_CHUNK_ID_NAMESPACE, f"{self.collection_name}:{chunk_id}"))
+
+    def _vectors_config(self, dimension: int) -> Any:
+        from qdrant_client.models import Distance, VectorParams
+
+        if not _qdrant_sparse_enabled():
+            return VectorParams(size=dimension, distance=Distance.COSINE)
+        return {
+            _DENSE_VECTOR_NAME: VectorParams(size=dimension, distance=Distance.COSINE),
+        }
+
+    def _sparse_vectors_config(self) -> Optional[Any]:
+        if not _qdrant_sparse_enabled():
+            return None
+        try:
+            from qdrant_client.models import SparseIndexParams, SparseVectorParams
+
+            return {
+                _SPARSE_VECTOR_NAME: SparseVectorParams(
+                    index=SparseIndexParams(on_disk=False),
+                )
+            }
+        except Exception as exc:  # pragma: no cover - qdrant-client version guard.
+            logger.warning("Qdrant sparse vector config unavailable", error=str(exc))
+            return None
+
+    def _create_collection(self, dimension: int) -> None:
+        kwargs = {
+            "collection_name": self.collection_name,
+            "vectors_config": self._vectors_config(dimension),
+        }
+        sparse_vectors_config = self._sparse_vectors_config()
+        if sparse_vectors_config is not None:
+            kwargs["sparse_vectors_config"] = sparse_vectors_config
+        self.client.create_collection(**kwargs)
 
     def get_metadatas_for_chunk_ids(self, chunk_ids: List[str]) -> List[Dict[str, Any]]:
         """Sync: retrieve payloads for BM25 warm-up (used by DocumentService hybrid path)."""
@@ -85,28 +213,18 @@ class QdrantVectorDB(VectorDBBase):
             return []
 
     async def create_index(self, dimension: int, index_type: str = "default"):
-        from qdrant_client.models import Distance, VectorParams
-
         self._dimension = dimension
         if self.client.collection_exists(self.collection_name):
             self._ensure_payload_indexes()
             return
-        self.client.create_collection(
-            collection_name=self.collection_name,
-            vectors_config=VectorParams(size=dimension, distance=Distance.COSINE),
-        )
+        self._create_collection(dimension)
         self._ensure_payload_indexes()
         logger.info(f"Created Qdrant collection '{self.collection_name}' dim={dimension}")
 
     def _ensure_collection(self, dimension: int):
-        from qdrant_client.models import Distance, VectorParams
-
         self._dimension = dimension
         if not self.client.collection_exists(self.collection_name):
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(size=dimension, distance=Distance.COSINE),
-            )
+            self._create_collection(dimension)
             self._ensure_payload_indexes()
 
     def _ensure_payload_indexes(self):
@@ -140,6 +258,25 @@ class QdrantVectorDB(VectorDBBase):
             return
         self._ensure_payload_indexes()
 
+    def _collection_supports_named_sparse(self) -> bool:
+        if self.client is None:
+            return False
+        try:
+            info = self.client.get_collection(collection_name=self.collection_name)
+            params = getattr(getattr(info, "config", None), "params", None)
+            vectors = getattr(params, "vectors", None)
+            sparse_vectors = getattr(params, "sparse_vectors", None)
+            dense_ok = isinstance(vectors, dict) and _DENSE_VECTOR_NAME in vectors
+            sparse_ok = isinstance(sparse_vectors, dict) and _SPARSE_VECTOR_NAME in sparse_vectors
+            return bool(dense_ok and sparse_ok)
+        except Exception as exc:  # noqa: BLE001 - old clients may not expose config.
+            logger.debug(
+                "Qdrant collection config inspection failed",
+                collection=self.collection_name,
+                error=str(exc),
+            )
+            return False
+
     async def add_vectors(
         self, vectors: np.ndarray, metadatas: List[Dict], ids: List[str]
     ):
@@ -160,8 +297,14 @@ class QdrantVectorDB(VectorDBBase):
                 pid = self._point_id(chunk_id)
                 payload = _sanitize_payload(dict(metadatas[i]))
                 payload["chunk_id"] = chunk_id
+                vector: Any = normalized[i].tolist()
+                if _qdrant_sparse_enabled():
+                    vector = {
+                        _DENSE_VECTOR_NAME: normalized[i].tolist(),
+                        _SPARSE_VECTOR_NAME: _sparse_vector_from_text(str(payload.get("content") or "")),
+                    }
                 points.append(
-                    PointStruct(id=pid, vector=normalized[i].tolist(), payload=payload)
+                    PointStruct(id=pid, vector=vector, payload=payload)
                 )
             batch_size = _batch_size()
             for start in range(0, len(points), batch_size):
@@ -174,6 +317,132 @@ class QdrantVectorDB(VectorDBBase):
 
         await loop.run_in_executor(None, _add)
         logger.debug(f"Qdrant upserted {len(ids)} points into '{self.collection_name}'")
+
+    async def reindex_sparse_vectors(self, batch_size: Optional[int] = None) -> Dict[str, Any]:
+        """Backfill named dense+sparse vectors for an existing Qdrant collection.
+
+        Legacy collections used a single unnamed dense vector. Qdrant sparse search
+        needs a named dense vector plus a named sparse vector per chunk, so this
+        method scrolls all points, rebuilds the collection schema when required,
+        and re-upserts payloads with deterministic chunk ids.
+        """
+        if self.client is None:
+            return {"status": "skipped", "configured": False, "reason": "qdrant_client_missing"}
+        if not _qdrant_sparse_enabled():
+            return {"status": "skipped", "configured": False, "reason": "qdrant_sparse_disabled"}
+        if not self.client.collection_exists(self.collection_name):
+            return {
+                "status": "skipped",
+                "configured": True,
+                "reason": "collection_missing",
+                "collection": self.collection_name,
+            }
+
+        loop = asyncio.get_event_loop()
+
+        def _reindex() -> Dict[str, Any]:
+            records: List[Dict[str, Any]] = []
+            next_offset = None
+            while True:
+                batch, next_offset = self.client.scroll(
+                    collection_name=self.collection_name,
+                    limit=512,
+                    offset=next_offset,
+                    with_payload=True,
+                    with_vectors=True,
+                )
+                if not batch:
+                    break
+                for record in batch:
+                    payload = _sanitize_payload(dict(getattr(record, "payload", None) or {}))
+                    dense = _dense_vector_from_raw(getattr(record, "vector", None))
+                    if dense is None:
+                        continue
+                    chunk_id = str(payload.get("chunk_id") or getattr(record, "id", ""))
+                    if not chunk_id:
+                        continue
+                    payload["chunk_id"] = chunk_id
+                    records.append(
+                        {
+                            "point_id": self._point_id(chunk_id),
+                            "chunk_id": chunk_id,
+                            "payload": payload,
+                            "dense": dense,
+                        }
+                    )
+                if next_offset is None:
+                    break
+
+            if not records:
+                return {
+                    "status": "ready",
+                    "configured": True,
+                    "collection": self.collection_name,
+                    "points_reindexed": 0,
+                    "recreated_collection": False,
+                    "reason": "no_vectors_found",
+                }
+
+            dimension = len(records[0]["dense"])
+            recreate_collection = not self._collection_supports_named_sparse()
+            if recreate_collection:
+                self.client.delete_collection(collection_name=self.collection_name)
+                self._create_collection(dimension)
+                self._payload_indexes_ensured = False
+                self._ensure_payload_indexes()
+
+            from qdrant_client.models import PointStruct
+
+            requested_batch_size = batch_size if batch_size is not None else _batch_size()
+            try:
+                effective_batch_size = max(1, int(requested_batch_size))
+            except (TypeError, ValueError):
+                effective_batch_size = _batch_size()
+
+            points = []
+            for record in records:
+                dense_array = np.array(record["dense"], dtype=np.float32)
+                norm = float(np.linalg.norm(dense_array)) or 1.0
+                normalized = (dense_array / norm).astype(np.float32).tolist()
+                payload = dict(record["payload"])
+                points.append(
+                    PointStruct(
+                        id=record["point_id"],
+                        vector={
+                            _DENSE_VECTOR_NAME: normalized,
+                            _SPARSE_VECTOR_NAME: _sparse_vector_from_text(str(payload.get("content") or "")),
+                        },
+                        payload=payload,
+                    )
+                )
+
+            for start in range(0, len(points), effective_batch_size):
+                self.client.upsert(
+                    collection_name=self.collection_name,
+                    wait=True,
+                    points=points[start : start + effective_batch_size],
+                )
+
+            return {
+                "status": "ready",
+                "configured": True,
+                "collection": self.collection_name,
+                "points_reindexed": len(points),
+                "recreated_collection": recreate_collection,
+                "dimension": dimension,
+                "sparse_vector_name": _SPARSE_VECTOR_NAME,
+                "dense_vector_name": _DENSE_VECTOR_NAME,
+            }
+
+        result = await loop.run_in_executor(None, _reindex)
+        logger.info(
+            "Qdrant sparse vectors reindexed",
+            collection=self.collection_name,
+            status=result.get("status"),
+            points=result.get("points_reindexed"),
+            recreated=result.get("recreated_collection"),
+        )
+        return result
 
     def _filters_to_qdrant(self, filters: Optional[Dict]) -> Optional[Any]:
         if not filters:
@@ -192,8 +461,31 @@ class QdrantVectorDB(VectorDBBase):
                 must.append(FieldCondition(key=str(key), match=MatchValue(value=value)))
         return Filter(must=must) if must else None
 
+    @staticmethod
+    def _hits_to_results(points: Any) -> List[dict]:
+        out: List[dict] = []
+        for hit in points:
+            payload = dict(hit.payload) if hit.payload else {}
+            chunk_id = payload.pop("chunk_id", None) or str(hit.id)
+            content = payload.get("content", "")
+            score = float(hit.score) if hit.score is not None else 0.0
+            score = max(0.0, min(1.0, score))
+            out.append(
+                {
+                    "id": chunk_id,
+                    "score": score,
+                    "metadata": payload,
+                    "content": content,
+                }
+            )
+        return out
+
     async def search(
-        self, query_vector: np.ndarray, top_k: int = 10, filters: Optional[dict] = None
+        self,
+        query_vector: np.ndarray,
+        top_k: int = 10,
+        filters: Optional[dict] = None,
+        search_params: Optional[Dict[str, Any]] = None,
     ) -> List[dict]:
         if top_k <= 0 or self.client is None:
             return []
@@ -210,30 +502,153 @@ class QdrantVectorDB(VectorDBBase):
             if qn == 0:
                 return []
             q = (query_vector / qn).astype(np.float32).tolist()
-            res = self.client.query_points(
-                collection_name=self.collection_name,
-                query=q,
-                limit=top_k,
-                query_filter=qf,
-            )
-            out: List[dict] = []
-            for hit in res.points:
-                payload = dict(hit.payload) if hit.payload else {}
-                chunk_id = payload.pop("chunk_id", None) or str(hit.id)
-                content = payload.get("content", "")
-                score = float(hit.score) if hit.score is not None else 0.0
-                score = max(0.0, min(1.0, score))
-                out.append(
-                    {
-                        "id": chunk_id,
-                        "score": score,
-                        "metadata": payload,
-                        "content": content,
-                    }
-                )
-            return out
+            kwargs = {
+                "collection_name": self.collection_name,
+                "query": q,
+                "limit": top_k,
+                "query_filter": qf,
+            }
+            qdrant_params = _qdrant_search_params(search_params)
+            if qdrant_params is not None:
+                kwargs["search_params"] = qdrant_params
+            if _qdrant_sparse_enabled():
+                kwargs["using"] = _DENSE_VECTOR_NAME
+            try:
+                res = self.client.query_points(**kwargs)
+            except Exception:
+                if "using" not in kwargs:
+                    raise
+                # Existing pre-migration collections are still single unnamed
+                # dense vectors. Keep them searchable until the sparse reindex
+                # job rebuilds the collection with named vectors.
+                kwargs.pop("using", None)
+                res = self.client.query_points(**kwargs)
+            return self._hits_to_results(res.points)
 
         return await loop.run_in_executor(None, _search)
+
+    async def search_sparse(
+        self,
+        query: str,
+        top_k: int = 10,
+        filters: Optional[dict] = None,
+    ) -> List[dict]:
+        if top_k <= 0 or self.client is None or not _qdrant_sparse_enabled():
+            return []
+        if not self.client.collection_exists(self.collection_name):
+            return []
+
+        loop = asyncio.get_event_loop()
+        qf = self._filters_to_qdrant(filters)
+        if qf is not None:
+            self._ensure_payload_indexes_once()
+
+        def _search_sparse():
+            sparse_query = _sparse_vector_from_text(query)
+            if not sparse_query.indices:
+                return []
+            try:
+                response = self.client.query_points(
+                    collection_name=self.collection_name,
+                    query=sparse_query,
+                    using=_SPARSE_VECTOR_NAME,
+                    limit=top_k,
+                    query_filter=qf,
+                )
+            except Exception as exc:  # noqa: BLE001 - old/non-sparse collection fallback.
+                logger.warning(
+                    "Qdrant sparse search unavailable",
+                    collection=self.collection_name,
+                    error=str(exc),
+                )
+                return []
+            rows = self._hits_to_results(response.points)
+            for row in rows:
+                row["sparse_backend"] = "qdrant_sparse"
+                row["bm25_score"] = row.get("score", 0.0)
+                row["vector_score"] = 0.0
+                row["combined_score"] = row.get("score", 0.0)
+                metadata = dict(row.get("metadata") or {})
+                metadata["sparse_backend"] = "qdrant_sparse"
+                row["metadata"] = metadata
+            return rows
+
+        return await loop.run_in_executor(None, _search_sparse)
+
+    async def search_hybrid(
+        self,
+        query_vector: np.ndarray,
+        query_text: str,
+        top_k: int = 10,
+        filters: Optional[dict] = None,
+        search_params: Optional[Dict[str, Any]] = None,
+    ) -> Optional[List[dict]]:
+        if top_k <= 0 or self.client is None or not _qdrant_sparse_enabled():
+            return None
+        if not self.client.collection_exists(self.collection_name):
+            return []
+
+        loop = asyncio.get_event_loop()
+        qf = self._filters_to_qdrant(filters)
+        if qf is not None:
+            self._ensure_payload_indexes_once()
+
+        def _search_hybrid():
+            from qdrant_client.models import FusionQuery, Prefetch
+
+            qn = np.linalg.norm(query_vector)
+            if qn == 0:
+                return []
+            dense_query = (query_vector / qn).astype(np.float32).tolist()
+            sparse_query = _sparse_vector_from_text(query_text)
+            if not sparse_query.indices:
+                return None
+            qdrant_params = _qdrant_search_params(search_params)
+            fusion = _qdrant_fusion(search_params)
+            try:
+                response = self.client.query_points(
+                    collection_name=self.collection_name,
+                    prefetch=[
+                        Prefetch(
+                            query=dense_query,
+                            using=_DENSE_VECTOR_NAME,
+                            filter=qf,
+                            params=qdrant_params,
+                            limit=top_k,
+                        ),
+                        Prefetch(
+                            query=sparse_query,
+                            using=_SPARSE_VECTOR_NAME,
+                            filter=qf,
+                            limit=top_k,
+                        ),
+                    ],
+                    query=FusionQuery(fusion=fusion),
+                    query_filter=qf,
+                    limit=top_k,
+                )
+            except Exception as exc:  # noqa: BLE001 - old server / pre-migration fallback.
+                logger.warning(
+                    "Qdrant server-side hybrid search unavailable",
+                    collection=self.collection_name,
+                    error=str(exc),
+                )
+                return None
+            rows = self._hits_to_results(response.points)
+            for row in rows:
+                row["sparse_backend"] = "qdrant_sparse"
+                row["sparse_fusion"] = f"server_{str(fusion.value)}"
+                row["bm25_score"] = 0.0
+                row["vector_score"] = row.get("score", 0.0)
+                row["combined_score"] = row.get("score", 0.0)
+                metadata = dict(row.get("metadata") or {})
+                metadata["sparse_backend"] = "qdrant_sparse"
+                metadata["sparse_status"] = "ok"
+                metadata["sparse_fusion"] = row["sparse_fusion"]
+                row["metadata"] = metadata
+            return rows
+
+        return await loop.run_in_executor(None, _search_hybrid)
 
     async def delete(self, ids: List[str]):
         if not ids or self.client is None:

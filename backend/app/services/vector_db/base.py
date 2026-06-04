@@ -18,7 +18,13 @@ class VectorDBBase(ABC):
         pass
     
     @abstractmethod
-    async def search(self, query_vector: np.ndarray, top_k: int = 10, filters: Optional[Dict] = None) -> List[Dict]:
+    async def search(
+        self,
+        query_vector: np.ndarray,
+        top_k: int = 10,
+        filters: Optional[Dict] = None,
+        search_params: Optional[Dict] = None,
+    ) -> List[Dict]:
         """Search similar vectors"""
         pass
     
@@ -68,3 +74,7 @@ class VectorDBBase(ABC):
         Default returns nothing for stores that cannot expose vectors.
         """
         return []
+
+    async def reindex_sparse_vectors(self, batch_size: Optional[int] = None) -> Dict:
+        """Backfill store-native sparse vectors when the implementation supports it."""
+        return {"status": "skipped", "configured": False, "reason": "unsupported_vector_db"}

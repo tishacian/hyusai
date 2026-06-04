@@ -222,6 +222,67 @@ async def test_hybrid_search_does_not_runtime_bm25_without_explicit_opt_in():
 
 
 @pytest.mark.asyncio
+async def test_oracle_fast_search_skips_contextual_cross_encoder():
+    class FakeEmbedder:
+        async def embed(self, query):
+            return np.array([1.0, 0.0])
+
+    class FakeVectorDb:
+        async def get_count(self):
+            return 1
+
+        async def search(self, query_embedding, top_k: int = 10, filters=None, search_params=None):  # noqa: ARG002
+            return [
+                {
+                    "id": "chunk-1",
+                    "score": 0.9,
+                    "content": "ensemble passage",
+                    "metadata": {"content": "ensemble passage"},
+                }
+            ]
+
+    class FakeEnsemble:
+        def __init__(self):
+            self.calls = 0
+
+        async def retrieve(self, query, top_k):  # noqa: ARG002
+            self.calls += 1
+            return ["ensemble passage"], [0.88]
+
+    class ExplodingContextual:
+        async def retrieve_and_compress(self, query, top_k):  # noqa: ARG002
+            raise AssertionError("oracle_fast must not use the cross-encoder path")
+
+    ensemble = FakeEnsemble()
+    service = object.__new__(DocumentService)
+    service.collection_name = "oracle-kb"
+    service.vector_db_type = "qdrant"
+    service.workspace_slug = None
+    service.vector_db = FakeVectorDb()
+    service.embedder = FakeEmbedder()
+    service.use_hybrid = True
+    service.allow_runtime_bm25 = True
+    service.use_cache = False
+    service.cache = None
+    service.cache_namespace = "test"
+    service._documents_cache = ["ensemble passage"]
+    service.ensemble_retriever = ensemble
+    service.contextual_retriever = ExplodingContextual()
+    service.use_reranker = True
+    service.reranker = object()
+
+    results = await service.search(
+        "oracle quick check",
+        top_k=1,
+        use_hybrid=True,
+        search_params={"retrieval_profile": "oracle_fast"},
+    )
+
+    assert ensemble.calls == 1
+    assert results[0]["content"] == "ensemble passage"
+
+
+@pytest.mark.asyncio
 async def test_list_documents_normalizes_chunk_count_fields():
     """Document listings expose the singular field used by the Knowledge UI."""
 

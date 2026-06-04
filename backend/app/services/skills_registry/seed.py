@@ -22,6 +22,7 @@ RETRIEVAL_POLICY_PROPERTIES: Dict[str, Any] = {
     "source_display_k": {"type": "integer"},
     "rag_pipeline_mode": {"type": "string", "enum": ["auto", "vector", "dense", "hybrid", "hah", "chah"]},
     "latency_profile": {"type": "string", "enum": ["fast", "balanced", "deep"]},
+    "retrieval_profile": {"type": "string", "enum": ["oracle_fast", "chat", "deep_async"]},
     "deep_retrieval": {"type": "boolean"},
     "knowledge_scope": {"type": "string"},
     "collection": {"type": "string"},

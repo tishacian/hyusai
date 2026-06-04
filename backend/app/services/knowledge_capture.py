@@ -8,6 +8,7 @@ import logging
 import tempfile
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -38,6 +39,7 @@ from app.services.capture_knowledge_oracle import (
     presentation_prompt,
     score_gaps_with_rag,
     session_context_from_capture,
+    sparse_exact_match_evidence,
     _model_chat_kwargs,
     _resolve_llm_config,
 )
@@ -57,10 +59,13 @@ _PLAN_DIALOGUE_STEPS = (
 _MIN_PLAN_DIALOGUE_TURNS = 1
 _MIN_PLAN_SUBJECT_CHARS = 12
 RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
+CAPTURE_RETRIEVAL_WARM_CACHE_TTL_SECONDS = 300
+CAPTURE_RETRIEVAL_WARM_CACHE_MAX_ENTRIES = 128
 ORACLE_QUESTION_STATUSES = frozenset({"open", "active", "answered", "dismissed", "deferred", "addressed"})
 PROPOSAL_OPEN_QUESTION_STATUSES = frozenset({"open", "dismissed", "deferred"})
 
 _logger = logging.getLogger(__name__)
+_CAPTURE_RETRIEVAL_WARM_CACHE: OrderedDict[str, tuple[float, Dict[str, Any]]] = OrderedDict()
 POSITIVE_CONFIRMATION_TERMS = (
     "oui",
     "valide",
@@ -570,6 +575,128 @@ def _resolve_capture_context(
         .first()
     )
     return (ctx.id if ctx else None), ctx
+
+
+def _warm_cache_key(session_id: str) -> str:
+    return str(session_id or "").strip()
+
+
+def _set_capture_warm_cache(session_id: str, payload: Dict[str, Any]) -> None:
+    key = _warm_cache_key(session_id)
+    if not key:
+        return
+    _CAPTURE_RETRIEVAL_WARM_CACHE[key] = (time.time(), payload)
+    _CAPTURE_RETRIEVAL_WARM_CACHE.move_to_end(key)
+    while len(_CAPTURE_RETRIEVAL_WARM_CACHE) > CAPTURE_RETRIEVAL_WARM_CACHE_MAX_ENTRIES:
+        _CAPTURE_RETRIEVAL_WARM_CACHE.popitem(last=False)
+
+
+def _get_capture_warm_cache(session_id: str) -> Optional[Dict[str, Any]]:
+    key = _warm_cache_key(session_id)
+    item = _CAPTURE_RETRIEVAL_WARM_CACHE.get(key)
+    if not item:
+        return None
+    created_at, payload = item
+    if time.time() - created_at > CAPTURE_RETRIEVAL_WARM_CACHE_TTL_SECONDS:
+        _CAPTURE_RETRIEVAL_WARM_CACHE.pop(key, None)
+        return None
+    _CAPTURE_RETRIEVAL_WARM_CACHE.move_to_end(key)
+    return dict(payload)
+
+
+def _compact_retrieval_context(retrieval_context: Mapping[str, Any]) -> Dict[str, Any]:
+    chunks = list(retrieval_context.get("chunks") or [])[:4]
+    scores = list(retrieval_context.get("scores") or [])[:4]
+    metadatas = list(retrieval_context.get("metadatas") or [])[:4]
+    metrics = retrieval_context.get("metrics") if isinstance(retrieval_context.get("metrics"), Mapping) else {}
+    return {
+        "chunks": chunks,
+        "scores": scores,
+        "metadatas": metadatas,
+        "pipeline": retrieval_context.get("pipeline"),
+        "retrieval_profile": retrieval_context.get("retrieval_profile") or metrics.get("retrieval_profile"),
+        "dense_only": metrics.get("dense_only"),
+        "sparse_status": metrics.get("sparse_status"),
+        "sparse_backend": metrics.get("sparse_backend"),
+        "fallback_reason": metrics.get("fallback_reason"),
+    }
+
+
+async def warm_capture_context_cache(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    workspace_slug: Optional[str],
+    session_id: str,
+    timeout_seconds: float = RETRIEVAL_PREFETCH_TIMEOUT_SECONDS,
+) -> Dict[str, Any]:
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    ctx = _load_context(db, workspace_id, session.context_id)
+    collection_name = _resolve_collection_name(ctx)
+    query = " ".join(part for part in (session.title, session.objective) if part).strip()
+    if not query:
+        query = "Expert Knowledge Capture context warmup"
+    started = time.perf_counter()
+    status = "completed"
+    detail: Dict[str, Any] = {"collection_name": collection_name, "retrieval_profile": "oracle_fast"}
+    try:
+        from app.services.rag.context import retrieve_rag_context
+
+        retrieval_context = await asyncio.wait_for(
+            retrieve_rag_context(
+                {
+                    "query": query,
+                    "workspace_id": workspace_id,
+                    "workspace_slug": workspace_slug,
+                    "capability_id": session.capability_id,
+                    "system_id": session.system_id,
+                    "context_collection": collection_name,
+                    "retrieval_profile": "oracle_fast",
+                    "latency_profile": "fast",
+                    "rag_pipeline_mode": "auto",
+                    "top_k": 4,
+                    "source_display_k": 4,
+                    "candidate_pool_k": 20,
+                }
+            ),
+            timeout=timeout_seconds,
+        )
+        compact = _compact_retrieval_context(retrieval_context)
+        _set_capture_warm_cache(session.id, compact)
+        detail.update(
+            {
+                "chunks": len(compact.get("chunks") or []),
+                "pipeline": compact.get("pipeline"),
+                "dense_only": compact.get("dense_only"),
+                "sparse_status": compact.get("sparse_status"),
+                "sparse_backend": compact.get("sparse_backend"),
+                "fallback_reason": compact.get("fallback_reason"),
+            }
+        )
+    except TimeoutError:
+        status = "timeout"
+        detail["reason"] = f"warm cache retrieval exceeded {timeout_seconds:.1f}s"
+    except Exception as exc:  # noqa: BLE001
+        status = "error"
+        detail["reason"] = str(exc)
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    metrics = dict(session.metrics or {})
+    metrics["retrieval_warm_cache"] = {
+        "status": status,
+        "latency_ms": latency_ms,
+        **detail,
+    }
+    session.metrics = metrics
+    _record_capture_event(
+        db,
+        session=session,
+        event_type="retrieval_warm_cache_completed" if status == "completed" else "retrieval_warm_cache_failed",
+        source="capture_engine",
+        status=status,
+        meta_data=metrics["retrieval_warm_cache"],
+    )
+    db.commit()
+    return metrics["retrieval_warm_cache"]
 
 
 def _content_tokens(text: str) -> set[str]:
@@ -1216,6 +1343,7 @@ async def _retrieve_context_chunks_async(
                 "capability_id": session.capability_id,
                 "system_id": session.system_id,
                 "context_collection": collection_name,
+                "retrieval_profile": "oracle_fast",
                 "latency_profile": "fast",
                 "rag_pipeline_mode": "auto",
                 "top_k": max(1, min(top_k, 8)),
@@ -1955,6 +2083,8 @@ def process_capture_partial_hints(
                 "subtopic_id": subtopic_id,
                 "oracle_id": normalized.get("oracle_id"),
                 "kb_excerpt": hint.get("kb_excerpt"),
+                "oracle_exact_matches": hint.get("oracle_exact_matches") or [],
+                "exact_match_backend": hint.get("exact_match_backend"),
                 "client_turn_id": client_turn_id,
             },
         )
@@ -1970,7 +2100,14 @@ def process_capture_partial_hints(
     )
     db.commit()
     db.refresh(session)
-    return {"hints": pushed, "active_subtopic_id": active_subtopic_id, "session": session}
+    return {
+        "hints": pushed,
+        "active_subtopic_id": active_subtopic_id,
+        "session": session,
+        "contradiction_candidates": evaluation.get("contradiction_candidates") or [],
+        "oracle_exact_matches": evaluation.get("oracle_exact_matches") or [],
+        "retrieval": evaluation.get("retrieval") or [],
+    }
 
 
 def _hint_overlap_score(hint_text: str, expert_text: str) -> float:
@@ -4907,6 +5044,9 @@ async def prefetch_capture_retrieval(
     detail: Dict[str, Any] = {}
     event_type = "retrieval_prefetch_completed"
     collection_name = "documents"
+    warm_cache = _get_capture_warm_cache(session.id)
+    warm_cache_hit = False
+    oracle_exact_matches: List[Dict[str, Any]] = []
 
     try:
         ctx = _load_context(db, workspace_id, session.context_id)
@@ -4922,6 +5062,7 @@ async def prefetch_capture_retrieval(
                     "capability_id": session.capability_id,
                     "system_id": session.system_id,
                     "context_collection": collection_name,
+                    "retrieval_profile": "oracle_fast",
                     "latency_profile": "fast",
                     "rag_pipeline_mode": "auto",
                     "top_k": max(1, min(top_k, 8)),
@@ -4942,8 +5083,11 @@ async def prefetch_capture_retrieval(
             "detail": retrieval_context.get("detail"),
             "vector_db_type": metrics.get("vector_db_type"),
             "dense_policy": metrics.get("dense_policy"),
+            "retrieval_profile": metrics.get("retrieval_profile") or retrieval_context.get("retrieval_profile"),
+            "profile": metrics.get("profile"),
             "scope_confidence": metrics.get("scope_confidence"),
             "fallback_reason": metrics.get("fallback_reason"),
+            "warm_cache_hit": False,
         }
     except TimeoutError:
         status = "timeout"
@@ -4953,6 +5097,27 @@ async def prefetch_capture_retrieval(
         status = "error"
         event_type = "retrieval_prefetch_timeout"
         detail = {"reason": str(exc)}
+    if status in {"timeout", "error"} and warm_cache:
+        chunks = list(warm_cache.get("chunks") or [])
+        scores = list(warm_cache.get("scores") or [])
+        metadatas = list(warm_cache.get("metadatas") or [])
+        status = "completed_from_warm_cache"
+        event_type = "retrieval_prefetch_completed"
+        warm_cache_hit = True
+        detail = {
+            **detail,
+            "warm_cache_hit": True,
+            "warm_cache_reason": detail.get("reason"),
+            "pipeline": warm_cache.get("pipeline"),
+            "retrieval_profile": warm_cache.get("retrieval_profile") or "oracle_fast",
+            "dense_only": warm_cache.get("dense_only"),
+            "sparse_status": warm_cache.get("sparse_status"),
+            "sparse_backend": warm_cache.get("sparse_backend"),
+            "fallback_reason": warm_cache.get("fallback_reason"),
+        }
+
+    if chunks:
+        oracle_exact_matches = sparse_exact_match_evidence(text, chunks, metadatas)
 
     latency_ms = int((time.perf_counter() - started) * 1000)
     final_event = _record_capture_event(
@@ -4975,6 +5140,9 @@ async def prefetch_capture_retrieval(
             "scores": scores,
             "metadatas": metadatas,
             "stale": False,
+            "warm_cache_hit": warm_cache_hit,
+            "oracle_exact_matches": oracle_exact_matches,
+            "oracle_exact_match_count": len(oracle_exact_matches),
             **question_meta,
             **detail,
         },
@@ -4993,6 +5161,8 @@ async def prefetch_capture_retrieval(
             retrieval_metadatas=metadatas,
             client_turn_id=client_turn_id,
         )
+        if not oracle_exact_matches:
+            oracle_exact_matches = list(hint_payload.get("oracle_exact_matches") or [])
 
     return {
         "event_id": final_event.id,
@@ -5002,9 +5172,13 @@ async def prefetch_capture_retrieval(
         "scores": scores,
         "metadatas": metadatas,
         "stale": False,
+        "warm_cache_hit": warm_cache_hit,
+        "oracle_exact_matches": oracle_exact_matches,
+        "oracle_exact_match_count": len(oracle_exact_matches),
         "collection_name": collection_name,
         "hints": hint_payload.get("hints") or [],
         "active_subtopic_id": hint_payload.get("active_subtopic_id"),
+        "contradiction_candidates": hint_payload.get("contradiction_candidates") or [],
         **question_meta,
     }
 

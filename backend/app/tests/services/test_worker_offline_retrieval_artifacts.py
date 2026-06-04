@@ -97,6 +97,79 @@ def test_sparse_offline_job_remains_manual_not_configured(db_session, monkeypatc
     assert result["sparse_index"]["reason"] == "sparse_backend_not_opensearch"
 
 
+def test_qdrant_sparse_reindex_skips_when_disabled(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", False)
+    workspace = Workspace(id="ws-qdrant-sparse-disabled", name="Qdrant Sparse Disabled", slug="qdrant-sparse-disabled")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Dense Manuals")
+    job = create_worker_job(
+        db_session,
+        workspace_id=workspace.id,
+        collection_id=collection.id,
+        kind="qdrant_sparse_reindex",
+    )
+    db_session.commit()
+
+    result = run_offline_retrieval_artifact_job(job.id)
+
+    db_session.expire_all()
+    refreshed = db_session.query(WorkerJob).filter(WorkerJob.id == job.id).one()
+    assert refreshed.status == "completed"
+    assert result["status"] == "skipped"
+    assert result["configured"] is False
+    assert result["reason"] == "qdrant_sparse_disabled"
+
+
+def test_qdrant_sparse_reindex_runs_vector_backfill(db_session, monkeypatch):
+    class FakeVectorDb:
+        calls = []
+
+        async def reindex_sparse_vectors(self):
+            self.calls.append("reindex_sparse_vectors")
+            return {
+                "status": "ready",
+                "configured": True,
+                "collection": "qdrant-sparse__dense-manuals",
+                "points_reindexed": 7,
+                "recreated_collection": True,
+            }
+
+    fake_db = FakeVectorDb()
+    seen = {}
+
+    def fake_get_db(collection_name, db_type, workspace_slug):
+        seen.update({"collection_name": collection_name, "db_type": db_type, "workspace_slug": workspace_slug})
+        return fake_db
+
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    monkeypatch.setattr("app.services.vector_db.factory.VectorDBFactory.get_db", fake_get_db)
+    workspace = Workspace(id="ws-qdrant-sparse", name="Qdrant Sparse", slug="qdrant-sparse")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Dense Manuals")
+    job = create_worker_job(
+        db_session,
+        workspace_id=workspace.id,
+        collection_id=collection.id,
+        kind="qdrant_sparse_reindex",
+    )
+    db_session.commit()
+
+    result = run_offline_retrieval_artifact_job(job.id)
+
+    db_session.expire_all()
+    refreshed = db_session.query(WorkerJob).filter(WorkerJob.id == job.id).one()
+    assert refreshed.status == "completed"
+    assert refreshed.progress == 100
+    assert result["status"] == "ready"
+    assert result["configured"] is True
+    assert result["stage"] == "qdrant_sparse_ready"
+    assert result["qdrant_sparse_reindex"]["points_reindexed"] == 7
+    assert fake_db.calls == ["reindex_sparse_vectors"]
+    assert seen == {"collection_name": collection.slug, "db_type": "qdrant", "workspace_slug": workspace.slug}
+
+
 def test_sparse_offline_job_indexes_summary_artifact_to_opensearch(db_session, tmp_path, monkeypatch):
     class FakeResponse:
         def __init__(self, payload=None, status_code=200):

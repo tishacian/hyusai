@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import re
 import time
 from dataclasses import dataclass, field
@@ -73,15 +74,23 @@ async def _doc_search_compat(
     top_k: int,
     filters: dict[str, Any] | None,
     use_hybrid: bool,
+    search_params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    if filters is None:
-        return await doc_svc.search(query, top_k=top_k, use_hybrid=use_hybrid)
+    kwargs: dict[str, Any] = {"top_k": top_k, "use_hybrid": use_hybrid}
+    if filters is not None:
+        kwargs["filters"] = filters
+    if search_params:
+        kwargs["search_params"] = search_params
     try:
-        return await doc_svc.search(query, top_k=top_k, filters=filters, use_hybrid=use_hybrid)
+        return await doc_svc.search(query, **kwargs)
     except TypeError as exc:
-        if "filter" not in str(exc):
+        if "search_params" in str(exc) and "search_params" in kwargs:
+            kwargs.pop("search_params", None)
+            return await doc_svc.search(query, **kwargs)
+        if "filter" not in str(exc) or "filters" not in kwargs:
             raise
-        return await doc_svc.search(query, top_k=top_k, use_hybrid=use_hybrid)
+        kwargs.pop("filters", None)
+        return await doc_svc.search(query, **kwargs)
 
 
 async def _timed_doc_search(
@@ -91,9 +100,17 @@ async def _timed_doc_search(
     top_k: int,
     filters: dict[str, Any] | None,
     use_hybrid: bool,
+    search_params: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     started = time.perf_counter()
-    rows = await _doc_search_compat(doc_svc, query, top_k=top_k, filters=filters, use_hybrid=use_hybrid)
+    rows = await _doc_search_compat(
+        doc_svc,
+        query,
+        top_k=top_k,
+        filters=filters,
+        use_hybrid=use_hybrid,
+        search_params=search_params,
+    )
     return list(rows or []), int((time.perf_counter() - started) * 1000)
 
 
@@ -115,6 +132,38 @@ async def _timed_sparse_search(
         deadline_seconds=deadline_seconds,
     )
     return list(rows or []), int((time.perf_counter() - started) * 1000)
+
+
+async def _timed_qdrant_server_hybrid_search(
+    doc_svc: "DocumentService",
+    query: str,
+    *,
+    top_k: int,
+    filters: dict[str, Any] | None,
+    search_params: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]] | None, int]:
+    started = time.perf_counter()
+    vector_db = getattr(doc_svc, "vector_db", None)
+    search_hybrid = getattr(vector_db, "search_hybrid", None)
+    embedder = getattr(doc_svc, "embedder", None)
+    embed = getattr(embedder, "embed", None)
+    if not callable(search_hybrid) or not callable(embed):
+        return None, int((time.perf_counter() - started) * 1000)
+    try:
+        embedding = embed(query)
+        if inspect.isawaitable(embedding):
+            embedding = await embedding
+        rows = await search_hybrid(
+            embedding,
+            query,
+            top_k=top_k,
+            filters=filters,
+            search_params=search_params,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Qdrant server-side hybrid search failed before fallback", error=str(exc))
+        return None, int((time.perf_counter() - started) * 1000)
+    return rows, int((time.perf_counter() - started) * 1000)
 
 
 def _deadline_at(deadline_seconds: float | None) -> float | None:
@@ -396,6 +445,7 @@ async def _search_documents(
     use_hybrid: bool = True,
     allow_legacy_hybrid: bool = True,
     deadline_seconds: float | None = None,
+    search_params: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Run one bounded retrieval layer.
 
@@ -426,15 +476,48 @@ async def _search_documents(
             if sparse_backend_name == "disabled"
             else ("sparse_unavailable" if not sparse_configured else None)
         )
+        if sparse_backend_name == "qdrant_sparse" and sparse_configured:
+            server_rows, server_elapsed_ms = await _timed_qdrant_server_hybrid_search(
+                doc_svc,
+                query,
+                top_k=top_k,
+                filters=filters,
+                search_params=search_params,
+            )
+            if server_rows is not None:
+                retrieval_elapsed_ms = int((time.perf_counter() - retrieval_started) * 1000)
+                server_status = "ok" if server_rows else "empty"
+                server_fallback = None if server_rows else "qdrant_sparse_hybrid_empty"
+                return _with_sparse_metadata(
+                    list(server_rows or [])[:top_k],
+                    backend=sparse_backend_name,
+                    status=server_status,
+                    fallback_reason=server_fallback,
+                    sparse_results=len(server_rows or []),
+                    dense_elapsed_ms=server_elapsed_ms,
+                    sparse_elapsed_ms=server_elapsed_ms,
+                    retrieval_elapsed_ms=retrieval_elapsed_ms,
+                    deadline_seconds=deadline_seconds,
+                )
         dense_task = asyncio.create_task(
-            _timed_doc_search(doc_svc, query, top_k=top_k, filters=filters, use_hybrid=False)
+            _timed_doc_search(
+                doc_svc,
+                query,
+                top_k=top_k,
+                filters=filters,
+                use_hybrid=False,
+                search_params=search_params,
+            )
         )
+        sparse_collection = getattr(doc_svc, "collection_name", "documents")
+        if sparse_backend_name == "qdrant_sparse":
+            sparse_collection = getattr(getattr(doc_svc, "vector_db", None), "collection_name", sparse_collection)
         sparse_task = (
             asyncio.create_task(
                 _timed_sparse_search(
                     sparse_backend,
                     query,
-                    collection=getattr(doc_svc, "collection_name", "documents"),
+                    collection=sparse_collection,
                     filters=filters,
                     top_k=top_k,
                     deadline_seconds=deadline_seconds,
@@ -518,7 +601,14 @@ async def _search_documents(
             deadline_seconds=deadline_seconds,
         )
 
-    search_coro = _doc_search_compat(doc_svc, query, top_k=top_k, filters=filters, use_hybrid=use_hybrid)
+    search_coro = _doc_search_compat(
+        doc_svc,
+        query,
+        top_k=top_k,
+        filters=filters,
+        use_hybrid=use_hybrid,
+        search_params=search_params,
+    )
     if deadline_seconds is not None:
         try:
             return await asyncio.wait_for(search_coro, timeout=max(0.001, float(deadline_seconds)))
@@ -536,6 +626,7 @@ async def retrieve_hah_like(
     use_hybrid: bool = True,
     allow_legacy_hybrid: bool = True,
     deadline_seconds: float | None = None,
+    search_params: dict[str, Any] | None = None,
 ) -> RetrievalPipelineResult:
     """Two-pass retrieval: query → contexts → pseudo-document → second search → RRF merge.
 
@@ -564,6 +655,7 @@ async def retrieve_hah_like(
         use_hybrid=use_hybrid,
         allow_legacy_hybrid=allow_legacy_hybrid,
         deadline_seconds=_remaining_deadline(deadline_at, deadline_seconds),
+        search_params=search_params,
     )
     pass1 = rerank_results_with_policy(pass1, q, retrieval_policy)
     if not pass1:
@@ -594,6 +686,7 @@ async def retrieve_hah_like(
             use_hybrid=use_hybrid,
             allow_legacy_hybrid=allow_legacy_hybrid,
             deadline_seconds=remaining_seconds,
+            search_params=search_params,
         )
     pass2 = rerank_results_with_policy(pass2, q, retrieval_policy)
 
@@ -1222,6 +1315,7 @@ async def retrieve_chah_like(
     deadline_seconds: float | None = None,
     max_variants: int = 3,
     max_candidates: int = 80,
+    search_params: dict[str, Any] | None = None,
 ) -> RetrievalPipelineResult:
     """Parallel retrieval over query variants + RRF merge (C-HAH-like).
 
@@ -1271,6 +1365,7 @@ async def retrieve_chah_like(
                 use_hybrid=use_hybrid,
                 allow_legacy_hybrid=allow_legacy_hybrid,
                 deadline_seconds=remaining_seconds,
+                search_params=search_params,
             )
         )
         for v in variants
@@ -1348,6 +1443,7 @@ async def retrieve_for_mode(
     max_variants: int = 3,
     max_candidates: int = 80,
     allow_legacy_hybrid: bool = True,
+    retrieval_profile: str | None = None,
 ) -> RetrievalPipelineResult:
     """
     Single entry for RAG retrieval by pipeline mode.
@@ -1378,6 +1474,7 @@ async def retrieve_for_mode(
             use_hybrid=use_hybrid,
             allow_legacy_hybrid=allow_legacy_hybrid,
             deadline_seconds=deadline_seconds,
+            search_params={"retrieval_profile": retrieval_profile} if retrieval_profile else None,
         )
     if hah_chah_enabled and m in ("chah", "c-hah", "c_hah", "hahcomposite", "hah_composite"):
         return await retrieve_chah_like(
@@ -1392,6 +1489,7 @@ async def retrieve_for_mode(
             deadline_seconds=deadline_seconds,
             max_variants=max_variants,
             max_candidates=max_candidates,
+            search_params={"retrieval_profile": retrieval_profile} if retrieval_profile else None,
         )
 
     deadline_at = _deadline_at(deadline_seconds)
@@ -1420,6 +1518,7 @@ async def retrieve_for_mode(
         use_hybrid=use_hybrid,
         allow_legacy_hybrid=allow_legacy_hybrid,
         deadline_seconds=_remaining_deadline(deadline_at, deadline_seconds),
+        search_params={"retrieval_profile": retrieval_profile} if retrieval_profile else None,
     )
     results = rerank_results_with_policy(results, query, retrieval_policy)
     results = _prioritise_spreadsheet_label_matches(results, query)

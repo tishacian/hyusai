@@ -158,6 +158,12 @@ def normalize_latency_profile(value: Any, *, deep_retrieval: Any = None) -> Late
     if bool(deep_retrieval):
         return "deep"
     parsed = str(value or "").strip().lower()
+    if parsed in {"oracle_fast", "oracle-fast", "oracle"}:
+        return "fast"
+    if parsed in {"chat"}:
+        return "balanced"
+    if parsed in {"deep_async", "deep-async"}:
+        return "deep"
     if parsed in {"deep", "balanced", "fast"}:
         return parsed
     return "fast"

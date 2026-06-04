@@ -24,6 +24,7 @@ from app.services.tracing.rag_tracer import get_tracer, TraceStepType
 from app.services.rag.cache import get_cache
 from app.services.document_meta import extract_document_metadata
 from app.services.knowledge_collections import source_kind_for
+from app.services.rag.retrieval_profiles import retrieval_profile_for
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
@@ -568,10 +569,21 @@ class DocumentService:
             "results": processed_results,
         }
     
-    async def search(self, query: str, top_k: int = 10, filters: Optional[Dict] = None, use_hybrid: Optional[bool] = None, use_cache: Optional[bool] = None) -> List[Dict]:
+    async def search(
+        self,
+        query: str,
+        top_k: int = 10,
+        filters: Optional[Dict] = None,
+        use_hybrid: Optional[bool] = None,
+        use_cache: Optional[bool] = None,
+        search_params: Optional[Dict] = None,
+    ) -> List[Dict]:
         """Search documents by query"""
         use_hybrid = use_hybrid if use_hybrid is not None else self.use_hybrid
         use_cache = use_cache if use_cache is not None else self.use_cache
+        retrieval_profile_name = str((search_params or {}).get("retrieval_profile") or "chat")
+        profile_contract = retrieval_profile_for(retrieval_profile_name)
+        allow_cross_encoder = bool(profile_contract.allow_cross_encoder)
         if use_hybrid:
             count: int | None = None
             disable_reason: str | None = None
@@ -624,6 +636,14 @@ class DocumentService:
             import numpy as np
             embedding_dim = len(query_embedding) if isinstance(query_embedding, np.ndarray) else query_embedding.shape[0] if hasattr(query_embedding, 'shape') else 0
             query_embedding_step.complete({"embedding_dimension": embedding_dim})
+
+            async def _vector_search(embedding: np.ndarray, k: int) -> List[Dict]:
+                try:
+                    return await self.vector_db.search(embedding, k, filters, search_params=search_params)
+                except TypeError as exc:
+                    if "search_params" not in str(exc):
+                        raise
+                    return await self.vector_db.search(embedding, k, filters)
             
             # Step 2: Perform search using advanced ensemble retrieval
             search_step = tracer.add_step(trace.id, TraceStepType.VECTOR_SEARCH, {"top_k": top_k, "hybrid": use_hybrid})
@@ -670,7 +690,7 @@ class DocumentService:
                                         # query_embedding is already a numpy array
                                         if len(query_embedding.shape) == 2:
                                             query_embedding = query_embedding[0]  # Take first row if 2D
-                                        return await self.vector_db.search(query_embedding, k, filters)
+                                        return await _vector_search(query_embedding, k)
                                     
                                     ensemble_config = EnsembleConfig(
                                         k=20,
@@ -689,7 +709,7 @@ class DocumentService:
                                     )
                                     
                                     # Initialize contextual compression retriever if reranker is available
-                                    if self.use_reranker and self.reranker:
+                                    if allow_cross_encoder and self.use_reranker and self.reranker:
                                         contextual_config = ContextualConfig(
                                             k=10,
                                             compression_ratio=0.7,
@@ -709,7 +729,7 @@ class DocumentService:
                 # Use advanced retrieval if available
                 if self.ensemble_retriever:
                     # First, get dense vector results with full metadata
-                    dense_results = await self.vector_db.search(query_embedding, top_k * 2, filters)
+                    dense_results = await _vector_search(query_embedding, top_k * 2)
                     
                     # Create a mapping from content to vector DB results for metadata preservation
                     content_to_vector_result = {}
@@ -719,7 +739,7 @@ class DocumentService:
                             content_to_vector_result[content] = r
                     
                     # Use ensemble retriever to get fused results
-                    if self.contextual_retriever:
+                    if allow_cross_encoder and self.contextual_retriever:
                         # Use contextual compression retriever (ensemble + reranking)
                         passages, scores = await self.contextual_retriever.retrieve_and_compress(query, top_k)
                     else:
@@ -806,10 +826,10 @@ class DocumentService:
                 else:
                     # Fallback to vector search if advanced retrieval not available
                     logger.warning(f"Advanced retrieval not available for collection '{self.collection_name}' ({self.vector_db_type}), falling back to vector-only search")
-                    results = await self.vector_db.search(query_embedding, top_k, filters)
+                    results = await _vector_search(query_embedding, top_k)
             else:
                 # Vector search only
-                results = await self.vector_db.search(query_embedding, top_k, filters)
+                results = await _vector_search(query_embedding, top_k)
             
             # Format results to include content from metadata (if not already formatted)
             formatted_results = []

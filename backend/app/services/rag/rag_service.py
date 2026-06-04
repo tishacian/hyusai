@@ -43,6 +43,7 @@ async def answer(
     synthesis_k: Optional[int] = None,
     source_display_k: Optional[int] = None,
     latency_profile: Optional[str] = None,
+    retrieval_profile: Optional[str] = None,
     deep_retrieval: Optional[bool] = None,
     retrieval_filters: Optional[Dict[str, Any]] = None,
     knowledge_scope: Optional[str] = None,
@@ -114,6 +115,8 @@ async def answer(
         request_dict["source_display_k"] = source_display_k
     if latency_profile:
         request_dict["latency_profile"] = latency_profile
+    if retrieval_profile:
+        request_dict["retrieval_profile"] = retrieval_profile
     if deep_retrieval is not None:
         request_dict["deep_retrieval"] = bool(deep_retrieval)
     if retrieval_filters:
@@ -209,8 +212,14 @@ async def answer(
             "scope_confidence",
             "scope_reason",
             "dense_policy",
+            "dense_only",
+            "sparse_status",
+            "sparse_backend",
+            "sparse_fallback_reason",
+            "retrieval_profile",
             "fallback_reason",
             "latency_budget",
+            "score_threshold_applied",
             "deep_retrieval_recommended",
             "deep_job_id",
             "deep_poll_url",

@@ -1,11 +1,10 @@
 """Sparse retrieval adapters for layered HAH/CHAH.
 
-OpenSearch is the production target. Qdrant sparse remains an experimental
-backend because it requires offline sparse-vector indexing.
+Qdrant sparse is the primary scoped chunk-level backend when enabled. OpenSearch
+remains available for coarse/manual summary artifacts or explicit fallback.
 """
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
@@ -160,15 +159,44 @@ class QdrantSparseBackend:
     ) -> list[dict[str, Any]]:
         if not settings.rag_qdrant_sparse_enabled:
             return []
-        # Placeholder for the offline sparse-vector collection. Keeping this
-        # behind the adapter lets production use OpenSearch while pilots can
-        # benchmark Qdrant sparse without touching the RAG pipeline contract.
-        await asyncio.sleep(0)
-        return []
+        from app.services.vector_db.factory import VectorDBFactory
+
+        started = time.time()
+        try:
+            vector_db = VectorDBFactory.get_db(collection, db_type="qdrant", workspace_slug=None)
+            search_sparse = getattr(vector_db, "search_sparse", None)
+            if not callable(search_sparse):
+                return []
+            rows = await search_sparse(
+                query,
+                top_k=top_k,
+                filters=dict(filters or {}),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Qdrant sparse search failed", error=str(exc), collection=collection)
+            return []
+        elapsed_ms = int((time.time() - started) * 1000)
+        for row in rows:
+            row["sparse_backend"] = self.name
+            row["sparse_elapsed_ms"] = elapsed_ms
+            metadata = dict(row.get("metadata") or {})
+            metadata["sparse_backend"] = self.name
+            metadata["sparse_elapsed_ms"] = elapsed_ms
+            row["metadata"] = metadata
+        return rows
 
 
 def get_sparse_backend() -> SparseSearchBackend:
-    backend = str(settings.rag_sparse_backend or "disabled").strip().lower()
+    backend = str(settings.rag_sparse_backend or "auto").strip().lower()
+    if backend == "auto":
+        if settings.rag_qdrant_sparse_enabled:
+            return QdrantSparseBackend()
+        if settings.rag_opensearch_url:
+            return OpenSearchSparseBackend(
+                base_url=settings.rag_opensearch_url or "",
+                index_prefix=settings.rag_opensearch_index_prefix,
+            )
+        return DisabledSparseBackend()
     if backend == "opensearch":
         return OpenSearchSparseBackend(
             base_url=settings.rag_opensearch_url or "",

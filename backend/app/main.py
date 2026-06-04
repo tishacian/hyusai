@@ -196,16 +196,34 @@ def _ready_database_check() -> dict[str, str]:
         return {"status": "error", "error": str(exc)[:160]}
 
 
-def _ready_qdrant_check() -> dict[str, str | int]:
+def _ready_retrieval_sparse_config() -> dict[str, bool | str]:
+    return {
+        "sparse_backend": settings.rag_sparse_backend,
+        "qdrant_sparse_enabled": bool(settings.rag_qdrant_sparse_enabled),
+        "opensearch_configured": bool(settings.rag_opensearch_url),
+        "runtime_bm25_enabled": bool(settings.rag_allow_runtime_bm25),
+        "dense_only_by_default": not (
+            (settings.rag_sparse_backend == "qdrant_sparse" and settings.rag_qdrant_sparse_enabled)
+            or (settings.rag_sparse_backend == "opensearch" and bool(settings.rag_opensearch_url))
+            or settings.rag_allow_runtime_bm25
+        ),
+    }
+
+
+def _ready_qdrant_check() -> dict[str, str | int | bool]:
     scheme = "https" if settings.qdrant_https else "http"
     url = f"{scheme}://{settings.qdrant_host}:{settings.qdrant_port}/healthz"
     headers = {"api-key": settings.qdrant_api_key} if settings.qdrant_api_key else None
     try:
         with httpx.Client(timeout=1.5, follow_redirects=False) as client:
             response = client.get(url, headers=headers)
-        return {"status": "ok" if response.status_code < 500 else "error", "status_code": response.status_code}
+        return {
+            "status": "ok" if response.status_code < 500 else "error",
+            "status_code": response.status_code,
+            **_ready_retrieval_sparse_config(),
+        }
     except Exception as exc:  # noqa: BLE001
-        return {"status": "error", "error": str(exc)[:160]}
+        return {"status": "error", "error": str(exc)[:160], **_ready_retrieval_sparse_config()}
 
 
 # Serve frontend static files (catch-all, must be LAST)

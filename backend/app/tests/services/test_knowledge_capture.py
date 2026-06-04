@@ -1019,7 +1019,7 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
     async def fake_retrieve_rag_context(request):
         seen_retrieval.update(request)
         return {
-            "chunks": ["Le rapport CRM indique que la vibration suit un changement de rouleau."],
+            "chunks": ["Le rapport CRM indique que la machine vibre après maintenance suite à un changement de rouleau."],
             "scores": [0.91],
             "metadatas": [{"title": "CRM maintenance", "source": "crm"}],
             "pipeline": "fast_scoped_dense",
@@ -1063,8 +1063,11 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
     assert prefetch["chunks"]
     assert prefetch["collection_name"] == "demo-knowledge"
     assert seen_retrieval["context_collection"] == "demo-knowledge"
+    assert seen_retrieval["retrieval_profile"] == "oracle_fast"
     assert seen_retrieval["latency_profile"] == "fast"
     assert seen_retrieval["candidate_pool_k"] == 20
+    assert prefetch["oracle_exact_match_count"] >= 1
+    assert prefetch["oracle_exact_matches"][0]["backend"] == "sparse_exact"
 
     partial_event = next(
         event
@@ -1130,6 +1133,9 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
     event_types = {event.event_type for event in events}
     assert "stt_partial" in event_types
     assert "retrieval_prefetch_completed" in event_types
+    prefetch_event = next(event for event in events if event.event_type == "retrieval_prefetch_completed")
+    assert prefetch_event.meta_data["oracle_exact_match_count"] >= 1
+    assert prefetch_event.meta_data["oracle_exact_matches"][0]["backend"] == "sparse_exact"
     assert "stt_final" in event_types
     assert "ai_speech_interrupted" in event_types
     # The AI no longer prepares a forced next prompt — it listens without interrupting.
@@ -1210,6 +1216,9 @@ def test_oracle_detects_rpm_contradiction_and_hint():
     assert live["hints"]
     assert live["hints"][0]["priority"] == 100
     assert "180" in live["hints"][0]["hint"]
+    assert live["oracle_exact_matches"]
+    assert live["contradiction_candidates"][0]["exact_match_backend"] == "sparse_exact"
+    assert live["hints"][0]["oracle_exact_matches"][0]["backend"] == "sparse_exact"
 
 
 def test_plan_oracle_outline_strictly_grounded_in_expert_statements():
@@ -1721,6 +1730,9 @@ def test_evaluate_capture_partial_yields_retrieval_passages():
     assert first["text"]
     assert first["title"] == "Manuel BBA120"
     assert first["document_id"] == "doc-1"
+    assert live["oracle_exact_matches"]
+    assert live["oracle_exact_matches"][0]["backend"] == "sparse_exact"
+    assert "rouleaux" in live["oracle_exact_matches"][0]["matched_terms"]
 
 
 def test_build_open_questions_falls_back_to_oracle_taxonomy_for_free_conversation(db_session):

@@ -58,6 +58,7 @@ from app.services.knowledge_capture import (
     serialize_proposal,
     serialize_session,
     start_session,
+    warm_capture_context_cache,
     update_oracle_question_statuses,
     update_proposal_open_question_statuses,
     update_proposal_report_content,
@@ -458,6 +459,16 @@ async def plan_capture_session(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        await warm_capture_context_cache(
+            db,
+            workspace_id=workspace.id,
+            workspace_slug=workspace.slug,
+            session_id=session.id,
+        )
+        db.refresh(session)
+    except Exception as exc:  # noqa: BLE001 - cache warmup must never block planning.
+        logger.warning("Knowledge Capture retrieval warm cache failed", error=str(exc), session_id=session.id)
     return serialize_session(session)
 
 

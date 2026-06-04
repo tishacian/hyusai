@@ -13,6 +13,42 @@ _NUMERIC_UNIT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _WORD_PATTERN = re.compile(r"[\wÀ-ÿ'-]+")
+_SPARSE_EXACT_STOPWORDS = frozenset(
+    {
+        "avec",
+        "dans",
+        "donc",
+        "elle",
+        "elles",
+        "pour",
+        "quand",
+        "selon",
+        "sont",
+        "this",
+        "that",
+        "then",
+        "avec",
+        "nous",
+        "vous",
+        "leur",
+        "leurs",
+        "plus",
+        "moins",
+        "fait",
+        "faire",
+        "sans",
+        "apres",
+        "avant",
+        "entre",
+        "comme",
+        "case",
+        "when",
+        "with",
+        "from",
+        "they",
+        "them",
+    }
+)
 
 
 def _resolve_llm_config(workspace_id: Optional[str] = None) -> tuple[str, str]:
@@ -109,6 +145,105 @@ class CaptureSessionContext:
 
 def _words(text: str) -> List[str]:
     return _WORD_PATTERN.findall(text or "")
+
+
+def _content_tokens(text: str) -> set[str]:
+    return {
+        token.lower()
+        for token in _words(text)
+        if len(token) >= 4 and token.lower() not in _SPARSE_EXACT_STOPWORDS
+    }
+
+
+def _numeric_literals(text: str) -> set[str]:
+    values: set[str] = set()
+    for match in re.finditer(r"\d+(?:[.,]\d+)?", text or ""):
+        values.add(match.group(0).replace(",", "."))
+    return values
+
+
+def _phrase_hits(partial_text: str, chunk_text: str) -> List[str]:
+    terms = [
+        token.lower()
+        for token in _words(partial_text)
+        if len(token) >= 4 and token.lower() not in _SPARSE_EXACT_STOPWORDS
+    ]
+    chunk_lower = chunk_text.lower()
+    hits: List[str] = []
+    for width in (4, 3, 2):
+        if len(terms) < width:
+            continue
+        for index in range(0, len(terms) - width + 1):
+            phrase = " ".join(terms[index : index + width])
+            if phrase in chunk_lower and phrase not in hits:
+                hits.append(phrase)
+            if len(hits) >= 4:
+                return hits
+    return hits
+
+
+def sparse_exact_match_evidence(
+    partial_text: str,
+    retrieval_chunks: List[str],
+    retrieval_metadatas: Optional[List[Dict[str, Any]]] = None,
+    *,
+    limit: int = 4,
+) -> List[Dict[str, Any]]:
+    """Deterministic lexical evidence used by the live oracle before any LLM call.
+
+    The retrieval layer may already have obtained these chunks via Qdrant sparse
+    search. This helper makes the exact-match signal explicit for contradiction and
+    coaching logic by selecting chunks with shared measures, phrases or domain terms.
+    """
+    query_terms = _content_tokens(partial_text)
+    query_numbers = _numeric_literals(partial_text)
+    query_units = set(_extract_measures(partial_text).keys())
+    if not query_terms and not query_numbers and not query_units:
+        return []
+
+    metadatas = retrieval_metadatas or []
+    matches: List[Dict[str, Any]] = []
+    for index, chunk in enumerate(retrieval_chunks or []):
+        text = str(chunk or "").strip()
+        if not text:
+            continue
+        chunk_terms = _content_tokens(text)
+        chunk_numbers = _numeric_literals(text)
+        chunk_units = set(_extract_measures(text).keys())
+        shared_terms = sorted(query_terms & chunk_terms)
+        shared_numbers = sorted(query_numbers & chunk_numbers)
+        shared_units = sorted(query_units & chunk_units)
+        phrases = _phrase_hits(partial_text, text)
+        if not (shared_numbers or shared_units or phrases or len(shared_terms) >= 2):
+            continue
+
+        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        score = (
+            (2.0 * len(shared_numbers))
+            + (2.0 * len(shared_units))
+            + (1.5 * len(phrases))
+            + (len(shared_terms) / max(1, len(query_terms)))
+        )
+        matches.append(
+            {
+                "rank": index + 1,
+                "backend": "sparse_exact",
+                "match_score": round(score, 4),
+                "matched_terms": shared_terms[:10],
+                "matched_numbers": shared_numbers[:6],
+                "matched_units": shared_units[:6],
+                "phrase_hits": phrases,
+                "text": text,
+                "preview": text[:360],
+                "document_id": md.get("document_id") or md.get("doc_id") or md.get("id"),
+                "source": md.get("source") or md.get("filename") or md.get("document_id"),
+                "title": md.get("title") or md.get("filename") or md.get("source"),
+                "metadata": md,
+            }
+        )
+
+    matches.sort(key=lambda item: (-float(item.get("match_score") or 0.0), int(item.get("rank") or 0)))
+    return matches[: max(1, int(limit or 1))]
 
 
 def presentation_prompt(title: Optional[str]) -> str:
@@ -718,6 +853,7 @@ def evaluate_capture_partial(
     """Live capture evaluation: contradictions, hint candidates, and the retrieved
     passages that back the live assist panels."""
     retrieval = _live_retrieval_passages(retrieval_chunks, retrieval_metadatas)
+    exact_matches = sparse_exact_match_evidence(partial_text, retrieval_chunks, retrieval_metadatas)
     text = (partial_text or "").strip()
     if len(_words(text)) < 6:
         return {
@@ -725,8 +861,14 @@ def evaluate_capture_partial(
             "contradiction_candidates": [],
             "active_subtopic_id": context.active_subtopic_id,
             "retrieval": retrieval,
+            "oracle_exact_matches": exact_matches,
         }
-    contradictions = detect_claim_contradictions(text, retrieval_chunks)
+    exact_chunks = [str(item.get("text") or "") for item in exact_matches if item.get("text")]
+    contradictions = detect_claim_contradictions(text, exact_chunks or retrieval_chunks)
+    if exact_matches:
+        for candidate in contradictions:
+            candidate["oracle_exact_matches"] = exact_matches[:2]
+            candidate["exact_match_backend"] = "sparse_exact"
     hints: List[Dict[str, Any]] = []
     for candidate in contradictions:
         hint_text = str(candidate.get("suggested_hint") or "").strip()
@@ -743,6 +885,8 @@ def evaluate_capture_partial(
                 "visibility": "hint",
                 "kb_refs": _kb_refs_from_chunks(retrieval_chunks, retrieval_metadatas),
                 "kb_excerpt": candidate.get("kb_excerpt"),
+                "oracle_exact_matches": candidate.get("oracle_exact_matches") or exact_matches[:2],
+                "exact_match_backend": candidate.get("exact_match_backend"),
                 "oracle_id": str(uuid.uuid4()),
             }
         )
@@ -759,6 +903,7 @@ def evaluate_capture_partial(
         "contradiction_candidates": contradictions,
         "active_subtopic_id": active_subtopic_id,
         "retrieval": retrieval,
+        "oracle_exact_matches": exact_matches,
     }
 
 

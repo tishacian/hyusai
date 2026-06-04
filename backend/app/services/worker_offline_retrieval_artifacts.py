@@ -6,11 +6,11 @@ backend is configured.
 """
 from __future__ import annotations
 
-from typing import Any
-
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.base import SessionLocal
-from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
+from app.models.knowledge_collection import KnowledgeCollection
+from app.models.workspace import Workspace
 from app.services.knowledge_collections import update_job
 from app.services.object_store import get_object_store
 from app.services.rag.opensearch_sparse_index import rebuild_opensearch_sparse_index
@@ -19,17 +19,6 @@ from app.services.rag.summary_artifacts import rebuild_summary_index_artifact
 logger = get_logger(__name__)
 
 SUPPORTED_KINDS = {"sparse_index_rebuild", "summary_index_rebuild", "qdrant_sparse_reindex"}
-
-
-def _skip_not_configured(job: WorkerJob) -> dict[str, Any]:
-    return {
-        **(job.result or {}),
-        "status": "skipped",
-        "configured": False,
-        "launch_policy": "manual_only",
-        "stage": "not_configured",
-        "reason": f"{job.kind} is reserved for offline backfill and is not configured in this environment.",
-    }
 
 
 def run_offline_retrieval_artifact_job(job_id: str) -> dict[str, Any]:
@@ -43,13 +32,6 @@ def run_offline_retrieval_artifact_job(job_id: str) -> dict[str, Any]:
                 db.commit()
                 raise ValueError(f"Unsupported offline retrieval artifact job kind: {job.kind}")
 
-            if job.kind == "qdrant_sparse_reindex":
-                result = _skip_not_configured(job)
-                update_job(db, job_id, status="completed", progress=100, result=result, stage="not_configured")
-                db.commit()
-                logger.info("offline retrieval artifact job skipped", job_id=job_id, kind=job.kind)
-                return result
-
             if not job.collection_id:
                 db.commit()
                 raise ValueError(f"Offline retrieval artifact job {job_id!r} is not linked to a collection")
@@ -57,6 +39,61 @@ def run_offline_retrieval_artifact_job(job_id: str) -> dict[str, Any]:
             if not collection:
                 db.commit()
                 raise ValueError(f"Collection for offline retrieval artifact job {job_id!r} not found")
+
+            if job.kind == "qdrant_sparse_reindex":
+                if not settings.rag_qdrant_sparse_enabled:
+                    result = {
+                        **(job.result or {}),
+                        "status": "skipped",
+                        "configured": False,
+                        "launch_policy": "manual_only",
+                        "stage": "not_configured",
+                        "reason": "qdrant_sparse_disabled",
+                        "collection_slug": collection.slug,
+                    }
+                    update_job(db, job_id, status="completed", progress=100, result=result, stage="not_configured")
+                    db.commit()
+                    logger.info("Qdrant sparse reindex skipped", job_id=job_id, collection=collection.slug)
+                    return result
+
+                workspace = db.query(Workspace).filter(Workspace.id == collection.workspace_id).first()
+                if not workspace:
+                    db.commit()
+                    raise ValueError(f"Workspace for offline retrieval artifact job {job_id!r} not found")
+                update_job(db, job_id, progress=20, stage="qdrant_sparse_reindex")
+                db.commit()
+                from app.services.vector_db.factory import VectorDBFactory
+
+                vector_db = VectorDBFactory.get_db(collection.slug, db_type="qdrant", workspace_slug=workspace.slug)
+                import asyncio
+
+                reindex = asyncio.run(vector_db.reindex_sparse_vectors())
+                result = {
+                    **(job.result or {}),
+                    "status": reindex.get("status") or "ready",
+                    "configured": bool(reindex.get("configured")),
+                    "launch_policy": "manual_only",
+                    "stage": "qdrant_sparse_ready" if reindex.get("status") == "ready" else "not_configured",
+                    "qdrant_sparse_reindex": reindex,
+                    "collection_slug": collection.slug,
+                }
+                update_job(
+                    db,
+                    job_id,
+                    status="completed",
+                    progress=100,
+                    result=result,
+                    stage=result["stage"],
+                )
+                db.commit()
+                logger.info(
+                    "Qdrant sparse reindex completed",
+                    job_id=job_id,
+                    collection=collection.slug,
+                    points=reindex.get("points_reindexed"),
+                    recreated=reindex.get("recreated_collection"),
+                )
+                return result
 
             if job.kind == "sparse_index_rebuild":
                 update_job(db, job_id, progress=20, stage="sparse_summary_index")

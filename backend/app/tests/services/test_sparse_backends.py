@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.rag.sparse_backends import OpenSearchSparseBackend
+from app.core.config import settings
+from app.services.rag.sparse_backends import OpenSearchSparseBackend, QdrantSparseBackend, get_sparse_backend
 
 
 @pytest.mark.asyncio
@@ -142,3 +143,48 @@ async def test_opensearch_sparse_backend_returns_metadata(monkeypatch):
     assert out[0]["metadata"]["language"] == "fr"
     assert out[0]["metadata"]["status"] == "ready"
     assert out[0]["sparse_backend"] == "opensearch"
+
+
+def test_sparse_backend_auto_prefers_qdrant_then_opensearch(monkeypatch):
+    monkeypatch.setattr(settings, "rag_sparse_backend", "auto")
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    monkeypatch.setattr(settings, "rag_opensearch_url", "http://opensearch.test")
+    assert isinstance(get_sparse_backend(), QdrantSparseBackend)
+
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", False)
+    assert isinstance(get_sparse_backend(), OpenSearchSparseBackend)
+
+
+@pytest.mark.asyncio
+async def test_qdrant_sparse_backend_delegates_to_vector_store(monkeypatch):
+    class FakeVectorDb:
+        calls = []
+
+        async def search_sparse(self, query, top_k=10, filters=None):
+            self.calls.append((query, top_k, filters))
+            return [
+                {
+                    "id": "chunk-1",
+                    "content": "KD724 sparse evidence",
+                    "score": 0.5,
+                    "metadata": {"document_filename": "manual.pdf"},
+                }
+            ]
+
+    fake_db = FakeVectorDb()
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    monkeypatch.setattr(
+        "app.services.vector_db.factory.VectorDBFactory.get_db",
+        lambda collection, db_type="qdrant", workspace_slug=None: fake_db,
+    )
+
+    out = await QdrantSparseBackend().search(
+        "KD724",
+        collection="andritz__docs",
+        filters={"project_code": "KD724"},
+        top_k=4,
+    )
+
+    assert fake_db.calls == [("KD724", 4, {"project_code": "KD724"})]
+    assert out[0]["sparse_backend"] == "qdrant_sparse"
+    assert out[0]["metadata"]["sparse_backend"] == "qdrant_sparse"

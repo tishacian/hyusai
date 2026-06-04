@@ -55,6 +55,25 @@ def _live_payload() -> dict[str, str]:
     return {"status": "healthy", "service": settings.app_name, "version": settings.app_version}
 
 
+def _retrieval_sparse_config() -> dict[str, Any]:
+    backend = str(settings.rag_sparse_backend or "auto").strip().lower()
+    qdrant_configured = bool(settings.rag_qdrant_sparse_enabled)
+    opensearch_configured = bool(settings.rag_opensearch_url)
+    sparse_configured = (
+        (backend == "auto" and (qdrant_configured or opensearch_configured))
+        or (backend in {"qdrant_sparse", "qdrant-sparse"} and qdrant_configured)
+        or (backend == "opensearch" and opensearch_configured)
+        or bool(settings.rag_allow_runtime_bm25)
+    )
+    return {
+        "sparse_backend": settings.rag_sparse_backend,
+        "qdrant_sparse_enabled": qdrant_configured,
+        "opensearch_configured": opensearch_configured,
+        "runtime_bm25_enabled": bool(settings.rag_allow_runtime_bm25),
+        "dense_only_by_default": not sparse_configured,
+    }
+
+
 def _check_database() -> dict[str, Any]:
     started = time.perf_counter()
     try:
@@ -79,10 +98,16 @@ def _check_qdrant() -> dict[str, Any]:
             "status": "ok" if ok else "error",
             "duration_ms": round((time.perf_counter() - started) * 1000),
             "status_code": response.status_code,
+            **_retrieval_sparse_config(),
         }
     except Exception as exc:  # noqa: BLE001
         logger.warning("health_ready_qdrant_failed", error=str(exc), url=url)
-        return {"status": "error", "duration_ms": round((time.perf_counter() - started) * 1000), "error": str(exc)[:160]}
+        return {
+            "status": "error",
+            "duration_ms": round((time.perf_counter() - started) * 1000),
+            "error": str(exc)[:160],
+            **_retrieval_sparse_config(),
+        }
 
 
 def _check_object_store() -> dict[str, Any]:

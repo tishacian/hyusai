@@ -976,6 +976,7 @@ class OmniRAGAgent(BaseAgent):
             "candidate_pool_k": profile.get("candidate_pool_k"),
             "synthesis_k": profile.get("synthesis_k"),
             "source_display_k": profile.get("source_display_k"),
+            "retrieval_profile": profile.get("retrieval_profile"),
             "latency_profile": profile.get("latency_profile"),
             "latency_budget": profile.get("latency_budget")
             or {
@@ -1237,6 +1238,10 @@ class OmniRAGAgent(BaseAgent):
         preserve_retrieval_order = str(retrieval_context.get("pipeline") or "").startswith(
             ("chah_", "hah_", "multi_")
         )
+        try:
+            threshold = max(0.0, min(1.0, float(getattr(settings, "rag_similarity_threshold", 0.1) or 0.1)))
+        except (TypeError, ValueError):
+            threshold = 0.1
         if preserve_retrieval_order:
             # HAH/C-HAH and multi-collection paths use RRF-like scores. Those
             # values are rank-combination weights, not similarity scores, and
@@ -1245,7 +1250,6 @@ class OmniRAGAgent(BaseAgent):
             # high-scored advisory Knowledge Guides.
             before = after = n_chunks
         elif n_chunks > 0 and scores:
-            threshold = 0.1
             before = n_chunks
             triples = list(zip(retrieval_context["chunks"], scores, filtered_metadatas))
             triples = [
@@ -1266,16 +1270,9 @@ class OmniRAGAgent(BaseAgent):
                     )
                 else:
                     triples.sort(key=lambda x: x[1], reverse=True)
-            if triples:
-                filtered_chunks = [c for c, _, _ in triples]
-                filtered_scores = [s for _, s, _ in triples]
-                filtered_metadatas = [m for _, _, m in triples]
-            else:
-                filtered_chunks = retrieval_context["chunks"]
-                filtered_scores = scores
-                filtered_metadatas = retrieval_context.get("metadatas", []) or [
-                    {} for _ in filtered_chunks
-                ]
+            filtered_chunks = [c for c, _, _ in triples]
+            filtered_scores = [s for _, s, _ in triples]
+            filtered_metadatas = [m for _, _, m in triples]
             after = len(filtered_chunks)
         else:
             before = after = 0
@@ -1288,7 +1285,7 @@ class OmniRAGAgent(BaseAgent):
             "ContextFilter",
             "text-embedding-3-small",
             "Context filtered",
-            f"Kept {after}/{before} chunks · Threshold: 0.1 · Sorted by relevance",
+            f"Kept {after}/{before} chunks · Threshold: {threshold:.2f} · Sorted by relevance",
             duration=self._ms_since(step_start),
         )
 

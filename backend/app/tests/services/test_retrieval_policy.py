@@ -108,6 +108,26 @@ def test_policy_rerank_boosts_exact_terms_and_demotes_navigation():
     assert ranked[-1]["metadata"]["retrieval_policy_score"] < 0
 
 
+def test_policy_rerank_boosts_validated_provenance_without_guide():
+    rows = [
+        {
+            "content": "Same pump maintenance evidence.",
+            "score": 0.71,
+            "metadata": {"document_filename": "draft-note.md", "status": "draft"},
+        },
+        {
+            "content": "Same pump maintenance evidence from official manual.",
+            "score": 0.70,
+            "metadata": {"document_filename": "manual.pdf", "status": "reviewed", "source_kind": "manual"},
+        },
+    ]
+
+    ranked = rerank_results_with_policy(rows, "pump maintenance", None)
+
+    assert ranked[0]["metadata"]["document_filename"] == "manual.pdf"
+    assert ranked[0]["metadata"]["retrieval_policy_score"] > 0
+
+
 def test_policy_can_request_clarification_for_broad_configured_facet():
     policy = retrieval_policy_from_guides([POLICY_GUIDE])
 

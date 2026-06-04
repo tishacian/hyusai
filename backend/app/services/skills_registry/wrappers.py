@@ -40,6 +40,9 @@ def _rag_runtime_kwargs(payload: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[st
     latency_profile = payload.get("latency_profile") or ctx.get("latency_profile")
     if latency_profile:
         kwargs["latency_profile"] = latency_profile
+    retrieval_profile = payload.get("retrieval_profile") or ctx.get("retrieval_profile")
+    if retrieval_profile:
+        kwargs["retrieval_profile"] = retrieval_profile
     if payload.get("deep_retrieval") is not None:
         kwargs["deep_retrieval"] = bool(payload.get("deep_retrieval"))
     retrieval_filters = payload.get("retrieval_filters")

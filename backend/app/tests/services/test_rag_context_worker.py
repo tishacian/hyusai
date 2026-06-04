@@ -227,6 +227,76 @@ async def test_retrieve_rag_context_returns_serialisable_contract():
     assert result["pipeline"] == "naive"
     assert result["mode_label"] == "vector_only"
     assert result["metrics"]["chunks_retrieved"] == 1
+
+
+async def test_retrieve_rag_context_applies_similarity_threshold(monkeypatch):
+    monkeypatch.setattr(rag_context.settings, "rag_similarity_threshold", 0.2)
+
+    async def _fake_retrieve(doc_svc, query, mode, **kwargs):  # noqa: ARG001
+        return SimpleNamespace(
+            chunks=["weak dense chunk", "strong dense chunk"],
+            scores=[0.19, 0.82],
+            metadatas=[
+                {"document_filename": "weak.md"},
+                {"document_filename": "strong.md"},
+            ],
+            pipeline="naive",
+            label="vector_only",
+            reason="fake dense",
+            detail="test",
+            diagnostics={},
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "maintenance pump",
+            "latency_profile": "fast",
+            "rag_pipeline_mode": "naive",
+        },
+        doc_svc=FakeDocumentService(),
+    )
+
+    assert result["chunks"] == ["strong dense chunk"]
+    assert result["metrics"]["score_threshold_applied"] is True
+    assert result["metrics"]["score_threshold_filtered"] == 1
+    assert result["metrics"]["score_threshold"] == 0.2
+
+
+async def test_retrieve_rag_context_skips_similarity_threshold_for_rrf(monkeypatch):
+    monkeypatch.setattr(rag_context.settings, "rag_similarity_threshold", 0.2)
+
+    async def _fake_retrieve(doc_svc, query, mode, **kwargs):  # noqa: ARG001
+        return SimpleNamespace(
+            chunks=["rrf sparse chunk", "rrf dense chunk"],
+            scores=[0.031, 0.028],
+            metadatas=[
+                {"document_filename": "sparse.md"},
+                {"document_filename": "dense.md"},
+            ],
+            pipeline="chah_backend",
+            label="C-HAH",
+            reason="fake rrf",
+            detail="test",
+            diagnostics={"sparse_backend": "opensearch", "sparse_status": "ok"},
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "maintenance pump",
+            "latency_profile": "balanced",
+            "rag_pipeline_mode": "chah",
+        },
+        doc_svc=FakeDocumentService(),
+    )
+
+    assert result["chunks"] == ["rrf sparse chunk", "rrf dense chunk"]
+    assert result["metrics"]["score_threshold_applied"] is False
+    assert result["metrics"]["score_threshold_skipped_reason"] == "non_vector_score_scale"
+    assert result["metrics"]["dense_only"] is False
     assert result["metrics"]["duration_ms"] >= 0
     assert set(result["metrics"]["stage_timings"]) >= {
         "planner_ms",
@@ -238,13 +308,58 @@ async def test_retrieve_rag_context_returns_serialisable_contract():
     }
     assert result["metrics"]["stage_timings"]["retrieval_ms"] >= 0
     assert result["metrics"]["stage_timings"]["rerank_ms"] >= 0
-    assert result["metrics"]["candidate_counts"]["chunks_retrieved"] == 1
+    assert result["metrics"]["candidate_counts"]["chunks_retrieved"] == 2
     assert result["metrics"]["candidate_counts"]["candidate_pool_k"] >= 1
     assert "exact_table_hits" in result["metrics"]["candidate_counts"]
     assert result["metrics"]["collection"] == "documents"
     assert result["metrics"]["vector_db"] == "qdrant"
     assert result["collections_touched"] == ["documents"]
     assert result["collection_errors"] == []
+
+
+async def test_retrieve_rag_context_diversifies_synthesis_window_by_document(monkeypatch):
+    monkeypatch.setattr(rag_context.settings, "rag_similarity_threshold", 0.0)
+
+    async def _fake_retrieve(doc_svc, query, mode, **kwargs):  # noqa: ARG001
+        return SimpleNamespace(
+            chunks=[
+                "doc A best",
+                "doc A second",
+                "doc A third",
+                "doc B first",
+            ],
+            scores=[0.95, 0.93, 0.91, 0.55],
+            metadatas=[
+                {"document_id": "doc-a"},
+                {"document_id": "doc-a"},
+                {"document_id": "doc-a"},
+                {"document_id": "doc-b"},
+            ],
+            pipeline="naive",
+            label="vector_only",
+            reason="fake dense",
+            detail="test",
+            diagnostics={},
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "maintenance pump",
+            "latency_profile": "balanced",
+            "rag_pipeline_mode": "naive",
+            "top_k": 3,
+            "source_display_k": 3,
+            "synthesis_k": 3,
+            "candidate_pool_k": 6,
+        },
+        doc_svc=FakeDocumentService(),
+    )
+
+    assert result["chunks"] == ["doc A best", "doc B first", "doc A second"]
+    assert result["metrics"]["document_diversity_applied"] is True
+    assert result["metrics"]["document_diversity_groups"] == 2
 
 
 async def test_retrieve_rag_context_inventory_query_uses_collection_source_ledger(db_session):
@@ -1986,10 +2101,37 @@ def test_retrieval_profile_defaults_to_fast_and_clamps_untrusted_budget(monkeypa
     assert profile["deadline_seconds"] == settings.rag_fast_retrieval_deadline_seconds
     assert profile["latency_budget"] == {
         "profile": "fast",
+        "retrieval_profile": "chat",
+        "allow_cross_encoder": True,
         "deadline_seconds": settings.rag_fast_retrieval_deadline_seconds,
         "top_k": 8,
         "candidate_pool_k": 20,
     }
+
+
+def test_retrieval_profile_oracle_fast_forces_bounded_single_pass(monkeypatch):
+    monkeypatch.setattr(rag_context, "get_resolved_settings", lambda **kwargs: {"ragVectorDBType": "qdrant"})
+
+    profile = get_retrieval_profile(
+        {
+            "query": "prélecture capture vibration",
+            "retrieval_profile": "oracle_fast",
+            "latency_profile": "deep",
+            "rag_pipeline_mode": "auto",
+            "top_k": 12,
+            "candidate_pool_k": 200,
+        }
+    )
+
+    assert profile["retrieval_profile"] == "oracle_fast"
+    assert profile["latency_profile"] == "fast"
+    assert profile["rag_mode"] == "naive"
+    assert profile["top_k"] == 8
+    assert profile["candidate_pool_k"] == 20
+    assert profile["deadline_seconds"] == 2.5
+    assert profile["latency_budget"]["retrieval_profile"] == "oracle_fast"
+    assert profile["latency_budget"]["allow_cross_encoder"] is False
+    assert profile["retrieval_profile_contract"]["allow_hah_chah"] is False
 
 
 def test_retrieval_profile_uses_system_collection_filter_as_scope(monkeypatch):
@@ -2059,6 +2201,8 @@ def test_retrieval_profile_deep_allows_wider_but_bounded_budget(monkeypatch):
     assert profile["deadline_seconds"] == settings.rag_deep_retrieval_deadline_seconds
     assert profile["latency_budget"] == {
         "profile": "deep",
+        "retrieval_profile": "deep_async",
+        "allow_cross_encoder": True,
         "deadline_seconds": settings.rag_deep_retrieval_deadline_seconds,
         "top_k": 24,
         "candidate_pool_k": 200,
