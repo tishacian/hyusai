@@ -14,13 +14,13 @@ from pathlib import Path
 from typing import Any, Mapping
 from types import SimpleNamespace
 
-from sqlalchemy import or_
+from sqlalchemy import Text, cast, or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
-from app.models.knowledge_collection import KnowledgeCollection
+from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
 from app.services.knowledge_collections import collection_source_rows
 from app.services.rag.retrieval_policy import RetrievalPolicy
 from app.services.rag.source_facets import expanded_terms_for_query, score_source_family_match
@@ -256,9 +256,73 @@ def _request_filters(request: Mapping[str, Any] | None) -> dict[str, Any]:
     return out
 
 
-def _rows_for_collections(db: DBSession, collections: list[str], workspace_id: str | None) -> tuple[list[Any], list[KnowledgeCollection]]:
+def _targeted_collection_source_rows(
+    db: DBSession,
+    *,
+    collection: KnowledgeCollection,
+    project_codes: list[str],
+    source_lookup_query: str | None = None,
+    limit: int = 50,
+) -> list[Any]:
+    if not project_codes:
+        return collection_source_rows(db, collection=collection)
+    clauses = []
+    lookup_terms: set[str] = set()
+    for code in project_codes[:4]:
+        compact = _compact_text(code).upper()
+        variants = {code, compact}
+        split = re.match(r"^([A-Z]+)(\d[A-Z0-9]*)$", compact)
+        if split:
+            prefix, suffix = split.groups()
+            variants.update({f"{prefix} {suffix}", f"{prefix}-{suffix}", f"{prefix}_{suffix}"})
+        lookup_terms.update(variant for variant in variants if variant)
+    generic_terms = {
+        "carrier",
+        "comment",
+        "document",
+        "fichier",
+        "manual",
+        "manuel",
+        "parts",
+        "projet",
+        "retrouver",
+        "source",
+        "spare",
+    }
+    for term in _expanded_query_terms(source_lookup_query or "")[:20]:
+        compact_term = _compact_text(term)
+        if len(compact_term) >= 6 and compact_term not in generic_terms:
+            lookup_terms.add(term)
+            lookup_terms.add(compact_term)
+    for lookup_term in lookup_terms:
+        like = f"%{lookup_term}%"
+        clauses.extend(
+            [
+                KnowledgeCollectionSource.filename.ilike(like),
+                KnowledgeCollectionSource.normalized_name.ilike(like),
+                cast(KnowledgeCollectionSource.source_metadata, Text).ilike(like),
+            ]
+        )
+    if not clauses:
+        return []
+    query = db.query(KnowledgeCollectionSource).filter(
+        KnowledgeCollectionSource.collection_id == collection.id,
+        KnowledgeCollectionSource.status != "deleted",
+        or_(*clauses),
+    )
+    return query.order_by(KnowledgeCollectionSource.filename.asc()).limit(max(1, int(limit))).all()
+
+
+def _rows_for_collections(
+    db: DBSession,
+    collections: list[str],
+    workspace_id: str | None,
+    *,
+    source_lookup_query: str | None = None,
+) -> tuple[list[Any], list[KnowledgeCollection]]:
     rows: list[Any] = []
     collection_rows: list[KnowledgeCollection] = []
+    project_codes = _query_project_codes(source_lookup_query or "") if source_lookup_query else []
     for ref in collections:
         query = db.query(KnowledgeCollection).filter(
             (KnowledgeCollection.slug == ref) | (KnowledgeCollection.id == ref)
@@ -269,7 +333,16 @@ def _rows_for_collections(db: DBSession, collections: list[str], workspace_id: s
         if not collection:
             continue
         collection_rows.append(collection)
-        source_rows = collection_source_rows(db, collection=collection)
+        source_rows = (
+            _targeted_collection_source_rows(
+                db,
+                collection=collection,
+                project_codes=project_codes,
+                source_lookup_query=source_lookup_query,
+            )
+            if project_codes
+            else collection_source_rows(db, collection=collection)
+        )
         for row in source_rows:
             try:
                 row.collection = collection
@@ -340,6 +413,21 @@ def _workspace_collections(db: DBSession, workspace_id: str | None) -> list[Know
         .order_by(KnowledgeCollection.updated_at.desc())
         .all()
     )
+
+
+def _collection_source_count(db: DBSession, collection: KnowledgeCollection) -> int:
+    try:
+        return int(
+            db.query(KnowledgeCollectionSource)
+            .filter(
+                KnowledgeCollectionSource.collection_id == collection.id,
+                KnowledgeCollectionSource.status != "deleted",
+            )
+            .count()
+            or 0
+        )
+    except Exception:  # pragma: no cover - count is advisory for planning only.
+        return 0
 
 
 def _corpus_version(rows: list[Any], collection_rows: list[KnowledgeCollection]) -> str:
@@ -995,7 +1083,13 @@ def plan_corpus(
     )
     collections = [str(item) for item in (profile.get("collections") or [profile.get("collection") or "documents"]) if item]
     workspace_id = str(profile.get("workspace_id") or "") or None
-    rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
+    source_lookup_query = query if latency_profile == "fast" and _query_project_codes(query) else None
+    rows, collection_rows = _rows_for_collections(
+        db,
+        collections,
+        workspace_id,
+        source_lookup_query=source_lookup_query,
+    )
     workspace_rows = rows
     if workspace_id:
         workspace_collection_refs = [
@@ -1004,7 +1098,12 @@ def plan_corpus(
             if str(row.slug or row.id)
         ]
         if workspace_collection_refs and set(workspace_collection_refs) != set(collections):
-            candidate_rows, _candidate_collection_rows = _rows_for_collections(db, workspace_collection_refs, workspace_id)
+            candidate_rows, _candidate_collection_rows = _rows_for_collections(
+                db,
+                workspace_collection_refs,
+                workspace_id,
+                source_lookup_query=source_lookup_query,
+            )
             if candidate_rows:
                 workspace_rows = candidate_rows
     intent = classify_intent(query)
@@ -1037,9 +1136,17 @@ def plan_corpus(
         reason = f"table value lookup scoped retrieval to {len(table_lookup_collections)} spreadsheet collection(s)"
     elif ledger_collections:
         collections = ledger_collections
-        rows, collection_rows = _rows_for_collections(db, collections, workspace_id)
+        rows, collection_rows = _rows_for_collections(
+            db,
+            collections,
+            workspace_id,
+            source_lookup_query=source_lookup_query,
+        )
     ledger_source_count = len(rows)
-    collection_source_count = sum(int(c.document_count or 0) for c in collection_rows)
+    collection_source_count = sum(
+        int(c.document_count or 0) or _collection_source_count(db, c)
+        for c in collection_rows
+    )
     ledger_chunk_count = sum(int(getattr(row, "chunk_count", 0) or 0) for row in rows)
     collection_chunk_count = sum(int(c.chunk_count or 0) for c in collection_rows)
     source_count = max(ledger_source_count, collection_source_count)
