@@ -1360,7 +1360,7 @@ interface ProposalFact {
                         [disabled]="!canProposalSubmit(s)"
                         (click)="createProposal(s)"
                       >
-                        <app-icon name="arrow-right" [size]="14" /> Continuer vers le rapport
+                        <app-icon name="arrow-right" [size]="14" /> Continuer
                       </button>
                     }
                     @if (sessionHasStarted(s) && s.status === 'active') {
@@ -1368,7 +1368,7 @@ interface ProposalFact {
                         type="button"
                         class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50 sm:w-auto"
                         [disabled]="closureActionLoading() || recording() || transcribing() || !canCaptureExecute(s)"
-                        title="Continuer vers le rapport."
+                        title="Continuer"
                         (click)="applySessionClosure(s, 'finish')"
                       >
                         <app-icon name="arrow-right" [size]="14" /> Continuer
@@ -2467,7 +2467,7 @@ interface ProposalFact {
                 [disabled]="!canProposalSubmit(s)"
                 (click)="createProposal(s)"
               >
-                <app-icon name="arrow-right" [size]="14" /> Continuer vers le rapport
+                <app-icon name="arrow-right" [size]="14" /> Continuer
               </button>
             }
           </aside>
