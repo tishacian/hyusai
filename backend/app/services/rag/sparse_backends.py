@@ -37,6 +37,25 @@ class SparseSearchBackend(Protocol):
         ...
 
 
+def sparse_runtime_config() -> dict[str, bool | str]:
+    backend = str(settings.rag_sparse_backend or "auto").strip().lower()
+    qdrant_configured = bool(settings.rag_qdrant_sparse_enabled)
+    opensearch_configured = bool(settings.rag_opensearch_url)
+    sparse_configured = (
+        (backend == "auto" and (qdrant_configured or opensearch_configured))
+        or (backend in {"qdrant_sparse", "qdrant-sparse"} and qdrant_configured)
+        or (backend == "opensearch" and opensearch_configured)
+        or bool(settings.rag_allow_runtime_bm25)
+    )
+    return {
+        "sparse_backend": settings.rag_sparse_backend,
+        "qdrant_sparse_enabled": qdrant_configured,
+        "opensearch_configured": opensearch_configured,
+        "runtime_bm25_enabled": bool(settings.rag_allow_runtime_bm25),
+        "dense_only_by_default": not sparse_configured,
+    }
+
+
 @dataclass
 class DisabledSparseBackend:
     name: str = "disabled"

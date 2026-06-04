@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.monitoring import metrics_collector
 from app.db.base import SessionLocal
+from app.services.rag.sparse_backends import sparse_runtime_config
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -56,22 +57,7 @@ def _live_payload() -> dict[str, str]:
 
 
 def _retrieval_sparse_config() -> dict[str, Any]:
-    backend = str(settings.rag_sparse_backend or "auto").strip().lower()
-    qdrant_configured = bool(settings.rag_qdrant_sparse_enabled)
-    opensearch_configured = bool(settings.rag_opensearch_url)
-    sparse_configured = (
-        (backend == "auto" and (qdrant_configured or opensearch_configured))
-        or (backend in {"qdrant_sparse", "qdrant-sparse"} and qdrant_configured)
-        or (backend == "opensearch" and opensearch_configured)
-        or bool(settings.rag_allow_runtime_bm25)
-    )
-    return {
-        "sparse_backend": settings.rag_sparse_backend,
-        "qdrant_sparse_enabled": qdrant_configured,
-        "opensearch_configured": opensearch_configured,
-        "runtime_bm25_enabled": bool(settings.rag_allow_runtime_bm25),
-        "dense_only_by_default": not sparse_configured,
-    }
+    return sparse_runtime_config()
 
 
 def _check_database() -> dict[str, Any]:

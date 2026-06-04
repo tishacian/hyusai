@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 
 from app.core.config import settings
-from app.services.rag.sparse_backends import OpenSearchSparseBackend, QdrantSparseBackend, get_sparse_backend
+from app.services.rag.sparse_backends import (
+    OpenSearchSparseBackend,
+    QdrantSparseBackend,
+    get_sparse_backend,
+    sparse_runtime_config,
+)
 
 
 @pytest.mark.asyncio
@@ -153,6 +158,17 @@ def test_sparse_backend_auto_prefers_qdrant_then_opensearch(monkeypatch):
 
     monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", False)
     assert isinstance(get_sparse_backend(), OpenSearchSparseBackend)
+
+
+def test_readiness_auto_qdrant_sparse_not_dense_only(monkeypatch):
+    monkeypatch.setattr(settings, "rag_sparse_backend", "auto")
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    monkeypatch.setattr(settings, "rag_opensearch_url", None)
+    monkeypatch.setattr(settings, "rag_allow_runtime_bm25", False)
+
+    config = sparse_runtime_config()
+
+    assert config["dense_only_by_default"] is False
 
 
 @pytest.mark.asyncio

@@ -22,6 +22,7 @@ from app.core.monitoring import metrics_collector
 from app.core.settings_manager import get_settings_manager
 from app.db.base import Base, SessionLocal, engine
 from app.seed_knowledge_base import seed_knowledge_base
+from app.services.rag.sparse_backends import sparse_runtime_config
 
 setup_logging(settings.log_level)
 logger = get_logger(__name__)
@@ -197,17 +198,7 @@ def _ready_database_check() -> dict[str, str]:
 
 
 def _ready_retrieval_sparse_config() -> dict[str, bool | str]:
-    return {
-        "sparse_backend": settings.rag_sparse_backend,
-        "qdrant_sparse_enabled": bool(settings.rag_qdrant_sparse_enabled),
-        "opensearch_configured": bool(settings.rag_opensearch_url),
-        "runtime_bm25_enabled": bool(settings.rag_allow_runtime_bm25),
-        "dense_only_by_default": not (
-            (settings.rag_sparse_backend == "qdrant_sparse" and settings.rag_qdrant_sparse_enabled)
-            or (settings.rag_sparse_backend == "opensearch" and bool(settings.rag_opensearch_url))
-            or settings.rag_allow_runtime_bm25
-        ),
-    }
+    return sparse_runtime_config()
 
 
 def _ready_qdrant_check() -> dict[str, str | int | bool]:
