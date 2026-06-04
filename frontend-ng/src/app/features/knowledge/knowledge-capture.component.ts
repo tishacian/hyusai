@@ -5825,17 +5825,16 @@ export class KnowledgeCaptureComponent implements OnInit {
   conversationPrimaryLabel(): string {
     if (this.conversationMode() !== 'conversation_only') {
       return this.recording()
-        ? 'Arrêter l’écoute'
+        ? 'Pause'
         : this.speaking()
-          ? 'Interrompre et répondre'
+          ? 'Pause'
           : this.transcribing()
-            ? 'Transcription...'
-            : 'Écouter';
+            ? 'Transcription'
+            : 'Démarrer';
     }
-    if (this.transcribing()) return 'Traitement...';
-    if (this.recording()) return 'Terminer l’écoute';
-    if (this.speaking()) return 'Interrompre et répondre';
-    return this.conversationSessionActive() ? 'Mettre en pause' : 'Démarrer';
+    if (this.transcribing()) return 'Transcription';
+    if (this.recording() || this.speaking()) return 'Pause';
+    return this.conversationSessionActive() ? 'Pause' : 'Démarrer';
   }
 
   emptyConversationHint(): string {
