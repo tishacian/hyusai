@@ -30,6 +30,7 @@ from app.services.knowledge_capture import (
     start_session,
     structure_capture_payload,
     update_oracle_question_statuses,
+    update_proposal_open_question_statuses,
     update_capture_session_flags,
 )
 from app.services.capture_report_templates import (
@@ -424,6 +425,89 @@ def test_capture_attribution_persists_user_ids(db_session):
         reviewer_user_id=reviewer.id,
     )
     assert reviewed.reviewer_user_id == reviewer.id
+
+
+def test_proposal_open_question_statuses_are_persisted(db_session):
+    workspace = Workspace(id="ws-proposal-questions", name="Proposal Questions", slug="proposal-questions")
+    user = User(id="user-proposal-question", username="reviewer@datategy.local", email="reviewer@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Proposal question capture",
+        objective="Capture tacit troubleshooting knowledge for report review.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        created_by_user_id=user.id,
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=session.plan["questions"][0]["id"],
+        text="Je contrôle toujours la pompe avant de valider la procédure terrain.",
+        actor_user_id=user.id,
+    )
+    proposal = create_update_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        created_by_user_id=user.id,
+    )
+    payload = dict(proposal.proposal or {})
+    payload["open_questions"] = [
+        {
+            "gap_id": "validation-owner",
+            "follow_up": "Qui valide la procédure terrain ?",
+            "reason": "Le responsable de validation n'est pas précisé.",
+            "priority": 3,
+        }
+    ]
+    proposal.proposal = payload
+    db_session.commit()
+
+    deferred = update_proposal_open_question_statuses(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        items=[
+            {
+                "question_key": "validation-owner",
+                "question_text": "Qui valide la procédure terrain ?",
+                "status": "deferred",
+            }
+        ],
+        actor_user_id=user.id,
+        actor_label=user.email,
+    )
+    assert deferred.proposal["open_questions"][0]["status"] == "deferred"
+    assert deferred.proposal["open_questions"][0]["status_updated_by_user_id"] == user.id
+
+    restored = update_proposal_open_question_statuses(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        items=[
+            {
+                "question_key": "validation-owner",
+                "question_text": "Qui valide la procédure terrain ?",
+                "status": "open",
+            }
+        ],
+        actor_user_id=user.id,
+        actor_label=user.email,
+    )
+    assert restored.proposal["open_questions"][0]["status"] == "open"
+    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert any(event.event_type == "proposal_open_question_status_updated" for event in events)
 
 
 @pytest.mark.asyncio

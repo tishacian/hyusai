@@ -59,6 +59,7 @@ from app.services.knowledge_capture import (
     serialize_session,
     start_session,
     update_oracle_question_statuses,
+    update_proposal_open_question_statuses,
     update_proposal_report_content,
     update_capture_session_flags,
     update_plan_topics,
@@ -355,6 +356,16 @@ class ProposalContentUpdateRequest(BaseModel):
 class ProposalInstructionRequest(BaseModel):
     instruction: str = Field(..., min_length=1)
     current_content: Optional[str] = None
+
+
+class ProposalOpenQuestionStatusItem(BaseModel):
+    question_key: Optional[str] = None
+    question_text: Optional[str] = None
+    status: Literal["open", "dismissed", "deferred"] = "open"
+
+
+class ProposalOpenQuestionStatusRequest(BaseModel):
+    items: List[ProposalOpenQuestionStatusItem] = Field(default_factory=list)
 
 
 class EventAmendRequest(BaseModel):
@@ -946,6 +957,38 @@ async def update_capture_proposal_content(
             workspace_id=workspace.id,
             proposal_id=proposal_id,
             content=body.content,
+            actor_user_id=user.id,
+            actor_label=_actor_label(user),
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    return serialize_proposal(proposal)
+
+
+@router.patch("/proposals/{proposal_id}/open-questions")
+async def update_capture_proposal_open_questions(
+    proposal_id: str,
+    body: ProposalOpenQuestionStatusRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        existing, session = _load_proposal_with_session(db, workspace_id=workspace.id, proposal_id=proposal_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="knowledge_proposal",
+            action="review_decide",
+            resource_attrs=_proposal_attrs(existing, session),
+            audit_prefix="kc",
+        )
+        proposal = update_proposal_open_question_statuses(
+            db,
+            workspace_id=workspace.id,
+            proposal_id=proposal_id,
+            items=[item.dict() for item in body.items],
             actor_user_id=user.id,
             actor_label=_actor_label(user),
         )

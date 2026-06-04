@@ -580,6 +580,19 @@ export class ApiService {
     return this.patch(`/knowledge-capture/proposals/${proposalId}/content`, { content });
   }
 
+  patchCaptureProposalOpenQuestions(
+    proposalId: string,
+    body: {
+      items: Array<{
+        question_key?: string | null;
+        question_text?: string | null;
+        status: 'open' | 'dismissed' | 'deferred';
+      }>;
+    },
+  ): Observable<unknown> {
+    return this.patch(`/knowledge-capture/proposals/${proposalId}/open-questions`, body);
+  }
+
   applyCaptureProposalInstruction(
     proposalId: string,
     body: { instruction: string; current_content?: string | null },

@@ -6250,15 +6250,41 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   deferProposalOpenQuestion(key: string): void {
-    this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: 'deferred' }));
+    this.setProposalOpenQuestionStatus(key, 'deferred');
   }
 
   restoreProposalOpenQuestion(key: string): void {
-    this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: 'open' }));
+    this.setProposalOpenQuestionStatus(key, 'open');
   }
 
   dismissProposalOpenQuestion(key: string): void {
-    this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: 'dismissed' }));
+    this.setProposalOpenQuestionStatus(key, 'dismissed');
+  }
+
+  private setProposalOpenQuestionStatus(key: string, status: ProposalQuestionStatus): void {
+    const row = this.proposalReviewQuestions().find((candidate) => candidate.key === key);
+    const previousStatus = row?.status || this.proposalQuestionStatuses()[key] || 'open';
+    this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: status }));
+    const proposal = this.proposal();
+    if (!proposal || !row) return;
+    this.api
+      .patchCaptureProposalOpenQuestions(proposal.id, {
+        items: [
+          {
+            question_key: key,
+            question_text: this.proposalQuestionText(row.question),
+            status,
+          },
+        ],
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => this.setProposal(updated as CaptureProposal),
+        error: () => {
+          this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: previousStatus }));
+          this.setVoiceNotice('Statut de question non enregistré pour le moment.', 'error');
+        },
+      });
   }
 
   private proposalQuestionKey(question: ProposalOpenQuestion, index: number): string {

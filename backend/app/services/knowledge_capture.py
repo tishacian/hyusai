@@ -57,6 +57,7 @@ _MIN_PLAN_DIALOGUE_TURNS = 1
 _MIN_PLAN_SUBJECT_CHARS = 12
 RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
 ORACLE_QUESTION_STATUSES = frozenset({"open", "active", "answered", "dismissed", "deferred", "addressed"})
+PROPOSAL_OPEN_QUESTION_STATUSES = frozenset({"open", "dismissed", "deferred"})
 
 _logger = logging.getLogger(__name__)
 POSITIVE_CONFIRMATION_TERMS = (
@@ -886,6 +887,25 @@ def _oracle_question_status_key(
     if clean_text:
         return f"text:{clean_text.lower()}"
     return None
+
+
+def _proposal_open_question_keys(question: Dict[str, Any], index: Optional[int] = None) -> set[str]:
+    keys: set[str] = set()
+    for field in ("gap_id", "follow_up", "reason"):
+        value = _clean_optional_string(question.get(field))
+        if value:
+            keys.add(value)
+            keys.add(value.lower())
+    if index is not None:
+        keys.add(f"question-{index}")
+    return keys
+
+
+def _normalize_proposal_open_question_status(value: Any) -> str:
+    status = str(value or "open").strip().lower()
+    if status not in PROPOSAL_OPEN_QUESTION_STATUSES:
+        return "open"
+    return status
 
 
 def _stored_oracle_question_status(
@@ -4388,6 +4408,119 @@ def review_proposal(
             "outcome": status,
         },
     )
+    db.commit()
+    db.refresh(proposal)
+    return proposal
+
+
+def update_proposal_open_question_statuses(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    proposal_id: str,
+    items: List[Dict[str, Any]],
+    actor_user_id: Optional[str] = None,
+    actor_label: Optional[str] = None,
+) -> KnowledgeUpdateProposal:
+    proposal = (
+        db.query(KnowledgeUpdateProposal)
+        .filter(KnowledgeUpdateProposal.id == proposal_id, KnowledgeUpdateProposal.workspace_id == workspace_id)
+        .first()
+    )
+    if not proposal:
+        raise ValueError("Knowledge update proposal not found")
+    if not items:
+        return proposal
+
+    payload = dict(proposal.proposal or {})
+    questions = [
+        dict(question)
+        for question in (payload.get("open_questions") or [])
+        if isinstance(question, dict)
+    ]
+    if not questions:
+        raise ValueError("Knowledge update proposal has no open questions")
+
+    status_map: Dict[str, str] = {}
+    raw_items: List[Dict[str, Any]] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        status = _normalize_proposal_open_question_status(raw.get("status"))
+        aliases = [
+            raw.get("question_key"),
+            raw.get("key"),
+            raw.get("gap_id"),
+            raw.get("question_text"),
+            raw.get("follow_up"),
+            raw.get("reason"),
+        ]
+        clean_aliases = [
+            alias
+            for alias in (_clean_optional_string(value) for value in aliases)
+            if alias
+        ]
+        if not clean_aliases:
+            continue
+        for alias in clean_aliases:
+            status_map[alias] = status
+            status_map[alias.lower()] = status
+        raw_items.append(
+            {
+                "question_key": clean_aliases[0],
+                "question_text": _clean_optional_string(raw.get("question_text")),
+                "status": status,
+            }
+        )
+
+    if not status_map:
+        return proposal
+
+    updated_count = 0
+    updated_at = datetime.utcnow().isoformat()
+    for index, question in enumerate(questions):
+        question_status = None
+        for key in _proposal_open_question_keys(question, index):
+            if key in status_map:
+                question_status = status_map[key]
+                break
+        if not question_status:
+            continue
+        question["status"] = question_status
+        question["status_updated_at"] = updated_at
+        question["status_updated_by_user_id"] = actor_user_id
+        updated_count += 1
+
+    if not updated_count:
+        return proposal
+
+    payload["open_questions"] = questions
+    proposal.proposal = payload
+    flag_modified(proposal, "proposal")
+
+    session = (
+        db.query(ExpertCaptureSession)
+        .filter(
+            ExpertCaptureSession.id == proposal.session_id,
+            ExpertCaptureSession.workspace_id == workspace_id,
+        )
+        .first()
+    )
+    if session:
+        _record_capture_event(
+            db,
+            session=session,
+            event_type="proposal_open_question_status_updated",
+            source="operator_edit",
+            status="updated",
+            created_by=actor_user_id or actor_label,
+            meta_data={
+                "proposal_id": proposal.id,
+                "items": raw_items,
+                "updated_count": updated_count,
+            },
+        )
+
     db.commit()
     db.refresh(proposal)
     return proposal
