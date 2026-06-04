@@ -700,7 +700,7 @@ interface ProposalFact {
                 <app-icon name="plus" [size]="14" /> {{ isDemoMode() ? 'Nouvelle capture' : 'Nouvelle session' }}
               </button>
             </div>
-            @if (!isDemoMode()) {
+            @if (!isDemoMode() && showAdvancedSetup()) {
             <div class="grid md:grid-cols-4 gap-3">
               <div class="rounded bg-black/20 border border-white/10 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-gray-500">Sessions</div>
@@ -731,7 +731,7 @@ interface ProposalFact {
                     <div>
                       <div class="text-sm font-semibold text-white">{{ row.title }}</div>
                       <p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ sessionCardSummary(row) }}</p>
-                      @if (!isDemoMode() && isAuthor(row)) {
+                      @if (!isDemoMode() && showAdvancedSetup() && isAuthor(row)) {
                         <span class="mt-2 inline-flex px-2 py-0.5 rounded bg-brand-500/15 text-[10px] uppercase tracking-wider text-brand-200">
                           Auteur
                         </span>
@@ -796,9 +796,11 @@ interface ProposalFact {
                     </div>
                     <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ workflowStatusLabel(row.status) }}</span>
                   </div>
+                  @if (showAdvancedSetup()) {
                   <div class="mt-2 text-xs text-gray-500">
                     {{ row.proposal?.captured_facts?.length || 0 }} faits · {{ row.proposal?.audit?.event_count || 0 }} événements d’audit
                   </div>
+                  }
                 </button>
               } @empty {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-6 text-center text-gray-500">
@@ -821,7 +823,7 @@ interface ProposalFact {
                   <h2 class="text-lg font-semibold text-white mt-1 truncate">{{ s.title }}</h2>
                 </div>
                 <div class="flex flex-wrap items-center gap-2 text-xs">
-                  @if (!isDemoMode()) {
+                  @if (!isDemoMode() && showAdvancedSetup()) {
                     <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">{{ workflowStatusLabel(s.status) }}</span>
                   }
                   @if (sessionTimerView(s); as timer) {
@@ -836,7 +838,7 @@ interface ProposalFact {
                   <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
                     {{ captureProgressLabel(s) }}
                   </span>
-                  @if (!isDemoMode()) {
+                  @if (!isDemoMode() && showAdvancedSetup()) {
                     <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
                       {{ s.metrics?.['captured_facts'] || 0 }} faits
                     </span>
