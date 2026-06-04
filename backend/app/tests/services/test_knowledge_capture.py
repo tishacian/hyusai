@@ -478,6 +478,57 @@ async def test_apply_report_instruction_updates_current_report_without_llm(db_se
     assert any(event.event_type == "proposal_report_instruction_applied" for event in events)
 
 
+def test_update_proposal_adds_publication_defaults_and_preserves_editor_choices(db_session):
+    workspace = Workspace(id="ws-capture-publication-defaults", name="Capture Publication Defaults", slug="capture-publication-defaults")
+    context = Context(
+        id="ctx-capture-publication-defaults",
+        workspace_id=workspace.id,
+        name="Maintenance Knowledge",
+        environment_state={"collection": "maintenance-capture-knowledge"},
+    )
+    db_session.add_all([workspace, context])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Maintenance vacuum",
+        objective="Capture maintenance decisions for vacuum inspection and troubleshooting.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=context.id,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=session.plan["questions"][0]["id"],
+        text="Pour la maintenance vacuum, je contrôle les fuites et l'état du filtre avant remise en route.",
+    )
+
+    proposal = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session.id)
+    publication = proposal.proposal["publication"]
+    assert publication["category"] == "maintenance"
+    assert publication["destination"] == "maintenance-capture-knowledge"
+    assert publication["final_title"] == proposal.proposal["recommended_ingestion"]["title"]
+    assert publication["include_unresolved_questions"] is True
+    assert proposal.proposal["recommended_ingestion"]["metadata"]["publication_category_suggested"] == "maintenance"
+
+    payload = dict(proposal.proposal)
+    payload["publication"] = {**publication, "category": "commercial", "destination": "custom-destination"}
+    proposal.proposal = payload
+    db_session.commit()
+
+    regenerated = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert regenerated.proposal["publication"]["category"] == "commercial"
+    assert regenerated.proposal["publication"]["destination"] == "custom-destination"
+
+
 def test_conversation_only_step_flow_requires_voice_confirmation(db_session):
     workspace = Workspace(id="ws-capture-conv", name="Capture Conv", slug="capture-conv")
     db_session.add(workspace)

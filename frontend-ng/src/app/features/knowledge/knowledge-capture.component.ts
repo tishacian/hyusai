@@ -275,8 +275,15 @@ interface CaptureProposal {
     objective?: string;
     captured_facts?: ProposalFact[];
     open_questions?: Array<{ gap_id?: string; reason?: string; follow_up?: string }>;
-    recommended_ingestion?: { content?: string; metadata?: Record<string, any> };
+    recommended_ingestion?: { title?: string; content?: string; metadata?: Record<string, any> };
     report_markdown?: string;
+    publication?: {
+      category?: string | null;
+      destination?: string | null;
+      final_title?: string | null;
+      include_unresolved_questions?: boolean;
+      suggested?: boolean;
+    };
     audit?: { event_count?: number; amendment_count?: number };
   };
 }
@@ -2326,6 +2333,15 @@ interface ProposalFact {
                 </p>
               </div>
 
+              <div>
+                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Titre final</label>
+                <input
+                  class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
+                  [(ngModel)]="publicationFinalTitle"
+                  [placeholder]="publicationFinalTitleLabel()"
+                />
+              </div>
+
               <div class="grid md:grid-cols-2 gap-4">
                 <div>
                   <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Catégorie</label>
@@ -2371,6 +2387,7 @@ interface ProposalFact {
                 <h3 class="text-sm font-semibold text-white mt-1">Prêt à publier</h3>
               </div>
               <div class="rounded border border-white/10 bg-black/20 p-3 text-xs text-gray-300 space-y-2">
+                <p><span class="text-gray-500">Titre :</span> {{ effectivePublicationFinalTitle() }}</p>
                 <p><span class="text-gray-500">Catégorie :</span> {{ publicationCategoryLabel() }}</p>
                 <p><span class="text-gray-500">Destination :</span> {{ effectivePublicationDestination() }}</p>
                 <p><span class="text-gray-500">État :</span> {{ proposalReviewStateLabel() }}</p>
@@ -2450,6 +2467,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   executiveSummary = '';
   publicationCategory = 'technical';
   publicationDestination = '';
+  publicationFinalTitle = '';
   dashboardDomainFilter = '';
   readonly durationUnlimited = signal(false);
   readonly qualityTab = signal<QualityTab>('imprecisions');
@@ -2793,6 +2811,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.executiveSummary = '';
     this.publicationCategory = 'technical';
     this.publicationDestination = '';
+    this.publicationFinalTitle = '';
     this.planSourceStep.set(false);
     this.extractingPlanSource.set(false);
     this.conversationMode.set(this.isDemoMode() ? 'conversation_only' : 'manual');
@@ -3209,9 +3228,37 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.proposalFactEditText = '';
       this.proposalReportDraft = this.proposalReportContent(proposal);
       this.proposalReportDirty.set(false);
+      this.syncPublicationDraftFromProposal(proposal);
     } else if (!this.proposalReportDirty()) {
       this.proposalReportDraft = this.proposalReportContent(proposal);
     }
+  }
+
+  private syncPublicationDraftFromProposal(proposal: CaptureProposal | null): void {
+    const publication = proposal?.proposal?.publication || {};
+    const metadata = proposal?.proposal?.recommended_ingestion?.metadata || {};
+    const category = String(
+      publication.category ||
+      metadata['publication_category'] ||
+      metadata['publication_category_suggested'] ||
+      'technical',
+    );
+    this.publicationCategory = this.publicationCategoryOptions.some((option) => option.id === category)
+      ? category
+      : 'other';
+    this.publicationDestination = String(
+      publication.destination ||
+      metadata['publication_destination'] ||
+      metadata['publication_destination_suggested'] ||
+      '',
+    );
+    this.publicationFinalTitle = String(
+      publication.final_title ||
+      metadata['publication_final_title'] ||
+      proposal?.proposal?.recommended_ingestion?.title ||
+      proposal?.proposal?.title ||
+      '',
+    );
   }
 
   openDashboardSession(row: CaptureSession): void {
@@ -3403,6 +3450,14 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   effectivePublicationDestination(): string {
     return this.publicationDestination.trim() || this.publicationDestinationLabel();
+  }
+
+  publicationFinalTitleLabel(): string {
+    return this.proposal()?.proposal?.title || this.session()?.title || 'Rapport de capture';
+  }
+
+  effectivePublicationFinalTitle(): string {
+    return this.publicationFinalTitle.trim() || this.publicationFinalTitleLabel();
   }
 
   isAuthor(session?: CaptureSession | null): boolean {
@@ -4873,6 +4928,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         .publishCaptureProposal(proposalId, {
           category: this.publicationCategory,
           destination: this.effectivePublicationDestination(),
+          final_title: this.effectivePublicationFinalTitle(),
         })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({

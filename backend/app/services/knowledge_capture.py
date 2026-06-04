@@ -2454,6 +2454,7 @@ async def publish_proposal_to_knowledge(
     actor_label: str,
     category: Optional[str] = None,
     destination: Optional[str] = None,
+    final_title: Optional[str] = None,
 ) -> Dict[str, Any]:
     proposal = (
         db.query(KnowledgeUpdateProposal)
@@ -2473,24 +2474,43 @@ async def publish_proposal_to_knowledge(
     proposal_payload = dict(proposal.proposal or {})
     recommended = dict(proposal_payload.get("recommended_ingestion") or {})
     metadata = dict(recommended.get("metadata") or {})
-    publication_category = _clean_optional_string(category)
-    publication_destination = _clean_optional_string(destination)
     publication_meta = dict(proposal_payload.get("publication") or {})
+    publication_category = (
+        _clean_optional_string(category)
+        or _clean_optional_string(publication_meta.get("category"))
+        or _suggest_publication_category(session, proposal_payload)
+    )
+    publication_destination = (
+        _clean_optional_string(destination)
+        or _clean_optional_string(publication_meta.get("destination"))
+        or _resolve_collection_name(ctx)
+    )
+    publication_title = (
+        _clean_optional_string(final_title)
+        or _clean_optional_string(publication_meta.get("final_title"))
+        or _clean_optional_string(recommended.get("title"))
+        or proposal_payload.get("title")
+        or session.title
+    )
     if publication_category:
         publication_meta["category"] = publication_category
         metadata["publication_category"] = publication_category
     if publication_destination:
         publication_meta["destination"] = publication_destination
         metadata["publication_destination"] = publication_destination
-    if publication_category or publication_destination:
-        publication_meta["updated_at"] = datetime.utcnow().isoformat()
-        publication_meta["updated_by"] = actor_label
-        recommended["metadata"] = metadata
-        proposal_payload["recommended_ingestion"] = recommended
-        proposal_payload["publication"] = publication_meta
-        proposal.proposal = proposal_payload
-        flag_modified(proposal, "proposal")
-        db.flush()
+    if publication_title:
+        publication_meta["final_title"] = publication_title
+        metadata["publication_final_title"] = publication_title
+        recommended["title"] = publication_title
+    publication_meta["updated_at"] = datetime.utcnow().isoformat()
+    publication_meta["updated_by"] = actor_label
+    publication_meta.setdefault("include_unresolved_questions", True)
+    recommended["metadata"] = metadata
+    proposal_payload["recommended_ingestion"] = recommended
+    proposal_payload["publication"] = publication_meta
+    proposal.proposal = proposal_payload
+    flag_modified(proposal, "proposal")
+    db.flush()
     content = ((proposal.proposal or {}).get("recommended_ingestion") or {}).get("content")
     if not content:
         events = list_capture_events(db, workspace_id=workspace.id, session_id=session.id)
@@ -2544,6 +2564,7 @@ async def publish_proposal_to_knowledge(
             "collection": collection.slug,
             "category": publication_category,
             "destination": publication_destination,
+            "final_title": publication_title,
         },
     )
     db.commit()
@@ -2555,6 +2576,7 @@ async def publish_proposal_to_knowledge(
         "status": result.get("status"),
         "category": publication_category,
         "destination": publication_destination,
+        "final_title": publication_title,
     }
 
 
@@ -3278,6 +3300,74 @@ def structure_capture_payload(
             "reason": "Expert captures can change operational knowledge and must be validated before ingestion.",
         },
     }
+
+
+_PUBLICATION_CATEGORIES = {"technical", "commercial", "innovation", "maintenance", "operation", "other"}
+
+
+def _suggest_publication_category(session: ExpertCaptureSession, payload: Dict[str, Any]) -> str:
+    metrics = session.metrics or {}
+    domain = str(metrics.get("capture_domain") or "").strip().lower()
+    if domain in _PUBLICATION_CATEGORIES:
+        return domain
+    recommended = payload.get("recommended_ingestion") if isinstance(payload.get("recommended_ingestion"), dict) else {}
+    text = " ".join(
+        [
+            str(session.title or ""),
+            str(session.objective or ""),
+            str(payload.get("title") or ""),
+            str(payload.get("report_markdown") or ""),
+            str(recommended.get("content") or ""),
+        ]
+    ).lower()
+    category_terms = [
+        ("commercial", ("commercial", "client", "marché", "market", "sales", "account", "offre", "devis")),
+        ("innovation", ("innovation", "prototype", "r&d", "recherche", "roadmap", "essai", "pilote")),
+        ("maintenance", ("maintenance", "entretien", "dépannage", "troubleshoot", "repair", "inspection")),
+        ("operation", ("operation", "opération", "process", "procédé", "production", "runbook", "exploitation")),
+    ]
+    for category, terms in category_terms:
+        if any(term in text for term in terms):
+            return category
+    return "technical"
+
+
+def _apply_publication_defaults(
+    payload: Dict[str, Any],
+    *,
+    session: ExpertCaptureSession,
+    ctx: Optional[Context],
+    previous_publication: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    publication = dict(previous_publication or {})
+    existing = payload.get("publication")
+    if isinstance(existing, dict):
+        publication.update(existing)
+    category = _clean_optional_string(publication.get("category")) or _suggest_publication_category(session, payload)
+    destination = _clean_optional_string(publication.get("destination")) or _resolve_collection_name(ctx)
+    recommended = payload.get("recommended_ingestion") if isinstance(payload.get("recommended_ingestion"), dict) else {}
+    final_title = (
+        _clean_optional_string(publication.get("final_title"))
+        or _clean_optional_string(recommended.get("title"))
+        or _clean_optional_string(payload.get("title"))
+        or session.title
+    )
+    publication.update(
+        {
+            "category": category,
+            "destination": destination,
+            "final_title": final_title,
+            "include_unresolved_questions": True,
+            "suggested": bool(not previous_publication),
+        }
+    )
+    payload["publication"] = publication
+    metadata = dict(recommended.get("metadata") or {})
+    metadata.setdefault("publication_category_suggested", category)
+    metadata.setdefault("publication_destination_suggested", destination)
+    recommended["metadata"] = metadata
+    payload["recommended_ingestion"] = recommended
+    return payload
 
 
 def _fact_from_turn(turn: Dict[str, Any], evaluations: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
@@ -4095,6 +4185,13 @@ def create_update_proposal(
     events = list_capture_events(db, workspace_id=workspace_id, session_id=session_id)
     payload = structure_capture_payload(session, events)
     proposal = _latest_pending_proposal_for_session(db, workspace_id=workspace_id, session_id=session_id)
+    previous_publication = (
+        dict((proposal.proposal or {}).get("publication") or {})
+        if proposal and isinstance((proposal.proposal or {}).get("publication"), dict)
+        else {}
+    )
+    ctx = _load_context(db, workspace_id, session.context_id)
+    payload = _apply_publication_defaults(payload, session=session, ctx=ctx, previous_publication=previous_publication)
     operation = "updated" if proposal else "created"
     if proposal:
         conversation_state = ((proposal.proposal or {}).get("conversation") or {}).copy()

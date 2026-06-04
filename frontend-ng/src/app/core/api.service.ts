@@ -501,7 +501,7 @@ export class ApiService {
 
   publishCaptureProposal(
     proposalId: string,
-    body?: { category?: string | null; destination?: string | null },
+    body?: { category?: string | null; destination?: string | null; final_title?: string | null },
   ): Observable<unknown> {
     return this.post(`/knowledge-capture/proposals/${proposalId}/publish`, body || {});
   }

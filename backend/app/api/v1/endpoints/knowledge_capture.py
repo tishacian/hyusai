@@ -297,6 +297,7 @@ class ProposalExportRequest(BaseModel):
 class ProposalPublishRequest(BaseModel):
     category: Optional[str] = None
     destination: Optional[str] = None
+    final_title: Optional[str] = None
 
 
 class SessionClosureRequest(BaseModel):
@@ -1531,6 +1532,7 @@ async def publish_capture_proposal(
             actor_label=_actor_label(user),
             category=body.category if body else None,
             destination=body.destination if body else None,
+            final_title=body.final_title if body else None,
         )
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc
