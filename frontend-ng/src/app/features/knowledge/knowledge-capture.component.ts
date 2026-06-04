@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom } from 'rxjs';
@@ -206,6 +206,7 @@ type CapturePlanMode = 'ai_plan' | 'provided_plan' | 'free_conversation' | 'plan
 type CapturePlanSourceKind = 'manual' | 'pasted_text' | 'uploaded_file' | 'conversation';
 type CaptureSurfaceView = 'dashboard' | 'prep' | 'plan' | 'plan_build' | 'session' | 'review' | 'publish';
 type QualityTab = 'imprecisions' | 'contradictions' | 'open_questions';
+type PlanOutlineFormatAction = 'indent' | 'outdent' | 'bullet' | 'number' | 'move_up' | 'move_down';
 
 interface QualityBacklogItem {
   id?: string;
@@ -1632,8 +1633,33 @@ interface ProposalFact {
 
               @if (isTopicOnlyPlan(s)) {
                 <div class="space-y-2">
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
+                    @if (canEditPlan(s)) {
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Désindenter" (click)="applyPlanOutlineFormatFrom('plan', s, 'outdent')">
+                          <app-icon name="indent-decrease" [size]="13" />
+                        </button>
+                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Indenter" (click)="applyPlanOutlineFormatFrom('plan', s, 'indent')">
+                          <app-icon name="indent-increase" [size]="13" />
+                        </button>
+                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste à puces" (click)="applyPlanOutlineFormatFrom('plan', s, 'bullet')">
+                          <app-icon name="list" [size]="13" />
+                        </button>
+                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste numérotée" (click)="applyPlanOutlineFormatFrom('plan', s, 'number')">
+                          <app-icon name="list-ordered" [size]="13" />
+                        </button>
+                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Monter la sélection" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_up')">
+                          <app-icon name="arrow-up" [size]="13" />
+                        </button>
+                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_down')">
+                          <app-icon name="arrow-down" [size]="13" />
+                        </button>
+                      </div>
+                    }
+                  </div>
                   <textarea
+                    #planOutlineEditor
                     class="min-h-[22rem] w-full rounded border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm leading-6 text-gray-100 outline-none focus:border-brand-300 disabled:opacity-60"
                     [ngModel]="planOutlineText(s)"
                     (ngModelChange)="updatePlanOutlineText(s, $event)"
@@ -2122,8 +2148,33 @@ interface ProposalFact {
                 }
               }
               <div class="space-y-2">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
+                  @if (canEditPlan(s)) {
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Désindenter" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'outdent')">
+                        <app-icon name="indent-decrease" [size]="13" />
+                      </button>
+                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Indenter" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'indent')">
+                        <app-icon name="indent-increase" [size]="13" />
+                      </button>
+                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste à puces" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'bullet')">
+                        <app-icon name="list" [size]="13" />
+                      </button>
+                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste numérotée" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'number')">
+                        <app-icon name="list-ordered" [size]="13" />
+                      </button>
+                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Monter la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_up')">
+                        <app-icon name="arrow-up" [size]="13" />
+                      </button>
+                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_down')">
+                        <app-icon name="arrow-down" [size]="13" />
+                      </button>
+                    </div>
+                  }
+                </div>
                 <textarea
+                  #planBuildOutlineEditor
                   class="min-h-[22rem] w-full rounded border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm leading-6 text-gray-100 outline-none focus:border-brand-300 disabled:opacity-60"
                   [ngModel]="planOutlineText(s)"
                   (ngModelChange)="updatePlanOutlineText(s, $event)"
@@ -2495,6 +2546,9 @@ interface ProposalFact {
   `,
 })
 export class KnowledgeCaptureComponent implements OnInit {
+  @ViewChild('planOutlineEditor') private planOutlineEditor?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('planBuildOutlineEditor') private planBuildOutlineEditor?: ElementRef<HTMLTextAreaElement>;
+
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
@@ -4447,6 +4501,88 @@ export class KnowledgeCaptureComponent implements OnInit {
     session.plan.questions = [];
     this.session.set({ ...session, plan: { ...session.plan, topics, questions: [] } });
     this.touchPlanDraft();
+  }
+
+  applyPlanOutlineFormatFrom(editor: 'plan' | 'plan_build', session: CaptureSession, action: PlanOutlineFormatAction): void {
+    const textarea =
+      editor === 'plan'
+        ? this.planOutlineEditor?.nativeElement
+        : this.planBuildOutlineEditor?.nativeElement;
+    if (!textarea) return;
+    this.applyPlanOutlineFormat(session, textarea, action);
+  }
+
+  applyPlanOutlineFormat(session: CaptureSession, textarea: HTMLTextAreaElement, action: PlanOutlineFormatAction): void {
+    if (!this.canEditPlan(session)) return;
+    const original = textarea.value || this.planOutlineText(session);
+    const lines = original.split('\n');
+    const range = this.selectedPlanOutlineLines(original, textarea.selectionStart || 0, textarea.selectionEnd || 0);
+    let nextLines = [...lines];
+    let nextStartLine = range.startLine;
+    let nextEndLine = range.endLine;
+    const count = range.endLine - range.startLine + 1;
+
+    if (action === 'move_up') {
+      if (range.startLine === 0) return;
+      const selected = nextLines.splice(range.startLine, count);
+      nextLines.splice(range.startLine - 1, 0, ...selected);
+      nextStartLine -= 1;
+      nextEndLine -= 1;
+    } else if (action === 'move_down') {
+      if (range.endLine >= nextLines.length - 1) return;
+      const selected = nextLines.splice(range.startLine, count);
+      nextLines.splice(range.startLine + 1, 0, ...selected);
+      nextStartLine += 1;
+      nextEndLine += 1;
+    } else {
+      nextLines = nextLines.map((line, index) => {
+        if (index < range.startLine || index > range.endLine) return line;
+        return this.formatPlanOutlineLine(line, action, index - range.startLine + 1);
+      });
+    }
+
+    const nextText = nextLines.join('\n');
+    this.updatePlanOutlineText(session, nextText);
+    const selectionStart = this.planOutlineLineOffset(nextLines, nextStartLine);
+    const selectionEnd = this.planOutlineLineOffset(nextLines, nextEndLine) + (nextLines[nextEndLine]?.length || 0);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(selectionStart, selectionEnd);
+    });
+  }
+
+  private selectedPlanOutlineLines(text: string, start: number, end: number): { startLine: number; endLine: number } {
+    const safeStart = Math.max(0, Math.min(start, text.length));
+    const rawEnd = Math.max(safeStart, Math.min(end, text.length));
+    const safeEnd = rawEnd > safeStart && text[rawEnd - 1] === '\n' ? rawEnd - 1 : rawEnd;
+    return {
+      startLine: text.slice(0, safeStart).split('\n').length - 1,
+      endLine: text.slice(0, safeEnd).split('\n').length - 1,
+    };
+  }
+
+  private planOutlineLineOffset(lines: string[], lineIndex: number): number {
+    let offset = 0;
+    for (let index = 0; index < lineIndex; index += 1) {
+      offset += (lines[index] || '').length + 1;
+    }
+    return offset;
+  }
+
+  private formatPlanOutlineLine(line: string, action: PlanOutlineFormatAction, number: number): string {
+    if (action === 'indent') return `   ${line}`;
+    if (action === 'outdent') return line.replace(/^( {1,3}|\t)/, '');
+    const indent = line.match(/^\s*/)?.[0] || '';
+    const body = this.stripPlanOutlineMarker(line.trim()) || 'Point à préciser';
+    if (action === 'bullet') return `${indent}- ${body}`;
+    if (action === 'number') return `${indent}${number}. ${body}`;
+    return line;
+  }
+
+  private stripPlanOutlineMarker(value: string): string {
+    return value
+      .replace(/^(?:#{1,6}\s+|\d+(?:\.\d+)*[.)]?\s+|[a-zA-Z][.)]\s+|[-*•·▪◦]\s+)/, '')
+      .trim();
   }
 
   private resetPlanOutlineDraft(session: CaptureSession): void {
