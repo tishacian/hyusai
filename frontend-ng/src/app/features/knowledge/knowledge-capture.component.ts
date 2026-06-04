@@ -2563,8 +2563,8 @@ interface ProposalFact {
                 <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Ce qui sera publié</p>
                 <p class="mt-2 text-sm text-gray-200 leading-relaxed">
                   {{ proposalReportWordCount() }} mots dans le rapport final.
-                  @if (proposalOpenQuestions().length) {
-                    {{ proposalOpenQuestions().length }} question(s) ouverte(s) seront conservées en fin de document.
+                  @if (proposalReviewQuestions().length) {
+                    {{ proposalReviewQuestions().length }} question(s) non résolue(s) seront conservées en fin de document.
                   } @else {
                     Aucune question ouverte détectée.
                   }
