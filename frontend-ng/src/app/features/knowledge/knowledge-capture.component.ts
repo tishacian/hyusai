@@ -4791,11 +4791,17 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   onPlanOutlineKeydown(event: KeyboardEvent, session: CaptureSession): void {
-    if (event.key !== 'Tab') return;
-    event.preventDefault();
     const textarea = event.target as HTMLTextAreaElement | null;
     if (!textarea) return;
-    this.applyPlanOutlineIndentShortcut(session, textarea, event.shiftKey ? 'outdent' : 'indent');
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      this.applyPlanOutlineIndentShortcut(session, textarea, event.shiftKey ? 'outdent' : 'indent');
+      return;
+    }
+    if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      this.applyPlanOutlineEnterShortcut(session, textarea);
+    }
   }
 
   applyPlanOutlineFormatFrom(editor: 'plan' | 'plan_build', session: CaptureSession, action: PlanOutlineFormatAction): void {
@@ -4836,6 +4842,9 @@ export class KnowledgeCaptureComponent implements OnInit {
         if (index < range.startLine || index > range.endLine) return line;
         return this.formatPlanOutlineLine(line, action, index - range.startLine + 1);
       });
+      if (action === 'indent' || action === 'outdent') {
+        nextLines = this.renumberPlanOutlineLines(nextLines);
+      }
     }
 
     const nextText = nextLines.join('\n');
@@ -4875,12 +4884,74 @@ export class KnowledgeCaptureComponent implements OnInit {
       }
     }
 
-    const nextText = lines.join('\n');
+    const nextLines = this.renumberPlanOutlineLines(lines);
+    const nextText = nextLines.join('\n');
     textarea.value = nextText;
     this.updatePlanOutlineText(session, nextText);
     requestAnimationFrame(() => {
       textarea.focus();
       textarea.setSelectionRange(Math.max(0, nextStart), Math.max(0, nextEnd));
+    });
+  }
+
+  private applyPlanOutlineEnterShortcut(session: CaptureSession, textarea: HTMLTextAreaElement): void {
+    if (!this.canEditPlan(session)) return;
+    const original = textarea.value || this.planOutlineText(session);
+    const start = textarea.selectionStart || 0;
+    const end = textarea.selectionEnd || start;
+    const collapsed = `${original.slice(0, start)}${original.slice(end)}`;
+    const cursor = start;
+    const lineStart = collapsed.lastIndexOf('\n', Math.max(0, cursor - 1)) + 1;
+    const nextBreak = collapsed.indexOf('\n', cursor);
+    const lineEnd = nextBreak >= 0 ? nextBreak : collapsed.length;
+    const currentLine = collapsed.slice(lineStart, lineEnd);
+    const lineIndex = collapsed.slice(0, lineStart).split('\n').length - 1;
+    const marker = this.planOutlineMarker(currentLine);
+
+    if (!marker) {
+      const indent = currentLine.match(/^\s*/)?.[0] || '';
+      const nextText = `${collapsed.slice(0, cursor)}\n${indent}${collapsed.slice(cursor)}`;
+      const nextCursor = cursor + 1 + indent.length;
+      textarea.value = nextText;
+      this.updatePlanOutlineText(session, nextText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.setSelectionRange(nextCursor, nextCursor);
+      });
+      return;
+    }
+
+    const cursorInLine = cursor - lineStart;
+    const cursorAfterMarker = cursorInLine >= marker.prefixLength;
+    if (cursorAfterMarker && !marker.body.trim()) {
+      const lines = collapsed.split('\n');
+      lines[lineIndex] = marker.indent;
+      const nextLines = this.renumberPlanOutlineLines(lines);
+      const nextCursor = this.planOutlineLineOffset(nextLines, lineIndex) + marker.indent.length;
+      const nextText = nextLines.join('\n');
+      textarea.value = nextText;
+      this.updatePlanOutlineText(session, nextText);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.setSelectionRange(nextCursor, nextCursor);
+      });
+      return;
+    }
+
+    const provisionalMarker = marker.ordered ? '1. ' : marker.marker;
+    const inserted = `\n${marker.indent}${provisionalMarker}`;
+    const provisionalText = `${collapsed.slice(0, cursor)}${inserted}${collapsed.slice(cursor)}`;
+    const provisionalLines = provisionalText.split('\n');
+    const insertedLineIndex = lineIndex + 1;
+    const nextLines = marker.ordered ? this.renumberPlanOutlineLines(provisionalLines) : provisionalLines;
+    const prefixLength = this.planOutlineMarker(nextLines[insertedLineIndex] || '')?.prefixLength || marker.indent.length;
+    const nextCursor = this.planOutlineLineOffset(nextLines, insertedLineIndex) + prefixLength;
+    const nextText = nextLines.join('\n');
+    textarea.value = nextText;
+    this.updatePlanOutlineText(session, nextText);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
     });
   }
 
@@ -4921,9 +4992,30 @@ export class KnowledgeCaptureComponent implements OnInit {
       counters[level] = (counters[level] || 0) + 1;
       counters.length = level + 1;
       previousLevel = level;
-      const body = this.stripPlanOutlineMarker(line.trim()) || 'Point à préciser';
+      const marker = this.planOutlineMarker(line);
+      const strippedBody = this.stripPlanOutlineMarker(line.trim());
+      const body = strippedBody || (marker ? '' : 'Point à préciser');
       return `${'   '.repeat(level)}${counters.slice(0, level + 1).join('.')}. ${body}`;
     });
+  }
+
+  private planOutlineMarker(line: string): {
+    indent: string;
+    marker: string;
+    body: string;
+    prefixLength: number;
+    ordered: boolean;
+  } | null {
+    const match = /^(\s*)((?:(?:\d+(?:\.\d+)*)|[a-zA-Z])[.)]\s+|[-*•·▪◦]\s+)(.*)$/.exec(line);
+    if (!match) return null;
+    const marker = match[2] || '';
+    return {
+      indent: match[1] || '',
+      marker,
+      body: match[3] || '',
+      prefixLength: (match[1] || '').length + marker.length,
+      ordered: /^(?:\d|[a-zA-Z])/.test(marker),
+    };
   }
 
   private planOutlineIndentLevel(line: string): number {
@@ -4953,7 +5045,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           return title && !(subtopics.length === 1 && title === topic.title && !subtopic.objective);
         });
         visibleSubtopics.forEach((subtopic, subtopicIndex) => {
-          lines.push(`   ${String.fromCharCode(97 + subtopicIndex)}. ${subtopic.title}`);
+          lines.push(`   ${topicIndex + 1}.${subtopicIndex + 1}. ${subtopic.title}`);
         });
         return lines.join('\n');
       })
