@@ -819,7 +819,9 @@ interface ProposalFact {
                   <h2 class="text-lg font-semibold text-white mt-1 truncate">{{ s.title }}</h2>
                 </div>
                 <div class="flex flex-wrap items-center gap-2 text-xs">
-                  <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">{{ workflowStatusLabel(s.status) }}</span>
+                  @if (!isDemoMode()) {
+                    <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">{{ workflowStatusLabel(s.status) }}</span>
+                  }
                   @if (sessionTimerView(s); as timer) {
                     <span
                       [class]="timer.blink
@@ -2247,8 +2249,10 @@ interface ProposalFact {
                   Relisez et corrigez le document qui sera publié.
                 </p>
               </div>
-              @if (proposal(); as p) {
-                <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">{{ workflowStatusLabel(p.status) }}</span>
+              @if (!isDemoMode()) {
+                @if (proposal(); as p) {
+                  <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">{{ workflowStatusLabel(p.status) }}</span>
+                }
               }
             </div>
 
