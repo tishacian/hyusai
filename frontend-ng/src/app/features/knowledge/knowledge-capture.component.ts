@@ -962,7 +962,7 @@ interface ProposalFact {
 
             <section
               [class]="isDemoMode()
-                ? 'grid xl:grid-cols-[280px_minmax(0,1fr)] gap-4 items-start'
+                ? 'grid xl:grid-cols-[380px_minmax(0,1fr)] gap-4 items-start'
                 : (showAdvancedSetup() || proposal())
                   ? 'grid xl:grid-cols-[300px_minmax(0,1fr)_360px] gap-4 items-start'
                   : 'grid xl:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start'"
@@ -1011,7 +1011,7 @@ interface ProposalFact {
                       <div class="rounded border border-white/10 bg-white/[0.03] p-3">
                         <div class="flex items-start justify-between gap-3">
                           <div class="min-w-0">
-                            <div class="text-xs font-semibold text-gray-200 truncate">{{ topic.title }}</div>
+                            <div class="text-xs font-semibold leading-snug text-gray-200">{{ topic.title }}</div>
                             @if (outlineItemPrompt(topic) || topic.objective; as topicHint) {
                               <p class="mt-1 text-[11px] text-gray-500 line-clamp-2">{{ topicHint }}</p>
                             }
@@ -1027,7 +1027,7 @@ interface ProposalFact {
                             (click)="selectCaptureSubtopic(subtopic.id)"
                           >
                             <span class="min-w-0">
-                              <span class="block truncate">{{ subtopic.title }}</span>
+                              <span class="block leading-snug">{{ subtopic.title }}</span>
                               @if (outlineItemPrompt(subtopic) || subtopic.objective; as subHint) {
                                 <span class="mt-0.5 block truncate text-[10px] opacity-70">{{ subHint }}</span>
                               }
@@ -1157,12 +1157,52 @@ interface ProposalFact {
                   <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
                       <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">
-                        Rappel du plan · vous parlez librement
+                        Plan de capture · vous parlez librement
                       </p>
-                      @if (isDemoMode() && captureOutlineTitle(); as outlineTitle) {
-                        <p class="mt-1 text-sm font-semibold text-white">{{ outlineTitle }}</p>
+                      @if (planTopics(s).length) {
+                        <div class="mt-3 max-h-[42vh] overflow-y-auto pr-1">
+                          <div class="space-y-3">
+                            @for (topic of planTopics(s); track topic.id; let topicIndex = $index) {
+                              <article [class]="captureTopicCardClass(s, topic)">
+                                <div class="flex items-start gap-3">
+                                  <span class="mt-0.5 inline-flex h-6 min-w-6 items-center justify-center rounded bg-brand-500/20 text-xs font-semibold text-brand-100 ring-1 ring-brand-300/20">
+                                    {{ topicIndex + 1 }}
+                                  </span>
+                                  <div class="min-w-0 flex-1">
+                                    <h3 class="text-base font-semibold leading-snug text-white">{{ topic.title }}</h3>
+                                    @if (outlineItemPrompt(topic) || topic.objective; as topicHint) {
+                                      <p class="mt-1 text-xs leading-relaxed text-gray-400">{{ topicHint }}</p>
+                                    }
+                                    @if ((topic.subtopics || []).length) {
+                                      <div class="mt-3 space-y-2">
+                                        @for (subtopic of topic.subtopics || []; track subtopic.id; let subtopicIndex = $index) {
+                                          <button
+                                            type="button"
+                                            [class]="captureSubtopicCardClass(s, subtopic)"
+                                            (click)="selectCaptureSubtopic(subtopic.id)"
+                                          >
+                                            <span class="ck-mono mt-0.5 shrink-0 text-[10px] text-brand-200/80">
+                                              {{ topicIndex + 1 }}.{{ subtopicIndex + 1 }}
+                                            </span>
+                                            <span class="min-w-0">
+                                              <span class="block text-left text-sm leading-snug">{{ subtopic.title }}</span>
+                                              @if (outlineItemPrompt(subtopic) || subtopic.objective; as subHint) {
+                                                <span class="mt-0.5 block text-left text-[11px] leading-snug opacity-75">{{ subHint }}</span>
+                                              }
+                                            </span>
+                                          </button>
+                                        }
+                                      </div>
+                                    }
+                                  </div>
+                                </div>
+                              </article>
+                            }
+                          </div>
+                        </div>
+                      } @else {
+                        <p class="mt-2 text-lg text-white leading-relaxed">Parlez librement : ce repère est seulement là pour ne rien oublier.</p>
                       }
-                      <p class="mt-2 text-lg text-white leading-relaxed">{{ currentPromptText() || 'Parlez librement : ce repère est seulement là pour ne rien oublier.' }}</p>
                     </div>
                     <button
                       type="button"
@@ -1407,7 +1447,7 @@ interface ProposalFact {
                         (click)="startGuidedSession(s)"
                       >
                         <app-icon [name]="planStartIcon(s)" [size]="15" />
-                        {{ planStartLabel(s) }}
+                        {{ loading() ? 'Préparation...' : planStartLabel(s) }}
                       </button>
                     }
                     @if (showAnswerComposer(s)) {
@@ -3519,7 +3559,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           if (conversationOnly && armed) {
             void this.ensureVoiceConnection(typed).then(() => {
               const firstPrompt = this.currentPromptText();
-              if (firstPrompt && !this.isFreeConversationSession(typed)) {
+              if (firstPrompt && !this.isFreeConversationSession(typed) && !this.isTopicOnlyPlan(typed)) {
                 this.speak(firstPrompt);
               } else {
                 void this.startRecordingTurn();
@@ -5104,6 +5144,27 @@ export class KnowledgeCaptureComponent implements OnInit {
       : 'mt-2 flex w-full items-center justify-between gap-2 rounded border border-transparent px-2 py-2 text-left text-sm text-gray-400 hover:border-white/10 hover:bg-white/[0.04] hover:text-gray-200';
   }
 
+  topicHasActiveSubtopic(session: CaptureSession, topic: CaptureTopic): boolean {
+    return (topic.subtopics || []).some((subtopic) =>
+      this.activeSubtopicId() === subtopic.id || this.subtopicHasCurrentQuestion(session, subtopic),
+    );
+  }
+
+  captureTopicCardClass(session: CaptureSession, topic: CaptureTopic): string {
+    const base = 'rounded border p-3';
+    return this.topicHasActiveSubtopic(session, topic)
+      ? `${base} border-brand-300/35 bg-brand-500/15`
+      : `${base} border-white/10 bg-black/20`;
+  }
+
+  captureSubtopicCardClass(session: CaptureSession, subtopic: CaptureSubtopic): string {
+    const active = this.activeSubtopicId() === subtopic.id || this.subtopicHasCurrentQuestion(session, subtopic);
+    const base = 'flex w-full items-start gap-2 rounded px-3 py-2 text-left';
+    return active
+      ? `${base} bg-brand-300/15 text-brand-50 ring-1 ring-brand-300/30`
+      : `${base} bg-white/[0.035] text-gray-300 hover:bg-white/[0.07] hover:text-white`;
+  }
+
   subtopicProgressLabel(session: CaptureSession, subtopic: CaptureSubtopic): string {
     const count = this.subtopicQuestionCount(subtopic);
     if (!count) return this.activeSubtopicId() === subtopic.id ? 'actif' : 'sujet';
@@ -5983,11 +6044,11 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   planStartIcon(_session?: CaptureSession): string {
-    return 'arrow-right';
+    return 'mic';
   }
 
   planStartLabel(_session?: CaptureSession): string {
-    return 'Continuer';
+    return 'Parler';
   }
 
   conversationPrimaryIcon(): string {
@@ -5995,8 +6056,8 @@ export class KnowledgeCaptureComponent implements OnInit {
       return this.recording() ? 'square' : 'mic';
     }
     if (this.recording()) return 'square';
-    if (this.speaking()) return 'mic';
-    return this.conversationSessionActive() ? 'pause' : 'play';
+    if (this.speaking()) return 'pause';
+    return 'mic';
   }
 
   conversationPrimaryLabel(): string {
@@ -6010,8 +6071,9 @@ export class KnowledgeCaptureComponent implements OnInit {
             : 'Démarrer';
     }
     if (this.transcribing()) return 'Transcription';
-    if (this.recording() || this.speaking()) return 'Pause';
-    return this.conversationSessionActive() ? 'Pause' : 'Démarrer';
+    if (this.recording()) return 'Arrêter';
+    if (this.speaking()) return 'Pause';
+    return 'Parler';
   }
 
   emptyConversationHint(): string {
@@ -7057,7 +7119,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     if (this.conversationSessionActive()) {
-      this.stopConversationSession();
+      await this.startRecordingTurn();
       return;
     }
     const session = this.session();
@@ -7081,7 +7143,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     this.textFallbackActive.set(false);
     const firstPrompt = this.currentPromptText();
-    if (firstPrompt && !(session && this.isFreeConversationSession(session))) {
+    if (firstPrompt && !(session && (this.isFreeConversationSession(session) || this.isTopicOnlyPlan(session)))) {
       this.speak(firstPrompt);
       return;
     }
@@ -7126,7 +7188,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   captureProgressLabel(session: CaptureSession): string {
     if (this.isFreeConversationSession(session)) return 'Capture libre';
     const total = this.planQuestions(session).length;
-    if (!total) return 'Sans plan';
+    if (!total) {
+      const topics = this.planTopics(session).length;
+      return topics ? `${topics} sujet(s)` : 'Sans plan';
+    }
     return `${this.currentQuestionPosition(session)}/${total}`;
   }
 
