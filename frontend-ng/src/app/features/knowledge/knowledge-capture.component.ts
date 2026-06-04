@@ -206,7 +206,7 @@ type CapturePlanMode = 'ai_plan' | 'provided_plan' | 'free_conversation' | 'plan
 type CapturePlanSourceKind = 'manual' | 'pasted_text' | 'uploaded_file' | 'conversation';
 type CaptureSurfaceView = 'dashboard' | 'prep' | 'plan' | 'plan_build' | 'session' | 'review' | 'publish';
 type QualityTab = 'imprecisions' | 'contradictions' | 'open_questions';
-type PlanOutlineFormatAction = 'indent' | 'outdent' | 'bullet' | 'number' | 'move_up' | 'move_down';
+type PlanOutlineFormatAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down';
 
 interface QualityBacklogItem {
   id?: string;
@@ -1497,15 +1497,6 @@ interface ProposalFact {
                       </button>
                     }
                   </div>
-                  <label class="mt-3 flex items-center gap-2 text-xs text-gray-400 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      class="rounded border-white/20"
-                      [checked]="deferWeakContradictions()"
-                      (change)="toggleDeferWeakContradictions(s, $any($event.target).checked)"
-                    />
-                    Ne pas interrompre pour contradictions faibles
-                  </label>
                   <div class="mt-3 space-y-2 max-h-48 overflow-auto">
                     @for (item of activeQualityItems(); track item.id) {
                       <article class="rounded border border-white/10 bg-black/20 p-3">
@@ -1753,10 +1744,7 @@ interface ProposalFact {
                         <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Indenter (Tab)" aria-label="Indenter" (click)="applyPlanOutlineFormatFrom('plan', s, 'indent')">
                           <app-icon name="list-indent-increase" [size]="15" />
                         </button>
-                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste à puces" aria-label="Transformer en liste à puces" (click)="applyPlanOutlineFormatFrom('plan', s, 'bullet')">
-                          <app-icon name="list" [size]="15" />
-                        </button>
-                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste numérotée" aria-label="Transformer en liste numérotée" (click)="applyPlanOutlineFormatFrom('plan', s, 'number')">
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Remettre en forme la numérotation" aria-label="Remettre en forme la numérotation" (click)="applyPlanOutlineFormatFrom('plan', s, 'renumber')">
                           <app-icon name="list-ordered" [size]="15" />
                         </button>
                         <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Monter la sélection" aria-label="Monter la sélection" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_up')">
@@ -2242,19 +2230,6 @@ interface ProposalFact {
                   }
                 </section>
               }
-              @if (planOracle(s); as oracle) {
-                @if (oracle.contradiction_candidates?.length) {
-                  <section class="rounded border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-300">Contradictions détectées</p>
-                    @for (item of oracle.contradiction_candidates; track $index) {
-                      <article class="text-sm text-gray-200 space-y-1">
-                        <p><span class="text-amber-200">Expert :</span> {{ item.claim_expert }}</p>
-                        <p><span class="text-gray-400">KB :</span> {{ item.claim_kb }}</p>
-                      </article>
-                    }
-                  </section>
-                }
-              }
               <div class="space-y-2">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
@@ -2266,10 +2241,7 @@ interface ProposalFact {
                       <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Indenter (Tab)" aria-label="Indenter" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'indent')">
                         <app-icon name="list-indent-increase" [size]="15" />
                       </button>
-                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste à puces" aria-label="Transformer en liste à puces" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'bullet')">
-                        <app-icon name="list" [size]="15" />
-                      </button>
-                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste numérotée" aria-label="Transformer en liste numérotée" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'number')">
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Remettre en forme la numérotation" aria-label="Remettre en forme la numérotation" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'renumber')">
                         <app-icon name="list-ordered" [size]="15" />
                       </button>
                       <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Monter la sélection" aria-label="Monter la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_up')">
@@ -2790,7 +2762,6 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly questionBankStatus = signal<string>('idle');
   readonly qualityTabs = [
     { id: 'imprecisions' as QualityTab, label: 'Imprécisions' },
-    { id: 'contradictions' as QualityTab, label: 'Contradictions' },
     { id: 'open_questions' as QualityTab, label: 'Questions' },
   ];
   readonly captureDomains = [
@@ -2919,7 +2890,6 @@ export class KnowledgeCaptureComponent implements OnInit {
     const backlog = this.qualityBacklog();
     const items = [
       ...backlog.imprecisions,
-      ...backlog.contradictions,
       ...backlog.open_questions,
     ];
     return items.filter((item) => {
@@ -3580,7 +3550,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         .getCaptureQualityBacklog(row.id)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe((payload) => {
-          for (const bucket of ['imprecisions', 'contradictions', 'open_questions'] as const) {
+          for (const bucket of ['imprecisions', 'open_questions'] as const) {
             for (const item of (payload[bucket] || []) as QualityBacklogItem[]) {
               const status = item.status || 'open';
               if (status === 'open' || status === 'deferred') {
@@ -4807,7 +4777,9 @@ export class KnowledgeCaptureComponent implements OnInit {
     let nextEndLine = range.endLine;
     const count = range.endLine - range.startLine + 1;
 
-    if (action === 'move_up') {
+    if (action === 'renumber') {
+      nextLines = this.renumberPlanOutlineLines(nextLines);
+    } else if (action === 'move_up') {
       if (range.startLine === 0) return;
       const selected = nextLines.splice(range.startLine, count);
       nextLines.splice(range.startLine - 1, 0, ...selected);
@@ -4893,11 +4865,32 @@ export class KnowledgeCaptureComponent implements OnInit {
   private formatPlanOutlineLine(line: string, action: PlanOutlineFormatAction, number: number): string {
     if (action === 'indent') return `   ${line}`;
     if (action === 'outdent') return line.replace(/^( {1,3}|\t)/, '');
-    const indent = line.match(/^\s*/)?.[0] || '';
-    const body = this.stripPlanOutlineMarker(line.trim()) || 'Point à préciser';
-    if (action === 'bullet') return `${indent}- ${body}`;
-    if (action === 'number') return `${indent}${number}. ${body}`;
     return line;
+  }
+
+  private renumberPlanOutlineLines(lines: string[]): string[] {
+    const counters: number[] = [];
+    let previousLevel = 0;
+    return lines.map((line) => {
+      if (!line.trim()) return line;
+      const requestedLevel = this.planOutlineIndentLevel(line);
+      const level = counters.length ? Math.min(requestedLevel, previousLevel + 1) : 0;
+      for (let index = 0; index < level; index += 1) {
+        counters[index] = counters[index] || 1;
+      }
+      counters[level] = (counters[level] || 0) + 1;
+      counters.length = level + 1;
+      previousLevel = level;
+      const body = this.stripPlanOutlineMarker(line.trim()) || 'Point à préciser';
+      return `${'   '.repeat(level)}${counters.slice(0, level + 1).join('.')}. ${body}`;
+    });
+  }
+
+  private planOutlineIndentLevel(line: string): number {
+    const prefix = line.match(/^\s*/)?.[0] || '';
+    const width = Array.from(prefix).reduce((sum, character) => sum + (character === '\t' ? 3 : 1), 0);
+    if (width <= 0) return 0;
+    return Math.max(1, Math.round(width / 3));
   }
 
   private stripPlanOutlineMarker(value: string): string {
@@ -5154,8 +5147,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     const oracle = session.plan.oracle;
     if (!oracle) return null;
     const hasGaps = (oracle.coverage_gaps?.length || 0) > 0;
-    const hasContradictions = (oracle.contradiction_candidates?.length || 0) > 0;
-    return hasGaps || hasContradictions ? oracle : null;
+    return hasGaps ? oracle : null;
   }
 
   planTopicRationale(topic: CaptureTopic): string | null {
@@ -5205,13 +5197,14 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   activeQualityItems(): QualityBacklogItem[] {
     const tab = this.qualityTab();
+    if (tab === 'contradictions') return [];
     const backlog = this.qualityBacklog();
     return backlog[tab] || [];
   }
 
   qualityBacklogCount(): number {
     const backlog = this.qualityBacklog();
-    return backlog.imprecisions.length + backlog.contradictions.length + backlog.open_questions.length;
+    return backlog.imprecisions.length + backlog.open_questions.length;
   }
 
   residualQualityCount(): number {
