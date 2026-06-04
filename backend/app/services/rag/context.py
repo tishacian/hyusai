@@ -168,6 +168,18 @@ def _explicit_mode(value: Any) -> str | None:
     return mode
 
 
+def _mode_requests_dense_only(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"vector", "vector_only", "dense", "dense_only"}
+
+
+def _native_qdrant_sparse_hybrid_available() -> bool:
+    backend = str(getattr(settings, "rag_sparse_backend", "auto") or "auto").strip().lower()
+    return bool(
+        getattr(settings, "rag_qdrant_sparse_enabled", False)
+        and backend in {"auto", "qdrant", "qdrant_sparse"}
+    )
+
+
 def _similarity_threshold() -> float:
     try:
         return max(0.0, min(1.0, float(getattr(settings, "rag_similarity_threshold", 0.0) or 0.0)))
@@ -1752,6 +1764,14 @@ async def retrieve_rag_context(
         if corpus_plan.dense_policy.startswith("fast_scoped_dense"):
             mode_label = corpus_plan.dense_policy
             mode_reason = corpus_plan.scope_reason
+    planner_disabled_hybrid = bool(corpus_plan is not None and corpus_plan.use_hybrid is False)
+    if (
+        _native_qdrant_sparse_hybrid_available()
+        and not _mode_requests_dense_only(profile.get("rag_mode"))
+        and not planner_disabled_hybrid
+    ):
+        use_hybrid = True
+        allow_legacy_hybrid = False
     is_discovery = is_document_discovery_query(retrieval_query)
     pool_top_k = (
         profile["candidate_pool_k"]
@@ -2143,6 +2163,13 @@ async def _retrieve_multi_collection_context(
                 effective_mode = "naive"
                 if planned_use_hybrid is None:
                     use_hybrid = False
+            if (
+                _native_qdrant_sparse_hybrid_available()
+                and not _mode_requests_dense_only(profile.get("rag_mode"))
+                and planned_use_hybrid is not False
+            ):
+                use_hybrid = True
+                allow_legacy_hybrid = False
             remaining_seconds = max(retrieval_loop_deadline_perf - time.perf_counter(), 0.001)
             result = await asyncio.wait_for(
                 retrieve_for_mode(

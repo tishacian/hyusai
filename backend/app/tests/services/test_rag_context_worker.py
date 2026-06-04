@@ -317,6 +317,79 @@ async def test_retrieve_rag_context_skips_similarity_threshold_for_rrf(monkeypat
     assert result["collection_errors"] == []
 
 
+async def test_oracle_fast_standard_scope_prefers_native_qdrant_hybrid(monkeypatch):
+    monkeypatch.setattr(rag_context.settings, "rag_qdrant_sparse_enabled", True)
+    monkeypatch.setattr(rag_context.settings, "rag_sparse_backend", "auto")
+    captured = {}
+
+    async def _fake_retrieve(doc_svc, query, mode, **kwargs):  # noqa: ARG001
+        captured.update({"mode": mode, **kwargs})
+        return SimpleNamespace(
+            chunks=["hybrid qdrant chunk"],
+            scores=[0.031],
+            metadatas=[{"document_filename": "manual.md", "sparse_backend": "qdrant_sparse", "sparse_status": "ok"}],
+            pipeline="hybrid",
+            label="hybrid_rrf",
+            reason="native qdrant hybrid",
+            detail="test",
+            diagnostics={"sparse_backend": "qdrant_sparse", "sparse_status": "ok"},
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "prélecture capture vibration",
+            "retrieval_profile": "oracle_fast",
+            "rag_pipeline_mode": "auto",
+        },
+        doc_svc=FakeDocumentService(),
+    )
+
+    assert captured["mode"] == "naive"
+    assert captured["use_hybrid"] is True
+    assert captured["allow_legacy_hybrid"] is False
+    assert result["use_hybrid"] is True
+    assert result["metrics"]["dense_only"] is False
+    assert result["metrics"]["sparse_backend"] == "qdrant_sparse"
+
+
+async def test_explicit_dense_mode_keeps_native_qdrant_hybrid_opt_out(monkeypatch):
+    monkeypatch.setattr(rag_context.settings, "rag_qdrant_sparse_enabled", True)
+    monkeypatch.setattr(rag_context.settings, "rag_sparse_backend", "auto")
+    captured = {}
+
+    async def _fake_retrieve(doc_svc, query, mode, **kwargs):  # noqa: ARG001
+        captured.update({"mode": mode, **kwargs})
+        return SimpleNamespace(
+            chunks=["dense chunk"],
+            scores=[0.72],
+            metadatas=[{"document_filename": "manual.md"}],
+            pipeline="naive",
+            label="vector_only",
+            reason="explicit dense",
+            detail="test",
+            diagnostics={},
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "prélecture capture vibration",
+            "retrieval_profile": "chat",
+            "rag_pipeline_mode": "dense",
+        },
+        doc_svc=FakeDocumentService(),
+    )
+
+    assert captured["mode"] == "dense"
+    assert captured["use_hybrid"] is False
+    assert captured["allow_legacy_hybrid"] is True
+    assert result["use_hybrid"] is False
+    assert result["metrics"]["dense_only"] is True
+
+
 async def test_retrieve_rag_context_diversifies_synthesis_window_by_document(monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_similarity_threshold", 0.0)
 
