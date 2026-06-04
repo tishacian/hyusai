@@ -14,6 +14,9 @@ export interface CapturePlanRequest {
   plan_mode?: 'ai_plan' | 'provided_plan' | 'free_conversation' | 'plan_build' | string;
   capture_domain?: string | null;
   provided_plan_text?: string | null;
+  plan_source_kind?: 'manual' | 'pasted_text' | 'uploaded_file' | 'conversation' | null;
+  plan_source_filename?: string | null;
+  plan_source_replaces_existing_plan?: boolean;
 }
 
 export interface CapturePlanSourceExtractResponse {

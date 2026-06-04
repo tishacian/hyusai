@@ -2298,12 +2298,23 @@ def test_provided_plan_mode_seeds_topics_on_create(db_session):
         knowledge_refs=[],
         plan_mode="provided_plan",
         provided_plan_text="# Sujet A\n## Point 1\n## Point 2",
+        plan_source_kind="uploaded_file",
+        plan_source_filename="plan-capture.md",
+        plan_source_replaces_existing_plan=True,
     )
     assert session.plan["mode"] == "provided_plan"
     assert session.plan["schema_version"] == "plan_build_v2"
     assert len(session.plan["topics"]) == 1
     assert len(session.plan["topics"][0]["subtopics"]) == 2
     assert session.plan["dialogue"]["ready_to_finalize"] is True
+    assert session.plan["plan_source"] == {
+        "kind": "uploaded_file",
+        "filename": "plan-capture.md",
+        "extracted_outline": [{"title": "Sujet A", "subtopics": ["Point 1", "Point 2"]}],
+        "replaces_existing_plan": True,
+        "chars": 31,
+        "line_count": 3,
+    }
 
 
 def test_classify_conversation_intent_detects_defer_vocal():

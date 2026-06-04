@@ -2641,6 +2641,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   providedPlanText = '';
   providedPlanFileName = '';
   providedPlanSourceKind: CapturePlanSourceKind = 'manual';
+  providedPlanReplacesExisting = false;
   planDialogueAnswer = '';
   executiveSummary = '';
   publicationCategory = 'technical';
@@ -2989,6 +2990,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.providedPlanText = '';
     this.providedPlanFileName = '';
     this.providedPlanSourceKind = 'manual';
+    this.providedPlanReplacesExisting = false;
     this.pendingPlanSourceReplacement.set(null);
     this.planDialogueAnswer = '';
     this.executiveSummary = '';
@@ -3089,6 +3091,9 @@ export class KnowledgeCaptureComponent implements OnInit {
         plan_mode: this.selectedPlanMode === 'plan_build' ? 'plan_build' : this.selectedPlanMode,
         capture_domain: this.selectedDomain,
         provided_plan_text: this.providedPlanText || null,
+        plan_source_kind: this.hasProvidedPlanSource() ? this.providedPlanSourceKind : null,
+        plan_source_filename: this.providedPlanFileName || null,
+        plan_source_replaces_existing_plan: this.providedPlanReplacesExisting,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -3206,6 +3211,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.providedPlanText = '';
     this.providedPlanFileName = '';
     this.providedPlanSourceKind = 'manual';
+    this.providedPlanReplacesExisting = false;
     this.pendingPlanSourceReplacement.set(null);
   }
 
@@ -3213,6 +3219,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     const pending = this.pendingPlanSourceReplacement();
     if (!pending) return;
     this.pendingPlanSourceReplacement.set(null);
+    this.providedPlanReplacesExisting = true;
     this.extractProvidedPlanFile(pending.file);
   }
 

@@ -786,6 +786,56 @@ def _apply_provided_plan_seed(plan: Dict[str, Any], seed: Optional[str]) -> Dict
     return plan
 
 
+def _normalize_plan_source_kind(kind: Optional[str], *, has_seed: bool, filename: Optional[str]) -> str:
+    clean = (kind or "").strip().lower()
+    if clean in {"manual", "pasted_text", "uploaded_file", "conversation"}:
+        return clean
+    if filename:
+        return "uploaded_file"
+    if has_seed:
+        return "pasted_text"
+    return "manual"
+
+
+def _outline_from_plan_topics(topics: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    outline: List[Dict[str, Any]] = []
+    for topic in topics[:80]:
+        title = str(topic.get("title") or "").strip()
+        if not title:
+            continue
+        subtopics = []
+        for subtopic in (topic.get("subtopics") or [])[:80]:
+            subtitle = str(subtopic.get("title") or "").strip()
+            if subtitle:
+                subtopics.append(subtitle)
+        outline.append({"title": title, "subtopics": subtopics})
+    return outline
+
+
+def _attach_plan_source_metadata(
+    plan: Dict[str, Any],
+    *,
+    kind: Optional[str],
+    filename: Optional[str],
+    seed: Optional[str],
+    replaces_existing_plan: bool = False,
+) -> Dict[str, Any]:
+    clean_seed = (seed or "").strip()
+    if not clean_seed and not filename:
+        return plan
+    source_kind = _normalize_plan_source_kind(kind, has_seed=bool(clean_seed), filename=filename)
+    metadata: Dict[str, Any] = {
+        "kind": source_kind,
+        "filename": (filename or "").strip() or None,
+        "extracted_outline": _outline_from_plan_topics(plan.get("topics") or []),
+        "replaces_existing_plan": bool(replaces_existing_plan),
+    }
+    metadata["chars"] = len(clean_seed)
+    metadata["line_count"] = len([line for line in clean_seed.splitlines() if line.strip()])
+    plan["plan_source"] = metadata
+    return plan
+
+
 def _plan_build_shell(
     *,
     objective: str,
@@ -3809,6 +3859,9 @@ def create_capture_plan(
     allow_ai_plan: bool = False,
     capture_domain: Optional[str] = None,
     provided_plan_text: Optional[str] = None,
+    plan_source_kind: Optional[str] = None,
+    plan_source_filename: Optional[str] = None,
+    plan_source_replaces_existing_plan: bool = False,
     created_by_user_id: Optional[str] = None,
 ) -> ExpertCaptureSession:
     stored_duration, unlimited_duration = _normalize_duration_minutes(duration_minutes)
@@ -3875,6 +3928,13 @@ def create_capture_plan(
     plan["mode"] = normalized_plan_mode
     plan["knowledge_refs"] = knowledge_refs or []
     plan["voice_runtime"] = voice_runtime
+    plan = _attach_plan_source_metadata(
+        plan,
+        kind=plan_source_kind,
+        filename=plan_source_filename,
+        seed=provided_plan_text,
+        replaces_existing_plan=plan_source_replaces_existing_plan,
+    )
     if unlimited_duration:
         plan["unlimited_duration"] = True
 

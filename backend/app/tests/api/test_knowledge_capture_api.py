@@ -127,6 +127,9 @@ def test_provided_plan_via_api(db_session, monkeypatch):
             "duration_minutes": 20,
             "plan_mode": "provided_plan",
             "provided_plan_text": "# Thème API\n## Sous-thème 1",
+            "plan_source_kind": "pasted_text",
+            "plan_source_filename": "atelier.txt",
+            "plan_source_replaces_existing_plan": True,
         },
     )
     assert created.status_code == 200
@@ -134,6 +137,12 @@ def test_provided_plan_via_api(db_session, monkeypatch):
     assert body["plan"]["mode"] == "provided_plan"
     assert body["plan"]["topics"]
     assert body["plan"]["dialogue"]["ready_to_finalize"] is True
+    assert body["plan"]["plan_source"]["kind"] == "pasted_text"
+    assert body["plan"]["plan_source"]["filename"] == "atelier.txt"
+    assert body["plan"]["plan_source"]["replaces_existing_plan"] is True
+    assert body["plan"]["plan_source"]["extracted_outline"] == [
+        {"title": "Thème API", "subtopics": ["Sous-thème 1"]}
+    ]
 
 
 def test_closure_sheet_and_extend_endpoints(db_session, monkeypatch):

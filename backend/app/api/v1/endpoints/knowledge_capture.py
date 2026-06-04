@@ -260,6 +260,9 @@ class CapturePlanRequest(BaseModel):
     plan_mode: str = "free_conversation"
     capture_domain: Optional[str] = None
     provided_plan_text: Optional[str] = None
+    plan_source_kind: Optional[Literal["manual", "pasted_text", "uploaded_file", "conversation"]] = None
+    plan_source_filename: Optional[str] = None
+    plan_source_replaces_existing_plan: bool = False
 
 
 class PlanDialogueTurnRequest(BaseModel):
@@ -447,6 +450,9 @@ async def plan_capture_session(
             allow_ai_plan=_allow_immature_ai_plan(db, user=user, workspace=workspace),
             capture_domain=body.capture_domain,
             provided_plan_text=body.provided_plan_text,
+            plan_source_kind=body.plan_source_kind,
+            plan_source_filename=body.plan_source_filename,
+            plan_source_replaces_existing_plan=body.plan_source_replaces_existing_plan,
             created_by_user_id=user.id,
         )
     except ValueError as exc:
