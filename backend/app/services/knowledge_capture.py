@@ -3266,6 +3266,7 @@ def structure_capture_payload(
         open_questions,
         transcript=transcript,
     )
+    transcript_segments = _build_transcript_segments(transcript, event_rows)
     return {
         "session_id": session.id,
         "title": session.title,
@@ -3275,6 +3276,7 @@ def structure_capture_payload(
         "open_questions": open_questions,
         "transcript": [],
         "transcript_events": [],
+        "transcript_segments": transcript_segments,
         "amendments": amendments,
         "knowledge_sheet_template": template_id,
         "report_markdown": markdown,
@@ -3300,6 +3302,82 @@ def structure_capture_payload(
             "reason": "Expert captures can change operational knowledge and must be validated before ingestion.",
         },
     }
+
+
+_TRANSCRIPT_SEGMENT_EVENT_TYPES = {
+    "expert_turn_finalized",
+    "stt_final",
+    "transcript_turn_recorded",
+    "transcript_amended",
+}
+
+
+def _build_transcript_segments(
+    transcript: List[Dict[str, Any]],
+    event_rows: List[ExpertCaptureEvent],
+) -> List[Dict[str, Any]]:
+    """Compact audit contract for raw/refined/amended transcript segments."""
+
+    segments: List[Dict[str, Any]] = []
+    seen_event_ids: set[str] = set()
+    for index, turn in enumerate(transcript or [], start=1):
+        raw = str(turn.get("text_raw") or turn.get("text") or "").strip()
+        refined = str(turn.get("text") or raw).strip()
+        amended = str(turn.get("text_amended") or "").strip()
+        text = amended or refined or raw
+        if not text:
+            continue
+        source_event_id = str(turn.get("source_event_id") or "").strip() or None
+        if source_event_id:
+            seen_event_ids.add(source_event_id)
+        segments.append(
+            {
+                "id": str(turn.get("id") or f"turn-{index:03d}"),
+                "source": "session_transcript",
+                "source_event_id": source_event_id,
+                "speaker": turn.get("speaker") or "expert",
+                "status": "amended" if amended else "refined",
+                "raw_segment": raw or None,
+                "refined_segment": refined or None,
+                "amended_segment": amended or None,
+                "text": text,
+                "turn_kind": turn.get("turn_kind") or "answer",
+                "topic_id": turn.get("topic_id"),
+                "subtopic_id": turn.get("subtopic_id"),
+                "topic_path": turn.get("topic_path"),
+            }
+        )
+
+    for event in sorted(event_rows or [], key=lambda item: (item.sequence, item.created_at)):
+        if event.id in seen_event_ids:
+            continue
+        if event.event_type not in _TRANSCRIPT_SEGMENT_EVENT_TYPES and not event.text_amended:
+            continue
+        raw = str(event.text_raw or "").strip()
+        amended = str(event.text_amended or "").strip()
+        text = amended or raw
+        if not text:
+            continue
+        status = "amended" if amended or event.event_type == "transcript_amended" else "refined"
+        segments.append(
+            {
+                "id": event.id,
+                "source": "event_ledger",
+                "source_event_id": event.id,
+                "speaker": event.speaker or "expert",
+                "status": status,
+                "raw_segment": raw or None,
+                "refined_segment": None if amended else text,
+                "amended_segment": amended or None,
+                "text": text,
+                "turn_kind": (event.meta_data or {}).get("turn_kind") or "answer",
+                "topic_id": (event.meta_data or {}).get("topic_id"),
+                "subtopic_id": (event.meta_data or {}).get("subtopic_id"),
+                "topic_path": (event.meta_data or {}).get("topic_path"),
+                "created_at": event.created_at.isoformat() if event.created_at else None,
+            }
+        )
+    return segments
 
 
 _PUBLICATION_CATEGORIES = {"technical", "commercial", "innovation", "maintenance", "operation", "other"}

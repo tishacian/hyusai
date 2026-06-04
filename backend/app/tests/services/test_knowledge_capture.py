@@ -350,6 +350,11 @@ def test_capture_plan_turn_and_review_proposal(db_session):
     assert payload["recommended_ingestion"]["metadata"]["amendment_count"] >= 1
     assert "température du rouleau" in payload["recommended_ingestion"]["content"]
     assert payload["amendments"]
+    assert payload["transcript_segments"]
+    amended_segments = [segment for segment in payload["transcript_segments"] if segment["status"] == "amended"]
+    assert amended_segments
+    assert "historique CRM" in (amended_segments[0]["raw_segment"] or "")
+    assert "température du rouleau" in (amended_segments[0]["amended_segment"] or "")
     assert payload["audit"]["source_of_truth"] == "expert_capture_events"
 
     reviewed = review_proposal(
