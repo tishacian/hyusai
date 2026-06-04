@@ -203,6 +203,7 @@ interface RetrievalPrefetch {
 
 type ConversationMode = 'manual' | 'conversation_only';
 type CapturePlanMode = 'ai_plan' | 'provided_plan' | 'free_conversation' | 'plan_build';
+type CapturePlanSourceKind = 'manual' | 'pasted_text' | 'uploaded_file' | 'conversation';
 type CaptureSurfaceView = 'dashboard' | 'prep' | 'plan' | 'plan_build' | 'session' | 'review' | 'publish';
 type QualityTab = 'imprecisions' | 'contradictions' | 'open_questions';
 
@@ -217,6 +218,12 @@ interface QualityBacklogItem {
 }
 type ProposalFactDecision = 'pending' | 'accept' | 'reject';
 type VoiceNoticeTone = 'info' | 'warning' | 'error';
+
+interface PendingPlanSourceReplacement {
+  file: File;
+  filename: string;
+  size: number;
+}
 
 interface ConversationStageRow {
   id: string;
@@ -1909,22 +1916,80 @@ interface ProposalFact {
                       (change)="onProvidedPlanFile($event)"
                     />
                   </label>
-                  @if (providedPlanFileName) {
-                    <span class="max-w-full truncate text-sm text-gray-300">{{ providedPlanFileName }}</span>
-                  }
                   @if (extractingPlanSource()) {
                     <span class="inline-flex items-center gap-2 text-sm text-brand-100">
                       <app-icon name="loader-2" [size]="14" class="animate-spin" /> Extraction...
                     </span>
                   }
                 </div>
+                @if (pendingPlanSourceReplacement(); as pending) {
+                  <div class="rounded border border-amber-300/30 bg-amber-500/10 p-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div class="min-w-0">
+                        <p class="text-sm font-semibold text-amber-100">Ce fichier remplacera le plan courant. Continuer ?</p>
+                        <p class="mt-1 truncate text-xs text-amber-100/80">
+                          {{ pending.filename }} · {{ pendingPlanSourceStats(pending) }}
+                        </p>
+                      </div>
+                      <div class="flex shrink-0 flex-wrap gap-2">
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded bg-amber-300 px-3 py-2 text-xs font-semibold text-black hover:bg-amber-200"
+                          (click)="confirmProvidedPlanReplacement()"
+                        >
+                          Remplacer
+                        </button>
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                          (click)="cancelProvidedPlanReplacement()"
+                        >
+                          Garder le plan
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                }
+                @if (hasProvidedPlanSource()) {
+                  <div class="rounded border border-brand-300/25 bg-brand-500/10 p-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div class="min-w-0">
+                        <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-200">
+                          {{ providedPlanSourceKindLabel() }}
+                        </p>
+                        <h3 class="mt-1 truncate text-sm font-semibold text-white">{{ providedPlanSourceLabel() }}</h3>
+                        <p class="mt-1 text-xs text-gray-400">{{ providedPlanSourceStats() }}</p>
+                      </div>
+                      <button
+                        type="button"
+                        class="inline-flex shrink-0 items-center gap-2 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                        [disabled]="extractingPlanSource()"
+                        (click)="clearProvidedPlanSource()"
+                      >
+                        Retirer
+                      </button>
+                    </div>
+                    <p class="mt-3 line-clamp-3 text-xs leading-relaxed text-gray-300">{{ providedPlanSourcePreview() }}</p>
+                  </div>
+                }
+                <div>
+                  <div class="mb-2 flex items-center justify-between gap-3">
+                    <label class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">
+                      Interprétation extraite et plan éditable
+                    </label>
+                    @if (providedPlanText.trim()) {
+                      <span class="text-[11px] text-gray-500">{{ providedPlanSourceStats() }}</span>
+                    }
+                  </div>
                 <textarea
                   class="min-h-[24rem] w-full rounded border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm leading-6 text-gray-100 outline-none focus:border-brand-300 disabled:opacity-60"
-                  [(ngModel)]="providedPlanText"
+                  [ngModel]="providedPlanText"
+                  (ngModelChange)="onProvidedPlanTextChange($event)"
                   [disabled]="extractingPlanSource()"
                   spellcheck="false"
                   placeholder="Description de la ligne Godot&#10;Optimisations&#10;- Upgrade récupération d'énergie&#10;- Update à proposer&#10;&#10;Ou collez simplement un texte brut, même non hiérarchisé."
                 ></textarea>
+                </div>
                 @if (!providedPlanText.trim()) {
                   <p class="text-xs text-amber-200/90">Ajoutez un texte source pour construire le bloc de plan.</p>
                 }
@@ -2471,6 +2536,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   selectedPlanMode: CapturePlanMode = 'free_conversation';
   providedPlanText = '';
   providedPlanFileName = '';
+  providedPlanSourceKind: CapturePlanSourceKind = 'manual';
   planDialogueAnswer = '';
   executiveSummary = '';
   publicationCategory = 'technical';
@@ -2490,6 +2556,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly planDialogueNextPrompt = signal<string | null>(null);
   readonly planSourceStep = signal(false);
   readonly extractingPlanSource = signal(false);
+  readonly pendingPlanSourceReplacement = signal<PendingPlanSourceReplacement | null>(null);
   private readonly planOutlineDrafts = new Map<string, string>();
   readonly planDialogueNotice = signal<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
   readonly hintStack = signal<CaptureHint[]>([]);
@@ -2815,6 +2882,8 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.selectedPlanMode = this.isDemoMode() ? 'plan_build' : 'free_conversation';
     this.providedPlanText = '';
     this.providedPlanFileName = '';
+    this.providedPlanSourceKind = 'manual';
+    this.pendingPlanSourceReplacement.set(null);
     this.planDialogueAnswer = '';
     this.executiveSummary = '';
     this.publicationCategory = 'technical';
@@ -2872,6 +2941,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.planNotice.set(null);
     this.planDialogueReadyFlag.set(false);
     this.planDialogueNextPrompt.set(null);
+    this.pendingPlanSourceReplacement.set(null);
     this.lastConversationStep.set(null);
     this.textFallbackActive.set(false);
     this.retrieval.set({ status: 'idle', chunks: [], scores: [], metadatas: [] });
@@ -2970,6 +3040,78 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   canSubmitProvidedPlanSource(): boolean {
     return this.canCreateSelectedPlan() && this.providedPlanText.trim().length >= 3;
+  }
+
+  onProvidedPlanTextChange(value: string): void {
+    this.providedPlanText = value;
+    if (!value.trim()) {
+      this.providedPlanSourceKind = this.providedPlanFileName ? 'uploaded_file' : 'manual';
+      return;
+    }
+    if (!this.providedPlanFileName) {
+      this.providedPlanSourceKind = 'pasted_text';
+    }
+  }
+
+  hasProvidedPlanSource(): boolean {
+    return Boolean(this.providedPlanText.trim() || this.providedPlanFileName);
+  }
+
+  providedPlanSourceLabel(): string {
+    if (this.providedPlanFileName) return this.providedPlanFileName;
+    if (this.providedPlanText.trim()) return 'Texte saisi ou collé';
+    return 'Aucune source active';
+  }
+
+  providedPlanSourceKindLabel(kind: CapturePlanSourceKind = this.providedPlanSourceKind): string {
+    switch (kind) {
+      case 'uploaded_file':
+        return 'Fichier source';
+      case 'conversation':
+        return 'Conversation brute';
+      case 'pasted_text':
+        return 'Texte collé';
+      default:
+        return 'Plan manuel';
+    }
+  }
+
+  providedPlanSourceStats(): string {
+    const text = this.providedPlanText.trim();
+    if (!text) return this.providedPlanFileName ? 'Extraction en attente' : 'Aucun contenu';
+    const lines = text.split(/\r?\n/).filter((line) => line.trim()).length;
+    return `${text.length.toLocaleString('fr-FR')} caractères · ${lines.toLocaleString('fr-FR')} ligne(s)`;
+  }
+
+  providedPlanSourcePreview(): string {
+    const text = this.providedPlanText.replace(/\s+/g, ' ').trim();
+    if (!text) return 'L’interprétation extraite apparaîtra ici avant création du plan.';
+    return text.length > 260 ? `${text.slice(0, 260)}…` : text;
+  }
+
+  pendingPlanSourceStats(source: PendingPlanSourceReplacement): string {
+    if (!source.size) return 'Taille inconnue';
+    if (source.size < 1024) return `${source.size} o`;
+    if (source.size < 1024 * 1024) return `${(source.size / 1024).toFixed(1)} Ko`;
+    return `${(source.size / 1024 / 1024).toFixed(1)} Mo`;
+  }
+
+  clearProvidedPlanSource(): void {
+    this.providedPlanText = '';
+    this.providedPlanFileName = '';
+    this.providedPlanSourceKind = 'manual';
+    this.pendingPlanSourceReplacement.set(null);
+  }
+
+  confirmProvidedPlanReplacement(): void {
+    const pending = this.pendingPlanSourceReplacement();
+    if (!pending) return;
+    this.pendingPlanSourceReplacement.set(null);
+    this.extractProvidedPlanFile(pending.file);
+  }
+
+  cancelProvidedPlanReplacement(): void {
+    this.pendingPlanSourceReplacement.set(null);
   }
 
   planModeActionLabel(): string {
@@ -4822,14 +4964,21 @@ export class KnowledgeCaptureComponent implements OnInit {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    if (this.providedPlanText.trim() || this.providedPlanFileName) {
-      const confirmed = window.confirm('Ce fichier remplacera le plan courant. Continuer ?');
-      if (!confirmed) {
-        input.value = '';
-        return;
-      }
+    input.value = '';
+    if (this.hasProvidedPlanSource() || this.session()) {
+      this.pendingPlanSourceReplacement.set({
+        file,
+        filename: file.name,
+        size: file.size,
+      });
+      return;
     }
+    this.extractProvidedPlanFile(file);
+  }
+
+  private extractProvidedPlanFile(file: File): void {
     this.providedPlanFileName = file.name;
+    this.providedPlanSourceKind = 'uploaded_file';
     this.extractingPlanSource.set(true);
     this.api
       .extractCapturePlanSource(file)
@@ -4838,22 +4987,19 @@ export class KnowledgeCaptureComponent implements OnInit {
         next: (payload) => {
           this.providedPlanText = String(payload.text || '').slice(0, 20000);
           this.extractingPlanSource.set(false);
-          input.value = '';
         },
-        error: () => this.readProvidedPlanFileLocally(file, input),
+        error: () => this.readProvidedPlanFileLocally(file),
       });
   }
 
-  private readProvidedPlanFileLocally(file: File, input: HTMLInputElement): void {
+  private readProvidedPlanFileLocally(file: File): void {
     const reader = new FileReader();
     reader.onload = () => {
       this.providedPlanText = String(reader.result || '').slice(0, 20000);
       this.extractingPlanSource.set(false);
-      input.value = '';
     };
     reader.onerror = () => {
       this.extractingPlanSource.set(false);
-      input.value = '';
       this.setVoiceNotice("Impossible d'extraire le texte du fichier sélectionné.", 'error');
     };
     reader.readAsText(file);
