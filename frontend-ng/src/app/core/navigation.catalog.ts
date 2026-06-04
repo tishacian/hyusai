@@ -78,7 +78,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
   },
   {
     id: 'system-capture',
-    label: 'System Capture Workbench',
+    label: 'Capture de connaissances',
     route: '/systems/:systemId/capture',
     lens: 'build',
     object: 'Workbench',
@@ -86,7 +86,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     apiPrefix: '/api/v1/knowledge-capture',
     status: 'canonical',
     audience: 'workspace-user',
-    description: 'System-scoped Expert Knowledge Capture console.',
+    description: 'System-scoped knowledge capture workbench.',
   },
   {
     id: 'capabilities',
