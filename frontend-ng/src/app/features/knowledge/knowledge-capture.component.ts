@@ -691,7 +691,7 @@ interface ProposalFact {
                 <div class="text-2xl text-white font-semibold">{{ activeSessionCount() }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Propositions</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">Rapports</div>
                 <div class="text-2xl text-white font-semibold">{{ dashboardProposals().length }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
@@ -766,7 +766,7 @@ interface ProposalFact {
                 >
                   <div class="flex items-center justify-between gap-3">
                     <div class="text-sm font-semibold text-white">
-                      {{ row.proposal?.title || 'Proposition de connaissance' }}
+                      {{ row.proposal?.title || 'Rapport de capture' }}
                     </div>
                     <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ workflowStatusLabel(row.status) }}</span>
                   </div>
@@ -776,7 +776,7 @@ interface ProposalFact {
                 </button>
               } @empty {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-6 text-center text-gray-500">
-                  Aucune proposition en attente de revue.
+                  Aucun rapport en attente de relecture.
                 </div>
               }
             </div>
@@ -1319,7 +1319,7 @@ interface ProposalFact {
                         [disabled]="!canProposalSubmit(s)"
                         (click)="createProposal(s)"
                       >
-                        <app-icon name="check-circle-2" [size]="14" /> Créer la proposition
+                        <app-icon name="arrow-right" [size]="14" /> Continuer vers le rapport
                       </button>
                     }
                     @if (sessionHasStarted(s) && s.status === 'active') {
@@ -1549,13 +1549,13 @@ interface ProposalFact {
                   <section class="t-card rounded-lg p-4">
                     <div class="flex items-center justify-between gap-3">
                       <div>
-                        <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Proposition en brouillon</p>
+                        <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Rapport en brouillon</p>
                         <h3 class="text-sm font-semibold text-white">{{ proposalFacts().length }} fait(s)</h3>
                       </div>
                       <span class="text-xs text-gray-400">{{ workflowStatusLabel(p.status) }}</span>
                     </div>
                     <button type="button" class="mt-3 w-full px-3 py-2 rounded bg-brand-500/20 text-brand-100 ring-1 ring-brand-300/30" (click)="goSurface('review')">
-                      Relire la proposition
+                      Relire le rapport
                     </button>
                   </section>
                 }
@@ -2282,7 +2282,7 @@ interface ProposalFact {
               ></textarea>
               @if (!proposalReportText()) {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-5 text-sm text-gray-500">
-                  Aucun rapport exploitable pour l’instant. Reprenez la capture ou régénérez la proposition après avoir ajouté une information métier substantielle.
+                  Aucun rapport exploitable pour l’instant. Reprenez la capture ou régénérez le rapport après avoir ajouté une information métier substantielle.
                 </div>
               }
             </div>
@@ -2421,7 +2421,7 @@ interface ProposalFact {
               </button>
               @if (!isDemoMode() && showAdvancedSetup()) {
                 <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" [disabled]="!session()" (click)="regenerateProposal()">
-                  Régénérer la proposition
+                  Régénérer le rapport
                 </button>
               }
               <button
@@ -2438,7 +2438,7 @@ interface ProposalFact {
                 [disabled]="!canProposalSubmit(s)"
                 (click)="createProposal(s)"
               >
-                <app-icon name="check-circle-2" [size]="14" /> Créer la proposition
+                <app-icon name="arrow-right" [size]="14" /> Continuer vers le rapport
               </button>
             }
           </aside>
@@ -2702,23 +2702,23 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly modelSteps = [
     {
       eyebrow: 'Capacité',
-      label: 'Expert Knowledge Capture',
+      label: 'Capture de connaissances',
       description: 'La fonction métier : préserver le raisonnement expert et la connaissance tacite.',
     },
     {
-      eyebrow: 'Système',
-      label: 'Runtime de session guidée',
+      eyebrow: 'Échange',
+      label: 'Session guidée',
       description: 'Exécute un plan avec voix, évaluation et structuration.',
     },
     {
       eyebrow: 'Contexte',
-      label: 'Périmètre Knowledge',
-      description: 'Sélectionne collections, ACL et contraintes pour l’entretien.',
+      label: 'Périmètre documentaire',
+      description: 'Sélectionne collections, accès et contraintes pour l’entretien.',
     },
     {
-      eyebrow: 'Knowledge',
-      label: 'Mise à jour relue',
-      description: 'Reçoit les propositions validées après revue humaine.',
+      eyebrow: 'Publication',
+      label: 'Rapport relu',
+      description: 'Reçoit les rapports validés après relecture.',
     },
   ];
 
@@ -3608,7 +3608,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   proposalReviewHint(proposal?: CaptureProposal | null): string | null {
     if (!this.proposalReportText()) return 'Ajoutez ou générez un rapport avant validation.';
     if (proposal?.status === 'accepted') return null;
-    if (!this.canProposalReview(proposal)) return 'Votre rôle peut préparer la proposition, mais pas la valider.';
+    if (!this.canProposalReview(proposal)) return 'Votre rôle peut préparer le rapport, mais pas le valider.';
     if (this.proposalEvidenceCount() === 0) {
       return 'Aucune preuve documentaire attachée : validation possible, mais à traiter comme connaissance expert non sourcée.';
     }
@@ -3641,8 +3641,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   proposalPublishHint(proposal?: CaptureProposal | null): string | null {
-    if (proposal?.status !== 'accepted') return 'Validez d’abord la proposition avant publication.';
-    if (!this.canProposalPublish(proposal)) return 'La publication Knowledge requiert le droit d’ingestion.';
+    if (proposal?.status !== 'accepted') return 'Validez d’abord le rapport avant publication.';
+    if (!this.canProposalPublish(proposal)) return 'La publication requiert le droit d’ingestion.';
     return null;
   }
 
@@ -3651,7 +3651,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   publicationDestinationLabel(): string {
-    return this.selectedContext()?.environment_state?.collection || this.selectedContext()?.name || 'Destination Knowledge workspace';
+    return this.selectedContext()?.environment_state?.collection || this.selectedContext()?.name || 'Destination de publication';
   }
 
   effectivePublicationDestination(): string {
@@ -3672,7 +3672,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   iamRoleBanner(): string | null {
     if (!this.permissions.matrix()) return null;
-    if (this.permissions.isReviewerOrAdmin()) return `IAM : ${this.permissions.roleLabel()} peut relire les propositions du workspace.`;
+    if (this.permissions.isReviewerOrAdmin()) return `IAM : ${this.permissions.roleLabel()} peut relire les rapports du workspace.`;
     if (this.canCaptureCreate()) return `IAM : ${this.permissions.roleLabel()} peut capturer ses propres sessions.`;
     return `IAM : ${this.permissions.roleLabel()} dispose d’un accès limité à la capture.`;
   }
@@ -5568,7 +5568,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     const speaker = (event.speaker || '').toLowerCase();
     if (speaker === 'expert') return `Expert · ${this.transcriptEventShortLabel(event)}`;
     if (speaker === 'system') return `IA · ${this.transcriptEventShortLabel(event)}`;
-    if (event.event_type === 'proposal_generated') return 'Proposition · générée';
+    if (event.event_type === 'proposal_generated') return 'Rapport · généré';
     if (event.event_type === 'proposal_reviewed') return 'Revue · terminée';
     return `Trace · ${this.transcriptEventShortLabel(event)}`;
   }
@@ -5580,7 +5580,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.transcribing()) return 'Traitement du tour';
     if (this.voiceState() === 'oracle_updating') return 'Analyse qualité en cours';
     if (this.voiceState() === 'thinking') return 'Évaluation de la réponse';
-    if (this.proposal()) return 'Proposition prête';
+    if (this.proposal()) return 'Rapport prêt';
     const step = this.lastConversationStep();
     if (step?.action_taken === 'proposal_deferred_insufficient_facts') return 'Détail expert nécessaire';
     return this.conversationMode() === 'conversation_only' ? 'Boucle conversationnelle prête' : 'Capture guidée prête';
@@ -5623,7 +5623,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       },
       {
         id: 'proposal',
-        label: 'Proposition',
+        label: 'Rapport',
         detail: this.proposal() ? `${this.proposalFacts().length} fait(s)` : this.lastConversationLabel(),
         icon: 'check-circle-2',
         state: this.proposal() ? 'done' : proposalActive ? 'active' : 'pending',
@@ -5719,11 +5719,11 @@ export class KnowledgeCaptureComponent implements OnInit {
       answer_ready: 'Réponse capturée et évaluée',
       correction: 'Correction capturée',
       more_detail: 'Complément capturé',
-      proposal_requested: 'Proposition préparée, en attente de confirmation',
-      proposal_deferred_insufficient_facts: 'Détail expert nécessaire avant proposition',
-      proposal_confirmed: 'Proposition confirmée, validation finale attendue',
-      proposal_rejected: 'Proposition rejetée, correction attendue',
-      accept_confirmed: 'Proposition acceptée',
+      proposal_requested: 'Rapport préparé, en attente de confirmation',
+      proposal_deferred_insufficient_facts: 'Détail expert nécessaire avant rapport',
+      proposal_confirmed: 'Rapport confirmé, validation finale attendue',
+      proposal_rejected: 'Rapport rejeté, correction attendue',
+      accept_confirmed: 'Rapport accepté',
       accept_rejected: 'Validation suspendue',
     };
     if (step.action_taken === 'proposal_deferred_insufficient_facts') {
@@ -5736,8 +5736,8 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (event.event_type === 'conversation_intent_detected') {
       return `intention : ${(event.metadata || {})['intent'] || 'détectée'}`;
     }
-    if (event.event_type === 'proposal_generated') return 'proposition générée';
-    if (event.event_type === 'proposal_reviewed') return 'proposition relue';
+    if (event.event_type === 'proposal_generated') return 'rapport généré';
+    if (event.event_type === 'proposal_reviewed') return 'rapport relu';
     if (event.event_type === 'transcript_amended' || event.text_amended) return 'transcription amendée';
     if (event.event_type === 'expert_turn_finalized') return 'réponse finale';
     if (event.event_type === 'stt_final') return 'transcription finale';
@@ -5776,9 +5776,9 @@ export class KnowledgeCaptureComponent implements OnInit {
   private conversationDecisionText(event: CaptureEvent): string {
     const intent = String((event.metadata || {})['intent'] || '');
     const labels: Record<string, string> = {
-      proposal_requested: 'Demande vocale de proposition',
-      proposal_confirmed: 'Proposition confirmée à la voix',
-      proposal_rejected: 'Proposition rejetée à la voix',
+      proposal_requested: 'Demande vocale de rapport',
+      proposal_confirmed: 'Rapport confirmé à la voix',
+      proposal_rejected: 'Rapport rejeté à la voix',
       accept_confirmed: 'Validation finale confirmée à la voix',
       accept_rejected: 'Validation finale suspendue à la voix',
       session_complete: 'Clôture de session demandée à la voix',
@@ -5817,7 +5817,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   createProposal(session: CaptureSession): void {
     if (!this.canProposalSubmit(session)) {
-      this.setVoiceNotice('Votre rôle ne permet pas de soumettre une proposition pour cette session.', 'error');
+      this.setVoiceNotice('Votre rôle ne permet pas de préparer le rapport pour cette session.', 'error');
       return;
     }
     const draft = this.answer.trim();
@@ -5982,7 +5982,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   acceptProposal(proposalId: string): void {
     if (!this.canProposalReview(this.proposal())) {
-      this.setVoiceNotice('Votre rôle ne permet pas de valider cette proposition.', 'error');
+      this.setVoiceNotice('Votre rôle ne permet pas de valider ce rapport.', 'error');
       return;
     }
     this.persistProposalReport(proposalId, () => {
