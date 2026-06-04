@@ -1775,7 +1775,6 @@ interface ProposalFact {
                     (keydown)="onPlanOutlineKeydown($event, s)"
                     [disabled]="!canEditPlan(s)"
                     spellcheck="false"
-                    placeholder="1. Description de la ligne&#10;2. Optimisations&#10;   a. Upgrade de récupération d'énergie&#10;   b. Update à proposer"
                   ></textarea>
                 </div>
               } @else {
@@ -2125,7 +2124,6 @@ interface ProposalFact {
                   (ngModelChange)="onProvidedPlanTextChange($event)"
                   [disabled]="extractingPlanSource()"
                   spellcheck="false"
-                  placeholder="Description de la ligne Godot&#10;Optimisations&#10;- Upgrade récupération d'énergie&#10;- Update à proposer&#10;&#10;Ou collez simplement un texte brut, même non hiérarchisé."
                 ></textarea>
                 </div>
                 @if (!providedPlanText.trim()) {
@@ -2266,7 +2264,6 @@ interface ProposalFact {
                   (keydown)="onPlanOutlineKeydown($event, s)"
                   [disabled]="!canEditPlan(s)"
                   spellcheck="false"
-                  placeholder="1. Description de la ligne&#10;2. Optimisations&#10;   a. Upgrade de récupération d'énergie&#10;   b. Update à proposer"
                 ></textarea>
               </div>
             </div>
