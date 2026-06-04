@@ -1089,6 +1089,7 @@ def update_capture_session_flags(
     workspace_id: str,
     session_id: str,
     defer_weak_contradictions: Optional[bool] = None,
+    suppress_oracle_questions: Optional[bool] = None,
     capture_domain: Optional[str] = None,
     focused_quality_question_id: Optional[str] = None,
     focused_quality_evaluation_id: Optional[str] = None,
@@ -1097,6 +1098,8 @@ def update_capture_session_flags(
     metrics = dict(session.metrics or {})
     if defer_weak_contradictions is not None:
         metrics["defer_weak_contradictions"] = bool(defer_weak_contradictions)
+    if suppress_oracle_questions is not None:
+        metrics["suppress_oracle_questions"] = bool(suppress_oracle_questions)
     if capture_domain:
         metrics["capture_domain"] = capture_domain.strip().lower()
     if focused_quality_question_id is not None:

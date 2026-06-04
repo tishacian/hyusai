@@ -428,6 +428,7 @@ export class ApiService {
     sessionId: string,
     body: {
       defer_weak_contradictions?: boolean;
+      suppress_oracle_questions?: boolean;
       capture_domain?: string;
       focused_quality_question_id?: string | null;
       focused_quality_evaluation_id?: string | null;

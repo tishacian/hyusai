@@ -30,6 +30,7 @@ from app.services.knowledge_capture import (
     start_session,
     structure_capture_payload,
     update_oracle_question_statuses,
+    update_capture_session_flags,
 )
 from app.services.capture_report_templates import (
     ANDRITZ_TEMPLATE_ID,
@@ -1561,6 +1562,41 @@ def test_oracle_question_statuses_are_persisted_and_applied_to_quality_backlog(d
     reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
     backlog = build_quality_backlog(reloaded, [])
     assert backlog["open_questions"][0]["status"] == "deferred"
+
+
+def test_capture_session_flags_can_suppress_oracle_questions(db_session):
+    workspace = Workspace(id="ws-oracle-muted", name="Oracle Muted", slug="oracle-muted")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture muted questions",
+        objective="Capturer les savoirs maintenance ligne.",
+        expert_profile="Senior field engineer",
+        duration_minutes=0,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+
+    updated = update_capture_session_flags(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        suppress_oracle_questions=True,
+    )
+    assert serialize_session(updated)["metrics"]["suppress_oracle_questions"] is True
+
+    updated = update_capture_session_flags(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        suppress_oracle_questions=False,
+    )
+    assert serialize_session(updated)["metrics"]["suppress_oracle_questions"] is False
 
 
 def test_serialize_session_exposes_dashboard_summary_fields(db_session):

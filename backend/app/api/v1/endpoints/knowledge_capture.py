@@ -268,6 +268,7 @@ class PlanDialogueTurnRequest(BaseModel):
 
 class SessionFlagsRequest(BaseModel):
     defer_weak_contradictions: Optional[bool] = None
+    suppress_oracle_questions: Optional[bool] = None
     capture_domain: Optional[str] = None
     focused_quality_question_id: Optional[str] = None
     focused_quality_evaluation_id: Optional[str] = None
@@ -1100,6 +1101,7 @@ async def patch_capture_session_flags(
             workspace_id=workspace.id,
             session_id=session_id,
             defer_weak_contradictions=body.defer_weak_contradictions,
+            suppress_oracle_questions=body.suppress_oracle_questions,
             capture_domain=body.capture_domain,
             focused_quality_question_id=body.focused_quality_question_id,
             focused_quality_evaluation_id=body.focused_quality_evaluation_id,

@@ -126,7 +126,7 @@ interface CaptureSession {
   plan: CapturePlan;
   transcript?: Array<{ id: string; speaker: string; text: string }>;
   evaluations?: Array<{ verdict: string; score: number; follow_up?: string }>;
-  metrics?: Record<string, number | string | null | undefined>;
+  metrics?: Record<string, number | string | boolean | null | undefined>;
   summary_short?: string | null;
   open_questions_count?: number | null;
   last_activity?: string | null;
@@ -958,46 +958,63 @@ interface ProposalFact {
 
                 <section class="rounded border border-white/10 bg-black/20 p-3 shrink-0">
                   <div class="flex items-center justify-between gap-2">
-                    <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Questions de l’oracle</p>
-                    <span class="text-[10px] text-gray-600">{{ activeOracleQuestions().length }}</span>
+                    <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Questions IA</p>
+                    <span class="text-[10px] text-gray-600">
+                      {{ oracleQuestionsMuted() ? 'masquées' : activeOracleQuestions().length }}
+                    </span>
                   </div>
-                  <p class="mt-1 text-[10px] leading-relaxed text-gray-600">
-                    Questions utiles à clarifier pendant ou après l’échange.
-                  </p>
-                  @if (activeOracleQuestions().length) {
+                  @if (oracleQuestionsMuted()) {
+                    <p class="mt-1 text-[10px] leading-relaxed text-gray-600">
+                      Les questions IA sont masquées pour cette session.
+                    </p>
                     <button
                       type="button"
                       class="mt-2 text-[10px] text-gray-400 hover:text-gray-200"
-                      (click)="deferAllOracleQuestions()"
+                      (click)="unmuteOracleQuestions()"
                     >
-                      Traiter les questions plus tard
+                      Réactiver
                     </button>
+                  } @else {
+                    <p class="mt-1 text-[10px] leading-relaxed text-gray-600">
+                      Questions utiles à clarifier pendant ou après l’échange.
+                    </p>
+                    @if (activeOracleQuestions().length) {
+                      <button
+                        type="button"
+                        class="mt-2 text-[10px] text-gray-400 hover:text-gray-200"
+                        (click)="muteOracleQuestions()"
+                      >
+                        Ne plus poser de questions
+                      </button>
+                    }
                   }
                   <div class="mt-2 space-y-2 max-h-[26vh] overflow-y-auto pr-1">
-                    @for (q of activeOracleQuestions(); track q.id || q.text) {
-                      <div class="rounded border border-white/10 bg-white/[0.03] p-2.5">
-                        <div class="flex items-start gap-2">
-                          <span [class]="oracleQuestionPriorityClass(q)" class="mt-1.5"></span>
-                          <p class="text-xs text-gray-200 leading-snug">{{ q.text }}</p>
+                    @if (!oracleQuestionsMuted()) {
+                      @for (q of activeOracleQuestions(); track q.id || q.text) {
+                        <div class="rounded border border-white/10 bg-white/[0.03] p-2.5">
+                          <div class="flex items-start gap-2">
+                            <span [class]="oracleQuestionPriorityClass(q)" class="mt-1.5"></span>
+                            <p class="text-xs text-gray-200 leading-snug">{{ q.text }}</p>
+                          </div>
+                          <div class="mt-1.5 flex flex-wrap items-center gap-2 pl-3.5">
+                            @if (oracleQuestionTopicLabel(q); as topicLabel) {
+                              <span class="text-[10px] text-brand-200/80 truncate">{{ topicLabel }}</span>
+                            }
+                            @if (oracleQuestionPriorityLabel(q); as priorityLabel) {
+                              <span class="text-[10px] text-gray-600">{{ priorityLabel }}</span>
+                            }
+                          </div>
+                          <div class="mt-2 flex flex-wrap gap-2 pl-3.5">
+                            <button type="button" class="text-[10px] text-brand-200 hover:text-brand-100" (click)="answerOracleQuestion(q)">Répondre</button>
+                            <button type="button" class="text-[10px] text-gray-400 hover:text-gray-200" (click)="dismissOracleQuestion(q)">Fermer</button>
+                            <button type="button" class="text-[10px] text-gray-400 hover:text-gray-200" (click)="deferOracleQuestion(q)">Plus tard</button>
+                          </div>
                         </div>
-                        <div class="mt-1.5 flex flex-wrap items-center gap-2 pl-3.5">
-                          @if (oracleQuestionTopicLabel(q); as topicLabel) {
-                            <span class="text-[10px] text-brand-200/80 truncate">{{ topicLabel }}</span>
-                          }
-                          @if (oracleQuestionPriorityLabel(q); as priorityLabel) {
-                            <span class="text-[10px] text-gray-600">{{ priorityLabel }}</span>
-                          }
-                        </div>
-                        <div class="mt-2 flex flex-wrap gap-2 pl-3.5">
-                          <button type="button" class="text-[10px] text-brand-200 hover:text-brand-100" (click)="answerOracleQuestion(q)">Répondre</button>
-                          <button type="button" class="text-[10px] text-gray-400 hover:text-gray-200" (click)="dismissOracleQuestion(q)">Fermer</button>
-                          <button type="button" class="text-[10px] text-gray-400 hover:text-gray-200" (click)="deferOracleQuestion(q)">Plus tard</button>
-                        </div>
-                      </div>
-                    } @empty {
-                      <p class="text-[11px] text-gray-600">
-                        Les questions internes de l’IA apparaîtront ici au fil de l’échange.
-                      </p>
+                      } @empty {
+                        <p class="text-[11px] text-gray-600">
+                          Les questions IA apparaîtront ici au fil de l’échange.
+                        </p>
+                      }
                     }
                   </div>
                 </section>
@@ -2744,8 +2761,9 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly relanceAnnotations = signal<Array<{ id: string; order: number; text: string; kind: RelanceKind }>>([]);
   // New non-blocking model: oracle's own working questions, passive suggestions.
   readonly oracleOpenQuestions = signal<OracleOpenQuestion[]>([]);
+  readonly oracleQuestionsMuted = computed(() => Boolean(this.session()?.metrics?.['suppress_oracle_questions']));
   readonly activeOracleQuestions = computed(() =>
-    this.oracleOpenQuestions().filter((question) => !['answered', 'dismissed', 'deferred'].includes(question.status || '')),
+    this.oracleQuestionsMuted() ? [] : this.openOracleQuestionsForAction(this.oracleOpenQuestions()),
   );
   readonly captureSuggestions = signal<CaptureLiveSuggestion[]>([]);
   private dismissedSuggestionKeys = new Set<string>();
@@ -4241,6 +4259,28 @@ export class KnowledgeCaptureComponent implements OnInit {
       }),
     );
     this.persistOracleQuestionStatuses(active.map((question) => ({ question, status: 'deferred' })));
+  }
+
+  muteOracleQuestions(): void {
+    const session = this.session();
+    if (!session) return;
+    this.api
+      .patchCaptureSessionFlags(session.id, { suppress_oracle_questions: true })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.session.set(payload as CaptureSession));
+  }
+
+  unmuteOracleQuestions(): void {
+    const session = this.session();
+    if (!session) return;
+    this.api
+      .patchCaptureSessionFlags(session.id, { suppress_oracle_questions: false })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => this.session.set(payload as CaptureSession));
+  }
+
+  private openOracleQuestionsForAction(questions: OracleOpenQuestion[] = this.oracleOpenQuestions()): OracleOpenQuestion[] {
+    return questions.filter((question) => !['answered', 'dismissed', 'deferred'].includes(question.status || ''));
   }
 
   private markOracleQuestion(target: OracleOpenQuestion, status: OracleQuestionStatus): void {
