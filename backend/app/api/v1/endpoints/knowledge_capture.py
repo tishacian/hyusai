@@ -300,6 +300,7 @@ class ProposalPublishRequest(BaseModel):
     category: Optional[str] = None
     destination: Optional[str] = None
     final_title: Optional[str] = None
+    include_unresolved_questions: bool = True
 
 
 class SessionClosureRequest(BaseModel):
@@ -1578,6 +1579,7 @@ async def publish_capture_proposal(
             category=body.category if body else None,
             destination=body.destination if body else None,
             final_title=body.final_title if body else None,
+            include_unresolved_questions=body.include_unresolved_questions if body else None,
         )
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc

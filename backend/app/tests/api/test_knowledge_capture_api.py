@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import knowledge_capture
+from app.api.v1.endpoints.knowledge_capture import ProposalPublishRequest
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.skills_registry.seed import seed_skills_and_capabilities
@@ -18,6 +19,14 @@ def _client(db_session, workspace: Workspace, user: User, monkeypatch) -> TestCl
     monkeypatch.setattr(knowledge_capture, "enforce_permission", lambda *args, **kwargs: None)
     monkeypatch.setattr(knowledge_capture, "_allow_immature_ai_plan", lambda *args, **kwargs: True)
     return TestClient(app)
+
+
+def test_publish_request_declares_unresolved_questions_flag():
+    default_body = ProposalPublishRequest()
+    explicit_body = ProposalPublishRequest(include_unresolved_questions=False)
+
+    assert default_body.include_unresolved_questions is True
+    assert explicit_body.include_unresolved_questions is False
 
 
 def test_topic_plan_starts_without_approval_gate(db_session, monkeypatch):

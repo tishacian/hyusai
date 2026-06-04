@@ -2478,6 +2478,7 @@ async def publish_proposal_to_knowledge(
     category: Optional[str] = None,
     destination: Optional[str] = None,
     final_title: Optional[str] = None,
+    include_unresolved_questions: Optional[bool] = None,
 ) -> Dict[str, Any]:
     proposal = (
         db.query(KnowledgeUpdateProposal)
@@ -2527,7 +2528,10 @@ async def publish_proposal_to_knowledge(
         recommended["title"] = publication_title
     publication_meta["updated_at"] = datetime.utcnow().isoformat()
     publication_meta["updated_by"] = actor_label
-    publication_meta.setdefault("include_unresolved_questions", True)
+    if include_unresolved_questions is None:
+        publication_meta.setdefault("include_unresolved_questions", True)
+    else:
+        publication_meta["include_unresolved_questions"] = bool(include_unresolved_questions)
     recommended["metadata"] = metadata
     proposal_payload["recommended_ingestion"] = recommended
     proposal_payload["publication"] = publication_meta
