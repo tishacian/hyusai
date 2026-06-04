@@ -410,7 +410,7 @@ interface ProposalFact {
       @if (activeSurface() === 'prep') {
         <section class="max-w-5xl mx-auto py-6 lg:py-8 space-y-6 min-h-[calc(100vh-15rem)] flex flex-col">
           <div>
-            <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Étape 1 · Préparation</p>
+            <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Préparation</p>
             <h2 class="mt-2 text-3xl text-white font-semibold">Définir le sujet de capture</h2>
             <p class="mt-2 text-sm text-gray-400 max-w-3xl">
               {{ isDemoMode()
@@ -538,7 +538,7 @@ interface ProposalFact {
 
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <p class="text-[11px] text-gray-500">
-                    Le contexte stocke <span class="font-mono text-gray-300">environment_state.collection</span> pour la recherche live.
+                    Ce contexte servira à retrouver les documents utiles pendant la capture.
                   </p>
                   <button
                     type="button"
@@ -1949,10 +1949,10 @@ interface ProposalFact {
           @if (planSourceStep()) {
             <section class="max-w-5xl mx-auto py-8 space-y-7">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Étape 3 · Source du plan</p>
+                <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Source du plan</p>
                 <h2 class="mt-2 text-3xl text-white font-semibold">Donner le texte source</h2>
                 <p class="mt-2 text-sm text-gray-400 max-w-3xl">
-                  Fichier, copier-coller ou saisie libre : Agentium reconstruit ensuite un bloc de plan éditable.
+                  Fichier, copier-coller ou saisie libre : le texte est transformé en plan éditable.
                 </p>
               </div>
 
@@ -2026,7 +2026,7 @@ interface ProposalFact {
                 <div>
                   <div class="mb-2 flex items-center justify-between gap-3">
                     <label class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">
-                      Interprétation extraite et plan éditable
+                      Plan extrait et éditable
                     </label>
                     @if (providedPlanText.trim()) {
                       <span class="text-[11px] text-gray-500">{{ providedPlanSourceStats() }}</span>
@@ -2042,7 +2042,7 @@ interface ProposalFact {
                 ></textarea>
                 </div>
                 @if (!providedPlanText.trim()) {
-                  <p class="text-xs text-amber-200/90">Ajoutez un texte source pour construire le bloc de plan.</p>
+                  <p class="text-xs text-amber-200/90">Ajoutez un texte source pour construire le plan.</p>
                 }
               </section>
 
@@ -2060,7 +2060,7 @@ interface ProposalFact {
                   [disabled]="loading() || extractingPlanSource() || !canSubmitProvidedPlanSource()"
                   (click)="createPlan()"
                 >
-                  {{ loading() ? 'Préparation...' : 'Continuer' }}
+                  {{ loading() ? 'Préparation en cours...' : 'Continuer' }}
                   <app-icon name="arrow-right" [size]="14" />
                 </button>
               </div>
@@ -2068,9 +2068,9 @@ interface ProposalFact {
           } @else {
             <section class="max-w-3xl mx-auto py-10 space-y-4 text-center">
               <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Préparation</p>
-              <h2 class="text-2xl text-white font-semibold">Le mode se choisit dans la préparation</h2>
+              <h2 class="text-2xl text-white font-semibold">Revenir à la préparation</h2>
               <p class="text-sm text-gray-400">
-                Revenez à l’étape précédente pour choisir le déroulé, puis continuez directement vers la capture.
+                Choisissez un déroulé, puis continuez directement vers la capture.
               </p>
               <button
                 type="button"
