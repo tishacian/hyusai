@@ -2778,6 +2778,13 @@ export class KnowledgeCaptureComponent implements OnInit {
           icon: 'activity',
           recommended: false,
         },
+        {
+          id: 'provided_plan' as CapturePlanMode,
+          label: 'Importer un plan',
+          description: 'Coller un texte ou importer un fichier source unique.',
+          icon: 'file-text',
+          recommended: false,
+        },
       ];
     }
     const modes: Array<{
@@ -2789,17 +2796,17 @@ export class KnowledgeCaptureComponent implements OnInit {
       disabled?: boolean;
     }> = [
       {
-        id: 'free_conversation',
-        label: 'Sans plan',
-        description: 'Démarrer directement et structurer après l’échange.',
-        icon: 'activity',
-        recommended: false,
-      },
-      {
         id: 'plan_build',
         label: 'Avec plan',
         description: 'Construire un plan simple avant l’échange.',
         icon: 'layout-grid',
+        recommended: false,
+      },
+      {
+        id: 'free_conversation',
+        label: 'Sans plan',
+        description: 'Démarrer directement et structurer après l’échange.',
+        icon: 'activity',
         recommended: false,
       },
       {
