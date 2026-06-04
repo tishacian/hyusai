@@ -112,18 +112,20 @@ interface PipelineStage {
         [tone]="isDraft() ? 'warning' : 'success'"
         [label]="isDraft() ? 'Draft' : 'Ready'"
       />
-      <button
-        actions
-        type="button"
-        (click)="triggerRun()"
-        [disabled]="triggering() || isDraft()"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium ck-mono transition"
-        style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal);"
-        [style.opacity]="triggering() || isDraft() ? '0.4' : '1'"
-      >
-        <app-icon name="play" [size]="12" />
-        {{ triggering() ? 'Queueing…' : 'Run now' }}
-      </button>
+      @if (!isExpertKnowledgeCapture()) {
+        <button
+          actions
+          type="button"
+          (click)="triggerRun()"
+          [disabled]="triggering() || isDraft()"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium ck-mono transition"
+          style="letter-spacing:0.14em; text-transform:uppercase; background:var(--ck-signal-pos); color:var(--ck-on-signal);"
+          [style.opacity]="triggering() || isDraft() ? '0.4' : '1'"
+        >
+          <app-icon name="play" [size]="12" />
+          {{ triggering() ? 'Queueing…' : 'Run now' }}
+        </button>
+      }
       @if (isExpertKnowledgeCapture()) {
         <a
           actions
@@ -165,7 +167,47 @@ interface PipelineStage {
         </ck-tab>
       }
 
-      <ck-tab id="overview" label="Overview">
+      <ck-tab id="overview" [label]="isExpertKnowledgeCapture() ? 'Aperçu' : 'Overview'">
+        @if (isExpertKnowledgeCapture()) {
+          <div class="space-y-5">
+            <section class="t-card t-elevated rounded-md p-6">
+              <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div class="max-w-2xl">
+                  <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-300">Capture de connaissances</p>
+                  <h2 class="mt-2 text-2xl font-semibold text-white">Préparer une session de capture</h2>
+                  <p class="mt-3 text-sm leading-relaxed text-gray-400">
+                    Construisez le plan, menez l’échange avec l’expert, relisez le rapport, puis publiez la connaissance validée.
+                  </p>
+                </div>
+                <a
+                  [routerLink]="['/systems', systemId, 'capture']"
+                  class="inline-flex shrink-0 items-center justify-center gap-2 rounded bg-brand-500 px-4 py-3 text-sm font-semibold text-white shadow-glow-sm transition hover:bg-brand-400"
+                >
+                  <app-icon name="mic" [size]="16" /> Ouvrir les sessions
+                </a>
+              </div>
+            </section>
+
+            <section class="grid gap-3 md:grid-cols-4">
+              <div class="rounded border border-white/10 bg-white/[0.03] p-4">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">1 · Préparer</p>
+                <p class="mt-2 text-sm text-gray-300">Titre, durée et mode de capture.</p>
+              </div>
+              <div class="rounded border border-white/10 bg-white/[0.03] p-4">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">2 · Plan</p>
+                <p class="mt-2 text-sm text-gray-300">Plan éditable ou importé depuis un fichier.</p>
+              </div>
+              <div class="rounded border border-white/10 bg-white/[0.03] p-4">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">3 · Capture</p>
+                <p class="mt-2 text-sm text-gray-300">Échange guidé, questions utiles et transcription.</p>
+              </div>
+              <div class="rounded border border-white/10 bg-white/[0.03] p-4">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">4 · Publier</p>
+                <p class="mt-2 text-sm text-gray-300">Rapport relu, destination confirmée.</p>
+              </div>
+            </section>
+          </div>
+        } @else {
         <div class="space-y-6">
         <!-- OmniRAG banner: each stage links to the matching configuration -->
         <div
@@ -312,6 +354,7 @@ interface PipelineStage {
           </ul>
         </section>
         </div>
+        }
       </ck-tab>
 
       <ck-tab id="runs" label="Runs">
