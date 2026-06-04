@@ -74,8 +74,9 @@ def build_andritz_knowledge_sheet(
     sources = _collect_sources(facts)
     owner = (session.expert_profile or "Expert métier").strip()
     plan_section = _plan_restitution_section(session, facts)
+    question_lines = _open_question_lines(open_questions or [])
 
-    return (
+    markdown = (
         f"# Fiche connaissance — {session.title}\n\n"
         f"## Contexte\n{contexte}\n\n"
         f"{plan_section}\n\n"
@@ -85,6 +86,9 @@ def build_andritz_knowledge_sheet(
         f"## Sources\n{_bullet_lines(sources, 'Aucune source documentaire attachée.')}\n\n"
         f"## Owner\n- {owner}\n"
     )
+    if question_lines:
+        markdown += "\n## Questions ouvertes\n" + "\n".join(question_lines) + "\n"
+    return markdown
 
 
 def _plan_restitution_section(session: ExpertCaptureSession, facts: List[Dict[str, Any]]) -> str:
@@ -233,6 +237,28 @@ def _collect_sources(facts: List[Dict[str, Any]]) -> List[str]:
                 continue
             seen.add(label)
             lines.append(label)
+    return lines
+
+
+def _open_question_lines(open_questions: Iterable[Dict[str, Any]]) -> List[str]:
+    closed_statuses = {"answered", "dismissed", "closed", "resolved"}
+    lines: List[str] = []
+    seen: set[str] = set()
+    for item in open_questions:
+        status = str(item.get("status") or "open").strip().lower()
+        if status in closed_statuses:
+            continue
+        label = str(
+            item.get("follow_up")
+            or item.get("reason")
+            or item.get("text")
+            or item.get("gap_id")
+            or ""
+        ).strip()
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        lines.append(f"- {label}")
     return lines
 
 

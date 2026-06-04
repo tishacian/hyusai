@@ -657,6 +657,51 @@ def test_plan_framed_report_labels_unassigned_facts_as_out_of_plan(db_session):
     assert "Compléments à classer" not in markdown
 
 
+def test_andritz_report_appends_unresolved_questions_at_the_end(db_session):
+    workspace = Workspace(
+        id="ws-capture-report-open-questions",
+        name="Capture Report Open Questions",
+        slug="capture-report-open-questions",
+    )
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Fiche maintenance",
+        objective="Clarifier la procédure de maintenance terrain.",
+        expert_profile="Responsable maintenance",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+        capture_domain="technical",
+    )
+    markdown = build_andritz_knowledge_sheet(
+        session,
+        [{"text": "Décision : conserver la procédure actuelle si le filtre est propre."}],
+        open_questions=[
+            {
+                "gap_id": "validation-owner",
+                "follow_up": "Qui valide la procédure finale côté maintenance ?",
+                "status": "open",
+            },
+            {
+                "gap_id": "already-answered",
+                "follow_up": "Question déjà traitée.",
+                "status": "answered",
+            },
+        ],
+    )
+
+    assert "## Questions ouvertes" in markdown
+    assert "- Qui valide la procédure finale côté maintenance ?" in markdown
+    assert "Question déjà traitée" not in markdown
+    assert markdown.rstrip().endswith("- Qui valide la procédure finale côté maintenance ?")
+
+
 @pytest.mark.asyncio
 async def test_publish_persists_export_urls(db_session, monkeypatch):
     workspace = Workspace(id="ws-capture-publish-export", name="Capture Publish Export", slug="capture-publish-export")
