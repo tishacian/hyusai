@@ -85,6 +85,8 @@ def db_session():
         "workspace_map_layers",
         "workspace_maps",
         "workspace_jobs",
+        "messages",
+        "sessions",
         "workspace_action_items",
         "workspace_calendar_events",
         "skill_invocations",

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import uuid4
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.models.user import User
@@ -23,6 +24,10 @@ def create_workspace_job(
     input_ref: Optional[dict[str, Any]] = None,
     system_id: Optional[str] = None,
     run_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    collection_id: Optional[str] = None,
+    parent_message_id: Optional[str] = None,
+    message_id: Optional[str] = None,
     status: str = "created",
 ) -> WorkspaceJob:
     now = datetime.utcnow()
@@ -31,6 +36,10 @@ def create_workspace_job(
         workspace_id=workspace.id,
         system_id=system_id,
         run_id=run_id,
+        session_id=session_id,
+        collection_id=collection_id,
+        parent_message_id=parent_message_id,
+        message_id=message_id,
         kind=kind,
         title=title or kind,
         status=status if status in WORKSPACE_JOB_STATUSES else "created",
@@ -56,14 +65,33 @@ def list_workspace_jobs(
     *,
     kind: Optional[str] = None,
     status: Optional[str] = None,
+    statuses: Optional[list[str]] = None,
+    session_id: Optional[str] = None,
+    session_ids: Optional[list[str]] = None,
+    created_by_user_id: Optional[str] = None,
     limit: int = 50,
 ) -> list[WorkspaceJob]:
     query = db.query(WorkspaceJob).filter(WorkspaceJob.workspace_id == workspace.id)
     if kind:
         query = query.filter(WorkspaceJob.kind == kind)
-    if status:
+    if statuses:
+        query = query.filter(WorkspaceJob.status.in_(statuses))
+    elif status:
         query = query.filter(WorkspaceJob.status == status)
-    return query.order_by(WorkspaceJob.created_at.desc()).limit(max(1, min(limit, 200))).all()
+    if session_id:
+        query = query.filter(WorkspaceJob.session_id == session_id)
+    if created_by_user_id and session_ids:
+        query = query.filter(
+            or_(
+                WorkspaceJob.created_by_user_id == created_by_user_id,
+                WorkspaceJob.session_id.in_(session_ids),
+            )
+        )
+    elif created_by_user_id:
+        query = query.filter(WorkspaceJob.created_by_user_id == created_by_user_id)
+    elif session_ids:
+        query = query.filter(WorkspaceJob.session_id.in_(session_ids))
+    return query.order_by(WorkspaceJob.updated_at.desc(), WorkspaceJob.created_at.desc()).limit(max(1, min(limit, 200))).all()
 
 
 def get_workspace_job(db: DBSession, workspace: Workspace, job_id: str) -> WorkspaceJob:
@@ -128,6 +156,10 @@ def serialize_job(job: WorkspaceJob) -> dict[str, Any]:
         "workspace_id": job.workspace_id,
         "system_id": job.system_id,
         "run_id": job.run_id,
+        "session_id": job.session_id,
+        "collection_id": job.collection_id,
+        "parent_message_id": job.parent_message_id,
+        "message_id": job.message_id,
         "kind": job.kind,
         "title": job.title,
         "status": job.status,
@@ -140,7 +172,76 @@ def serialize_job(job: WorkspaceJob) -> dict[str, Any]:
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "poll_url": f"/workspace-jobs/{job.id}",
     }
+
+
+def set_workspace_job_task_id(db: DBSession, job_id: str, task_id: str) -> None:
+    job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id).first()
+    if not job:
+        return
+    input_ref = dict(job.input_ref or {})
+    input_ref["celery_task_id"] = task_id
+    job.input_ref = input_ref
+    job.updated_at = datetime.utcnow()
+    db.flush()
+
+
+def dispatch_workspace_job(db: DBSession, workspace: Workspace, job: WorkspaceJob, *, allow_inline_fallback: bool = True) -> str | None:
+    """Dispatch a product-facing WorkspaceJob and persist its task id in input_ref."""
+    if job.kind != "rag_deep_retrieval":
+        raise ValueError(f"Unsupported workspace job kind: {job.kind}")
+    from app.core.config import settings
+    from app.core.logging import get_logger
+    from app.services.worker_deep_retrieval import run_workspace_deep_retrieval
+
+    logger = get_logger(__name__)
+    if settings.worker_eager_mode:
+        task_id = f"eager:{job.id}"
+        set_workspace_job_task_id(db, job.id, task_id)
+        db.commit()
+        run_workspace_deep_retrieval(job.id)
+        return task_id
+
+    try:
+        from app.workers.tasks import workspace_rag_deep_retrieval
+
+        async_result = workspace_rag_deep_retrieval.apply_async(
+            args=(job.id,),
+            queue=settings.celery_task_default_queue,
+        )
+        set_workspace_job_task_id(db, job.id, async_result.id)
+        return async_result.id
+    except Exception as exc:
+        if settings.worker_eager_mode:
+            raise
+        if not allow_inline_fallback:
+            input_ref = dict(job.input_ref or {})
+            input_ref["dispatch_warning"] = "workspace_job_dispatch_unavailable"
+            input_ref["dispatch_error"] = str(exc)
+            job.input_ref = input_ref
+            transition_job(
+                db,
+                workspace,
+                job,
+                "queued",
+                progress=job.progress,
+                stage="dispatch_pending",
+                user=None,
+            )
+            db.commit()
+            logger.warning(
+                "workspace job dispatch unavailable; leaving job queued",
+                job_id=job.id,
+                kind=job.kind,
+                error=str(exc),
+            )
+            return None
+        task_id = f"eager:{job.id}"
+        set_workspace_job_task_id(db, job.id, task_id)
+        db.commit()
+        run_workspace_deep_retrieval(job.id)
+        return task_id
 
 
 def _actor(user: Optional[User]) -> str:

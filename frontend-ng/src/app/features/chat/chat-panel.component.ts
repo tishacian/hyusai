@@ -121,6 +121,7 @@ interface ChatMessage {
     deepProgress?: number | null;
     deepStage?: string | null;
     deepPollUrl?: string | null;
+    deepParentMessageId?: string | null;
     deepAnswer?: string | null;
     deepAnswerStatus?: string | null;
     deepAnswerModel?: string | null;
@@ -156,6 +157,27 @@ interface ChatMessage {
     hallucination_rate: number;
     claim_audit?: { claims?: Array<{ text: string; verdict: string; score: number }> };
   } | null;
+}
+
+interface ChatSessionSummary {
+  id: string;
+  title?: string | null;
+  status?: 'active' | 'archived' | 'deleted' | string;
+  created_at?: string | null;
+  last_activity?: string | null;
+  message_count?: number;
+  meta_data?: Record<string, unknown>;
+}
+
+interface ChatSessionDetail extends ChatSessionSummary {
+  messages?: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp?: string | null;
+    meta_data?: Record<string, unknown>;
+  }>;
+  jobs?: unknown[];
 }
 
 type VoiceOracleStage = 'idle' | 'listening' | 'thinking' | 'committed' | 'superseded' | 'fallback' | 'error';
@@ -406,7 +428,63 @@ const STEP_ICONS: Record<string, string> = {
     DocumentPreviewComponent,
   ],
   template: `
-    <div class="flex flex-col h-full">
+    <div class="chat-history-shell">
+      <aside class="chat-history-panel">
+        <div class="chat-history-head">
+          <div>
+            <div class="chat-history-kicker">Conversations</div>
+            <div class="chat-history-count">{{ chatSessions().length }} actives</div>
+          </div>
+          <button
+            type="button"
+            class="chat-history-new"
+            title="Nouveau chat"
+            [disabled]="creatingChatSession"
+            (click)="createNewChat()"
+          >
+            <app-icon name="plus" [size]="14" />
+          </button>
+        </div>
+        <div class="chat-history-search">
+          <app-icon name="search" [size]="12" />
+          <input
+            type="search"
+            [ngModel]="chatSessionSearch()"
+            (ngModelChange)="chatSessionSearch.set($event)"
+            placeholder="Rechercher"
+          />
+        </div>
+        <div class="chat-history-list">
+          @if (chatSessionsLoading()) {
+            <div class="chat-history-empty">
+              <app-icon name="loader-2" [size]="13" class="animate-spin" />
+              Chargement
+            </div>
+          } @else if (filteredChatSessions().length === 0) {
+            <div class="chat-history-empty">Aucune conversation</div>
+          } @else {
+            @for (session of filteredChatSessions(); track session.id) {
+              <div
+                class="chat-history-item"
+                [class.chat-history-item-active]="isActiveSession(session)"
+                (click)="openChatSession(session.id)"
+              >
+                <span class="chat-history-title">{{ sessionTitle(session) }}</span>
+                <span class="chat-history-subtitle">{{ sessionSubtitle(session) }}</span>
+                <span class="chat-history-actions">
+                  <button type="button" title="Archiver" (click)="archiveChatSession(session, $event)">
+                    <app-icon name="archive" [size]="11" />
+                  </button>
+                  <button type="button" title="Supprimer" (click)="deleteChatSession(session, $event)">
+                    <app-icon name="trash-2" [size]="11" />
+                  </button>
+                </span>
+              </div>
+            }
+          }
+        </div>
+      </aside>
+      <div class="flex flex-col h-full min-w-0 flex-1">
       @if (executiveMode()) {
         <div class="vigie-context-bar">
           <div class="flex items-start justify-between gap-3">
@@ -473,10 +551,10 @@ const STEP_ICONS: Record<string, string> = {
             <div class="source-picker" [title]="assistantScopeLabel()">
               <span class="source-picker-label">
                 <app-icon name="database" [size]="12" />
-                Knowledge
+                Sources
                 <span
                   class="control-info-dot"
-                  title="Select the workspace Knowledge source searched by retrieval. Auto uses the assistant profile default when available, otherwise the workspace default."
+                  title="Select the workspace source searched by retrieval. Auto uses the assistant profile default when available, otherwise the workspace context."
                 >
                   <app-icon name="info" [size]="10" />
                 </span>
@@ -488,7 +566,7 @@ const STEP_ICONS: Record<string, string> = {
                   (ngModelChange)="onSourceSelectionChange($event)"
                 >
                   <option value="auto">Auto · {{ autoSourceLabel() }}</option>
-                  <option value="workspace_default">Workspace default</option>
+                  <option value="workspace_default">Default context</option>
                   @for (scope of knowledgeScopeOptions(); track scope.key) {
                     <option [value]="scope.key">{{ scope.label || scope.key }}</option>
                   }
@@ -500,13 +578,13 @@ const STEP_ICONS: Record<string, string> = {
           }
 
           @if (contextId()) {
-            <div class="session-doc-mode" title="Choose whether uploaded session documents replace or complement the selected Knowledge source.">
+            <div class="session-doc-mode" title="Choose whether uploaded session documents replace or complement the selected workspace sources.">
               <span class="session-doc-label">
                 <app-icon name="files" [size]="12" />
                 Session docs
                 <span
                   class="control-info-dot"
-                  title="Only searches uploaded session docs. + Knowledge searches session docs plus the selected Knowledge source."
+                  title="Only searches uploaded session docs. + Sources searches session docs plus the selected workspace sources."
                 >
                   <app-icon name="info" [size]="10" />
                 </span>
@@ -525,7 +603,7 @@ const STEP_ICONS: Record<string, string> = {
                 [class.session-doc-mode-active]="sessionDocsMode() === 'combine'"
                 (click)="setSessionDocsMode('combine')"
               >
-                + Knowledge
+                + Sources
               </button>
             </div>
             <span class="text-gray-600">·</span>
@@ -536,7 +614,7 @@ const STEP_ICONS: Record<string, string> = {
               Retrieval
               <span
                 class="control-info-dot"
-                title="Choose how Agentium searches indexed Knowledge for this question. Auto follows workspace/source defaults."
+                title="Choose how Agentium searches indexed sources for this question. Auto follows workspace/source defaults."
               >
                 <app-icon name="info" [size]="10" />
               </span>
@@ -1278,20 +1356,6 @@ const STEP_ICONS: Record<string, string> = {
                       Le job continue côté serveur; ce suivi se met à jour via {{ deepInfo.deepPollUrl || '/documents/jobs/' + deepInfo.deepJobId }}.
                     </span>
                   }
-                  @if (deepInfo.deepAnswer) {
-                    <div class="basis-full rounded bg-violet-500/5 p-3 text-[12px] leading-relaxed text-gray-200 ring-1 ring-violet-500/10">
-                      <div class="mb-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wider text-violet-300">
-                        <span>Réponse Deep Search</span>
-                        @if (deepInfo.deepAnswerStatus) {
-                          <span class="font-mono normal-case tracking-normal text-violet-300/70">{{ deepInfo.deepAnswerStatus }}</span>
-                        }
-                        @if (deepInfo.deepAnswerModel) {
-                          <span class="font-mono normal-case tracking-normal text-gray-500">{{ deepInfo.deepAnswerModel }}</span>
-                        }
-                      </div>
-                      <div class="whitespace-pre-wrap">{{ deepInfo.deepAnswer }}</div>
-                    </div>
-                  }
                 </div>
                 @if (deepInfo.deepDetailsOpen) {
                   <div class="ml-0 mt-1 rounded-md bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-violet-500/10 overflow-hidden">
@@ -1387,13 +1451,13 @@ const STEP_ICONS: Record<string, string> = {
                   type="button"
                   class="p-1 rounded hover:bg-violet-500/10 transition flex items-center gap-1 text-violet-300 disabled:opacity-50"
                   title="Launch persistent Deep Search for this answer"
-                  [disabled]="!!msg.retrievalInfo?.deepJobId || deepSearchLaunchingId() === msg.id"
+                  [disabled]="!!deepSearchTrackedJobId(msg) || deepSearchLaunchingId() === msg.id"
                   (click)="launchDeepSearch(msg)"
                 >
                   @if (deepSearchLaunchingId() === msg.id) {
                     <app-icon name="loader-2" [size]="12" class="animate-spin" />
                     <span>Deep…</span>
-                  } @else if (msg.retrievalInfo?.deepJobId) {
+                  } @else if (deepSearchTrackedJobId(msg)) {
                     <app-icon name="check" [size]="12" />
                     <span>Deep tracked</span>
                   } @else {
@@ -1635,6 +1699,7 @@ const STEP_ICONS: Record<string, string> = {
         </button>
       </form>
     </div>
+    </div>
 
     <app-document-preview
       [open]="sourcePreviewOpen()"
@@ -1645,6 +1710,174 @@ const STEP_ICONS: Record<string, string> = {
     />
   `,
   styles: [`
+    .chat-history-shell {
+      display: flex;
+      height: 100%;
+      min-height: 0;
+      width: 100%;
+      background: rgba(3, 8, 16, 0.18);
+    }
+    .chat-history-panel {
+      display: flex;
+      flex-direction: column;
+      width: 260px;
+      min-width: 220px;
+      max-width: 280px;
+      min-height: 0;
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.010)),
+        rgba(2, 7, 14, 0.72);
+    }
+    .chat-history-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .chat-history-kicker {
+      color: rgba(125, 211, 252, 0.88);
+      font: 750 10px/1.2 var(--ck-font-mono, ui-monospace, monospace);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .chat-history-count {
+      margin-top: 3px;
+      color: rgba(148, 163, 184, 0.82);
+      font-size: 11px;
+    }
+    .chat-history-new {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      color: rgba(226, 232, 240, 0.92);
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      transition: 140ms ease;
+    }
+    .chat-history-new:hover:not(:disabled) {
+      background: rgba(56, 189, 248, 0.18);
+      border-color: rgba(56, 189, 248, 0.42);
+    }
+    .chat-history-new:disabled {
+      cursor: wait;
+      opacity: 0.55;
+    }
+    .chat-history-search {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 10px 10px 8px;
+      padding: 7px 9px;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(15, 23, 42, 0.58);
+      color: rgba(148, 163, 184, 0.88);
+    }
+    .chat-history-search input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: rgba(226, 232, 240, 0.94);
+      font-size: 12px;
+    }
+    .chat-history-search input::placeholder {
+      color: rgba(148, 163, 184, 0.62);
+    }
+    .chat-history-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 4px 8px 10px;
+    }
+    .chat-history-empty {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 12px 8px;
+      color: rgba(148, 163, 184, 0.76);
+      font-size: 12px;
+    }
+    .chat-history-item {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-rows: auto auto;
+      gap: 2px 8px;
+      width: 100%;
+      margin: 2px 0;
+      padding: 9px 8px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      color: rgba(226, 232, 240, 0.88);
+      background: transparent;
+      transition: 120ms ease;
+    }
+    .chat-history-item:hover {
+      background: rgba(255, 255, 255, 0.045);
+      border-color: rgba(255, 255, 255, 0.06);
+    }
+    .chat-history-item-active {
+      background: rgba(56, 189, 248, 0.105);
+      border-color: rgba(56, 189, 248, 0.28);
+    }
+    .chat-history-title {
+      grid-column: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .chat-history-subtitle {
+      grid-column: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: rgba(148, 163, 184, 0.70);
+      font-size: 10px;
+    }
+    .chat-history-actions {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      opacity: 0;
+      transition: 120ms ease;
+    }
+    .chat-history-item:hover .chat-history-actions,
+    .chat-history-item-active .chat-history-actions {
+      opacity: 1;
+    }
+    .chat-history-actions button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      color: rgba(148, 163, 184, 0.92);
+    }
+    .chat-history-actions button:hover {
+      color: rgba(226, 232, 240, 0.96);
+      background: rgba(255, 255, 255, 0.07);
+    }
+    @media (max-width: 900px) {
+      .chat-history-panel {
+        display: none;
+      }
+    }
     .vigie-context-bar {
       padding: 12px 18px;
       border-bottom: 1px solid rgba(101, 214, 110, 0.12);
@@ -2410,9 +2643,19 @@ export class ChatPanelComponent implements AfterViewInit {
   userInput = '';
   private chatSessionId: string | null = null;
   private chatSessionSignature: string | null = null;
-  private readonly deepRetrievalStorageKey = 'agentium:pending-deep-retrieval-jobs';
+  private readonly selectedSessionStorageKey = 'agentium:selected-chat-session-id';
   private readonly activeDeepRetrievalPolls = new Set<string>();
-  private creatingChatSession = false;
+  creatingChatSession = false;
+  readonly chatSessions = signal<ChatSessionSummary[]>([]);
+  readonly chatSessionsLoading = signal(false);
+  readonly activeChatSessionId = signal<string | null>(null);
+  readonly chatSessionSearch = signal('');
+  readonly filteredChatSessions = computed(() => {
+    const q = this.chatSessionSearch().trim().toLowerCase();
+    const sessions = this.chatSessions();
+    if (!q) return sessions;
+    return sessions.filter((session) => this.sessionTitle(session).toLowerCase().includes(q));
+  });
 
   readonly ragModeChoices = RAG_MODE_CHOICES;
   readonly ragModeOverride = signal<RagModeChoice>('auto');
@@ -2457,6 +2700,10 @@ export class ChatPanelComponent implements AfterViewInit {
 
   readonly executiveMode = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
   readonly assistantLabel = computed(() => this.activeAssistantProfile()?.label || 'Agentium');
+  readonly workspaceContextLabel = computed(() => {
+    const name = String(this.workspace.current()?.name || this.workspace.current()?.slug || 'workspace').trim();
+    return name || 'workspace';
+  });
   readonly groundingMode = computed<GroundingMode | null>(() => {
     const settings = this.workspace.current()?.settings;
     const workspaceChat = this.isRecord(settings?.['chat']) ? settings?.['chat'] : null;
@@ -2531,7 +2778,7 @@ export class ChatPanelComponent implements AfterViewInit {
   });
   readonly assistantScopeLabel = computed(() => {
     const label = this.scopeLabel(this.activeKnowledgeScope());
-    if (!this.contextId()) return `Knowledge source: ${label}`;
+    if (!this.contextId()) return `Sources : ${label}`;
     if (this.sessionDocsMode() === 'combine') return `Session docs + ${label}`;
     return 'Session docs only';
   });
@@ -2542,9 +2789,9 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly sourceSelectionLabel = computed(() => {
     const selected = this.selectedSource();
     if (selected === 'auto') {
-      return this.profileKnowledgeScope() ? 'Profile default' : 'Workspace default';
+      return this.profileKnowledgeScope() ? 'Profile default' : 'Default context';
     }
-    if (selected === 'workspace_default') return 'Workspace default';
+    if (selected === 'workspace_default') return 'Default context';
     return this.scopeLabel(selected);
   });
 
@@ -2563,7 +2810,7 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly emptyTitle = computed(() => {
     const configured = this.workspaceChatConfig().title;
     if (configured) return configured;
-    if (this.isDemoMode()) return 'Rechercher dans les connaissances';
+    if (this.isDemoMode()) return 'Posez votre question';
     if (this.executiveMode()) return `Interroger ${this.assistantLabel()}`;
     if (this.activeAssistantProfile()) return `Ask ${this.assistantLabel()}`;
     return 'Start a conversation';
@@ -2572,10 +2819,7 @@ export class ChatPanelComponent implements AfterViewInit {
     const configured = this.workspaceChatConfig().subtitle;
     if (configured) return configured;
     if (this.isDemoMode()) {
-      const label = this.scopeLabel(this.activeKnowledgeScope());
-      return label && label !== 'workspace'
-        ? `Posez une question sur ${label}. La réponse cite les sources utilisées.`
-        : 'Posez une question sur les documents du workspace. La réponse cite les sources utilisées.';
+      return `Posez une question sur le contexte ${this.workspaceContextLabel()}. La réponse cite les sources utilisées.`;
     }
     if (this.executiveMode()) return 'Posez une question sur les signaux, projets, sources et décisions attendues.';
     if (this.contextId() && this.sessionDocsMode() === 'replace') {
@@ -2593,10 +2837,7 @@ export class ChatPanelComponent implements AfterViewInit {
     const configured = this.workspaceChatConfig().placeholder;
     if (configured) return configured;
     if (this.isDemoMode()) {
-      const label = this.scopeLabel(this.activeKnowledgeScope());
-      return label && label !== 'workspace'
-        ? `Posez votre question sur ${label}...`
-        : 'Posez votre question sur les documents...';
+      return 'Posez votre question...';
     }
     if (this.executiveMode()) return `Interroger ${this.assistantLabel()} sur les sources du workspace...`;
     if (this.contextId() && this.sessionDocsMode() === 'replace') {
@@ -2874,8 +3115,7 @@ export class ChatPanelComponent implements AfterViewInit {
     this.loadReasoningTemplates();
     this.loadVoiceRuntimes();
     queueMicrotask(() => {
-      this.restorePendingDeepRetrievalJobs();
-      this.restoreServerDeepRetrievalJobs();
+      this.loadChatSessions();
     });
     this.destroyRef.onDestroy(() => {
       this.clearVoiceLoopRearmTimer();
@@ -2887,6 +3127,206 @@ export class ChatPanelComponent implements AfterViewInit {
 
   ngAfterViewInit(): void {
     this.focusComposer(120);
+  }
+
+  loadChatSessions(selectId?: string | null): void {
+    this.chatSessionsLoading.set(true);
+    this.api.get<{ sessions?: ChatSessionSummary[] }>('/sessions?status=active&limit=80').subscribe({
+      next: (payload) => {
+        const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
+        this.chatSessions.set(sessions);
+        this.chatSessionsLoading.set(false);
+        const stored = this.loadSelectedSessionId();
+        const target = selectId || stored;
+        const exists = target && sessions.some((session) => session.id === target);
+        if (exists && target) {
+          this.openChatSession(target);
+        } else if (!this.activeChatSessionId() && sessions.length > 0) {
+          this.openChatSession(sessions[0].id);
+        }
+      },
+      error: () => {
+        this.chatSessionsLoading.set(false);
+      },
+    });
+  }
+
+  createNewChat(): void {
+    if (this.creatingChatSession) return;
+    this.creatingChatSession = true;
+    this.api.post<ChatSessionSummary>('/sessions', { context: this.currentChatSessionContext() }).subscribe({
+      next: (session) => {
+        this.creatingChatSession = false;
+        this.chatSessionId = session.id;
+        this.chatSessionSignature = this.currentChatSessionSignature();
+        this.activeChatSessionId.set(session.id);
+        this.storeSelectedSessionId(session.id);
+        this.messages.set([]);
+        this.streamBuffer.set('');
+        this.liveSteps.set([]);
+        this.liveRetrievalInfo.set(null);
+        this.chatSessions.update((sessions) => [session, ...sessions.filter((item) => item.id !== session.id)]);
+        this.focusComposer();
+      },
+      error: () => {
+        this.creatingChatSession = false;
+        this.toast.error('Could not create a chat session', 'Chat');
+      },
+    });
+  }
+
+  openChatSession(sessionId: string): void {
+    if (!sessionId || this.activeChatSessionId() === sessionId) return;
+    this.api.get<ChatSessionDetail>(`/sessions/${encodeURIComponent(sessionId)}?include_messages=true&include_jobs=true`).subscribe({
+      next: (detail) => {
+        this.chatSessionId = detail.id;
+        this.chatSessionSignature = this.currentChatSessionSignature();
+        this.activeChatSessionId.set(detail.id);
+        this.storeSelectedSessionId(detail.id);
+        const messages = (detail.messages || []).map((message) => this.chatMessageFromStored(message));
+        const messageIds = new Set(messages.map((message) => message.id));
+        const jobMessages = (detail.jobs || [])
+          .map((job) => this.chatMessageFromWorkspaceJob(job))
+          .filter((message): message is ChatMessage => !!message && !messageIds.has(message.id));
+        this.messages.set([...messages, ...jobMessages]);
+        for (const msg of this.messages()) {
+          const jobId = msg.retrievalInfo?.deepJobId;
+          const pollUrl = msg.retrievalInfo?.deepPollUrl;
+          const info = msg.retrievalInfo;
+          if (jobId && info && this.deepRetrievalRunning(info)) {
+            this.startDeepRetrievalPolling(msg.id, jobId, pollUrl || null);
+          }
+        }
+        this.focusComposer();
+      },
+      error: () => {
+        this.toast.error('Could not load chat session', 'Chat');
+      },
+    });
+  }
+
+  archiveChatSession(session: ChatSessionSummary, event?: Event): void {
+    event?.stopPropagation();
+    this.api.patch<ChatSessionSummary>(`/sessions/${encodeURIComponent(session.id)}`, { status: 'archived' }).subscribe({
+      next: () => {
+        this.chatSessions.update((sessions) => sessions.filter((item) => item.id !== session.id));
+        if (this.activeChatSessionId() === session.id) this.createNewChat();
+      },
+      error: () => this.toast.error('Could not archive this conversation', 'Chat'),
+    });
+  }
+
+  deleteChatSession(session: ChatSessionSummary, event?: Event): void {
+    event?.stopPropagation();
+    this.api.delete(`/sessions/${encodeURIComponent(session.id)}`).subscribe({
+      next: () => {
+        this.chatSessions.update((sessions) => sessions.filter((item) => item.id !== session.id));
+        if (this.activeChatSessionId() === session.id) {
+          this.activeChatSessionId.set(null);
+          this.chatSessionId = null;
+          this.messages.set([]);
+        }
+      },
+      error: () => this.toast.error('Could not delete this conversation', 'Chat'),
+    });
+  }
+
+  sessionTitle(session: ChatSessionSummary): string {
+    return (session.title || '').trim() || 'Nouvelle conversation';
+  }
+
+  sessionSubtitle(session: ChatSessionSummary): string {
+    const count = session.message_count ?? 0;
+    const when = session.last_activity ? new Date(session.last_activity) : null;
+    const date = when && Number.isFinite(when.getTime()) ? when.toLocaleDateString() : '';
+    return `${count} message${count > 1 ? 's' : ''}${date ? ' · ' + date : ''}`;
+  }
+
+  isActiveSession(session: ChatSessionSummary): boolean {
+    return this.activeChatSessionId() === session.id;
+  }
+
+  private storeSelectedSessionId(sessionId: string): void {
+    try {
+      window.localStorage.setItem(this.selectedSessionStorageKey, sessionId);
+    } catch {
+      // Selection restore is nice-to-have only.
+    }
+  }
+
+  private loadSelectedSessionId(): string | null {
+    try {
+      return window.localStorage.getItem(this.selectedSessionStorageKey);
+    } catch {
+      return null;
+    }
+  }
+
+  private chatMessageFromStored(message: NonNullable<ChatSessionDetail['messages']>[number]): ChatMessage {
+    const meta = message.meta_data || {};
+    const sources = Array.isArray(meta['sources']) ? (meta['sources'] as Source[]) : undefined;
+    const decisionSteps = Array.isArray(meta['decision_steps']) ? (meta['decision_steps'] as DecisionStep[]) : undefined;
+    const deepJobId = (meta['deep_job_id'] as string | undefined) || (meta['workspace_job_id'] as string | undefined) || null;
+    const deepSummary = this.parseDeepSummaryMeta(meta['deep_summary']);
+    const deepSources = Array.isArray(meta['deep_sources']) ? (meta['deep_sources'] as Source[]) : undefined;
+    return {
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      decisionSteps,
+      sources,
+      feedback: null,
+      evaluation: null,
+      runId: (meta['run_id'] as string | undefined) || null,
+      retrievalInfo: deepJobId
+        ? {
+            deepJobId,
+            deepPollUrl: (meta['deep_poll_url'] as string | undefined) || `/workspace-jobs/${deepJobId}`,
+            deepStatus: (meta['deep_status'] as string | undefined) || 'queued',
+            deepProgress: typeof meta['deep_progress'] === 'number' ? (meta['deep_progress'] as number) : null,
+            deepStage: (meta['deep_stage'] as string | undefined) || null,
+            deepParentMessageId: (meta['parent_message_id'] as string | undefined) || null,
+            deepAnswerStatus: (meta['deep_answer_status'] as string | undefined) || null,
+            deepAnswerModel: (meta['deep_answer_model'] as string | undefined) || null,
+            deepSummary,
+            deepSources,
+          }
+        : null,
+    };
+  }
+
+  private chatMessageFromWorkspaceJob(raw: unknown): ChatMessage | null {
+    if (!this.isRecord(raw)) return null;
+    const jobId = typeof raw['id'] === 'string' ? (raw['id'] as string) : '';
+    if (!jobId) return null;
+    const result = this.isRecord(raw['result']) ? (raw['result'] as Record<string, unknown>) : {};
+    const inputRef = this.isRecord(raw['input_ref']) ? (raw['input_ref'] as Record<string, unknown>) : {};
+    const request = this.isRecord(inputRef['request']) ? (inputRef['request'] as Record<string, unknown>) : {};
+    const query = typeof request['query'] === 'string' ? (request['query'] as string) : 'Deep Search';
+    const answer = typeof result['answer'] === 'string' && result['answer'].trim()
+      ? (result['answer'] as string).trim()
+      : `Deep Search ${raw['status'] === 'completed' ? 'terminé' : 'en cours'} pour "${query}".`;
+    const pollUrl = typeof raw['poll_url'] === 'string' ? (raw['poll_url'] as string) : `/workspace-jobs/${jobId}`;
+    return {
+      id: typeof raw['message_id'] === 'string' && raw['message_id'] ? (raw['message_id'] as string) : `job:${jobId}`,
+      role: 'assistant',
+      content: answer,
+      sources: this.deepSourcesFromJob(raw),
+      feedback: null,
+      evaluation: null,
+      retrievalInfo: {
+        deepJobId: jobId,
+        deepPollUrl: pollUrl,
+        deepStatus: typeof raw['status'] === 'string' ? (raw['status'] as string) : 'queued',
+        deepProgress: typeof raw['progress'] === 'number' ? (raw['progress'] as number) : 0,
+        deepStage: typeof raw['stage'] === 'string' ? (raw['stage'] as string) : null,
+        deepParentMessageId: typeof raw['parent_message_id'] === 'string' ? (raw['parent_message_id'] as string) : null,
+        deepSummary: this.parseDeepSummaryFromJob(raw),
+        deepSources: this.deepSourcesFromJob(raw),
+        deepAnswerStatus: typeof result['answer_status'] === 'string' ? (result['answer_status'] as string) : null,
+        deepAnswerModel: typeof result['answer_model'] === 'string' ? (result['answer_model'] as string) : null,
+      },
+    };
   }
 
   private loadReasoningTemplates(): void {
@@ -3938,7 +4378,17 @@ export class ChatPanelComponent implements AfterViewInit {
   scopeLabel(scopeKey: string | null | undefined): string {
     if (!scopeKey) return 'workspace';
     const scope = this.knowledgeScopeOptions().find((item) => item.key === scopeKey);
-    return scope?.label || scopeKey;
+    return this.cleanSourceLabel(scope?.label || scopeKey);
+  }
+
+  private cleanSourceLabel(label: string): string {
+    const cleaned = label
+      .replace(/\bknowledge\s+experiment\b/gi, '')
+      .replace(/\bworkspace\s+Knowledge\b/g, 'contexte du workspace')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/[\s·,:-]+$/g, '')
+      .trim();
+    return cleaned || label;
   }
 
   onSourceSelectionChange(value: SourceSelection): void {
@@ -4127,8 +4577,9 @@ export class ChatPanelComponent implements AfterViewInit {
     fallbackJobId: string,
   ): string {
     const path = String(info.deepPollUrl || '').trim();
+    if (path.startsWith('/workspace-jobs/')) return path;
     if (path.startsWith('/documents/jobs/')) return path;
-    return `/documents/jobs/${encodeURIComponent(fallbackJobId)}`;
+    return `/workspace-jobs/${encodeURIComponent(fallbackJobId)}`;
   }
 
   private patchMessageRetrievalInfo(
@@ -4216,112 +4667,29 @@ export class ChatPanelComponent implements AfterViewInit {
     });
   }
 
-  private pendingDeepRetrievalJobs(): Array<{ jobId: string; pollUrl?: string | null; query?: string | null; createdAt: number }> {
-    try {
-      const raw = window.localStorage.getItem(this.deepRetrievalStorageKey);
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(parsed)) return [];
-      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-      return parsed
-        .filter((item): item is { jobId: string; pollUrl?: string | null; query?: string | null; createdAt: number } =>
-          this.isRecord(item)
-          && typeof item['jobId'] === 'string'
-          && item['jobId'].trim().length > 0
-          && typeof item['createdAt'] === 'number'
-          && item['createdAt'] >= cutoff,
-        );
-    } catch {
-      return [];
-    }
+  private parseDeepSummaryMeta(raw: unknown): NonNullable<NonNullable<ChatMessage['retrievalInfo']>['deepSummary']> | null {
+    if (!this.isRecord(raw)) return null;
+    const topSourcesRaw = Array.isArray(raw['top_sources']) ? raw['top_sources'] : [];
+    return {
+      chunksRetrieved: typeof raw['chunks_retrieved'] === 'number' ? (raw['chunks_retrieved'] as number) : null,
+      sourcesReturned: typeof raw['sources_returned'] === 'number' ? (raw['sources_returned'] as number) : null,
+      topScore: typeof raw['top_score'] === 'number' ? (raw['top_score'] as number) : null,
+      pipeline: typeof raw['pipeline'] === 'string' ? (raw['pipeline'] as string) : null,
+      partial: raw['partial'] === true,
+      fallbackReason: typeof raw['fallback_reason'] === 'string' ? (raw['fallback_reason'] as string) : null,
+      topSources: topSourcesRaw
+        .filter((source): source is Record<string, unknown> => this.isRecord(source))
+        .map((source) => ({
+          label: typeof source['label'] === 'string' ? (source['label'] as string) : null,
+          chunks: typeof source['chunks'] === 'number' ? (source['chunks'] as number) : null,
+        })),
+    };
   }
 
-  private persistPendingDeepRetrievalJobs(
-    jobs: Array<{ jobId: string; pollUrl?: string | null; query?: string | null; createdAt: number }>,
-  ): void {
-    try {
-      window.localStorage.setItem(this.deepRetrievalStorageKey, JSON.stringify(jobs.slice(-12)));
-    } catch {
-      // Local storage is best-effort only; the server-side WorkerJob remains authoritative.
-    }
-  }
-
-  private rememberPendingDeepRetrievalJob(jobId: string, pollUrl: string | null, query: string): void {
-    const jobs = this.pendingDeepRetrievalJobs().filter((item) => item.jobId !== jobId);
-    jobs.push({ jobId, pollUrl, query, createdAt: Date.now() });
-    this.persistPendingDeepRetrievalJobs(jobs);
-  }
-
-  private forgetPendingDeepRetrievalJob(jobId: string): void {
-    this.persistPendingDeepRetrievalJobs(this.pendingDeepRetrievalJobs().filter((item) => item.jobId !== jobId));
-  }
-
-  private restorePendingDeepRetrievalJobs(): void {
-    for (const job of this.pendingDeepRetrievalJobs()) {
-      if (this.messages().some((msg) => msg.retrievalInfo?.deepJobId === job.jobId)) continue;
-      const assistantId = cryptoId();
-      const queryLabel = job.query ? ` pour "${job.query}"` : '';
-      this.messages.update((msgs) => [
-        ...msgs,
-        {
-          id: assistantId,
-          role: 'assistant',
-          content: `Deep Retrieval en cours${queryLabel}. Le job continue côté serveur.`,
-          retrievalInfo: {
-            deepJobId: job.jobId,
-            deepPollUrl: job.pollUrl || `/documents/jobs/${job.jobId}`,
-            deepStatus: 'queued',
-            deepProgress: 0,
-            deepStage: 'resume_polling',
-          },
-        } satisfies ChatMessage,
-      ]);
-      this.startDeepRetrievalPolling(assistantId, job.jobId, job.pollUrl || null);
-    }
-  }
-
-  private restoreServerDeepRetrievalJobs(): void {
-    this.api
-      .get<{ items?: unknown[] }>('/documents/jobs?kind=rag_deep_retrieval&status=queued,running&limit=12')
-      .subscribe({
-        next: (payload) => {
-          const jobs = Array.isArray(payload?.items) ? payload.items : [];
-          for (const raw of jobs) {
-            if (!this.isRecord(raw)) continue;
-            const jobId = typeof raw['id'] === 'string' ? raw['id'] : '';
-            if (!jobId || this.messages().some((msg) => msg.retrievalInfo?.deepJobId === jobId)) continue;
-            const result = this.isRecord(raw['result']) ? (raw['result'] as Record<string, unknown>) : {};
-            const request = this.isRecord(result['request']) ? (result['request'] as Record<string, unknown>) : {};
-            const query = typeof request['query'] === 'string' ? (request['query'] as string) : null;
-            const status = typeof raw['status'] === 'string' ? (raw['status'] as string) : 'queued';
-            if (status !== 'queued' && status !== 'running') continue;
-            const progress = typeof raw['progress'] === 'number' ? (raw['progress'] as number) : 0;
-            const stage = typeof raw['stage'] === 'string' ? (raw['stage'] as string) : null;
-            const pollUrl = typeof raw['poll_url'] === 'string' ? (raw['poll_url'] as string) : `/documents/jobs/${jobId}`;
-            const assistantId = cryptoId();
-            const queryLabel = query ? ` pour "${query}"` : '';
-            this.messages.update((msgs) => [
-              ...msgs,
-              {
-                id: assistantId,
-                role: 'assistant',
-                content: `Deep Retrieval en cours retrouvé${queryLabel}. Le job est suivi côté serveur.`,
-                retrievalInfo: {
-                  deepJobId: jobId,
-                  deepPollUrl: pollUrl,
-                  deepStatus: status,
-                  deepProgress: progress,
-                  deepStage: stage || 'server_restore',
-                },
-              } satisfies ChatMessage,
-            ]);
-            this.rememberPendingDeepRetrievalJob(jobId, pollUrl, query || 'Deep Retrieval');
-            this.startDeepRetrievalPolling(assistantId, jobId, pollUrl);
-          }
-        },
-        error: () => {
-          // Best-effort restore only; localStorage polling and the server job remain intact.
-        },
-      });
+  private parseDeepSummaryFromJob(job: unknown): NonNullable<NonNullable<ChatMessage['retrievalInfo']>['deepSummary']> | null {
+    if (!this.isRecord(job)) return null;
+    const result = this.isRecord(job['result']) ? (job['result'] as Record<string, unknown>) : {};
+    return this.parseDeepSummaryMeta(result['summary']);
   }
 
   retrievalPolicyTitle(info: NonNullable<ChatMessage['retrievalInfo']>): string {
@@ -4500,10 +4868,13 @@ export class ChatPanelComponent implements AfterViewInit {
     if (!this.chatSessionId) {
       this.creatingChatSession = true;
       this.api
-        .post<{ id: string }>('/sessions', { context: this.currentChatSessionContext() })
+        .post<ChatSessionSummary>('/sessions', { context: this.currentChatSessionContext() })
         .subscribe({
           next: (session) => {
             this.chatSessionId = session.id;
+            this.activeChatSessionId.set(session.id);
+            this.storeSelectedSessionId(session.id);
+            this.chatSessions.update((sessions) => [session, ...sessions.filter((item) => item.id !== session.id)]);
             this.creatingChatSession = false;
             this.send();
           },
@@ -4539,6 +4910,17 @@ export class ChatPanelComponent implements AfterViewInit {
     let mapCommand: Record<string, unknown> | undefined;
     let turnRunId: string | undefined;
     let retrievalInfo: ChatMessage['retrievalInfo'] = null;
+    let pendingDeepSearch:
+      | {
+          jobId: string;
+          messageId: string;
+          pollUrl: string;
+          status: string;
+          progress: number;
+          stage: string | null;
+          parentMessageId: string | null;
+        }
+      | null = null;
 
     const ragOverride = this.ragModeOverride();
     const promptTypeSel = this.promptType();
@@ -4589,7 +4971,12 @@ export class ChatPanelComponent implements AfterViewInit {
           // chunks and the trailing ``eval_pending`` chunk both carry it).
           // Remember it so the auto-QA verdict can be pinned to this bubble.
           if (chunk.run_id) turnRunId = chunk.run_id;
-          if (chunk.chunk_type === 'text' && typeof chunk.content === 'string') {
+          if (chunk.chunk_type === 'session' && typeof (chunk as Record<string, unknown>)['session_id'] === 'string') {
+            const sessionId = (chunk as Record<string, unknown>)['session_id'] as string;
+            this.chatSessionId = sessionId;
+            this.activeChatSessionId.set(sessionId);
+            this.storeSelectedSessionId(sessionId);
+          } else if (chunk.chunk_type === 'text' && typeof chunk.content === 'string') {
             buffer += chunk.content;
             this.streamBuffer.set(buffer);
             if (this.ttsEnabled()) this.maybeFlushSentences(buffer);
@@ -4599,6 +4986,28 @@ export class ChatPanelComponent implements AfterViewInit {
             this.liveSteps.set([...reasoning]);
           } else if (chunk.chunk_type === 'retrieval') {
             const details = (((chunk as Record<string, unknown>)['details'] as Record<string, unknown> | undefined) || {});
+            const phase = String((chunk as Record<string, unknown>)['phase'] || '');
+            if (phase === 'deep_queued') {
+              const jobId = typeof details['deep_job_id'] === 'string' ? (details['deep_job_id'] as string) : '';
+              if (jobId) {
+                pendingDeepSearch = {
+                  jobId,
+                  messageId:
+                    typeof details['message_id'] === 'string' && details['message_id']
+                      ? (details['message_id'] as string)
+                      : `job:${jobId}`,
+                  pollUrl:
+                    typeof details['deep_poll_url'] === 'string' && details['deep_poll_url']
+                      ? (details['deep_poll_url'] as string)
+                      : `/workspace-jobs/${jobId}`,
+                  status: typeof details['deep_status'] === 'string' ? (details['deep_status'] as string) : 'queued',
+                  progress: typeof details['deep_progress'] === 'number' ? (details['deep_progress'] as number) : 0,
+                  stage: typeof details['deep_stage'] === 'string' ? (details['deep_stage'] as string) : 'auto_deep_search',
+                  parentMessageId: typeof details['parent_message_id'] === 'string' ? (details['parent_message_id'] as string) : null,
+                };
+              }
+              return;
+            }
             const latencyBudget = this.parseLatencyBudget(details['latency_budget']);
             const stageTimings = this.parseNumberRecord(details['stage_timings']);
             const candidateCounts = this.parseNumberRecord(details['candidate_counts']);
@@ -4700,9 +5109,22 @@ export class ChatPanelComponent implements AfterViewInit {
               qaReview: null,
             };
             this.messages.update((m) => [...m, assistantMsg]);
-            if (retrievalInfo?.deepJobId) {
-              this.rememberPendingDeepRetrievalJob(retrievalInfo.deepJobId, retrievalInfo.deepPollUrl || null, text);
-              this.startDeepRetrievalPolling(assistantId, retrievalInfo.deepJobId, retrievalInfo.deepPollUrl || null);
+            if (pendingDeepSearch) {
+              const parentMessageId = pendingDeepSearch.parentMessageId || assistantId;
+              this.appendDeepSearchPlaceholder({
+                messageId: pendingDeepSearch.messageId,
+                jobId: pendingDeepSearch.jobId,
+                pollUrl: pendingDeepSearch.pollUrl,
+                status: pendingDeepSearch.status,
+                progress: pendingDeepSearch.progress,
+                stage: pendingDeepSearch.stage,
+                parentMessageId,
+              });
+              this.startDeepRetrievalPolling(
+                pendingDeepSearch.messageId,
+                pendingDeepSearch.jobId,
+                pendingDeepSearch.pollUrl,
+              );
             }
             this.streaming.set(false);
             this.streamBuffer.set('');
@@ -4724,6 +5146,7 @@ export class ChatPanelComponent implements AfterViewInit {
               if (this.ttsEnabled()) this.resetTtsPipeline();
               this.scheduleVoiceLoopRearm();
             }
+            this.loadChatSessions(this.chatSessionId);
             this.focusComposer();
           }
         },
@@ -4741,18 +5164,78 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   clearConversation(): void {
-    this.messages.set([]);
-    this.streamBuffer.set('');
-    this.liveSteps.set([]);
-    this.liveRetrievalInfo.set(null);
-    this.openTrails.set(new Set());
-    this.chatSessionId = null;
-    this.chatSessionSignature = null;
-    this.creatingChatSession = false;
+    this.createNewChat();
+  }
+
+  deepSearchTrackedJobId(msg: ChatMessage): string | null {
+    const direct = msg.retrievalInfo?.deepJobId;
+    if (direct) return direct;
+    const linked = this.messages().find(
+      (candidate) =>
+        candidate.id !== msg.id
+        && candidate.retrievalInfo?.deepParentMessageId === msg.id
+        && !!candidate.retrievalInfo.deepJobId,
+    );
+    return linked?.retrievalInfo?.deepJobId || null;
+  }
+
+  private appendDeepSearchPlaceholder(params: {
+    messageId: string;
+    jobId: string;
+    pollUrl: string;
+    status: string;
+    progress: number;
+    stage: string | null;
+    parentMessageId: string | null;
+  }): void {
+    const content = 'Recherche approfondie lancée pour affiner cette réponse.';
+    this.messages.update((messages) => {
+      const existing = messages.some((msg) => msg.id === params.messageId);
+      if (existing) {
+        return messages.map((msg) => {
+          if (msg.id !== params.messageId) return msg;
+          return {
+            ...msg,
+            retrievalInfo: {
+              ...(msg.retrievalInfo || {}),
+              deepJobId: params.jobId,
+              deepPollUrl: params.pollUrl,
+              deepStatus: params.status,
+              deepProgress: params.progress,
+              deepStage: params.stage,
+              deepParentMessageId: params.parentMessageId,
+              deepDetailsOpen: false,
+              deepDetailsLoading: false,
+              deepDetailsError: null,
+            },
+          };
+        });
+      }
+      const placeholder: ChatMessage = {
+        id: params.messageId,
+        role: 'assistant',
+        content,
+        sources: [],
+        feedback: null,
+        evaluation: null,
+        retrievalInfo: {
+          deepJobId: params.jobId,
+          deepPollUrl: params.pollUrl,
+          deepStatus: params.status,
+          deepProgress: params.progress,
+          deepStage: params.stage,
+          deepParentMessageId: params.parentMessageId,
+          deepDetailsOpen: false,
+          deepDetailsLoading: false,
+          deepDetailsError: null,
+        },
+      };
+      return [...messages, placeholder];
+    });
   }
 
   launchDeepSearch(msg: ChatMessage): void {
-    if (msg.role !== 'assistant' || msg.retrievalInfo?.deepJobId || this.deepSearchLaunchingId() === msg.id) return;
+    if (msg.role !== 'assistant' || this.deepSearchTrackedJobId(msg) || this.deepSearchLaunchingId() === msg.id) return;
     const query = this.previousUserQueryFor(msg.id);
     if (!query) {
       this.toast.error('Could not find the source question for this Deep Search.', 'Deep Search');
@@ -4769,8 +5252,12 @@ export class ChatPanelComponent implements AfterViewInit {
         status?: string;
         progress?: number;
         stage?: string | null;
+        message_id?: string | null;
+        parent_message_id?: string | null;
       }>('/chat/deep-retrieval-jobs', {
         query,
+        parent_message_id: msg.id,
+        previous_answer: msg.content,
         agent_id: this.systemId(),
         session_id: this.chatSessionId,
         context_id: this.contextId(),
@@ -4804,19 +5291,21 @@ export class ChatPanelComponent implements AfterViewInit {
             this.deepSearchLaunchingId.set(null);
             return;
           }
-          const pollUrl = typeof job.poll_url === 'string' ? job.poll_url : `/documents/jobs/${jobId}`;
-          this.patchMessageRetrievalInfo(msg.id, {
-            deepJobId: jobId,
-            deepPollUrl: pollUrl,
-            deepStatus: typeof job.status === 'string' ? job.status : 'queued',
-            deepProgress: typeof job.progress === 'number' ? job.progress : 0,
-            deepStage: typeof job.stage === 'string' ? job.stage : 'manual_deep_search',
-            deepDetailsOpen: false,
-            deepDetailsLoading: false,
-            deepDetailsError: null,
+          const pollUrl = typeof job.poll_url === 'string' ? job.poll_url : `/workspace-jobs/${jobId}`;
+          const messageId =
+            typeof job.message_id === 'string' && job.message_id
+              ? job.message_id
+              : `job:${jobId}`;
+          this.appendDeepSearchPlaceholder({
+            messageId,
+            jobId,
+            pollUrl,
+            status: typeof job.status === 'string' ? job.status : 'queued',
+            progress: typeof job.progress === 'number' ? job.progress : 0,
+            stage: typeof job.stage === 'string' ? job.stage : 'manual_deep_search',
+            parentMessageId: msg.id,
           });
-          this.rememberPendingDeepRetrievalJob(jobId, pollUrl, query);
-          this.startDeepRetrievalPolling(msg.id, jobId, pollUrl);
+          this.startDeepRetrievalPolling(messageId, jobId, pollUrl);
           this.deepSearchLaunchingId.set(null);
         },
         error: () => {
@@ -4912,11 +5401,16 @@ export class ChatPanelComponent implements AfterViewInit {
       sources?: Source[],
       answer?: { text?: string | null; status?: string | null; model?: string | null },
     ): void => {
+      const promotedAnswer = answer?.text?.trim();
+      const shouldPromoteAnswer =
+        !!promotedAnswer && (status === 'completed' || status === 'failed' || status === 'cancelled');
       this.messages.update((messages) =>
         messages.map((msg) => {
           if (msg.id !== messageId || !msg.retrievalInfo) return msg;
           return {
             ...msg,
+            content: shouldPromoteAnswer ? promotedAnswer : msg.content,
+            sources: shouldPromoteAnswer && sources?.length ? sources : msg.sources,
             retrievalInfo: {
               ...msg.retrievalInfo,
               deepStatus: status,
@@ -4993,9 +5487,9 @@ export class ChatPanelComponent implements AfterViewInit {
           })),
       };
     };
-    const jobPath = pollUrl && pollUrl.startsWith('/documents/jobs/')
+    const jobPath = pollUrl && (pollUrl.startsWith('/workspace-jobs/') || pollUrl.startsWith('/documents/jobs/'))
       ? pollUrl
-      : `/documents/jobs/${encodeURIComponent(jobId)}`;
+      : `/workspace-jobs/${encodeURIComponent(jobId)}`;
     const tick = (): void => {
       if (attempts >= maxAttempts) {
         this.activeDeepRetrievalPolls.delete(jobId);
@@ -5013,7 +5507,6 @@ export class ChatPanelComponent implements AfterViewInit {
             window.setTimeout(tick, 2000);
           } else {
             this.activeDeepRetrievalPolls.delete(jobId);
-            this.forgetPendingDeepRetrievalJob(jobId);
           }
         },
         error: () => {

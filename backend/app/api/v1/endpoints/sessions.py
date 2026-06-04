@@ -1,13 +1,18 @@
-"""Session management endpoints — scoped by workspace."""
-from fastapi import APIRouter, HTTPException, Depends
+"""Session management endpoints — scoped by workspace/user."""
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.roles import is_admin_template
 from app.core.logging import get_logger
 from app.db.base import get_db
+from app.models.workspace import Workspace, WorkspaceMember
 from app.models.user import Session as SessionModel, Message, User
-from app.models.workspace import Workspace
+from app.models.knowledge_collection import WorkerJob
+from app.models.workspace_job import WorkspaceJob
+from app.services.audit_logger import emit_audit_event
+from app.services.workspace_jobs import serialize_job
 from datetime import datetime
 import uuid
 
@@ -18,15 +23,163 @@ router = APIRouter()
 class SessionCreate(BaseModel):
     user_id: Optional[str] = None  # Ignored: taken from JWT
     context: Optional[Dict[str, Any]] = {}
+    title: Optional[str] = None
+    context_signature: Optional[str] = None
 
 
-class SessionResponse(BaseModel):
-    id: str
-    user_id: str
-    workspace_id: Optional[str] = None
-    created_at: datetime
-    last_activity: datetime
-    message_count: int
+class SessionPatch(BaseModel):
+    title: Optional[str] = None
+    status: Optional[str] = None
+
+
+def _actor(user: User) -> str:
+    return user.email or user.username or user.id
+
+
+def _is_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> bool:
+    if user.role == "admin":
+        return True
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
+        .first()
+    )
+    return bool(membership and is_admin_template(membership.role_template, membership.role))
+
+
+def _context_signature(context: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(context, dict):
+        return None
+    explicit = context.get("context_signature")
+    if explicit:
+        return str(explicit)[:512]
+    parts = [
+        context.get("system_id") or "workspace",
+        context.get("context_id") or "no-context",
+        context.get("assistant_profile") or "default-profile",
+        context.get("source_selection") or "auto",
+        context.get("context_mode") or "no-session-docs",
+        context.get("knowledge_scope") or "workspace-scope",
+    ]
+    return "|".join(str(part) for part in parts)[:512]
+
+
+def _serialize_message(message: Message) -> Dict[str, Any]:
+    return {
+        "id": message.id,
+        "role": message.role,
+        "content": message.content,
+        "timestamp": message.timestamp.isoformat() if message.timestamp else None,
+        "meta_data": message.meta_data or {},
+    }
+
+
+def _serialize_session(session: SessionModel, *, include_messages: bool = False, include_jobs: bool = False) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "id": session.id,
+        "user_id": session.user_id,
+        "workspace_id": session.workspace_id,
+        "title": session.title,
+        "status": getattr(session, "status", None) or "active",
+        "context_signature": getattr(session, "context_signature", None),
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "last_activity": session.last_activity.isoformat() if session.last_activity else None,
+        "archived_at": session.archived_at.isoformat() if getattr(session, "archived_at", None) else None,
+        "deleted_at": session.deleted_at.isoformat() if getattr(session, "deleted_at", None) else None,
+        "message_count": len(session.messages or []),
+        "meta_data": session.meta_data or {},
+    }
+    if include_messages:
+        payload["messages"] = [_serialize_message(message) for message in sorted(session.messages or [], key=lambda item: item.timestamp or datetime.min)]
+    if include_jobs:
+        payload["jobs"] = [serialize_job(job) for job in sorted(getattr(session, "_session_jobs", []) or [], key=lambda item: item.updated_at or item.created_at or datetime.min, reverse=True)]
+    return payload
+
+
+def _backfill_legacy_deep_jobs(db: DBSession, workspace: Workspace, session: SessionModel) -> None:
+    legacy_jobs = (
+        db.query(WorkerJob)
+        .filter(
+            WorkerJob.workspace_id == workspace.id,
+            WorkerJob.kind == "rag_deep_retrieval",
+        )
+        .order_by(WorkerJob.updated_at.desc(), WorkerJob.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    changed = False
+    for legacy in legacy_jobs:
+        legacy_result = legacy.result if isinstance(legacy.result, dict) else {}
+        request = legacy_result.get("request") if isinstance(legacy_result.get("request"), dict) else {}
+        if str(request.get("session_id") or "") != session.id:
+            continue
+        existing_rows = (
+            db.query(WorkspaceJob)
+            .filter(
+                WorkspaceJob.workspace_id == workspace.id,
+                WorkspaceJob.kind == "rag_deep_retrieval",
+                WorkspaceJob.session_id == session.id,
+            )
+            .all()
+        )
+        if any((row.input_ref or {}).get("legacy_worker_job_id") == legacy.id for row in existing_rows):
+            continue
+        job = WorkspaceJob(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace.id,
+            session_id=session.id,
+            collection_id=legacy.collection_id,
+            kind="rag_deep_retrieval",
+            title=f"Legacy Deep Search · {str(request.get('query') or legacy.id)[:96]}",
+            status=legacy.status,
+            progress=legacy.progress,
+            stage=str(legacy_result.get("stage") or legacy.status or "legacy"),
+            error=legacy.error,
+            input_ref={
+                "legacy_worker_job_id": legacy.id,
+                "request": request,
+                "latency_profile": legacy_result.get("latency_profile") or "deep",
+                "trigger": legacy_result.get("trigger") or "legacy_worker_job_backfill",
+            },
+            result=legacy_result,
+            events=[],
+            created_by_user_id=session.user_id,
+            created_at=legacy.created_at,
+            started_at=legacy.started_at,
+            completed_at=legacy.completed_at,
+            updated_at=legacy.updated_at,
+        )
+        db.add(job)
+        changed = True
+    if changed:
+        db.commit()
+
+
+def _fetch_scoped_session(
+    db: DBSession,
+    session_id: str,
+    user: User,
+    workspace: Workspace,
+    *,
+    include_deleted: bool = False,
+) -> SessionModel:
+    session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    admin = _is_workspace_admin(db, user, workspace)
+    if session.workspace_id != workspace.id or (session.user_id != user.id and not admin):
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not include_deleted and (getattr(session, "status", None) == "deleted" or getattr(session, "deleted_at", None)):
+        raise HTTPException(status_code=404, detail="Session not found")
+    if admin and session.user_id != user.id:
+        emit_audit_event(
+            db=db,
+            workspace_id=workspace.id,
+            event_type="chat.session.admin_read",
+            actor=_actor(user),
+            details={"session_id": session.id, "owner_user_id": session.user_id},
+        )
+    return session
 
 
 @router.post("")
@@ -42,20 +195,16 @@ async def create_session(
             id=str(uuid.uuid4()),
             user_id=user.id,
             workspace_id=workspace.id,
+            title=(session.title or "").strip()[:500] or None,
+            status="active",
+            context_signature=(session.context_signature or _context_signature(session.context)),
             meta_data=session.context or {},
         )
         db.add(db_session)
         db.commit()
         db.refresh(db_session)
 
-        return SessionResponse(
-            id=db_session.id,
-            user_id=db_session.user_id,
-            workspace_id=db_session.workspace_id,
-            created_at=db_session.created_at,
-            last_activity=db_session.last_activity,
-            message_count=0,
-        )
+        return _serialize_session(db_session)
     except Exception as e:
         logger.error("Failed to create session", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -64,17 +213,27 @@ async def create_session(
 @router.get("")
 async def list_sessions(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=200),
+    status: str = Query(default="active"),
+    include_admin: bool = Query(default=False),
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    """List sessions in the current workspace (of the current user)."""
+    """List durable chat sessions in the current workspace."""
     try:
-        base_query = db.query(SessionModel).filter(
-            SessionModel.user_id == user.id,
-            SessionModel.workspace_id == workspace.id,
-        )
+        admin = include_admin and _is_workspace_admin(db, user, workspace)
+        base_query = db.query(SessionModel).filter(SessionModel.workspace_id == workspace.id)
+        if not admin:
+            base_query = base_query.filter(SessionModel.user_id == user.id)
+        if status != "all":
+            statuses = [item.strip() for item in status.split(",") if item.strip()]
+            if statuses:
+                base_query = base_query.filter(SessionModel.status.in_(statuses))
+            else:
+                base_query = base_query.filter(SessionModel.status == "active")
+        else:
+            base_query = base_query.filter(SessionModel.status != "deleted")
         sessions = (
             base_query.order_by(SessionModel.last_activity.desc())
             .offset(skip)
@@ -83,53 +242,68 @@ async def list_sessions(
         )
 
         return {
-            "sessions": [
-                {
-                    "id": s.id,
-                    "user_id": s.user_id,
-                    "workspace_id": s.workspace_id,
-                    "created_at": s.created_at.isoformat() if s.created_at else None,
-                    "last_activity": s.last_activity.isoformat() if s.last_activity else None,
-                    "message_count": len(s.messages),
-                }
-                for s in sessions
-            ],
+            "sessions": [_serialize_session(s) for s in sessions],
             "total": base_query.count(),
+            "skip": skip,
+            "limit": limit,
         }
     except Exception as e:
         logger.error("Failed to list sessions", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _fetch_scoped_session(
-    db: DBSession, session_id: str, user: User, workspace: Workspace
-) -> SessionModel:
-    session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if session.user_id != user.id or (
-        session.workspace_id is not None and session.workspace_id != workspace.id
-    ):
-        raise HTTPException(status_code=404, detail="Session not found")
-    return session
-
-
 @router.get("/{session_id}")
 async def get_session(
     session_id: str,
+    include_messages: bool = Query(default=False),
+    include_jobs: bool = Query(default=False),
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
     session = _fetch_scoped_session(db, session_id, user, workspace)
-    return SessionResponse(
-        id=session.id,
-        user_id=session.user_id,
-        workspace_id=session.workspace_id,
-        created_at=session.created_at,
-        last_activity=session.last_activity,
-        message_count=len(session.messages),
-    )
+    if include_jobs:
+        _backfill_legacy_deep_jobs(db, workspace, session)
+        session._session_jobs = (
+            db.query(WorkspaceJob)
+            .filter(
+                WorkspaceJob.workspace_id == workspace.id,
+                WorkspaceJob.session_id == session.id,
+            )
+            .order_by(WorkspaceJob.updated_at.desc(), WorkspaceJob.created_at.desc())
+            .all()
+        )
+    return _serialize_session(session, include_messages=include_messages, include_jobs=include_jobs)
+
+
+@router.patch("/{session_id}")
+async def patch_session(
+    session_id: str,
+    body: SessionPatch,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    session = _fetch_scoped_session(db, session_id, user, workspace, include_deleted=True)
+    now = datetime.utcnow()
+    if body.title is not None:
+        cleaned = body.title.strip()
+        session.title = cleaned[:500] if cleaned else None
+    if body.status is not None:
+        if body.status not in {"active", "archived", "deleted"}:
+            raise HTTPException(status_code=400, detail="Invalid session status")
+        session.status = body.status
+        if body.status == "archived":
+            session.archived_at = now
+        elif body.status == "deleted":
+            session.deleted_at = now
+        elif body.status == "active":
+            session.archived_at = None
+            session.deleted_at = None
+    session.last_activity = now
+    db.commit()
+    db.refresh(session)
+    return _serialize_session(session)
 
 
 @router.delete("/{session_id}")
@@ -139,10 +313,13 @@ async def delete_session(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    session = _fetch_scoped_session(db, session_id, user, workspace)
-    db.delete(session)
+    session = _fetch_scoped_session(db, session_id, user, workspace, include_deleted=True)
+    now = datetime.utcnow()
+    session.status = "deleted"
+    session.deleted_at = now
+    session.last_activity = now
     db.commit()
-    return {"message": "Session deleted successfully"}
+    return {"message": "Session deleted successfully", "status": "deleted"}
 
 
 @router.get("/{session_id}/messages")
@@ -172,7 +349,7 @@ async def get_session_messages(
                 "role": m.role,
                 "content": m.content,
                 "timestamp": m.timestamp.isoformat() if m.timestamp else None,
-                "meta_data": m.meta_data,
+                "meta_data": m.meta_data or {},
             }
             for m in messages
         ],

@@ -108,10 +108,10 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
           <div class="t-header-right">
             <div class="t-system-control">
               <span class="t-picker-label">
-                System
+                Context
                 <span
                   class="t-info-dot"
-                  title="Choose a System to scope presets, audit and run analytics. Quick ask uses workspace defaults."
+                  title="Choose a System when you need a scoped assistant. Quick ask uses the workspace context."
                 >
                   <app-icon name="info" [size]="10" />
                 </span>
@@ -122,7 +122,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                   [(ngModel)]="selectedSystemId"
                   (ngModelChange)="onSystemChange($event)"
                 >
-                  <option [ngValue]="null">Quick ask · workspace defaults</option>
+                  <option [ngValue]="null">Quick ask</option>
                   @for (s of systems(); track s.id) {
                     <option [ngValue]="s.id">{{ s.name }}</option>
                   }
@@ -144,7 +144,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
               Session docs
               <span
                 class="t-info-dot"
-                title="Drop documents here to create a temporary chat context. In the chat controls, choose whether these docs replace or complement the Knowledge source."
+                title="Drop documents here to create a temporary chat context. In the chat controls, choose whether these docs replace or complement workspace sources."
               >
                 <app-icon name="info" [size]="10" />
               </span>
@@ -805,7 +805,7 @@ export class ChatWorkspaceComponent implements OnInit {
       const s = this.systems().find((x) => x.id === this.selectedSystemId);
       return s?.objective || 'Scoped to selected system';
     }
-    return 'No system — workspace defaults';
+    return 'Contexte du workspace';
   });
 
   ngOnInit(): void {

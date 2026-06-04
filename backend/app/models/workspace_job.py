@@ -24,6 +24,10 @@ class WorkspaceJob(Base):
     workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     system_id = Column(String(36), ForeignKey("systems.id", ondelete="SET NULL"), nullable=True, index=True)
     run_id = Column(String(36), ForeignKey("runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    session_id = Column(String(36), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True, index=True)
+    collection_id = Column(String(36), ForeignKey("knowledge_collections.id", ondelete="SET NULL"), nullable=True, index=True)
+    parent_message_id = Column(String(36), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True)
+    message_id = Column(String(36), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True)
 
     kind = Column(String(80), nullable=False)
     title = Column(String(255), nullable=False, default="")
@@ -49,4 +53,7 @@ class WorkspaceJob(Base):
         ),
         Index("ix_workspace_jobs_workspace_status", "workspace_id", "status"),
         Index("ix_workspace_jobs_workspace_kind", "workspace_id", "kind"),
+        Index("ix_workspace_jobs_workspace_session_status", "workspace_id", "session_id", "status"),
+        Index("ix_workspace_jobs_workspace_user_status", "workspace_id", "created_by_user_id", "status"),
+        Index("ix_workspace_jobs_workspace_kind_status", "workspace_id", "kind", "status"),
     )

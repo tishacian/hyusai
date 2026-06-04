@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.models.context import Context
 from app.models.knowledge_collection import WorkerJob
 from app.models.run import Run
+from app.models.workspace_job import WorkspaceJob
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import create_collection
 from app.services.workspace_maps import ensure_workspace_map_seed
@@ -339,11 +340,11 @@ def test_chat_deep_retrieval_job_queues_worker_payload(db_session, monkeypatch):
     collection = create_collection(db_session, workspace=workspace, name="documents")
     db_session.commit()
 
-    def fake_dispatch(_db, job, **_kwargs):
-        job.celery_task_id = "task-deep"
+    def fake_dispatch(_db, _workspace, job, **_kwargs):
+        job.input_ref = {**(job.input_ref or {}), "celery_task_id": "task-deep"}
         return "task-deep"
 
-    monkeypatch.setattr("app.services.worker_dispatch.dispatch_worker_job", fake_dispatch)
+    monkeypatch.setattr("app.services.workspace_jobs.dispatch_workspace_job", fake_dispatch)
 
     response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
         "/chat/deep-retrieval-jobs",
@@ -358,22 +359,28 @@ def test_chat_deep_retrieval_job_queues_worker_payload(db_session, monkeypatch):
             "candidate_pool_k": 999,
             "synthesis_k": 999,
             "source_display_k": 999,
+            "previous_answer": "1. Premiere synthese\n2. Deuxieme point",
         },
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["kind"] == "rag_deep_retrieval"
-    assert body["poll_url"] == f"/documents/jobs/{body['id']}"
-    job = db_session.query(WorkerJob).filter(WorkerJob.id == body["id"]).one()
-    assert job.result["request"]["latency_profile"] == "deep"
-    assert job.result["request"]["deep_retrieval"] is True
-    assert job.result["request"]["top_k"] == 24
-    assert job.result["request"]["candidate_pool_k"] == 200
-    assert job.result["request"]["synthesis_k"] == 48
-    assert job.result["request"]["source_display_k"] == 24
-    assert job.result["request"]["retrieval_filters"] == {"source_kind": "html"}
+    assert body["poll_url"] == f"/workspace-jobs/{body['id']}"
+    job = db_session.query(WorkspaceJob).filter(WorkspaceJob.id == body["id"]).one()
+    request = job.input_ref["request"]
+    assert request["latency_profile"] == "deep"
+    assert request["deep_retrieval"] is True
+    assert request["top_k"] == 24
+    assert request["candidate_pool_k"] == 200
+    assert request["synthesis_k"] == 48
+    assert request["source_display_k"] == 24
+    assert request["previous_answer"] == "1. Premiere synthese 2. Deuxieme point"
+    assert job.input_ref["partial_result"]["answer_preview"] == "1. Premiere synthese 2. Deuxieme point"
+    assert request["retrieval_filters"] == {"source_kind": "html"}
     assert job.collection_id == collection.id
+    assert job.session_id
+    assert job.message_id
 
 
 def test_dense_unscoped_guardrail_queues_auto_deep_retrieval():
@@ -398,11 +405,11 @@ def test_chat_stream_auto_queues_deep_job_for_degraded_retrieval(db_session, mon
     collection = create_collection(db_session, workspace=workspace, name="documents")
     db_session.commit()
 
-    def fake_dispatch(_db, job, **_kwargs):
-        job.celery_task_id = "task-auto-deep"
+    def fake_dispatch(_db, _workspace, job, **_kwargs):
+        job.input_ref = {**(job.input_ref or {}), "celery_task_id": "task-auto-deep"}
         return "task-auto-deep"
 
-    monkeypatch.setattr("app.services.worker_dispatch.dispatch_worker_job", fake_dispatch)
+    monkeypatch.setattr("app.services.workspace_jobs.dispatch_workspace_job", fake_dispatch)
 
     response = _client(db_session, workspace, DeepRecommendedOrchestrator(), monkeypatch).post(
         "/chat/stream",
@@ -415,23 +422,23 @@ def test_chat_stream_auto_queues_deep_job_for_degraded_retrieval(db_session, mon
     assert '"deep_job_id"' in body
     assert "fast answer" in body
 
-    job = db_session.query(WorkerJob).filter(WorkerJob.workspace_id == workspace.id).one()
+    job = db_session.query(WorkspaceJob).filter(WorkspaceJob.workspace_id == workspace.id).one()
     assert job.kind == "rag_deep_retrieval"
     assert job.collection_id == collection.id
-    assert job.result["trigger"] == "auto_fast_refinement"
-    assert job.result["request"]["latency_profile"] == "deep"
-    assert job.result["request"]["deep_retrieval"] is True
-    assert job.result["request"]["top_k"] == 8
-    assert job.result["request"]["candidate_pool_k"] == 80
-    assert job.result["request"]["synthesis_k"] == 24
-    assert job.result["partial_result"]["answer_preview"] == "fast answer"
-    assert job.result["request"]["retrieval_filters"] == {
+    assert job.input_ref["trigger"] == "auto_fast_refinement"
+    assert job.input_ref["request"]["latency_profile"] == "deep"
+    assert job.input_ref["request"]["deep_retrieval"] is True
+    assert job.input_ref["request"]["top_k"] == 8
+    assert job.input_ref["request"]["candidate_pool_k"] == 80
+    assert job.input_ref["request"]["synthesis_k"] == 24
+    assert job.input_ref["partial_result"]["answer_preview"] == "fast answer"
+    assert job.input_ref["request"]["retrieval_filters"] == {
         "collection_slug": "documents",
         "project_code": "ACJ100",
         "document_id": ["doc-1", "doc-2"],
     }
-    assert job.result["parent_retrieval"]["inferred_filters_forwarded"] is True
-    assert sorted(job.result["parent_retrieval"]["forwarded_filter_keys"]) == [
+    assert job.input_ref["parent_retrieval"]["inferred_filters_forwarded"] is True
+    assert sorted(job.input_ref["parent_retrieval"]["forwarded_filter_keys"]) == [
         "collection_slug",
         "document_id",
         "project_code",
@@ -478,11 +485,11 @@ def test_chat_completion_returns_degraded_retrieval_metadata(db_session, monkeyp
     collection = create_collection(db_session, workspace=workspace, name="documents")
     db_session.commit()
 
-    def fake_dispatch(_db, job, **_kwargs):
-        job.celery_task_id = "task-completion-deep"
+    def fake_dispatch(_db, _workspace, job, **_kwargs):
+        job.input_ref = {**(job.input_ref or {}), "celery_task_id": "task-completion-deep"}
         return "task-completion-deep"
 
-    monkeypatch.setattr("app.services.worker_dispatch.dispatch_worker_job", fake_dispatch)
+    monkeypatch.setattr("app.services.workspace_jobs.dispatch_workspace_job", fake_dispatch)
 
     response = _client(db_session, workspace, DeepRecommendedOrchestrator(), monkeypatch).post(
         "/chat/completion",
@@ -499,10 +506,10 @@ def test_chat_completion_returns_degraded_retrieval_metadata(db_session, monkeyp
     assert body["deep_job_id"]
     assert body["deep_job"]["deep_task_id"] == "task-completion-deep"
 
-    job = db_session.query(WorkerJob).filter(WorkerJob.workspace_id == workspace.id).one()
+    job = db_session.query(WorkspaceJob).filter(WorkspaceJob.workspace_id == workspace.id).one()
     assert job.kind == "rag_deep_retrieval"
     assert job.collection_id == collection.id
-    assert job.result["parent_retrieval"]["fallback_reason"] == "retrieval_deadline_exceeded"
+    assert job.input_ref["parent_retrieval"]["fallback_reason"] == "retrieval_deadline_exceeded"
 
     run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
     assert run.output_ref["fallback_reason"] == "retrieval_deadline_exceeded"
@@ -922,7 +929,8 @@ def test_chat_stream_registry_next_meeting_navigates_agenda(db_session, monkeypa
     )
 
     assert response.status_code == 200
-    assert "Nawa" in response.text
+    assert "prochain" in response.text.lower()
+    assert "evt-" in response.text
     assert '"effect": "assistant-navigate"' in response.text
     assert "/hypervisor/mission-room/agenda" in response.text
     assert "data: [DONE]" in response.text

@@ -1264,7 +1264,7 @@ type KbTabId =
           <app-empty-state
             icon="book-open"
             title="No Knowledge Guide"
-            description="Attach a Markdown guide from Workspace > Chat & Knowledge when this collection needs vocabulary, interpretation rules or query hints."
+            description="Attach a Markdown guide from Workspace > Chat & Sources when this collection needs vocabulary, interpretation rules or query hints."
           />
         } @else {
           <section class="space-y-3">
@@ -1548,7 +1548,7 @@ type KbTabId =
       [open]="previewOpen()"
       [previewUrl]="previewUrl()"
       [title]="previewTitle()"
-      subtitle="Knowledge source"
+      subtitle="Source document"
       (closed)="closePreview()"
     />
   `,

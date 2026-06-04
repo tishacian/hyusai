@@ -104,9 +104,9 @@ export class WorkspaceShellComponent {
     },
     {
       path: 'chat-knowledge',
-      label: 'Chat & Knowledge',
+      label: 'Chat & Sources',
       icon: 'database',
-      description: 'Knowledge scopes, chat defaults',
+      description: 'Sources, chat defaults',
     },
     { path: 'members', label: 'Members', icon: 'users', description: 'Invite, roles, remove' },
     {

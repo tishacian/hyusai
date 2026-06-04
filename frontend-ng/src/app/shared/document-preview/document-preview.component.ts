@@ -1,7 +1,9 @@
 import { HttpClient } from '@angular/common/http';
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { Subscription } from 'rxjs';
 
 import { IconComponent } from '@app/shared/ui/icon.component';
 
@@ -18,10 +20,12 @@ interface RichDocumentPreview {
   reason?: string;
 }
 
+const RICH_PREVIEW_CACHE_LIMIT = 50;
+
 @Component({
   selector: 'app-document-preview',
   standalone: true,
-  imports: [IconComponent],
+  imports: [IconComponent, NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (open()) {
@@ -37,7 +41,7 @@ interface RichDocumentPreview {
                 <button
                   type="button"
                   class="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
-                  [disabled]="openingExternal()"
+                  [disabled]="openingExternal() || !preview()"
                   (click)="openExternal()"
                 >
                   <app-icon [name]="openingExternal() ? 'loader-2' : 'external-link'" [size]="13" [class.animate-spin]="openingExternal()" />
@@ -67,7 +71,14 @@ interface RichDocumentPreview {
                 </div>
               </div>
             } @else if (preview(); as doc) {
-              @if (doc.kind === 'text') {
+              @if (htmlSrcdoc()) {
+                <iframe
+                  class="block h-full w-full bg-white"
+                  sandbox=""
+                  [srcdoc]="htmlSrcdoc()!"
+                  title="HTML document preview"
+                ></iframe>
+              } @else if (doc.kind === 'text') {
                 <pre class="min-h-full whitespace-pre-wrap p-4 font-mono text-xs leading-relaxed text-gray-100">{{ doc.content || '' }}</pre>
               } @else if (doc.kind === 'spreadsheet') {
                 <div class="p-4">
@@ -91,16 +102,24 @@ interface RichDocumentPreview {
                     </table>
                   </div>
                 </div>
-              } @else if (doc.kind === 'image' && objectUrl()) {
-                <div class="flex h-full items-center justify-center p-4">
-                  <img [src]="objectUrl()!" [alt]="doc.filename" class="max-h-full max-w-full object-contain" />
-                </div>
-              } @else if (doc.kind === 'pdf' && safeObjectUrl()) {
-                <iframe
-                  class="block h-full w-full bg-white"
-                  [src]="safeObjectUrl()!"
-                  title="Document preview"
-                ></iframe>
+              } @else if (doc.kind === 'image') {
+                @if (objectUrl()) {
+                  <div class="flex h-full items-center justify-center p-4">
+                    <img [src]="objectUrl()!" [alt]="doc.filename" class="max-h-full max-w-full object-contain" />
+                  </div>
+                } @else {
+                  <ng-container *ngTemplateOutlet="mediaPending"></ng-container>
+                }
+              } @else if (doc.kind === 'pdf') {
+                @if (safeObjectUrl()) {
+                  <iframe
+                    class="block h-full w-full bg-white"
+                    [src]="safeObjectUrl()!"
+                    title="Document preview"
+                  ></iframe>
+                } @else {
+                  <ng-container *ngTemplateOutlet="mediaPending"></ng-container>
+                }
               } @else {
                 <div class="flex h-full items-center justify-center p-6 text-center">
                   <div class="max-w-md rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
@@ -117,13 +136,36 @@ interface RichDocumentPreview {
         </section>
       </div>
     }
+
+    <ng-template #mediaPending>
+      <div class="flex h-full items-center justify-center p-6 text-center">
+        @if (mediaLoading()) {
+          <div class="max-w-md rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
+            <app-icon name="loader-2" [size]="18" class="mx-auto mb-3 animate-spin text-cyan-300" />
+            Loading inline document...
+          </div>
+        } @else if (mediaError()) {
+          <div class="max-w-md rounded bg-yellow-500/10 p-4 text-sm text-yellow-100 ring-1 ring-yellow-500/20">
+            {{ mediaError() }}
+          </div>
+        } @else {
+          <div class="max-w-md rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
+            Inline preview is preparing.
+          </div>
+        }
+      </div>
+    </ng-template>
   `,
 })
 export class DocumentPreviewComponent {
+  private static readonly previewCache = new Map<string, RichDocumentPreview>();
   private readonly destroyRef = inject(DestroyRef);
   private readonly http = inject(HttpClient);
   private readonly sanitizer = inject(DomSanitizer);
   private loadSeq = 0;
+  private currentPreviewUrl: string | null = null;
+  private previewRequestSub: Subscription | null = null;
+  private mediaRequestSub: Subscription | null = null;
 
   readonly open = input(false);
   readonly previewUrl = input<string | null>(null);
@@ -134,9 +176,16 @@ export class DocumentPreviewComponent {
   readonly loading = signal(false);
   readonly openingExternal = signal(false);
   readonly error = signal<string | null>(null);
+  readonly mediaLoading = signal(false);
+  readonly mediaError = signal<string | null>(null);
   readonly preview = signal<RichDocumentPreview | null>(null);
   readonly objectUrl = signal<string | null>(null);
   readonly safeObjectUrl = signal<SafeResourceUrl | null>(null);
+  readonly htmlSrcdoc = computed(() => {
+    const doc = this.preview();
+    if (!doc || !this.isHtmlPreview(doc)) return null;
+    return this.buildHtmlSrcdoc(doc);
+  });
 
   readonly displayName = computed(() => this.preview()?.filename || this.title() || 'document');
 
@@ -154,11 +203,10 @@ export class DocumentPreviewComponent {
 
   openExternal(): void {
     const doc = this.preview();
-    const url = doc?.download_url || this.previewUrl();
-    if (!url) return;
+    if (!doc?.download_url) return;
     this.openingExternal.set(true);
     this.http
-      .get(this.withDisposition(url, 'inline'), { responseType: 'blob' })
+      .get(this.withDisposition(doc.download_url, 'inline'), { responseType: 'blob' })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (blob) => {
@@ -175,22 +223,36 @@ export class DocumentPreviewComponent {
   }
 
   private loadPreview(url: string): void {
+    if (this.currentPreviewUrl === url && (this.loading() || this.preview())) return;
     const seq = ++this.loadSeq;
+    this.currentPreviewUrl = url;
     this.revokeObjectUrl();
+    this.cancelInFlightRequests();
     this.loading.set(true);
     this.error.set(null);
+    this.mediaLoading.set(false);
+    this.mediaError.set(null);
     this.preview.set(null);
-    this.http
+    const cached = DocumentPreviewComponent.previewCache.get(url);
+    if (cached) {
+      this.preview.set(cached);
+      this.loading.set(false);
+      if (cached.kind === 'image' || cached.kind === 'pdf') {
+        this.loadPreviewBlob(cached, seq);
+      }
+      return;
+    }
+    this.previewRequestSub = this.http
       .get<RichDocumentPreview>(url)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (preview) => {
           if (seq !== this.loadSeq) return;
+          this.rememberPreview(url, preview);
           this.preview.set(preview);
+          this.loading.set(false);
           if (preview.kind === 'image' || preview.kind === 'pdf') {
             this.loadPreviewBlob(preview, seq);
-          } else {
-            this.loading.set(false);
           }
         },
         error: (err) => {
@@ -202,7 +264,10 @@ export class DocumentPreviewComponent {
   }
 
   private loadPreviewBlob(preview: RichDocumentPreview, seq: number): void {
-    this.http
+    this.mediaRequestSub?.unsubscribe();
+    this.mediaLoading.set(true);
+    this.mediaError.set(null);
+    this.mediaRequestSub = this.http
       .get(this.withDisposition(preview.download_url, 'inline'), { responseType: 'blob' })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -211,23 +276,34 @@ export class DocumentPreviewComponent {
           const url = URL.createObjectURL(blob);
           this.objectUrl.set(url);
           this.safeObjectUrl.set(preview.kind === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(url) : null);
-          this.loading.set(false);
+          this.mediaLoading.set(false);
         },
         error: (err) => {
           if (seq !== this.loadSeq) return;
-          this.loading.set(false);
-          this.error.set(this.errorMessage(err));
+          this.mediaLoading.set(false);
+          this.mediaError.set(this.errorMessage(err));
         },
       });
   }
 
   private clearPreview(): void {
     ++this.loadSeq;
+    this.currentPreviewUrl = null;
+    this.cancelInFlightRequests();
     this.loading.set(false);
+    this.mediaLoading.set(false);
     this.openingExternal.set(false);
     this.error.set(null);
+    this.mediaError.set(null);
     this.preview.set(null);
     this.revokeObjectUrl();
+  }
+
+  private cancelInFlightRequests(): void {
+    this.previewRequestSub?.unsubscribe();
+    this.previewRequestSub = null;
+    this.mediaRequestSub?.unsubscribe();
+    this.mediaRequestSub = null;
   }
 
   private revokeObjectUrl(): void {
@@ -235,6 +311,50 @@ export class DocumentPreviewComponent {
     if (url) URL.revokeObjectURL(url);
     this.objectUrl.set(null);
     this.safeObjectUrl.set(null);
+  }
+
+  private rememberPreview(url: string, preview: RichDocumentPreview): void {
+    DocumentPreviewComponent.previewCache.set(url, preview);
+    if (DocumentPreviewComponent.previewCache.size <= RICH_PREVIEW_CACHE_LIMIT) return;
+    const oldest = DocumentPreviewComponent.previewCache.keys().next().value as string | undefined;
+    if (oldest) DocumentPreviewComponent.previewCache.delete(oldest);
+  }
+
+  private isHtmlPreview(doc: RichDocumentPreview): boolean {
+    const filename = (doc.filename || '').toLowerCase();
+    const contentType = (doc.content_type || '').toLowerCase();
+    return (
+      doc.kind === 'text' &&
+      !!doc.content &&
+      (contentType.includes('html') || filename.endsWith('.html') || filename.endsWith('.htm'))
+    );
+  }
+
+  private buildHtmlSrcdoc(doc: RichDocumentPreview): string {
+    const raw = doc.content || '';
+    const chrome = `
+      <meta charset="utf-8">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob: http: https:; style-src 'unsafe-inline'; font-src data:; script-src 'none'; connect-src 'none';">
+      <style>
+        html, body { margin: 0; min-height: 100%; background: #f8fafc; color: #111827; font: 14px/1.55 Arial, Helvetica, sans-serif; }
+        body { padding: 24px; box-sizing: border-box; }
+        table { border-collapse: collapse; max-width: 100%; margin: 16px 0; background: white; }
+        caption { padding: 8px 0; font-weight: 700; text-align: left; }
+        th, td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top; }
+        th { background: #e2e8f0; font-weight: 700; }
+        h1, h2, h3, h4 { color: #0f172a; line-height: 1.2; }
+        a { color: #0369a1; }
+        img { max-width: 100%; height: auto; }
+        p { margin: 0 0 12px; }
+      </style>
+    `;
+    if (/<html[\s>]/i.test(raw)) {
+      if (/<head[\s>]/i.test(raw)) {
+        return raw.replace(/<head([^>]*)>/i, `<head$1>${chrome}`);
+      }
+      return raw.replace(/<html([^>]*)>/i, `<html$1><head>${chrome}</head>`);
+    }
+    return `<!doctype html><html><head>${chrome}</head><body>${raw}</body></html>`;
   }
 
   private withDisposition(url: string, disposition: 'inline' | 'attachment'): string {

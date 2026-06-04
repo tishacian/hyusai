@@ -10,7 +10,7 @@ class AppSettings(Base):
     id = Column(String(50), primary_key=True, default="default")
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
 
-    default_model = Column(String(100), default="gpt-4o")
+    default_model = Column(String(100), default="gpt-5")
     default_provider = Column(String(50), default="openai")
     temperature = Column(Float, default=0.3)
     max_tokens = Column(Integer, default=4000)

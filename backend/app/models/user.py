@@ -1,6 +1,6 @@
 """User, Session, and Message models"""
 from datetime import datetime
-from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey, Boolean
+from sqlalchemy import CheckConstraint, Column, String, Text, DateTime, JSON, ForeignKey, Boolean, Index
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 
@@ -30,12 +30,24 @@ class Session(Base):
     user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=True, index=True)
     title = Column(String(500), nullable=True)
+    status = Column(String(32), nullable=False, default="active", server_default="active")
+    context_signature = Column(String(512), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    archived_at = Column(DateTime, nullable=True)
+    deleted_at = Column(DateTime, nullable=True)
     meta_data = Column(JSON, default=dict)
 
     user = relationship("User", back_populates="sessions")
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'archived', 'deleted')",
+            name="ck_sessions_status",
+        ),
+        Index("ix_sessions_workspace_user_status", "workspace_id", "user_id", "status"),
+    )
 
 
 class Message(Base):

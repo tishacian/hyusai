@@ -171,9 +171,9 @@ interface AssistantProfileDraft {
   template: `
     <app-section-header
       breadcrumb="Workspace · Defaults"
-      title="Chat & Knowledge"
+      title="Chat & Sources"
       icon="database"
-      subtitle="Configure workspace Knowledge scopes, chat defaults and assistant metadata used by Quick ask."
+      subtitle="Configure the source scopes, chat defaults and assistant metadata used by Quick ask."
     >
       <button
         type="button"
@@ -203,11 +203,11 @@ interface AssistantProfileDraft {
         <section class="t-card t-elevated rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Knowledge routing</p>
-              <h3 class="text-base font-semibold text-white mt-1">Knowledge scopes</h3>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Source routing</p>
+              <h3 class="text-base font-semibold text-white mt-1">Source scopes</h3>
               <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
-                A scope gives the chat a human label and maps it to one or more indexed collections.
-                The default scope is what users see as <span class="text-gray-200">Workspace default</span>.
+                A scope gives Quick ask a clear label and maps it to one or more indexed collections.
+                The default scope is the workspace context used when no System is selected.
               </p>
             </div>
             <button
@@ -233,8 +233,8 @@ interface AssistantProfileDraft {
                       (change)="setDefaultScope(i)"
                     />
                     <span>
-                      <span class="block text-sm font-semibold text-gray-100">Workspace default</span>
-                      <span class="block text-xs text-gray-500">Used by Quick ask unless the default assistant profile defines another scope.</span>
+                      <span class="block text-sm font-semibold text-gray-100">Default context</span>
+                      <span class="block text-xs text-gray-500">Used by Quick ask unless the default assistant profile defines another source.</span>
                     </span>
                   </label>
                   <button
@@ -888,7 +888,7 @@ interface AssistantProfileDraft {
             <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Chat surface</p>
               <h3 class="text-base font-semibold text-white mt-1">Chat defaults</h3>
             <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
-              Workspace defaults are the portable baseline. The preview below shows the effective Quick ask surface after
+              Chat defaults are the portable baseline. The preview below shows the effective Quick ask surface after
               assistant profile overrides and generated source prompts are applied.
             </p>
           </div>
@@ -897,23 +897,23 @@ interface AssistantProfileDraft {
             <div class="grid gap-4 lg:grid-cols-2">
               <label class="block">
                 <span class="field-label">Empty state title</span>
-                <input class="ag-field" [(ngModel)]="chatDraft.title" [disabled]="!canEdit()" placeholder="Ask Agentium" />
+                <input class="ag-field" [(ngModel)]="chatDraft.title" [disabled]="!canEdit()" placeholder="Posez votre question" />
               </label>
               <label class="block">
                 <span class="field-label">Input placeholder</span>
-                <input class="ag-field" [(ngModel)]="chatDraft.placeholder" [disabled]="!canEdit()" placeholder="Ask a sourced question..." />
+                <input class="ag-field" [(ngModel)]="chatDraft.placeholder" [disabled]="!canEdit()" placeholder="Posez votre question..." />
               </label>
             </div>
             <label class="block">
               <span class="field-label">Subtitle</span>
-              <input class="ag-field" [(ngModel)]="chatDraft.subtitle" [disabled]="!canEdit()" placeholder="Ask questions grounded in workspace Knowledge." />
+              <input class="ag-field" [(ngModel)]="chatDraft.subtitle" [disabled]="!canEdit()" placeholder="Posez une question sur le contexte du workspace." />
             </label>
 
             <div class="rounded-md border border-white/10 bg-black/10">
               <div class="px-4 py-3 border-b border-white/5 flex items-center justify-between gap-3">
                 <div>
                   <h4 class="text-sm font-semibold text-white">Suggested prompts</h4>
-                  <p class="text-xs text-gray-500 mt-0.5">Optional. Leave empty to use Agentium generated prompts based on the active source.</p>
+                  <p class="text-xs text-gray-500 mt-0.5">Optional. Leave empty to use generated prompts based on the active source.</p>
                 </div>
                 <button
                   type="button"
@@ -1023,7 +1023,7 @@ interface AssistantProfileDraft {
                   [disabled]="!canEdit()"
                   (click)="copyEffectiveChatToWorkspace()"
                 >
-                  <app-icon name="copy" [size]="13" /> Copy preview into workspace defaults
+                  <app-icon name="copy" [size]="13" /> Copy preview into chat defaults
                 </button>
               </div>
             </div>
@@ -1261,7 +1261,7 @@ interface AssistantProfileDraft {
           <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Available collections</p>
           <h3 class="text-sm font-semibold text-white mt-1">Indexed collections</h3>
           <p class="text-xs text-gray-500 mt-2">
-            Collections are raw indexed stores. Add one to the Workspace default scope so Chat can use it, or open the
+            Collections are raw indexed stores. Add one to the default context so Chat can use it, or open the
             collection for diagnostics. Copying the slug is only for manual edits.
           </p>
           <div class="mt-4 max-h-72 overflow-y-auto space-y-2 pr-1">
@@ -1275,7 +1275,7 @@ interface AssistantProfileDraft {
                 >
                   <span class="font-mono">{{ collection }}</span>
                   <small>
-                    {{ collectionInDefaultScope(collection) ? 'In Workspace default' : 'Add to Workspace default' }}
+                    {{ collectionInDefaultScope(collection) ? 'In default context' : 'Add to default context' }}
                   </small>
                 </button>
                 <div class="collection-option-actions">
@@ -1297,7 +1297,7 @@ interface AssistantProfileDraft {
           <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Assistant profile</p>
           <h3 class="text-sm font-semibold text-white mt-1">Default assistant</h3>
           <p class="mt-2 text-xs text-gray-500 leading-relaxed">
-            The default assistant may set the automatic Knowledge source and, when configured, the visible Quick ask surface.
+            The default assistant may set the automatic source scope and, when configured, the visible Quick ask surface.
           </p>
           <div class="effective-source-note mt-4">
             <span class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Effective Quick ask source</span>
@@ -1377,7 +1377,7 @@ interface AssistantProfileDraft {
                 </label>
 
                 <label class="block">
-                  <span class="field-label">Default Knowledge scope</span>
+                  <span class="field-label">Default source scope</span>
                   <span class="ag-select-wrap">
                     <select
                       class="ag-select"
@@ -2045,9 +2045,9 @@ export class ChatKnowledgeSettingsComponent {
     const profile = this.activeAssistantProfile();
     if (profile?.default_knowledge_scope) {
       const label = profile.label || profile.key || 'default assistant profile';
-      return `Selected by assistant profile "${label}", overriding Workspace default.`;
+      return `Selected by assistant profile "${label}", overriding the default context.`;
     }
-    return 'Selected from the Workspace default scope.';
+    return 'Selected from the default context.';
   });
 
   tableProfileOptions(): TableProfileDraft[] {
@@ -2074,8 +2074,8 @@ export class ChatKnowledgeSettingsComponent {
     const configured = this.str(this.effectiveChatConfig()['title']);
     if (configured) return configured;
     const profile = this.activeAssistantProfile();
-    if (profile?.label) return `Ask ${profile.label}`;
-    return 'Start a conversation';
+    if (profile?.label) return `Interroger ${profile.label}`;
+    return 'Posez votre question';
   });
 
   readonly effectiveChatSubtitle = computed(() => {
@@ -2083,17 +2083,14 @@ export class ChatKnowledgeSettingsComponent {
     if (configured) return configured;
     const scope = this.effectiveScopeLabel();
     return scope && scope !== 'workspace'
-      ? `Ask a sourced question using ${scope}.`
-      : 'Ask a workspace question. Agentium will route retrieval automatically and cite the sources used.';
+      ? `Posez une question sur le contexte ${scope}.`
+      : 'Posez une question sur le contexte du workspace. La réponse cite les sources utilisées.';
   });
 
   readonly effectiveChatPlaceholder = computed(() => {
     const configured = this.str(this.effectiveChatConfig()['placeholder']);
     if (configured) return configured;
-    const scope = this.effectiveScopeLabel();
-    return scope && scope !== 'workspace'
-      ? `Ask a sourced question using ${scope}...`
-      : 'Ask a workspace question...';
+    return 'Posez votre question...';
   });
 
   readonly effectivePromptCards = computed<PromptCardDraft[]>(() => {
@@ -2188,7 +2185,7 @@ export class ChatKnowledgeSettingsComponent {
       placeholder: this.effectiveChatPlaceholder(),
       prompt_pack: this.effectivePromptCards().map((prompt) => ({ ...prompt })),
     };
-    this.toastr.info('Preview copied into editable workspace defaults', 'Workspace');
+    this.toastr.info('Preview copied into editable chat defaults', 'Workspace');
   }
 
   copyCollection(collection: string): void {
@@ -2205,7 +2202,7 @@ export class ChatKnowledgeSettingsComponent {
     if (index < 0) {
       next.push({
         key: 'workspace_default',
-        label: 'Workspace default',
+        label: 'Default context',
         description: '',
         collection_slugs_text: slug,
         default_mode: 'chah',
@@ -2218,13 +2215,13 @@ export class ChatKnowledgeSettingsComponent {
       const current = next[index];
       const slugs = this.collectionSlugs(current);
       if (slugs.includes(slug)) {
-        this.toastr.info(slug, 'Already in Workspace default');
+        this.toastr.info(slug, 'Already in default context');
         return;
       }
       next[index] = { ...current, collection_slugs_text: [...slugs, slug].join(', ') };
     }
     this.scopes.set(next);
-    this.toastr.success('Save defaults to apply this routing change.', 'Added to Workspace default');
+    this.toastr.success('Save defaults to apply this routing change.', 'Added to default context');
   }
 
   collectionInDefaultScope(collection: string): boolean {
@@ -2491,18 +2488,18 @@ export class ChatKnowledgeSettingsComponent {
             this.saving.set(false);
             this.detail.set(workspace);
             this.workspace.refreshCurrentWorkspace().subscribe();
-            this.toastr.success('Chat and Knowledge defaults saved', 'Workspace');
+            this.toastr.success('Chat and source defaults saved', 'Workspace');
             this.load();
           },
           error: (err) => {
             this.saving.set(false);
-            this.error.set(err?.error?.detail || 'Knowledge scopes saved, but chat defaults could not be saved.');
+            this.error.set(err?.error?.detail || 'Source scopes saved, but chat defaults could not be saved.');
           },
         });
       },
       error: (err) => {
         this.saving.set(false);
-        this.error.set(err?.error?.detail || 'Unable to save Knowledge scopes.');
+        this.error.set(err?.error?.detail || 'Unable to save source scopes.');
       },
     });
   }
@@ -3153,7 +3150,7 @@ export class ChatKnowledgeSettingsComponent {
   }
 
   private generatedKnowledgePrompts(sourceLabel: string): PromptCardDraft[] {
-    const label = sourceLabel || 'workspace Knowledge';
+    const label = sourceLabel || 'contexte du workspace';
     return [
       {
         icon: 'search',
@@ -3189,7 +3186,17 @@ export class ChatKnowledgeSettingsComponent {
   private scopeLabel(scopeKey: string | null | undefined): string {
     if (!scopeKey) return 'workspace';
     const scope = this.scopes().find((item) => item.key === scopeKey);
-    return scope?.label || scopeKey;
+    return this.cleanSourceLabel(scope?.label || scopeKey);
+  }
+
+  private cleanSourceLabel(label: string): string {
+    const cleaned = label
+      .replace(/\bknowledge\s+experiment\b/gi, '')
+      .replace(/\bworkspace\s+Knowledge\b/g, 'contexte du workspace')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/[\s·,:-]+$/g, '')
+      .trim();
+    return cleaned || label;
   }
 
   private collectionSlugs(scope: KnowledgeScopeDraft): string[] {

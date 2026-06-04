@@ -158,7 +158,7 @@ def _upsert_scope(db, workspace: Workspace, *, scope_key: str, collection_slug: 
 
     next_scope = {
         "key": scope_key,
-        "label": "Andritz SPL knowledge experiment",
+        "label": "Contexte Andritz SPL",
         "description": "Combines BBA120 project notices, SPL technical notices and optional SPL Excel trials.",
         "collection_slugs": collection_slugs,
         "default_mode": "chah",

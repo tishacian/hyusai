@@ -35,7 +35,7 @@ export interface AppSettings {
 const LS_KEY = 'agentium:settings:v1';
 
 const DEFAULT_SETTINGS: AppSettings = {
-  defaultModel: 'gpt-4o-mini',
+  defaultModel: 'gpt-5',
   defaultProvider: 'openai',
   temperature: 0.3,
   maxTokens: 2000,

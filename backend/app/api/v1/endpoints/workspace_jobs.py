@@ -11,9 +11,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.roles import is_admin_template
 from app.db.base import SessionLocal, get_db
-from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.user import Session as ChatSession, User
+from app.models.workspace import Workspace, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
 from app.services.workspace_jobs import (
     create_workspace_job,
@@ -25,6 +26,52 @@ from app.services.workspace_jobs import (
 
 
 router = APIRouter()
+
+
+def _is_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> bool:
+    if user.role == "admin":
+        return True
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
+        .first()
+    )
+    return bool(membership and is_admin_template(membership.role_template, membership.role))
+
+
+def _user_session_ids(db: DBSession, user: User, workspace: Workspace) -> list[str]:
+    return [
+        row.id
+        for row in (
+            db.query(ChatSession.id)
+            .filter(
+                ChatSession.workspace_id == workspace.id,
+                ChatSession.user_id == user.id,
+                ChatSession.status != "deleted",
+            )
+            .all()
+        )
+    ]
+
+
+def _can_access_job(db: DBSession, job: WorkspaceJob, user: User, workspace: Workspace) -> bool:
+    if _is_workspace_admin(db, user, workspace):
+        return True
+    if job.created_by_user_id == user.id:
+        return True
+    if job.session_id:
+        return (
+            db.query(ChatSession.id)
+            .filter(
+                ChatSession.id == job.session_id,
+                ChatSession.workspace_id == workspace.id,
+                ChatSession.user_id == user.id,
+                ChatSession.status != "deleted",
+            )
+            .first()
+            is not None
+        )
+    return False
 
 
 class WorkspaceJobCreate(BaseModel):
@@ -47,12 +94,28 @@ class WorkspaceJobTransition(BaseModel):
 async def jobs_list(
     kind: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
+    session_id: Optional[str] = Query(default=None),
+    include_admin: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=200),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    rows = list_workspace_jobs(db, workspace, kind=kind, status=status, limit=limit)
+    statuses = [item.strip() for item in str(status or "").split(",") if item.strip()]
+    admin = include_admin and _is_workspace_admin(db, user, workspace)
+    session_ids = None if admin else _user_session_ids(db, user, workspace)
+    if not admin and session_id and session_id not in set(session_ids or []):
+        return {"jobs": []}
+    rows = list_workspace_jobs(
+        db,
+        workspace,
+        kind=kind,
+        statuses=statuses or None,
+        session_id=session_id,
+        session_ids=session_ids,
+        created_by_user_id=None if admin else user.id,
+        limit=limit,
+    )
     return {"jobs": [serialize_job(row) for row in rows]}
 
 
@@ -86,7 +149,10 @@ async def jobs_detail(
     db: DBSession = Depends(get_db),
 ):
     try:
-        return serialize_job(get_workspace_job(db, workspace, job_id))
+        job = get_workspace_job(db, workspace, job_id)
+        if not _can_access_job(db, job, user, workspace):
+            raise LookupError("workspace_job_not_found")
+        return serialize_job(job)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Workspace job not found") from exc
 
@@ -101,6 +167,8 @@ async def jobs_transition(
 ):
     try:
         job = get_workspace_job(db, workspace, job_id)
+        if not _can_access_job(db, job, user, workspace):
+            raise LookupError("workspace_job_not_found")
         transition_job(
             db,
             workspace,
@@ -135,6 +203,9 @@ async def jobs_events(
             try:
                 job = db.query(WorkspaceJob).filter(WorkspaceJob.id == job_id, WorkspaceJob.workspace_id == workspace.id).first()
                 if not job:
+                    yield _sse("error", {"code": "workspace_job_not_found", "is_final": True})
+                    break
+                if not _can_access_job(db, job, user, workspace):
                     yield _sse("error", {"code": "workspace_job_not_found", "is_final": True})
                     break
                 events = list(job.events or [])

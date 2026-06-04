@@ -29,6 +29,7 @@ from app.models.system import System
 from app.models.context import Context
 from app.models.user import Message, Session as ChatSession, User
 from app.models.workspace import Workspace
+from app.models.workspace_job import WorkspaceJob
 from app.api.v1.endpoints.agents import get_orchestrator
 from app.services.evaluation.auto_eval import schedule_eval
 from app.services.evaluation.canonical_answer_service import (
@@ -100,6 +101,11 @@ class ChatRequest(BaseModel):
     # intentionally scoped by backend policy and may be downgraded to ``strict``
     # for workspace facts, documents, actions, or sensitive/current claims.
     grounding_mode: Optional[Literal["strict", "balanced"]] = None
+    # Deep Search refinement context. These are system/UI supplied hints so the
+    # async worker can preserve the shape of the fast answer without asking the
+    # user to restate their intent.
+    parent_message_id: Optional[str] = None
+    previous_answer: Optional[str] = None
 
 
 def _resolve_system_id(
@@ -125,11 +131,15 @@ def _resolve_system_id(
     return row[0] if row else None
 
 
+def _user_id(user: Optional[User]) -> Optional[str]:
+    return str(getattr(user, "id", "") or "") or None
+
+
 def _chat_session_belongs_to_scope(
     db: Session,
     *,
     workspace_id: str,
-    user_id: str,
+    user_id: Optional[str],
     candidate: Optional[str],
 ) -> bool:
     """Return whether a chat session is owned by the current user/workspace."""
@@ -139,12 +149,109 @@ def _chat_session_belongs_to_scope(
         db.query(ChatSession.id)
         .filter(
             ChatSession.id == candidate,
-            ChatSession.user_id == user_id,
             ChatSession.workspace_id == workspace_id,
+            ChatSession.status == "active",
         )
-        .first()
     )
+    if user_id:
+        row = row.filter(ChatSession.user_id == user_id)
+    else:
+        row = row.filter(ChatSession.user_id.is_(None))
+    row = row.first()
     return bool(row)
+
+
+def _chat_context_signature(payload: Dict[str, Any]) -> str:
+    return "|".join(
+        str(part)
+        for part in (
+            payload.get("agent_id") or payload.get("system_id") or "workspace",
+            payload.get("context_id") or "no-context",
+            payload.get("assistant_profile") or "default-profile",
+            payload.get("knowledge_scope") or "workspace-scope",
+            payload.get("context_mode") or "no-session-docs",
+        )
+    )[:512]
+
+
+def _chat_title_from_query(query: str) -> str:
+    title = " ".join(str(query or "").split())
+    if not title:
+        return "Nouvelle conversation"
+    return title[:77].rstrip() + "..." if len(title) > 80 else title
+
+
+def _ensure_chat_session(
+    db: Session,
+    *,
+    workspace: Workspace,
+    user: User,
+    request_payload: Dict[str, Any],
+) -> ChatSession:
+    candidate = request_payload.get("session_id")
+    if candidate:
+        query = db.query(ChatSession).filter(
+            ChatSession.id == candidate,
+            ChatSession.workspace_id == workspace.id,
+            ChatSession.status == "active",
+        )
+        user_id = _user_id(user)
+        query = query.filter(ChatSession.user_id == user_id) if user_id else query.filter(ChatSession.user_id.is_(None))
+        session = query.first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Chat session not found")
+        return session
+    now = datetime.utcnow()
+    user_id = _user_id(user)
+    signature = _chat_context_signature(request_payload)
+    latest_query = db.query(ChatSession).filter(
+        ChatSession.workspace_id == workspace.id,
+        ChatSession.status == "active",
+        ChatSession.context_signature == signature,
+    )
+    latest_query = latest_query.filter(ChatSession.user_id == user_id) if user_id else latest_query.filter(ChatSession.user_id.is_(None))
+    latest = latest_query.order_by(ChatSession.last_activity.desc()).first()
+    if latest and (request_payload.get("reuse_latest_session") is not False):
+        request_payload["session_id"] = latest.id
+        return latest
+    context = {
+        "system_id": request_payload.get("agent_id"),
+        "context_id": request_payload.get("context_id"),
+        "context_mode": request_payload.get("context_mode"),
+        "assistant_profile": request_payload.get("assistant_profile"),
+        "grounding_mode": request_payload.get("grounding_mode"),
+        "knowledge_scope": request_payload.get("knowledge_scope"),
+        "created_from": "chat_api",
+    }
+    session = ChatSession(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        workspace_id=workspace.id,
+        title=None,
+        status="active",
+        context_signature=signature,
+        created_at=now,
+        last_activity=now,
+        meta_data=context,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    request_payload["session_id"] = session.id
+    return session
+
+
+def _touch_chat_session(
+    db: Session,
+    session: Optional[ChatSession],
+    *,
+    query: Optional[str] = None,
+) -> None:
+    if not session:
+        return
+    session.last_activity = datetime.utcnow()
+    if query and not session.title:
+        session.title = _chat_title_from_query(query)
 
 
 def _resolve_chat_context(
@@ -672,18 +779,19 @@ def _queue_auto_deep_retrieval_job(
     *,
     db: Session,
     workspace: Workspace,
+    user: Optional[User],
     request_dict: Dict[str, Any],
     state: Dict[str, Any],
     partial_answer: Optional[str] = None,
     partial_sources: Any = None,
+    parent_message_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     if not _should_queue_auto_deep_retrieval(request_dict, state):
         return None
 
-    from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
-    from app.services.knowledge_collections import create_worker_job
+    from app.models.knowledge_collection import KnowledgeCollection
     from app.services.rag.context import get_retrieval_profile
-    from app.services.worker_dispatch import dispatch_worker_job
+    from app.services.workspace_jobs import create_workspace_job, dispatch_workspace_job, serialize_job
 
     payload = dict(request_dict)
     payload["latency_profile"] = "deep"
@@ -705,12 +813,25 @@ def _queue_auto_deep_retrieval_job(
             )
             .first()
         )
-    job = create_worker_job(
-        db,
-        workspace_id=workspace.id,
-        collection_id=collection.id if collection else None,
-        kind="rag_deep_retrieval",
-    )
+    session_id = str(payload.get("session_id") or "")
+    message_id = None
+    if session_id:
+        placeholder = Message(
+            id=str(uuid.uuid4()),
+            session_id=session_id,
+            role="assistant",
+            content="Recherche approfondie lancée pour affiner cette réponse.",
+            meta_data={
+                "deep_status": "queued",
+                "deep_stage": "queued",
+                "deep_poll_url": None,
+                "parent_message_id": parent_message_id,
+                "sources": [],
+            },
+        )
+        db.add(placeholder)
+        db.flush()
+        message_id = placeholder.id
     compact_sources = _compact_job_sources(partial_sources)
     partial_result: Dict[str, Any] = {}
     if partial_answer and partial_answer.strip():
@@ -727,38 +848,57 @@ def _queue_auto_deep_retrieval_job(
             "dense_policy": state.get("dense_policy") or metrics.get("dense_policy"),
             "scope_confidence": state.get("scope_confidence") or metrics.get("scope_confidence"),
         }
-    job.result = {
-        "stage": "queued",
-        "request": payload,
-        "latency_profile": "deep",
-        "trigger": "auto_fast_refinement",
-        "partial_result": partial_result or None,
-        "parent_retrieval": {
-            "dense_policy": state.get("dense_policy"),
-            "scope_confidence": state.get("scope_confidence"),
-            "scope_reason": state.get("scope_reason"),
-            "fallback_reason": fallback_reason,
-            "retrieval_scope": state.get("retrieval_scope"),
-            "inferred_filters_forwarded": bool(forwarded_filter_keys),
-            "forwarded_filter_keys": forwarded_filter_keys,
+    job = create_workspace_job(
+        db,
+        workspace,
+        user,
+        title=f"Deep Search · {str(payload.get('query') or '')[:96]}",
+        input_ref={
+            "request": payload,
+            "latency_profile": "deep",
+            "trigger": "auto_fast_refinement",
+            "partial_result": partial_result or None,
+            "parent_retrieval": {
+                "dense_policy": state.get("dense_policy"),
+                "scope_confidence": state.get("scope_confidence"),
+                "scope_reason": state.get("scope_reason"),
+                "fallback_reason": fallback_reason,
+                "retrieval_scope": state.get("retrieval_scope"),
+                "inferred_filters_forwarded": bool(forwarded_filter_keys),
+                "forwarded_filter_keys": forwarded_filter_keys,
+            },
         },
-    }
+        collection_id=collection.id if collection else None,
+        kind="rag_deep_retrieval",
+        session_id=session_id or None,
+        parent_message_id=parent_message_id,
+        message_id=message_id,
+        status="queued",
+    )
+    if message_id:
+        placeholder.meta_data = {
+            **(placeholder.meta_data or {}),
+            "workspace_job_id": job.id,
+            "deep_job_id": job.id,
+            "deep_poll_url": f"/workspace-jobs/{job.id}",
+        }
     db.commit()
-    task_id = dispatch_worker_job(db, job, allow_inline_fallback=False)
+    task_id = dispatch_workspace_job(db, workspace, job, allow_inline_fallback=False)
     db.commit()
-    refreshed = db.query(WorkerJob).filter(WorkerJob.id == job.id).first() or job
+    refreshed = db.query(WorkspaceJob).filter(WorkspaceJob.id == job.id).first() or job
     state["deep_job_id"] = refreshed.id
-    state["deep_poll_url"] = f"/documents/jobs/{refreshed.id}"
+    state["deep_poll_url"] = f"/workspace-jobs/{refreshed.id}"
     state["deep_status"] = refreshed.status
     state["deep_retrieval_recommended"] = True
-    refreshed_result = refreshed.result if isinstance(refreshed.result, dict) else {}
+    serialized = serialize_job(refreshed)
     return {
         "deep_job_id": refreshed.id,
         "deep_task_id": task_id,
         "deep_poll_url": state["deep_poll_url"],
         "deep_status": refreshed.status,
         "deep_progress": refreshed.progress,
-        "deep_stage": refreshed_result.get("stage"),
+        "deep_stage": serialized.get("stage"),
+        "message_id": message_id,
     }
 
 
@@ -885,13 +1025,13 @@ async def chat_completion(
 ):
     """Non-streaming chat completion (scoped to current workspace)."""
     try:
-        if not _chat_session_belongs_to_scope(
+        chat_session = _ensure_chat_session(
             db,
-            workspace_id=workspace.id,
-            user_id=getattr(user, "id", ""),
-            candidate=request.session_id,
-        ):
-            raise HTTPException(status_code=404, detail="Chat session not found")
+            workspace=workspace,
+            user=user,
+            request_payload=request.model_dump(),
+        )
+        request.session_id = chat_session.id
 
         chat_context = _resolve_chat_context(
             db,
@@ -1237,9 +1377,9 @@ async def chat_completion(
         if not request_dict["agent_preferences"].get("model_preferences"):
             request_dict["agent_preferences"]["model_preferences"] = {}
         if not request_dict["agent_preferences"]["model_preferences"].get("model"):
-            request_dict["agent_preferences"]["model_preferences"]["model"] = app_settings.get("defaultModel", "deepseek-r1:14b")
+            request_dict["agent_preferences"]["model_preferences"]["model"] = app_settings.get("defaultModel") or settings.default_model
         if not request_dict["agent_preferences"]["model_preferences"].get("provider"):
-            request_dict["agent_preferences"]["model_preferences"]["provider"] = app_settings.get("defaultProvider", "ollama")
+            request_dict["agent_preferences"]["model_preferences"]["provider"] = app_settings.get("defaultProvider") or settings.default_provider
         
         # Apply default temperature and max_tokens from settings
         if request.max_tokens is None:
@@ -1311,6 +1451,7 @@ async def chat_completion(
             deep_job_payload = _queue_auto_deep_retrieval_job(
                 db=db,
                 workspace=workspace,
+                user=user,
                 request_dict=request_dict,
                 state=chunk_state,
                 partial_answer=content,
@@ -1449,15 +1590,33 @@ async def create_deep_retrieval_job(
     db: Session = Depends(get_db),
 ):
     """Queue a deep retrieval job without blocking the chat stream."""
-    from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
-    from app.services.knowledge_collections import create_worker_job, serialize_job
+    from app.models.knowledge_collection import KnowledgeCollection
     from app.services.rag.context import get_retrieval_profile
-    from app.services.worker_dispatch import dispatch_worker_job
+    from app.services.workspace_jobs import create_workspace_job, dispatch_workspace_job, serialize_job
 
     try:
         validated_query = query_validator.validate(request.query)
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    if not request.session_id:
+        session = _ensure_chat_session(
+            db,
+            workspace=workspace,
+            user=user,
+            request_payload=request.model_dump(),
+        )
+        request.session_id = session.id
+    else:
+        session_query = db.query(ChatSession).filter(
+            ChatSession.id == request.session_id,
+            ChatSession.workspace_id == workspace.id,
+            ChatSession.status == "active",
+        )
+        user_id = _user_id(user)
+        session_query = session_query.filter(ChatSession.user_id == user_id) if user_id else session_query.filter(ChatSession.user_id.is_(None))
+        session = session_query.first()
+        if not session:
+            raise HTTPException(status_code=404, detail="Chat session not found")
 
     chat_context = _resolve_chat_context(
         db,
@@ -1488,24 +1647,82 @@ async def create_deep_retrieval_job(
         )
         .first()
     )
-    job = create_worker_job(
+    parent_message_id = None
+    previous_answer = _compact_job_text(request.previous_answer, max_chars=4000)
+    if request.parent_message_id:
+        parent = (
+            db.query(Message)
+            .filter(
+                Message.id == request.parent_message_id,
+                Message.session_id == session.id,
+                Message.role == "assistant",
+            )
+            .first()
+        )
+        if parent:
+            parent_message_id = parent.id
+            if not previous_answer:
+                previous_answer = _compact_job_text(parent.content, max_chars=4000)
+    previous_assistant = (
+        db.query(Message)
+        .filter(Message.session_id == session.id, Message.role == "assistant")
+        .order_by(Message.timestamp.desc())
+        .first()
+    )
+    if not parent_message_id and previous_assistant:
+        parent_message_id = previous_assistant.id
+        if not previous_answer:
+            previous_answer = _compact_job_text(previous_assistant.content, max_chars=4000)
+    if previous_answer:
+        request_dict["previous_answer"] = previous_answer
+    placeholder = Message(
+        id=str(uuid.uuid4()),
+        session_id=session.id,
+        role="assistant",
+        content="Recherche approfondie lancée pour affiner cette réponse.",
+        meta_data={
+            "deep_status": "queued",
+            "deep_stage": "manual_deep_search",
+            "deep_poll_url": None,
+            "parent_message_id": parent_message_id,
+            "sources": [],
+        },
+    )
+    db.add(placeholder)
+    db.flush()
+    job = create_workspace_job(
         db,
-        workspace_id=workspace.id,
+        workspace,
+        user,
+        title=f"Deep Search · {validated_query[:96]}",
+        input_ref={
+            "request": request_dict,
+            "latency_profile": "deep",
+            "trigger": "manual_deep_search",
+            "partial_result": {"answer_preview": previous_answer} if previous_answer else None,
+        },
         collection_id=collection.id if collection else None,
         kind="rag_deep_retrieval",
+        session_id=session.id,
+        parent_message_id=parent_message_id,
+        message_id=placeholder.id,
+        status="queued",
     )
-    job.result = {
-        "stage": "queued",
-        "request": request_dict,
-        "latency_profile": "deep",
+    placeholder.meta_data = {
+        **(placeholder.meta_data or {}),
+        "workspace_job_id": job.id,
+        "deep_job_id": job.id,
+        "deep_poll_url": f"/workspace-jobs/{job.id}",
     }
+    _touch_chat_session(db, session, query=validated_query)
     db.commit()
-    task_id = dispatch_worker_job(db, job, allow_inline_fallback=False)
+    task_id = dispatch_workspace_job(db, workspace, job, allow_inline_fallback=False)
     db.commit()
-    refreshed = db.query(WorkerJob).filter(WorkerJob.id == job.id).first() or job
+    refreshed = db.query(WorkspaceJob).filter(WorkspaceJob.id == job.id).first() or job
     payload = serialize_job(refreshed)
-    payload["poll_url"] = f"/documents/jobs/{job.id}"
+    payload["poll_url"] = f"/workspace-jobs/{job.id}"
     payload["task_id"] = task_id
+    payload["message_id"] = placeholder.id
     return payload
 
 
@@ -1608,12 +1825,16 @@ async def chat_stream(
             },
         )
         try:
-            if not _chat_session_belongs_to_scope(
-                db,
-                workspace_id=workspace.id,
-                user_id=getattr(user, "id", ""),
-                candidate=request.session_id,
-            ):
+            provided_session_id = request.session_id
+            try:
+                chat_session = _ensure_chat_session(
+                    db,
+                    workspace=workspace,
+                    user=user,
+                    request_payload=request.model_dump(),
+                )
+                request.session_id = chat_session.id
+            except HTTPException:
                 yield _sse_data(
                     _error_chunk(
                         "CHAT_SESSION_NOT_FOUND",
@@ -1623,6 +1844,15 @@ async def chat_stream(
                 )
                 yield _sse_done()
                 return
+            if not provided_session_id:
+                yield _sse_data(
+                    {
+                        "chunk_type": "session",
+                        "session_id": chat_session.id,
+                        "title": chat_session.title,
+                        "is_final": False,
+                    }
+                )
 
             chat_context = _resolve_chat_context(
                 db,
@@ -2196,9 +2426,9 @@ async def chat_stream(
             if not request_dict["agent_preferences"].get("model_preferences"):
                 request_dict["agent_preferences"]["model_preferences"] = {}
             if not request_dict["agent_preferences"]["model_preferences"].get("model"):
-                request_dict["agent_preferences"]["model_preferences"]["model"] = app_settings.get("defaultModel", "deepseek-r1:14b")
+                request_dict["agent_preferences"]["model_preferences"]["model"] = app_settings.get("defaultModel") or settings.default_model
             if not request_dict["agent_preferences"]["model_preferences"].get("provider"):
-                request_dict["agent_preferences"]["model_preferences"]["provider"] = app_settings.get("defaultProvider", "ollama")
+                request_dict["agent_preferences"]["model_preferences"]["provider"] = app_settings.get("defaultProvider") or settings.default_provider
             
             full_content = []
             all_chunks = []
@@ -2354,48 +2584,14 @@ async def chat_stream(
             if stream_error:
                 yield _sse_data(stream_error)
 
-            deep_job_payload = None
-            try:
-                deep_job_payload = _queue_auto_deep_retrieval_job(
-                    db=db,
-                    workspace=workspace,
-                    request_dict=request_dict,
-                    state=chunk_state,
-                    partial_answer="".join(full_content),
-                    partial_sources=chunk_state.get("sources"),
-                )
-            except Exception as exc:  # noqa: BLE001 - refinement is best-effort.
-                logger.warning("Auto deep retrieval queue failed", error=str(exc))
-            if deep_job_payload:
-                yield _sse_data(
-                    {
-                        "chunk_type": "retrieval",
-                        "phase": "deep_queued",
-                        "content": "",
-                        "message": "Deep retrieval queued",
-                        "details": {
-                            **deep_job_payload,
-                            "deep_retrieval_recommended": True,
-                            "deep_job_id": deep_job_payload.get("deep_job_id"),
-                            "deep_poll_url": deep_job_payload.get("deep_poll_url"),
-                            "deep_status": deep_job_payload.get("deep_status"),
-                            "latency_profile": "deep",
-                            "dense_policy": chunk_state.get("dense_policy"),
-                            "retrieval_plan": chunk_state.get("retrieval_plan"),
-                            "scope_confidence": chunk_state.get("scope_confidence"),
-                            "scope_reason": chunk_state.get("scope_reason"),
-                            "latency_budget": chunk_state.get("latency_budget"),
-                        },
-                        "is_final": False,
-                    }
-                )
-            
             # Calculate total pipeline time
             if pipeline_start_time:
                 pipeline_total_time = int((_time.time() - pipeline_start_time) * 1000)
             else:
                 pipeline_total_time = None
             fallback_reason = _retrieval_fallback_reason(chunk_state)
+            deep_job_payload = None
+            assistant_message_id = None
             
             # Save assistant message after streaming completes
             if request.session_id and full_content:
@@ -2436,14 +2632,59 @@ async def chat_stream(
                     meta_data=meta_data
                 )
                 db.add(assistant_message)
-                
-                # Update session last_activity
-                from app.models.user import Session as SessionModel
-                session = db.query(SessionModel).filter(SessionModel.id == request.session_id).first()
+                db.flush()
+                assistant_message_id = assistant_message.id
+                session = db.query(ChatSession).filter(ChatSession.id == request.session_id).first()
                 if session:
-                    session.last_activity = datetime.utcnow()
-                
+                    _touch_chat_session(db, session, query=validated_query)
+                try:
+                    deep_job_payload = _queue_auto_deep_retrieval_job(
+                        db=db,
+                        workspace=workspace,
+                        user=user,
+                        request_dict=request_dict,
+                        state=chunk_state,
+                        partial_answer="".join(full_content),
+                        partial_sources=chunk_state.get("sources"),
+                        parent_message_id=assistant_message.id,
+                    )
+                    if deep_job_payload:
+                        assistant_message.meta_data = {
+                            **(assistant_message.meta_data or {}),
+                            "deep_retrieval_recommended": True,
+                        }
+                except Exception as exc:  # noqa: BLE001 - refinement is best-effort.
+                    logger.warning("Auto deep retrieval queue failed", error=str(exc))
                 db.commit()
+            elif request.session_id:
+                session = db.query(ChatSession).filter(ChatSession.id == request.session_id).first()
+                if session:
+                    _touch_chat_session(db, session, query=validated_query)
+                    db.commit()
+
+            if deep_job_payload:
+                yield _sse_data(
+                    {
+                        "chunk_type": "retrieval",
+                        "phase": "deep_queued",
+                        "content": "",
+                        "message": "Deep retrieval queued",
+                        "details": {
+                            **deep_job_payload,
+                            "deep_retrieval_recommended": True,
+                            "deep_job_id": deep_job_payload.get("deep_job_id"),
+                            "deep_poll_url": deep_job_payload.get("deep_poll_url"),
+                            "deep_status": deep_job_payload.get("deep_status"),
+                            "latency_profile": "deep",
+                            "dense_policy": chunk_state.get("dense_policy"),
+                            "retrieval_plan": chunk_state.get("retrieval_plan"),
+                            "scope_confidence": chunk_state.get("scope_confidence"),
+                            "scope_reason": chunk_state.get("scope_reason"),
+                            "latency_budget": chunk_state.get("latency_budget"),
+                        },
+                        "is_final": False,
+                    }
+                )
 
             # Persist canonical Run + kick auto-eval. The front polls
             # /evaluation/by-run/{run_id} when it receives the
@@ -2488,6 +2729,14 @@ async def chat_stream(
                         "grounding_policy": grounding_policy,
                     },
                 )
+                if run_id and assistant_message_id:
+                    persisted_message = db.query(Message).filter(Message.id == assistant_message_id).first()
+                    if persisted_message:
+                        persisted_message.meta_data = {
+                            **(persisted_message.meta_data or {}),
+                            "run_id": run_id,
+                        }
+                        db.commit()
             if run_id:
                 yield _sse_data(
                     {

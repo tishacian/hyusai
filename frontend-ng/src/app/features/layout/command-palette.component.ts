@@ -282,7 +282,7 @@ export class CommandPaletteComponent implements OnInit {
       {
         id: 'chat.ask',
         label: 'Ask a question…',
-        hint: 'Quick ask · workspace defaults · no system scope',
+        hint: 'Quick ask · workspace context',
         tone: 'pos',
         kind: 'chat',
         route: '',

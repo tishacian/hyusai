@@ -26,14 +26,14 @@ import { type ChatStartMode } from './chat-overlay.service';
           </span>
           <div class="chat-focus-copy">
             <span class="chat-focus-eyebrow">Workspace · Chat</span>
-            <h1>{{ workspaceName() }} Knowledge Assistant</h1>
+            <h1>{{ workspaceName() }} Assistant</h1>
           </div>
         </div>
         <nav class="chat-focus-actions" aria-label="Chat workspace actions">
           <a
             class="chat-focus-link"
             [routerLink]="['/workspace', workspaceSlug(), 'chat-knowledge']"
-            title="Configure Knowledge scopes and chat defaults"
+            title="Configure source scopes and chat defaults"
           >
             <app-icon name="settings" [size]="13" />
             Settings
