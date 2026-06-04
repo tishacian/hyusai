@@ -1,7 +1,7 @@
 """Durable chat sessions and workspace deep retrieval jobs.
 
 Revision ID: 037_chat_sessions_workspace_jobs
-Revises: 036_retrieval_worker_job_kinds
+Revises: 036_retrieval_job_kinds
 Create Date: 2026-06-03
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from alembic import op
 
 
 revision = "037_chat_sessions_workspace_jobs"
-down_revision = "036_retrieval_worker_job_kinds"
+down_revision = "036_retrieval_job_kinds"
 branch_labels = None
 depends_on = None
 
