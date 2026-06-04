@@ -2189,6 +2189,35 @@ interface ProposalFact {
               </div>
             </div>
             }
+            @if (proposal(); as p) {
+              <section class="rounded border border-brand-300/20 bg-brand-500/5 p-3 space-y-3">
+                <div>
+                  <label class="block text-[10px] uppercase tracking-wider text-brand-200">Modifier le rapport</label>
+                  <p class="mt-1 text-xs leading-relaxed text-gray-400">
+                    Ajoutez une consigne courte pour corriger, compléter ou reformuler le rapport affiché.
+                  </p>
+                </div>
+                <textarea
+                  class="w-full min-h-24 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-gray-600 resize-y disabled:opacity-60"
+                  [(ngModel)]="proposalInstructionText"
+                  [disabled]="proposalInstructionLoading()"
+                  placeholder="Ex. Ajoute une section sur les conditions de validation terrain..."
+                ></textarea>
+                <button
+                  type="button"
+                  class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500/20 hover:bg-brand-500/30 text-sm text-brand-100 ring-1 ring-brand-300/30 disabled:opacity-50"
+                  [disabled]="!proposalInstructionText.trim() || proposalInstructionLoading() || !proposalReportText()"
+                  (click)="applyProposalInstruction(p)"
+                >
+                  @if (proposalInstructionLoading()) {
+                    <span class="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-brand-200/40 border-t-brand-200 animate-spin"></span>
+                    Mise à jour…
+                  } @else {
+                    <app-icon name="sparkles" [size]="14" /> Appliquer la consigne
+                  }
+                </button>
+              </section>
+            }
             @if (proposalOpenQuestions().length) {
               <div class="rounded bg-amber-500/10 border border-amber-400/20 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-amber-200">Relances ouvertes</div>
@@ -2597,6 +2626,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly editingProposalFactKey = signal<string | null>(null);
   readonly proposalReportDirty = signal(false);
   readonly proposalReportSaving = signal(false);
+  readonly proposalInstructionLoading = signal(false);
   readonly closureSheetMarkdown = signal<string | null>(null);
   readonly closurePanelDismissed = signal(false);
   readonly closureActionLoading = signal(false);
@@ -2613,6 +2643,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   editingText = '';
   proposalFactEditText = '';
   proposalReportDraft = '';
+  proposalInstructionText = '';
   readonly sourcePreviewOpen = signal(false);
   readonly sourcePreviewUrl = signal<string | null>(null);
   readonly sourcePreviewTitle = signal('');
@@ -5629,6 +5660,42 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   saveProposalReport(proposalId: string): void {
     this.persistProposalReport(proposalId, () => this.setVoiceNotice('Rapport enregistré.', 'info'));
+  }
+
+  applyProposalInstruction(proposal: CaptureProposal): void {
+    const instruction = this.proposalInstructionText.trim();
+    const content = this.proposalReportText();
+    if (!instruction) {
+      this.setVoiceNotice('Ajoutez une consigne de correction avant de l’appliquer.', 'warning');
+      return;
+    }
+    if (!content) {
+      this.setVoiceNotice('Le rapport est vide.', 'error');
+      return;
+    }
+    this.proposalInstructionLoading.set(true);
+    this.api
+      .applyCaptureProposalInstruction(proposal.id, {
+        instruction,
+        current_content: content,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          const typed = updated as CaptureProposal;
+          this.setProposal(typed);
+          this.proposalReportDraft = this.proposalReportContent(typed);
+          this.proposalReportDirty.set(false);
+          this.proposalInstructionText = '';
+          this.proposalInstructionLoading.set(false);
+          this.refreshDashboard();
+          this.setVoiceNotice('Rapport mis à jour.', 'info');
+        },
+        error: () => {
+          this.proposalInstructionLoading.set(false);
+          this.setVoiceNotice('Impossible d’appliquer cette consigne pour le moment.', 'error');
+        },
+      });
   }
 
   private persistProposalReport(proposalId: string, afterSave?: () => void): void {

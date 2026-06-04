@@ -29,6 +29,7 @@ from app.services.knowledge_capture import (
     amend_capture_event,
     amend_capture_plan,
     append_turn,
+    apply_proposal_report_instruction,
     apply_session_closure_action,
     approve_capture_plan,
     build_open_questions,
@@ -347,6 +348,11 @@ class ProposalReviewRequest(BaseModel):
 
 class ProposalContentUpdateRequest(BaseModel):
     content: str = Field(..., min_length=1)
+
+
+class ProposalInstructionRequest(BaseModel):
+    instruction: str = Field(..., min_length=1)
+    current_content: Optional[str] = None
 
 
 class EventAmendRequest(BaseModel):
@@ -938,6 +944,39 @@ async def update_capture_proposal_content(
             workspace_id=workspace.id,
             proposal_id=proposal_id,
             content=body.content,
+            actor_user_id=user.id,
+            actor_label=_actor_label(user),
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    return serialize_proposal(proposal)
+
+
+@router.post("/proposals/{proposal_id}/instruction")
+async def apply_capture_proposal_instruction(
+    proposal_id: str,
+    body: ProposalInstructionRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        existing, session = _load_proposal_with_session(db, workspace_id=workspace.id, proposal_id=proposal_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="knowledge_proposal",
+            action="review_decide",
+            resource_attrs=_proposal_attrs(existing, session),
+            audit_prefix="kc",
+        )
+        proposal = await apply_proposal_report_instruction(
+            db,
+            workspace_id=workspace.id,
+            proposal_id=proposal_id,
+            instruction=body.instruction,
+            current_content=body.current_content,
             actor_user_id=user.id,
             actor_label=_actor_label(user),
         )

@@ -574,4 +574,11 @@ export class ApiService {
     return this.patch(`/knowledge-capture/proposals/${proposalId}/content`, { content });
   }
 
+  applyCaptureProposalInstruction(
+    proposalId: string,
+    body: { instruction: string; current_content?: string | null },
+  ): Observable<unknown> {
+    return this.post(`/knowledge-capture/proposals/${proposalId}/instruction`, body);
+  }
+
 }

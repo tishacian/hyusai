@@ -10,6 +10,7 @@ from app.models.workspace import Workspace
 from app.services.knowledge_capture import (
     amend_capture_event,
     amend_capture_plan,
+    apply_proposal_report_instruction,
     apply_session_closure_action,
     build_session_closure_sheet,
     create_capture_plan,
@@ -417,6 +418,64 @@ def test_capture_attribution_persists_user_ids(db_session):
         reviewer_user_id=reviewer.id,
     )
     assert reviewed.reviewer_user_id == reviewer.id
+
+
+@pytest.mark.asyncio
+async def test_apply_report_instruction_updates_current_report_without_llm(db_session):
+    workspace = Workspace(id="ws-capture-report-instruction", name="Capture Report Instruction", slug="capture-report-instruction")
+    user = User(id="user-report-editor", username="editor@datategy.local", email="editor@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Instruction capture",
+        objective="Capture tacit troubleshooting knowledge for report editing.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        created_by_user_id=user.id,
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=session.plan["questions"][0]["id"],
+        text="Je valide toujours le contrôle visuel avant de publier une procédure de maintenance.",
+        actor_user_id=user.id,
+    )
+    proposal = create_update_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        created_by_user_id=user.id,
+    )
+
+    updated = await apply_proposal_report_instruction(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        instruction="Ajoute une mention sur le contrôle visuel terrain.",
+        current_content="# Rapport\n\nContenu initial.",
+        actor_user_id=user.id,
+        actor_label=user.email,
+        use_llm=False,
+    )
+
+    payload = updated.proposal
+    assert "Modification demandée" in payload["report_markdown"]
+    assert "contrôle visuel terrain" in payload["report_markdown"]
+    assert payload["recommended_ingestion"]["content"] == payload["report_markdown"]
+    assert payload["recommended_ingestion"]["metadata"]["last_instruction_status"] == "instruction_recorded_fallback"
+    assert payload["report_edit"]["status"] == "instruction_recorded_fallback"
+    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert any(event.event_type == "proposal_report_instruction_applied" for event in events)
 
 
 def test_conversation_only_step_flow_requires_voice_confirmation(db_session):

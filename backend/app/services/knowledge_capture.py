@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import asyncio
+import json
 import logging
 import tempfile
 import time
@@ -36,6 +37,8 @@ from app.services.capture_knowledge_oracle import (
     presentation_prompt,
     score_gaps_with_rag,
     session_context_from_capture,
+    _model_chat_kwargs,
+    _resolve_llm_config,
 )
 
 CAPABILITY_SLUG = "expert_knowledge_capture"
@@ -4269,6 +4272,167 @@ def update_proposal_report_content(
                 "actor_user_id": actor_user_id,
             },
         )
+    db.commit()
+    db.refresh(proposal)
+    return proposal
+
+
+async def _rewrite_report_with_instruction_async(
+    *,
+    workspace_id: str,
+    session: ExpertCaptureSession,
+    current_report: str,
+    instruction: str,
+    open_questions: Optional[List[Dict[str, Any]]] = None,
+    use_llm: bool = True,
+) -> Tuple[str, Dict[str, Any]]:
+    fallback = _append_report_instruction_fallback(current_report=current_report, instruction=instruction)
+    if not use_llm:
+        return fallback, {"status": "instruction_recorded_fallback", "provider": "deterministic"}
+    api_key, model = _resolve_llm_config(workspace_id)
+    if not api_key:
+        return fallback, {"status": "instruction_recorded_fallback", "provider": "deterministic"}
+    try:
+        from openai import AsyncOpenAI
+
+        payload = {
+            "session_title": session.title,
+            "session_objective": session.objective,
+            "current_report_markdown": current_report,
+            "instruction": instruction,
+            "open_questions": open_questions or [],
+            "rules": [
+                "Return the full updated Markdown report, not a diff.",
+                "Preserve existing factual content unless the instruction explicitly asks to remove it.",
+                "Keep unresolved questions visible near the end if they remain unresolved.",
+                "Do not invent facts, sources, names, dates or measurements.",
+                "Do not add meta commentary about the editing process.",
+            ],
+        }
+        client = AsyncOpenAI(api_key=api_key)
+        response = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=model,
+                **_model_chat_kwargs(model, temperature=0.2),
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Tu es un éditeur de rapport Markdown pour une capture de connaissances. "
+                            "Retourne uniquement le rapport Markdown complet et révisé. "
+                            "Ne crée aucune information non présente dans le rapport ou l'instruction."
+                        ),
+                    },
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                ],
+            ),
+            timeout=20,
+        )
+        content = response.choices[0].message.content if response.choices else None
+        updated = (content or "").strip()
+        if len(updated) < max(80, len(current_report.strip()) // 4):
+            return fallback, {"status": "instruction_recorded_fallback", "provider": "deterministic"}
+        return updated, {
+            "status": "llm_applied",
+            "provider": "openai",
+            "model": model,
+        }
+    except Exception as exc:
+        _logger.warning("knowledge_capture_report_instruction_llm_failed: %s", exc)
+        return fallback, {"status": "instruction_recorded_fallback", "provider": "deterministic"}
+
+
+def _append_report_instruction_fallback(*, current_report: str, instruction: str) -> str:
+    report = current_report.strip()
+    note = (
+        "## Modification demandée\n\n"
+        "Cette consigne doit être prise en compte à la relecture finale :\n\n"
+        f"> {instruction.strip()}\n"
+    )
+    if "## Modification demandée" in report:
+        return f"{report}\n\n> {instruction.strip()}"
+    return f"{report}\n\n{note}".strip()
+
+
+async def apply_proposal_report_instruction(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    proposal_id: str,
+    instruction: str,
+    current_content: Optional[str] = None,
+    actor_user_id: Optional[str] = None,
+    actor_label: Optional[str] = None,
+    use_llm: bool = True,
+) -> KnowledgeUpdateProposal:
+    proposal = (
+        db.query(KnowledgeUpdateProposal)
+        .filter(KnowledgeUpdateProposal.id == proposal_id, KnowledgeUpdateProposal.workspace_id == workspace_id)
+        .first()
+    )
+    if not proposal:
+        raise ValueError("Knowledge update proposal not found")
+    session = get_session(db, workspace_id=workspace_id, session_id=proposal.session_id)
+    clean_instruction = (instruction or "").strip()
+    if not clean_instruction:
+        raise ValueError("Report instruction cannot be empty")
+    payload = dict(proposal.proposal or {})
+    recommended = dict(payload.get("recommended_ingestion") or {})
+    base_content = (
+        (current_content or "").strip()
+        or str(payload.get("report_markdown") or "").strip()
+        or str(recommended.get("content") or "").strip()
+    )
+    if not base_content:
+        raise ValueError("Proposal report content cannot be empty")
+    open_questions = payload.get("open_questions") if isinstance(payload.get("open_questions"), list) else []
+    updated_content, edit_meta = await _rewrite_report_with_instruction_async(
+        workspace_id=workspace_id,
+        session=session,
+        current_report=base_content,
+        instruction=clean_instruction,
+        open_questions=open_questions,
+        use_llm=use_llm,
+    )
+    metadata = dict(recommended.get("metadata") or {})
+    metadata.update(
+        {
+            "edited_by_user_id": actor_user_id,
+            "edited_at": datetime.utcnow().isoformat(),
+            "last_instruction": clean_instruction,
+            "last_instruction_status": edit_meta.get("status"),
+            "last_instruction_provider": edit_meta.get("provider"),
+            "last_instruction_model": edit_meta.get("model"),
+        }
+    )
+    recommended["content"] = updated_content
+    recommended["metadata"] = metadata
+    payload["recommended_ingestion"] = recommended
+    payload["report_markdown"] = updated_content
+    payload["report_edit"] = {
+        "instruction": clean_instruction,
+        **edit_meta,
+        "updated_at": datetime.utcnow().isoformat(),
+        "updated_by_user_id": actor_user_id,
+    }
+    proposal.proposal = payload
+    flag_modified(proposal, "proposal")
+
+    _record_capture_event(
+        db,
+        session=session,
+        event_type="proposal_report_instruction_applied",
+        source="operator_edit",
+        status=str(edit_meta.get("status") or "accepted"),
+        created_by=actor_label or actor_user_id,
+        meta_data={
+            "proposal_id": proposal.id,
+            "instruction": clean_instruction,
+            "content_chars": len(updated_content),
+            "actor_user_id": actor_user_id,
+            **edit_meta,
+        },
+    )
     db.commit()
     db.refresh(proposal)
     return proposal
