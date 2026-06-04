@@ -12,6 +12,7 @@ import pytest
 from app.services.rag import pipeline_retrieval
 from app.services.rag.pipeline_retrieval import (
     _merge_rrf,
+    _prioritise_exact_project_reference_matches,
     _prioritise_spreadsheet_label_matches,
     _query_variants,
     _search_documents,
@@ -30,6 +31,27 @@ def _mk_result(content: str, score: float, rank: int = 0) -> dict:
         "metadata": {},
         "id": f"id-{rank}",
     }
+
+
+def test_prioritise_exact_project_reference_matches_before_near_codes():
+    rows = [
+        {
+            "content": "near code evidence",
+            "score": 0.99,
+            "combined_score": 0.99,
+            "metadata": {"document_filename": "TTN22077J Card control desk.pdf"},
+        },
+        {
+            "content": "exact code evidence",
+            "score": 0.2,
+            "combined_score": 0.2,
+            "metadata": {"document_filename": "TTN20777J card documentation.pdf"},
+        },
+    ]
+
+    out = _prioritise_exact_project_reference_matches(rows, "Que dit TTN20777J ?")
+
+    assert out[0]["metadata"]["document_filename"] == "TTN20777J card documentation.pdf"
 
 
 class ExactTableFactService:

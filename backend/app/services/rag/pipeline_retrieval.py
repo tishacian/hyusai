@@ -63,6 +63,7 @@ _TRIAL_CODE_RE = re.compile(
     r"\b(?:test|essai|trial|trials?\s*n[°o]?)?\s*([0-9]{1,3}[A-Z])\b",
     re.IGNORECASE,
 )
+_PROJECT_REFERENCE_RE = re.compile(r"\b[A-Z]{2,}[A-Z0-9]{1,}\d{2,}[A-Z0-9]*\b")
 _DATE_DMY_RE = re.compile(r"\b([0-3]?\d)[/-]([01]?\d)[/-](20\d{2}|19\d{2})\b")
 _DATE_YMD_RE = re.compile(r"\b(20\d{2}|19\d{2})[/-]([01]?\d)[/-]([0-3]?\d)\b")
 
@@ -1263,6 +1264,56 @@ def _is_spreadsheet_evidence(content: str) -> bool:
     )
 
 
+def _compact_reference_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def _query_project_references(question: str) -> list[str]:
+    refs: list[str] = []
+    folded = str(question or "").upper()
+    for match in _PROJECT_REFERENCE_RE.findall(folded):
+        compact = _compact_reference_text(match).upper()
+        if len(compact) >= 5 and compact not in refs:
+            refs.append(compact)
+    for prefix, suffix in re.findall(r"\b([A-Z]{2,}[A-Z0-9]*)\s*[-_/ ]\s*(\d{2,}[A-Z0-9]*)\b", folded):
+        compact = _compact_reference_text(f"{prefix}{suffix}").upper()
+        if len(compact) >= 5 and compact not in refs:
+            refs.append(compact)
+    return refs[:5]
+
+
+def _prioritise_exact_project_reference_matches(
+    results: list[dict[str, Any]],
+    question: str,
+) -> list[dict[str, Any]]:
+    refs = _query_project_references(question)
+    if not refs or not results:
+        return results
+    ranked: list[tuple[int, float, int, dict[str, Any]]] = []
+    has_exact = False
+    for index, row in enumerate(results):
+        metadata = row.get("metadata") or {}
+        haystack = " ".join(
+            str(value or "")
+            for value in (
+                row.get("content"),
+                metadata.get("content"),
+                metadata.get("document_filename"),
+                metadata.get("document_id"),
+                metadata.get("project_code"),
+                metadata.get("archive_name"),
+            )
+        )
+        compact = _compact_reference_text(haystack).upper()
+        exact_matches = sum(1 for ref in refs if ref in compact)
+        has_exact = has_exact or exact_matches > 0
+        ranked.append((exact_matches, float(row.get("combined_score") or row.get("score") or 0.0), -index, row))
+    if not has_exact:
+        return results
+    ranked.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+    return [row for _, _, _, row in ranked]
+
+
 def _prioritise_spreadsheet_label_matches(
     results: list[dict[str, Any]],
     question: str,
@@ -1392,7 +1443,7 @@ async def retrieve_chah_like(
     # to ``min(…, 30)``.
     candidate_k = min(max(top_k * 4, top_k + 10), max(top_k, int(max_candidates or 80)))
     merged = _prioritise_spreadsheet_label_matches(
-        _merge_rrf(list(lists), top_k=candidate_k),
+        _prioritise_exact_project_reference_matches(_merge_rrf(list(lists), top_k=candidate_k), q),
         q,
     )
     merged = _prepend_exact_table_candidates(exact_rows, merged)[:top_k]
@@ -1523,6 +1574,7 @@ async def retrieve_for_mode(
         search_params={"retrieval_profile": retrieval_profile} if retrieval_profile else None,
     )
     results = rerank_results_with_policy(results, query, retrieval_policy)
+    results = _prioritise_exact_project_reference_matches(results, query)
     results = _prioritise_spreadsheet_label_matches(results, query)
     results = _prepend_exact_table_candidates(exact_rows, results)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(results)
