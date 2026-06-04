@@ -2856,7 +2856,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   readonly surfaceNav: Array<{ id: CaptureSurfaceView; label: string; icon: string; step: number }> = [
     { id: 'dashboard', label: 'Sessions', icon: 'layout-dashboard', step: 1 },
-    { id: 'prep', label: 'Préparation', icon: 'sliders-horizontal', step: 2 },
+    { id: 'prep', label: 'Préparer', icon: 'sliders-horizontal', step: 2 },
     { id: 'plan', label: 'Plan', icon: 'list-checks', step: 3 },
     { id: 'session', label: 'Capture', icon: 'mic', step: 4 },
     { id: 'review', label: 'Rapport', icon: 'file-text', step: 5 },
@@ -2867,7 +2867,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (!this.isDemoMode()) return item.label;
     const labels: Partial<Record<CaptureSurfaceView, string>> = {
       dashboard: 'Sessions',
-      prep: 'Sujet',
+      prep: 'Préparer',
       plan: 'Plan',
       plan_build: 'Plan',
       session: 'Capture',
