@@ -25,6 +25,7 @@ from app.services.knowledge_capture import (
     list_capture_events,
     prefetch_capture_retrieval,
     process_conversation_step,
+    publish_proposal_to_knowledge,
     review_proposal,
     serialize_session,
     start_session,
@@ -620,6 +621,108 @@ def test_update_proposal_adds_publication_defaults_and_preserves_editor_choices(
     regenerated = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session.id)
     assert regenerated.proposal["publication"]["category"] == "commercial"
     assert regenerated.proposal["publication"]["destination"] == "custom-destination"
+
+
+def test_plan_framed_report_labels_unassigned_facts_as_out_of_plan(db_session):
+    workspace = Workspace(id="ws-capture-out-of-plan", name="Capture Out Of Plan", slug="capture-out-of-plan")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture structurée",
+        objective="Capturer une procédure terrain.",
+        expert_profile="Responsable maintenance",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="provided_plan",
+        provided_plan_text="Maintenance vacuum\n- Inspection filtre",
+        capture_domain="technical",
+        allow_ai_plan=False,
+    )
+    markdown = build_andritz_knowledge_sheet(
+        session,
+        [
+            {
+                "text": "Hors plan, l'équipe note aussi la disponibilité des pièces critiques.",
+                "topic_id": "outside-plan",
+            }
+        ],
+    )
+
+    assert "### Points hors plan" in markdown
+    assert "Compléments à classer" not in markdown
+
+
+@pytest.mark.asyncio
+async def test_publish_persists_export_urls(db_session, monkeypatch):
+    workspace = Workspace(id="ws-capture-publish-export", name="Capture Publish Export", slug="capture-publish-export")
+    context = Context(
+        id="ctx-capture-publish-export",
+        workspace_id=workspace.id,
+        name="Capture export",
+        environment_state={"collection": "capture-export-knowledge"},
+    )
+    db_session.add_all([workspace, context])
+    seed_skills_and_capabilities(db_session)
+
+    class FakeDocumentService:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        async def ingest_document(self, *_: object, **__: object) -> dict:
+            return {"document_id": "doc published/id", "chunks_processed": 1, "status": "success"}
+
+    monkeypatch.setattr("app.services.rag.document_service.DocumentService", FakeDocumentService)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Publication export",
+        objective="Publier une capture test.",
+        expert_profile="Responsable maintenance",
+        duration_minutes=20,
+        context_id=context.id,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=session.plan["questions"][0]["id"],
+        text="La procédure publiée doit rester téléchargeable après validation.",
+    )
+    proposal = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session.id)
+    reviewed = review_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        status="accepted",
+        reviewer="operator@datategy.local",
+        review_notes="Validé pour publication.",
+    )
+
+    result = await publish_proposal_to_knowledge(
+        db_session,
+        workspace=workspace,
+        proposal_id=reviewed.id,
+        actor_label="operator@datategy.local",
+        category="technical",
+        destination="capture-export-knowledge",
+        final_title="Publication export validée",
+    )
+
+    expected_url = "/api/v1/documents/doc%20published%2Fid/raw"
+    assert result["export_urls"] == {"download_url": expected_url, "raw_url": expected_url}
+    db_session.refresh(reviewed)
+    assert reviewed.proposal["publication"]["export_urls"] == result["export_urls"]
 
 
 def test_conversation_only_step_flow_requires_voice_confirmation(db_session):

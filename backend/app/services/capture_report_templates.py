@@ -142,7 +142,7 @@ def _plan_restitution_section(session: ExpertCaptureSession, facts: List[Dict[st
 
     unassigned = [fact for fact_index, fact in enumerate(facts) if fact_index not in assigned]
     if unassigned:
-        lines.append("### Compléments à classer")
+        lines.append("### Points hors plan")
         lines.extend(_fact_bullets(unassigned))
     return "\n".join(lines)
 

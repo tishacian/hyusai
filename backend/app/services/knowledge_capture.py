@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import quote
 
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import Session as DBSession
@@ -2604,7 +2605,8 @@ async def publish_proposal_to_knowledge(
     from app.services.knowledge_collections import create_or_get_collection
     from app.services.object_store import get_object_store
     from app.services.knowledge_collections import ingested_key, original_key
-    from app.services.settings_resolver import get_resolved_settings, resolve_vector_db_type
+    from app.core.settings_manager import get_resolved_settings
+    from app.services.rag.vector_store_config import resolve_vector_db_type
     from app.services.rag.document_service import DocumentService
 
     slug = collection_name.replace("_", "-")[:80] or "expert-capture"
@@ -2630,6 +2632,19 @@ async def publish_proposal_to_knowledge(
             workspace_slug=workspace.slug,
         )
         result = await doc_service.ingest_document(str(path), collection_name=collection.slug)
+    document_id = result.get("document_id")
+    export_urls: Dict[str, str] = {}
+    if document_id:
+        raw_url = f"/api/v1/documents/{quote(str(document_id), safe='')}/raw"
+        export_urls = {
+            "download_url": raw_url,
+            "raw_url": raw_url,
+        }
+        publication_meta["export_urls"] = export_urls
+        proposal_payload["publication"] = publication_meta
+        proposal.proposal = proposal_payload
+        flag_modified(proposal, "proposal")
+        db.flush()
     emit_audit_event(
         db=db,
         workspace_id=workspace.id,
@@ -2642,18 +2657,20 @@ async def publish_proposal_to_knowledge(
             "category": publication_category,
             "destination": publication_destination,
             "final_title": publication_title,
+            "export_urls": export_urls,
         },
     )
     db.commit()
     return {
         "proposal_id": proposal.id,
         "collection": collection.slug,
-        "document_id": result.get("document_id"),
+        "document_id": document_id,
         "chunks_processed": result.get("chunks_processed", 0),
         "status": result.get("status"),
         "category": publication_category,
         "destination": publication_destination,
         "final_title": publication_title,
+        "export_urls": export_urls,
     }
 
 
@@ -3802,7 +3819,7 @@ def _plan_framed_markdown(
         lines.append("")
     unassigned = plan_structure.get("unassigned") or []
     if unassigned:
-        lines.append("## Autres éléments capturés")
+        lines.append("## Points hors plan")
         for fact in unassigned:
             statement = str(fact.get("text") or "").strip()
             if statement:
