@@ -1372,6 +1372,7 @@ const STEP_ICONS: Record<string, string> = {
                         {{ deepInfo.deepDetailsError }}
                       </div>
                     } @else {
+                      @if (showDeepAnswerInDetails(msg, deepInfo)) {
                       @if (deepInfo.deepAnswer; as deepAnswer) {
                         <div class="border-b border-white/5 px-3 py-3 text-sm leading-relaxed text-gray-800 dark:text-gray-100">
                           <div class="mb-2 text-[10px] uppercase tracking-[0.16em] font-semibold text-violet-300">
@@ -1405,6 +1406,7 @@ const STEP_ICONS: Record<string, string> = {
                             }
                           }
                         </div>
+                      }
                       }
                       @if (deepInfo.deepSources?.length) {
                         <ol class="divide-y divide-white/5">
@@ -3886,7 +3888,7 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   renderMarkdownAnswer(content: string | undefined | null): AnswerBlock[] {
-    const text = (content || '(no response)').replace(/\r\n?/g, '\n');
+    const text = this.normalizeAnswerMarkdown(content || '(no response)').replace(/\r\n?/g, '\n');
     const lines = text.split('\n');
     const blocks: AnswerBlock[] = [];
     let paragraph: string[] = [];
@@ -3958,6 +3960,30 @@ export class ChatPanelComponent implements AfterViewInit {
     flushParagraph();
     flushList();
     return blocks.length ? blocks : [{ kind: 'paragraph', tokens: [{ kind: 'text', value: '(no response)' }] }];
+  }
+
+  private normalizeAnswerMarkdown(content: string): string {
+    const text = String(content || '').trim();
+    if (!text) return text;
+    if (/\n\s*([-*•]|\d+[\.)])\s+/.test(text)) return text;
+    const inlineBulletPattern = /\s-\s+(?=[A-ZÀ-ÖØ-Þ0-9"“])/g;
+    const matches = text.match(inlineBulletPattern) || [];
+    if (matches.length < 2 && !/:\s-\s+(?=[A-ZÀ-ÖØ-Þ0-9"“])/.test(text)) return text;
+    return text
+      .replace(inlineBulletPattern, '\n- ')
+      .replace(/\s+(Source\s*:)/i, '\n\n$1')
+      .replace(/\n{3,}/g, '\n\n');
+  }
+
+  showDeepAnswerInDetails(
+    msg: ChatMessage,
+    info: NonNullable<ChatMessage['retrievalInfo']>,
+  ): boolean {
+    const answer = info.deepAnswer?.trim();
+    if (!answer) return false;
+    const normalizedMessage = this.normalizeAnswerMarkdown(msg.content || '').replace(/\s+/g, ' ').trim();
+    const normalizedAnswer = this.normalizeAnswerMarkdown(answer).replace(/\s+/g, ' ').trim();
+    return !!normalizedAnswer && normalizedMessage !== normalizedAnswer;
   }
 
   private inlineMarkdownTokens(value: string): AnswerToken[] {

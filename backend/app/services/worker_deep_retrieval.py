@@ -54,6 +54,25 @@ def _compact_text(value: Any, *, max_chars: int = _MAX_SOURCE_SNIPPET_CHARS) -> 
     return text[: max(0, max_chars - 3)].rstrip() + "..."
 
 
+def _compact_answer_text(value: Any, *, max_chars: int = 6000) -> str:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = [" ".join(line.split()) for line in text.split("\n")]
+    compacted: list[str] = []
+    previous_blank = False
+    for line in lines:
+        if not line:
+            if not previous_blank and compacted:
+                compacted.append("")
+            previous_blank = True
+            continue
+        compacted.append(line)
+        previous_blank = False
+    result = "\n".join(compacted).strip()
+    if len(result) <= max_chars:
+        return result
+    return result[: max(0, max_chars - 3)].rstrip() + "..."
+
+
 def _clean_dict(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None and value != ""}
 
@@ -220,12 +239,12 @@ def _extractive_deep_answer(
 def _previous_answer_from_payload(payload: dict[str, Any], metadata: dict[str, Any] | None = None) -> str:
     candidate = payload.get("previous_answer")
     if isinstance(candidate, str) and candidate.strip():
-        return _compact_text(candidate, max_chars=3500)
+        return _compact_answer_text(candidate, max_chars=3500)
     partial_result = (metadata or {}).get("partial_result")
     if isinstance(partial_result, dict):
         candidate = partial_result.get("answer_preview")
         if isinstance(candidate, str) and candidate.strip():
-            return _compact_text(candidate, max_chars=3500)
+            return _compact_answer_text(candidate, max_chars=3500)
     return ""
 
 
@@ -265,7 +284,11 @@ def _synthesis_prompt(
         f"{chr(10).join(excerpts)}\n\n"
         "Redige une reponse finale en francais si la question est en francais, sinon dans la langue de la question. "
         "Appuie-toi uniquement sur les extraits ci-dessus. Si les extraits sont insuffisants, dis-le clairement. "
-        "Sois concret, cite les documents utiles par leur nom, et produis une vraie reponse assistant finale."
+        "Sois concret, cite les documents utiles par leur nom, et produis une vraie reponse assistant finale.\n\n"
+        "Format obligatoire: Markdown lisible. Utilise des paragraphes courts et des listes a puces ou numerotees "
+        "quand la reponse contient plusieurs points. Ne compacte jamais plusieurs items sous la forme "
+        "\"- item - item - item\" sur une seule ligne. Termine par une ligne Source: quand une source principale "
+        "est identifiable."
     )
 
 
@@ -283,7 +306,7 @@ async def _llm_deep_answer(payload: dict[str, Any], prompt: str) -> dict[str, An
         temperature=0.1,
         max_tokens=_MAX_SYNTHESIS_TOKENS,
     )
-    return {"answer": _compact_text(answer, max_chars=6000), "provider": provider, "model": model}
+    return {"answer": _compact_answer_text(answer, max_chars=6000), "provider": provider, "model": model}
 
 
 async def _synthesize_deep_answer(
