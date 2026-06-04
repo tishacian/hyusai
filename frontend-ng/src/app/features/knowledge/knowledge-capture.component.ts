@@ -1367,6 +1367,7 @@ interface ProposalFact {
 
               @if (!isDemoMode()) {
               <aside class="space-y-4 max-h-[calc(100vh-270px)] overflow-auto">
+                @if (!isDemoMode() && showAdvancedSetup()) {
                 <section class="t-card rounded-lg p-4">
                   <div class="flex items-center justify-between gap-3">
                     <div>
@@ -1542,6 +1543,7 @@ interface ProposalFact {
                     </p>
                   }
                 </section>
+                }
 
                 @if (proposal(); as p) {
                   <section class="t-card rounded-lg p-4">
