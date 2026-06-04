@@ -2414,7 +2414,7 @@ interface ProposalFact {
                   {{ p.proposal?.title || session()?.title || 'Publier le rapport' }}
                 </h2>
                 <p class="text-sm text-gray-500 mt-1 max-w-3xl">
-                  Vérifiez la catégorie et la destination avant de publier le rapport.
+                  Confirmez la catégorie et la destination avant de publier le rapport.
                 </p>
               </div>
 
@@ -2429,7 +2429,7 @@ interface ProposalFact {
 
               <div class="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Catégorie</label>
+                  <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Catégorie suggérée</label>
                   <select
                     class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
                     [(ngModel)]="publicationCategory"
@@ -2446,6 +2446,11 @@ interface ProposalFact {
                     [(ngModel)]="publicationDestination"
                     [placeholder]="publicationDestinationLabel()"
                   />
+                  @if (!effectivePublicationDestination()) {
+                    <p class="mt-2 text-[11px] leading-relaxed text-amber-200/85">
+                      Renseignez une destination avant publication.
+                    </p>
+                  }
                 </div>
               </div>
 
@@ -2493,7 +2498,7 @@ interface ProposalFact {
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
-                [disabled]="p.status !== 'accepted' || !canProposalPublish(p)"
+                [disabled]="!canPublishProposal(p)"
                 [title]="proposalPublishHint(p) || ''"
                 (click)="publishToKnowledge(p.id)"
               >
@@ -3590,7 +3595,12 @@ export class KnowledgeCaptureComponent implements OnInit {
   proposalPublishHint(proposal?: CaptureProposal | null): string | null {
     if (proposal?.status !== 'accepted') return 'Validez d’abord le rapport avant publication.';
     if (!this.canProposalPublish(proposal)) return 'La publication requiert le droit d’ingestion.';
+    if (!this.effectivePublicationDestination()) return 'Renseignez une destination avant publication.';
     return null;
+  }
+
+  canPublishProposal(proposal?: CaptureProposal | null): boolean {
+    return Boolean(proposal) && !this.proposalPublishHint(proposal);
   }
 
   publicationCategoryLabel(): string {
@@ -3598,11 +3608,24 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   publicationDestinationLabel(): string {
-    return this.selectedContext()?.environment_state?.collection || this.selectedContext()?.name || 'Destination de publication';
+    return this.publicationDestinationSuggestion() || 'Destination à renseigner';
   }
 
   effectivePublicationDestination(): string {
-    return this.publicationDestination.trim() || this.publicationDestinationLabel();
+    return this.publicationDestination.trim() || this.publicationDestinationSuggestion() || '';
+  }
+
+  private publicationDestinationSuggestion(): string | null {
+    const context = this.selectedContext();
+    const environment = (context?.environment_state || {}) as Record<string, unknown>;
+    const candidate =
+      environment['collection'] ||
+      environment['collection_name'] ||
+      environment['collection_slug'] ||
+      context?.name ||
+      null;
+    const value = typeof candidate === 'string' ? candidate.trim() : '';
+    return value || null;
   }
 
   publicationFinalTitleLabel(): string {
@@ -5199,8 +5222,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   publishToKnowledge(proposalId: string): void {
-    if (!this.canProposalPublish(this.proposal())) {
-      this.setVoiceNotice('Publication Knowledge non autorisée pour ce rôle.', 'error');
+    const proposal = this.proposal();
+    const publishHint = this.proposalPublishHint(proposal);
+    if (publishHint) {
+      this.setVoiceNotice(publishHint, 'warning');
       return;
     }
     this.persistProposalReport(proposalId, () => {
