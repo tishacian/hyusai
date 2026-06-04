@@ -429,11 +429,11 @@ interface ProposalFact {
         <section class="max-w-5xl mx-auto py-6 lg:py-8 space-y-6 min-h-[calc(100vh-15rem)] flex flex-col">
           <div>
             <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Préparation</p>
-            <h2 class="mt-2 text-3xl text-white font-semibold">Définir le sujet de capture</h2>
+            <h2 class="mt-2 text-3xl text-white font-semibold">Préparer la capture</h2>
             <p class="mt-2 text-sm text-gray-400 max-w-3xl">
               {{ isDemoMode()
-                ? 'Indiquez simplement le sujet à explorer. L’IA se charge de guider l’échange et de préparer la connaissance à relire.'
-                : 'Donnez un titre et décrivez ce que l’expert doit transmettre. Les sources et paramètres avancés restent disponibles sans encombrer le parcours pilote.' }}
+                ? 'Donnez un titre, choisissez une durée et un mode. Le plan et le rapport se construisent ensuite dans le parcours.'
+                : 'Donnez un titre, choisissez une durée et un mode. Les sources et paramètres avancés restent disponibles sans encombrer le parcours.' }}
             </p>
           </div>
 
@@ -902,7 +902,9 @@ interface ProposalFact {
             <section
               [class]="isDemoMode()
                 ? 'grid xl:grid-cols-[280px_minmax(0,1fr)] gap-4 items-start'
-                : 'grid xl:grid-cols-[300px_minmax(0,1fr)_360px] gap-4 items-start'"
+                : (showAdvancedSetup() || proposal())
+                  ? 'grid xl:grid-cols-[300px_minmax(0,1fr)_360px] gap-4 items-start'
+                  : 'grid xl:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start'"
             >
               <aside class="t-card rounded-lg p-4 max-h-[calc(100vh-270px)] flex flex-col gap-4 overflow-y-auto">
                 <div class="shrink-0">
@@ -1202,7 +1204,7 @@ interface ProposalFact {
                       }
                     }
                   </div>
-                  @if (isDemoMode()) {
+                  @if (isDemoMode() || !showAdvancedSetup()) {
                     <div class="flex-1 min-h-80 rounded bg-black/20 border border-white/10 p-5 overflow-auto leading-relaxed">
                       @for (row of captureTranscriptRows(); track row.key) {
                         @if (row.kind === 'topic') {
@@ -1241,7 +1243,7 @@ interface ProposalFact {
                       }
                     </div>
                   }
-                  @if (!isDemoMode()) {
+                  @if (!isDemoMode() && showAdvancedSetup()) {
                   <div class="flex-1 min-h-80 rounded bg-black/20 border border-white/10 p-4 overflow-auto space-y-3">
                     <article class="rounded border border-brand-400/20 bg-brand-500/10 p-4">
                       <div class="flex items-center justify-between gap-3">
@@ -1408,7 +1410,7 @@ interface ProposalFact {
 
               </main>
 
-              @if (!isDemoMode()) {
+              @if (!isDemoMode() && (showAdvancedSetup() || proposal())) {
               <aside class="space-y-4 max-h-[calc(100vh-270px)] overflow-auto">
                 @if (!isDemoMode() && showAdvancedSetup()) {
                 <section class="t-card rounded-lg p-4">
