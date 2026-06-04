@@ -707,7 +707,7 @@ interface ProposalFact {
                   class="w-full text-left rounded border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-3"
                   (click)="openDashboardSession(row)"
                 >
-                  <div class="flex items-center justify-between gap-3">
+                  <div class="flex items-start justify-between gap-3">
                     <div>
                       <div class="text-sm font-semibold text-white">{{ row.title }}</div>
                       <p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ sessionCardSummary(row) }}</p>
@@ -717,13 +717,19 @@ interface ProposalFact {
                         </span>
                       }
                     </div>
-                    <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ captureSessionStatusLabel(row) }}</span>
+                    <span class="shrink-0 text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ captureSessionStatusLabel(row) }}</span>
                   </div>
-                  <div class="mt-3 flex flex-wrap gap-2 text-xs text-gray-400">
-                    <span>{{ sessionLastActivityLabel(row) }}</span>
-                    @if (sessionOpenQuestionCount(row) > 0) {
-                      <span class="text-amber-200">{{ sessionOpenQuestionCount(row) }} question(s) ouverte(s)</span>
-                    }
+                  <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
+                    <div class="flex flex-wrap gap-2">
+                      <span>{{ sessionLastActivityLabel(row) }}</span>
+                      @if (sessionOpenQuestionCount(row) > 0) {
+                        <span class="text-amber-200">{{ sessionOpenQuestionCount(row) }} question(s) ouverte(s)</span>
+                      }
+                    </div>
+                    <span class="inline-flex shrink-0 items-center gap-1 rounded bg-brand-500/15 px-2 py-1 text-brand-100 ring-1 ring-brand-300/20">
+                      {{ sessionCardActionLabel(row) }}
+                      <app-icon name="arrow-right" [size]="12" />
+                    </span>
                   </div>
                 </button>
               } @empty {
@@ -3465,6 +3471,12 @@ export class KnowledgeCaptureComponent implements OnInit {
     return this.proposalOpenQuestions().length && this.proposal()?.session_id === session.id
       ? this.proposalOpenQuestions().length
       : 0;
+  }
+
+  sessionCardActionLabel(session: CaptureSession): string {
+    const status = String(session.status || '').toLowerCase();
+    if (status === 'active' || status === 'paused') return 'Reprendre';
+    return 'Ouvrir';
   }
 
   captureSessionStatusLabel(session: CaptureSession): string {
