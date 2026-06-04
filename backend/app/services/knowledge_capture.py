@@ -5673,6 +5673,7 @@ def _metrics_for_session(session: ExpertCaptureSession) -> Dict[str, Any]:
         if questions
         else None
     )
+    last_activity = session.updated_at or session.completed_at or session.started_at or session.created_at
     return {
         **(session.metrics or {}),
         "turns": len(session.transcript or []),
@@ -5680,6 +5681,9 @@ def _metrics_for_session(session: ExpertCaptureSession) -> Dict[str, Any]:
         "captured_facts": len(session.captured_facts or []),
         "coverage": round(coverage, 2) if coverage is not None else None,
         "plan_mode": (session.plan or {}).get("mode") or (session.metrics or {}).get("plan_mode"),
+        "summary_short": _session_summary_short(session),
+        "open_questions_count": _session_open_questions_count(session),
+        "last_activity": last_activity.isoformat() if last_activity else None,
         **_compute_timer_metrics(session),
     }
 

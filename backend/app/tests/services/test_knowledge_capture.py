@@ -317,6 +317,9 @@ def test_capture_plan_turn_and_review_proposal(db_session):
 
     assert turn_result["evaluation"]["verdict"] in {"sufficient", "partial"}
     assert turn_result["session"]["metrics"]["answers_evaluated"] == 1
+    assert "machine vibre" in turn_result["session"]["metrics"]["summary_short"]
+    assert isinstance(turn_result["session"]["metrics"]["open_questions_count"], int)
+    assert turn_result["session"]["metrics"]["last_activity"]
     source_event_id = turn_result["turn"]["source_event_id"]
 
     events = list_capture_events(
