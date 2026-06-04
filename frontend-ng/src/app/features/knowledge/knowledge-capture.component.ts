@@ -2043,78 +2043,20 @@ interface ProposalFact {
               </div>
             </section>
           } @else {
-          <section class="max-w-5xl mx-auto py-8 space-y-7">
-            <div>
-              <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Étape 2 · Mode de capture</p>
-              <h2 class="mt-2 text-3xl text-white font-semibold">
-                {{ isDemoMode() ? 'Choisir le déroulé' : 'Choisir le niveau de guidage' }}
-              </h2>
-              <p class="mt-2 text-sm text-gray-400 max-w-3xl">
-                {{ isDemoMode()
-                  ? 'Démarrez une conversation libre ou laissez l’IA préparer un plan simple avant l’échange.'
-                  : 'Pour un pilote, la capture libre va directement à l’échange. Le plan guidé reste disponible quand il faut sécuriser un plan d’entretien.' }}
+            <section class="max-w-3xl mx-auto py-10 space-y-4 text-center">
+              <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Préparation</p>
+              <h2 class="text-2xl text-white font-semibold">Le mode se choisit dans la préparation</h2>
+              <p class="text-sm text-gray-400">
+                Revenez à l’étape précédente pour choisir le déroulé, puis continuez directement vers la capture.
               </p>
-            </div>
-
-            <div class="space-y-3">
-              @for (mode of visiblePlanModes(); track mode.id) {
-                <button
-                  type="button"
-                  [disabled]="mode.disabled"
-                  [class]="selectedPlanMode === mode.id
-                    ? 'w-full text-left rounded-lg border border-brand-300 bg-brand-500/10 p-5 ring-1 ring-brand-300/40'
-                    : mode.disabled
-                      ? 'w-full text-left rounded-lg border border-white/10 bg-white/[0.02] p-5 opacity-60 cursor-not-allowed'
-                      : 'w-full text-left rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-5'"
-                  (click)="selectPlanMode(mode.id)"
-                >
-                  <div class="flex items-center gap-4">
-                    <span
-                      [class]="selectedPlanMode === mode.id
-                        ? 'inline-flex h-11 w-11 items-center justify-center rounded border border-brand-300 text-brand-200'
-                        : 'inline-flex h-11 w-11 items-center justify-center rounded border border-white/10 text-gray-500'"
-                    >
-                      <app-icon [name]="mode.icon" [size]="18" />
-                    </span>
-                    <span class="min-w-0 flex-1">
-                      <span class="flex flex-wrap items-center gap-2">
-                        <span class="text-base font-semibold text-white">{{ mode.label }}</span>
-                      </span>
-                      <span class="mt-1 block text-sm text-gray-500">{{ mode.description }}</span>
-                    </span>
-                    <span
-                      [class]="selectedPlanMode === mode.id
-                        ? 'inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand-300 text-black'
-                        : 'inline-flex h-5 w-5 rounded-full border border-white/15'"
-                    >
-                      @if (selectedPlanMode === mode.id) {
-                        <app-icon name="check" [size]="12" />
-                      }
-                    </span>
-                  </div>
-                </button>
-              }
-            </div>
-
-            <div class="flex items-center justify-between gap-3 pt-4">
               <button
                 type="button"
-                class="inline-flex items-center gap-2 px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-300 ring-1 ring-white/10"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white"
                 (click)="goSurface('prep')"
               >
-                <app-icon name="arrow-left" [size]="14" /> Retour
+                <app-icon name="arrow-left" [size]="14" /> Retour à la préparation
               </button>
-              <button
-                type="button"
-                class="inline-flex items-center gap-2 px-5 py-2.5 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black disabled:opacity-50"
-                [disabled]="loading() || !canCreateSelectedPlan()"
-                (click)="continuePlanModeSelection()"
-              >
-                {{ loading() ? 'Préparation...' : planModeActionLabel() }}
-                <app-icon name="arrow-right" [size]="14" />
-              </button>
-            </div>
-          </section>
+            </section>
           }
         }
       }
@@ -3168,19 +3110,6 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   cancelProvidedPlanReplacement(): void {
     this.pendingPlanSourceReplacement.set(null);
-  }
-
-  planModeActionLabel(): string {
-    return 'Continuer';
-  }
-
-  continuePlanModeSelection(): void {
-    if (!this.canCreateSelectedPlan()) return;
-    if (this.selectedPlanMode === 'provided_plan') {
-      this.planSourceStep.set(true);
-      return;
-    }
-    this.createPlan();
   }
 
   backToPlanModeSelection(): void {
