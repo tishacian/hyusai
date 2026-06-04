@@ -176,7 +176,7 @@ interface PipelineStage {
           <div class="relative flex items-center gap-3 flex-wrap">
             <app-icon name="atom" [size]="18" class="text-brand-400" />
             <span class="text-xs uppercase tracking-wider font-semibold text-brand-300">
-              {{ isExpertKnowledgeCapture() ? 'System workbench' : 'OmniRAG pipeline' }}
+              {{ isExpertKnowledgeCapture() ? 'Parcours de capture' : 'OmniRAG pipeline' }}
             </span>
             <div class="flex items-center gap-2 ml-auto text-[11px]">
               @for (stage of pipelineStages; track stage.key; let last = $last) {
@@ -647,14 +647,14 @@ export class SystemViewComponent implements OnInit {
     this.isIntelligence()
       ? 'Systems · Intelligence'
       : this.isExpertKnowledgeCapture()
-        ? 'Systems · Knowledge Capture'
+        ? 'Capture de connaissances'
         : 'Systems · System',
   );
   readonly headerFallbackSubtitle = computed(() =>
     this.isIntelligence()
       ? 'Market-signal briefs and continuous monitoring.'
       : this.isExpertKnowledgeCapture()
-        ? 'Voice-to-voice expert capture, live retrieval and proposal review.'
+        ? 'Prepare, capture, review and publish expert knowledge.'
       : 'Configure, run and refine this AI system.',
   );
   /** Side panels — Settings and Chat live here, never as tabs. */
@@ -843,35 +843,35 @@ export class SystemViewComponent implements OnInit {
           key: 'plan',
           name: 'Plan',
           icon: 'list-checks',
-          description: 'Gap analysis and interview plan from the selected Knowledge Context.',
-          configureLabel: 'Capture UI',
+          description: 'Prepare the exchange plan from the selected context.',
+          configureLabel: 'Capture',
           route: ['/systems', this.systemId, 'capture'],
           tone: 'brand',
         },
         {
           key: 'voice',
-          name: 'Voice loop',
+          name: 'Exchange',
           icon: 'mic',
-          description: 'Chunked STT, segmented TTS and barge-in interruption in conversation-only mode.',
-          configureLabel: 'Runtime',
+          description: 'Capture the expert exchange with voice or text.',
+          configureLabel: 'Capture',
           route: ['/systems', this.systemId, 'capture'],
           tone: 'violet',
         },
         {
           key: 'retrieve',
-          name: 'Live retrieval',
+          name: 'Sources',
           icon: 'database',
-          description: 'Non-blocking C-HAH prefetch over the bound Knowledge collection.',
-          configureLabel: 'Knowledge',
+          description: 'Use the attached documents as background evidence.',
+          configureLabel: 'Sources',
           route: '/knowledge',
           tone: 'brand',
         },
         {
           key: 'proposal',
-          name: 'Proposal & review',
+          name: 'Report',
           icon: 'check-circle-2',
-          description: 'Evaluated answers become a HITL-amendable knowledge update proposal.',
-          configureLabel: 'Flow',
+          description: 'Review and publish the final report.',
+          configureLabel: 'Report',
           route: ['/systems', this.systemId, 'flow'],
           tone: 'emerald',
         },

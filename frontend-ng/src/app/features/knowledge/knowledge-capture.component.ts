@@ -503,7 +503,7 @@ interface ProposalFact {
                   <div>
                     <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Créer depuis une collection</p>
                     <p class="mt-1 text-xs text-gray-400">
-                      Rattachez une collection Knowledge à la capture sans quitter la préparation.
+                      Rattachez une collection documentaire à la capture sans quitter la préparation.
                     </p>
                   </div>
                   @if (loadingKnowledgeCollections()) {
@@ -556,7 +556,7 @@ interface ProposalFact {
                 }
                 @if (!loadingKnowledgeCollections() && knowledgeCollections().length === 0) {
                   <p class="text-xs rounded border border-white/10 bg-white/5 px-3 py-2 text-gray-400">
-                    Aucune collection Knowledge n’est disponible dans ce workspace pour l’instant.
+                    Aucune collection documentaire n’est disponible dans ce workspace pour l’instant.
                   </p>
                 }
               </div>
@@ -728,7 +728,7 @@ interface ProposalFact {
                 </button>
               } @empty {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-8 text-center text-gray-500">
-                  Aucune session pour l’instant. Créez une capture depuis cette surface système.
+                  Aucune session pour l’instant. Créez une capture pour commencer.
                 </div>
               }
             </div>
@@ -754,7 +754,7 @@ interface ProposalFact {
           @if (!isDemoMode()) {
           <div class="t-card rounded-lg p-5 space-y-4">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Propositions Knowledge</p>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Rapports à relire</p>
               <h2 class="text-lg font-semibold text-white">File de revue</h2>
             </div>
             <div class="space-y-2">
@@ -1147,7 +1147,7 @@ interface ProposalFact {
                   <div class="flex items-center justify-between gap-3">
                     <div>
                       <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">
-                        {{ isDemoMode() ? 'Échange avec l’expert' : 'Trace utile' }}
+                        {{ isDemoMode() ? 'Échange avec l’expert' : 'Échange capturé' }}
                       </p>
                       <h3 class="text-sm font-semibold text-white">{{ voiceStateLabel() }}</h3>
                     </div>
@@ -1565,7 +1565,7 @@ interface ProposalFact {
           </section>
         } @else {
           <section class="t-card rounded-lg p-8 text-center text-gray-400">
-            Préparez une session de capture avant d’ouvrir le cockpit live.
+            Préparez une session de capture avant d’ouvrir l’échange.
           </section>
         }
       }
@@ -1588,7 +1588,7 @@ interface ProposalFact {
                   class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
                   (click)="goSurface('session')"
                 >
-                  <app-icon name="eye" [size]="14" /> Prévisualiser le cockpit
+                  <app-icon name="eye" [size]="14" /> Prévisualiser l’échange
                 </button>
                 }
               </div>
@@ -1621,7 +1621,7 @@ interface ProposalFact {
                 }
                 @if (!isDemoMode()) {
                 <div class="rounded bg-black/20 border border-white/10 p-3">
-                  <div class="text-[10px] uppercase tracking-wider text-gray-500">Cible Knowledge</div>
+                  <div class="text-[10px] uppercase tracking-wider text-gray-500">Destination</div>
                   <div class="text-sm text-gray-200 mt-2 truncate">{{ selectedContext()?.environment_state?.collection || 'Sources par défaut du workspace' }}</div>
                 </div>
                 }
@@ -1852,11 +1852,11 @@ interface ProposalFact {
                   <span class="text-gray-200">{{ contextLabel(s.context_id) }}</span>
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
-                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Expert</span>
+                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Intervenant</span>
                   <span class="text-gray-200">{{ expertProfile }}</span>
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
-                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Runtime vocal</span>
+                  <span class="block text-[9px] uppercase tracking-wider text-gray-500">Voix</span>
                   <span class="text-gray-200">{{ voiceRuntimeArchitecture(s.voice_runtime) }}</span>
                 </div>
                 <div class="rounded bg-black/20 border border-white/10 p-3">
@@ -4801,9 +4801,9 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   questionBankStatusLabel(session: CaptureSession): string {
     const status = String(session.plan.question_bank_status || this.questionBankStatus());
-    if (status === 'generating') return 'Plan validé — capture disponible';
+    if (status === 'generating') return 'Angles de relance en préparation';
     if (status === 'ready') return 'Banque prête';
-    if ((session.plan.review?.status || '') === 'topics_validated') return 'Plan validé — capture disponible';
+    if ((session.plan.review?.status || '') === 'topics_validated') return 'Prêt pour l’échange';
     return 'En attente de validation du plan';
   }
 
@@ -6335,7 +6335,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       if (value === 'openai_realtime' || value === 'local_realtime' || value === 'realtime_gpu') return 'Realtime';
       if (value === 'local_stt') return 'Transcription';
       if (value === 'local_tts') return 'Synthèse vocale';
-      return 'Runtime vocal';
+      return 'Voix';
     }
     if (value === 'cascade' || value === 'cascade_openai') return 'cascade_openai · batch STT · segmented TTS';
     if (value === 'openai_realtime') return 'openai_realtime · speech-to-speech';

@@ -86,7 +86,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     apiPrefix: '/api/v1/knowledge-capture',
     status: 'canonical',
     audience: 'workspace-user',
-    description: 'System-scoped knowledge capture workbench.',
+    description: 'Parcours de capture rattache au systeme.',
   },
   {
     id: 'capabilities',
