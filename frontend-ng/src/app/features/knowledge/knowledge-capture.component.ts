@@ -1395,7 +1395,7 @@ interface ProposalFact {
                           <div [class]="voiceNoticeClass()">{{ notice }}</div>
                         } @else {
                           <div class="text-[10px] text-gray-500 truncate">
-                            {{ isDemoMode() ? 'Prêt à écouter l’expert' : voiceRuntimeArchitecture(s.voice_runtime) }}
+                            {{ showAdvancedSetup() ? voiceRuntimeArchitecture(s.voice_runtime) : 'Prêt à écouter l’expert' }}
                           </div>
                         }
                       </div>
@@ -1895,6 +1895,7 @@ interface ProposalFact {
                 </div>
               }
               @if (!isDemoMode()) {
+              @if (showAdvancedSetup()) {
               <div class="space-y-2 text-xs">
                 <div class="rounded bg-black/20 border border-white/10 p-3">
                   <span class="block text-[9px] uppercase tracking-wider text-gray-500">Contexte</span>
@@ -1913,6 +1914,7 @@ interface ProposalFact {
                   <span class="text-gray-200">{{ sessionStartStateLabel(s) }} · {{ planReviewLabel(s) }}</span>
                 </div>
               </div>
+              }
               <div>
                 <button
                   type="button"
