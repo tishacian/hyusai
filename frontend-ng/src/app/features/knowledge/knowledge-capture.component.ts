@@ -654,49 +654,6 @@ interface ProposalFact {
                     </button>
                   }
                 </div>
-                @if (isPlannedCaptureMode()) {
-                  <div class="mt-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
-                    <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <p class="block text-[10px] uppercase tracking-wider text-gray-500">Plan de départ</p>
-                        <p class="mt-1 text-xs text-gray-500">
-                          Choisissez comment alimenter le plan. Il restera modifiable avant la capture.
-                        </p>
-                      </div>
-                      @if (selectedPlanMode === 'provided_plan') {
-                        <span class="text-[10px] uppercase tracking-wider text-brand-200">Import à l’étape suivante</span>
-                      }
-                    </div>
-                    <div class="mt-3 grid gap-2 md:grid-cols-3">
-                      @for (seed of visiblePlanSeedModes(); track seed.id) {
-                        <button
-                          type="button"
-                          [disabled]="seed.disabled"
-                          [class]="selectedPlanMode === seed.id
-                            ? 'text-left rounded border border-brand-300 bg-brand-500/10 p-3 ring-1 ring-brand-300/35'
-                            : seed.disabled
-                              ? 'text-left rounded border border-white/10 bg-white/[0.02] p-3 opacity-60 cursor-not-allowed'
-                              : 'text-left rounded border border-white/10 bg-black/20 p-3 hover:bg-white/[0.05]'"
-                          (click)="selectPlanMode(seed.id)"
-                        >
-                          <span class="flex items-start gap-2.5">
-                            <span
-                              [class]="selectedPlanMode === seed.id
-                                ? 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-brand-300 text-brand-200'
-                                : 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-white/10 text-gray-500'"
-                            >
-                              <app-icon [name]="seed.icon" [size]="14" />
-                            </span>
-                            <span class="min-w-0">
-                              <span class="block text-xs font-semibold text-white">{{ seed.label }}</span>
-                              <span class="mt-1 block text-[11px] leading-relaxed text-gray-500">{{ seed.description }}</span>
-                            </span>
-                          </span>
-                        </button>
-                      }
-                    </div>
-                  </div>
-                }
               </div>
             </div>
 
@@ -1793,6 +1750,20 @@ interface ProposalFact {
                         <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" aria-label="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_down')">
                           <app-icon name="arrow-down" [size]="15" />
                         </button>
+                        <label
+                          class="inline-flex h-9 cursor-pointer items-center gap-2 rounded bg-white/5 px-3 text-xs font-semibold text-gray-300 ring-1 ring-white/10 hover:bg-white/10 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
+                          title="Importer un fichier de plan"
+                        >
+                          <app-icon [name]="extractingPlanSource() ? 'loader-2' : 'upload'" [size]="14" [class]="extractingPlanSource() ? 'animate-spin' : ''" />
+                          Importer
+                          <input
+                            type="file"
+                            class="hidden"
+                            accept=".txt,.text,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.rtf,.html,.htm,.xml,.log,.pdf,.docx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            [disabled]="extractingPlanSource()"
+                            (change)="onPlanOutlineImportFile($event, s)"
+                          />
+                        </label>
                       </div>
                     }
                   </div>
@@ -2290,6 +2261,20 @@ interface ProposalFact {
                       <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" aria-label="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_down')">
                         <app-icon name="arrow-down" [size]="15" />
                       </button>
+                      <label
+                        class="inline-flex h-9 cursor-pointer items-center gap-2 rounded bg-white/5 px-3 text-xs font-semibold text-gray-300 ring-1 ring-white/10 hover:bg-white/10 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
+                        title="Importer un fichier de plan"
+                      >
+                        <app-icon [name]="extractingPlanSource() ? 'loader-2' : 'upload'" [size]="14" [class]="extractingPlanSource() ? 'animate-spin' : ''" />
+                        Importer
+                        <input
+                          type="file"
+                          class="hidden"
+                          accept=".txt,.text,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.rtf,.html,.htm,.xml,.log,.pdf,.docx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                          [disabled]="extractingPlanSource()"
+                          (change)="onPlanOutlineImportFile($event, s)"
+                        />
+                      </label>
                     </div>
                   }
                 </div>
@@ -2829,7 +2814,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       {
         id: 'plan_build',
         label: 'Avec plan',
-        description: 'Préparer, importer ou générer un plan avant l’échange.',
+        description: 'Préparer un plan éditable avant l’échange.',
         icon: 'layout-grid',
         recommended: false,
       },
@@ -2841,42 +2826,6 @@ export class KnowledgeCaptureComponent implements OnInit {
         recommended: false,
       },
     ];
-    return modes;
-  });
-  readonly visiblePlanSeedModes = computed(() => {
-    const modes: Array<{
-      id: CapturePlanMode;
-      label: string;
-      description: string;
-      icon: string;
-      recommended: boolean;
-      disabled?: boolean;
-    }> = [
-      {
-        id: 'plan_build',
-        label: 'Créer un plan simple',
-        description: 'Partir d’une trame courte, éditable avant l’échange.',
-        icon: 'list-plus',
-        recommended: false,
-      },
-      {
-        id: 'provided_plan',
-        label: 'Importer ou coller',
-        description: 'Préremplir le plan depuis un fichier, un texte ou un transcript.',
-        icon: 'file-text',
-        recommended: false,
-      },
-    ];
-    if (this.isDemoMode()) return modes;
-    modes.push(
-      {
-        id: 'ai_plan',
-        label: 'Générer depuis le contexte',
-        description: 'Préparer un plan depuis le titre et le contexte disponible.',
-        icon: 'zap',
-        recommended: false,
-      },
-    );
     return modes;
   });
   readonly visibleSurfaceNav = computed(() => {
@@ -3264,7 +3213,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   selectPlanMode(mode: string): void {
-    const entry = [...this.visiblePlanModes(), ...this.visiblePlanSeedModes()].find((row) => row.id === mode);
+    const entry = this.visiblePlanModes().find((row) => row.id === mode);
     if (!entry || entry.disabled) return;
     if (mode === 'ai_plan' || mode === 'provided_plan' || mode === 'free_conversation' || mode === 'plan_build') {
       this.selectedPlanMode = mode;
@@ -5579,6 +5528,24 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.extractProvidedPlanFile(file);
   }
 
+  onPlanOutlineImportFile(event: Event, session: CaptureSession): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file || !this.canEditPlan(session)) return;
+    input.value = '';
+    this.extractingPlanSource.set(true);
+    this.api
+      .extractCapturePlanSource(file)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          this.applyImportedPlanOutline(session, String(payload.text || ''), file.name);
+          this.extractingPlanSource.set(false);
+        },
+        error: () => this.readPlanOutlineImportFileLocally(file, session),
+      });
+  }
+
   private extractProvidedPlanFile(file: File): void {
     this.providedPlanFileName = file.name;
     this.providedPlanSourceKind = 'uploaded_file';
@@ -5606,6 +5573,39 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.setVoiceNotice("Impossible d'extraire le texte du fichier sélectionné.", 'error');
     };
     reader.readAsText(file);
+  }
+
+  private readPlanOutlineImportFileLocally(file: File, session: CaptureSession): void {
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.applyImportedPlanOutline(session, String(reader.result || ''), file.name);
+      this.extractingPlanSource.set(false);
+    };
+    reader.onerror = () => {
+      this.extractingPlanSource.set(false);
+      this.planNotice.set({ tone: 'error', text: "Impossible d'importer ce fichier de plan." });
+    };
+    reader.readAsText(file);
+  }
+
+  private applyImportedPlanOutline(session: CaptureSession, rawText: string, filename: string): void {
+    const text = rawText.slice(0, 20000).replace(/\r\n?/g, '\n');
+    const lines = this.renumberPlanOutlineLines(text.split('\n'));
+    const outline = lines.join('\n').trim();
+    if (!outline) {
+      this.planNotice.set({ tone: 'error', text: 'Le fichier importé ne contient pas de plan exploitable.' });
+      return;
+    }
+    this.updatePlanOutlineText(session, outline);
+    this.planNotice.set({
+      tone: 'info',
+      text: `Plan importé depuis ${filename}. Vous pouvez le modifier avant de lancer la capture.`,
+    });
+    requestAnimationFrame(() => {
+      const textarea = this.planBuildOutlineEditor?.nativeElement || this.planOutlineEditor?.nativeElement;
+      textarea?.focus();
+      textarea?.setSelectionRange(outline.length, outline.length);
+    });
   }
 
   async dictatePrepSubject(): Promise<void> {
