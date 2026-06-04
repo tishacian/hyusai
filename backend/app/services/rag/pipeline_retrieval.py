@@ -1481,6 +1481,17 @@ def _normalize_mode(mode: Optional[str]) -> str:
     return (mode or "auto").strip().lower()
 
 
+def _search_params_for_profile(retrieval_profile: str | None) -> dict[str, Any] | None:
+    profile = str(retrieval_profile or "").strip().lower()
+    if not profile:
+        return None
+    params: dict[str, Any] = {"retrieval_profile": profile}
+    if profile in {"oracle_fast", "chat", "deep_async"}:
+        params["group_by"] = "document_id"
+        params["group_size"] = 2 if profile == "deep_async" else 1
+    return params
+
+
 async def retrieve_for_mode(
     doc_svc: Optional["DocumentService"],
     query: str,
@@ -1527,7 +1538,7 @@ async def retrieve_for_mode(
             use_hybrid=use_hybrid,
             allow_legacy_hybrid=allow_legacy_hybrid,
             deadline_seconds=deadline_seconds,
-            search_params={"retrieval_profile": retrieval_profile} if retrieval_profile else None,
+            search_params=_search_params_for_profile(retrieval_profile),
         )
     if hah_chah_enabled and m in ("chah", "c-hah", "c_hah", "hahcomposite", "hah_composite"):
         return await retrieve_chah_like(
@@ -1542,7 +1553,7 @@ async def retrieve_for_mode(
             deadline_seconds=deadline_seconds,
             max_variants=max_variants,
             max_candidates=max_candidates,
-            search_params={"retrieval_profile": retrieval_profile} if retrieval_profile else None,
+            search_params=_search_params_for_profile(retrieval_profile),
         )
 
     deadline_at = _deadline_at(deadline_seconds)
@@ -1571,7 +1582,7 @@ async def retrieve_for_mode(
         use_hybrid=use_hybrid,
         allow_legacy_hybrid=allow_legacy_hybrid,
         deadline_seconds=_remaining_deadline(deadline_at, deadline_seconds),
-        search_params={"retrieval_profile": retrieval_profile} if retrieval_profile else None,
+        search_params=_search_params_for_profile(retrieval_profile),
     )
     results = rerank_results_with_policy(results, query, retrieval_policy)
     results = _prioritise_exact_project_reference_matches(results, query)

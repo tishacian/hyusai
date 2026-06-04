@@ -100,3 +100,46 @@ def score_retrieval_cases(
         "dense_only_rate": dense_only / total,
         "hybrid_ok_rate": hybrid_ok / total,
     }
+
+
+def embedding_candidate_eval_report(
+    *,
+    candidate: EmbeddingEvalCandidate,
+    baseline_cases: Iterable[RetrievalEvalCase],
+    candidate_cases: Iterable[RetrievalEvalCase],
+    ks: tuple[int, ...] = (1, 3, 5, 10),
+) -> dict[str, Any]:
+    """Compare a candidate embedding collection without touching global settings."""
+    baseline_scores = score_retrieval_cases(baseline_cases, ks=ks)
+    candidate_scores = score_retrieval_cases(candidate_cases, ks=ks)
+    recall_delta = {
+        str(k): candidate_scores["recall_at_k"].get(str(k), 0.0)
+        - baseline_scores["recall_at_k"].get(str(k), 0.0)
+        for k in ks
+    }
+    scalar_deltas = {
+        key: candidate_scores.get(key, 0.0) - baseline_scores.get(key, 0.0)
+        for key in ("validated_provenance_rate", "dense_only_rate", "hybrid_ok_rate")
+    }
+    isolated = bool(
+        candidate.collection_suffix
+        and candidate.collection_suffix.startswith("__eval_")
+        and not candidate.mutates_global_settings
+    )
+    return {
+        "candidate": {
+            "name": candidate.name,
+            "embedding_provider": candidate.embedding_provider,
+            "embedding_model": candidate.embedding_model,
+            "collection_suffix": candidate.collection_suffix,
+            "mutates_global_settings": candidate.mutates_global_settings,
+        },
+        "isolated_candidate": isolated,
+        "global_settings_mutation_allowed": False,
+        "baseline": baseline_scores,
+        "candidate_scores": candidate_scores,
+        "delta": {
+            "recall_at_k": recall_delta,
+            **scalar_deltas,
+        },
+    }

@@ -268,6 +268,123 @@ async def test_search_hybrid_uses_qdrant_prefetch_fusion(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_search_can_group_results_by_document_id():
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.query_points_groups.return_value = SimpleNamespace(
+        groups=[
+            SimpleNamespace(
+                id="doc-a",
+                hits=[
+                    SimpleNamespace(
+                        id="a1",
+                        score=0.91,
+                        payload={"chunk_id": "chunk-a1", "content": "doc A first", "document_id": "doc-a"},
+                    ),
+                    SimpleNamespace(
+                        id="a2",
+                        score=0.88,
+                        payload={"chunk_id": "chunk-a2", "content": "doc A second", "document_id": "doc-a"},
+                    ),
+                ],
+            ),
+            SimpleNamespace(
+                id="doc-b",
+                hits=[
+                    SimpleNamespace(
+                        id="b1",
+                        score=0.83,
+                        payload={"chunk_id": "chunk-b1", "content": "doc B first", "document_id": "doc-b"},
+                    )
+                ],
+            ),
+        ]
+    )
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    out = await db.search(
+        np.array([1.0, 0.0], dtype=np.float32),
+        top_k=3,
+        search_params={"retrieval_profile": "chat", "group_by": "document_id", "group_size": 2},
+    )
+
+    assert [row["id"] for row in out] == ["chunk-a1", "chunk-b1", "chunk-a2"]
+    assert out[0]["metadata"]["qdrant_group_by"] == "document_id"
+    call_kw = client.query_points_groups.call_args.kwargs
+    assert call_kw["group_by"] == "document_id"
+    assert call_kw["group_size"] == 2
+    client.query_points.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_search_hybrid_can_group_server_fusion_results(monkeypatch):
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.query_points_groups.return_value = SimpleNamespace(
+        groups=[
+            SimpleNamespace(
+                id="doc-a",
+                hits=[
+                    SimpleNamespace(
+                        id="a1",
+                        score=0.74,
+                        payload={"chunk_id": "chunk-a1", "content": "Pump KD724 A", "document_id": "doc-a"},
+                    )
+                ],
+            )
+        ]
+    )
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    out = await db.search_hybrid(
+        np.array([1.0, 0.0], dtype=np.float32),
+        "KD724 pump",
+        top_k=4,
+        search_params={"retrieval_profile": "oracle_fast", "group_by": "document_id", "group_size": 1},
+    )
+
+    assert out is not None
+    assert out[0]["metadata"]["sparse_backend"] == "qdrant_sparse"
+    assert out[0]["metadata"]["qdrant_group_by"] == "document_id"
+    call_kw = client.query_points_groups.call_args.kwargs
+    assert len(call_kw["prefetch"]) == 2
+    assert call_kw["group_by"] == "document_id"
+    assert call_kw["group_size"] == 1
+
+
+@pytest.mark.asyncio
+async def test_search_hybrid_falls_back_to_ungrouped_query_when_grouping_fails(monkeypatch):
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    client.query_points_groups.side_effect = RuntimeError("group payload index unavailable")
+    client.query_points.return_value = SimpleNamespace(
+        points=[
+            SimpleNamespace(
+                id="a1",
+                score=0.74,
+                payload={"chunk_id": "chunk-a1", "content": "Pump KD724 A", "document_id": "doc-a"},
+            )
+        ]
+    )
+    db = QdrantVectorDB(collection_name="col", client=client)
+
+    out = await db.search_hybrid(
+        np.array([1.0, 0.0], dtype=np.float32),
+        "KD724 pump",
+        top_k=4,
+        search_params={"retrieval_profile": "oracle_fast", "group_by": "document_id", "group_size": 1},
+    )
+
+    assert out is not None
+    assert out[0]["metadata"]["sparse_backend"] == "qdrant_sparse"
+    assert "qdrant_group_by" not in out[0]["metadata"]
+    client.query_points_groups.assert_called_once()
+    client.query_points.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_search_applies_profile_search_params(monkeypatch):
     monkeypatch.setattr(settings, "rag_qdrant_chat_hnsw_ef", 77)
     client = MagicMock()

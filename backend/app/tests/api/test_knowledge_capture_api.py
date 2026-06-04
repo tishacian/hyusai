@@ -111,6 +111,33 @@ def test_free_conversation_plan_via_api(db_session, monkeypatch):
     assert body["metrics"]["capture_domain"] == "technical"
 
 
+def test_plan_creation_keeps_warm_cache_failures_non_blocking(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-warm-fail", name="KC API Warm Fail", slug="kc-api-warm-fail")
+    user = User(id="user-kc-api-warm-fail", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    async def _fail_warm_cache(*args, **kwargs):  # noqa: ARG001
+        raise RuntimeError("qdrant temporarily unavailable")
+
+    monkeypatch.setattr(knowledge_capture, "warm_capture_context_cache", _fail_warm_cache)
+    client = _client(db_session, workspace, user, monkeypatch)
+
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Warm cache fallback",
+            "objective": "Capture expert decisions despite warmup failure.",
+            "duration_minutes": 20,
+            "plan_mode": "free_conversation",
+        },
+    )
+
+    assert created.status_code == 200
+    assert created.json()["id"]
+
+
 def test_provided_plan_via_api(db_session, monkeypatch):
     workspace = Workspace(id="ws-kc-api-provided", name="KC API Provided", slug="kc-api-provided")
     user = User(id="user-kc-api-provided", username="operator", email="operator@example.test")

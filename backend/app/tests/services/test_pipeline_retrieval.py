@@ -745,7 +745,11 @@ async def test_dense_guardrail_qdrant_sparse_uses_server_prefetch_fusion(monkeyp
     assert out.diagnostics["sparse_status"] == "ok"
     assert out.diagnostics["sparse_fusion"] == "server_rrf"
     assert out.metadatas[0]["sparse_fusion"] == "server_rrf"
-    assert doc.vector_db.calls[0][4] == {"retrieval_profile": "chat"}
+    assert doc.vector_db.calls[0][4] == {
+        "retrieval_profile": "chat",
+        "group_by": "document_id",
+        "group_size": 1,
+    }
     doc.search.assert_not_awaited()
     assert sparse.calls == 0
 

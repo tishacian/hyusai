@@ -17,6 +17,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.logging import get_logger
 from app.core.iam.dependencies import current_membership, enforce_permission
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, normalize_role_template
 from app.services.iam.manifest import REVIEW_ROLES
@@ -69,6 +70,7 @@ from app.services.knowledge_capture import (
 from app.services.voice_runtime import list_voice_runtime_providers
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 CAPTURE_CAPABILITY = "expert_knowledge_capture"
 _PLAN_SOURCE_MAX_BYTES = 8 * 1024 * 1024
@@ -247,6 +249,27 @@ def _http_error_from_value_error(exc: ValueError) -> HTTPException:
     message = str(exc)
     status_code = 404 if "not found" in message.lower() else 400
     return HTTPException(status_code=status_code, detail=message)
+
+
+async def _run_warm_capture_context_cache(
+    session_factory,
+    *,
+    workspace_id: str,
+    workspace_slug: Optional[str],
+    session_id: str,
+) -> None:
+    db = session_factory()
+    try:
+        await warm_capture_context_cache(
+            db,
+            workspace_id=workspace_id,
+            workspace_slug=workspace_slug,
+            session_id=session_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - warmup must never block capture.
+        logger.warning("Knowledge Capture retrieval warm cache failed", error=str(exc), session_id=session_id)
+    finally:
+        db.close()
 
 
 class CapturePlanRequest(BaseModel):
@@ -615,12 +638,19 @@ async def start_capture_session(
         )
         prior_qbank_status = (existing.plan or {}).get("question_bank_status") or "idle"
         session = start_session(db, workspace_id=workspace.id, session_id=session_id)
+        from app.db.base import SessionLocal
+
+        background_tasks.add_task(
+            _run_warm_capture_context_cache,
+            SessionLocal,
+            workspace_id=workspace.id,
+            workspace_slug=workspace.slug,
+            session_id=session_id,
+        )
         if (
             prior_qbank_status == "idle"
             and (session.plan or {}).get("question_bank_status") == "generating"
         ):
-            from app.db.base import SessionLocal
-
             background_tasks.add_task(
                 _run_question_bank_generation,
                 SessionLocal,

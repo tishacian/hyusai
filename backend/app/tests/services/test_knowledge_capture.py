@@ -1206,6 +1206,9 @@ def test_oracle_detects_rpm_contradiction_and_hint():
     assert oracle["topic_proposals"][0]["title"] == "Réglages ligne"
     assert oracle["topic_proposals"][0]["kb_refs"]
     assert oracle["dialogue_probe"]
+    assert oracle["oracle_exact_matches"]
+    assert oracle["contradiction_candidates"][0]["exact_match_backend"] == "sparse_exact"
+    assert oracle["contradiction_candidates"][0]["oracle_exact_matches"][0]["backend"] == "sparse_exact"
 
     live = evaluate_capture_partial(
         context,
@@ -2106,6 +2109,7 @@ def test_plan_build_oracle_dialogue_and_topic_validation(db_session, monkeypatch
         return Result()
 
     monkeypatch.setattr("app.services.rag.pipeline_retrieval.retrieve_for_mode", fake_retrieve_for_mode)
+    monkeypatch.setattr("app.services.rag.context.retrieve_for_mode", fake_retrieve_for_mode)
     monkeypatch.setattr("app.services.rag.document_service.DocumentService", lambda **kwargs: object())
 
     session = create_capture_plan(
@@ -2135,6 +2139,8 @@ def test_plan_build_oracle_dialogue_and_topic_validation(db_session, monkeypatch
     assert turn["ready_to_finalize"]
     assert turn["session"]["plan"]["topics"]
     assert turn["session"]["plan"].get("oracle", {}).get("coverage_gaps") is not None
+    assert turn["session"]["plan"]["oracle"]["oracle_exact_matches"]
+    assert turn["session"]["plan"]["oracle"]["contradiction_candidates"][0]["exact_match_backend"] == "sparse_exact"
     assert not serialize_session(session, surface="plan_build")["plan"].get("questions")
 
     for idx in range(2):

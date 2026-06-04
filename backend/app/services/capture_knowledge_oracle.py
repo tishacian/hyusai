@@ -405,6 +405,21 @@ def detect_rpm_contradiction(
     }
 
 
+def _contradictions_with_exact_match_evidence(
+    expert_text: str,
+    rag_chunks: List[str],
+    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    exact_matches = sparse_exact_match_evidence(expert_text, rag_chunks, rag_metadatas)
+    exact_chunks = [str(item.get("text") or "") for item in exact_matches if item.get("text")]
+    contradictions = detect_claim_contradictions(expert_text, exact_chunks or rag_chunks)
+    if exact_matches:
+        for candidate in contradictions:
+            candidate["oracle_exact_matches"] = exact_matches[:2]
+            candidate["exact_match_backend"] = "sparse_exact"
+    return contradictions, exact_matches
+
+
 def _dialogue_corpus(context: CaptureSessionContext) -> str:
     parts = [context.objective, context.title]
     for turn in context.dialogue_turns:
@@ -604,16 +619,18 @@ def analyze_plan_oracle(
 ) -> Dict[str, Any]:
     """Structured oracle output for plan_build (deterministic fallback, optional LLM)."""
     rag_chunks = list(rag_chunks or [])
+    rag_metadatas = list(rag_metadatas or [])
     base_gaps = list(base_gaps or [])
     coverage_gaps = score_gaps_with_rag(base_gaps, rag_chunks, rag_metadatas=rag_metadatas)
     corpus = _dialogue_corpus(context)
-    contradictions = detect_claim_contradictions(corpus, rag_chunks)
+    contradictions, exact_matches = _contradictions_with_exact_match_evidence(corpus, rag_chunks, rag_metadatas)
     topic_proposals = _fallback_topic_proposals(context, coverage_gaps, rag_chunks, rag_metadatas)
     dialogue_probe = _fallback_dialogue_probe(context, topic_proposals)
     return {
         "topic_proposals": topic_proposals,
         "coverage_gaps": coverage_gaps[:6],
         "contradiction_candidates": contradictions,
+        "oracle_exact_matches": exact_matches,
         "dialogue_probe": dialogue_probe,
     }
 
@@ -863,12 +880,11 @@ def evaluate_capture_partial(
             "retrieval": retrieval,
             "oracle_exact_matches": exact_matches,
         }
-    exact_chunks = [str(item.get("text") or "") for item in exact_matches if item.get("text")]
-    contradictions = detect_claim_contradictions(text, exact_chunks or retrieval_chunks)
-    if exact_matches:
-        for candidate in contradictions:
-            candidate["oracle_exact_matches"] = exact_matches[:2]
-            candidate["exact_match_backend"] = "sparse_exact"
+    contradictions, exact_matches = _contradictions_with_exact_match_evidence(
+        text,
+        retrieval_chunks,
+        retrieval_metadatas,
+    )
     hints: List[Dict[str, Any]] = []
     for candidate in contradictions:
         hint_text = str(candidate.get("suggested_hint") or "").strip()

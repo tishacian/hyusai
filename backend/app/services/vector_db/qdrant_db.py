@@ -130,6 +130,20 @@ def _qdrant_fusion(search_params: Optional[Dict[str, Any]]) -> Any:
     return Fusion.RRF
 
 
+def _qdrant_grouping(search_params: Optional[Dict[str, Any]]) -> Optional[tuple[str, int]]:
+    if not search_params:
+        return None
+    raw_group_by = search_params.get("group_by") or search_params.get("qdrant_group_by")
+    group_by = str(raw_group_by or "").strip()
+    if not group_by or group_by.lower() in {"0", "false", "none", "off", "disabled"}:
+        return None
+    try:
+        group_size = int(search_params.get("group_size") or search_params.get("qdrant_group_size") or 1)
+    except (TypeError, ValueError):
+        group_size = 1
+    return group_by, max(1, min(group_size, 4))
+
+
 def _dense_vector_from_raw(raw: Any) -> Optional[List[float]]:
     if raw is None:
         return None
@@ -515,6 +529,37 @@ class QdrantVectorDB(VectorDBBase):
             )
         return out
 
+    @staticmethod
+    def _groups_to_points(groups_result: Any, *, limit: int) -> List[Any]:
+        groups = list(getattr(groups_result, "groups", None) or [])
+        if not groups:
+            return []
+        max_group_size = max((len(getattr(group, "hits", None) or []) for group in groups), default=0)
+        points: List[Any] = []
+        for hit_index in range(max_group_size):
+            for group in groups:
+                hits = list(getattr(group, "hits", None) or [])
+                if hit_index >= len(hits):
+                    continue
+                points.append(hits[hit_index])
+                if len(points) >= limit:
+                    return points
+        return points
+
+    @staticmethod
+    def _annotate_grouping(rows: List[dict], grouping: Optional[tuple[str, int]]) -> List[dict]:
+        if not grouping:
+            return rows
+        group_by, group_size = grouping
+        for row in rows:
+            row["qdrant_group_by"] = group_by
+            row["qdrant_group_size"] = group_size
+            metadata = dict(row.get("metadata") or {})
+            metadata["qdrant_group_by"] = group_by
+            metadata["qdrant_group_size"] = group_size
+            row["metadata"] = metadata
+        return rows
+
     async def search(
         self,
         query_vector: np.ndarray,
@@ -548,6 +593,28 @@ class QdrantVectorDB(VectorDBBase):
                 kwargs["search_params"] = qdrant_params
             if _qdrant_sparse_enabled():
                 kwargs["using"] = _DENSE_VECTOR_NAME
+            grouping = _qdrant_grouping(search_params)
+            if grouping and hasattr(self.client, "query_points_groups"):
+                group_by, group_size = grouping
+                try:
+                    grouped_response = self.client.query_points_groups(
+                        **kwargs,
+                        group_by=group_by,
+                        group_size=group_size,
+                        with_payload=True,
+                        with_vectors=False,
+                    )
+                    return self._annotate_grouping(
+                        self._hits_to_results(self._groups_to_points(grouped_response, limit=top_k)),
+                        grouping,
+                    )
+                except Exception as exc:  # noqa: BLE001 - grouping is an optimization.
+                    logger.warning(
+                        "Qdrant grouped dense search unavailable; falling back",
+                        collection=self.collection_name,
+                        group_by=group_by,
+                        error=str(exc),
+                    )
             try:
                 res = self.client.query_points(**kwargs)
             except Exception:
@@ -640,10 +707,11 @@ class QdrantVectorDB(VectorDBBase):
                 return None
             qdrant_params = _qdrant_search_params(search_params)
             fusion = _qdrant_fusion(search_params)
+            grouping = _qdrant_grouping(search_params)
             try:
-                response = self.client.query_points(
-                    collection_name=self.collection_name,
-                    prefetch=[
+                query_kwargs = {
+                    "collection_name": self.collection_name,
+                    "prefetch": [
                         Prefetch(
                             query=dense_query,
                             using=_DENSE_VECTOR_NAME,
@@ -658,10 +726,36 @@ class QdrantVectorDB(VectorDBBase):
                             limit=top_k,
                         ),
                     ],
-                    query=FusionQuery(fusion=fusion),
-                    query_filter=qf,
-                    limit=top_k,
-                )
+                    "query": FusionQuery(fusion=fusion),
+                    "query_filter": qf,
+                    "limit": top_k,
+                }
+                applied_grouping = None
+                points = None
+                if grouping and hasattr(self.client, "query_points_groups"):
+                    group_by, group_size = grouping
+                    try:
+                        response = self.client.query_points_groups(
+                            **query_kwargs,
+                            group_by=group_by,
+                            group_size=group_size,
+                            with_payload=True,
+                            with_vectors=False,
+                        )
+                        points = self._groups_to_points(response, limit=top_k)
+                        applied_grouping = grouping
+                    except Exception as exc:  # noqa: BLE001 - grouping is an optimization.
+                        logger.warning(
+                            "Qdrant grouped hybrid search unavailable; falling back",
+                            collection=self.collection_name,
+                            group_by=group_by,
+                            error=str(exc),
+                        )
+                        response = self.client.query_points(**query_kwargs)
+                        points = response.points
+                if points is None:
+                    response = self.client.query_points(**query_kwargs)
+                    points = response.points
             except Exception as exc:  # noqa: BLE001 - old server / pre-migration fallback.
                 logger.warning(
                     "Qdrant server-side hybrid search unavailable",
@@ -669,7 +763,7 @@ class QdrantVectorDB(VectorDBBase):
                     error=str(exc),
                 )
                 return None
-            rows = self._hits_to_results(response.points)
+            rows = self._annotate_grouping(self._hits_to_results(points), applied_grouping)
             for row in rows:
                 row["sparse_backend"] = "qdrant_sparse"
                 row["sparse_fusion"] = f"server_{str(fusion.value)}"

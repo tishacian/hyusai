@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from app.services.rag.offline_eval import RetrievalEvalCase, bge_m3_candidate, score_retrieval_cases
+from app.services.rag.offline_eval import (
+    RetrievalEvalCase,
+    bge_m3_candidate,
+    embedding_candidate_eval_report,
+    score_retrieval_cases,
+)
 
 
 def test_bge_m3_candidate_is_isolated_from_global_embedding_settings():
@@ -38,3 +43,36 @@ def test_score_retrieval_cases_reports_recall_provenance_and_sparse_rates():
     assert scores["validated_provenance_rate"] == 0.5
     assert scores["dense_only_rate"] == 0.5
     assert scores["hybrid_ok_rate"] == 0.5
+
+
+def test_embedding_candidate_eval_report_compares_isolated_bge_m3_collection():
+    baseline = [
+        RetrievalEvalCase(
+            query="SPL AKK200",
+            expected_document_ids=("doc-a",),
+            results=({"metadata": {"document_id": "doc-x", "status": "draft"}},),
+            metrics={"dense_only": True, "sparse_status": "empty"},
+        )
+    ]
+    candidate = [
+        RetrievalEvalCase(
+            query="SPL AKK200",
+            expected_document_ids=("doc-a",),
+            results=({"metadata": {"document_id": "doc-a", "status": "reviewed"}},),
+            metrics={"dense_only": False, "sparse_status": "ok"},
+        )
+    ]
+
+    report = embedding_candidate_eval_report(
+        candidate=bge_m3_candidate(),
+        baseline_cases=baseline,
+        candidate_cases=candidate,
+        ks=(1,),
+    )
+
+    assert report["isolated_candidate"] is True
+    assert report["global_settings_mutation_allowed"] is False
+    assert report["candidate"]["collection_suffix"] == "__eval_bge_m3"
+    assert report["delta"]["recall_at_k"] == {"1": 1.0}
+    assert report["delta"]["dense_only_rate"] == -1.0
+    assert report["delta"]["hybrid_ok_rate"] == 1.0

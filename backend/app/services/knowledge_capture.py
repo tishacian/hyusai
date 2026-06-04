@@ -1476,6 +1476,7 @@ def process_plan_dialogue_turn(
     plan["oracle"] = {
         "coverage_gaps": oracle.get("coverage_gaps") or [],
         "contradiction_candidates": oracle.get("contradiction_candidates") or [],
+        "oracle_exact_matches": oracle.get("oracle_exact_matches") or [],
         "last_refreshed_at": datetime.utcnow().isoformat(),
     }
     dialogue["ready_to_finalize"] = _plan_dialogue_ready(plan) or confirm_finalize
@@ -1506,6 +1507,7 @@ def process_plan_dialogue_turn(
             "topic_count": len(plan.get("topics") or []),
             "kb_chunk_count": len(rag_chunks),
             "contradiction_count": len(oracle.get("contradiction_candidates") or []),
+            "oracle_exact_match_count": len(oracle.get("oracle_exact_matches") or []),
         },
     )
     db.commit()
@@ -1572,6 +1574,7 @@ def finalize_plan_from_dialogue(
         plan["oracle"] = {
             "coverage_gaps": oracle.get("coverage_gaps") or [],
             "contradiction_candidates": oracle.get("contradiction_candidates") or [],
+            "oracle_exact_matches": oracle.get("oracle_exact_matches") or [],
             "last_refreshed_at": datetime.utcnow().isoformat(),
         }
     plan["schema_version"] = PLAN_BUILD_V2_SCHEMA_VERSION
