@@ -3016,7 +3016,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         next: (session) => {
           const typed = session as CaptureSession;
           this.session.set(typed);
-          this.zoom.setCurrentCapability(typed.capability_id || null, 'Expert Knowledge Capture');
+          this.zoom.setCurrentCapability(typed.capability_id || null, 'Capture de connaissances');
           this.zoom.setCurrentSystem(typed.system_id || null, this.systemLabel(typed.system_id));
           this.zoom.setCurrentContext(typed.context_id || null, this.contextLabel(typed.context_id));
           this.selectedQuestionId.set(this.planQuestions(typed)[0]?.id || null);
@@ -3752,7 +3752,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.knowledgeCollections.set([]);
           this.contextCreationNotice.set({
             tone: 'error',
-            text: 'Knowledge collections could not be loaded.',
+            text: 'Les collections documentaires n’ont pas pu être chargées.',
           });
           this.loadingKnowledgeCollections.set(false);
         },
@@ -5249,7 +5249,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => this.setVoiceNotice('Publication dans Knowledge lancée.', 'info'),
+          next: () => this.setVoiceNotice('Publication lancée.', 'info'),
           error: () => this.setVoiceNotice('Publication impossible pour le moment.', 'error'),
         });
     });
@@ -5576,7 +5576,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (speaker === 'system') return `IA · ${this.transcriptEventShortLabel(event)}`;
     if (event.event_type === 'proposal_generated') return 'Rapport · généré';
     if (event.event_type === 'proposal_reviewed') return 'Revue · terminée';
-    return `Trace · ${this.transcriptEventShortLabel(event)}`;
+    return `Note · ${this.transcriptEventShortLabel(event)}`;
   }
 
   conversationStateHeadline(session: CaptureSession): string {
@@ -5996,7 +5996,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         .reviewCaptureProposal(proposalId, {
           status: 'accepted',
           reviewer: 'demo-operator',
-          review_notes: 'Validé depuis la démo Knowledge Capture.',
+          review_notes: 'Validé depuis la démo Capture de connaissances.',
         })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe((proposal) => {
