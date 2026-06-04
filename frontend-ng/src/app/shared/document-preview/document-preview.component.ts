@@ -35,6 +35,9 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
             <div class="min-w-0">
               <p class="text-[10px] uppercase tracking-[0.18em] text-cyan-300">{{ subtitle() || 'Document' }}</p>
               <h2 class="mt-0.5 truncate text-sm font-semibold">{{ title() || 'Preview' }}</h2>
+              @if (normalizedPage(); as pageNo) {
+                <p class="mt-0.5 text-[10px] font-mono text-gray-400">Page {{ pageNo }}</p>
+              }
             </div>
             <div class="flex items-center gap-2">
               @if (previewUrl()) {
@@ -171,6 +174,7 @@ export class DocumentPreviewComponent {
   readonly previewUrl = input<string | null>(null);
   readonly title = input('');
   readonly subtitle = input('');
+  readonly page = input<number | null>(null);
   readonly closed = output<void>();
 
   readonly loading = signal(false);
@@ -186,6 +190,12 @@ export class DocumentPreviewComponent {
     if (!doc || !this.isHtmlPreview(doc)) return null;
     return this.buildHtmlSrcdoc(doc);
   });
+  readonly normalizedPage = computed(() => {
+    const raw = this.page();
+    if (raw === null || raw === undefined) return null;
+    const value = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  });
 
   readonly displayName = computed(() => this.preview()?.filename || this.title() || 'document');
 
@@ -193,11 +203,13 @@ export class DocumentPreviewComponent {
     this.destroyRef.onDestroy(() => this.clearPreview());
     effect(() => {
       const url = this.previewUrl();
+      this.normalizedPage();
       if (!this.open() || !url) {
         this.clearPreview();
         return;
       }
       this.loadPreview(url);
+      this.applyPdfPageAnchor();
     });
   }
 
@@ -211,7 +223,8 @@ export class DocumentPreviewComponent {
       .subscribe({
         next: (blob) => {
           const objectUrl = URL.createObjectURL(blob);
-          window.open(objectUrl, '_blank', 'noopener,noreferrer');
+          const targetUrl = doc.kind === 'pdf' ? this.pdfObjectUrl(objectUrl) : objectUrl;
+          window.open(targetUrl, '_blank', 'noopener,noreferrer');
           window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
           this.openingExternal.set(false);
         },
@@ -263,6 +276,13 @@ export class DocumentPreviewComponent {
       });
   }
 
+  private applyPdfPageAnchor(): void {
+    const preview = this.preview();
+    const objectUrl = this.objectUrl();
+    if (!preview || preview.kind !== 'pdf' || !objectUrl) return;
+    this.safeObjectUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(this.pdfObjectUrl(objectUrl)));
+  }
+
   private loadPreviewBlob(preview: RichDocumentPreview, seq: number): void {
     this.mediaRequestSub?.unsubscribe();
     this.mediaLoading.set(true);
@@ -275,7 +295,7 @@ export class DocumentPreviewComponent {
           if (seq !== this.loadSeq) return;
           const url = URL.createObjectURL(blob);
           this.objectUrl.set(url);
-          this.safeObjectUrl.set(preview.kind === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(url) : null);
+          this.safeObjectUrl.set(preview.kind === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(this.pdfObjectUrl(url)) : null);
           this.mediaLoading.set(false);
         },
         error: (err) => {
@@ -360,6 +380,11 @@ export class DocumentPreviewComponent {
   private withDisposition(url: string, disposition: 'inline' | 'attachment'): string {
     const separator = url.includes('?') ? '&' : '?';
     return url.includes('disposition=') ? url : `${url}${separator}disposition=${disposition}`;
+  }
+
+  private pdfObjectUrl(url: string): string {
+    const page = this.normalizedPage();
+    return page ? `${url}#page=${page}` : url;
   }
 
   private errorMessage(err: unknown): string {

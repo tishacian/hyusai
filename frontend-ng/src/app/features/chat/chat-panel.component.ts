@@ -780,6 +780,7 @@ const STEP_ICONS: Record<string, string> = {
 
       <!-- Messages -->
       <div
+        #messagesScroller
         class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5"
         [class.vigie-messages]="executiveMode()"
       >
@@ -1018,43 +1019,44 @@ const STEP_ICONS: Record<string, string> = {
                 </div>
               }
 
+              <ng-template #answerInline let-tokens="tokens">
+                @for (tok of tokens; track $index) {
+                  @if (tok.kind === 'text') {
+                    <span>{{ tok.value }}</span>
+                  } @else if (tok.kind === 'strong') {
+                    <strong class="font-semibold text-gray-950 dark:text-white">{{ tok.value }}</strong>
+                  } @else if (tok.kind === 'em') {
+                    <em class="italic">{{ tok.value }}</em>
+                  } @else if (tok.kind === 'code') {
+                    <code class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.5 font-mono text-[0.92em]">{{ tok.value }}</code>
+                  } @else if (tok.kind === 'link') {
+                    <a class="text-brand-500 dark:text-brand-300 underline underline-offset-2" [href]="safeMarkdownHref(tok.href)" target="_blank" rel="noreferrer">{{ tok.value }}</a>
+                  } @else if (isValidCitation(msg, tok.n)) {
+                    <button
+                      type="button"
+                      class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono font-semibold bg-brand-500/15 text-brand-500 dark:text-brand-300 hover:bg-brand-500/30 hover:text-brand-200 transition ring-1 ring-brand-500/30 cursor-pointer"
+                      [title]="citationTooltip(msg, tok.n)"
+                      (click)="gotoSource(msg, tok.n)"
+                    >
+                      {{ tok.n }}
+                    </button>
+                  } @else {
+                    <span
+                      class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono bg-gray-400/15 text-gray-500 ring-1 ring-gray-400/20"
+                      [title]="'Source [' + tok.n + '] referenced by the model but not available'"
+                    >
+                      {{ tok.n }}
+                    </span>
+                  }
+                }
+              </ng-template>
+
               <!-- Content -->
               <div class="flex justify-start">
                 <div
                   class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-black/5 dark:ring-white/5"
                   [class.vigie-assistant-bubble]="executiveMode()"
                 >
-                  <ng-template #answerInline let-tokens="tokens">
-                    @for (tok of tokens; track $index) {
-                      @if (tok.kind === 'text') {
-                        <span>{{ tok.value }}</span>
-                      } @else if (tok.kind === 'strong') {
-                        <strong class="font-semibold text-gray-950 dark:text-white">{{ tok.value }}</strong>
-                      } @else if (tok.kind === 'em') {
-                        <em class="italic">{{ tok.value }}</em>
-                      } @else if (tok.kind === 'code') {
-                        <code class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.5 font-mono text-[0.92em]">{{ tok.value }}</code>
-                      } @else if (tok.kind === 'link') {
-                        <a class="text-brand-500 dark:text-brand-300 underline underline-offset-2" [href]="safeMarkdownHref(tok.href)" target="_blank" rel="noreferrer">{{ tok.value }}</a>
-                      } @else if (isValidCitation(msg, tok.n)) {
-                        <button
-                          type="button"
-                          class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono font-semibold bg-brand-500/15 text-brand-500 dark:text-brand-300 hover:bg-brand-500/30 hover:text-brand-200 transition ring-1 ring-brand-500/30 cursor-pointer"
-                          [title]="citationTooltip(msg, tok.n)"
-                          (click)="gotoSource(msg, tok.n)"
-                        >
-                          {{ tok.n }}
-                        </button>
-                      } @else {
-                        <span
-                          class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono bg-gray-400/15 text-gray-500 ring-1 ring-gray-400/20"
-                          [title]="'Source [' + tok.n + '] referenced by the model but not available'"
-                        >
-                          {{ tok.n }}
-                        </span>
-                      }
-                    }
-                  </ng-template>
                   @for (block of renderMarkdownAnswer(msg.content); track $index) {
                     @if (block.kind === 'heading') {
                       <h3 class="mt-2 first:mt-0 mb-1 text-[0.95rem] font-semibold text-gray-950 dark:text-white">
@@ -1369,51 +1371,87 @@ const STEP_ICONS: Record<string, string> = {
                         <app-icon name="x-circle" [size]="12" />
                         {{ deepInfo.deepDetailsError }}
                       </div>
-                    } @else if (deepInfo.deepSources?.length) {
-                      <ol class="divide-y divide-white/5">
-                        @for (src of deepInfo.deepSources!.slice(0, 8); track $index; let i = $index) {
-                          <li class="px-3 py-2 text-[12px]">
-                            <div class="flex items-center gap-2 mb-0.5">
-                              <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-violet-500/15 text-violet-300">
-                                {{ i + 1 }}
-                              </span>
-                              <span class="font-medium text-gray-900 dark:text-white truncate">
-                                {{ sourceTitle(src) }}
-                              </span>
-                              @if (sourceLocator(src); as loc) {
-                                <span class="font-mono text-[10px] text-violet-300/80 shrink min-w-0 max-w-[14rem] truncate" [title]="loc.tooltip">
-                                  · {{ loc.label }}
-                                </span>
+                    } @else {
+                      @if (deepInfo.deepAnswer; as deepAnswer) {
+                        <div class="border-b border-white/5 px-3 py-3 text-sm leading-relaxed text-gray-800 dark:text-gray-100">
+                          <div class="mb-2 text-[10px] uppercase tracking-[0.16em] font-semibold text-violet-300">
+                            Réponse Deep Search
+                          </div>
+                          @for (block of renderMarkdownAnswer(deepAnswer); track $index) {
+                            @if (block.kind === 'heading') {
+                              <h3 class="mt-2 first:mt-0 mb-1 text-[0.95rem] font-semibold text-gray-950 dark:text-white">
+                                <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens }"></ng-container>
+                              </h3>
+                            } @else if (block.kind === 'list') {
+                              @if (block.ordered) {
+                                <ol class="my-1.5 list-decimal pl-5 space-y-0.5">
+                                  @for (item of block.items; track $index) {
+                                    <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item }"></ng-container></li>
+                                  }
+                                </ol>
+                              } @else {
+                                <ul class="my-1.5 list-disc pl-5 space-y-0.5">
+                                  @for (item of block.items; track $index) {
+                                    <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item }"></ng-container></li>
+                                  }
+                                </ul>
                               }
-                              @if (src.score != null) {
-                                <span class="ml-auto font-mono text-[10px] text-emerald-500 dark:text-emerald-400 shrink-0">
-                                  {{ scoreDisplay(src.score) }}
-                                </span>
-                              }
-                              @if (canPreviewSource(src)) {
-                                <button
-                                  type="button"
-                                  class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-violet-300 hover:bg-white/5 transition"
-                                  [class.ml-auto]="src.score == null"
-                                  title="Preview source document"
-                                  (click)="previewSource(src); $event.stopPropagation()"
-                                >
-                                  <app-icon name="eye" [size]="12" />
-                                </button>
-                              }
-                            </div>
-                            @if (sourceSnippet(src); as snippet) {
-                              <p class="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-3">
-                                {{ snippet }}
+                            } @else if (block.kind === 'codeblock') {
+                              <pre class="my-2 max-w-full overflow-auto rounded-md bg-black/5 dark:bg-white/[0.06] p-2 text-xs leading-relaxed"><code>{{ block.value }}</code></pre>
+                            } @else {
+                              <p class="my-1 first:mt-0 last:mb-0">
+                                <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens }"></ng-container>
                               </p>
                             }
-                          </li>
-                        }
-                      </ol>
-                    } @else {
-                      <div class="px-3 py-2 text-[11px] text-gray-500">
-                        Deep retrieval completed without displayable passages.
-                      </div>
+                          }
+                        </div>
+                      }
+                      @if (deepInfo.deepSources?.length) {
+                        <ol class="divide-y divide-white/5">
+                          @for (src of deepInfo.deepSources!.slice(0, 8); track $index; let i = $index) {
+                            <li class="px-3 py-2 text-[12px]">
+                              <div class="flex items-center gap-2 mb-0.5">
+                                <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-violet-500/15 text-violet-300">
+                                  {{ i + 1 }}
+                                </span>
+                                <span class="font-medium text-gray-900 dark:text-white truncate">
+                                  {{ sourceTitle(src) }}
+                                </span>
+                                @if (sourceLocator(src); as loc) {
+                                  <span class="font-mono text-[10px] text-violet-300/80 shrink min-w-0 max-w-[14rem] truncate" [title]="loc.tooltip">
+                                    · {{ loc.label }}
+                                  </span>
+                                }
+                                @if (src.score != null) {
+                                  <span class="ml-auto font-mono text-[10px] text-emerald-500 dark:text-emerald-400 shrink-0">
+                                    {{ scoreDisplay(src.score) }}
+                                  </span>
+                                }
+                                @if (canPreviewSource(src)) {
+                                  <button
+                                    type="button"
+                                    class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-violet-300 hover:bg-white/5 transition"
+                                    [class.ml-auto]="src.score == null"
+                                    title="Preview source document"
+                                    (click)="previewSource(src); $event.stopPropagation()"
+                                  >
+                                    <app-icon name="eye" [size]="12" />
+                                  </button>
+                                }
+                              </div>
+                              @if (sourceSnippet(src); as snippet) {
+                                <p class="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-3">
+                                  {{ snippet }}
+                                </p>
+                              }
+                            </li>
+                          }
+                        </ol>
+                      } @else if (!deepInfo.deepAnswer) {
+                        <div class="px-3 py-2 text-[11px] text-gray-500">
+                          Deep retrieval completed without displayable passages.
+                        </div>
+                      }
                     }
                   </div>
                 }
@@ -1705,6 +1743,7 @@ const STEP_ICONS: Record<string, string> = {
       [open]="sourcePreviewOpen()"
       [previewUrl]="sourcePreviewUrl()"
       [title]="sourcePreviewTitle()"
+      [page]="sourcePreviewPage()"
       subtitle="Retrieval source"
       (closed)="closeSourcePreview()"
     />
@@ -2560,6 +2599,7 @@ const STEP_ICONS: Record<string, string> = {
 })
 export class ChatPanelComponent implements AfterViewInit {
   @ViewChild('inputEl') private inputEl?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('messagesScroller') private messagesScroller?: ElementRef<HTMLDivElement>;
 
   /**
    * System id to scope the chat to. Optional since Vague D / D0 — the
@@ -2639,6 +2679,25 @@ export class ChatPanelComponent implements AfterViewInit {
       return { label: 'Recherche dans les documents…', spinning: true };
     }
     return { label: 'Préparation de la requête…', spinning: true };
+  });
+  readonly autoscrollSignature = computed(() => {
+    const messages = this.messages();
+    const last = messages[messages.length - 1];
+    const deep = last?.retrievalInfo;
+    return [
+      messages.length,
+      last?.id ?? '',
+      last?.role ?? '',
+      last?.content?.length ?? 0,
+      this.streaming() ? 'streaming' : 'idle',
+      this.streamBuffer().length,
+      this.liveSteps().length,
+      this.liveRetrievalInfo()?.deepStatus ?? '',
+      deep?.deepStatus ?? '',
+      deep?.deepProgress ?? '',
+      deep?.deepAnswer?.length ?? 0,
+      deep?.deepSources?.length ?? 0,
+    ].join('|');
   });
   userInput = '';
   private chatSessionId: string | null = null;
@@ -3036,6 +3095,7 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly sourcePreviewOpen = signal(false);
   readonly sourcePreviewUrl = signal<string | null>(null);
   readonly sourcePreviewTitle = signal('');
+  readonly sourcePreviewPage = signal<number | null>(null);
   readonly deepSearchLaunchingId = signal<string | null>(null);
   /**
    * Expanded evaluation steps, keyed by ``"${messageId}:${stepId}"``. Kept
@@ -3048,6 +3108,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private readonly ttsPlayback = this.ttsPlaybackFactory.createController('chat');
   private chatVoiceSessionId = `chat-${crypto.randomUUID?.() || Date.now()}`;
   private streamStart = 0;
+  private chatAutoscrollFrame: number | null = null;
   private voiceLoopRearmTimer: ReturnType<typeof setTimeout> | null = null;
   private voiceLastEndpointReason: VoiceLoopEndpointReason | null = null;
   private appliedVoiceDefaultsSignature = '';
@@ -3103,6 +3164,10 @@ export class ChatPanelComponent implements AfterViewInit {
       });
     });
     effect(() => {
+      void this.autoscrollSignature();
+      this.scheduleChatAutoscroll();
+    });
+    effect(() => {
       const workspaceSlug = this.workspace.current()?.slug || '';
       const profileKey = this.activeAssistantProfile()?.key || this.assistantProfileKey() || '';
       const systemId = this.systemId() || '';
@@ -3118,6 +3183,10 @@ export class ChatPanelComponent implements AfterViewInit {
       this.loadChatSessions();
     });
     this.destroyRef.onDestroy(() => {
+      if (this.chatAutoscrollFrame !== null) {
+        window.cancelAnimationFrame(this.chatAutoscrollFrame);
+        this.chatAutoscrollFrame = null;
+      }
       this.clearVoiceLoopRearmTimer();
       this.voiceLoop.dispose();
       this.ttsPlayback.destroy();
@@ -3127,6 +3196,23 @@ export class ChatPanelComponent implements AfterViewInit {
 
   ngAfterViewInit(): void {
     this.focusComposer(120);
+    this.scheduleChatAutoscroll();
+  }
+
+  private scheduleChatAutoscroll(): void {
+    if (this.chatAutoscrollFrame !== null) return;
+    this.chatAutoscrollFrame = window.requestAnimationFrame(() => {
+      this.chatAutoscrollFrame = null;
+      const behavior: ScrollBehavior = this.streaming() ? 'auto' : 'smooth';
+      this.scrollMessagesToBottom(behavior);
+      window.setTimeout(() => this.scrollMessagesToBottom('auto'), 0);
+    });
+  }
+
+  private scrollMessagesToBottom(behavior: ScrollBehavior): void {
+    const el = this.messagesScroller?.nativeElement;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
   }
 
   loadChatSessions(selectId?: string | null): void {
@@ -3286,6 +3372,7 @@ export class ChatPanelComponent implements AfterViewInit {
             deepProgress: typeof meta['deep_progress'] === 'number' ? (meta['deep_progress'] as number) : null,
             deepStage: (meta['deep_stage'] as string | undefined) || null,
             deepParentMessageId: (meta['parent_message_id'] as string | undefined) || null,
+            deepAnswer: (meta['deep_answer'] as string | undefined) || null,
             deepAnswerStatus: (meta['deep_answer_status'] as string | undefined) || null,
             deepAnswerModel: (meta['deep_answer_model'] as string | undefined) || null,
             deepSummary,
@@ -3323,6 +3410,7 @@ export class ChatPanelComponent implements AfterViewInit {
         deepParentMessageId: typeof raw['parent_message_id'] === 'string' ? (raw['parent_message_id'] as string) : null,
         deepSummary: this.parseDeepSummaryFromJob(raw),
         deepSources: this.deepSourcesFromJob(raw),
+        deepAnswer: answer,
         deepAnswerStatus: typeof result['answer_status'] === 'string' ? (result['answer_status'] as string) : null,
         deepAnswerModel: typeof result['answer_model'] === 'string' ? (result['answer_model'] as string) : null,
       },
@@ -4076,6 +4164,18 @@ export class ChatPanelComponent implements AfterViewInit {
     );
   }
 
+  private sourcePageNumber(src: Source): number | null {
+    const meta = (src.metadata ?? {}) as Record<string, unknown>;
+    const raw =
+      (src.page as number | string | undefined) ??
+      (src['page_number'] as number | string | undefined) ??
+      (meta['page'] as number | string | undefined) ??
+      (meta['page_number'] as number | string | undefined);
+    if (raw === undefined || raw === null || `${raw}`.trim() === '') return null;
+    const value = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
   /** A source is previewable when we can resolve a document id + collection. */
   canPreviewSource(src: Source): boolean {
     return !!this.sourceDocumentId(src) && !!this.sourceCollection(src);
@@ -4095,6 +4195,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (filename) url += `&filename=${encodeURIComponent(filename)}`;
     this.sourcePreviewTitle.set(this.sourceTitle(src));
     this.sourcePreviewUrl.set(url);
+    this.sourcePreviewPage.set(this.sourcePageNumber(src));
     this.sourcePreviewOpen.set(true);
     this.cdr.markForCheck();
   }
@@ -4102,6 +4203,7 @@ export class ChatPanelComponent implements AfterViewInit {
   closeSourcePreview(): void {
     this.sourcePreviewOpen.set(false);
     this.sourcePreviewUrl.set(null);
+    this.sourcePreviewPage.set(null);
     this.cdr.markForCheck();
   }
 
