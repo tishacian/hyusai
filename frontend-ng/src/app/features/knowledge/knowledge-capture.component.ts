@@ -631,7 +631,7 @@ interface ProposalFact {
                     <button
                       type="button"
                       [disabled]="mode.disabled"
-                      [class]="selectedPlanMode === mode.id
+                      [class]="isCaptureModeSelected(mode.id)
                         ? 'text-left rounded-lg border border-brand-300 bg-brand-500/10 p-4 ring-1 ring-brand-300/40'
                         : mode.disabled
                           ? 'text-left rounded-lg border border-white/10 bg-white/[0.02] p-4 opacity-60 cursor-not-allowed'
@@ -640,7 +640,7 @@ interface ProposalFact {
                     >
                       <span class="flex items-start gap-3">
                         <span
-                          [class]="selectedPlanMode === mode.id
+                          [class]="isCaptureModeSelected(mode.id)
                             ? 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-brand-300 text-brand-200'
                             : 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-white/10 text-gray-500'"
                         >
@@ -654,6 +654,49 @@ interface ProposalFact {
                     </button>
                   }
                 </div>
+                @if (isPlannedCaptureMode()) {
+                  <div class="mt-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
+                    <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <p class="block text-[10px] uppercase tracking-wider text-gray-500">Plan de départ</p>
+                        <p class="mt-1 text-xs text-gray-500">
+                          Choisissez comment alimenter le plan. Il restera modifiable avant la capture.
+                        </p>
+                      </div>
+                      @if (selectedPlanMode === 'provided_plan') {
+                        <span class="text-[10px] uppercase tracking-wider text-brand-200">Import à l’étape suivante</span>
+                      }
+                    </div>
+                    <div class="mt-3 grid gap-2 md:grid-cols-3">
+                      @for (seed of visiblePlanSeedModes(); track seed.id) {
+                        <button
+                          type="button"
+                          [disabled]="seed.disabled"
+                          [class]="selectedPlanMode === seed.id
+                            ? 'text-left rounded border border-brand-300 bg-brand-500/10 p-3 ring-1 ring-brand-300/35'
+                            : seed.disabled
+                              ? 'text-left rounded border border-white/10 bg-white/[0.02] p-3 opacity-60 cursor-not-allowed'
+                              : 'text-left rounded border border-white/10 bg-black/20 p-3 hover:bg-white/[0.05]'"
+                          (click)="selectPlanMode(seed.id)"
+                        >
+                          <span class="flex items-start gap-2.5">
+                            <span
+                              [class]="selectedPlanMode === seed.id
+                                ? 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-brand-300 text-brand-200'
+                                : 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-white/10 text-gray-500'"
+                            >
+                              <app-icon [name]="seed.icon" [size]="14" />
+                            </span>
+                            <span class="min-w-0">
+                              <span class="block text-xs font-semibold text-white">{{ seed.label }}</span>
+                              <span class="mt-1 block text-[11px] leading-relaxed text-gray-500">{{ seed.description }}</span>
+                            </span>
+                          </span>
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
               </div>
             </div>
 
@@ -2762,31 +2805,6 @@ export class KnowledgeCaptureComponent implements OnInit {
     { id: 'other', label: 'Autre' },
   ];
   readonly visiblePlanModes = computed(() => {
-    if (this.isDemoMode()) {
-      return [
-        {
-          id: 'plan_build' as CapturePlanMode,
-          label: 'Avec plan',
-          description: 'Construire un plan simple avant l’échange.',
-          icon: 'layout-grid',
-          recommended: false,
-        },
-        {
-          id: 'free_conversation' as CapturePlanMode,
-          label: 'Sans plan',
-          description: 'Démarrer directement et structurer après l’échange.',
-          icon: 'activity',
-          recommended: false,
-        },
-        {
-          id: 'provided_plan' as CapturePlanMode,
-          label: 'Importer un plan',
-          description: 'Coller un texte ou importer un fichier source unique.',
-          icon: 'file-text',
-          recommended: false,
-        },
-      ];
-    }
     const modes: Array<{
       id: CapturePlanMode;
       label: string;
@@ -2798,7 +2816,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       {
         id: 'plan_build',
         label: 'Avec plan',
-        description: 'Construire un plan simple avant l’échange.',
+        description: 'Préparer, importer ou générer un plan avant l’échange.',
         icon: 'layout-grid',
         recommended: false,
       },
@@ -2809,21 +2827,43 @@ export class KnowledgeCaptureComponent implements OnInit {
         icon: 'activity',
         recommended: false,
       },
+    ];
+    return modes;
+  });
+  readonly visiblePlanSeedModes = computed(() => {
+    const modes: Array<{
+      id: CapturePlanMode;
+      label: string;
+      description: string;
+      icon: string;
+      recommended: boolean;
+      disabled?: boolean;
+    }> = [
       {
-        id: 'provided_plan',
-        label: 'Importer un plan',
-        description: 'Coller un texte ou importer un fichier source unique.',
-        icon: 'file-text',
+        id: 'plan_build',
+        label: 'Créer un plan simple',
+        description: 'Partir d’une trame courte, éditable avant l’échange.',
+        icon: 'list-plus',
         recommended: false,
       },
       {
+        id: 'provided_plan',
+        label: 'Importer ou coller',
+        description: 'Préremplir le plan depuis un fichier, un texte ou un transcript.',
+        icon: 'file-text',
+        recommended: false,
+      },
+    ];
+    if (this.isDemoMode()) return modes;
+    modes.push(
+      {
         id: 'ai_plan',
-        label: 'Plan assisté',
+        label: 'Générer depuis le contexte',
         description: 'Préparer un plan depuis le titre et le contexte disponible.',
         icon: 'zap',
         recommended: false,
       },
-    ];
+    );
     return modes;
   });
   readonly visibleSurfaceNav = computed(() => {
@@ -3212,7 +3252,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   selectPlanMode(mode: string): void {
-    const entry = this.visiblePlanModes().find((row) => row.id === mode);
+    const entry = [...this.visiblePlanModes(), ...this.visiblePlanSeedModes()].find((row) => row.id === mode);
     if (!entry || entry.disabled) return;
     if (mode === 'ai_plan' || mode === 'provided_plan' || mode === 'free_conversation' || mode === 'plan_build') {
       this.selectedPlanMode = mode;
@@ -3226,6 +3266,15 @@ export class KnowledgeCaptureComponent implements OnInit {
         this.selectedPlanMode = 'plan_build';
       }
     }
+  }
+
+  isPlannedCaptureMode(): boolean {
+    return this.selectedPlanMode === 'plan_build' || this.selectedPlanMode === 'provided_plan' || this.selectedPlanMode === 'ai_plan';
+  }
+
+  isCaptureModeSelected(mode: CapturePlanMode): boolean {
+    if (mode === 'plan_build') return this.isPlannedCaptureMode();
+    return this.selectedPlanMode === mode;
   }
 
   canCreateSelectedPlan(): boolean {
