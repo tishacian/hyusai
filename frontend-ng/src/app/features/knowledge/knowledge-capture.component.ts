@@ -1747,23 +1747,23 @@ interface ProposalFact {
                     <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
                     @if (canEditPlan(s)) {
                       <div class="flex flex-wrap items-center gap-1.5">
-                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Désindenter" (click)="applyPlanOutlineFormatFrom('plan', s, 'outdent')">
-                          <app-icon name="indent-decrease" [size]="13" />
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Désindenter (Shift+Tab)" aria-label="Désindenter" (click)="applyPlanOutlineFormatFrom('plan', s, 'outdent')">
+                          <app-icon name="list-indent-decrease" [size]="15" />
                         </button>
-                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Indenter" (click)="applyPlanOutlineFormatFrom('plan', s, 'indent')">
-                          <app-icon name="indent-increase" [size]="13" />
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Indenter (Tab)" aria-label="Indenter" (click)="applyPlanOutlineFormatFrom('plan', s, 'indent')">
+                          <app-icon name="list-indent-increase" [size]="15" />
                         </button>
-                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste à puces" (click)="applyPlanOutlineFormatFrom('plan', s, 'bullet')">
-                          <app-icon name="list" [size]="13" />
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste à puces" aria-label="Transformer en liste à puces" (click)="applyPlanOutlineFormatFrom('plan', s, 'bullet')">
+                          <app-icon name="list" [size]="15" />
                         </button>
-                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste numérotée" (click)="applyPlanOutlineFormatFrom('plan', s, 'number')">
-                          <app-icon name="list-ordered" [size]="13" />
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste numérotée" aria-label="Transformer en liste numérotée" (click)="applyPlanOutlineFormatFrom('plan', s, 'number')">
+                          <app-icon name="list-ordered" [size]="15" />
                         </button>
-                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Monter la sélection" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_up')">
-                          <app-icon name="arrow-up" [size]="13" />
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Monter la sélection" aria-label="Monter la sélection" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_up')">
+                          <app-icon name="arrow-up" [size]="15" />
                         </button>
-                        <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_down')">
-                          <app-icon name="arrow-down" [size]="13" />
+                        <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" aria-label="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan', s, 'move_down')">
+                          <app-icon name="arrow-down" [size]="15" />
                         </button>
                       </div>
                     }
@@ -1773,6 +1773,7 @@ interface ProposalFact {
                     class="min-h-[22rem] w-full rounded border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm leading-6 text-gray-100 outline-none focus:border-brand-300 disabled:opacity-60"
                     [ngModel]="planOutlineText(s)"
                     (ngModelChange)="updatePlanOutlineText(s, $event)"
+                    (keydown)="onPlanOutlineKeydown($event, s)"
                     [disabled]="!canEditPlan(s)"
                     spellcheck="false"
                     placeholder="1. Description de la ligne&#10;2. Optimisations&#10;   a. Upgrade de récupération d'énergie&#10;   b. Update à proposer"
@@ -2259,23 +2260,23 @@ interface ProposalFact {
                   <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Plan</p>
                   @if (canEditPlan(s)) {
                     <div class="flex flex-wrap items-center gap-1.5">
-                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Désindenter" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'outdent')">
-                        <app-icon name="indent-decrease" [size]="13" />
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Désindenter (Shift+Tab)" aria-label="Désindenter" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'outdent')">
+                        <app-icon name="list-indent-decrease" [size]="15" />
                       </button>
-                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Indenter" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'indent')">
-                        <app-icon name="indent-increase" [size]="13" />
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Indenter (Tab)" aria-label="Indenter" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'indent')">
+                        <app-icon name="list-indent-increase" [size]="15" />
                       </button>
-                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste à puces" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'bullet')">
-                        <app-icon name="list" [size]="13" />
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste à puces" aria-label="Transformer en liste à puces" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'bullet')">
+                        <app-icon name="list" [size]="15" />
                       </button>
-                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste numérotée" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'number')">
-                        <app-icon name="list-ordered" [size]="13" />
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Transformer en liste numérotée" aria-label="Transformer en liste numérotée" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'number')">
+                        <app-icon name="list-ordered" [size]="15" />
                       </button>
-                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Monter la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_up')">
-                        <app-icon name="arrow-up" [size]="13" />
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Monter la sélection" aria-label="Monter la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_up')">
+                        <app-icon name="arrow-up" [size]="15" />
                       </button>
-                      <button type="button" class="rounded bg-white/5 px-2 py-1.5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_down')">
-                        <app-icon name="arrow-down" [size]="13" />
+                      <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" aria-label="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_down')">
+                        <app-icon name="arrow-down" [size]="15" />
                       </button>
                     </div>
                   }
@@ -2285,6 +2286,7 @@ interface ProposalFact {
                   class="min-h-[22rem] w-full rounded border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm leading-6 text-gray-100 outline-none focus:border-brand-300 disabled:opacity-60"
                   [ngModel]="planOutlineText(s)"
                   (ngModelChange)="updatePlanOutlineText(s, $event)"
+                  (keydown)="onPlanOutlineKeydown($event, s)"
                   [disabled]="!canEditPlan(s)"
                   spellcheck="false"
                   placeholder="1. Description de la ligne&#10;2. Optimisations&#10;   a. Upgrade de récupération d'énergie&#10;   b. Update à proposer"
@@ -4778,6 +4780,14 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.touchPlanDraft();
   }
 
+  onPlanOutlineKeydown(event: KeyboardEvent, session: CaptureSession): void {
+    if (event.key !== 'Tab') return;
+    event.preventDefault();
+    const textarea = event.target as HTMLTextAreaElement | null;
+    if (!textarea) return;
+    this.applyPlanOutlineIndentShortcut(session, textarea, event.shiftKey ? 'outdent' : 'indent');
+  }
+
   applyPlanOutlineFormatFrom(editor: 'plan' | 'plan_build', session: CaptureSession, action: PlanOutlineFormatAction): void {
     const textarea =
       editor === 'plan'
@@ -4817,12 +4827,48 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
 
     const nextText = nextLines.join('\n');
+    textarea.value = nextText;
     this.updatePlanOutlineText(session, nextText);
     const selectionStart = this.planOutlineLineOffset(nextLines, nextStartLine);
     const selectionEnd = this.planOutlineLineOffset(nextLines, nextEndLine) + (nextLines[nextEndLine]?.length || 0);
     requestAnimationFrame(() => {
       textarea.focus();
       textarea.setSelectionRange(selectionStart, selectionEnd);
+    });
+  }
+
+  private applyPlanOutlineIndentShortcut(session: CaptureSession, textarea: HTMLTextAreaElement, action: 'indent' | 'outdent'): void {
+    if (!this.canEditPlan(session)) return;
+    const original = textarea.value || this.planOutlineText(session);
+    const start = textarea.selectionStart || 0;
+    const end = textarea.selectionEnd || start;
+    const range = this.selectedPlanOutlineLines(original, start, end);
+    const lines = original.split('\n');
+    const offsets = lines.map((_, index) => this.planOutlineLineOffset(lines, index));
+    let nextStart = start;
+    let nextEnd = end;
+
+    for (let index = range.startLine; index <= range.endLine; index += 1) {
+      const current = lines[index] || '';
+      const next = this.formatPlanOutlineLine(current, action, 1);
+      const delta = next.length - current.length;
+      lines[index] = next;
+      const lineStart = offsets[index] || 0;
+
+      if (index === range.startLine && (start > lineStart || start === end)) {
+        nextStart += delta;
+      }
+      if (index < range.endLine || end > lineStart || (start === end && end === lineStart)) {
+        nextEnd += delta;
+      }
+    }
+
+    const nextText = lines.join('\n');
+    textarea.value = nextText;
+    this.updatePlanOutlineText(session, nextText);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(Math.max(0, nextStart), Math.max(0, nextEnd));
     });
   }
 
