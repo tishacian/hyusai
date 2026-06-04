@@ -1553,21 +1553,26 @@ async def retrieve_rag_context(
     retrieval_query = query
     collections = profile.get("collections") or [profile["collection"]]
     corpus_plan = None
-    planner_db = SessionLocal()
-    try:
-        planner_request = dict(request)
-        planner_request["retrieval_filters"] = dict(profile.get("retrieval_filters") or {})
-        corpus_plan = plan_corpus(
-            db=planner_db,
-            profile=profile,
-            query=retrieval_query,
-            request=planner_request,
-            retrieval_policy=retrieval_policy,
-        )
-    except Exception as exc:  # noqa: BLE001 - planner must never block chat.
-        logger.warning("rag_context: corpus planner failed", error=str(exc))
-    finally:
-        planner_db.close()
+    skip_corpus_planner = bool(
+        profile.get("retrieval_profile") == "oracle_fast"
+        and _native_qdrant_sparse_hybrid_available()
+    )
+    if not skip_corpus_planner:
+        planner_db = SessionLocal()
+        try:
+            planner_request = dict(request)
+            planner_request["retrieval_filters"] = dict(profile.get("retrieval_filters") or {})
+            corpus_plan = plan_corpus(
+                db=planner_db,
+                profile=profile,
+                query=retrieval_query,
+                request=planner_request,
+                retrieval_policy=retrieval_policy,
+            )
+        except Exception as exc:  # noqa: BLE001 - planner must never block chat.
+            logger.warning("rag_context: corpus planner failed", error=str(exc))
+        finally:
+            planner_db.close()
     if corpus_plan is not None:
         planned_collections = corpus_plan.retrieval_scope.get("collections") if isinstance(corpus_plan.retrieval_scope, Mapping) else None
         if isinstance(planned_collections, list) and planned_collections:

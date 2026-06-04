@@ -320,6 +320,7 @@ async def test_retrieve_rag_context_skips_similarity_threshold_for_rrf(monkeypat
 async def test_oracle_fast_standard_scope_prefers_native_qdrant_hybrid(monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_qdrant_sparse_enabled", True)
     monkeypatch.setattr(rag_context.settings, "rag_sparse_backend", "auto")
+    monkeypatch.setattr(rag_context, "plan_corpus", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("planner skipped")))
     captured = {}
 
     async def _fake_retrieve(doc_svc, query, mode, **kwargs):  # noqa: ARG001
