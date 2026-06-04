@@ -3190,8 +3190,8 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.planNotice.set({
             tone: 'info',
             text: this.isFreeConversationSession(typed)
-              ? 'Capture libre prête. Lancez la session quand l’expert est prêt.'
-              : 'Plan prêt. Ajustez-le si nécessaire, puis démarrez la capture.',
+              ? 'Capture libre prête. Continuez vers l’échange quand l’expert est prêt.'
+              : 'Plan prêt. Ajustez-le si nécessaire, puis continuez vers l’échange.',
           });
           this.refreshEvents(typed.id);
           this.refreshDashboard();
@@ -5612,7 +5612,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           const updated = payload as CaptureSession;
           this.session.set(updated);
           this.selectedQuestionId.set(this.planQuestions(updated)[0]?.id || this.selectedQuestionId());
-          this.planNotice.set({ tone: 'success', text: 'Plan validé. La session guidée peut démarrer.' });
+          this.planNotice.set({ tone: 'success', text: 'Plan validé. Continuez vers l’échange.' });
           this.savingPlan.set(false);
         },
         error: () => {
