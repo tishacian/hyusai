@@ -2060,26 +2060,6 @@ interface ProposalFact {
                     </span>
                   }
                 </div>
-                @if (!providedPlanFileName) {
-                  <div class="space-y-2">
-                    <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Nature du texte</p>
-                    <div class="grid gap-2 md:grid-cols-3">
-                      @for (option of planTextSourceKindOptions; track option.id) {
-                        <button
-                          type="button"
-                          [class]="providedPlanSourceKind === option.id
-                            ? 'rounded border border-brand-300 bg-brand-500/15 px-3 py-2 text-left text-brand-100'
-                            : 'rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-gray-300 hover:bg-white/[0.06]'"
-                          [disabled]="extractingPlanSource()"
-                          (click)="setProvidedTextSourceKind(option.id)"
-                        >
-                          <span class="block text-xs font-semibold">{{ option.label }}</span>
-                          <span class="mt-1 block text-[10px] leading-snug text-gray-500">{{ option.description }}</span>
-                        </button>
-                      }
-                    </div>
-                  </div>
-                }
                 @if (pendingPlanSourceReplacement(); as pending) {
                   <div class="rounded border border-amber-300/30 bg-amber-500/10 p-4">
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2749,17 +2729,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   selectedPlanMode: CapturePlanMode = 'free_conversation';
   providedPlanText = '';
   providedPlanFileName = '';
-  providedPlanSourceKind: CapturePlanSourceKind = 'manual';
+  providedPlanSourceKind: CapturePlanSourceKind = 'pasted_text';
   providedPlanReplacesExisting = false;
-  readonly planTextSourceKindOptions: Array<{
-    id: Exclude<CapturePlanSourceKind, 'uploaded_file'>;
-    label: string;
-    description: string;
-  }> = [
-    { id: 'pasted_text', label: 'Texte collé', description: 'Notes, brouillon ou extrait copié.' },
-    { id: 'conversation', label: 'Conversation brute', description: 'Transcript ou échange non structuré.' },
-    { id: 'manual', label: 'Plan manuel', description: 'Rubriques tapées directement.' },
-  ];
   planDialogueAnswer = '';
   executiveSummary = '';
   publicationCategory = 'technical';
@@ -3073,7 +3044,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.selectedPlanMode = this.isDemoMode() ? 'plan_build' : 'free_conversation';
     this.providedPlanText = '';
     this.providedPlanFileName = '';
-    this.providedPlanSourceKind = 'manual';
+    this.providedPlanSourceKind = 'pasted_text';
     this.providedPlanReplacesExisting = false;
     this.pendingPlanSourceReplacement.set(null);
     this.planDialogueAnswer = '';
@@ -3254,14 +3225,9 @@ export class KnowledgeCaptureComponent implements OnInit {
       }
       return;
     }
-    if (!this.providedPlanFileName && this.providedPlanSourceKind === 'uploaded_file') {
+    if (!this.providedPlanFileName) {
       this.providedPlanSourceKind = 'pasted_text';
     }
-  }
-
-  setProvidedTextSourceKind(kind: Exclude<CapturePlanSourceKind, 'uploaded_file'>): void {
-    if (this.providedPlanFileName) return;
-    this.providedPlanSourceKind = kind;
   }
 
   hasProvidedPlanSource(): boolean {
@@ -3271,9 +3237,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   providedPlanSourceLabel(): string {
     if (this.providedPlanFileName) return this.providedPlanFileName;
     if (this.providedPlanText.trim()) {
-      if (this.providedPlanSourceKind === 'conversation') return 'Conversation brute';
-      if (this.providedPlanSourceKind === 'manual') return 'Plan saisi à la main';
-      return 'Texte saisi ou collé';
+      return 'Texte source';
     }
     return 'Aucune source active';
   }
@@ -3283,11 +3247,11 @@ export class KnowledgeCaptureComponent implements OnInit {
       case 'uploaded_file':
         return 'Fichier source';
       case 'conversation':
-        return 'Conversation brute';
+        return 'Texte source';
       case 'pasted_text':
-        return 'Texte collé';
+        return 'Texte source';
       default:
-        return 'Plan manuel';
+        return 'Texte source';
     }
   }
 
@@ -3350,7 +3314,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   clearProvidedPlanSource(): void {
     this.providedPlanText = '';
     this.providedPlanFileName = '';
-    this.providedPlanSourceKind = 'manual';
+    this.providedPlanSourceKind = 'pasted_text';
     this.providedPlanReplacesExisting = false;
     this.pendingPlanSourceReplacement.set(null);
   }
