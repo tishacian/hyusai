@@ -227,6 +227,7 @@ interface ConversationStageRow {
 }
 
 type RelanceKind = 'topic_close' | 'gap_question' | 'contradiction' | null;
+type CaptureTranscriptStatus = 'live' | 'refined' | 'amended';
 
 interface CaptureRelance {
   kind: RelanceKind;
@@ -237,7 +238,7 @@ interface TranscriptSegment {
   id: string;
   speaker: 'expert' | 'ia';
   text: string;
-  status: 'live' | 'improved';
+  status: CaptureTranscriptStatus;
   topicTitle?: string;
   relanceKind?: RelanceKind;
 }
@@ -1154,24 +1155,31 @@ interface ProposalFact {
                     <div class="flex-1 min-h-80 rounded bg-black/20 border border-white/10 p-5 overflow-auto leading-relaxed">
                       @for (row of captureTranscriptRows(); track row.key) {
                         @if (row.kind === 'topic') {
-                          <p class="mt-5 first:mt-0 mb-2 ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ row.text }}</p>
+                          <p class="mt-6 first:mt-0 mb-2 ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ row.text }}</p>
                         } @else if (row.kind === 'ia') {
-                          <p class="my-2 border-l-2 border-brand-400/40 pl-3 text-sm italic text-brand-200/90">{{ row.text }}</p>
+                          <p class="my-3 border-l-2 border-brand-400/40 pl-3 text-sm italic text-brand-200/90">{{ row.text }}</p>
                         } @else {
-                          <div class="my-2">
+                          <div class="my-3 rounded border border-white/5 bg-white/[0.025] px-3 py-2.5">
+                            <div class="mb-1 flex items-center gap-2">
+                              <span [class]="transcriptStatusClass(row.status)">
+                                {{ transcriptStatusLabel(row.status) }}
+                              </span>
+                              @if (row.reframed) {
+                                <span
+                                  class="inline-flex items-center gap-1 text-[10px] text-brand-200/70"
+                                  title="Texte reformulé selon le plan de capture."
+                                >
+                                  <app-icon name="sparkles" [size]="10" /> selon le plan
+                                </span>
+                              }
+                            </div>
                             <p
                               [class]="row.status === 'live'
-                                ? 'text-sm text-gray-400 italic'
+                                ? 'text-sm text-gray-400 italic whitespace-pre-wrap'
+                                : row.status === 'amended'
+                                  ? 'text-sm text-emerald-100 whitespace-pre-wrap'
                                 : 'text-sm text-gray-100'"
                             >{{ row.text }}</p>
-                            @if (row.status === 'improved' && row.reframed) {
-                              <span
-                                class="mt-0.5 inline-flex items-center gap-1 text-[10px] text-brand-200/70"
-                                title="Texte reformulé par l’IA selon le plan de capture. Votre formulation brute reste affichée pendant que vous parlez."
-                              >
-                                <app-icon name="sparkles" [size]="10" /> Reformulé selon le plan
-                              </span>
-                            }
                           </div>
                         }
                       } @empty {
@@ -2665,7 +2673,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly sourcePreviewOpen = signal(false);
   readonly sourcePreviewUrl = signal<string | null>(null);
   readonly sourcePreviewTitle = signal('');
-  readonly liveTranscript = signal<{ id: string; text: string; status: 'live' | 'improved'; reframed?: boolean } | null>(
+  readonly liveTranscript = signal<{ id: string; text: string; status: CaptureTranscriptStatus; reframed?: boolean } | null>(
     null,
   );
   readonly relanceAnnotations = signal<Array<{ id: string; order: number; text: string; kind: RelanceKind }>>([]);
@@ -3826,7 +3834,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     key: string;
     kind: 'topic' | 'expert' | 'ia';
     text: string;
-    status?: 'live' | 'improved';
+    status?: CaptureTranscriptStatus;
     reframed?: boolean;
   }> {
     const expert = this.textEvents()
@@ -3837,6 +3845,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         id: event.id,
         text: this.eventDisplayText(event),
         topic: this.eventOutlineTitle(event),
+        status: (event.event_type === 'transcript_amended' || event.text_amended ? 'amended' : 'refined') as CaptureTranscriptStatus,
       }));
     const annotations = this.relanceAnnotations().map((item) => ({
       order: item.order,
@@ -3851,26 +3860,26 @@ export class KnowledgeCaptureComponent implements OnInit {
       key: string;
       kind: 'topic' | 'expert' | 'ia';
       text: string;
-      status?: 'live' | 'improved';
+      status?: CaptureTranscriptStatus;
       reframed?: boolean;
     }> = [];
     let lastTopic: string | undefined;
-    let lastExpertText = '';
+    let lastExpertTextKey = '';
     for (const item of ordered) {
       if (item.kind === 'expert') {
         if (item.topic && item.topic !== lastTopic) {
           rows.push({ key: `topic-${item.id}`, kind: 'topic', text: item.topic });
           lastTopic = item.topic;
         }
-        lastExpertText = item.text.trim();
-        rows.push({ key: `expert-${item.id}`, kind: 'expert', text: item.text, status: 'improved' });
+        lastExpertTextKey = this.transcriptTextKey(item.text);
+        rows.push({ key: `expert-${item.id}`, kind: 'expert', text: item.text, status: item.status });
       } else {
         rows.push({ key: `ia-${item.id}`, kind: 'ia', text: item.text });
       }
     }
     const live = this.liveTranscript();
     if (live && live.text.trim()) {
-      const isDuplicate = live.status === 'improved' && live.text.trim() === lastExpertText;
+      const isDuplicate = live.status !== 'live' && this.transcriptTextKey(live.text) === lastExpertTextKey;
       if (!isDuplicate) {
         rows.push({
           key: `live-${live.id}`,
@@ -3884,6 +3893,24 @@ export class KnowledgeCaptureComponent implements OnInit {
     return rows;
   }
 
+  private transcriptTextKey(text: string): string {
+    return text.replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  transcriptStatusLabel(status?: CaptureTranscriptStatus): string {
+    if (status === 'live') return 'En direct';
+    if (status === 'amended') return 'Corrigé';
+    return 'Texte reformulé';
+  }
+
+  transcriptStatusClass(status?: CaptureTranscriptStatus): string {
+    if (status === 'live') return 'rounded bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wider text-gray-500';
+    if (status === 'amended') {
+      return 'rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-emerald-200';
+    }
+    return 'rounded bg-brand-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-brand-200';
+  }
+
   private setLivePartial(id: string, text: string): void {
     const clean = text.trim();
     if (!clean) return;
@@ -3893,7 +3920,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   private setLiveImproved(id: string, text: string, reframed = false): void {
     const clean = text.trim();
     if (!clean) return;
-    this.liveTranscript.set({ id, text: clean, status: 'improved', reframed });
+    this.liveTranscript.set({ id, text: clean, status: 'refined', reframed });
   }
 
   /**
@@ -5446,7 +5473,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       const factText = String((event.metadata || {})['fact_text'] || '').trim();
       return factText || this.conversationDecisionText(event);
     }
-    return (event.text || event.text_amended || event.text_raw || '').trim();
+    return (event.text_amended || event.text || event.text_raw || '').trim();
   }
 
   private isConversationBusinessDecision(event: CaptureEvent): boolean {
@@ -6073,7 +6100,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       const text = String(payload['text'] || '').trim();
       if (text) {
         this.answer = text;
-        // New model: the improved transcript is the plan-aware reformulation.
+        // New model: the refined transcript is the plan-aware reformulation.
         this.setLiveImproved(this.voiceSegmentId(payload), text, Boolean(payload['reframed']));
       }
       return;
