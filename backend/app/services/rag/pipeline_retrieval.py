@@ -332,6 +332,8 @@ def _sparse_diagnostics_from_metas(metas: list[dict[str, Any]]) -> dict[str, Any
                 "sparse_status": meta.get("sparse_status"),
                 "sparse_results": meta.get("sparse_results"),
             }
+            if meta.get("sparse_fusion"):
+                payload["sparse_fusion"] = meta.get("sparse_fusion")
             if meta.get("sparse_fallback_reason"):
                 payload["sparse_fallback_reason"] = meta.get("sparse_fallback_reason")
             for key in ("dense_elapsed_ms", "sparse_elapsed_ms", "retrieval_elapsed_ms", "retrieval_deadline_seconds"):

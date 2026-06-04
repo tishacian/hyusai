@@ -721,6 +721,7 @@ async def test_dense_guardrail_qdrant_sparse_uses_server_prefetch_fusion(monkeyp
     assert out.chunks == ["qdrant server fused evidence long enough"]
     assert out.diagnostics["sparse_backend"] == "qdrant_sparse"
     assert out.diagnostics["sparse_status"] == "ok"
+    assert out.diagnostics["sparse_fusion"] == "server_rrf"
     assert out.metadatas[0]["sparse_fusion"] == "server_rrf"
     assert doc.vector_db.calls[0][4] == {"retrieval_profile": "chat"}
     doc.search.assert_not_awaited()
