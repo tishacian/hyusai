@@ -859,7 +859,7 @@ interface ProposalFact {
                   <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">Fin de session</p>
                   <h3 class="text-lg font-semibold text-white mt-1">Durée planifiée atteinte</h3>
                   <p class="text-sm text-gray-300 mt-1">
-                    Choisissez de terminer, prolonger de 15 minutes ou replanifier une session — sans interruption vocale.
+                    Continuez vers le rapport, prolongez de 15 minutes ou replanifiez une session — sans interruption vocale.
                   </p>
                 </div>
                 @if (closureSheetMarkdown(); as sheet) {
@@ -875,7 +875,7 @@ interface ProposalFact {
                     [disabled]="closureActionLoading()"
                     (click)="applySessionClosure(s, 'finish')"
                   >
-                    Terminer
+                    <app-icon name="arrow-right" [size]="14" /> Continuer
                   </button>
                   <button
                     type="button"
