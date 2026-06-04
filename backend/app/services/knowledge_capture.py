@@ -53,6 +53,7 @@ _PLAN_DIALOGUE_STEPS = (
 _MIN_PLAN_DIALOGUE_TURNS = 1
 _MIN_PLAN_SUBJECT_CHARS = 12
 RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
+ORACLE_QUESTION_STATUSES = frozenset({"open", "active", "answered", "dismissed", "deferred", "addressed"})
 
 _logger = logging.getLogger(__name__)
 POSITIVE_CONFIRMATION_TERMS = (
@@ -856,6 +857,58 @@ def _next_plan_dialogue_prompt(plan: Dict[str, Any]) -> Optional[str]:
     return _PLAN_DIALOGUE_STEPS[len(turns)]
 
 
+def _clean_optional_string(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _normalize_oracle_question_status(value: Any) -> str:
+    status = str(value or "open").strip().lower()
+    if status == "active":
+        return "open"
+    if status not in ORACLE_QUESTION_STATUSES:
+        return "open"
+    return status
+
+
+def _oracle_question_status_key(
+    *,
+    question_id: Optional[str],
+    question_text: Optional[str],
+) -> Optional[str]:
+    clean_id = _clean_optional_string(question_id)
+    if clean_id:
+        return f"id:{clean_id}"
+    clean_text = _clean_optional_string(question_text)
+    if clean_text:
+        return f"text:{clean_text.lower()}"
+    return None
+
+
+def _stored_oracle_question_status(
+    plan: Dict[str, Any],
+    *,
+    question_id: Optional[str],
+    question_text: Optional[str],
+) -> Optional[str]:
+    statuses = plan.get("oracle_question_statuses") or {}
+    if not isinstance(statuses, dict):
+        return None
+    keys = [
+        _oracle_question_status_key(question_id=_clean_optional_string(question_id), question_text=None),
+        _oracle_question_status_key(question_id=None, question_text=_clean_optional_string(question_text)),
+    ]
+    for key in keys:
+        if not key:
+            continue
+        entry = statuses.get(key)
+        if isinstance(entry, dict):
+            return _normalize_oracle_question_status(entry.get("status"))
+        if isinstance(entry, str):
+            return _normalize_oracle_question_status(entry)
+    return None
+
+
 def build_quality_backlog(
     session: ExpertCaptureSession,
     events: Optional[List[ExpertCaptureEvent]] = None,
@@ -915,14 +968,23 @@ def build_quality_backlog(
             else:
                 open_questions.append(payload)
 
-    for question in (session.plan or {}).get("open_questions") or []:
+    plan = session.plan or {}
+    for question in plan.get("open_questions") or []:
         if not isinstance(question, dict):
+            continue
+        label = question.get("follow_up") or question.get("reason") or "Question ouverte"
+        status = _stored_oracle_question_status(
+            plan,
+            question_id=question.get("gap_id") or question.get("id"),
+            question_text=label,
+        ) or "open"
+        if status in {"answered", "dismissed", "addressed"}:
             continue
         open_questions.append(
             {
                 "id": question.get("gap_id") or str(uuid.uuid4()),
-                "label": question.get("follow_up") or question.get("reason") or "Question ouverte",
-                "status": "open",
+                "label": label,
+                "status": "open" if status == "active" else status,
                 "deferred_reason": None,
             }
         )
@@ -964,6 +1026,58 @@ def defer_quality_item(
     db.commit()
     events = list_capture_events(db, workspace_id=workspace_id, session_id=session_id)
     return build_quality_backlog(session, events)
+
+
+def update_oracle_question_statuses(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    items: List[Dict[str, Any]],
+    actor_user_id: Optional[str] = None,
+) -> ExpertCaptureSession:
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    plan = dict(session.plan or {})
+    status_map = dict(plan.get("oracle_question_statuses") or {})
+    if not items:
+        return session
+
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        question_id = _clean_optional_string(raw.get("question_id") or raw.get("id"))
+        question_text = _clean_optional_string(raw.get("question_text") or raw.get("text"))
+        key = _oracle_question_status_key(question_id=question_id, question_text=question_text)
+        if not key:
+            continue
+        status = _normalize_oracle_question_status(raw.get("status"))
+        status_map[key] = {
+            "status": status,
+            "question_id": question_id,
+            "question_text": question_text,
+            "updated_at": datetime.utcnow().isoformat(),
+            "updated_by_user_id": actor_user_id,
+        }
+        _record_capture_event(
+            db,
+            session=session,
+            event_type="oracle_question_status_updated",
+            source="operator_edit",
+            status=status,
+            created_by=actor_user_id,
+            meta_data={
+                "question_id": question_id,
+                "question_text": question_text,
+                "status": status,
+            },
+        )
+
+    plan["oracle_question_statuses"] = status_map
+    session.plan = plan
+    flag_modified(session, "plan")
+    db.commit()
+    db.refresh(session)
+    return session
 
 
 def update_capture_session_flags(
@@ -1658,13 +1772,19 @@ def build_open_questions(
             and expert_tokens
             and len(gap_tokens & expert_tokens) / max(1, len(gap_tokens)) >= 0.5
         )
+        base_status = "addressed" if addressed else "open"
         items.append(
             {
                 "id": slug or f"open-{len(items) + 1:02d}",
                 "text": text,
                 "topic_id": gap.get("topic_id"),
                 "priority": _coerce_priority(gap.get("priority")),
-                "status": "addressed" if addressed else "open",
+                "status": _stored_oracle_question_status(
+                    plan,
+                    question_id=slug or f"open-{len(items) + 1:02d}",
+                    question_text=text,
+                )
+                or base_status,
             }
         )
 
@@ -1686,7 +1806,12 @@ def build_open_questions(
                 # Above the 0..1 coverage-gap range so a detected contradiction is the
                 # most pressing open question the oracle is tracking.
                 "priority": 2.0,
-                "status": "open",
+                "status": _stored_oracle_question_status(
+                    plan,
+                    question_id=f"contradiction-{len(items) + 1:02d}",
+                    question_text=hint,
+                )
+                or "open",
             }
         )
 
@@ -2324,6 +2449,8 @@ async def publish_proposal_to_knowledge(
     workspace: Any,
     proposal_id: str,
     actor_label: str,
+    category: Optional[str] = None,
+    destination: Optional[str] = None,
 ) -> Dict[str, Any]:
     proposal = (
         db.query(KnowledgeUpdateProposal)
@@ -2340,6 +2467,27 @@ async def publish_proposal_to_knowledge(
     session = get_session(db, workspace_id=workspace.id, session_id=proposal.session_id)
     ctx = _load_context(db, workspace.id, session.context_id)
     collection_name = _resolve_collection_name(ctx)
+    proposal_payload = dict(proposal.proposal or {})
+    recommended = dict(proposal_payload.get("recommended_ingestion") or {})
+    metadata = dict(recommended.get("metadata") or {})
+    publication_category = _clean_optional_string(category)
+    publication_destination = _clean_optional_string(destination)
+    publication_meta = dict(proposal_payload.get("publication") or {})
+    if publication_category:
+        publication_meta["category"] = publication_category
+        metadata["publication_category"] = publication_category
+    if publication_destination:
+        publication_meta["destination"] = publication_destination
+        metadata["publication_destination"] = publication_destination
+    if publication_category or publication_destination:
+        publication_meta["updated_at"] = datetime.utcnow().isoformat()
+        publication_meta["updated_by"] = actor_label
+        recommended["metadata"] = metadata
+        proposal_payload["recommended_ingestion"] = recommended
+        proposal_payload["publication"] = publication_meta
+        proposal.proposal = proposal_payload
+        flag_modified(proposal, "proposal")
+        db.flush()
     content = ((proposal.proposal or {}).get("recommended_ingestion") or {}).get("content")
     if not content:
         events = list_capture_events(db, workspace_id=workspace.id, session_id=session.id)
@@ -2387,7 +2535,13 @@ async def publish_proposal_to_knowledge(
         workspace_id=workspace.id,
         event_type="kc.proposal.published",
         actor=actor_label,
-        details={"proposal_id": proposal.id, "session_id": session.id, "collection": collection.slug},
+        details={
+            "proposal_id": proposal.id,
+            "session_id": session.id,
+            "collection": collection.slug,
+            "category": publication_category,
+            "destination": publication_destination,
+        },
     )
     db.commit()
     return {
@@ -2396,6 +2550,8 @@ async def publish_proposal_to_knowledge(
         "document_id": result.get("document_id"),
         "chunks_processed": result.get("chunks_processed", 0),
         "status": result.get("status"),
+        "category": publication_category,
+        "destination": publication_destination,
     }
 
 
@@ -4385,10 +4541,58 @@ def get_session(db: DBSession, *, workspace_id: str, session_id: str) -> ExpertC
     return session
 
 
+def _compact_text(value: Any, *, limit: int = 180) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    if len(text) <= limit:
+        return text
+    return f"{text[: max(0, limit - 1)].rstrip()}…"
+
+
+def _session_summary_short(session: ExpertCaptureSession) -> str:
+    metrics = session.metrics or {}
+    existing = _clean_optional_string(metrics.get("summary_short"))
+    if existing:
+        return _compact_text(existing)
+    for fact in session.captured_facts or []:
+        if not isinstance(fact, dict):
+            continue
+        text = fact.get("text") or fact.get("statement")
+        if _clean_optional_string(text):
+            return _compact_text(text)
+    expert_turns = [
+        str(turn.get("text") or "").strip()
+        for turn in (session.transcript or [])
+        if isinstance(turn, dict) and turn.get("speaker") == "expert" and str(turn.get("text") or "").strip()
+    ]
+    if expert_turns:
+        return _compact_text(" ".join(expert_turns[-2:]))
+    if session.objective:
+        return _compact_text(session.objective)
+    return "Session de capture."
+
+
+def _session_open_questions_count(session: ExpertCaptureSession) -> int:
+    try:
+        open_questions = build_open_questions(session)
+    except Exception:
+        return 0
+    return len(
+        [
+            item
+            for item in open_questions
+            if item.get("status") not in {"addressed", "answered", "dismissed", "deferred"}
+        ]
+    )
+
+
 def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] = None) -> Dict[str, Any]:
     plan = dict(session.plan or {})
     if surface in {"plan_build", "plan"} or _is_plan_build_schema(plan):
         plan = _serialize_plan_for_ui(plan, surface=surface)
+    timer_metrics = _compute_timer_metrics(session)
+    summary_short = _session_summary_short(session)
+    open_questions_count = _session_open_questions_count(session)
+    last_activity = (session.updated_at or session.completed_at or session.started_at or session.created_at)
     return {
         "id": session.id,
         "workspace_id": session.workspace_id,
@@ -4410,8 +4614,14 @@ def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] =
         "captured_facts": session.captured_facts or [],
         "metrics": {
             **(session.metrics or {}),
-            **_compute_timer_metrics(session),
+            **timer_metrics,
+            "summary_short": summary_short,
+            "open_questions_count": open_questions_count,
+            "last_activity": last_activity.isoformat() if last_activity else None,
         },
+        "summary_short": summary_short,
+        "open_questions_count": open_questions_count,
+        "last_activity": last_activity.isoformat() if last_activity else None,
         "started_at": session.started_at.isoformat() if session.started_at else None,
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
         "created_at": session.created_at.isoformat() if session.created_at else None,

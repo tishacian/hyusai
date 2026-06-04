@@ -16,6 +16,7 @@ from app.services.knowledge_capture import (
     approve_capture_plan,
     append_turn,
     build_open_questions,
+    build_quality_backlog,
     classify_conversation_intent,
     create_update_proposal,
     extend_capture_session,
@@ -27,6 +28,7 @@ from app.services.knowledge_capture import (
     serialize_session,
     start_session,
     structure_capture_payload,
+    update_oracle_question_statuses,
 )
 from app.services.capture_report_templates import (
     ANDRITZ_TEMPLATE_ID,
@@ -1396,6 +1398,86 @@ def test_build_open_questions_falls_back_to_oracle_taxonomy_for_free_conversatio
         assert item["status"] in {"open", "addressed"}
     priorities = [item["priority"] for item in open_questions]
     assert priorities == sorted(priorities, reverse=True)
+
+
+def test_oracle_question_statuses_are_persisted_and_applied_to_quality_backlog(db_session):
+    workspace = Workspace(id="ws-oracle-status", name="Oracle Status", slug="oracle-status")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture oracle status",
+        objective="Capturer les savoirs maintenance ligne.",
+        expert_profile="Senior field engineer",
+        duration_minutes=0,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+    first = build_open_questions(session)[0]
+    session.plan = {
+        **(session.plan or {}),
+        "open_questions": [{"gap_id": first["id"], "follow_up": first["text"]}],
+    }
+    db_session.commit()
+
+    update_oracle_question_statuses(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        items=[{"question_id": first["id"], "question_text": first["text"], "status": "dismissed"}],
+        actor_user_id="operator-1",
+    )
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    dismissed = [item for item in build_open_questions(reloaded) if item["id"] == first["id"]][0]
+    assert dismissed["status"] == "dismissed"
+    assert build_quality_backlog(reloaded, [])["open_questions"] == []
+
+    update_oracle_question_statuses(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        items=[{"question_id": first["id"], "question_text": first["text"], "status": "deferred"}],
+        actor_user_id="operator-1",
+    )
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    backlog = build_quality_backlog(reloaded, [])
+    assert backlog["open_questions"][0]["status"] == "deferred"
+
+
+def test_serialize_session_exposes_dashboard_summary_fields(db_session):
+    workspace = Workspace(id="ws-dashboard-summary", name="Dashboard Summary", slug="dashboard-summary")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture summary",
+        objective="Capturer les decisions maintenance ligne.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="On remplace la cartouche si la pression reste instable apres nettoyage et verification visuelle.",
+    )
+    payload = serialize_session(get_session(db_session, workspace_id=workspace.id, session_id=session.id))
+    assert payload["summary_short"]
+    assert "cartouche" in payload["summary_short"]
+    assert isinstance(payload["open_questions_count"], int)
+    assert payload["last_activity"]
+    assert payload["metrics"]["summary_short"] == payload["summary_short"]
 
 
 @pytest.mark.asyncio

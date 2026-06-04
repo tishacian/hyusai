@@ -74,6 +74,8 @@ interface OracleOpenQuestion {
   status?: string;
 }
 
+type OracleQuestionStatus = 'active' | 'open' | 'answered' | 'dismissed' | 'deferred';
+
 interface CaptureLiveSuggestion {
   id: string;
   kind: string;
@@ -125,6 +127,9 @@ interface CaptureSession {
   transcript?: Array<{ id: string; speaker: string; text: string }>;
   evaluations?: Array<{ verdict: string; score: number; follow_up?: string }>;
   metrics?: Record<string, number | string | null | undefined>;
+  summary_short?: string | null;
+  open_questions_count?: number | null;
+  last_activity?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
 }
@@ -198,7 +203,7 @@ interface RetrievalPrefetch {
 
 type ConversationMode = 'manual' | 'conversation_only';
 type CapturePlanMode = 'ai_plan' | 'provided_plan' | 'free_conversation' | 'plan_build';
-type CaptureSurfaceView = 'dashboard' | 'prep' | 'plan' | 'plan_build' | 'session' | 'review';
+type CaptureSurfaceView = 'dashboard' | 'prep' | 'plan' | 'plan_build' | 'session' | 'review' | 'publish';
 type QualityTab = 'imprecisions' | 'contradictions' | 'open_questions';
 
 interface QualityBacklogItem {
@@ -325,30 +330,22 @@ interface ProposalFact {
       <header class="t-card t-elevated rounded-lg p-5 flex items-start justify-between gap-4">
         <div>
           <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
-            {{ isDemoMode() ? 'Capture expert' : (systemScoped() ? 'System · Workbench' : 'Knowledge · Capture') }}
+            Capture
           </p>
           <h1 class="text-2xl font-semibold text-white mt-1">
-            {{ isDemoMode() ? 'Préserver le savoir terrain' : (systemScoped() ? systemLabel(systemId) || 'Expert Knowledge Capture' : 'Expert Knowledge Capture') }}
+            Capture de connaissances
           </h1>
-          <p class="text-sm text-gray-400 mt-2 max-w-3xl">
-            {{ isDemoMode()
-              ? 'Préparez une session, échangez avec l’expert, puis relisez les connaissances proposées avant intégration.'
-              : systemScoped()
-              ? 'Espace de capture dédié : préparer une session, échanger avec un expert, extraire les savoirs utiles et les relire avant intégration.'
-              : 'Capture guidée ou libre : partez d’un sujet, échangez avec l’expert, puis transformez les enseignements en proposition relue.' }}
-          </p>
+          @if (!isDemoMode()) {
+            <p class="text-sm text-gray-400 mt-2 max-w-3xl">
+              Préparez une session, échangez avec un expert, relisez le rapport, puis publiez la connaissance.
+            </p>
+          }
         </div>
         <div class="flex flex-col items-end gap-2">
           @if (!isDemoMode()) {
             <span class="text-xs px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
               Capture vocale
             </span>
-          }
-          <span class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-brand-500/10 ring-1 ring-brand-300/20 text-brand-100">
-            <app-icon name="shield-check" [size]="12" />
-            {{ isDemoMode() ? 'Revue humaine' : 'Trace & revue humaine' }}
-          </span>
-          @if (!isDemoMode()) {
             <span class="text-xs px-3 py-1.5 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
               {{ conversationMode() === 'conversation_only' ? 'Conversation libre' : 'Session guidée' }}
             </span>
@@ -416,27 +413,7 @@ interface ProposalFact {
               />
             </div>
 
-            <div>
-              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Sujet (optionnel — précisez à la voix)</label>
-              <div class="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  class="inline-flex h-11 w-11 items-center justify-center rounded-full bg-brand-500/20 text-brand-100 ring-1 ring-brand-300/30 hover:bg-brand-500/30"
-                  [attr.aria-label]="recording() ? 'Arrêter et transcrire la dictée' : 'Décrire le sujet à la voix'"
-                  [title]="recording() ? 'Arrêter et transcrire la dictée' : 'Décrire le sujet à la voix'"
-                  (click)="dictatePrepSubject()"
-                >
-                  <app-icon [name]="recording() ? 'square' : 'mic'" [size]="16" />
-                </button>
-                @if (objective.trim()) {
-                  <p class="text-sm text-gray-300 flex-1 min-w-[200px]">{{ objective }}</p>
-                } @else {
-                  <span class="text-xs text-gray-500">Décrivez le sujet à la voix (optionnel).</span>
-                }
-              </div>
-            </div>
-
-            @if (!isDemoMode()) {
+            @if (!isDemoMode() && showAdvancedSetup()) {
             <div>
               <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Domaine</label>
               <div class="grid md:grid-cols-3 gap-3">
@@ -572,52 +549,62 @@ interface ProposalFact {
             </div>
             }
 
-            <div class="grid md:grid-cols-[1fr_220px] gap-4">
+            <div class="grid md:grid-cols-[220px_minmax(0,1fr)] gap-5 items-start">
               <div>
-                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">
-                  {{ isDemoMode() ? 'Personne interrogée' : 'Expert' }}
-                </label>
-                <input
-                  class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
-                  [(ngModel)]="expertProfile"
-                />
-              </div>
-              @if (isDemoMode()) {
-              <div>
-                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Durée estimée (minutes)</label>
-                <input
-                  type="number"
-                  min="5"
-                  max="90"
-                  placeholder="15"
-                  class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
-                  [(ngModel)]="durationMinutes"
-                />
-                <p class="mt-2 text-xs text-gray-500">Optionnel — sert d’estimation pour le plan.</p>
-              </div>
-              } @else {
-              <div>
-                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Durée maximale</label>
-                @if (durationUnlimited()) {
+                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Durée estimée</label>
+                @if (!isDemoMode() && durationUnlimited()) {
                   <div class="rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-brand-100">Sans limite</div>
                 } @else {
                   <input
                     type="number"
                     min="5"
                     max="90"
+                    placeholder="20"
                     class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
                     [(ngModel)]="durationMinutes"
                   />
                 }
-                <button
-                  type="button"
-                  class="mt-2 text-xs text-brand-200 hover:text-brand-100"
-                  (click)="toggleDurationUnlimited()"
-                >
-                  {{ durationUnlimited() ? 'Fixer une durée' : 'Sans limite' }}
-                </button>
+                @if (!isDemoMode()) {
+                  <button
+                    type="button"
+                    class="mt-2 text-xs text-brand-200 hover:text-brand-100"
+                    (click)="toggleDurationUnlimited()"
+                  >
+                    {{ durationUnlimited() ? 'Fixer une durée' : 'Sans limite' }}
+                  </button>
+                }
               </div>
-              }
+              <div class="space-y-3">
+                <p class="block text-[11px] uppercase tracking-wider text-gray-500">Mode de capture</p>
+                <div class="grid md:grid-cols-2 gap-3">
+                  @for (mode of visiblePlanModes(); track mode.id) {
+                    <button
+                      type="button"
+                      [disabled]="mode.disabled"
+                      [class]="selectedPlanMode === mode.id
+                        ? 'text-left rounded-lg border border-brand-300 bg-brand-500/10 p-4 ring-1 ring-brand-300/40'
+                        : mode.disabled
+                          ? 'text-left rounded-lg border border-white/10 bg-white/[0.02] p-4 opacity-60 cursor-not-allowed'
+                          : 'text-left rounded-lg border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-4'"
+                      (click)="selectPlanMode(mode.id)"
+                    >
+                      <span class="flex items-start gap-3">
+                        <span
+                          [class]="selectedPlanMode === mode.id
+                            ? 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-brand-300 text-brand-200'
+                            : 'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded border border-white/10 text-gray-500'"
+                        >
+                          <app-icon [name]="mode.icon" [size]="16" />
+                        </span>
+                        <span class="min-w-0">
+                          <span class="block text-sm font-semibold text-white">{{ mode.label }}</span>
+                          <span class="mt-1 block text-xs leading-relaxed text-gray-500">{{ mode.description }}</span>
+                        </span>
+                      </span>
+                    </button>
+                  }
+                </div>
+              </div>
             </div>
 
             <div class="kc-sticky-action flex items-center justify-end gap-3 pt-4 rounded-t-lg border-t border-white/10 bg-black/75 px-1 py-3 backdrop-blur">
@@ -635,7 +622,7 @@ interface ProposalFact {
                 [title]="preparationBlockingHint() || ''"
                 (click)="continueFromPreparation()"
               >
-                Choisir le mode de capture
+                Continuer
                 <app-icon name="arrow-right" [size]="14" />
               </button>
             </div>
@@ -707,20 +694,19 @@ interface ProposalFact {
                   <div class="flex items-center justify-between gap-3">
                     <div>
                       <div class="text-sm font-semibold text-white">{{ row.title }}</div>
-                      <p class="text-xs text-gray-500 mt-1 line-clamp-1">{{ row.objective }}</p>
-                      @if (isAuthor(row)) {
+                      <p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ sessionCardSummary(row) }}</p>
+                      @if (!isDemoMode() && isAuthor(row)) {
                         <span class="mt-2 inline-flex px-2 py-0.5 rounded bg-brand-500/15 text-[10px] uppercase tracking-wider text-brand-200">
                           Auteur
                         </span>
                       }
                     </div>
-                    <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ workflowStatusLabel(row.status) }}</span>
+                    <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ captureSessionStatusLabel(row) }}</span>
                   </div>
-                  <div class="mt-3 grid grid-cols-3 gap-2 text-xs text-gray-400">
-                    <span>{{ isFreeConversationSession(row) ? 'capture libre' : planSubtopicCount(row) + ' sous-sujets' }}</span>
-                    <span>{{ row.metrics?.['captured_facts'] || 0 }} faits</span>
-                    @if (!isDemoMode()) {
-                      <span>{{ isFreeConversationSession(row) ? 'sans couverture' : coveragePercent(row) + '% couvert' }}</span>
+                  <div class="mt-3 flex flex-wrap gap-2 text-xs text-gray-400">
+                    <span>{{ sessionLastActivityLabel(row) }}</span>
+                    @if (sessionOpenQuestionCount(row) > 0) {
+                      <span class="text-amber-200">{{ sessionOpenQuestionCount(row) }} question(s) ouverte(s)</span>
                     }
                   </div>
                 </button>
@@ -806,14 +792,16 @@ interface ProposalFact {
                   <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
                     {{ captureProgressLabel(s) }}
                   </span>
-                  <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
-                    {{ s.metrics?.['captured_facts'] || 0 }} faits
-                  </span>
-                  <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
-                    {{ knowledgeScopeLabel() }}
-                  </span>
-                  @if (isAuthor(s)) {
-                    <span class="px-2 py-1 rounded bg-brand-500/15 text-brand-100 ring-1 ring-brand-300/20">Auteur</span>
+                  @if (!isDemoMode()) {
+                    <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
+                      {{ s.metrics?.['captured_facts'] || 0 }} faits
+                    </span>
+                    <span class="px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
+                      {{ knowledgeScopeLabel() }}
+                    </span>
+                    @if (isAuthor(s)) {
+                      <span class="px-2 py-1 rounded bg-brand-500/15 text-brand-100 ring-1 ring-brand-300/20">Auteur</span>
+                    }
                   }
                   @if (s.status === 'active') {
                     <button type="button" class="px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white text-xs" (click)="pauseSession(s)">Pause</button>
@@ -892,6 +880,7 @@ interface ProposalFact {
                   }
                 </div>
 
+                @if (!isDemoMode()) {
                 <div class="grid grid-cols-2 gap-2 text-xs shrink-0">
                   <div class="rounded bg-black/20 border border-white/10 p-3">
                     <span class="block text-[9px] uppercase tracking-wider text-gray-500">État</span>
@@ -904,6 +893,7 @@ interface ProposalFact {
                     </span>
                   </div>
                 </div>
+                }
 
                 <div class="flex-1 min-h-0 overflow-y-auto pr-1">
                 @if (isFreeConversationSession(s)) {
@@ -953,13 +943,22 @@ interface ProposalFact {
                 <section class="rounded border border-white/10 bg-black/20 p-3 shrink-0">
                   <div class="flex items-center justify-between gap-2">
                     <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Questions de l’oracle</p>
-                    <span class="text-[10px] text-gray-600">{{ oracleOpenQuestions().length }}</span>
+                    <span class="text-[10px] text-gray-600">{{ activeOracleQuestions().length }}</span>
                   </div>
                   <p class="mt-1 text-[10px] leading-relaxed text-gray-600">
-                    Ce que l’IA cherche à clarifier en interne — pas des questions qui vous sont posées.
+                    Questions utiles à clarifier pendant ou après l’échange.
                   </p>
+                  @if (activeOracleQuestions().length) {
+                    <button
+                      type="button"
+                      class="mt-2 text-[10px] text-gray-400 hover:text-gray-200"
+                      (click)="deferAllOracleQuestions()"
+                    >
+                      Traiter les questions plus tard
+                    </button>
+                  }
                   <div class="mt-2 space-y-2 max-h-[26vh] overflow-y-auto pr-1">
-                    @for (q of oracleOpenQuestions(); track q.id || q.text) {
+                    @for (q of activeOracleQuestions(); track q.id || q.text) {
                       <div class="rounded border border-white/10 bg-white/[0.03] p-2.5">
                         <div class="flex items-start gap-2">
                           <span [class]="oracleQuestionPriorityClass(q)" class="mt-1.5"></span>
@@ -973,6 +972,11 @@ interface ProposalFact {
                             <span class="text-[10px] text-gray-600">{{ priorityLabel }}</span>
                           }
                         </div>
+                        <div class="mt-2 flex flex-wrap gap-2 pl-3.5">
+                          <button type="button" class="text-[10px] text-brand-200 hover:text-brand-100" (click)="answerOracleQuestion(q)">Répondre</button>
+                          <button type="button" class="text-[10px] text-gray-400 hover:text-gray-200" (click)="dismissOracleQuestion(q)">Fermer</button>
+                          <button type="button" class="text-[10px] text-gray-400 hover:text-gray-200" (click)="deferOracleQuestion(q)">Plus tard</button>
+                        </div>
                       </div>
                     } @empty {
                       <p class="text-[11px] text-gray-600">
@@ -982,7 +986,7 @@ interface ProposalFact {
                   </div>
                 </section>
 
-                @if (isDemoMode()) {
+                @if (!isDemoMode() && showAdvancedSetup()) {
                   <section class="rounded border border-white/10 bg-black/20 p-3 shrink-0">
                     <div class="flex items-center justify-between gap-2">
                       <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Contexte retrouvé</p>
@@ -1300,10 +1304,10 @@ interface ProposalFact {
                         type="button"
                         class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50 sm:w-auto"
                         [disabled]="closureActionLoading() || recording() || transcribing() || !canCaptureExecute(s)"
-                        title="Clôturer la capture et produire la proposition Knowledge."
+                        title="Continuer vers le rapport."
                         (click)="applySessionClosure(s, 'finish')"
                       >
-                        <app-icon name="check-circle-2" [size]="14" /> Terminer la capture
+                        <app-icon name="arrow-right" [size]="14" /> Continuer
                       </button>
                     }
                     <div class="min-w-0 w-full flex items-center gap-3 rounded bg-white/[0.03] px-3 py-2 sm:min-w-40 sm:flex-1">
@@ -1330,7 +1334,7 @@ interface ProposalFact {
                     <div class="flex items-center gap-2 text-xs text-gray-400">
                       <span class="px-2 py-1 rounded bg-white/5">{{ sessionStartStateLabel(s) }}</span>
                       <span class="px-2 py-1 rounded bg-white/5">{{ recording() ? 'enregistrement' : 'prêt' }}</span>
-                      <span class="px-2 py-1 rounded bg-white/5">{{ speaking() ? 'lecture IA' : 'TTS prêt' }}</span>
+                      <span class="px-2 py-1 rounded bg-white/5">{{ speaking() ? 'restitution' : 'voix prête' }}</span>
                     </div>
                     }
                   </div>
@@ -1925,7 +1929,7 @@ interface ProposalFact {
                   [disabled]="loading() || extractingPlanSource() || !canSubmitProvidedPlanSource()"
                   (click)="createPlan()"
                 >
-                  {{ loading() ? 'Construction...' : 'Construire le bloc plan' }}
+                  {{ loading() ? 'Préparation...' : 'Continuer' }}
                   <app-icon name="arrow-right" [size]="14" />
                 </button>
               </div>
@@ -2013,14 +2017,14 @@ interface ProposalFact {
             <div class="t-card rounded-lg p-5 space-y-4">
               <div>
                 <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">
-                  {{ isProvidedPlanSession(s) ? 'Plan fourni' : 'Co-construction du plan' }}
+                  {{ isProvidedPlanSession(s) ? 'Plan fourni' : 'Modifier le plan' }}
                 </p>
                 <h2 class="mt-2 text-2xl text-white font-semibold">{{ s.title }}</h2>
                 <p class="mt-2 text-sm text-gray-400">
                   @if (isProvidedPlanSession(s)) {
                     Ajustez l’arborescence importée, puis validez les sujets.
                   } @else {
-                    Validez l’arborescence de sujets.
+                    Modifiez l’arborescence, puis continuez vers la capture.
                   }
                 </p>
               </div>
@@ -2051,22 +2055,15 @@ interface ProposalFact {
             </div>
             <aside class="t-card rounded-lg p-5 space-y-4">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Assistant de cadrage</p>
-                <p class="mt-2 text-sm text-gray-300 leading-relaxed">{{ planDialoguePrompt() || 'Décrivez le sujet pour commencer.' }}</p>
-              </div>
-              <div class="rounded border border-white/10 bg-black/20 p-4 space-y-3 max-h-52 overflow-auto">
-                @for (turn of planDialogueTurns(s); track turn.id) {
-                  <p class="text-sm text-gray-200">{{ turn.text }}</p>
-                } @empty {
-                  <p class="text-sm text-gray-500">Aucun échange pour l’instant.</p>
-                }
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Modifier le plan</p>
+                <p class="mt-2 text-sm text-gray-300 leading-relaxed">Indiquez quoi ajouter, déplacer ou reformuler dans le plan à gauche.</p>
               </div>
               <div class="flex items-start gap-2">
                 <textarea
                   class="w-full min-h-24 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white disabled:opacity-60"
                   [(ngModel)]="planDialogueAnswer"
                   [disabled]="planDialogueLoading()"
-                  placeholder="Votre réponse…"
+                  placeholder="Ajoutez un point, fusionnez deux sections, simplifiez les titres..."
                 ></textarea>
                 <button
                   type="button"
@@ -2082,7 +2079,7 @@ interface ProposalFact {
                 <button
                   type="button"
                   class="inline-flex items-center gap-2 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white disabled:opacity-50"
-                  title="Ajoute votre réponse au cadrage et met à jour le plan de sujets proposé."
+                  title="Applique votre instruction au plan courant."
                   [disabled]="planDialogueLoading()"
                   (click)="submitPlanDialogueTurn(s)"
                 >
@@ -2090,17 +2087,17 @@ interface ProposalFact {
                     <span class="inline-block h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin"></span>
                     Analyse…
                   } @else {
-                    Envoyer
+                    Appliquer
                   }
                 </button>
                 <button
                   type="button"
                   class="px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
-                  title="Valide le plan de sujets co-construit pendant le cadrage. Disponible dès qu’un sujet existe."
+                  title="Continue vers la capture avec le plan courant."
                   [disabled]="(!planDialogueReady(s) && !planTopics(s).length) || planDialogueLoading()"
                   (click)="finalizePlanBuild(s)"
                 >
-                  Valider le plan
+                  Continuer
                 </button>
               </div>
               @if (planDialogueLoading()) {
@@ -2124,12 +2121,12 @@ interface ProposalFact {
           <div class="t-card rounded-lg p-5 space-y-4">
             <div class="flex items-start justify-between gap-4">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Proposition Knowledge</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Rapport</p>
                 <h2 class="text-lg font-semibold text-white">
-                  {{ proposal()?.proposal?.title || session()?.title || 'Relire les changements avant ingestion' }}
+                  {{ proposal()?.proposal?.title || session()?.title || 'Relire le rapport' }}
                 </h2>
                 <p class="text-sm text-gray-500 mt-1 max-w-3xl">
-                  Rapport structuré selon le plan, librement éditable avant validation et publication.
+                  Relisez et corrigez le document qui sera publié.
                 </p>
               </div>
               @if (proposal(); as p) {
@@ -2166,12 +2163,13 @@ interface ProposalFact {
 
           <aside class="t-card rounded-lg p-5 space-y-4">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Contrôles de revue</p>
-              <h3 class="text-sm font-semibold text-white mt-1">Validation humaine</h3>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Relecture</p>
+              <h3 class="text-sm font-semibold text-white mt-1">Questions ouvertes</h3>
               @if (iamRoleBanner(); as banner) {
                 <p class="mt-2 text-xs text-brand-100/80">{{ banner }}</p>
               }
             </div>
+            @if (!isDemoMode() && showAdvancedSetup()) {
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div class="rounded bg-black/20 border border-white/10 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-gray-500">Rapport</div>
@@ -2190,6 +2188,7 @@ interface ProposalFact {
                 <div class="text-sm text-white font-semibold">{{ proposalReviewStateLabel() }}</div>
               </div>
             </div>
+            }
             @if (proposalOpenQuestions().length) {
               <div class="rounded bg-amber-500/10 border border-amber-400/20 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-amber-200">Relances ouvertes</div>
@@ -2198,16 +2197,23 @@ interface ProposalFact {
                 }
               </div>
             }
-            <label class="block text-[10px] uppercase tracking-wider text-gray-500">Résumé exécutif</label>
-            <textarea
-              class="w-full min-h-20 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
-              [(ngModel)]="executiveSummary"
-              placeholder="Synthèse éditable avant publication..."
-            ></textarea>
-            @if (residualQualityCount() > 0) {
+            @if (!proposalOpenQuestions().length) {
+              <div class="rounded border border-white/10 bg-black/20 p-3 text-xs text-gray-400">
+                Aucune question ouverte détectée pour ce rapport.
+              </div>
+            }
+            @if (!isDemoMode() && showAdvancedSetup()) {
+              <label class="block text-[10px] uppercase tracking-wider text-gray-500">Résumé exécutif</label>
+              <textarea
+                class="w-full min-h-20 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
+                [(ngModel)]="executiveSummary"
+                placeholder="Synthèse éditable avant publication..."
+              ></textarea>
+            }
+            @if (!isDemoMode() && showAdvancedSetup() && residualQualityCount() > 0) {
               <p class="text-xs text-amber-200/90">{{ residualQualityCount() }} point(s) de qualité encore ouverts</p>
             }
-            @if (postSessionQualityItems().length) {
+            @if (!isDemoMode() && showAdvancedSetup() && postSessionQualityItems().length) {
               <section class="rounded border border-amber-500/25 bg-amber-500/5 p-3 space-y-2">
                 <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">Points qualité</p>
                 @for (item of postSessionQualityItems(); track item.id || item.label) {
@@ -2231,25 +2237,13 @@ interface ProposalFact {
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50"
-                [disabled]="!proposalReportText() || proposalReportSaving() || !canProposalReview(p)"
+                [disabled]="!proposalReportText() || proposalReportSaving() || !canContinueFromReview(p)"
                 [title]="proposalReviewHint(p)"
-                (click)="acceptProposal(p.id)"
+                (click)="continueFromReview(p)"
               >
-                <app-icon name="check-circle-2" [size]="14" /> Valider la proposition
+                <app-icon name="arrow-right" [size]="14" /> Continuer
               </button>
               @if (proposalReviewHint(p); as hint) {
-                <p class="text-[11px] leading-relaxed text-gray-500">{{ hint }}</p>
-              }
-              <button
-                type="button"
-                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500/20 text-sm text-brand-100 ring-1 ring-brand-300/30 disabled:opacity-50"
-                [disabled]="p.status !== 'accepted' || !canProposalPublish(p)"
-                [title]="proposalPublishHint(p)"
-                (click)="publishToKnowledge(p.id)"
-              >
-                <app-icon name="upload" [size]="14" /> Publier dans Knowledge
-              </button>
-              @if (proposalPublishHint(p); as hint) {
                 <p class="text-[11px] leading-relaxed text-gray-500">{{ hint }}</p>
               }
               <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" (click)="exportProposalMd()">
@@ -2263,9 +2257,11 @@ interface ProposalFact {
               >
                 {{ proposalReportSaving() ? 'Enregistrement…' : 'Enregistrer le rapport' }}
               </button>
-              <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" [disabled]="!session()" (click)="regenerateProposal()">
-                Régénérer la proposition
-              </button>
+              @if (!isDemoMode() && showAdvancedSetup()) {
+                <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" [disabled]="!session()" (click)="regenerateProposal()">
+                  Régénérer la proposition
+                </button>
+              }
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
@@ -2285,6 +2281,96 @@ interface ProposalFact {
             }
           </aside>
         </section>
+      }
+
+      @if (activeSurface() === 'publish') {
+        @if (proposal(); as p) {
+          <section class="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
+            <div class="t-card rounded-lg p-5 space-y-5">
+              <div>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Publication</p>
+                <h2 class="text-lg font-semibold text-white mt-1">
+                  {{ p.proposal?.title || session()?.title || 'Publier le rapport' }}
+                </h2>
+                <p class="text-sm text-gray-500 mt-1 max-w-3xl">
+                  Vérifiez la catégorie et la destination avant de publier le rapport.
+                </p>
+              </div>
+
+              <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Catégorie</label>
+                  <select
+                    class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
+                    [(ngModel)]="publicationCategory"
+                  >
+                    @for (option of publicationCategoryOptions; track option.id) {
+                      <option [value]="option.id">{{ option.label }}</option>
+                    }
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Destination</label>
+                  <input
+                    class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
+                    [(ngModel)]="publicationDestination"
+                    [placeholder]="publicationDestinationLabel()"
+                  />
+                </div>
+              </div>
+
+              <div class="rounded border border-white/10 bg-black/20 p-4">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Ce qui sera publié</p>
+                <p class="mt-2 text-sm text-gray-200 leading-relaxed">
+                  {{ proposalReportWordCount() }} mots dans le rapport final.
+                  @if (proposalOpenQuestions().length) {
+                    {{ proposalOpenQuestions().length }} question(s) ouverte(s) seront conservées en fin de document.
+                  } @else {
+                    Aucune question ouverte détectée.
+                  }
+                </p>
+              </div>
+
+              <div class="rounded border border-white/10 bg-black/20 p-4 max-h-96 overflow-auto">
+                <pre class="whitespace-pre-wrap text-sm leading-relaxed text-gray-200">{{ proposalReportText() }}</pre>
+              </div>
+            </div>
+
+            <aside class="t-card rounded-lg p-5 space-y-4 xl:sticky xl:top-4">
+              <div>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Validation finale</p>
+                <h3 class="text-sm font-semibold text-white mt-1">Prêt à publier</h3>
+              </div>
+              <div class="rounded border border-white/10 bg-black/20 p-3 text-xs text-gray-300 space-y-2">
+                <p><span class="text-gray-500">Catégorie :</span> {{ publicationCategoryLabel() }}</p>
+                <p><span class="text-gray-500">Destination :</span> {{ effectivePublicationDestination() }}</p>
+                <p><span class="text-gray-500">État :</span> {{ proposalReviewStateLabel() }}</p>
+              </div>
+              @if (proposalPublishHint(p); as hint) {
+                <p class="text-[11px] leading-relaxed text-amber-200/85">{{ hint }}</p>
+              }
+              <button
+                type="button"
+                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                (click)="goSurface('review')"
+              >
+                <app-icon name="arrow-left" [size]="14" /> Retour au rapport
+              </button>
+              <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" (click)="exportProposalMd()">
+                Télécharger
+              </button>
+              <button
+                type="button"
+                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+                [disabled]="p.status !== 'accepted' || !canProposalPublish(p)"
+                [title]="proposalPublishHint(p) || ''"
+                (click)="publishToKnowledge(p.id)"
+              >
+                <app-icon name="upload" [size]="14" /> Publier
+              </button>
+            </aside>
+          </section>
+        }
       }
     </section>
   `,
@@ -2333,6 +2419,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   providedPlanFileName = '';
   planDialogueAnswer = '';
   executiveSummary = '';
+  publicationCategory = 'technical';
+  publicationDestination = '';
   dashboardDomainFilter = '';
   readonly durationUnlimited = signal(false);
   readonly qualityTab = signal<QualityTab>('imprecisions');
@@ -2362,20 +2450,28 @@ export class KnowledgeCaptureComponent implements OnInit {
     { id: 'commercial', label: 'Commercial', description: 'Marchés, comptes, affaires' },
     { id: 'innovation', label: 'Innovation', description: 'R&D, prototypes, exploration' },
   ];
+  readonly publicationCategoryOptions = [
+    { id: 'technical', label: 'Technique' },
+    { id: 'commercial', label: 'Commercial' },
+    { id: 'innovation', label: 'Innovation' },
+    { id: 'maintenance', label: 'Maintenance' },
+    { id: 'operation', label: 'Opération' },
+    { id: 'other', label: 'Autre' },
+  ];
   readonly visiblePlanModes = computed(() => {
     if (this.isDemoMode()) {
       return [
         {
           id: 'plan_build' as CapturePlanMode,
-          label: 'Session avec plan',
-          description: 'L’expert décrit le sujet (voix ou texte) et l’IA co-construit un plan de sujets ancré sur ses propos.',
+          label: 'Avec plan',
+          description: 'Construire un plan simple avant l’échange.',
           icon: 'layout-grid',
           recommended: false,
         },
         {
           id: 'free_conversation' as CapturePlanMode,
-          label: 'Démarrer directement',
-          description: 'L’expert parle librement, l’IA extrait les points importants au fil de l’échange.',
+          label: 'Sans plan',
+          description: 'Démarrer directement et structurer après l’échange.',
           icon: 'activity',
           recommended: false,
         },
@@ -2391,29 +2487,29 @@ export class KnowledgeCaptureComponent implements OnInit {
     }> = [
       {
         id: 'free_conversation',
-        label: 'Capture libre',
-        description: 'Conversation directe, sans plan ni questions imposées.',
+        label: 'Sans plan',
+        description: 'Démarrer directement et structurer après l’échange.',
         icon: 'activity',
         recommended: false,
       },
       {
         id: 'plan_build',
-        label: 'Construire un plan',
-        description: 'Échanges de cadrage vocaux ou texte, puis bloc de plan éditable.',
+        label: 'Avec plan',
+        description: 'Construire un plan simple avant l’échange.',
         icon: 'layout-grid',
         recommended: false,
       },
       {
         id: 'provided_plan',
-        label: 'Plan fourni',
-        description: 'Fichier ou texte libre, transformé en bloc de plan éditable.',
+        label: 'Importer un plan',
+        description: 'Coller un texte ou importer un fichier source unique.',
         icon: 'file-text',
         recommended: false,
       },
       {
         id: 'ai_plan',
-        label: 'L’IA propose un plan',
-        description: 'Génère un plan d’entretien depuis le sujet, le profil expert et le contexte Knowledge.',
+        label: 'Plan assisté',
+        description: 'Préparer un plan depuis le titre et le contexte disponible.',
         icon: 'zap',
         recommended: false,
       },
@@ -2526,6 +2622,9 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly relanceAnnotations = signal<Array<{ id: string; order: number; text: string; kind: RelanceKind }>>([]);
   // New non-blocking model: oracle's own working questions, passive suggestions.
   readonly oracleOpenQuestions = signal<OracleOpenQuestion[]>([]);
+  readonly activeOracleQuestions = computed(() =>
+    this.oracleOpenQuestions().filter((question) => !['answered', 'dismissed', 'deferred'].includes(question.status || '')),
+  );
   readonly captureSuggestions = signal<CaptureLiveSuggestion[]>([]);
   private dismissedSuggestionKeys = new Set<string>();
 
@@ -2534,7 +2633,8 @@ export class KnowledgeCaptureComponent implements OnInit {
     { id: 'prep', label: 'Préparation', icon: 'sliders-horizontal', step: 2 },
     { id: 'plan', label: 'Plan', icon: 'list-checks', step: 3 },
     { id: 'session', label: 'Capture', icon: 'mic', step: 4 },
-    { id: 'review', label: 'Proposition', icon: 'check-circle-2', step: 5 },
+    { id: 'review', label: 'Rapport', icon: 'file-text', step: 5 },
+    { id: 'publish', label: 'Publier', icon: 'upload', step: 6 },
   ];
 
   surfaceNavLabel(item: { id: CaptureSurfaceView; label: string }): string {
@@ -2544,8 +2644,9 @@ export class KnowledgeCaptureComponent implements OnInit {
       prep: 'Sujet',
       plan: 'Plan',
       plan_build: 'Plan',
-      session: 'Échange',
-      review: 'Validation',
+      session: 'Capture',
+      review: 'Rapport',
+      publish: 'Publier',
     };
     return labels[item.id] || item.label;
   }
@@ -2659,6 +2760,8 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.providedPlanFileName = '';
     this.planDialogueAnswer = '';
     this.executiveSummary = '';
+    this.publicationCategory = 'technical';
+    this.publicationDestination = '';
     this.planSourceStep.set(false);
     this.extractingPlanSource.set(false);
     this.conversationMode.set(this.isDemoMode() ? 'conversation_only' : 'manual');
@@ -2677,7 +2780,12 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     this.resetCurrentCaptureSessionState();
     this.planSourceStep.set(false);
-    this.activeSurface.set('plan');
+    if (this.selectedPlanMode === 'provided_plan') {
+      this.planSourceStep.set(true);
+      this.activeSurface.set('plan');
+      return;
+    }
+    this.createPlan();
   }
 
   preparationBlockingHint(): string | null {
@@ -2807,11 +2915,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   planModeActionLabel(): string {
-    if (this.selectedPlanMode === 'free_conversation') return 'Créer la session';
-    if (this.selectedPlanMode === 'ai_plan') return 'Générer le plan';
-    if (this.selectedPlanMode === 'plan_build') return 'Co-construire le plan';
-    if (this.selectedPlanMode === 'provided_plan') return 'Continuer';
-    return 'Préparer la session';
+    return 'Continuer';
   }
 
   continuePlanModeSelection(): void {
@@ -2825,6 +2929,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   backToPlanModeSelection(): void {
     this.planSourceStep.set(false);
+    this.activeSurface.set('prep');
   }
 
   canNavigateTo(view: CaptureSurfaceView): boolean {
@@ -2832,7 +2937,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     const current = this.session();
     if (view === 'plan') {
       if (!current) {
-        return this.canCaptureCreate() && Boolean(this.sessionTitle.trim());
+        return this.planSourceStep() && this.canCaptureCreate() && Boolean(this.sessionTitle.trim());
       }
       if (this.isFreeConversationSession(current)) return false;
       if (this.isPlanBuildSession(current)) {
@@ -2847,11 +2952,14 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     if (view === 'session') {
       if (!current) return false;
-      if (this.isPlanBuildSession(current)) return false;
+      if (this.isPlanBuildSession(current)) return this.planTopics(current).length > 0;
       return current.status === 'active' || current.status === 'paused' || this.stepIsComplete('plan');
     }
     if (view === 'review') {
       return Boolean(this.proposal()) || current?.status === 'completed';
+    }
+    if (view === 'publish') {
+      return Boolean(this.proposal()) && Boolean(this.proposalReportText());
     }
     return false;
   }
@@ -3103,6 +3211,46 @@ export class KnowledgeCaptureComponent implements OnInit {
     return this.dashboardProposals().filter((row) => row.status === 'pending_review').length;
   }
 
+  sessionCardSummary(session: CaptureSession): string {
+    if (session.summary_short?.trim()) return session.summary_short.trim();
+    const summary = session.metrics?.['summary_short'];
+    if (typeof summary === 'string' && summary.trim()) return summary.trim();
+    if (session.objective?.trim()) return session.objective.trim();
+    if (this.isFreeConversationSession(session)) return 'Capture libre à reprendre.';
+    const topics = this.planTopics(session).map((topic) => topic.title).filter(Boolean).slice(0, 2);
+    return topics.length ? `Plan : ${topics.join(', ')}` : 'Session de capture.';
+  }
+
+  sessionOpenQuestionCount(session: CaptureSession): number {
+    const topLevel = Number(session.open_questions_count);
+    if (Number.isFinite(topLevel) && topLevel > 0) return topLevel;
+    const fromMetrics = Number(session.metrics?.['open_questions_count']);
+    if (Number.isFinite(fromMetrics) && fromMetrics > 0) return fromMetrics;
+    return this.proposalOpenQuestions().length && this.proposal()?.session_id === session.id
+      ? this.proposalOpenQuestions().length
+      : 0;
+  }
+
+  captureSessionStatusLabel(session: CaptureSession): string {
+    if (session.status === 'completed' && this.sessionOpenQuestionCount(session) > 0) {
+      return 'terminée avec questions ouvertes';
+    }
+    if (session.status === 'completed') return 'terminée';
+    if (session.status === 'active' || session.status === 'paused' || session.status === 'planned') return 'en cours';
+    return this.workflowStatusLabel(session.status);
+  }
+
+  sessionLastActivityLabel(session: CaptureSession): string {
+    const metricActivity = session.metrics?.['last_activity'];
+    const activity =
+      session.last_activity ||
+      (typeof metricActivity === 'string' ? metricActivity : null) ||
+      session.completed_at ||
+      session.started_at;
+    if (!activity) return this.isFreeConversationSession(session) ? 'sans plan' : `${this.planSubtopicCount(session)} sous-sujet(s)`;
+    return `Dernière activité ${new Date(activity).toLocaleDateString()}`;
+  }
+
   workflowStatusLabel(status?: string | null): string {
     const normalized = String(status || '').toLowerCase();
     const labels: Record<string, string> = {
@@ -3120,7 +3268,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   stepIsComplete(view: CaptureSurfaceView): boolean {
-    const order: CaptureSurfaceView[] = ['dashboard', 'prep', 'plan', 'plan_build', 'session', 'review'];
+    const order: CaptureSurfaceView[] = ['dashboard', 'prep', 'plan', 'plan_build', 'session', 'review', 'publish'];
     const activeIndex = order.indexOf(this.activeSurface());
     const viewIndex = order.indexOf(view);
     const current = this.session();
@@ -3132,6 +3280,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       return Number(current?.metrics?.['captured_facts'] || 0) > 0 || current?.status === 'active';
     }
     if (view === 'review') return Boolean(this.proposal());
+    if (view === 'publish') return this.proposal()?.status === 'published';
     return activeIndex > 0;
   }
 
@@ -3174,11 +3323,18 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   proposalReviewHint(proposal?: CaptureProposal | null): string | null {
     if (!this.proposalReportText()) return 'Ajoutez ou générez un rapport avant validation.';
+    if (proposal?.status === 'accepted') return null;
     if (!this.canProposalReview(proposal)) return 'Votre rôle peut préparer la proposition, mais pas la valider.';
     if (this.proposalEvidenceCount() === 0) {
       return 'Aucune preuve documentaire attachée : validation possible, mais à traiter comme connaissance expert non sourcée.';
     }
     return null;
+  }
+
+  canContinueFromReview(proposal?: CaptureProposal | null): boolean {
+    if (!proposal || !this.proposalReportText()) return false;
+    if (proposal.status === 'accepted') return true;
+    return this.canProposalReview(proposal);
   }
 
   proposalReportText(): string {
@@ -3204,6 +3360,18 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (proposal?.status !== 'accepted') return 'Validez d’abord la proposition avant publication.';
     if (!this.canProposalPublish(proposal)) return 'La publication Knowledge requiert le droit d’ingestion.';
     return null;
+  }
+
+  publicationCategoryLabel(): string {
+    return this.publicationCategoryOptions.find((option) => option.id === this.publicationCategory)?.label || 'Autre';
+  }
+
+  publicationDestinationLabel(): string {
+    return this.selectedContext()?.environment_state?.collection || this.selectedContext()?.name || 'Destination Knowledge workspace';
+  }
+
+  effectivePublicationDestination(): string {
+    return this.publicationDestination.trim() || this.publicationDestinationLabel();
   }
 
   isAuthor(session?: CaptureSession | null): boolean {
@@ -3802,6 +3970,90 @@ export class KnowledgeCaptureComponent implements OnInit {
     return 'inline-block h-1.5 w-1.5 rounded-full bg-brand-300/70';
   }
 
+  answerOracleQuestion(question: OracleOpenQuestion): void {
+    this.markOracleQuestion(question, 'answered');
+    this.persistOracleQuestionStatuses([{ question, status: 'answered' }]);
+    const text = (question.text || '').trim();
+    if (text) {
+      this.answer = this.answer.trim() ? `${this.answer.trim()}\n\n${text}` : text;
+    }
+  }
+
+  dismissOracleQuestion(question: OracleOpenQuestion): void {
+    this.markOracleQuestion(question, 'dismissed');
+    this.persistOracleQuestionStatuses([{ question, status: 'dismissed' }]);
+  }
+
+  deferOracleQuestion(question: OracleOpenQuestion): void {
+    this.markOracleQuestion(question, 'deferred');
+    this.persistOracleQuestionStatuses([{ question, status: 'deferred' }]);
+  }
+
+  deferAllOracleQuestions(): void {
+    const active = this.activeOracleQuestions();
+    if (!active.length) return;
+    this.oracleOpenQuestions.update((questions) =>
+      questions.map((question) => {
+        const key = question.id || question.text || '';
+        return active.some((item) => (item.id || item.text || '') === key)
+          ? { ...question, status: 'deferred' }
+          : question;
+      }),
+    );
+    this.persistOracleQuestionStatuses(active.map((question) => ({ question, status: 'deferred' })));
+  }
+
+  private markOracleQuestion(target: OracleOpenQuestion, status: OracleQuestionStatus): void {
+    const targetKey = target.id || target.text || '';
+    this.oracleOpenQuestions.update((questions) =>
+      questions.map((question) => {
+        const key = question.id || question.text || '';
+        return key === targetKey ? { ...question, status } : question;
+      }),
+    );
+  }
+
+  private persistOracleQuestionStatuses(
+    items: Array<{ question: OracleOpenQuestion; status: OracleQuestionStatus }>,
+  ): void {
+    const session = this.session();
+    if (!session || !items.length) return;
+    this.api
+      .patchCaptureOracleQuestions(session.id, {
+        items: items.map(({ question, status }) => ({
+          question_id: question.id || null,
+          question_text: question.text || null,
+          status,
+        })),
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          const typed = payload as { session?: CaptureSession; open_questions?: OracleOpenQuestion[] };
+          if (typed.session) {
+            this.session.set(typed.session);
+          }
+          if (Array.isArray(typed.open_questions)) {
+            this.oracleOpenQuestions.set(
+              typed.open_questions
+                .map((question) => ({
+                  id: question.id != null ? String(question.id) : undefined,
+                  text: String(question.text || '').trim(),
+                  topic_id: question.topic_id != null ? String(question.topic_id) : undefined,
+                  priority:
+                    typeof question.priority === 'number'
+                      ? question.priority
+                      : Number(question.priority) || undefined,
+                  status: question.status != null ? String(question.status) : undefined,
+                }))
+                .filter((question) => question.text),
+            );
+          }
+          this.refreshQualityBacklog(session.id);
+        },
+      });
+  }
+
   private pushRelanceAnnotation(relance?: CaptureRelance | null): void {
     if (!relance || !relance.kind || !relance.text || !relance.text.trim()) return;
     const order = (this.events().at(-1)?.sequence ?? 0) + 0.5;
@@ -3833,11 +4085,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     const labels: Record<Voice2VoiceState, string> = {
       idle: 'Prêt',
       listening: 'Écoute en cours',
-      partial_transcribing: 'Transcription live',
-      retrieving: 'Contexte en parallèle',
+      partial_transcribing: 'Transcription',
+      retrieving: 'Préparation',
       oracle_updating: 'Analyse qualité',
-      thinking: 'Évaluation',
-      speaking: 'Lecture IA',
+      thinking: 'Analyse',
+      speaking: 'Restitution',
       interrupted: 'Interrompu',
     };
     return labels[this.voiceState()];
@@ -4340,7 +4592,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   planDialogueReadyHint(session: CaptureSession): string | null {
     if (this.planDialogueReady(session)) return null;
-    return 'Envoyez une description du sujet : le plan se construit, puis « Valider le plan » s’active.';
+    return 'Ajoutez une instruction ou complétez le plan : « Continuer » s’active dès qu’un sujet existe.';
   }
 
   private apiErrorMessage(err: unknown, fallback: string): string {
@@ -4375,8 +4627,8 @@ export class KnowledgeCaptureComponent implements OnInit {
                 this.resetPlanOutlineDraft(typed);
                 this.questionBankStatus.set(String(typed.plan.question_bank_status || 'generating'));
                 this.planDialogueLoading.set(false);
-                this.planNotice.set({ tone: 'success', text: 'Plan validé — vous pouvez démarrer la capture.' });
-                this.activeSurface.set('plan');
+                this.planNotice.set(null);
+                this.activeSurface.set('session');
                 this.pollQuestionBankStatus(session.id);
               },
               error: (err) => {
@@ -4457,6 +4709,13 @@ export class KnowledgeCaptureComponent implements OnInit {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
+    if (this.providedPlanText.trim() || this.providedPlanFileName) {
+      const confirmed = window.confirm('Ce fichier remplacera le plan courant. Continuer ?');
+      if (!confirmed) {
+        input.value = '';
+        return;
+      }
+    }
     this.providedPlanFileName = file.name;
     this.extractingPlanSource.set(true);
     this.api
@@ -4580,7 +4839,10 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     this.persistProposalReport(proposalId, () => {
       this.api
-        .publishCaptureProposal(proposalId)
+        .publishCaptureProposal(proposalId, {
+          category: this.publicationCategory,
+          destination: this.effectivePublicationDestination(),
+        })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () => this.setVoiceNotice('Publication dans Knowledge lancée.', 'info'),
@@ -4946,7 +5208,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       {
         id: 'prompt',
         label: 'Relance',
-        detail: this.speaking() ? 'lecture IA' : this.currentQuestion()?.id || 'sujet sélectionné',
+        detail: this.speaking() ? 'restitution' : this.currentQuestion()?.id || 'sujet sélectionné',
         icon: 'volume-2',
         state: !started ? 'pending' : this.speaking() ? 'active' : 'done',
       },
@@ -5336,6 +5598,31 @@ export class KnowledgeCaptureComponent implements OnInit {
         .subscribe((proposal) => {
           this.setProposal(proposal as CaptureProposal);
           this.refreshDashboard();
+        });
+    });
+  }
+
+  continueFromReview(proposal: CaptureProposal): void {
+    if (!this.canContinueFromReview(proposal)) {
+      this.setVoiceNotice('Relisez le rapport avant de continuer.', 'warning');
+      return;
+    }
+    if (proposal.status === 'accepted') {
+      this.activeSurface.set('publish');
+      return;
+    }
+    this.persistProposalReport(proposal.id, () => {
+      this.api
+        .reviewCaptureProposal(proposal.id, {
+          status: 'accepted',
+          reviewer: 'demo-operator',
+          review_notes: 'Rapport validé avant publication.',
+        })
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe((updated) => {
+          this.setProposal(updated as CaptureProposal);
+          this.refreshDashboard();
+          this.activeSurface.set('publish');
         });
     });
   }

@@ -129,9 +129,9 @@ interface PipelineStage {
           actions
           [routerLink]="['/systems', systemId, 'capture']"
           class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
-          title="Open this system's dedicated capture UI"
+          title="Lancer une capture de connaissances"
         >
-          <app-icon name="mic" [size]="14" /> Capture console
+          <app-icon name="mic" [size]="14" /> Capture de connaissances
         </a>
       }
       <button

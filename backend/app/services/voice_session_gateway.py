@@ -1259,7 +1259,11 @@ class VoiceSessionGateway:
             open_questions = build_open_questions(capture_session)
         except Exception:
             open_questions = []
-        for item in [q for q in open_questions if q.get("status") != "addressed"][:3]:
+        for item in [
+            q
+            for q in open_questions
+            if q.get("status") not in {"addressed", "answered", "dismissed", "deferred"}
+        ][:3]:
             text = str(item.get("text") or "").strip()
             if text:
                 parts.append(text)

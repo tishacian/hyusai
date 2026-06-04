@@ -411,6 +411,19 @@ export class ApiService {
     return this.post<CaptureQualityBacklog>(`/knowledge-capture/sessions/${sessionId}/quality/defer`, body);
   }
 
+  patchCaptureOracleQuestions(
+    sessionId: string,
+    body: {
+      items: Array<{
+        question_id?: string | null;
+        question_text?: string | null;
+        status: 'active' | 'open' | 'answered' | 'dismissed' | 'deferred';
+      }>;
+    },
+  ): Observable<unknown> {
+    return this.patch(`/knowledge-capture/sessions/${sessionId}/oracle-questions`, body);
+  }
+
   patchCaptureSessionFlags(
     sessionId: string,
     body: {
@@ -486,8 +499,11 @@ export class ApiService {
     return this.post<{ markdown: string }>(`/knowledge-capture/sessions/${sessionId}/proposal/export`, body);
   }
 
-  publishCaptureProposal(proposalId: string): Observable<unknown> {
-    return this.post(`/knowledge-capture/proposals/${proposalId}/publish`);
+  publishCaptureProposal(
+    proposalId: string,
+    body?: { category?: string | null; destination?: string | null },
+  ): Observable<unknown> {
+    return this.post(`/knowledge-capture/proposals/${proposalId}/publish`, body || {});
   }
 
   updateCapturePlan(sessionId: string, plan: Record<string, unknown>): Observable<unknown> {

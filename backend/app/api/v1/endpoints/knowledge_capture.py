@@ -31,6 +31,7 @@ from app.services.knowledge_capture import (
     append_turn,
     apply_session_closure_action,
     approve_capture_plan,
+    build_open_questions,
     build_quality_backlog,
     build_session_closure_sheet,
     create_capture_plan,
@@ -56,6 +57,7 @@ from app.services.knowledge_capture import (
     serialize_proposal,
     serialize_session,
     start_session,
+    update_oracle_question_statuses,
     update_proposal_report_content,
     update_capture_session_flags,
     update_plan_topics,
@@ -276,9 +278,24 @@ class QualityDeferRequest(BaseModel):
     deferred_reason: str = "end_of_session"
 
 
+class OracleQuestionStatusItem(BaseModel):
+    question_id: Optional[str] = None
+    question_text: Optional[str] = None
+    status: Literal["active", "open", "answered", "dismissed", "deferred"] = "open"
+
+
+class OracleQuestionStatusRequest(BaseModel):
+    items: List[OracleQuestionStatusItem] = Field(default_factory=list)
+
+
 class ProposalExportRequest(BaseModel):
     executive_summary: Optional[str] = None
     proposal_id: Optional[str] = None
+
+
+class ProposalPublishRequest(BaseModel):
+    category: Optional[str] = None
+    destination: Optional[str] = None
 
 
 class SessionClosureRequest(BaseModel):
@@ -985,6 +1002,40 @@ async def defer_capture_quality_item(
         raise _http_error_from_value_error(exc) from exc
 
 
+@router.patch("/sessions/{session_id}/oracle-questions")
+async def patch_capture_oracle_questions(
+    session_id: str,
+    body: OracleQuestionStatusRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        session = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="update",
+            resource_attrs=_session_attrs(session),
+            audit_prefix="kc",
+        )
+        updated = update_oracle_question_statuses(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            items=[item.dict() for item in body.items],
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    return {
+        "session": serialize_session(updated),
+        "open_questions": build_open_questions(updated),
+    }
+
+
 @router.patch("/sessions/{session_id}/flags")
 async def patch_capture_session_flags(
     session_id: str,
@@ -1418,6 +1469,7 @@ async def extend_capture_session_endpoint(
 @router.post("/proposals/{proposal_id}/publish")
 async def publish_capture_proposal(
     proposal_id: str,
+    body: Optional[ProposalPublishRequest] = None,
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
@@ -1438,6 +1490,8 @@ async def publish_capture_proposal(
             workspace=workspace,
             proposal_id=proposal_id,
             actor_label=_actor_label(user),
+            category=body.category if body else None,
+            destination=body.destination if body else None,
         )
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc
