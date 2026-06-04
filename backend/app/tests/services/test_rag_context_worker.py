@@ -641,6 +641,52 @@ def test_ledger_source_scope_drops_legacy_payload_status_filter(db_session, monk
     assert "ARA200__fichiers__users manual__section 3__conveyor.html" in plan.filters["document_filename"]
 
 
+def test_scoped_dense_naive_uses_single_pass_hybrid_unless_dense_only_requested(db_session, monkeypatch):
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-planner-oracle-hybrid", name="Planner Oracle Hybrid", slug="planner-oracle-hybrid")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Dense SPL")
+    for filename in (
+        "ARA200__fichiers__users manual__section 3__conveyor.html",
+        "ARA200__fichiers__users manual__Annexes__520-convoyeur__conveyor-jetlace-gb b.pdf",
+        "ARA200__fichiers__menu__index.html",
+    ):
+        upsert_collection_source(
+            db_session,
+            collection=collection,
+            filename=filename,
+            status="ready",
+            chunk_count=150,
+        )
+    db_session.commit()
+    base_profile = {
+        "collection": collection.slug,
+        "collections": [collection.slug],
+        "workspace_id": workspace.id,
+        "latency_profile": "fast",
+    }
+
+    oracle_plan = plan_corpus(
+        db=db_session,
+        profile={**base_profile, "rag_mode": "naive"},
+        query="Find the ARA200 conveyor procedure",
+    )
+    dense_plan = plan_corpus(
+        db=db_session,
+        profile={**base_profile, "rag_mode": "dense"},
+        query="Find the ARA200 conveyor procedure",
+    )
+
+    assert oracle_plan.dense_policy == "fast_scoped_dense"
+    assert oracle_plan.allow_legacy_hybrid is False
+    assert oracle_plan.allow_hah_chah is False
+    assert oracle_plan.use_hybrid is True
+    assert "document_filename" in oracle_plan.filters
+    assert dense_plan.use_hybrid is False
+
+
 def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)

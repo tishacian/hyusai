@@ -1134,6 +1134,7 @@ def plan_corpus(
     fallback_reason: str | None = None
     deep_retrieval_recommended = False
     requested_mode = str(profile.get("rag_mode") or profile.get("rag_pipeline_mode") or "auto").strip().lower()
+    dense_only_requested = requested_mode in {"vector", "vector_only", "dense", "dense_only"}
 
     if intent == "catalogue":
         dense_policy = "catalogue_inventory"
@@ -1150,14 +1151,11 @@ def plan_corpus(
         else:
             dense_policy = "fast_scoped_dense"
             allow_hah_chah = latency_profile == "balanced"
-            if allow_hah_chah and requested_mode not in {"naive", "naive_rag", "vector", "dense"}:
-                use_hybrid = True
-            else:
-                use_hybrid = False
+            use_hybrid = not dense_only_requested
     elif dense and latency_profile == "deep":
         dense_policy = "deep_hierarchical_dense"
         allow_legacy_hybrid = False
-        if filters and requested_mode not in {"naive", "naive_rag", "vector", "dense"}:
+        if filters and not dense_only_requested:
             use_hybrid = True
         elif not filters:
             use_hybrid = False

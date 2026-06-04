@@ -2141,7 +2141,8 @@ async def _retrieve_multi_collection_context(
                 "hah_composite",
             }:
                 effective_mode = "naive"
-                use_hybrid = False
+                if planned_use_hybrid is None:
+                    use_hybrid = False
             remaining_seconds = max(retrieval_loop_deadline_perf - time.perf_counter(), 0.001)
             result = await asyncio.wait_for(
                 retrieve_for_mode(
