@@ -756,7 +756,7 @@ interface ProposalFact {
                 </div>
               }
             </div>
-            @if (dashboardQualityBacklog().length) {
+            @if (!isDemoMode() && dashboardQualityBacklog().length) {
               <section class="rounded border border-amber-500/25 bg-amber-500/5 p-4 space-y-2">
                 <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">Points à clarifier</p>
                 @for (row of dashboardQualityBacklog(); track row.sessionId + (row.item.id || row.item.label)) {
