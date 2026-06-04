@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from types import SimpleNamespace
 
-from sqlalchemy import Text, cast, or_
+from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
@@ -300,7 +300,6 @@ def _targeted_collection_source_rows(
             [
                 KnowledgeCollectionSource.filename.ilike(like),
                 KnowledgeCollectionSource.normalized_name.ilike(like),
-                cast(KnowledgeCollectionSource.source_metadata, Text).ilike(like),
             ]
         )
     if not clauses:
