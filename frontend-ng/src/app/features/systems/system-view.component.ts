@@ -145,15 +145,17 @@ interface PipelineStage {
       >
         <app-icon name="message-square" [size]="14" /> Chat
       </button>
-      <button
-        actions
-        type="button"
-        (click)="settingsPanelOpen.set(true)"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
-        title="Open settings panel"
-      >
-        <app-icon name="settings" [size]="14" /> Settings
-      </button>
+      @if (showSystemSettingsAction()) {
+        <button
+          actions
+          type="button"
+          (click)="settingsPanelOpen.set(true)"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+          title="Open settings panel"
+        >
+          <app-icon name="settings" [size]="14" /> Settings
+        </button>
+      }
     </ck-object-header>
 
     <ck-tabs
@@ -704,6 +706,7 @@ export class SystemViewComponent implements OnInit {
   readonly settingsPanelOpen = signal(false);
   readonly chatPanelOpen = signal(false);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
+  readonly showSystemSettingsAction = computed(() => !this.isExpertKnowledgeCapture() || !this.isDemoMode());
 
   readonly systemDefaults = signal<{
     default_prompt_type?: string | null;
