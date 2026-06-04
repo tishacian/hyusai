@@ -177,10 +177,10 @@ import {
 
         <aside class="space-y-5">
           <section class="t-card t-elevated rounded-md p-5 border border-brand-500/25 bg-brand-500/[0.04]">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Capability binding</p>
-            <h3 class="text-sm font-semibold text-white mt-1">Expert Knowledge Capture</h3>
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Capture permissions</p>
+            <h3 class="text-sm font-semibold text-white mt-1">Capture de connaissances</h3>
             <p class="mt-3 text-xs text-gray-400 leading-relaxed">
-              This matrix drives the System Capture cockpit and the backend routes behind
+              This matrix controls the capture screen and the backend routes behind
               <span class="font-mono text-gray-200">expert_knowledge_capture</span>.
             </p>
             <div class="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-wider">

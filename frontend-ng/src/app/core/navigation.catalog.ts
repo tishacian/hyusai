@@ -126,7 +126,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
   },
   {
     id: 'knowledge-capture',
-    label: 'Knowledge Capture',
+    label: 'Capture de connaissances',
     route: '/knowledge/capture',
     lens: 'build',
     object: 'Workbench',
@@ -134,7 +134,7 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     apiPrefix: '/api/v1/knowledge-capture',
     status: 'canonical',
     audience: 'workspace-user',
-    description: 'Capability-level Expert Knowledge Capture entry point.',
+    description: 'Entree workspace pour preparer une capture de connaissances.',
   },
   {
     id: 'orchestration',

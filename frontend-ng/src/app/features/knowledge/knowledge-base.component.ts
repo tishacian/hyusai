@@ -99,9 +99,9 @@ interface SearchResult {
         actions
         routerLink="/knowledge/capture"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-        title="Start an Expert Knowledge Capture session from a Context"
+        title="Lancer une capture de connaissances"
       >
-        <app-icon name="mic" [size]="14" /> Expert capture
+        <app-icon name="mic" [size]="14" /> Capture
       </a>
       <button
         actions
@@ -184,22 +184,21 @@ interface SearchResult {
       <div class="flex items-start justify-between gap-4">
         <div class="space-y-1">
           <div class="ck-mono text-[10px] uppercase tracking-[0.14em] text-brand-300">
-            Capability · Expert Knowledge Capture
+            Capture de connaissances
           </div>
           <h2 class="text-base font-semibold text-white">
-            Capture tacit expertise and turn it into reviewed knowledge.
+            Préparer un échange et produire un rapport relu.
           </h2>
           <p class="text-sm text-gray-400 max-w-3xl">
-            Knowledge is the destination. Expert Capture is the capability that uses a System,
-            Context and voice/evaluation skills to identify gaps, interview experts, and emit a
-            reviewable knowledge update proposal.
+            Lancez une session, rattachez une collection documentaire et publiez un rapport final
+            après relecture.
           </p>
         </div>
         <a
           routerLink="/knowledge/capture"
           class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
         >
-          <app-icon name="arrow-right" [size]="14" /> Start capture
+          <app-icon name="arrow-right" [size]="14" /> Démarrer une capture
         </a>
       </div>
     </section>

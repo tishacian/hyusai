@@ -654,7 +654,7 @@ export class SystemViewComponent implements OnInit {
     this.isIntelligence()
       ? 'Market-signal briefs and continuous monitoring.'
       : this.isExpertKnowledgeCapture()
-        ? 'Prepare, capture, review and publish expert knowledge.'
+        ? 'Préparer l’échange, capturer les réponses, relire puis publier.'
       : 'Configure, run and refine this AI system.',
   );
   /** Side panels — Settings and Chat live here, never as tabs. */
@@ -843,16 +843,16 @@ export class SystemViewComponent implements OnInit {
           key: 'plan',
           name: 'Plan',
           icon: 'list-checks',
-          description: 'Prepare the exchange plan from the selected context.',
+          description: 'Préparer le déroulé de l’échange.',
           configureLabel: 'Capture',
           route: ['/systems', this.systemId, 'capture'],
           tone: 'brand',
         },
         {
           key: 'voice',
-          name: 'Exchange',
+          name: 'Échange',
           icon: 'mic',
-          description: 'Capture the expert exchange with voice or text.',
+          description: 'Conduire la capture en voix ou au clavier.',
           configureLabel: 'Capture',
           route: ['/systems', this.systemId, 'capture'],
           tone: 'violet',
@@ -861,7 +861,7 @@ export class SystemViewComponent implements OnInit {
           key: 'retrieve',
           name: 'Sources',
           icon: 'database',
-          description: 'Use the attached documents as background evidence.',
+          description: 'Utiliser les documents rattachés comme appui.',
           configureLabel: 'Sources',
           route: '/knowledge',
           tone: 'brand',

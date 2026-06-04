@@ -284,7 +284,7 @@ type KbTabId =
 
     @if (!loading() && docCount() === 0 && chunkCount() === 0) {
       <div class="mb-4 rounded-md border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-        Collection vide ou non indexée : elle ne peut pas encore alimenter le retrieval ni Knowledge Capture.
+        Collection vide ou non indexée : elle ne peut pas encore alimenter la recherche ni la capture.
       </div>
     }
     @if (!loadingBindings() && bindings().length === 0) {

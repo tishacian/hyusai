@@ -78,7 +78,7 @@ export const FR_DICT = {
   'nav.members': 'Membres',
   'nav.settings': 'Paramètres',
   'nav.flows': 'Flow builder',
-  'nav.capture': 'Capture experte',
+  'nav.capture': 'Capture de connaissances',
   'nav.missions': 'Missions',
   'nav.levers': 'Leviers',
   'nav.review': 'File de revue',
@@ -145,8 +145,8 @@ export const FR_DICT = {
   'palette.hint.ask': 'Poser une question…',
   'palette.hint.chat_system': 'Discuter avec un système…',
   'palette.hint.drop_files': 'Déposer des fichiers et poser une question…',
-  'palette.view.expert_capture': 'Capture experte',
-  'palette.view.expert_capture.hint': 'Préparer un entretien guidé depuis un Context',
+  'palette.view.expert_capture': 'Capture de connaissances',
+  'palette.view.expert_capture.hint': 'Préparer une session guidée',
 
   // --- Systems / runs shells ---------------------------------------
   'systems.title': 'Systèmes',
@@ -245,7 +245,7 @@ export const EN_DICT: Partial<Record<I18nKey, string>> & Record<string, string> 
   'nav.members': 'Members',
   'nav.settings': 'Settings',
   'nav.flows': 'Flow builder',
-  'nav.capture': 'Expert capture',
+  'nav.capture': 'Knowledge capture',
   'nav.missions': 'Missions',
   'nav.levers': 'Control plane',
   'nav.review': 'Review queue',
@@ -311,8 +311,8 @@ export const EN_DICT: Partial<Record<I18nKey, string>> & Record<string, string> 
   'palette.hint.ask': 'Ask a question…',
   'palette.hint.chat_system': 'Chat with a system…',
   'palette.hint.drop_files': 'Drop files and ask…',
-  'palette.view.expert_capture': 'Expert capture',
-  'palette.view.expert_capture.hint': 'Prepare a guided interview from a Context',
+  'palette.view.expert_capture': 'Knowledge capture',
+  'palette.view.expert_capture.hint': 'Prepare a guided capture session',
 
   // --- Systems / runs shells ---------------------------------------
   'systems.title': 'Systems',
