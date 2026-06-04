@@ -1871,7 +1871,7 @@ interface ProposalFact {
             <aside class="t-card rounded-lg p-5 space-y-4 xl:sticky xl:top-4">
               <div>
                 <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
-                  {{ isDemoMode() ? 'Démarrer' : 'Démarrage' }}
+                  Continuer
                 </p>
                 <h3 class="text-sm font-semibold text-white mt-1">
                   {{ isDemoMode() ? 'Prêt pour l’échange' : 'Prêt pour la capture' }}
@@ -1965,7 +1965,7 @@ interface ProposalFact {
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-3 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
                 [disabled]="loading() || !canCaptureExecute(s) || !canStartSessionPlan(s)"
                 [title]="planBlockingReason(s)
-                  || 'Démarrez l’échange maintenant. La préparation des angles continue en arrière-plan.'"
+                  || 'Continuer vers l’échange. La préparation des angles se poursuit en arrière-plan.'"
                 (click)="startGuidedSession(s)"
               >
                 <app-icon [name]="planStartIcon(s)" [size]="14" /> {{ planStartLabel(s) }}
@@ -5760,18 +5760,12 @@ export class KnowledgeCaptureComponent implements OnInit {
     return session.status;
   }
 
-  planStartIcon(session?: CaptureSession): string {
-    if (session && this.sessionHasStarted(session)) {
-      return this.conversationMode() === 'conversation_only' ? 'message-circle' : 'arrow-right';
-    }
-    return this.conversationMode() === 'conversation_only' ? 'message-circle' : 'play';
+  planStartIcon(_session?: CaptureSession): string {
+    return 'arrow-right';
   }
 
-  planStartLabel(session?: CaptureSession): string {
-    const prefix = session && this.sessionHasStarted(session) ? 'Reprendre' : 'Démarrer';
-    return this.conversationMode() === 'conversation_only'
-      ? `${prefix} la conversation`
-      : `${prefix} la session`;
+  planStartLabel(_session?: CaptureSession): string {
+    return 'Continuer';
   }
 
   conversationPrimaryIcon(): string {
