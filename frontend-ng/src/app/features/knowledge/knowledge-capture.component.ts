@@ -283,7 +283,7 @@ interface CaptureProposal {
     title?: string;
     objective?: string;
     captured_facts?: ProposalFact[];
-    open_questions?: Array<{ gap_id?: string; reason?: string; follow_up?: string }>;
+    open_questions?: ProposalOpenQuestion[];
     recommended_ingestion?: { title?: string; content?: string; metadata?: Record<string, any> };
     report_markdown?: string;
     publication?: {
@@ -295,6 +295,24 @@ interface CaptureProposal {
     };
     audit?: { event_count?: number; amendment_count?: number };
   };
+}
+
+type ProposalQuestionStatus = 'open' | 'deferred' | 'dismissed';
+
+interface ProposalOpenQuestion {
+  gap_id?: string;
+  reason?: string;
+  follow_up?: string;
+  priority?: number | string | null;
+  severity?: number | string | null;
+  status?: string | null;
+}
+
+interface ProposalReviewQuestion {
+  key: string;
+  question: ProposalOpenQuestion;
+  priority: number;
+  status: ProposalQuestionStatus;
 }
 
 interface ProposalFact {
@@ -2316,15 +2334,61 @@ interface ProposalFact {
                 </button>
               </section>
             }
-            @if (proposalOpenQuestions().length) {
+            @if (proposalReviewQuestions().length) {
               <div class="rounded bg-amber-500/10 border border-amber-400/20 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-amber-200">Relances ouvertes</div>
-                @for (item of proposalOpenQuestions(); track item.gap_id || item.follow_up || item.reason) {
-                  <p class="mt-2 text-xs text-amber-100/80">{{ item.follow_up || item.reason }}</p>
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-[10px] uppercase tracking-wider text-amber-200">Questions ouvertes</div>
+                  <span class="text-[10px] text-amber-100/70">{{ proposalReviewQuestions().length }} à traiter</span>
+                </div>
+                <div class="mt-3 space-y-2">
+                @for (row of proposalReviewQuestions(); track row.key) {
+                  <article
+                    class="rounded border border-amber-300/15 bg-black/20 p-3"
+                    [class.opacity-70]="row.status === 'deferred'"
+                  >
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span [class]="proposalQuestionPriorityClass(row.priority)">
+                        {{ proposalQuestionPriorityLabel(row.priority) }}
+                      </span>
+                      @if (row.status === 'deferred') {
+                        <span class="rounded bg-white/5 px-2 py-0.5 text-[9px] uppercase tracking-wider text-gray-400">
+                          reportée
+                        </span>
+                      }
+                    </div>
+                    <p class="mt-2 text-xs leading-relaxed text-amber-100/90">{{ proposalQuestionText(row.question) }}</p>
+                    @if (proposalQuestionDetail(row.question); as detail) {
+                      <p class="mt-1 text-[11px] leading-relaxed text-gray-500">{{ detail }}</p>
+                    }
+                    <div class="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        class="rounded bg-brand-500/15 px-2 py-1 text-[10px] font-medium text-brand-100 ring-1 ring-brand-300/20 hover:bg-brand-500/25"
+                        (click)="useProposalQuestionAsInstruction(row.question)"
+                      >
+                        Ajouter à la consigne
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded bg-white/5 px-2 py-1 text-[10px] text-gray-300 ring-1 ring-white/10 hover:bg-white/10"
+                        (click)="row.status === 'deferred' ? restoreProposalOpenQuestion(row.key) : deferProposalOpenQuestion(row.key)"
+                      >
+                        {{ row.status === 'deferred' ? 'Remettre' : 'Reporter' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded bg-white/5 px-2 py-1 text-[10px] text-gray-400 ring-1 ring-white/10 hover:bg-white/10"
+                        (click)="dismissProposalOpenQuestion(row.key)"
+                      >
+                        Masquer
+                      </button>
+                    </div>
+                  </article>
                 }
+                </div>
               </div>
             }
-            @if (!proposalOpenQuestions().length) {
+            @if (!proposalReviewQuestions().length) {
               <div class="rounded border border-white/10 bg-black/20 p-3 text-xs text-gray-400">
                 Aucune question ouverte détectée pour ce rapport.
               </div>
@@ -2742,6 +2806,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly proposal = signal<CaptureProposal | null>(null);
   readonly proposalFactDecisions = signal<Record<string, ProposalFactDecision>>({});
   readonly proposalFactEdits = signal<Record<string, string>>({});
+  readonly proposalQuestionStatuses = signal<Record<string, ProposalQuestionStatus>>({});
   readonly editingProposalFactKey = signal<string | null>(null);
   readonly proposalReportDirty = signal(false);
   readonly proposalReportSaving = signal(false);
@@ -3388,6 +3453,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     if ((proposal?.id || null) !== previousId) {
       this.proposalFactDecisions.set({});
       this.proposalFactEdits.set({});
+      this.proposalQuestionStatuses.set({});
       this.editingProposalFactKey.set(null);
       this.proposalFactEditText = '';
       this.proposalReportDraft = this.proposalReportContent(proposal);
@@ -6114,8 +6180,101 @@ export class KnowledgeCaptureComponent implements OnInit {
       .filter((fact) => Boolean(this.proposalFactText(fact)));
   }
 
-  proposalOpenQuestions(): Array<{ gap_id?: string; reason?: string; follow_up?: string }> {
-    return this.proposal()?.proposal?.open_questions || [];
+  proposalOpenQuestions(): ProposalOpenQuestion[] {
+    return (this.proposal()?.proposal?.open_questions || [])
+      .filter((question) => Boolean(this.proposalQuestionText(question)));
+  }
+
+  proposalReviewQuestions(): ProposalReviewQuestion[] {
+    const statuses = this.proposalQuestionStatuses();
+    return this.proposalOpenQuestions()
+      .map((question, index) => {
+        const key = this.proposalQuestionKey(question, index);
+        const status = statuses[key] || this.normalizeProposalQuestionStatus(question.status);
+        return {
+          key,
+          question,
+          priority: this.proposalQuestionPriority(question),
+          status,
+        };
+      })
+      .filter((row) => row.status !== 'dismissed')
+      .sort((a, b) => {
+        if (a.status !== b.status) return a.status === 'deferred' ? 1 : -1;
+        return b.priority - a.priority;
+      });
+  }
+
+  proposalQuestionText(question: ProposalOpenQuestion): string {
+    return (question.follow_up || question.reason || question.gap_id || '').trim();
+  }
+
+  proposalQuestionDetail(question: ProposalOpenQuestion): string {
+    const followUp = (question.follow_up || '').trim();
+    const reason = (question.reason || '').trim();
+    if (!followUp || !reason || followUp === reason) return '';
+    return reason;
+  }
+
+  proposalQuestionPriorityLabel(priority: number): string {
+    if (priority >= 3) return 'Priorité haute';
+    if (priority >= 2) return 'Priorité moyenne';
+    return 'Priorité basse';
+  }
+
+  proposalQuestionPriorityClass(priority: number): string {
+    if (priority >= 3) {
+      return 'rounded bg-red-500/15 px-2 py-0.5 text-[9px] uppercase tracking-wider text-red-100 ring-1 ring-red-300/20';
+    }
+    if (priority >= 2) {
+      return 'rounded bg-amber-500/15 px-2 py-0.5 text-[9px] uppercase tracking-wider text-amber-100 ring-1 ring-amber-300/20';
+    }
+    return 'rounded bg-white/5 px-2 py-0.5 text-[9px] uppercase tracking-wider text-gray-300 ring-1 ring-white/10';
+  }
+
+  useProposalQuestionAsInstruction(question: ProposalOpenQuestion): void {
+    const text = this.proposalQuestionText(question);
+    if (!text) return;
+    const instruction = `Traite cette question ouverte dans le rapport : ${text}`;
+    this.proposalInstructionText = this.proposalInstructionText.trim()
+      ? `${this.proposalInstructionText.trim()}\n${instruction}`
+      : instruction;
+    this.setVoiceNotice('Question ajoutée à la consigne de modification.', 'info');
+  }
+
+  deferProposalOpenQuestion(key: string): void {
+    this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: 'deferred' }));
+  }
+
+  restoreProposalOpenQuestion(key: string): void {
+    this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: 'open' }));
+  }
+
+  dismissProposalOpenQuestion(key: string): void {
+    this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: 'dismissed' }));
+  }
+
+  private proposalQuestionKey(question: ProposalOpenQuestion, index: number): string {
+    return question.gap_id || question.follow_up || question.reason || `question-${index}`;
+  }
+
+  private normalizeProposalQuestionStatus(status?: string | null): ProposalQuestionStatus {
+    if (status === 'dismissed') return 'dismissed';
+    if (status === 'deferred') return 'deferred';
+    return 'open';
+  }
+
+  private proposalQuestionPriority(question: ProposalOpenQuestion): number {
+    const raw = question.priority ?? question.severity;
+    if (typeof raw === 'number' && Number.isFinite(raw)) return Math.max(1, Math.min(3, Math.round(raw)));
+    const value = String(raw || '').toLowerCase();
+    if (['high', 'haute', 'critical', 'critique', 'urgent', '3'].includes(value)) return 3;
+    if (['medium', 'moyenne', 'normal', '2'].includes(value)) return 2;
+    if (['low', 'basse', '1'].includes(value)) return 1;
+    const text = `${question.follow_up || ''} ${question.reason || ''}`.toLowerCase();
+    if (/(sécurité|securite|risque|danger|contradiction|bloquant|validation|conformité|conformite)/.test(text)) return 3;
+    if (/(condition|maintenance|procédure|procedure|source|preuve|hypothèse|hypothese)/.test(text)) return 2;
+    return 1;
   }
 
   proposalEvidenceCount(): number {
