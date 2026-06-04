@@ -377,12 +377,14 @@ interface ProposalFact {
         </div>
         <div class="flex flex-col items-end gap-2">
           @if (!isDemoMode()) {
-            <span class="text-xs px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
-              Capture vocale
-            </span>
-            <span class="text-xs px-3 py-1.5 rounded bg-white/5 ring-1 ring-white/10 text-gray-300">
-              {{ conversationMode() === 'conversation_only' ? 'Conversation libre' : 'Session guidée' }}
-            </span>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+              (click)="showAdvancedSetup.set(!showAdvancedSetup())"
+            >
+              <app-icon [name]="showAdvancedSetup() ? 'chevron-up' : 'settings-2'" [size]="12" />
+              Avancé
+            </button>
             <a
               [routerLink]="workspaceAccessRoute()"
               class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
