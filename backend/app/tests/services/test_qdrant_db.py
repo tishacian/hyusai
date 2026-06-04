@@ -113,13 +113,14 @@ async def test_add_vectors_batches_large_upserts(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reindex_sparse_vectors_recreates_legacy_collection(monkeypatch):
+async def test_reindex_sparse_vectors_streams_to_hybrid_alias(monkeypatch):
     monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
     client = MagicMock()
-    client.collection_exists.return_value = True
+    client.collection_exists.side_effect = lambda name: name == "col"
     client.get_collection.return_value = SimpleNamespace(
         config=SimpleNamespace(params=SimpleNamespace(vectors=SimpleNamespace(size=2), sparse_vectors=None))
     )
+    client.count.return_value = SimpleNamespace(count=1)
     db = QdrantVectorDB(collection_name="col", client=client)
     record = SimpleNamespace(
         id="legacy-point",
@@ -132,11 +133,13 @@ async def test_reindex_sparse_vectors_recreates_legacy_collection(monkeypatch):
 
     assert result["status"] == "ready"
     assert result["points_reindexed"] == 1
-    assert result["recreated_collection"] is True
+    assert result["alias_cutover"] is True
+    assert result["physical_collection"].startswith("col__hybrid_")
     client.delete_collection.assert_called_once_with(collection_name="col")
     client.create_collection.assert_called_once()
+    client.update_collection_aliases.assert_called_once()
     point = client.upsert.call_args.kwargs["points"][0]
-    assert point.id == db._point_id("chunk-a")
+    assert point.id == "legacy-point"
     assert set(point.vector.keys()) == {"dense", "sparse"}
     assert point.vector["dense"] == pytest.approx([0.6, 0.8], rel=1e-5)
     assert point.vector["sparse"].indices

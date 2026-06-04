@@ -158,7 +158,21 @@ class VectorDBFactory:
                     )
                 client = cls._qdrant_clients[qkey]
                 cols = client.get_collections().collections
-                return sorted([c.name for c in cols if not c.name.startswith("_")])
+                names = {
+                    c.name
+                    for c in cols
+                    if not c.name.startswith("_") and "__hybrid_" not in c.name
+                }
+                try:
+                    aliases = client.get_aliases().aliases
+                    names.update(
+                        alias.alias_name
+                        for alias in aliases
+                        if not str(alias.alias_name).startswith("_")
+                    )
+                except Exception as exc:  # noqa: BLE001 - aliases are optional.
+                    logger.debug("Error listing Qdrant aliases", error=str(exc))
+                return sorted(names)
             except Exception as e:
                 logger.error(f"Error listing Qdrant collections: {e}")
                 return []

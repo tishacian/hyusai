@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import math
 import re
+import time
 import uuid
 from collections import Counter
 from typing import Any, Dict, List, Optional
@@ -319,12 +320,13 @@ class QdrantVectorDB(VectorDBBase):
         logger.debug(f"Qdrant upserted {len(ids)} points into '{self.collection_name}'")
 
     async def reindex_sparse_vectors(self, batch_size: Optional[int] = None) -> Dict[str, Any]:
-        """Backfill named dense+sparse vectors for an existing Qdrant collection.
+        """Backfill named dense+sparse vectors through a streaming alias cutover.
 
-        Legacy collections used a single unnamed dense vector. Qdrant sparse search
-        needs a named dense vector plus a named sparse vector per chunk, so this
-        method scrolls all points, rebuilds the collection schema when required,
-        and re-upserts payloads with deterministic chunk ids.
+        Qdrant 1.12 cannot add sparse vectors to a legacy unnamed-dense
+        collection in place. For production-sized corpora we therefore build a
+        temporary hybrid collection batch by batch, then expose it through an alias
+        with the original collection name. Reads continue on the old collection
+        until the final alias cutover.
         """
         if self.client is None:
             return {"status": "skipped", "configured": False, "reason": "qdrant_client_missing"}
@@ -341,94 +343,127 @@ class QdrantVectorDB(VectorDBBase):
         loop = asyncio.get_event_loop()
 
         def _reindex() -> Dict[str, Any]:
-            records: List[Dict[str, Any]] = []
-            next_offset = None
-            while True:
-                batch, next_offset = self.client.scroll(
-                    collection_name=self.collection_name,
-                    limit=512,
-                    offset=next_offset,
-                    with_payload=True,
-                    with_vectors=True,
-                )
-                if not batch:
-                    break
-                for record in batch:
-                    payload = _sanitize_payload(dict(getattr(record, "payload", None) or {}))
-                    dense = _dense_vector_from_raw(getattr(record, "vector", None))
-                    if dense is None:
-                        continue
-                    chunk_id = str(payload.get("chunk_id") or getattr(record, "id", ""))
-                    if not chunk_id:
-                        continue
-                    payload["chunk_id"] = chunk_id
-                    records.append(
-                        {
-                            "point_id": self._point_id(chunk_id),
-                            "chunk_id": chunk_id,
-                            "payload": payload,
-                            "dense": dense,
-                        }
-                    )
-                if next_offset is None:
-                    break
-
-            if not records:
+            if self._collection_supports_named_sparse():
                 return {
                     "status": "ready",
                     "configured": True,
                     "collection": self.collection_name,
-                    "points_reindexed": 0,
+                    "points_reindexed": self.client.count(collection_name=self.collection_name, exact=True).count,
                     "recreated_collection": False,
-                    "reason": "no_vectors_found",
+                    "alias_cutover": False,
+                    "reason": "already_named_dense_sparse",
                 }
 
-            dimension = len(records[0]["dense"])
-            recreate_collection = not self._collection_supports_named_sparse()
-            if recreate_collection:
-                self.client.delete_collection(collection_name=self.collection_name)
-                self._create_collection(dimension)
-                self._payload_indexes_ensured = False
-                self._ensure_payload_indexes()
+            info = self.client.get_collection(collection_name=self.collection_name)
+            dimension = int(getattr(getattr(info.config.params, "vectors", None), "size", 0) or 0)
+            if dimension <= 0:
+                return {
+                    "status": "skipped",
+                    "configured": True,
+                    "collection": self.collection_name,
+                    "reason": "dense_dimension_unavailable",
+                }
 
-            from qdrant_client.models import PointStruct
+            from qdrant_client.models import CreateAlias, CreateAliasOperation, Distance, PointStruct, VectorParams
 
+            source_count = self.client.count(collection_name=self.collection_name, exact=True).count
+            suffix = f"__hybrid_{int(time.time())}"
+            temp_name = f"{self.collection_name}{suffix}"
+            counter = 0
+            while self.client.collection_exists(temp_name):
+                counter += 1
+                temp_name = f"{self.collection_name}{suffix}_{counter}"
+            temp_db = QdrantVectorDB(collection_name=temp_name, client=self.client)
+            self.client.create_collection(
+                collection_name=temp_name,
+                vectors_config={
+                    _DENSE_VECTOR_NAME: VectorParams(size=dimension, distance=Distance.COSINE),
+                },
+                sparse_vectors_config=temp_db._sparse_vectors_config(),
+            )
+            temp_db._ensure_payload_indexes()
             requested_batch_size = batch_size if batch_size is not None else _batch_size()
             try:
                 effective_batch_size = max(1, int(requested_batch_size))
             except (TypeError, ValueError):
                 effective_batch_size = _batch_size()
-
-            points = []
-            for record in records:
-                dense_array = np.array(record["dense"], dtype=np.float32)
-                norm = float(np.linalg.norm(dense_array)) or 1.0
-                normalized = (dense_array / norm).astype(np.float32).tolist()
-                payload = dict(record["payload"])
-                points.append(
-                    PointStruct(
-                        id=record["point_id"],
-                        vector={
-                            _DENSE_VECTOR_NAME: normalized,
-                            _SPARSE_VECTOR_NAME: _sparse_vector_from_text(str(payload.get("content") or "")),
-                        },
-                        payload=payload,
-                    )
-                )
-
-            for start in range(0, len(points), effective_batch_size):
-                self.client.upsert(
+            migrated = 0
+            skipped = 0
+            next_offset = None
+            while True:
+                records, next_offset = self.client.scroll(
                     collection_name=self.collection_name,
-                    wait=True,
-                    points=points[start : start + effective_batch_size],
+                    limit=min(1024, effective_batch_size),
+                    offset=next_offset,
+                    with_payload=True,
+                    with_vectors=True,
                 )
+                if not records:
+                    break
+                points = []
+                for record in records:
+                    payload = _sanitize_payload(dict(getattr(record, "payload", None) or {}))
+                    dense = _dense_vector_from_raw(getattr(record, "vector", None))
+                    if dense is None:
+                        skipped += 1
+                        continue
+                    chunk_id = str(payload.get("chunk_id") or "")
+                    if chunk_id:
+                        payload["chunk_id"] = chunk_id
+                    dense_array = np.array(dense, dtype=np.float32)
+                    norm = float(np.linalg.norm(dense_array)) or 1.0
+                    normalized = (dense_array / norm).astype(np.float32).tolist()
+                    points.append(
+                        PointStruct(
+                            id=getattr(record, "id"),
+                            vector={
+                                _DENSE_VECTOR_NAME: normalized,
+                                _SPARSE_VECTOR_NAME: _sparse_vector_from_text(str(payload.get("content") or "")),
+                            },
+                            payload=payload,
+                        )
+                    )
+                if points:
+                    self.client.upsert(collection_name=temp_name, wait=True, points=points)
+                    migrated += len(points)
+                if next_offset is None:
+                    break
+
+            temp_count = self.client.count(collection_name=temp_name, exact=True).count
+            if temp_count != migrated or (source_count and migrated + skipped != source_count):
+                return {
+                    "status": "error",
+                    "configured": True,
+                    "collection": self.collection_name,
+                    "temp_collection": temp_name,
+                    "source_count": source_count,
+                    "points_reindexed": migrated,
+                    "points_skipped": skipped,
+                    "temp_count": temp_count,
+                    "reason": "copy_count_mismatch",
+                }
+
+            self.client.delete_collection(collection_name=self.collection_name)
+            self.client.update_collection_aliases(
+                [
+                    CreateAliasOperation(
+                        create_alias=CreateAlias(collection_name=temp_name, alias_name=self.collection_name)
+                    )
+                ]
+            )
+            self._payload_indexes_ensured = False
 
             return {
                 "status": "ready",
                 "configured": True,
                 "collection": self.collection_name,
-                "points_reindexed": len(points),
-                "recreated_collection": recreate_collection,
+                "physical_collection": temp_name,
+                "points_reindexed": migrated,
+                "points_skipped": skipped,
+                "source_count": source_count,
+                "temp_count": temp_count,
+                "recreated_collection": False,
+                "alias_cutover": True,
                 "dimension": dimension,
                 "sparse_vector_name": _SPARSE_VECTOR_NAME,
                 "dense_vector_name": _DENSE_VECTOR_NAME,
