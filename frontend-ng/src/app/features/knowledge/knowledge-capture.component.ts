@@ -226,6 +226,19 @@ interface PendingPlanSourceReplacement {
   size: number;
 }
 
+interface CapturePlanSourceOutlineItem {
+  title: string;
+  subtopics: string[];
+}
+
+interface CapturePlanSourceSummary {
+  kindLabel: string;
+  title: string;
+  stats: string;
+  extractedOutline: CapturePlanSourceOutlineItem[];
+  replacedExistingPlan: boolean;
+}
+
 interface ConversationStageRow {
   id: string;
   label: string;
@@ -2152,6 +2165,39 @@ interface ProposalFact {
                   }
                 </p>
               </div>
+              @if (planSourceSummary(s); as source) {
+                <section class="rounded border border-brand-300/25 bg-brand-500/10 p-4 space-y-3">
+                  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="min-w-0">
+                      <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-200">Source du plan · {{ source.kindLabel }}</p>
+                      <h3 class="mt-1 truncate text-sm font-semibold text-white">{{ source.title }}</h3>
+                      <p class="mt-1 text-xs text-gray-400">{{ source.stats }}</p>
+                    </div>
+                    @if (source.replacedExistingPlan) {
+                      <span class="shrink-0 rounded bg-amber-500/15 px-2 py-1 text-[10px] uppercase tracking-wider text-amber-100 ring-1 ring-amber-300/20">
+                        Remplacement confirmé
+                      </span>
+                    }
+                  </div>
+                  @if (source.extractedOutline.length) {
+                    <div class="rounded border border-white/10 bg-black/20 p-3">
+                      <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Interprétation extraite</p>
+                      <div class="mt-3 grid gap-2 md:grid-cols-2">
+                        @for (item of source.extractedOutline; track $index) {
+                          <article class="rounded border border-white/10 bg-white/[0.03] p-3">
+                            <p class="text-xs font-semibold text-gray-100 line-clamp-2">{{ item.title }}</p>
+                            @if (item.subtopics.length) {
+                              <p class="mt-1 text-[11px] leading-relaxed text-gray-500 line-clamp-2">
+                                {{ item.subtopics.join(' · ') }}
+                              </p>
+                            }
+                          </article>
+                        }
+                      </div>
+                    </div>
+                  }
+                </section>
+              }
               @if (planOracle(s); as oracle) {
                 @if (oracle.contradiction_candidates?.length) {
                   <section class="rounded border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
@@ -3239,6 +3285,42 @@ export class KnowledgeCaptureComponent implements OnInit {
     const text = this.providedPlanText.replace(/\s+/g, ' ').trim();
     if (!text) return 'L’interprétation extraite apparaîtra ici avant création du plan.';
     return text.length > 260 ? `${text.slice(0, 260)}…` : text;
+  }
+
+  planSourceSummary(session: CaptureSession): CapturePlanSourceSummary | null {
+    const source = this.asRecord(session.plan?.['plan_source']);
+    if (!Object.keys(source).length) return null;
+    const kind = String(source['kind'] || 'manual') as CapturePlanSourceKind;
+    const filename = String(source['filename'] || '').trim();
+    const chars = Number(source['chars'] || 0);
+    const lineCount = Number(source['line_count'] || 0);
+    const outline = this.planSourceExtractedOutline(source['extracted_outline']);
+    const stats = [
+      chars > 0 ? `${chars.toLocaleString('fr-FR')} caractères` : null,
+      lineCount > 0 ? `${lineCount.toLocaleString('fr-FR')} ligne(s)` : null,
+      outline.length ? `${outline.length.toLocaleString('fr-FR')} rubrique(s)` : null,
+    ].filter(Boolean).join(' · ');
+    return {
+      kindLabel: this.providedPlanSourceKindLabel(kind),
+      title: filename || this.providedPlanSourceKindLabel(kind),
+      stats: stats || 'Source enregistrée',
+      extractedOutline: outline.slice(0, 8),
+      replacedExistingPlan: source['replaces_existing_plan'] === true,
+    };
+  }
+
+  private planSourceExtractedOutline(value: unknown): CapturePlanSourceOutlineItem[] {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => {
+        const row = this.asRecord(item);
+        const title = String(row['title'] || '').trim();
+        const subtopics = Array.isArray(row['subtopics'])
+          ? row['subtopics'].map((subtopic) => String(subtopic || '').trim()).filter(Boolean)
+          : [];
+        return title ? { title, subtopics } : null;
+      })
+      .filter((item): item is CapturePlanSourceOutlineItem => Boolean(item));
   }
 
   pendingPlanSourceStats(source: PendingPlanSourceReplacement): string {
