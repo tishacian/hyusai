@@ -23,7 +23,7 @@ class _FakeVectorDB:
 
 
 class _FakeDocumentService:
-    instances: list["_FakeDocumentService"] = []
+    instances: list[_FakeDocumentService] = []
 
     def __init__(self, collection_name: str, vector_db_type: str, workspace_slug: str, **_kwargs):
         self.collection_name = collection_name
@@ -75,6 +75,7 @@ async def test_mission_room_fixture_sync_indexes_all_vigie_scope_collections(db_
         "sentinel-ci-maritime-intelligence",
         "sentinel-ci-evidence-graph",
         "sentinel-ci-customs-records",
+        "sentinel-ci-security-briefs",
     }
     assert {instance.workspace_slug for instance in _FakeDocumentService.instances} == {"sentinel-ci"}
 

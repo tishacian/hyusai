@@ -1,6 +1,5 @@
 """Embedding generation service -- OpenAI-first for demo."""
 import asyncio
-from typing import List
 
 import numpy as np
 
@@ -54,20 +53,20 @@ class Embedder:
         results = await self.embed_batch([text])
         return results[0]
 
-    async def embed_batch(self, texts: List[str]) -> np.ndarray:
+    async def embed_batch(self, texts: list[str]) -> np.ndarray:
         if self._client:
             return await self._openai_embed(texts)
         if self._local_model:
             return await self._local_embed(texts)
         return np.array([self._fallback_embed(t) for t in texts])
 
-    async def _openai_embed(self, texts: List[str]) -> np.ndarray:
+    async def _openai_embed(self, texts: list[str]) -> np.ndarray:
         if not texts:
             return np.empty((0, self.get_dimension()), dtype=np.float32)
 
         loop = asyncio.get_running_loop()
 
-        async def embed_openai_batch(batch: List[str]) -> np.ndarray:
+        async def embed_openai_batch(batch: list[str]) -> np.ndarray:
             def _call() -> np.ndarray:
                 response = self._client.embeddings.create(
                     input=batch, model=self.model_name
@@ -109,9 +108,9 @@ class Embedder:
         )
 
     @classmethod
-    def _openai_batches(cls, texts: List[str]) -> List[List[str]]:
-        batches: List[List[str]] = []
-        current: List[str] = []
+    def _openai_batches(cls, texts: list[str]) -> list[list[str]]:
+        batches: list[list[str]] = []
+        current: list[str] = []
         current_tokens = 0
 
         for text in texts:
@@ -137,7 +136,7 @@ class Embedder:
         content = str(text or "")
         return max(1, max(len(content) // 3, len(content.split())))
 
-    async def _local_embed(self, texts: List[str]) -> np.ndarray:
+    async def _local_embed(self, texts: list[str]) -> np.ndarray:
         loop = asyncio.get_event_loop()
 
         def _encode():

@@ -54,6 +54,9 @@ class FakeDocService:
     def __init__(self, vector_db):
         self.vector_db = vector_db
 
+    async def get_document_count(self):
+        return len(getattr(self.vector_db, "_sample_rows", None) or getattr(self.vector_db, "_payloads", []))
+
     async def list_documents(self):
         out = []
         for doc in await self.vector_db.list_documents():
