@@ -22,6 +22,12 @@ DEFAULT_METADATA_FIELD_WEIGHTS: dict[str, int] = {
     "document_title": 4,
     "title": 4,
     "project_code": 6,
+    "machine": 5,
+    "part_number": 6,
+    "section": 3,
+    "section_path": 3,
+    "chapter": 3,
+    "family": 3,
     "archive_name": 2,
     "source_path": 2,
     "inner_document_path": 2,
@@ -41,6 +47,30 @@ DEFAULT_EXACT_IDENTIFIER_PATTERNS: tuple[str, ...] = (
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]{2,}")
 _WORD_RE = re.compile(r"[a-z0-9]{2,}")
 _SEPARATOR_RE = re.compile(r"[\s_.-]+")
+_CHAPTER_RE = re.compile(r"\b(?:chapter|chapitre|chap)\s*[_:./-]?\s*([0-9]{1,3}[A-Z]?)\b", re.IGNORECASE)
+_SECTION_RE = re.compile(
+    r"\b(?:sub[-_\s]?section|section|sect)\s*[_:./-]?\s*([IVXLCDM0-9]{1,6}[A-Z]?)\b",
+    re.IGNORECASE,
+)
+_PART_NUMBER_RE = re.compile(
+    r"\b(?:part\s*(?:no\.?|number)?|p/?n|ref(?:erence)?\.?|item)\s*[:#-]?\s*([A-Z0-9][A-Z0-9_.\-/ ]{2,32})",
+    re.IGNORECASE,
+)
+_MACHINE_LABEL_RE = re.compile(
+    r"\b(?:machine|equipment|equipement|model|type)\s*[:#-]?\s*([A-Z][A-Z0-9_-]{2,24}\d[A-Z0-9_-]*)\b",
+    re.IGNORECASE,
+)
+_FAMILY_TERMS = (
+    "spunlace",
+    "jetlace",
+    "non-wovens",
+    "non wovens",
+    "hydroentanglement",
+    "filtration",
+    "vacuum",
+    "carding",
+    "card",
+)
 _DEFAULT_STOPWORDS = {
     "and",
     "avec",
@@ -55,7 +85,6 @@ _DEFAULT_STOPWORDS = {
     "the",
     "une",
 }
-
 
 @dataclass(frozen=True)
 class LexicalRetrievalConfig:
@@ -281,6 +310,69 @@ def metadata_search_text(payload: Mapping[str, Any], config: LexicalRetrievalCon
     return "\n".join(parts)
 
 
+def _first_capture(pattern: re.Pattern[str], text: str) -> str | None:
+    match = pattern.search(text)
+    if not match:
+        return None
+    value = " ".join(str(match.group(1) or "").replace("_", " ").split()).strip(" .,:;-/")
+    return value or None
+
+
+def _derive_family(text: str) -> str | None:
+    folded = fold_text(text)
+    for term in _FAMILY_TERMS:
+        if fold_text(term) in folded:
+            return term.replace(" ", "_")
+    return None
+
+
+def derived_industrial_metadata(payload: Mapping[str, Any]) -> dict[str, str]:
+    """Extract generic industrial metadata hints from existing payload text.
+
+    This intentionally stays conservative: explicit payload fields win, and
+    derived values are only hints for sparse/exact retrieval, not source truth.
+    """
+
+    text = " ".join(
+        str(value or "")
+        for value in (
+            payload.get("document_filename"),
+            payload.get("document_title"),
+            payload.get("title"),
+            payload.get("archive_name"),
+            payload.get("inner_document_path"),
+            payload.get("source_path"),
+            payload.get("source"),
+            payload.get("section_path"),
+            str(payload.get("content") or "")[:4000],
+        )
+    )
+    search_text = f"{text} {re.sub(r'[_/.-]+', ' ', text)}"
+    out: dict[str, str] = {}
+    if not payload.get("chapter"):
+        chapter = _first_capture(_CHAPTER_RE, search_text)
+        if chapter:
+            out["chapter"] = f"Chapter {chapter}"
+    if not payload.get("section"):
+        section = _first_capture(_SECTION_RE, search_text)
+        if section:
+            out["section"] = f"Section {section}"
+    if not payload.get("part_number"):
+        part_number = _first_capture(_PART_NUMBER_RE, search_text)
+        if part_number:
+            part_number = re.split(r"\.\s+(?=[A-Za-z]{3,})", part_number, maxsplit=1)[0].strip()
+            out["part_number"] = part_number
+    if not payload.get("machine"):
+        machine = _first_capture(_MACHINE_LABEL_RE, search_text)
+        if machine and compact_identifier(machine) != compact_identifier(payload.get("project_code")):
+            out["machine"] = machine
+    if not payload.get("family"):
+        family = _derive_family(text)
+        if family:
+            out["family"] = family
+    return out
+
+
 def metadata_terms(payload: Mapping[str, Any], config: LexicalRetrievalConfig | None = None) -> tuple[str, ...]:
     config = config or LexicalRetrievalConfig()
     fields = [field for field in config.metadata_field_weights if field != "content"]
@@ -307,6 +399,8 @@ def metadata_identifiers(payload: Mapping[str, Any], config: LexicalRetrievalCon
     config = config or LexicalRetrievalConfig()
     fields = (
         "project_code",
+        "machine",
+        "part_number",
         "document_id",
         "archive_name",
         "document_filename",
@@ -314,6 +408,8 @@ def metadata_identifiers(payload: Mapping[str, Any], config: LexicalRetrievalCon
         "title",
         "source_path",
         "inner_document_path",
+        "section",
+        "chapter",
     )
     out: list[str] = []
     patterns = tuple(config.exact_identifier_patterns or DEFAULT_EXACT_IDENTIFIER_PATTERNS)
@@ -344,6 +440,8 @@ def enrich_payload_for_lexical_sparse(
     config: LexicalRetrievalConfig | None = None,
 ) -> dict[str, Any]:
     out = dict(payload)
+    for key, value in derived_industrial_metadata(out).items():
+        out.setdefault(key, value)
     out["sparse_schema_version"] = SPARSE_SCHEMA_VERSION
     out["retrieval_identifiers"] = list(metadata_identifiers(out, config))
     out["retrieval_terms"] = list(metadata_terms(out, config))

@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.services.rag.lexical_retrieval import (
     SPARSE_SCHEMA_VERSION,
     analyze_query,
+    derived_industrial_metadata,
     enrich_payload_for_lexical_sparse,
     identifier_variants,
     lexical_match_details,
@@ -54,6 +55,25 @@ def test_metadata_sparse_text_enriches_filename_and_code_without_domain_terms():
     assert enriched["sparse_schema_version"] == SPARSE_SCHEMA_VERSION
     assert "prj204" in enriched["retrieval_identifiers"]
     assert "component" in enriched["retrieval_terms"]
+
+
+def test_sparse_enrichment_derives_generic_industrial_metadata_hints():
+    payload = {
+        "content": "Maintenance note. Part no LM 300 filtering cartridge.",
+        "document_filename": "Manual_BHX100__Chapter 08__section IV.pdf",
+        "inner_document_path": "BHX100/files/section_IV/Filtration_vacuum_maintenance.html",
+        "project_code": "BHX100",
+    }
+
+    derived = derived_industrial_metadata(payload)
+    enriched = enrich_payload_for_lexical_sparse(payload)
+
+    assert derived["chapter"] == "Chapter 08"
+    assert derived["section"] == "Section IV"
+    assert derived["family"] == "filtration"
+    assert enriched["part_number"] == "LM 300 filtering cartridge"
+    assert "lm300filteringcartridge" in enriched["retrieval_identifiers"]
+    assert "filtration" in enriched["retrieval_terms"]
 
 
 def test_lexical_match_boosts_exact_metadata_and_demotes_other_identifiers():

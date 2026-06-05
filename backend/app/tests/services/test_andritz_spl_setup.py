@@ -55,5 +55,10 @@ def test_andritz_spl_guide_contains_retrieval_policy():
 
     assert policy.enabled is True
     assert "BBA120" in policy.protected_terms
+    assert "ARA200" in policy.protected_terms
     assert any(term == "capteurs" for term, _expansions in policy.aliases)
+    assert any(term == "filtration" for term, _expansions in policy.aliases)
     assert any(rule.source_families == ("spare_parts_list",) for rule in policy.source_family_rules)
+    assert "parts_catalog" in policy.lexical_config.document_types
+    assert policy.lexical_config.metadata_field_weights["part_number"] == 8
+    assert policy.lexical_config.metadata_field_weights["section_path"] == 5

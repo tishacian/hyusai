@@ -18,9 +18,16 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
     "protected_terms": [
       "BBA120",
       "ACO140",
+      "ACO150",
+      "ARA200",
       "DCI110",
       "AKK200",
       "KD724",
+      "URACA KD724",
+      "KSB Etachrom",
+      "LM300",
+      "LM 300",
+      "O-ring",
       "JETLACE",
       "XS1-M",
       "XS1",
@@ -52,22 +59,68 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
         "pump",
         "pumps",
         "URACA",
-        "KD724"
+        "KD724",
+        "KSB",
+        "Etachrom",
+        "high pressure pump",
+        "HP pump"
       ],
       "injecteur": [
         "injector",
         "prewetting injector",
-        "autoclamped injector"
+        "autoclamped injector",
+        "injector cartridge",
+        "cartridge"
       ],
       "joint": [
         "seal",
         "O-ring",
-        "o ring"
+        "o ring",
+        "gasket",
+        "oring"
+      ],
+      "cartouche": [
+        "cartridge",
+        "filtering cartridge",
+        "injector cartridge",
+        "LM 300",
+        "LM300"
+      ],
+      "filtration": [
+        "filtration",
+        "filtering",
+        "filter",
+        "vacuum",
+        "Filtration_maintenance",
+        "Vacuum_maintenance"
+      ],
+      "vide": [
+        "vacuum",
+        "filtration vacuum",
+        "Filtration_vacuum_maintenance"
+      ],
+      "strip-carrier": [
+        "strip carrier",
+        "strip-carrier",
+        "carrier",
+        "injector strip carrier"
+      ],
+      "armoire pneumatique": [
+        "pneumatic cabinet",
+        "pneumatic enclosure",
+        "pneumatic board"
+      ],
+      "convoyeur": [
+        "conveyor",
+        "conveyor jetlace",
+        "transport conveyor"
       ],
       "pieces detachees": [
         "spare parts",
         "spare parts list",
-        "parts list"
+        "parts list",
+        "part number",
+        "item reference"
       ],
       "securite": [
         "safety",
@@ -104,7 +157,7 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
       {
         "key": "pump",
         "label": "Pompes",
-        "terms": ["pompe", "pump", "URACA", "KD724"]
+        "terms": ["pompe", "pump", "URACA", "KD724", "KSB", "Etachrom", "HP pump"]
       },
       {
         "key": "injector",
@@ -114,7 +167,17 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
       {
         "key": "spare_parts",
         "label": "Pieces detachees",
-        "terms": ["piece", "pieces", "spare parts", "parts list", "O-ring", "seal", "garniture", "card clothing"]
+        "terms": ["piece", "pieces", "spare parts", "parts list", "part number", "LM 300", "O-ring", "seal", "garniture", "card clothing"]
+      },
+      {
+        "key": "filtration_vacuum",
+        "label": "Filtration et vacuum",
+        "terms": ["filtration", "filtering", "vacuum", "filtering cartridge"]
+      },
+      {
+        "key": "conveyor_pneumatic",
+        "label": "Convoyeur et pneumatique",
+        "terms": ["conveyor", "convoyeur", "pneumatic cabinet", "armoire pneumatique"]
       },
       {
         "key": "card",
@@ -146,12 +209,16 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
     ],
     "prefer_source_families": [
       {
-        "when_terms": ["procedure", "maintenance", "reglage", "operation", "demarrage"],
+        "when_terms": ["procedure", "maintenance", "reglage", "operation", "demarrage", "clean", "cleaning", "filtration", "vacuum"],
         "source_families": ["operating_manual", "maintenance", "commissioning", "html_manual"]
       },
       {
-        "when_terms": ["piece", "pieces", "spare", "O-ring", "joint", "garniture", "card clothing"],
+        "when_terms": ["piece", "pieces", "spare", "part number", "LM 300", "O-ring", "joint", "garniture", "card clothing"],
         "source_families": ["spare_parts_list"]
+      },
+      {
+        "when_terms": ["pompe", "pump", "URACA", "KD724", "KSB", "Etachrom", "fournisseur", "vendor"],
+        "source_families": ["annex", "supplier_manual", "operating_manual"]
       },
       {
         "when_terms": ["securite", "safety", "conformite", "conformity"],
@@ -162,6 +229,38 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
         "source_families": ["annex"]
       }
     ]
+  },
+  "lexical_retrieval": {
+    "document_types": {
+      "parts_catalog": {
+        "aliases": ["spare parts list", "spare part list", "parts list", "piece detachee", "pieces detachees"]
+      },
+      "maintenance_procedure": {
+        "aliases": ["maintenance procedure", "procedure de maintenance", "maintenance", "service manual"]
+      },
+      "supplier_manual": {
+        "aliases": ["supplier manual", "vendor manual", "URACA", "KSB", "Etachrom"]
+      },
+      "html_manual_section": {
+        "aliases": ["html manual", "section html", "users manual", "operating manual"]
+      }
+    },
+    "metadata_fields": {
+      "document_filename": 6,
+      "document_title": 5,
+      "project_code": 8,
+      "machine": 6,
+      "family": 4,
+      "section": 4,
+      "section_path": 5,
+      "chapter": 4,
+      "part_number": 8,
+      "source_family": 5,
+      "inner_document_path": 5,
+      "archive_name": 4,
+      "retrieval_identifiers": 8,
+      "retrieval_terms": 5
+    }
   },
   "answer_policy": {
     "instructions": [

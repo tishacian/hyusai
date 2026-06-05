@@ -693,6 +693,60 @@ def _prepend_exact_match_guardrail_context(
     return [content, *chunks], [1.0, *scores], [metadata, *metadatas], 1
 
 
+async def _append_parent_context(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    *,
+    doc_svc: Any,
+    max_parents: int = 3,
+    max_chars: int = 2500,
+) -> tuple[list[str], list[float], list[dict[str, Any]], int]:
+    if not chunks or not metadatas:
+        return chunks, scores, metadatas, 0
+    expander = getattr(doc_svc, "parent_contexts_for_hits", None)
+    if not callable(expander):
+        return chunks, scores, metadatas, 0
+    try:
+        rows = await expander(metadatas, max_parents=max_parents, max_chars=max_chars)
+    except Exception as exc:  # noqa: BLE001 - parent context is optional.
+        logger.debug("rag_context: parent context expansion failed", error=str(exc))
+        return chunks, scores, metadatas, 0
+    if not rows:
+        return chunks, scores, metadatas, 0
+
+    out_chunks = list(chunks)
+    out_scores = list(scores)
+    out_metas = [dict(meta or {}) for meta in metadatas]
+    seen = {_chunk_exact_key(chunk) for chunk in out_chunks}
+    added = 0
+    for row in rows[: max(1, int(max_parents or 1))]:
+        if not isinstance(row, Mapping):
+            continue
+        content = str(row.get("content") or "").strip()
+        if not content:
+            continue
+        key = _chunk_exact_key(content)
+        if key in seen:
+            continue
+        seen.add(key)
+        metadata = dict(row.get("metadata") or {})
+        metadata["source_type"] = "parent_context"
+        metadata["semantic_type"] = metadata.get("semantic_type") or "parent_context"
+        metadata["parent_context_expanded"] = True
+        if metadata.get("document_filename") and not metadata.get("citation_label"):
+            metadata["citation_label"] = f"{metadata.get('document_filename')} · parent context"
+        try:
+            score = min(max(float(row.get("score") or 0.35), 0.01), 0.65)
+        except (TypeError, ValueError):
+            score = 0.35
+        out_chunks.append(f"Parent context:\n{content}")
+        out_scores.append(score)
+        out_metas.append(metadata)
+        added += 1
+    return out_chunks, out_scores, out_metas, added
+
+
 def _retrieval_policy_summary(policy: RetrievalPolicy, clarification: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "enabled": policy.enabled,
@@ -1975,6 +2029,12 @@ async def retrieve_rag_context(
         metadatas = metadatas[:synthesis_k]
     rerank_ms = int((time.perf_counter() - rerank_started_perf) * 1000)
     document_chunk_count = len(chunks)
+    chunks, scores, metadatas, parent_context_count = await _append_parent_context(
+        chunks,
+        scores,
+        metadatas,
+        doc_svc=doc_svc,
+    )
     context_build_started_perf = time.perf_counter()
     summary_artifact = _summary_artifact_for_profile(profile, metrics=metrics, query=retrieval_query)
     chunks, scores, metadatas, summary_artifact_count = _prepend_summary_artifact_context(
@@ -2020,6 +2080,7 @@ async def retrieve_rag_context(
             "context_build_ms": context_build_ms,
             "chunks_retrieved": len(chunks),
             "document_chunks_retrieved": document_chunk_count,
+            "parent_context_evidence": parent_context_count,
             "raw_chunks_retrieved": raw_chunk_count,
             "duplicates_removed": duplicates_removed,
             "knowledge_guides": guide_count,

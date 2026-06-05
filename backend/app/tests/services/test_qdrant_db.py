@@ -129,6 +129,59 @@ async def test_search_exact_metadata_uses_retrieval_identifier_payload_index(mon
 
 
 @pytest.mark.asyncio
+async def test_parent_contexts_for_hits_expands_by_document_and_section():
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    db = QdrantVectorDB(collection_name="col", client=client)
+    records = [
+        SimpleNamespace(
+            id="point-2",
+            payload={
+                "chunk_id": "chunk-2",
+                "content": "Second parent paragraph about filtering cartridge.",
+                "document_id": "doc-1",
+                "document_filename": "Spare Parts List AKK200_Ind A.pdf",
+                "section_path": "section IV",
+                "chunk_index": 12,
+            },
+        ),
+        SimpleNamespace(
+            id="point-1",
+            payload={
+                "chunk_id": "chunk-1",
+                "content": "First parent paragraph about AKK200 O-ring.",
+                "document_id": "doc-1",
+                "document_filename": "Spare Parts List AKK200_Ind A.pdf",
+                "section_path": "section IV",
+                "chunk_index": 11,
+            },
+        ),
+    ]
+    client.scroll.return_value = (records, None)
+
+    out = await db.parent_contexts_for_hits(
+        [
+            {
+                "document_id": "doc-1",
+                "document_filename": "Spare Parts List AKK200_Ind A.pdf",
+                "section_path": "section IV",
+                "chunk_index": 12,
+            }
+        ],
+        max_parents=1,
+        max_chars=500,
+    )
+
+    assert len(out) == 1
+    assert "First parent paragraph" in out[0]["content"]
+    assert "Second parent paragraph" in out[0]["content"]
+    assert out[0]["metadata"]["parent_context"] is True
+    assert out[0]["metadata"]["parent_context_chunk_count"] == 2
+    scroll_filter = client.scroll.call_args.kwargs["scroll_filter"]
+    assert {condition.key for condition in scroll_filter.must} >= {"document_id", "section_path"}
+
+
+@pytest.mark.asyncio
 async def test_add_vectors_batches_large_upserts(monkeypatch):
     monkeypatch.setattr(settings, "qdrant_upsert_batch_size", 2)
     client = MagicMock()

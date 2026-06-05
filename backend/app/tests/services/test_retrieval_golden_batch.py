@@ -12,11 +12,16 @@ from app.services.rag.source_facets import active_source_family_facets, score_so
 def test_andritz_spl_golden_batch_is_retrieval_contract():
     cases = load_retrieval_golden_cases()
 
-    assert len(cases) == 12
+    assert len(cases) >= 30
     assert all(case.query for case in cases)
     assert all(case.expected_sources for case in cases)
     assert all(case.expected_evidence_terms for case in cases)
     assert all(case.forbidden_route == "catalogue_inventory" for case in cases)
+    assert {
+        "spl_013_akk200_filtration_vacuum_expert",
+        "spl_016_bba120_hp_pump_kd724_vendor",
+        "spl_021_injector_autoclamped_cartridge_clean",
+    }.issubset({case.id for case in cases})
 
 
 def test_golden_case_evaluates_sources_and_evidence_not_answer_text():

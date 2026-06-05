@@ -52,6 +52,12 @@ def _source_record(source: KnowledgeCollectionSource, collection: KnowledgeColle
         "status": source.status,
         "chunk_count": int(source.chunk_count or 0),
         "project_code": _metadata_value(meta, "project_code", "project", "machine", "line"),
+        "machine": _metadata_value(meta, "machine", "equipment", "model"),
+        "family": _metadata_value(meta, "family", "product_family", "line_family"),
+        "section": _metadata_value(meta, "section"),
+        "section_path": _metadata_value(meta, "section_path"),
+        "chapter": _metadata_value(meta, "chapter"),
+        "part_number": _metadata_value(meta, "part_number", "part_no", "reference"),
         "archive_name": _metadata_value(meta, "archive_name", "archive"),
         "language": _metadata_value(meta, "language", "lang"),
         "fact_count": 0,
@@ -108,6 +114,13 @@ def _summary_text(record: dict[str, Any]) -> str:
     archive = record.get("archive_name")
     if project or archive:
         parts.append(f"Scope metadata: project={project or '-'} archive={archive or '-'}.")
+    industrial = [
+        f"{key}={record.get(key)}"
+        for key in ("machine", "family", "section", "chapter", "part_number")
+        if record.get(key)
+    ]
+    if industrial:
+        parts.append("Industrial metadata: " + " ".join(industrial) + ".")
     facts_by_type = record.get("facts_by_type") or {}
     if facts_by_type:
         ordered = sorted(facts_by_type.items(), key=lambda item: (-int(item[1]), str(item[0])))
@@ -307,6 +320,12 @@ def rebuild_summary_index_artifact(
                     "status": "fact_only",
                     "chunk_count": 0,
                     "project_code": None,
+                    "machine": None,
+                    "family": None,
+                    "section": None,
+                    "section_path": fact.section_path,
+                    "chapter": None,
+                    "part_number": None,
                     "archive_name": None,
                     "language": None,
                     "fact_count": 0,

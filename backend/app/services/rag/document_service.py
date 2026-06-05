@@ -899,6 +899,22 @@ class DocumentService:
             )
         except TypeError:
             return await searcher(query, top_k=top_k, filters=filters)
+
+    async def parent_contexts_for_hits(
+        self,
+        metadatas: List[Dict],
+        *,
+        max_parents: int = 3,
+        max_chars: int = 2500,
+    ) -> List[Dict]:
+        """Expand ranked child hits to coarser document/section context."""
+        expander = getattr(self.vector_db, "parent_contexts_for_hits", None)
+        if not callable(expander):
+            return []
+        try:
+            return await expander(metadatas, max_parents=max_parents, max_chars=max_chars)
+        except TypeError:
+            return await expander(metadatas)
     
     async def list_documents(self) -> List[Dict]:
         """List all documents in the collection"""

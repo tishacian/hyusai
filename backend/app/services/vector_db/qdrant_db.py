@@ -37,10 +37,18 @@ _PAYLOAD_INDEX_FIELDS = (
     "source_kind",
     "extension",
     "project_code",
+    "machine",
+    "family",
+    "section",
+    "section_path",
+    "chapter",
+    "part_number",
     "archive_name",
     "source_family",
     "document_title",
     "inner_document_path",
+    "parent_document_id",
+    "parent_context_key",
     "sparse_schema_version",
     "retrieval_identifiers",
     "retrieval_terms",
@@ -1029,6 +1037,154 @@ class QdrantVectorDB(VectorDBBase):
             return out
 
         return await loop.run_in_executor(None, _scroll_payloads)
+
+    async def parent_contexts_for_hits(
+        self,
+        metadatas: List[Dict[str, Any]],
+        *,
+        max_parents: int = 3,
+        max_chars: int = 2500,
+    ) -> List[Dict[str, Any]]:
+        """Return coarse parent contexts for already-ranked child hits.
+
+        Current collections may not have explicit parent ids yet, so the
+        fallback parent key is document + optional section metadata. This keeps
+        the retrieval shape generic and lets richer parent/child indexes plug in
+        later without changing the chat context contract.
+        """
+        if self.client is None or not self.client.collection_exists(self.collection_name):
+            return []
+        seeds: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        for meta in metadatas or []:
+            if not isinstance(meta, dict):
+                continue
+            parent_id = str(meta.get("parent_document_id") or "").strip()
+            document_id = str(meta.get("document_id") or "").strip()
+            filename = str(meta.get("document_filename") or "").strip()
+            section = str(meta.get("section_path") or meta.get("section") or "").strip()
+            key = parent_id or document_id or filename
+            if not key:
+                continue
+            scoped_key = "|".join(part for part in (key, section) if part)
+            if scoped_key in seen_keys:
+                continue
+            seen_keys.add(scoped_key)
+            seeds.append(dict(meta))
+            if len(seeds) >= max(1, int(max_parents or 1)):
+                break
+        if not seeds:
+            return []
+
+        loop = asyncio.get_event_loop()
+
+        def _chunk_index(payload: dict[str, Any]) -> int | None:
+            try:
+                return int(payload.get("chunk_index"))
+            except (TypeError, ValueError):
+                return None
+
+        def _seed_filters(seed: dict[str, Any], *, include_section: bool) -> dict[str, Any]:
+            filters: dict[str, Any] = {}
+            parent_id = str(seed.get("parent_document_id") or "").strip()
+            if parent_id:
+                filters["parent_document_id"] = parent_id
+            elif seed.get("document_id"):
+                filters["document_id"] = seed.get("document_id")
+            elif seed.get("document_filename"):
+                filters["document_filename"] = seed.get("document_filename")
+            if include_section:
+                if seed.get("section_path"):
+                    filters["section_path"] = seed.get("section_path")
+                elif seed.get("section"):
+                    filters["section"] = seed.get("section")
+            return filters
+
+        def _scroll_parent(seed: dict[str, Any]) -> dict[str, Any] | None:
+            qf = self._filters_to_qdrant(_seed_filters(seed, include_section=True))
+            if qf is None:
+                return None
+            self._ensure_payload_indexes_once()
+            records, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=qf,
+                limit=80,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not records and (seed.get("section_path") or seed.get("section")):
+                qf = self._filters_to_qdrant(_seed_filters(seed, include_section=False))
+                if qf is not None:
+                    records, _ = self.client.scroll(
+                        collection_name=self.collection_name,
+                        scroll_filter=qf,
+                        limit=80,
+                        with_payload=True,
+                        with_vectors=False,
+                    )
+            payloads = [dict(getattr(record, "payload", None) or {}) for record in records or []]
+            payloads = [payload for payload in payloads if str(payload.get("content") or "").strip()]
+            if not payloads:
+                return None
+            seed_index = _chunk_index(seed)
+            if seed_index is not None:
+                payloads.sort(
+                    key=lambda payload: (
+                        abs((_chunk_index(payload) if _chunk_index(payload) is not None else seed_index) - seed_index),
+                        _chunk_index(payload) if _chunk_index(payload) is not None else 10**9,
+                    )
+                )
+            else:
+                payloads.sort(key=lambda payload: _chunk_index(payload) if _chunk_index(payload) is not None else 10**9)
+
+            selected: list[dict[str, Any]] = []
+            total_chars = 0
+            max_chars_local = max(500, int(max_chars or 2500))
+            for payload in payloads:
+                content = str(payload.get("content") or "").strip()
+                if not content:
+                    continue
+                if selected and total_chars + len(content) > max_chars_local:
+                    continue
+                selected.append(payload)
+                total_chars += len(content)
+                if total_chars >= max_chars_local:
+                    break
+            if not selected:
+                return None
+            selected.sort(key=lambda payload: _chunk_index(payload) if _chunk_index(payload) is not None else 10**9)
+            content_parts = [str(payload.get("content") or "").strip() for payload in selected]
+            content = "\n\n".join(part for part in content_parts if part)[:max_chars_local]
+            first = dict(selected[0])
+            parent_key = str(
+                seed.get("parent_context_key")
+                or seed.get("parent_document_id")
+                or seed.get("document_id")
+                or seed.get("document_filename")
+                or ""
+            )
+            first.update(
+                {
+                    "content": content,
+                    "parent_context": True,
+                    "parent_context_backend": "qdrant_payload",
+                    "parent_context_key": parent_key,
+                    "parent_context_chunk_count": len(selected),
+                    "parent_context_seed_chunk_index": seed.get("chunk_index"),
+                    "parent_context_seed_document_filename": seed.get("document_filename"),
+                }
+            )
+            return {"content": content, "metadata": first, "score": 0.35}
+
+        def _collect():
+            rows: list[dict[str, Any]] = []
+            for seed in seeds:
+                row = _scroll_parent(seed)
+                if row:
+                    rows.append(row)
+            return rows
+
+        return await loop.run_in_executor(None, _collect)
 
     async def search_exact_metadata(
         self,

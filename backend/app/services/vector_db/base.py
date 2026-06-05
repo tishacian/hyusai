@@ -73,6 +73,16 @@ class VectorDBBase(ABC):
         """Return candidates from exact/metadata lexical payload indexes."""
         return []
 
+    async def parent_contexts_for_hits(
+        self,
+        metadatas: List[Dict],
+        *,
+        max_parents: int = 3,
+        max_chars: int = 2500,
+    ) -> List[Dict]:
+        """Return parent/coarse contexts for already retrieved child hits."""
+        return []
+
     async def sample_chunk_vectors(
         self,
         limit: int = 200,
