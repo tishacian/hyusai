@@ -6,13 +6,14 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from app.core.config import settings
-from app.services.rag import context as rag_context
-from app.services.rag.corpus_planner import classify_intent, is_catalogue_query, plan_corpus
-from app.services.rag.context import get_retrieval_profile, retrieve_rag_context
-from app.services.rag.summary_artifacts import rebuild_summary_index_artifact
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import create_collection, upsert_collection_source
+from app.services.rag import context as rag_context
+from app.services.rag.context import get_retrieval_profile, retrieve_rag_context
+from app.services.rag.corpus_planner import classify_intent, is_catalogue_query, plan_corpus
+from app.services.rag.retrieval_policy import RetrievalPolicy
+from app.services.rag.summary_artifacts import rebuild_summary_index_artifact
 
 
 class FakeDocumentService:
@@ -227,6 +228,28 @@ async def test_retrieve_rag_context_returns_serialisable_contract():
     assert result["pipeline"] == "naive"
     assert result["mode_label"] == "vector_only"
     assert result["metrics"]["chunks_retrieved"] == 1
+
+
+def test_exact_match_guardrail_context_is_prepended_when_required_code_is_missing():
+    chunks, scores, metadatas, count = rag_context._prepend_exact_match_guardrail_context(
+        ["Dense neighbor background"],
+        [0.91],
+        [{"document_filename": "generic.pdf"}],
+        query="Find component catalogue PRJ204",
+        policy=RetrievalPolicy(),
+        diagnostics={
+            "exact_metadata_attempted": True,
+            "exact_metadata_hits": 0,
+            "exact_match_required": True,
+            "exact_match_missing": True,
+        },
+    )
+
+    assert count == 1
+    assert chunks[0].startswith("Retrieval exact-match guardrail.")
+    assert "PRJ204" in chunks[0]
+    assert metadatas[0]["semantic_type"] == "exact_match_guardrail"
+    assert chunks[1] == "Dense neighbor background"
 
 
 async def test_retrieve_rag_context_applies_similarity_threshold(monkeypatch):

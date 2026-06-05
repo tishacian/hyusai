@@ -15,6 +15,14 @@ import numpy as np
 
 from app.core.config import settings
 from app.core.logging import get_logger
+from app.services.rag.lexical_retrieval import (
+    SPARSE_SCHEMA_VERSION,
+    LexicalRetrievalConfig,
+    analyze_query,
+    enrich_payload_for_lexical_sparse,
+    lexical_match_details,
+    metadata_search_text,
+)
 from app.services.vector_db.base import VectorDBBase
 
 logger = get_logger(__name__)
@@ -30,6 +38,12 @@ _PAYLOAD_INDEX_FIELDS = (
     "extension",
     "project_code",
     "archive_name",
+    "source_family",
+    "document_title",
+    "inner_document_path",
+    "sparse_schema_version",
+    "retrieval_identifiers",
+    "retrieval_terms",
     "language",
     "status",
 )
@@ -40,13 +54,21 @@ _SPARSE_TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]{2,}")
 
 
 def _sanitize_payload(metadata: Dict[str, Any]) -> Dict[str, Any]:
-    """Qdrant payload: JSON-serializable scalars only."""
+    """Qdrant payload: JSON-serializable scalars and keyword arrays."""
     out: Dict[str, Any] = {}
     for k, v in metadata.items():
         if v is None:
             continue
         if isinstance(v, (str, int, float, bool)):
             out[str(k)] = v
+        elif isinstance(v, (list, tuple, set)):
+            values = [
+                item
+                for item in v
+                if item is not None and isinstance(item, (str, int, float, bool)) and str(item) != ""
+            ]
+            if values:
+                out[str(k)] = values
         else:
             out[str(k)] = str(v)
     return out
@@ -85,6 +107,14 @@ def _sparse_vector_from_text(text: str) -> Any:
         indices=ordered,
         values=[float(buckets[index] / norm) for index in ordered],
     )
+
+
+def _payload_for_sparse(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return enrich_payload_for_lexical_sparse(payload)
+
+
+def _sparse_vector_from_payload(payload: Dict[str, Any]) -> Any:
+    return _sparse_vector_from_text(metadata_search_text(payload))
 
 
 def _qdrant_search_params(search_params: Optional[Dict[str, Any]]) -> Any:
@@ -292,6 +322,28 @@ class QdrantVectorDB(VectorDBBase):
             )
             return False
 
+    def _collection_sparse_schema_ready(self) -> bool:
+        if self.client is None or not self.client.collection_exists(self.collection_name):
+            return False
+        try:
+            records, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=1,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not records:
+                return True
+            payload = dict(getattr(records[0], "payload", None) or {})
+            return str(payload.get("sparse_schema_version") or "") == SPARSE_SCHEMA_VERSION
+        except Exception as exc:  # noqa: BLE001 - schema marker is an optimization.
+            logger.debug(
+                "Qdrant sparse schema inspection failed",
+                collection=self.collection_name,
+                error=str(exc),
+            )
+            return False
+
     async def add_vectors(
         self, vectors: np.ndarray, metadatas: List[Dict], ids: List[str]
     ):
@@ -310,13 +362,13 @@ class QdrantVectorDB(VectorDBBase):
             points = []
             for i, chunk_id in enumerate(ids):
                 pid = self._point_id(chunk_id)
-                payload = _sanitize_payload(dict(metadatas[i]))
+                payload = _payload_for_sparse(_sanitize_payload(dict(metadatas[i])))
                 payload["chunk_id"] = chunk_id
                 vector: Any = normalized[i].tolist()
                 if _qdrant_sparse_enabled():
                     vector = {
                         _DENSE_VECTOR_NAME: normalized[i].tolist(),
-                        _SPARSE_VECTOR_NAME: _sparse_vector_from_text(str(payload.get("content") or "")),
+                        _SPARSE_VECTOR_NAME: _sparse_vector_from_payload(payload),
                     }
                 points.append(
                     PointStruct(id=pid, vector=vector, payload=payload)
@@ -357,7 +409,8 @@ class QdrantVectorDB(VectorDBBase):
         loop = asyncio.get_event_loop()
 
         def _reindex() -> Dict[str, Any]:
-            if self._collection_supports_named_sparse():
+            named_sparse = self._collection_supports_named_sparse()
+            if named_sparse and self._collection_sparse_schema_ready():
                 return {
                     "status": "ready",
                     "configured": True,
@@ -365,11 +418,17 @@ class QdrantVectorDB(VectorDBBase):
                     "points_reindexed": self.client.count(collection_name=self.collection_name, exact=True).count,
                     "recreated_collection": False,
                     "alias_cutover": False,
-                    "reason": "already_named_dense_sparse",
+                    "reason": "already_named_dense_sparse_metadata_v1",
+                    "sparse_schema_version": SPARSE_SCHEMA_VERSION,
                 }
 
             info = self.client.get_collection(collection_name=self.collection_name)
-            dimension = int(getattr(getattr(info.config.params, "vectors", None), "size", 0) or 0)
+            vectors_config = getattr(getattr(info.config, "params", None), "vectors", None)
+            if isinstance(vectors_config, dict):
+                dense_config = vectors_config.get(_DENSE_VECTOR_NAME) or next(iter(vectors_config.values()), None)
+                dimension = int(getattr(dense_config, "size", 0) or 0)
+            else:
+                dimension = int(getattr(vectors_config, "size", 0) or 0)
             if dimension <= 0:
                 return {
                     "status": "skipped",
@@ -378,7 +437,13 @@ class QdrantVectorDB(VectorDBBase):
                     "reason": "dense_dimension_unavailable",
                 }
 
-            from qdrant_client.models import CreateAlias, CreateAliasOperation, Distance, PointStruct, VectorParams
+            from qdrant_client.models import (
+                CreateAlias,
+                CreateAliasOperation,
+                Distance,
+                PointStruct,
+                VectorParams,
+            )
 
             source_count = self.client.count(collection_name=self.collection_name, exact=True).count
             suffix = f"__hybrid_{int(time.time())}"
@@ -416,7 +481,7 @@ class QdrantVectorDB(VectorDBBase):
                     break
                 points = []
                 for record in records:
-                    payload = _sanitize_payload(dict(getattr(record, "payload", None) or {}))
+                    payload = _payload_for_sparse(_sanitize_payload(dict(getattr(record, "payload", None) or {})))
                     dense = _dense_vector_from_raw(getattr(record, "vector", None))
                     if dense is None:
                         skipped += 1
@@ -432,7 +497,7 @@ class QdrantVectorDB(VectorDBBase):
                             id=getattr(record, "id"),
                             vector={
                                 _DENSE_VECTOR_NAME: normalized,
-                                _SPARSE_VECTOR_NAME: _sparse_vector_from_text(str(payload.get("content") or "")),
+                                _SPARSE_VECTOR_NAME: _sparse_vector_from_payload(payload),
                             },
                             payload=payload,
                         )
@@ -479,6 +544,7 @@ class QdrantVectorDB(VectorDBBase):
                 "recreated_collection": False,
                 "alias_cutover": True,
                 "dimension": dimension,
+                "sparse_schema_version": SPARSE_SCHEMA_VERSION,
                 "sparse_vector_name": _SPARSE_VECTOR_NAME,
                 "dense_vector_name": _DENSE_VECTOR_NAME,
             }
@@ -963,6 +1029,103 @@ class QdrantVectorDB(VectorDBBase):
             return out
 
         return await loop.run_in_executor(None, _scroll_payloads)
+
+    async def search_exact_metadata(
+        self,
+        query: str,
+        top_k: int = 10,
+        filters: Optional[Dict[str, Any]] = None,
+        lexical_config: Optional[LexicalRetrievalConfig] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search exact metadata candidates via payload keyword indexes.
+
+        This is intentionally conservative: it only runs when the query analysis
+        yields exact identifiers or configured document-type aliases.
+        """
+        if top_k <= 0 or self.client is None or not self.client.collection_exists(self.collection_name):
+            return []
+        config = lexical_config or LexicalRetrievalConfig()
+        signals = analyze_query(query, config)
+        if not signals.exact_terms and not signals.document_type_aliases:
+            return []
+
+        exact_filters = dict(filters or {})
+        if signals.identifier_variants:
+            exact_filters["retrieval_identifiers"] = [term.lower() for term in signals.identifier_variants]
+        elif signals.document_type_aliases:
+            terms: list[str] = []
+            for alias in signals.document_type_aliases:
+                terms.extend(token.lower() for token in re.findall(r"[A-Za-zÀ-ÿ0-9]{2,}", alias))
+            if terms:
+                exact_filters["retrieval_terms"] = sorted(set(terms))
+        else:
+            return []
+
+        qf = self._filters_to_qdrant(exact_filters)
+        if qf is None:
+            return []
+        self._ensure_payload_indexes_once()
+        loop = asyncio.get_event_loop()
+
+        def _scroll_exact():
+            records_out: list[dict[str, Any]] = []
+            seen_docs: set[str] = set()
+            next_off = None
+            max_scan = max(top_k * 8, 40)
+            scanned = 0
+            while len(records_out) < top_k and scanned < max_scan:
+                records, next_off = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=qf,
+                    limit=min(256, max_scan - scanned),
+                    offset=next_off,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                if not records:
+                    break
+                scanned += len(records)
+                for record in records:
+                    payload = dict(getattr(record, "payload", None) or {})
+                    doc_key = str(payload.get("document_id") or payload.get("document_filename") or record.id)
+                    if doc_key in seen_docs:
+                        continue
+                    details = lexical_match_details(
+                        content=str(payload.get("content") or ""),
+                        metadata=payload,
+                        query=query,
+                        config=config,
+                    )
+                    if details.get("requires_exact_match") and not details.get("matched_exact_terms"):
+                        continue
+                    metadata = dict(payload)
+                    metadata["exact_metadata_match"] = True
+                    metadata["exact_metadata_backend"] = "qdrant_payload"
+                    metadata["retrieval_lexical_score"] = int(details.get("score") or 0)
+                    metadata["retrieval_exact_terms_matched"] = list(details.get("matched_exact_terms") or [])
+                    metadata["retrieval_document_types_matched"] = list(details.get("matched_document_types") or [])
+                    metadata["retrieval_exact_match_missing"] = bool(details.get("missing_exact_match"))
+                    score = max(1.0, float(details.get("score") or 0))
+                    records_out.append(
+                        {
+                            "id": str(payload.get("chunk_id") or record.id),
+                            "content": str(payload.get("content") or ""),
+                            "score": score,
+                            "combined_score": score,
+                            "vector_score": 0.0,
+                            "bm25_score": score,
+                            "metadata": metadata,
+                        }
+                    )
+                    seen_docs.add(doc_key)
+                    if len(records_out) >= top_k:
+                        break
+                if next_off is None:
+                    break
+            records_out.sort(key=lambda item: float(item.get("combined_score") or 0.0), reverse=True)
+            return records_out[:top_k]
+
+        return await loop.run_in_executor(None, _scroll_exact)
 
     async def list_documents(self) -> List[dict]:
         if self.client is None or not self.client.collection_exists(self.collection_name):

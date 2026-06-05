@@ -106,6 +106,44 @@ class ExactTableFactService:
         ][:top_k]
 
 
+class ExactMetadataService:
+    collection_name = "generic-kb"
+
+    def __init__(self, exact_rows: list[dict] | None = None, search_rows: list[dict] | None = None):
+        self.exact_rows = exact_rows or []
+        self.search_rows = search_rows or []
+        self.exact_calls: list[dict] = []
+        self.search_calls: list[dict] = []
+
+    async def search_exact_metadata(
+        self,
+        query: str,
+        top_k: int = 10,
+        filters=None,
+        lexical_config=None,
+    ):
+        self.exact_calls.append(
+            {
+                "query": query,
+                "top_k": top_k,
+                "filters": filters,
+                "lexical_config": lexical_config,
+            }
+        )
+        return self.exact_rows[:top_k]
+
+    async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid: bool = True):  # noqa: ARG002
+        self.search_calls.append(
+            {
+                "query": query,
+                "top_k": top_k,
+                "filters": filters,
+                "use_hybrid": use_hybrid,
+            }
+        )
+        return self.search_rows[:top_k]
+
+
 class DisabledSparseBackend:
     name = "disabled"
 
@@ -413,6 +451,88 @@ async def test_retrieve_for_mode_prepends_exact_table_payload_before_noisy_searc
     assert out.diagnostics["exact_table_attempted"] is True
     assert out.diagnostics["exact_table_hits"] >= 1
     assert out.diagnostics["exact_table_elapsed_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_retrieve_for_mode_prepends_exact_metadata_before_noisy_dense_neighbor():
+    exact = {
+        "id": "exact-prj204",
+        "content": "Exact component catalogue for PRJ204.",
+        "score": 12.0,
+        "combined_score": 12.0,
+        "metadata": {
+            "document_id": "doc-prj204",
+            "document_filename": "PRJ204 component catalogue.pdf",
+            "project_code": "PRJ204",
+            "exact_metadata_match": True,
+            "retrieval_exact_terms_matched": ["prj204"],
+        },
+    }
+    noisy = _mk_result("High-scoring semantic neighbor for PRJ205.", 0.99, 0)
+    noisy["metadata"] = {"document_id": "doc-prj205", "document_filename": "PRJ205 catalogue.pdf"}
+    doc = ExactMetadataService(exact_rows=[exact], search_rows=[noisy])
+
+    out = await retrieve_for_mode(
+        doc,
+        "Find the component catalogue for PRJ204",
+        "hybrid",
+        top_k=2,
+        use_hybrid=True,
+    )
+
+    assert out.chunks[0] == "Exact component catalogue for PRJ204."
+    assert out.metadatas[0]["exact_metadata_match"] is True
+    assert out.diagnostics["exact_metadata_attempted"] is True
+    assert out.diagnostics["exact_metadata_hits"] == 1
+    assert out.diagnostics["exact_match_missing"] is False
+    assert doc.exact_calls[0]["top_k"] == 4
+
+
+@pytest.mark.asyncio
+async def test_retrieve_for_mode_marks_missing_required_exact_metadata_match():
+    noisy = _mk_result("Generic component catalogue without the requested identifier.", 0.99, 0)
+    noisy["metadata"] = {"document_id": "doc-generic", "document_filename": "generic catalogue.pdf"}
+    doc = ExactMetadataService(exact_rows=[], search_rows=[noisy])
+
+    out = await retrieve_for_mode(
+        doc,
+        "Find the component catalogue for PRJ204",
+        "hybrid",
+        top_k=1,
+        use_hybrid=True,
+    )
+
+    assert out.chunks == ["Generic component catalogue without the requested identifier."]
+    assert out.diagnostics["exact_metadata_attempted"] is True
+    assert out.diagnostics["exact_metadata_hits"] == 0
+    assert out.diagnostics["exact_match_required"] is True
+    assert out.diagnostics["exact_match_missing"] is True
+
+
+@pytest.mark.asyncio
+async def test_retrieve_hah_like_keeps_exact_metadata_when_first_pass_is_empty():
+    exact = {
+        "id": "exact-prj204",
+        "content": "Exact metadata-only evidence for PRJ204.",
+        "score": 12.0,
+        "combined_score": 12.0,
+        "metadata": {
+            "document_id": "doc-prj204",
+            "document_filename": "PRJ204 manual.pdf",
+            "exact_metadata_match": True,
+        },
+    }
+    doc = ExactMetadataService(exact_rows=[exact], search_rows=[])
+
+    out = await retrieve_hah_like(
+        doc,
+        "Open PRJ204 manual",
+        top_k=2,
+    )
+
+    assert out.chunks == ["Exact metadata-only evidence for PRJ204."]
+    assert out.reason.startswith("Exact metadata retrieval returned evidence")
+    assert out.diagnostics["exact_metadata_hits"] == 1
 
 
 @pytest.mark.asyncio

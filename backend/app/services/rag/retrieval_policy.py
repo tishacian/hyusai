@@ -11,9 +11,15 @@ import json
 import re
 import unicodedata
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from app.services.rag.lexical_retrieval import (
+    LexicalRetrievalConfig,
+    lexical_match_details,
+    merge_lexical_configs,
+    parse_lexical_config,
+)
 
 _POLICY_FENCE_RE = re.compile(
     r"```(?:agentium[-_:]retrieval[-_]policy|retrieval[-_]policy)\s*(.*?)```",
@@ -80,6 +86,7 @@ class RetrievalPolicy:
     aliases: tuple[tuple[str, tuple[str, ...]], ...] = ()
     facets: tuple[PolicyFacet, ...] = ()
     source_family_rules: tuple[SourceFamilyRule, ...] = ()
+    lexical_config: LexicalRetrievalConfig = field(default_factory=LexicalRetrievalConfig)
     require_project_code_match: bool = False
     demote_navigation: bool = True
     navigation_terms: tuple[str, ...] = _DEFAULT_NAVIGATION_TERMS
@@ -93,6 +100,7 @@ class RetrievalPolicy:
             or self.aliases
             or self.facets
             or self.source_family_rules
+            or self.lexical_config.document_types
             or self.require_project_code_match
             or self.answer_instructions
         )
@@ -194,6 +202,7 @@ def retrieval_policy_from_guides(guides: list[Any]) -> RetrievalPolicy:
     aliases: list[tuple[str, tuple[str, ...]]] = []
     facets: list[PolicyFacet] = []
     source_family_rules: list[SourceFamilyRule] = []
+    lexical_configs: list[LexicalRetrievalConfig] = []
     answer_instructions: list[str] = []
     navigation_terms: list[str] = list(_DEFAULT_NAVIGATION_TERMS)
     require_project_code_match = False
@@ -206,6 +215,7 @@ def retrieval_policy_from_guides(guides: list[Any]) -> RetrievalPolicy:
             query_planning = _as_mapping(block.get("query_planning"))
             source_quality = _as_mapping(block.get("source_quality"))
             answer_policy = _as_mapping(block.get("answer_policy"))
+            lexical_block = _as_mapping(block.get("lexical_retrieval"))
 
             for term in _clean_terms(query_planning.get("protected_terms")):
                 if term not in protected_terms:
@@ -216,6 +226,8 @@ def retrieval_policy_from_guides(guides: list[Any]) -> RetrievalPolicy:
             facets.extend(_parse_facets(query_planning.get("facets")))
             if "require_project_code_match" in query_planning:
                 require_project_code_match = bool(query_planning.get("require_project_code_match"))
+            if lexical_block:
+                lexical_configs.append(parse_lexical_config(lexical_block))
             source_family_rules.extend(_parse_source_family_rules(source_quality.get("prefer_source_families")))
             if "demote_navigation" in source_quality:
                 demote_navigation = bool(source_quality.get("demote_navigation"))
@@ -231,6 +243,7 @@ def retrieval_policy_from_guides(guides: list[Any]) -> RetrievalPolicy:
         aliases=tuple(aliases),
         facets=tuple(facets),
         source_family_rules=tuple(source_family_rules),
+        lexical_config=merge_lexical_configs(lexical_configs) if lexical_configs else LexicalRetrievalConfig(),
         require_project_code_match=require_project_code_match,
         demote_navigation=demote_navigation,
         navigation_terms=tuple(navigation_terms),
@@ -428,6 +441,13 @@ def score_result_with_policy(
     metadata = metadata or {}
     haystack = f"{content}\n{_metadata_text(metadata)}"
     score = provenance_boost_score(metadata)
+    lexical_details = lexical_match_details(
+        content=content,
+        metadata=metadata,
+        query=query,
+        config=policy.lexical_config if policy else None,
+    )
+    score += int(lexical_details.get("score") or 0)
 
     if not policy or not policy.enabled:
         return score
@@ -535,6 +555,12 @@ def rerank_results_with_policy(
     for index, row in enumerate(results):
         metadata = _as_mapping(row.get("metadata"))
         content = str(row.get("content") or metadata.get("content") or "")
+        lexical_details = lexical_match_details(
+            content=content,
+            metadata=metadata,
+            query=query,
+            config=policy.lexical_config if policy else None,
+        )
         policy_score = score_result_with_policy(
             content=content,
             metadata=metadata,
@@ -543,6 +569,15 @@ def rerank_results_with_policy(
             is_document_discovery=is_document_discovery,
         )
         has_provenance_boost = has_provenance_boost or bool(provenance_boost_score(metadata))
+        if lexical_details.get("signals_detected"):
+            lexical_score = int(lexical_details.get("score") or 0)
+            metadata["retrieval_lexical_score"] = int(lexical_details.get("score") or 0)
+            metadata["retrieval_exact_terms_matched"] = list(lexical_details.get("matched_exact_terms") or [])
+            metadata["retrieval_document_types_matched"] = list(lexical_details.get("matched_document_types") or [])
+            metadata["retrieval_exact_match_missing"] = bool(lexical_details.get("missing_exact_match"))
+            row = {**row, "metadata": metadata}
+            if lexical_score:
+                has_policy_ranking = True
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score
             row = {**row, "metadata": metadata}
@@ -570,6 +605,12 @@ def rerank_aligned_with_policy(
     has_provenance_boost = False
     for index, chunk in enumerate(chunks):
         metadata = dict(metadatas[index] if index < len(metadatas) else {})
+        lexical_details = lexical_match_details(
+            content=chunk,
+            metadata=metadata,
+            query=query,
+            config=policy.lexical_config if policy else None,
+        )
         policy_score = score_result_with_policy(
             content=chunk,
             metadata=metadata,
@@ -578,6 +619,14 @@ def rerank_aligned_with_policy(
             is_document_discovery=is_document_discovery,
         )
         has_provenance_boost = has_provenance_boost or bool(provenance_boost_score(metadata))
+        if lexical_details.get("signals_detected"):
+            lexical_score = int(lexical_details.get("score") or 0)
+            metadata["retrieval_lexical_score"] = int(lexical_details.get("score") or 0)
+            metadata["retrieval_exact_terms_matched"] = list(lexical_details.get("matched_exact_terms") or [])
+            metadata["retrieval_document_types_matched"] = list(lexical_details.get("matched_document_types") or [])
+            metadata["retrieval_exact_match_missing"] = bool(lexical_details.get("missing_exact_match"))
+            if lexical_score:
+                has_policy_ranking = True
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score
         score = float(scores[index]) if index < len(scores) else 0.0

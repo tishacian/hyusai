@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from app.core.config import settings
-from app.services.vector_db.qdrant_db import QdrantVectorDB, _PAYLOAD_INDEX_FIELDS
+from app.services.vector_db.qdrant_db import _PAYLOAD_INDEX_FIELDS, QdrantVectorDB
 
 
 def test_point_id_is_deterministic_per_collection():
@@ -84,7 +84,7 @@ async def test_add_vectors_upserts_sparse_named_vector_when_enabled(monkeypatch)
     client.collection_exists.return_value = True
     db = QdrantVectorDB(collection_name="col", client=client)
     vectors = np.array([[1.0, 0.0]], dtype=np.float32)
-    metadatas = [{"content": "Pump KD724 pump"}]
+    metadatas = [{"content": "Pump KD724 pump", "document_filename": "KD724 manual.pdf", "project_code": "PRJ204"}]
 
     await db.add_vectors(vectors, metadatas, ["id1"])
 
@@ -93,6 +93,39 @@ async def test_add_vectors_upserts_sparse_named_vector_when_enabled(monkeypatch)
     assert point.vector["dense"] == pytest.approx([1.0, 0.0])
     assert point.vector["sparse"].indices
     assert point.vector["sparse"].values
+    assert point.payload["sparse_schema_version"] == "metadata_v1"
+    assert "prj204" in point.payload["retrieval_identifiers"]
+    assert "kd724" in point.payload["retrieval_terms"]
+
+
+@pytest.mark.asyncio
+async def test_search_exact_metadata_uses_retrieval_identifier_payload_index(monkeypatch):
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    db = QdrantVectorDB(collection_name="col", client=client)
+    hit = SimpleNamespace(
+        id="point-1",
+        payload={
+            "chunk_id": "chunk-1",
+            "content": "Component list content",
+            "document_id": "doc-1",
+            "document_filename": "Component list PRJ204.pdf",
+            "project_code": "PRJ204",
+            "retrieval_identifiers": ["prj204"],
+            "retrieval_terms": ["component", "list", "prj204"],
+            "sparse_schema_version": "metadata_v1",
+        },
+    )
+    client.scroll.return_value = ([hit], None)
+
+    out = await db.search_exact_metadata("Find component list for PRJ204", top_k=5)
+
+    assert out[0]["id"] == "chunk-1"
+    assert out[0]["metadata"]["exact_metadata_match"] is True
+    assert out[0]["metadata"]["retrieval_exact_terms_matched"] == ["PRJ204"]
+    scroll_filter = client.scroll.call_args.kwargs["scroll_filter"]
+    assert scroll_filter.must[0].key == "retrieval_identifiers"
 
 
 @pytest.mark.asyncio
@@ -143,6 +176,7 @@ async def test_reindex_sparse_vectors_streams_to_hybrid_alias(monkeypatch):
     assert set(point.vector.keys()) == {"dense", "sparse"}
     assert point.vector["dense"] == pytest.approx([0.6, 0.8], rel=1e-5)
     assert point.vector["sparse"].indices
+    assert point.payload["sparse_schema_version"] == "metadata_v1"
     assert point.payload["chunk_id"] == "chunk-a"
 
 

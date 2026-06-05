@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, List, Literal, Optional
 
 from app.core.logging import get_logger
+from app.services.rag.lexical_retrieval import analyze_query
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
     query_variants_from_policy,
@@ -359,6 +360,98 @@ def _exact_table_diagnostics(
     }
 
 
+def _exact_metadata_diagnostics(
+    *,
+    attempted: bool,
+    hits: int,
+    elapsed_ms: int,
+    exact_match_required: bool = False,
+) -> dict[str, Any]:
+    if not attempted and hits <= 0:
+        return {}
+    return {
+        "exact_metadata_attempted": bool(attempted),
+        "exact_metadata_hits": int(hits),
+        "exact_metadata_elapsed_ms": int(elapsed_ms),
+        "exact_match_required": bool(exact_match_required),
+        "exact_match_missing": bool(exact_match_required and hits <= 0),
+    }
+
+
+def _exact_metadata_signal(query: str, retrieval_policy: RetrievalPolicy | None) -> bool:
+    signals = analyze_query(
+        query,
+        retrieval_policy.lexical_config if retrieval_policy else None,
+    )
+    return bool(signals.exact_terms or signals.document_type_aliases)
+
+
+def _exact_match_required(query: str, retrieval_policy: RetrievalPolicy | None) -> bool:
+    return analyze_query(
+        query,
+        retrieval_policy.lexical_config if retrieval_policy else None,
+    ).requires_exact_match
+
+
+async def _exact_metadata_candidates(
+    doc_svc: "DocumentService",
+    query: str,
+    *,
+    top_k: int,
+    filters: dict[str, Any] | None,
+    retrieval_policy: RetrievalPolicy | None,
+    deadline_at: float | None,
+) -> list[dict[str, Any]]:
+    if deadline_at is not None and _remaining_deadline(deadline_at, None) <= 0:
+        return []
+    searcher = getattr(doc_svc, "search_exact_metadata", None)
+    if not callable(searcher):
+        return []
+    try:
+        coro = searcher(
+            query,
+            top_k=max(1, min(max(top_k * 2, top_k), 24)),
+            filters=filters,
+            lexical_config=retrieval_policy.lexical_config if retrieval_policy else None,
+        )
+        remaining = _remaining_deadline(deadline_at, None)
+        if deadline_at is not None:
+            return await asyncio.wait_for(coro, timeout=max(0.001, remaining))
+        return await coro
+    except TimeoutError:
+        return []
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("exact metadata retrieval failed", error=str(exc))
+        return []
+
+
+def _prepend_exact_metadata_candidates(
+    exact_rows: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not exact_rows:
+        return results
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _key(row: dict[str, Any]) -> str:
+        metadata = row.get("metadata") or {}
+        return str(
+            metadata.get("document_id")
+            or metadata.get("document_filename")
+            or row.get("id")
+            or _content_key(str(row.get("content") or ""))
+        )
+
+    for row in [*exact_rows, *results]:
+        key = _key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
 def _merge_rrf(result_lists: List[List[dict[str, Any]]], top_k: int) -> List[dict[str, Any]]:
     """Simple RRF merge across multiple ranked lists (same idea as hybrid fusion)."""
     agg: dict[str, float] = {}
@@ -649,6 +742,16 @@ async def retrieve_hah_like(
         )
 
     deadline_at = _deadline_at(deadline_seconds)
+    exact_started = time.perf_counter()
+    exact_metadata_rows = await _exact_metadata_candidates(
+        doc_svc,
+        q,
+        top_k=top_k,
+        filters=filters,
+        retrieval_policy=retrieval_policy,
+        deadline_at=deadline_at,
+    )
+    exact_metadata_elapsed_ms = int((time.perf_counter() - exact_started) * 1000)
     first_k = min(max(top_k * 2, top_k), HAH_FIRST_PASS_CAP)
     pass1 = await _search_documents(
         doc_svc,
@@ -662,14 +765,41 @@ async def retrieve_hah_like(
     )
     pass1 = rerank_results_with_policy(pass1, q, retrieval_policy)
     if not pass1:
+        if exact_metadata_rows:
+            chunks, scores, metas = _results_to_chunks_scores_metas(exact_metadata_rows[:top_k])
+            diagnostics = {
+                **_sparse_diagnostics_from_metas(metas),
+                **_exact_metadata_diagnostics(
+                    attempted=_exact_metadata_signal(q, retrieval_policy),
+                    hits=len(exact_metadata_rows),
+                    elapsed_ms=exact_metadata_elapsed_ms,
+                    exact_match_required=_exact_match_required(q, retrieval_policy),
+                ),
+            }
+            return RetrievalPipelineResult(
+                chunks=chunks,
+                scores=scores,
+                pipeline="hah_backend",
+                label="HAH (backend)",
+                reason="Exact metadata retrieval returned evidence; first pass returned no chunks",
+                detail=f"Pass1: layered top_{first_k}; exact_metadata_hits={len(exact_metadata_rows)}",
+                metadatas=metas,
+                diagnostics=diagnostics,
+            )
         return RetrievalPipelineResult(
             chunks=[],
             scores=[],
             pipeline="hah_backend",
             label="HAH (backend)",
             reason="First pass returned no chunks",
-            detail="Pass1: hybrid search",
+            detail=f"Pass1: hybrid search; exact_metadata_hits={len(exact_metadata_rows)}",
             metadatas=[],
+            diagnostics=_exact_metadata_diagnostics(
+                attempted=_exact_metadata_signal(q, retrieval_policy),
+                hits=len(exact_metadata_rows),
+                elapsed_ms=exact_metadata_elapsed_ms,
+                exact_match_required=_exact_match_required(q, retrieval_policy),
+            ),
         )
 
     parts: list[str] = []
@@ -693,12 +823,22 @@ async def retrieve_hah_like(
         )
     pass2 = rerank_results_with_policy(pass2, q, retrieval_policy)
 
-    merged = _merge_rrf([pass1, pass2] if pass2 else [pass1], top_k=top_k)
+    merged = _merge_rrf([pass1, pass2] if pass2 else [pass1], top_k=max(top_k, top_k + len(exact_metadata_rows)))
+    merged = _prepend_exact_metadata_candidates(exact_metadata_rows, merged)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(merged)
-    diagnostics = _sparse_diagnostics_from_metas(metas)
+    diagnostics = {
+        **_sparse_diagnostics_from_metas(metas),
+        **_exact_metadata_diagnostics(
+            attempted=_exact_metadata_signal(q, retrieval_policy),
+            hits=len(exact_metadata_rows),
+            elapsed_ms=exact_metadata_elapsed_ms,
+            exact_match_required=_exact_match_required(q, retrieval_policy),
+        ),
+    }
     detail = (
         f"Pass1: layered top_{first_k}; pseudo-doc ~{len(pseudo)} chars; "
-        f"Pass2: layered top_{min(HAH_SECOND_PASS_CAP, first_k + 8)}; RRF merge → {len(chunks)} chunks"
+        f"Pass2: layered top_{min(HAH_SECOND_PASS_CAP, first_k + 8)}; "
+        f"exact_metadata_hits={len(exact_metadata_rows)}; RRF merge → {len(chunks)} chunks"
     )
     if diagnostics:
         detail = f"{detail}; sparse={diagnostics.get('sparse_status')}:{diagnostics.get('sparse_backend')}"
@@ -1399,6 +1539,16 @@ async def retrieve_chah_like(
         deadline_at=deadline_at,
     )
     exact_table_elapsed_ms = int((time.perf_counter() - exact_started) * 1000)
+    exact_metadata_started = time.perf_counter()
+    exact_metadata_rows = await _exact_metadata_candidates(
+        doc_svc,
+        q,
+        top_k=top_k,
+        filters=filters,
+        retrieval_policy=retrieval_policy,
+        deadline_at=deadline_at,
+    )
+    exact_metadata_elapsed_ms = int((time.perf_counter() - exact_metadata_started) * 1000)
     variants = _query_variants(q, query_hints=query_hints, retrieval_policy=retrieval_policy)[
         : max(1, int(max_variants or 3))
     ]
@@ -1446,10 +1596,17 @@ async def retrieve_chah_like(
         _prioritise_exact_project_reference_matches(_merge_rrf(list(lists), top_k=candidate_k), q),
         q,
     )
+    merged = _prepend_exact_metadata_candidates(exact_metadata_rows, merged)
     merged = _prepend_exact_table_candidates(exact_rows, merged)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(merged)
     diagnostics = {
         **_sparse_diagnostics_from_metas(metas),
+        **_exact_metadata_diagnostics(
+            attempted=_exact_metadata_signal(q, retrieval_policy),
+            hits=len(exact_metadata_rows),
+            elapsed_ms=exact_metadata_elapsed_ms,
+            exact_match_required=_exact_match_required(q, retrieval_policy),
+        ),
         **_exact_table_diagnostics(
             attempted=table_plan.is_table_query,
             hits=len(exact_rows),
@@ -1459,7 +1616,8 @@ async def retrieve_chah_like(
     v_preview = repr(variants)[:200]
     detail = (
         f"Parallel layered searches: {len(lists)}/{len(variants)} query variant(s); "
-        f"RRF candidate merge top_{candidate_k}; exact_table_hits={len(exact_rows)} "
+        f"RRF candidate merge top_{candidate_k}; exact_metadata_hits={len(exact_metadata_rows)}; "
+        f"exact_table_hits={len(exact_rows)} "
         f"→ {len(chunks)} chunks. Variants: {v_preview}"
     )
     if diagnostics:
@@ -1568,6 +1726,16 @@ async def retrieve_for_mode(
         deadline_at=deadline_at,
     )
     exact_table_elapsed_ms = int((time.perf_counter() - exact_started) * 1000)
+    exact_metadata_started = time.perf_counter()
+    exact_metadata_rows = await _exact_metadata_candidates(
+        doc_svc,
+        query,
+        top_k=top_k,
+        filters=filters,
+        retrieval_policy=retrieval_policy,
+        deadline_at=deadline_at,
+    )
+    exact_metadata_elapsed_ms = int((time.perf_counter() - exact_metadata_started) * 1000)
     search_query = query
     if query_hints:
         search_query = f"{query}\n\nKnowledge guide hints:\n{str(query_hints)[:900]}"
@@ -1587,10 +1755,17 @@ async def retrieve_for_mode(
     results = rerank_results_with_policy(results, query, retrieval_policy)
     results = _prioritise_exact_project_reference_matches(results, query)
     results = _prioritise_spreadsheet_label_matches(results, query)
+    results = _prepend_exact_metadata_candidates(exact_metadata_rows, results)
     results = _prepend_exact_table_candidates(exact_rows, results)[:top_k]
     chunks, scores, metas = _results_to_chunks_scores_metas(results)
     diagnostics = {
         **_sparse_diagnostics_from_metas(metas),
+        **_exact_metadata_diagnostics(
+            attempted=_exact_metadata_signal(query, retrieval_policy),
+            hits=len(exact_metadata_rows),
+            elapsed_ms=exact_metadata_elapsed_ms,
+            exact_match_required=_exact_match_required(query, retrieval_policy),
+        ),
         **_exact_table_diagnostics(
             attempted=table_plan.is_table_query,
             hits=len(exact_rows),
@@ -1600,7 +1775,7 @@ async def retrieve_for_mode(
     pipe: Literal["naive", "hybrid"] = "hybrid" if use_hybrid else "naive"
     detail = (
         f"use_hybrid={use_hybrid} top_k={top_k} candidate_k={candidate_k} "
-        f"exact_table_hits={len(exact_rows)}"
+        f"exact_metadata_hits={len(exact_metadata_rows)} exact_table_hits={len(exact_rows)}"
     )
     if diagnostics:
         detail = f"{detail}; sparse={diagnostics.get('sparse_status')}:{diagnostics.get('sparse_backend')}"

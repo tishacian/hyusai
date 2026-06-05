@@ -22,14 +22,20 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import SessionLocal
-from app.services.knowledge_guides import effective_guides, guide_context_entries, guide_query_hint
-from app.services.knowledge_collections import collection_inventory
+from app.models.knowledge_collection import KnowledgeCollection
+from app.models.workspace import Workspace
 from app.services.document_intelligence import DocumentQueryEngine, should_run_document_analysis
+from app.services.knowledge_collections import collection_inventory
+from app.services.knowledge_guides import effective_guides, guide_context_entries, guide_query_hint
+from app.services.rag.corpus_planner import (
+    is_catalogue_query,
+    normalize_latency_profile,
+    plan_corpus,
+)
 from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_scope
+from app.services.rag.lexical_retrieval import analyze_query, lexical_match_details
 from app.services.rag.mode_selector import resolve_retrieval_mode
-from app.services.rag.corpus_planner import is_catalogue_query, normalize_latency_profile, plan_corpus
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
-from app.services.rag.retrieval_profiles import normalize_retrieval_profile_name, retrieval_profile_for
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
     clarification_from_policy,
@@ -39,11 +45,13 @@ from app.services.rag.retrieval_policy import (
     rerank_aligned_with_policy,
     retrieval_policy_from_guides,
 )
+from app.services.rag.retrieval_profiles import (
+    normalize_retrieval_profile_name,
+    retrieval_profile_for,
+)
 from app.services.rag.summary_artifacts import load_summary_index_records
 from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.table_intelligence import TableQueryEngine, should_run_table_analysis
-from app.models.workspace import Workspace
-from app.models.knowledge_collection import KnowledgeCollection
 
 logger = get_logger(__name__)
 
@@ -402,6 +410,7 @@ def _finalize_retrieval_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
         "chunks_retrieved": _int_or_none(metrics.get("chunks_retrieved")),
         "duplicates_removed": _int_or_none(metrics.get("duplicates_removed")),
         "sparse_results": _int_or_none(metrics.get("sparse_results")),
+        "exact_metadata_hits": _int_or_none(metrics.get("exact_metadata_hits")),
         "exact_table_hits": _int_or_none(metrics.get("exact_table_hits")),
     }
     metrics["planner_ms"] = planner_ms
@@ -638,6 +647,52 @@ def _prepend_guide_context(
     )
 
 
+def _prepend_exact_match_guardrail_context(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    *,
+    query: str,
+    policy: RetrievalPolicy,
+    diagnostics: Mapping[str, Any],
+) -> tuple[list[str], list[float], list[dict[str, Any]], int]:
+    if diagnostics.get("exact_match_missing") is not True:
+        return chunks, scores, metadatas, 0
+
+    signals = analyze_query(query, policy.lexical_config if policy else None)
+    requested = sorted(signals.exact_terms)
+    if requested:
+        requested_set = set(requested)
+        for index, chunk in enumerate(chunks):
+            metadata = metadatas[index] if index < len(metadatas) else {}
+            details = lexical_match_details(
+                content=str(chunk or ""),
+                metadata=metadata if isinstance(metadata, Mapping) else {},
+                query=query,
+                config=policy.lexical_config if policy else None,
+            )
+            if requested_set.intersection(set(details.get("matched_exact_terms") or [])):
+                return chunks, scores, metadatas, 0
+    requested_text = ", ".join(requested) if requested else "an explicit identifier"
+    content = (
+        "Retrieval exact-match guardrail.\n"
+        f"The user asked for: {requested_text}.\n"
+        "No retrieved source matched the requested identifier through exact metadata retrieval. "
+        "Do not answer as if the requested document or code was found. State that exact evidence "
+        "was not found in the scoped collection, and use any remaining context only as non-exact background."
+    )
+    metadata = {
+        "source_type": "retrieval_guardrail",
+        "semantic_type": "exact_match_guardrail",
+        "document_filename": "retrieval-exact-match-guardrail",
+        "citation_label": "Retrieval exact-match guardrail",
+        "requested_exact_terms": requested,
+        "exact_match_required": True,
+        "exact_match_missing": True,
+    }
+    return [content, *chunks], [1.0, *scores], [metadata, *metadatas], 1
+
+
 def _retrieval_policy_summary(policy: RetrievalPolicy, clarification: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "enabled": policy.enabled,
@@ -646,6 +701,8 @@ def _retrieval_policy_summary(policy: RetrievalPolicy, clarification: dict[str, 
         "protected_terms": len(policy.protected_terms),
         "facets": len(policy.facets),
         "source_family_rules": len(policy.source_family_rules),
+        "lexical_document_types": len(policy.lexical_config.document_types),
+        "lexical_metadata_fields": len(policy.lexical_config.metadata_field_weights),
         "require_project_code_match": policy.require_project_code_match,
         "clarification_required": bool(clarification and clarification.get("required")),
     }
@@ -1944,6 +2001,14 @@ async def retrieve_rag_context(
         metadatas,
         guides,
     )
+    chunks, scores, metadatas, exact_guardrail_count = _prepend_exact_match_guardrail_context(
+        chunks,
+        scores,
+        metadatas,
+        query=retrieval_query,
+        policy=retrieval_policy,
+        diagnostics=retrieval_diagnostics,
+    )
     context_build_ms = int((time.perf_counter() - context_build_started_perf) * 1000)
     metrics.update(
         {
@@ -1963,6 +2028,7 @@ async def retrieve_rag_context(
             "summary_artifact_path": (summary_artifact or {}).get("jsonl_path") if summary_artifact else None,
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
+            "exact_match_guardrail_inserted": bool(exact_guardrail_count),
             "retrieval_constraints": retrieval_constraints,
             **threshold_metrics,
             **diversity_metrics,
@@ -2283,6 +2349,29 @@ async def _retrieve_multi_collection_context(
         metadatas = metadatas[:synthesis_k]
     rerank_ms = int((time.perf_counter() - rerank_started_perf) * 1000)
     document_chunk_count = len(chunks)
+    exact_metadata_attempted = any(
+        bool((item.get("diagnostics") or {}).get("exact_metadata_attempted"))
+        for item in collection_results
+    )
+    exact_metadata_hits = sum(
+        int(_int_or_none((item.get("diagnostics") or {}).get("exact_metadata_hits")) or 0)
+        for item in collection_results
+    )
+    exact_metadata_elapsed_ms = sum(
+        int(_int_or_none((item.get("diagnostics") or {}).get("exact_metadata_elapsed_ms")) or 0)
+        for item in collection_results
+    )
+    exact_match_required = any(
+        bool((item.get("diagnostics") or {}).get("exact_match_required"))
+        for item in collection_results
+    )
+    exact_metadata_diagnostics = {
+        "exact_metadata_attempted": exact_metadata_attempted,
+        "exact_metadata_hits": exact_metadata_hits,
+        "exact_metadata_elapsed_ms": exact_metadata_elapsed_ms,
+        "exact_match_required": exact_match_required,
+        "exact_match_missing": bool(exact_match_required and exact_metadata_hits <= 0),
+    } if exact_metadata_attempted else {}
     context_build_started_perf = time.perf_counter()
     chunks, scores, metadatas, table_evidence_count = _prepend_table_analysis_context(
         chunks,
@@ -2301,6 +2390,14 @@ async def _retrieve_multi_collection_context(
         scores,
         metadatas,
         guides,
+    )
+    chunks, scores, metadatas, exact_guardrail_count = _prepend_exact_match_guardrail_context(
+        chunks,
+        scores,
+        metadatas,
+        query=retrieval_query,
+        policy=retrieval_policy,
+        diagnostics=exact_metadata_diagnostics,
     )
     context_build_ms = int((time.perf_counter() - context_build_started_perf) * 1000)
     duration_ms = int((time.time() - started) * 1000)
@@ -2341,7 +2438,9 @@ async def _retrieve_multi_collection_context(
             "knowledge_guides": guide_count,
             "table_analysis_evidence": table_evidence_count,
             "document_analysis_evidence": document_evidence_count,
+            "exact_match_guardrail_inserted": bool(exact_guardrail_count),
             "retrieval_constraints": retrieval_constraints,
+            **exact_metadata_diagnostics,
             **threshold_metrics,
             **diversity_metrics,
             "candidate_pool_k": profile["candidate_pool_k"],

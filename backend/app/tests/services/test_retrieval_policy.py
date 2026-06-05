@@ -13,7 +13,6 @@ from app.services.rag.retrieval_policy import (
     score_result_with_policy,
 )
 
-
 POLICY_GUIDE = SimpleNamespace(
     markdown="""# Guide
 
@@ -44,6 +43,17 @@ POLICY_GUIDE = SimpleNamespace(
       }
     ]
   },
+  "lexical_retrieval": {
+    "document_types": {
+      "parts_catalog": {
+        "aliases": ["parts list", "component catalogue"]
+      }
+    },
+    "metadata_fields": {
+      "document_filename": 5,
+      "project_code": 7
+    }
+  },
   "answer_policy": {
     "instructions": [
       "Traiter les codes de type XXX123 comme des references projet stables."
@@ -62,6 +72,11 @@ def test_retrieval_policy_parses_guide_blocks():
     assert policy.protected_terms == ("BBA120", "AKK200")
     assert policy.require_project_code_match is True
     assert policy.aliases[0][0] == "capteurs"
+    assert policy.lexical_config.document_types["parts_catalog"] == (
+        "parts list",
+        "component catalogue",
+    )
+    assert policy.lexical_config.metadata_field_weights["project_code"] == 7
     assert policy.answer_instructions == (
         "Traiter les codes de type XXX123 comme des references projet stables.",
     )
@@ -126,6 +141,27 @@ def test_policy_rerank_boosts_validated_provenance_without_guide():
 
     assert ranked[0]["metadata"]["document_filename"] == "manual.pdf"
     assert ranked[0]["metadata"]["retrieval_policy_score"] > 0
+
+
+def test_policy_rerank_uses_generic_lexical_exact_match_without_guide():
+    rows = [
+        {
+            "content": "Wrong project component list.",
+            "score": 0.99,
+            "metadata": {"document_filename": "Component list PRJ999.pdf", "project_code": "PRJ999"},
+        },
+        {
+            "content": "Right project component list.",
+            "score": 0.2,
+            "metadata": {"document_filename": "Component list PRJ204.pdf", "project_code": "PRJ204"},
+        },
+    ]
+
+    ranked = rerank_results_with_policy(rows, "Find component list for PRJ204", None)
+
+    assert ranked[0]["metadata"]["project_code"] == "PRJ204"
+    assert ranked[0]["metadata"]["retrieval_lexical_score"] > 0
+    assert ranked[-1]["metadata"]["retrieval_exact_match_missing"] is True
 
 
 def test_policy_can_request_clarification_for_broad_configured_facet():

@@ -1,13 +1,14 @@
 """Document ingestion and indexing service"""
 import asyncio
-import numpy as np
 from pathlib import Path
-from typing import Any, List, Dict, Optional, Callable
+from typing import Any, Dict, List, Optional
+
 from app.services.document_parser.factory import DocumentParserFactory
 from app.services.embedding.embedder import Embedder
-from app.services.vector_db.factory import VectorDBFactory
 from app.services.retrieval.bm25_retriever import BM25Retriever
-from app.services.retrieval.ensemble_retriever import EnsembleRetriever, EnsembleConfig
+from app.services.retrieval.ensemble_retriever import EnsembleConfig, EnsembleRetriever
+from app.services.vector_db.factory import VectorDBFactory
+
 try:
     from app.services.retrieval.flash_reranker import FlashReranker, RerankerConfig
 except ImportError:
@@ -15,19 +16,22 @@ except ImportError:
     RerankerConfig = None  # type: ignore
 
 try:
-    from app.services.retrieval.contextual_compression import ContextualCompressionRetriever, ContextualConfig
+    from app.services.retrieval.contextual_compression import (
+        ContextualCompressionRetriever,
+        ContextualConfig,
+    )
 except ImportError:
     ContextualCompressionRetriever = None  # type: ignore
     ContextualConfig = None  # type: ignore
-from app.services.retrieval.fusion_method import FusionMethod
-from app.services.tracing.rag_tracer import get_tracer, TraceStepType
-from app.services.rag.cache import get_cache
-from app.services.document_meta import extract_document_metadata
-from app.services.knowledge_collections import source_kind_for
-from app.services.rag.retrieval_profiles import retrieval_profile_for
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
+from app.services.document_meta import extract_document_metadata
+from app.services.knowledge_collections import source_kind_for
+from app.services.rag.cache import get_cache
+from app.services.rag.retrieval_profiles import retrieval_profile_for
+from app.services.retrieval.fusion_method import FusionMethod
+from app.services.tracing.rag_tracer import TraceStepType, get_tracer
 
 logger = get_logger(__name__)
 
@@ -874,6 +878,27 @@ class DocumentService:
     async def get_document_count(self) -> int:
         """Get total number of indexed documents"""
         return await self.vector_db.get_count()
+
+    async def search_exact_metadata(
+        self,
+        query: str,
+        top_k: int = 10,
+        filters: Optional[Dict] = None,
+        lexical_config: Optional[object] = None,
+    ) -> List[Dict]:
+        """Search exact metadata candidates when the backing store supports it."""
+        searcher = getattr(self.vector_db, "search_exact_metadata", None)
+        if not callable(searcher):
+            return []
+        try:
+            return await searcher(
+                query=query,
+                top_k=top_k,
+                filters=filters,
+                lexical_config=lexical_config,
+            )
+        except TypeError:
+            return await searcher(query, top_k=top_k, filters=filters)
     
     async def list_documents(self) -> List[Dict]:
         """List all documents in the collection"""

@@ -1,6 +1,7 @@
 """Base vector database interface"""
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 import numpy as np
 
 
@@ -60,6 +61,16 @@ class VectorDBBase(ABC):
         Implementations may override this for diagnostic/admin UIs. The
         default keeps legacy vector stores compatible.
         """
+        return []
+
+    async def search_exact_metadata(
+        self,
+        query: str,
+        top_k: int = 10,
+        filters: Optional[Dict] = None,
+        lexical_config: Optional[object] = None,
+    ) -> List[Dict]:
+        """Return candidates from exact/metadata lexical payload indexes."""
         return []
 
     async def sample_chunk_vectors(
