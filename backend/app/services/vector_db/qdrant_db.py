@@ -1232,7 +1232,7 @@ class QdrantVectorDB(VectorDBBase):
             records_out: list[dict[str, Any]] = []
             seen_docs: set[str] = set()
             next_off = None
-            max_scan = max(top_k * 8, 40)
+            max_scan = min(max(top_k * 64, 512), 2000)
             scanned = 0
             while len(records_out) < top_k and scanned < max_scan:
                 records, next_off = self.client.scroll(

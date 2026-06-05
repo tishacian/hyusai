@@ -236,7 +236,7 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
         "aliases": ["spare parts list", "spare part list", "parts list", "liste de pieces", "liste pieces", "catalogue pieces", "piece detachee", "pieces detachees"]
       },
       "maintenance_procedure": {
-        "aliases": ["maintenance procedure", "procedure de maintenance", "maintenance", "service manual", "nettoyage", "cleaning", "filtration maintenance", "vacuum maintenance", "injector cleaning", "cartridge cleaning"]
+        "aliases": ["maintenance procedure", "procedure de maintenance", "maintenance", "service manual", "nettoyer", "nettoyage", "cleaning", "filtration maintenance", "vacuum maintenance", "injecteur", "injector", "cartouche injecteur", "cartouches injecteurs", "injector cleaning", "cartridge cleaning", "autoclamped"]
       },
       "conveyor_manual": {
         "aliases": ["conveyor", "convoyeur", "transport conveyor", "conveyor jetlace"]
