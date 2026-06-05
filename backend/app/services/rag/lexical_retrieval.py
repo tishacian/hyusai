@@ -458,16 +458,20 @@ def lexical_match_details(
 ) -> dict[str, Any]:
     config = config or LexicalRetrievalConfig()
     signals = analyze_query(query, config)
-    haystack = fold_text(
+    metadata_parts: list[str] = []
+    for field_name in config.metadata_field_weights:
+        if field_name == "content":
+            continue
+        metadata_parts.extend(_string_values(metadata.get(field_name)))
+    metadata_parts.extend(_string_values(metadata.get("retrieval_identifiers")))
+    metadata_parts.extend(_string_values(metadata.get("retrieval_terms")))
+    metadata_haystack = fold_text("\n".join(metadata_parts))
+    content_haystack = fold_text(
         "\n".join(
-            [
-                str(content or ""),
-                metadata_search_text(metadata, config),
-                " ".join(_string_values(metadata.get("retrieval_identifiers"))),
-                " ".join(_string_values(metadata.get("retrieval_terms"))),
-            ]
+            [str(content or ""), *(_string_values(metadata.get("content")) if not content else [])]
         )
     )
+    haystack = f"{content_haystack}\n{metadata_haystack}"
     score = 0
     matched_exact: list[str] = []
     for term in signals.exact_terms:
@@ -478,9 +482,11 @@ def lexical_match_details(
     matched_types: list[str] = []
     for type_key in signals.document_type_intents:
         aliases = (type_key.replace("_", " "), *config.document_types.get(type_key, ()))
-        if any(fold_text(alias) in haystack for alias in aliases if alias):
+        metadata_match = any(fold_text(alias) in metadata_haystack for alias in aliases if alias)
+        content_match = any(fold_text(alias) in content_haystack for alias in aliases if alias)
+        if metadata_match or content_match:
             matched_types.append(type_key)
-            score += 10
+            score += 18 if metadata_match else 8
     matched_terms = 0
     for term in signals.metadata_terms[:12]:
         if term and term in haystack:

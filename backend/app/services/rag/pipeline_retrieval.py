@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, List, Literal, Optional
 
 from app.core.logging import get_logger
-from app.services.rag.lexical_retrieval import analyze_query
+from app.services.rag.lexical_retrieval import analyze_query, identifier_variants
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
     query_variants_from_policy,
@@ -862,12 +862,18 @@ def _query_variants(
 ) -> list[str]:
     q = question.strip()
     variants = [q]
+    signals = analyze_query(q, retrieval_policy.lexical_config if retrieval_policy else None)
     policy_variants = query_variants_from_policy(q, retrieval_policy)
     policy_variants = sorted(
         policy_variants,
         key=lambda value: (0 if q and q in value else 1, -len(str(value))),
     )
     variants.extend(policy_variants)
+    for exact_term in signals.exact_terms[1:4]:
+        alternate_forms = [form for form in identifier_variants(exact_term) if form and form != exact_term]
+        for form in alternate_forms[:3]:
+            if form not in q:
+                variants.append(f"{q} {form}")
     if query_hints and q:
         variants.append(f"{q}\n\nKnowledge guide hints:\n{str(query_hints)[:900]}")
     if len(q) > CHAH_QUERY_TRUNC:

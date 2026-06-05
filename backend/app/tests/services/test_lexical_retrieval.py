@@ -110,3 +110,21 @@ def test_lexical_match_boosts_exact_metadata_and_demotes_other_identifiers():
     assert matching["matched_exact_terms"] == ["PRJ204"]
     assert other["missing_exact_match"] is True
     assert other["score"] < matching["score"]
+
+
+def test_lexical_match_prefers_document_type_in_metadata_over_incidental_content():
+    config = parse_lexical_config({"document_types": {"parts_catalog": ["spare parts list"]}})
+    metadata_match = lexical_match_details(
+        content="Generic spare information.",
+        metadata={"document_filename": "Spare Parts List PRJ204.pdf", "project_code": "PRJ204"},
+        query="Find the spare parts list for PRJ204",
+        config=config,
+    )
+    content_only = lexical_match_details(
+        content="This chapter mentions a spare parts list in passing.",
+        metadata={"document_filename": "Chapter 01 PRJ204.pdf", "project_code": "PRJ204"},
+        query="Find the spare parts list for PRJ204",
+        config=config,
+    )
+
+    assert metadata_match["score"] > content_only["score"]
