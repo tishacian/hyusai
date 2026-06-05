@@ -495,6 +495,90 @@ test('sidecar does not forward empty audio endpoints to the voice gateway', asyn
   assert.deepEqual(published[1].options.destination_identities, ['expert-1']);
 });
 
+test('sidecar forwards browser MediaRecorder frames through the voice gateway', async () => {
+  const published = [];
+  const gatewayMessages = [];
+  const topics = {
+    events: 'agentium.voice.event',
+    control: 'agentium.voice.control',
+    metrics: 'agentium.voice.metric',
+    chat: 'agentium.chat.event',
+  };
+  const browserChunk = Buffer.from('webm-fragment').toString('base64');
+  const session = {
+    info: { session_id: 'session-browser-audio' },
+    topics,
+    destinationIdentity: 'expert-1',
+    voiceGateway: {
+      open: true,
+      queue: [],
+      socket: {
+        readyState: WebSocket.OPEN,
+        send(message) {
+          gatewayMessages.push(JSON.parse(message));
+        },
+      },
+    },
+    room: {
+      localParticipant: {
+        async publishData(payload, options) {
+          published.push({
+            event: JSON.parse(new TextDecoder().decode(payload)),
+            options,
+          });
+        },
+      },
+    },
+    audio: {
+      chunks: [Buffer.from([0x01, 0x00])],
+      bytes: 2,
+      frameCount: 1,
+      browserFrameCount: 0,
+      sampleRate: 8000,
+      channels: 1,
+      startedAt: Date.now() - 40,
+      overflow: false,
+    },
+  };
+
+  await handleControlEvent(
+    session,
+    {
+      type: 'audio.frame',
+      payload: {
+        bytes_b64: browserChunk,
+        turn_id: 'turn-browser',
+        content_type: 'audio/webm',
+      },
+    },
+    { identity: 'expert-1' },
+    0,
+  );
+  await handleControlEvent(
+    session,
+    { type: 'audio.endpoint', payload: { turn_id: 'turn-browser', reason: 'manual_stop' } },
+    { identity: 'expert-1' },
+    0,
+  );
+
+  assert.equal(gatewayMessages.length, 2);
+  assert.equal(gatewayMessages[0].type, 'audio.frame');
+  assert.equal(gatewayMessages[0].payload.bytes_b64, browserChunk);
+  assert.equal(gatewayMessages[0].payload.content_type, 'audio/webm');
+  assert.equal(gatewayMessages[0].payload.livekit_browser_frame_count, 1);
+  assert.equal(gatewayMessages[1].type, 'audio.endpoint');
+  assert.equal(gatewayMessages[1].payload.reason, 'manual_stop');
+  assert.equal(session.audio.bytes, 0);
+  assert.equal(session.audio.browserFrameCount, 0);
+  const metrics = published.map((item) => item.event.payload.metric).filter(Boolean);
+  assert.deepEqual(metrics, [
+    'livekit_control_event_received',
+    'livekit_browser_audio_frames_forwarded',
+    'livekit_control_event_received',
+    'livekit_browser_audio_endpoint_forwarded',
+  ]);
+});
+
 test('sidecar flushes buffered audio as wav before forwarding endpoint', async () => {
   const gatewayMessages = [];
   const topics = {

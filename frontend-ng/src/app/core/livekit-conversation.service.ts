@@ -101,14 +101,18 @@ export class LiveKitConversationConnection {
     });
   }
 
-  async sendAudioFrame(_blob: Blob, meta: VoiceFrameMeta): Promise<void> {
-    void this.sendControl('audio.frame', {
+  async sendAudioFrame(blob: Blob, meta: VoiceFrameMeta): Promise<void> {
+    const bytes_b64 = await this.blobToBase64(blob);
+    await this.sendControl('audio.frame', {
+      bytes_b64,
       turn_id: meta.turn_id,
       question_id: meta.question_id,
       retrieval_event_id: meta.retrieval_event_id,
       interruption_of_event_id: meta.interruption_of_event_id,
-      content_type: meta.content_type || 'audio/webm',
-      transport_note: 'audio_track_expected',
+      content_type: meta.content_type || blob.type || 'audio/webm',
+      encoding: blob.type || 'audio/webm',
+      duration_ms: 0,
+      transport_note: 'browser_audio_fallback',
     });
   }
 
@@ -193,6 +197,18 @@ export class LiveKitConversationConnection {
     return this.room.localParticipant.publishData(bytes, {
       reliable: true,
       topic,
+    });
+  }
+
+  private blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error || new Error('Blob read failed'));
+      reader.onloadend = () => {
+        const value = String(reader.result || '');
+        resolve(value.includes(',') ? value.split(',')[1] : value);
+      };
+      reader.readAsDataURL(blob);
     });
   }
 

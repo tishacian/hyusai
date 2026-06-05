@@ -82,6 +82,26 @@ async function publish(session, type, payload = {}, options = {}) {
   });
 }
 
+function logSidecarWarning(code, error, extra = {}) {
+  console.warn(
+    JSON.stringify({
+      code,
+      message: error instanceof Error ? error.message : String(error),
+      ...extra,
+    }),
+  );
+}
+
+async function publishSafely(session, type, payload = {}, options = {}) {
+  try {
+    await publish(session, type, payload, options);
+    return true;
+  } catch (error) {
+    logSidecarWarning('livekit_publish_data_failed', error, { event_type: type });
+    return false;
+  }
+}
+
 export async function connectRoomWithRetry(room, livekitUrl, token, connectOptions = {}, retryOptions = {}) {
   const attempts = parseInteger(retryOptions.attempts, CONNECT_ATTEMPTS, 1);
   const retryMs = parseInteger(retryOptions.retryMs ?? retryOptions.baseMs, CONNECT_RETRY_MS, 0);
@@ -125,7 +145,7 @@ async function connectVoiceGateway(session, dispatch, options = {}) {
         destinationIdentity: session.destinationIdentity,
       });
     } catch (error) {
-      await publish(session, 'session.error', {
+      await publishSafely(session, 'session.error', {
         code: 'livekit_voice_gateway_event_relay_failed',
         message: error instanceof Error ? error.message : String(error),
       });
@@ -135,7 +155,7 @@ async function connectVoiceGateway(session, dispatch, options = {}) {
     bridge.open = false;
   });
   socket.addEventListener('error', async () => {
-    await publish(session, 'session.error', {
+    await publishSafely(session, 'session.error', {
       code: 'livekit_voice_gateway_transport_error',
       message: 'Voice gateway WebSocket transport error.',
     });
@@ -188,7 +208,13 @@ function sendVoiceGatewayEvent(bridge, type, payload = {}) {
   };
   const openState = bridge.openState ?? globalThis.WebSocket?.OPEN ?? 1;
   if (bridge.open && bridge.socket.readyState === openState) {
-    bridge.socket.send(JSON.stringify(event));
+    try {
+      bridge.socket.send(JSON.stringify(event));
+    } catch (error) {
+      bridge.open = false;
+      bridge.queue.push(event);
+      logSidecarWarning('livekit_voice_gateway_send_failed', error, { event_type: type });
+    }
   } else {
     bridge.queue.push(event);
   }
@@ -229,11 +255,33 @@ function resetAudio(session) {
     chunks: [],
     bytes: 0,
     frameCount: 0,
+    browserFrameCount: 0,
     sampleRate: 48000,
     channels: 1,
     startedAt: null,
     overflow: false,
   };
+}
+
+function forwardBrowserAudioFrameToVoiceGateway(session, controlEvent) {
+  const payload = controlEvent?.payload || {};
+  if (!session.voiceGateway || !payload.bytes_b64) return false;
+  const turnId = payload.turn_id || payload.client_turn_id || randomUUID();
+  if (!session.audio.startedAt) session.audio.startedAt = Date.now();
+  session.audio.browserFrameCount = (session.audio.browserFrameCount || 0) + 1;
+  sendVoiceGatewayEvent(session.voiceGateway, 'audio.frame', {
+    bytes_b64: payload.bytes_b64,
+    turn_id: turnId,
+    question_id: payload.question_id || null,
+    retrieval_event_id: payload.retrieval_event_id || null,
+    interruption_of_event_id: payload.interruption_of_event_id || null,
+    content_type: payload.content_type || payload.encoding || 'audio/webm',
+    encoding: payload.encoding || payload.content_type || 'audio/webm',
+    duration_ms: payload.duration_ms || 0,
+    incremental_transcription: payload.incremental_transcription,
+    livekit_browser_frame_count: session.audio.browserFrameCount,
+  });
+  return true;
 }
 
 async function flushAudioToVoiceGateway(session, controlEvent) {
@@ -242,7 +290,7 @@ async function flushAudioToVoiceGateway(session, controlEvent) {
     return false;
   }
   if (session.audio.overflow) {
-    await publish(session, 'session.error', {
+    await publishSafely(session, 'session.error', {
       code: 'livekit_audio_buffer_overflow',
       message: `LiveKit audio buffer exceeded ${MAX_AUDIO_BYTES} bytes before endpoint.`,
     });
@@ -250,7 +298,7 @@ async function flushAudioToVoiceGateway(session, controlEvent) {
     return false;
   }
   if (!session.audio.bytes) {
-    await publish(
+    await publishSafely(
       session,
       'runtime.metric',
       {
@@ -286,7 +334,7 @@ async function flushAudioToVoiceGateway(session, controlEvent) {
 
 export async function handleControlEvent(session, event, participant, kind) {
   const type = String(event?.type || '');
-  await publish(
+  await publishSafely(
     session,
     'runtime.metric',
     {
@@ -299,16 +347,36 @@ export async function handleControlEvent(session, event, participant, kind) {
     { topic: session.topics.metrics },
   );
   if (!session.voiceGateway) return;
-  if (type === 'audio.frame') return;
+  if (type === 'audio.frame') {
+    const forwarded = forwardBrowserAudioFrameToVoiceGateway(session, event);
+    if (
+      forwarded &&
+      (session.audio.browserFrameCount === 1 || session.audio.browserFrameCount % 10 === 0)
+    ) {
+      await publishSafely(
+        session,
+        'runtime.metric',
+        {
+          metric: 'livekit_browser_audio_frames_forwarded',
+          from_identity: participant?.identity || null,
+          frame_count: session.audio.browserFrameCount,
+          bridged_to_voice_gateway: true,
+        },
+        { topic: session.topics.metrics },
+      );
+    }
+    return;
+  }
   if (type === 'loop.start' || type === 'loop.armed' || type === 'barge_in') {
     const resetMetrics = {
       audio_bytes_before_reset: session.audio?.bytes || 0,
       audio_frame_count_before_reset: session.audio?.frameCount || 0,
+      browser_audio_frame_count_before_reset: session.audio?.browserFrameCount || 0,
       audio_overflow_before_reset: Boolean(session.audio?.overflow),
     };
     resetAudio(session);
     if (type === 'barge_in') {
-      await publish(
+      await publishSafely(
         session,
         'runtime.metric',
         {
@@ -323,8 +391,23 @@ export async function handleControlEvent(session, event, participant, kind) {
     }
   }
   if (type === 'audio.endpoint' || type === 'audio.endpoint.auto') {
-    const flushed = await flushAudioToVoiceGateway(session, event);
+    const browserFramesForwarded = (session.audio.browserFrameCount || 0) > 0;
+    const flushed = browserFramesForwarded || (await flushAudioToVoiceGateway(session, event));
     if (!flushed) return;
+    if (browserFramesForwarded) {
+      await publishSafely(
+        session,
+        'runtime.metric',
+        {
+          metric: 'livekit_browser_audio_endpoint_forwarded',
+          from_identity: participant?.identity || null,
+          frame_count: session.audio.browserFrameCount,
+          bridged_to_voice_gateway: true,
+        },
+        { topic: session.topics.metrics },
+      );
+    }
+    resetAudio(session);
   }
   sendVoiceGatewayEvent(session.voiceGateway, type, event.payload || {});
   if (type === 'session.close') {
@@ -334,7 +417,7 @@ export async function handleControlEvent(session, event, participant, kind) {
 
 async function monitorAudioStream(livekit, session, track, participantIdentity) {
   if (!livekit.AudioStream) {
-    await publish(
+    await publishSafely(
       session,
       'runtime.metric',
       {
@@ -353,7 +436,7 @@ async function monitorAudioStream(livekit, session, track, participantIdentity) 
     for await (const frame of stream) {
       const appended = appendAudioFrame(session, frame);
       if (appended && (session.audio.frameCount === 1 || session.audio.frameCount % 100 === 0)) {
-        await publish(
+        await publishSafely(
           session,
           'runtime.metric',
           {
@@ -371,7 +454,7 @@ async function monitorAudioStream(livekit, session, track, participantIdentity) 
       }
     }
   } catch (error) {
-    await publish(
+    await publishSafely(
       session,
       'session.error',
       {
@@ -417,6 +500,7 @@ export async function startSession(dispatch, options = {}) {
       chunks: [],
       bytes: 0,
       frameCount: 0,
+      browserFrameCount: 0,
       sampleRate: 48000,
       channels: 1,
       startedAt: null,
@@ -434,10 +518,12 @@ export async function startSession(dispatch, options = {}) {
       } catch {
         return;
       }
-      await handleControlEvent(session, event, participant, kind);
+      await handleControlEvent(session, event, participant, kind).catch((error) =>
+        logSidecarWarning('livekit_control_event_failed', error, { control_type: event?.type || null }),
+      );
     })
     .on(livekit.RoomEvent.TrackSubscribed, (track, publication, participant) => {
-      void publish(
+      void publishSafely(
         session,
         'runtime.metric',
         {
@@ -480,20 +566,20 @@ export async function startSession(dispatch, options = {}) {
     });
   } catch (error) {
     info.mode = 'media_observer';
-    await publish(session, 'session.error', {
+    await publishSafely(session, 'session.error', {
       code: 'livekit_voice_gateway_connect_failed',
       message: error instanceof Error ? error.message : String(error),
       fallback_mode: 'media_observer',
     });
   }
-  await publish(session, 'session.ready', {
+  await publishSafely(session, 'session.ready', {
     agent_identity: info.agent_identity,
     room_name: roomName,
     mode: info.mode,
     audio_bridge: session.voiceGateway ? 'voice_gateway_ready' : 'media_observer_ready',
     connect_attempts: info.connect_attempts,
   });
-  await publish(
+  await publishSafely(
     session,
     'runtime.metric',
     {
