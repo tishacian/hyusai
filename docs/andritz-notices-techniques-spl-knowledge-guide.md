@@ -233,10 +233,13 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
   "lexical_retrieval": {
     "document_types": {
       "parts_catalog": {
-        "aliases": ["spare parts list", "spare part list", "parts list", "piece detachee", "pieces detachees"]
+        "aliases": ["spare parts list", "spare part list", "parts list", "liste de pieces", "liste pieces", "catalogue pieces", "piece detachee", "pieces detachees"]
       },
       "maintenance_procedure": {
-        "aliases": ["maintenance procedure", "procedure de maintenance", "maintenance", "service manual"]
+        "aliases": ["maintenance procedure", "procedure de maintenance", "maintenance", "service manual", "nettoyage", "cleaning", "filtration maintenance", "vacuum maintenance", "injector cleaning", "cartridge cleaning"]
+      },
+      "conveyor_manual": {
+        "aliases": ["conveyor", "convoyeur", "transport conveyor", "conveyor jetlace"]
       },
       "supplier_manual": {
         "aliases": ["supplier manual", "vendor manual", "URACA", "KSB", "Etachrom"]

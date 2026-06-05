@@ -41,7 +41,7 @@ DEFAULT_METADATA_FIELD_WEIGHTS: dict[str, int] = {
 
 DEFAULT_EXACT_IDENTIFIER_PATTERNS: tuple[str, ...] = (
     r"\b[A-Z]{2,}[A-Z0-9]*[\s_.-]?\d{2,}[A-Z0-9]*\b",
-    r"\b[A-Z0-9]{2,}[-_][A-Z0-9]{2,}\b",
+    r"\b(?=[A-Z0-9_-]*\d)[A-Z0-9]{2,}[-_][A-Z0-9]{2,}\b",
 )
 
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]{2,}")
@@ -53,7 +53,7 @@ _SECTION_RE = re.compile(
     re.IGNORECASE,
 )
 _PART_NUMBER_RE = re.compile(
-    r"\b(?:part\s*(?:no\.?|number)?|p/?n|ref(?:erence)?\.?|item)\s*[:#-]?\s*([A-Z0-9][A-Z0-9_.\-/ ]{2,32})",
+    r"\b(?:part\b\s*(?:no\.?|number)?|p/?n\b|ref(?:erence)?\.?|item\b)\s*[:#-]?\s*([A-Z0-9][A-Z0-9_.\-/ ]{2,32})",
     re.IGNORECASE,
 )
 _MACHINE_LABEL_RE = re.compile(
@@ -361,7 +361,8 @@ def derived_industrial_metadata(payload: Mapping[str, Any]) -> dict[str, str]:
         part_number = _first_capture(_PART_NUMBER_RE, search_text)
         if part_number:
             part_number = re.split(r"\.\s+(?=[A-Za-z]{3,})", part_number, maxsplit=1)[0].strip()
-            out["part_number"] = part_number
+            if any(ch.isdigit() for ch in part_number):
+                out["part_number"] = part_number
     if not payload.get("machine"):
         machine = _first_capture(_MACHINE_LABEL_RE, search_text)
         if machine and compact_identifier(machine) != compact_identifier(payload.get("project_code")):

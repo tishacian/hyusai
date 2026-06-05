@@ -39,6 +39,13 @@ def test_query_analysis_uses_configured_document_type_aliases():
     assert "parts_catalog" in signals.document_type_intents
 
 
+def test_query_analysis_does_not_treat_hyphenated_words_as_exact_identifiers():
+    signals = analyze_query("Peux-tu retrouver la Spare Parts List du projet ACO140 ?")
+
+    assert "ACO140" in signals.exact_terms
+    assert "PEUXTU" not in signals.exact_terms
+
+
 def test_metadata_sparse_text_enriches_filename_and_code_without_domain_terms():
     payload = {
         "content": "A generic chunk.",
@@ -74,6 +81,17 @@ def test_sparse_enrichment_derives_generic_industrial_metadata_hints():
     assert enriched["part_number"] == "LM 300 filtering cartridge"
     assert "lm300filteringcartridge" in enriched["retrieval_identifiers"]
     assert "filtration" in enriched["retrieval_terms"]
+
+
+def test_sparse_enrichment_requires_part_as_a_word_before_part_number_derivation():
+    payload = {
+        "content": "La particule M est decrite ici sans reference de piece.",
+        "document_filename": "Manual_ACJ200.pdf",
+    }
+
+    derived = derived_industrial_metadata(payload)
+
+    assert "part_number" not in derived
 
 
 def test_lexical_match_boosts_exact_metadata_and_demotes_other_identifiers():

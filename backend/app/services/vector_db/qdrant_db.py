@@ -20,6 +20,7 @@ from app.services.rag.lexical_retrieval import (
     LexicalRetrievalConfig,
     analyze_query,
     enrich_payload_for_lexical_sparse,
+    identifier_variants,
     lexical_match_details,
     metadata_search_text,
 )
@@ -1205,21 +1206,25 @@ class QdrantVectorDB(VectorDBBase):
         if not signals.exact_terms and not signals.document_type_aliases:
             return []
 
-        exact_filters = dict(filters or {})
-        if signals.identifier_variants:
-            exact_filters["retrieval_identifiers"] = [term.lower() for term in signals.identifier_variants]
-        elif signals.document_type_aliases:
-            terms: list[str] = []
-            for alias in signals.document_type_aliases:
-                terms.extend(token.lower() for token in re.findall(r"[A-Za-zÀ-ÿ0-9]{2,}", alias))
-            if terms:
-                exact_filters["retrieval_terms"] = sorted(set(terms))
-        else:
+        from qdrant_client.models import FieldCondition, Filter, MatchAny
+
+        base_filter = self._filters_to_qdrant(filters or {})
+        must = list(getattr(base_filter, "must", None) or [])
+        for exact_term in signals.exact_terms:
+            variants = sorted({term.lower() for term in identifier_variants(exact_term) if term})
+            if variants:
+                must.append(FieldCondition(key="retrieval_identifiers", match=MatchAny(any=variants)))
+
+        document_type_terms: list[str] = []
+        for alias in signals.document_type_aliases:
+            document_type_terms.extend(token.lower() for token in re.findall(r"[A-Za-zÀ-ÿ0-9]{2,}", alias))
+        if document_type_terms:
+            must.append(FieldCondition(key="retrieval_terms", match=MatchAny(any=sorted(set(document_type_terms)))))
+
+        if not must:
             return []
 
-        qf = self._filters_to_qdrant(exact_filters)
-        if qf is None:
-            return []
+        qf = Filter(must=must)
         self._ensure_payload_indexes_once()
         loop = asyncio.get_event_loop()
 

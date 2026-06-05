@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from app.core.config import settings
+from app.services.rag.lexical_retrieval import parse_lexical_config
 from app.services.vector_db.qdrant_db import _PAYLOAD_INDEX_FIELDS, QdrantVectorDB
 
 
@@ -126,6 +127,62 @@ async def test_search_exact_metadata_uses_retrieval_identifier_payload_index(mon
     assert out[0]["metadata"]["retrieval_exact_terms_matched"] == ["PRJ204"]
     scroll_filter = client.scroll.call_args.kwargs["scroll_filter"]
     assert scroll_filter.must[0].key == "retrieval_identifiers"
+
+
+@pytest.mark.asyncio
+async def test_search_exact_metadata_requires_each_identifier_group(monkeypatch):
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    db = QdrantVectorDB(collection_name="col", client=client)
+    hit = SimpleNamespace(
+        id="point-1",
+        payload={
+            "chunk_id": "chunk-1",
+            "content": "AKK200 Filtering cartridge LM 300 spare part.",
+            "document_id": "doc-1",
+            "document_filename": "Spare Parts List AKK200.pdf",
+            "retrieval_identifiers": ["akk200", "lm300"],
+            "retrieval_terms": ["filtering", "cartridge", "spare", "part"],
+            "sparse_schema_version": "metadata_v1",
+        },
+    )
+    client.scroll.return_value = ([hit], None)
+
+    out = await db.search_exact_metadata("AKK200 Filtering cartridge LM300", top_k=5)
+
+    assert out[0]["id"] == "chunk-1"
+    scroll_filter = client.scroll.call_args.kwargs["scroll_filter"]
+    identifier_conditions = [condition for condition in scroll_filter.must if condition.key == "retrieval_identifiers"]
+    assert len(identifier_conditions) == 2
+
+
+@pytest.mark.asyncio
+async def test_search_exact_metadata_combines_identifier_and_document_type_terms(monkeypatch):
+    monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
+    client = MagicMock()
+    client.collection_exists.return_value = True
+    db = QdrantVectorDB(collection_name="col", client=client)
+    hit = SimpleNamespace(
+        id="point-1",
+        payload={
+            "chunk_id": "chunk-1",
+            "content": "Spare parts list for PRJ204.",
+            "document_id": "doc-1",
+            "document_filename": "Spare Parts List PRJ204.pdf",
+            "retrieval_identifiers": ["prj204"],
+            "retrieval_terms": ["spare", "parts", "list", "prj204"],
+            "sparse_schema_version": "metadata_v1",
+        },
+    )
+    client.scroll.return_value = ([hit], None)
+
+    config = parse_lexical_config({"document_types": {"parts_catalog": ["parts list"]}})
+    out = await db.search_exact_metadata("Find parts list for PRJ-204", top_k=5, lexical_config=config)
+
+    assert out[0]["id"] == "chunk-1"
+    scroll_filter = client.scroll.call_args.kwargs["scroll_filter"]
+    assert [condition.key for condition in scroll_filter.must] == ["retrieval_identifiers", "retrieval_terms"]
 
 
 @pytest.mark.asyncio
