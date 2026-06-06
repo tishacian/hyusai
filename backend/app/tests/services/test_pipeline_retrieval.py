@@ -183,6 +183,25 @@ class QdrantSparseBackendFake:
         return [_mk_result("client sparse fallback should not run", 0.8, 0)]
 
 
+class FastChatSparseBackendFake:
+    name = "qdrant_sparse"
+
+    def __init__(self):
+        self.calls = 0
+
+    async def search(self, *args, **kwargs):  # noqa: ARG002
+        self.calls += 1
+        return [
+            {
+                "id": "sparse-fast-1",
+                "content": "fast sparse direct evidence long enough",
+                "score": 0.88,
+                "combined_score": 0.88,
+                "metadata": {"document_id": "sparse-doc-1"},
+            }
+        ]
+
+
 class FakeEmbedder:
     async def embed(self, query: str):  # noqa: ARG002
         return np.array([1.0, 0.0], dtype=np.float32)
@@ -219,6 +238,26 @@ class QdrantServerHybridDocService:
         self.embedder = FakeEmbedder()
         self.vector_db = QdrantServerHybridVectorDb()
         self.search = AsyncMock(return_value=[_mk_result("dense fallback should not run", 0.4, 0)])
+
+
+class SlowFastChatDocService:
+    collection_name = "logical-docs"
+
+    def __init__(self):
+        self.embedder = FakeEmbedder()
+        self.vector_db = QdrantServerHybridVectorDb()
+        self.cancelled = 0
+
+    async def search_exact_metadata(self, *args, **kwargs):  # noqa: ARG002
+        return []
+
+    async def search(self, *args, **kwargs):  # noqa: ARG002
+        try:
+            await asyncio.sleep(5.0)
+        except asyncio.CancelledError:
+            self.cancelled += 1
+            raise
+        return [_mk_result("late dense evidence", 0.4, 0)]
 
 
 class SlowSearchService:
@@ -872,6 +911,37 @@ async def test_dense_guardrail_qdrant_sparse_uses_server_prefetch_fusion(monkeyp
     }
     doc.search.assert_not_awaited()
     assert sparse.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_fast_chat_skips_unbounded_qdrant_server_hybrid(monkeypatch):
+    sparse = FastChatSparseBackendFake()
+    doc = SlowFastChatDocService()
+    monkeypatch.setattr(pipeline_retrieval, "get_sparse_backend", lambda: sparse)
+    monkeypatch.setattr(pipeline_retrieval, "FAST_CHAT_SPARSE_WAIT_SECONDS", 0.05)
+
+    started = time.perf_counter()
+    out = await retrieve_for_mode(
+        doc,
+        "KD724 pump",
+        "hybrid",
+        top_k=2,
+        use_hybrid=True,
+        allow_legacy_hybrid=False,
+        retrieval_profile="chat",
+        latency_profile="fast",
+        deadline_seconds=8,
+    )
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.5
+    assert out.pipeline == "hybrid"
+    assert out.chunks == ["fast sparse direct evidence long enough"]
+    assert out.diagnostics["sparse_backend"] == "qdrant_sparse"
+    assert out.diagnostics["sparse_status"] == "ok"
+    assert sparse.calls == 1
+    assert doc.vector_db.calls == []
+    assert doc.cancelled == 1
 
 
 @pytest.mark.asyncio

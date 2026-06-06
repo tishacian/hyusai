@@ -38,6 +38,7 @@ HAH_SECOND_PASS_CAP = 20
 CHAH_QUERY_TRUNC = 120
 CHAH_MAX_WORDS_HEAD = 12
 RRF_K = 60
+FAST_CHAT_SPARSE_WAIT_SECONDS = 1.5
 _SPREADSHEET_LABEL_TRIGGERS_RE = re.compile(
     r"\b("
     r"diam[eè]tre|diameter|label|labell?is[ée]e?|lettre|letter|strip|strips|"
@@ -552,6 +553,10 @@ async def _search_documents(
     top_k = max(1, int(top_k or 1))
     if use_hybrid and not allow_legacy_hybrid:
         retrieval_started = time.perf_counter()
+        search_params = dict(search_params or {})
+        retrieval_profile = str(search_params.get("retrieval_profile") or "").strip().lower()
+        latency_profile = str(search_params.get("latency_profile") or "").strip().lower()
+        fast_chat_direct = retrieval_profile == "chat" and latency_profile == "fast"
         sparse_backend = get_sparse_backend()
         sparse_backend_name = getattr(sparse_backend, "name", "unknown")
         sparse_configured = not (
@@ -572,7 +577,7 @@ async def _search_documents(
             if sparse_backend_name == "disabled"
             else ("sparse_unavailable" if not sparse_configured else None)
         )
-        if sparse_backend_name == "qdrant_sparse" and sparse_configured:
+        if sparse_backend_name == "qdrant_sparse" and sparse_configured and not fast_chat_direct:
             server_rows, server_elapsed_ms = await _timed_qdrant_server_hybrid_search(
                 doc_svc,
                 query,
@@ -625,9 +630,12 @@ async def _search_documents(
         tasks = {dense_task}
         if sparse_task is not None:
             tasks.add(sparse_task)
+        wait_timeout = max(0.001, float(deadline_seconds or 2.0))
+        if fast_chat_direct and sparse_task is not None:
+            wait_timeout = min(wait_timeout, FAST_CHAT_SPARSE_WAIT_SECONDS)
         done, pending = await asyncio.wait(
             tasks,
-            timeout=max(0.001, float(deadline_seconds or 2.0)),
+            timeout=wait_timeout,
         )
         await _cancel_pending_tasks(pending, label="sparse_dense_fanout")
         if sparse_task is not None and sparse_task in pending:
@@ -1645,11 +1653,17 @@ def _normalize_mode(mode: Optional[str]) -> str:
     return (mode or "auto").strip().lower()
 
 
-def _search_params_for_profile(retrieval_profile: str | None) -> dict[str, Any] | None:
+def _search_params_for_profile(
+    retrieval_profile: str | None,
+    *,
+    latency_profile: str | None = None,
+) -> dict[str, Any] | None:
     profile = str(retrieval_profile or "").strip().lower()
     if not profile:
         return None
     params: dict[str, Any] = {"retrieval_profile": profile}
+    if latency_profile:
+        params["latency_profile"] = str(latency_profile).strip().lower()
     if profile in {"oracle_fast", "chat", "deep_async"}:
         params["group_by"] = "document_id"
         params["group_size"] = 2 if profile == "deep_async" else 1
@@ -1672,6 +1686,7 @@ async def retrieve_for_mode(
     max_candidates: int = 80,
     allow_legacy_hybrid: bool = True,
     retrieval_profile: str | None = None,
+    latency_profile: str | None = None,
 ) -> RetrievalPipelineResult:
     """
     Single entry for RAG retrieval by pipeline mode.
@@ -1702,7 +1717,7 @@ async def retrieve_for_mode(
             use_hybrid=use_hybrid,
             allow_legacy_hybrid=allow_legacy_hybrid,
             deadline_seconds=deadline_seconds,
-            search_params=_search_params_for_profile(retrieval_profile),
+            search_params=_search_params_for_profile(retrieval_profile, latency_profile=latency_profile),
         )
     if hah_chah_enabled and m in ("chah", "c-hah", "c_hah", "hahcomposite", "hah_composite"):
         return await retrieve_chah_like(
@@ -1717,7 +1732,7 @@ async def retrieve_for_mode(
             deadline_seconds=deadline_seconds,
             max_variants=max_variants,
             max_candidates=max_candidates,
-            search_params=_search_params_for_profile(retrieval_profile),
+            search_params=_search_params_for_profile(retrieval_profile, latency_profile=latency_profile),
         )
 
     deadline_at = _deadline_at(deadline_seconds)
@@ -1756,7 +1771,7 @@ async def retrieve_for_mode(
         use_hybrid=use_hybrid,
         allow_legacy_hybrid=allow_legacy_hybrid,
         deadline_seconds=_remaining_deadline(deadline_at, deadline_seconds),
-        search_params=_search_params_for_profile(retrieval_profile),
+        search_params=_search_params_for_profile(retrieval_profile, latency_profile=latency_profile),
     )
     results = rerank_results_with_policy(results, query, retrieval_policy)
     results = _prioritise_exact_project_reference_matches(results, query)

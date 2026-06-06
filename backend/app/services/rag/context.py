@@ -1913,6 +1913,7 @@ async def retrieve_rag_context(
                 max_candidates=max_candidates,
                 allow_legacy_hybrid=allow_legacy_hybrid,
                 retrieval_profile=profile.get("retrieval_profile"),
+                latency_profile=profile.get("latency_profile"),
             ),
             timeout=deadline_seconds,
         )
