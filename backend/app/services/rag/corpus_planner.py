@@ -641,8 +641,13 @@ def _infer_ledger_document_scope(
         if compact_query and compact_query in compact_haystack:
             score += 4.0
             strong_phrase_match = True
-        elif any(len(_compact_text(term)) >= 6 and _compact_text(term) in compact_haystack for term in terms):
-            strong_phrase_match = strong_phrase_match or bool(family_matches)
+        elif any(
+            len(_compact_text(term)) >= 6
+            and _compact_text(term).upper() not in project_codes
+            and _compact_text(term) in compact_haystack
+            for term in terms
+        ):
+            strong_phrase_match = True
         if has_source_lookup_signal:
             score += min(max(int(getattr(row, "chunk_count", 0) or 0), 0), 100) / 200.0
         threshold = 6.0 if project_codes else 7.0
@@ -958,20 +963,21 @@ def _fast_ledger_candidate_rows(
     high-signal subset; if none is obvious, retrieval falls back to bounded
     sparse search instead of blocking the direct answer.
     """
-    if len(rows) <= limit:
-        return rows
     project_codes = _query_project_codes(query)
     terms = [
         _compact_text(term)
         for term in _expanded_query_terms(query, policy)
         if len(_compact_text(term)) >= 5
     ][:10]
+    if len(rows) <= limit and not project_codes:
+        return rows
     if not project_codes and not terms:
         return []
 
     scored: list[tuple[int, str, Any]] = []
     for row in rows:
         meta = _source_metadata(row)
+        collection = getattr(row, "collection", None)
         text = " ".join(
             str(value or "")
             for value in (
@@ -979,6 +985,9 @@ def _fast_ledger_candidate_rows(
                 getattr(row, "normalized_name", ""),
                 getattr(row, "source_kind", ""),
                 getattr(row, "extension", ""),
+                getattr(collection, "slug", "") if collection is not None else "",
+                getattr(collection, "name", "") if collection is not None else "",
+                getattr(collection, "display_name", "") if collection is not None else "",
                 meta.get("document_filename"),
                 meta.get("project_code"),
                 meta.get("archive_name"),
@@ -1167,12 +1176,27 @@ def plan_corpus(
         source_lookup_query=source_lookup_query,
     )
     workspace_rows = rows
+    fast_local_ledger_rows: list[Any] = []
+    if latency_profile == "fast":
+        fast_local_ledger_rows = _fast_ledger_candidate_rows(
+            query,
+            rows,
+            policy=retrieval_policy,
+        )
     if workspace_id:
-        workspace_collection_refs = [
-            str(row.slug or row.id)
-            for row in _workspace_collections(db, workspace_id)
-            if str(row.slug or row.id)
-        ]
+        should_expand_workspace = True
+        if latency_profile == "fast":
+            project_codes = _query_project_codes(query)
+            table_lookup_requested = bool(_TABLE_VALUE_LOOKUP_RE.search(query))
+            should_expand_workspace = bool(table_lookup_requested or (project_codes and not fast_local_ledger_rows))
+        if should_expand_workspace:
+            workspace_collection_refs = [
+                str(row.slug or row.id)
+                for row in _workspace_collections(db, workspace_id)
+                if str(row.slug or row.id)
+            ]
+        else:
+            workspace_collection_refs = []
         if workspace_collection_refs and set(workspace_collection_refs) != set(collections):
             candidate_rows, _candidate_collection_rows = _rows_for_collections(
                 db,
@@ -1190,7 +1214,7 @@ def plan_corpus(
     else:
         ledger_rows = workspace_rows
         if latency_profile == "fast":
-            ledger_rows = _fast_ledger_candidate_rows(
+            ledger_rows = fast_local_ledger_rows or _fast_ledger_candidate_rows(
                 query,
                 workspace_rows,
                 policy=retrieval_policy,
