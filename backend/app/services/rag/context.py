@@ -102,6 +102,11 @@ _DOCUMENT_DISCOVERY_RE = re.compile(
     r"\bquels?\s+documents?\b.*\b(?:parle(?:nt)?|pour|sur|concerne|concernent|de\s+[a-z0-9_-]{3,})\b",
     re.IGNORECASE,
 )
+_SOURCE_LOOKUP_NOT_INVENTORY_RE = re.compile(
+    r"\b(?:quel|quelle|quels?|which|what)\b.*\b(?:source|document|fichier|file)\b"
+    r".*\b(?:ouvrir|open|citer|cite|contient|contains?|correspond|bonne|right|faut[-\s]?il|dois[-\s]?je)\b",
+    re.IGNORECASE,
+)
 _TABLE_VALUE_LOOKUP_RE = re.compile(
     r"\b(que\s+vaut|valeur|value|label|table|feuille|sheet|cellule|cell|ligne|row|colonne|column)\b",
     re.IGNORECASE,
@@ -150,10 +155,15 @@ def is_collection_inventory_query(query: str) -> bool:
         return False
     # "Quels documents parlent de X ?" is a content-discovery query, not an
     # inventory/cardinality question. Keep that path on vector retrieval.
-    if _DOCUMENT_DISCOVERY_RE.search(text) or (
+    if _DOCUMENT_DISCOVERY_RE.search(text) or _SOURCE_LOOKUP_NOT_INVENTORY_RE.search(text) or (
         re.search(r"\b(?:quels?|which|what)\b", text, re.IGNORECASE)
         and _CONTENT_SEARCH_HINT_RE.search(text)
     ):
+        return False
+    if re.search(r"\b(?:source|document|fichier|file)\b", text, re.IGNORECASE) and re.search(
+        r"\b[A-Z]{2,}[A-Z0-9\s_-]*\d{2,}[A-Z0-9]*\b",
+        text,
+    ) and not re.search(r"\b(combien|nombre|count|how\s+many|types?|formats?|extensions?)\b", text, re.IGNORECASE):
         return False
     if _TABLE_VALUE_LOOKUP_RE.search(text) and not re.search(
         r"\b(combien|nombre|count|how\s+many|types?|formats?|extensions?)\b",

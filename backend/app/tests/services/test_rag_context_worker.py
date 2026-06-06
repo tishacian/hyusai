@@ -533,6 +533,28 @@ async def test_retrieve_rag_context_data_catalogue_phrase_uses_inventory(db_sess
     assert result["metrics"]["stage_timings"]["inventory_ms"] >= 0
 
 
+def test_source_lookup_questions_are_not_inventory_queries():
+    assert rag_context.is_collection_inventory_query("De quelles données disposes-tu ?") is True
+    assert (
+        rag_context.is_collection_inventory_query(
+            "Dans AKK200, je cherche la reference Filtering cartridge LM300 : quelle source faut-il ouvrir ?"
+        )
+        is False
+    )
+    assert (
+        rag_context.is_collection_inventory_query(
+            "AKK200 vacuum maintenance : quel document source dois-je citer ?"
+        )
+        is False
+    )
+    assert (
+        rag_context.is_collection_inventory_query(
+            "Je veux ouvrir la liste de pieces BBA 120, quelle source est la bonne ?"
+        )
+        is False
+    )
+
+
 async def test_retrieve_rag_context_catalogue_applies_internal_scope_filters(db_session, monkeypatch):
     workspace = Workspace(id="ws-data-catalogue-scope", name="Scoped Catalogue", slug="scoped-catalogue")
     db_session.add(workspace)
