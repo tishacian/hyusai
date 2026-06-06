@@ -1082,7 +1082,12 @@ def plan_corpus(
     )
     collections = [str(item) for item in (profile.get("collections") or [profile.get("collection") or "documents"]) if item]
     workspace_id = str(profile.get("workspace_id") or "") or None
-    source_lookup_query = query if latency_profile == "fast" and _query_project_codes(query) else None
+    # Fast chat must not spend its latency budget on fuzzy SQL source lookup.
+    # Source-ledger scoring below can still infer project/document filters from
+    # the selected collection rows, while sparse/exact retrieval handles the
+    # content search quickly. Balanced/deep keep the targeted lookup because
+    # they are allowed to spend more time narrowing a dense corpus up front.
+    source_lookup_query = query if latency_profile != "fast" and _query_project_codes(query) else None
     rows, collection_rows = _rows_for_collections(
         db,
         collections,
