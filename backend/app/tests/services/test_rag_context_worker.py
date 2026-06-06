@@ -911,7 +911,7 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
     assert "Legacy Spare Parts List ACO999.pdf" in legacy_plan.filters["document_filename"]
 
 
-async def test_dense_collection_quick_ask_uses_coarse_inventory_without_global_search(db_session, monkeypatch):
+async def test_dense_collection_quick_ask_uses_bounded_fast_sparse_direct(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
     workspace = Workspace(id="ws-dense-policy", name="Dense Policy", slug="dense-policy")
@@ -942,17 +942,18 @@ async def test_dense_collection_quick_ask_uses_coarse_inventory_without_global_s
         doc_svc=svc,
     )
 
-    assert result["mode_label"] == "fast_scoped_dense_auto"
-    assert result["dense_policy"] == "fast_scoped_dense_auto"
-    assert result["pipeline"] == "dense_coarse_inventory"
+    assert result["mode_label"] == "fast_sparse_direct"
+    assert result["dense_policy"] == "fast_sparse_direct"
+    assert result["pipeline"] == "hybrid"
     assert result["deep_retrieval_recommended"] is True
-    assert result["metrics"]["dense_global_search_skipped"] is True
     assert result["retrieval_plan"]["guardrails"]["user_scope_required"] is False
     assert result["retrieval_plan"]["guardrails"]["global_chunk_search_allowed"] is False
     assert result["retrieval_plan"]["layers"]["dense_qdrant"]["enabled"] is False
+    assert result["retrieval_plan"]["layers"]["sparse"]["enabled"] is True
     assert result["retrieval_plan"]["layers"]["deep_async"]["enabled"] is True
     assert result["candidate_pool_k"] <= 20
-    assert not svc.calls
+    assert svc.calls
+    assert svc.calls[0]["top_k"] <= 30
 
 
 async def test_system_collection_scope_is_not_sent_as_payload_filter(db_session):
@@ -1063,13 +1064,13 @@ async def test_dense_planner_uses_collection_totals_when_source_ledger_is_partia
         doc_svc=svc,
     )
 
-    assert result["dense_policy"] == "fast_scoped_dense_auto"
-    assert result["pipeline"] == "dense_coarse_inventory"
+    assert result["dense_policy"] == "fast_sparse_direct"
+    assert result["pipeline"] == "hybrid"
     assert result["retrieval_scope"]["source_count"] == 25
     assert result["retrieval_scope"]["chunk_count"] == 500
     assert result["retrieval_plan"]["guardrails"]["global_chunk_search_allowed"] is False
-    assert result["metrics"]["dense_global_search_skipped"] is True
-    assert not svc.calls
+    assert result["retrieval_plan"]["layers"]["sparse"]["enabled"] is True
+    assert svc.calls
 
 
 async def test_dense_collection_quick_ask_uses_fact_scoped_document_filter(db_session, monkeypatch, tmp_path):

@@ -944,6 +944,74 @@ def _infer_summary_document_scope(
     return filters, confidence, reason
 
 
+def _fast_ledger_candidate_rows(
+    query: str,
+    rows: list[Any],
+    *,
+    policy: RetrievalPolicy | None = None,
+    limit: int = 600,
+) -> list[Any]:
+    """Return a cheap candidate subset before expensive source-ledger scoring.
+
+    On large industrial ledgers, scoring every source row can spend tens of
+    seconds in Python string normalization. Fast chat only needs a small
+    high-signal subset; if none is obvious, retrieval falls back to bounded
+    sparse search instead of blocking the direct answer.
+    """
+    if len(rows) <= limit:
+        return rows
+    project_codes = _query_project_codes(query)
+    terms = [
+        _compact_text(term)
+        for term in _expanded_query_terms(query, policy)
+        if len(_compact_text(term)) >= 5
+    ][:10]
+    if not project_codes and not terms:
+        return []
+
+    scored: list[tuple[int, str, Any]] = []
+    for row in rows:
+        meta = _source_metadata(row)
+        text = " ".join(
+            str(value or "")
+            for value in (
+                getattr(row, "filename", ""),
+                getattr(row, "normalized_name", ""),
+                getattr(row, "source_kind", ""),
+                getattr(row, "extension", ""),
+                meta.get("document_filename"),
+                meta.get("project_code"),
+                meta.get("archive_name"),
+                meta.get("machine"),
+                meta.get("line"),
+                meta.get("source_family"),
+            )
+        )
+        compact = _compact_text(text)
+        if not compact:
+            continue
+        score = 0
+        for code in project_codes:
+            if code.lower() in compact:
+                score += 12
+        if project_codes and score <= 0:
+            continue
+        term_hits = 0
+        for term in terms:
+            if term and term in compact:
+                term_hits += 1
+                score += 2
+        if not project_codes and term_hits < 2:
+            continue
+        filename = str(getattr(row, "filename", "") or "").lower()
+        scored.append((score, filename, row))
+
+    if not scored:
+        return []
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [row for _score, _filename, row in scored[: max(1, int(limit))]]
+
+
 def _layer_status(*, enabled: bool, reason: str, budget_ms: int | None = None, top_k: int | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "enabled": bool(enabled),
@@ -977,7 +1045,11 @@ def _build_retrieval_plan(
 ) -> dict[str, Any]:
     deadline_ms = int(max(float(deadline or 0.0), 0.0) * 1000)
     scoped = bool(filters)
-    sparse_enabled = bool(use_hybrid and not allow_legacy_hybrid and (scoped or not dense))
+    sparse_enabled = bool(
+        use_hybrid
+        and not allow_legacy_hybrid
+        and (scoped or not dense or dense_policy == "fast_sparse_direct")
+    )
     summaries_enabled = latency_profile == "deep" or (dense and scoped)
     deep_async_enabled = bool(deep_retrieval_recommended and latency_profile != "deep")
     return {
@@ -1116,9 +1188,16 @@ def plan_corpus(
     if explicit_filters:
         ledger_filters, ledger_confidence, ledger_reason, ledger_collections = {}, 0.0, "", []
     else:
+        ledger_rows = workspace_rows
+        if latency_profile == "fast":
+            ledger_rows = _fast_ledger_candidate_rows(
+                query,
+                workspace_rows,
+                policy=retrieval_policy,
+            )
         ledger_filters, ledger_confidence, ledger_reason, ledger_collections = _infer_ledger_document_scope(
             query,
-            workspace_rows,
+            ledger_rows,
             policy=retrieval_policy,
         )
     table_lookup_collections = _spreadsheet_collection_refs(workspace_rows) if _TABLE_VALUE_LOOKUP_RE.search(query) else []
@@ -1139,13 +1218,16 @@ def plan_corpus(
         confidence = max(confidence, 0.72)
         reason = f"table value lookup scoped retrieval to {len(table_lookup_collections)} spreadsheet collection(s)"
     elif ledger_collections:
-        collections = ledger_collections
-        rows, collection_rows = _rows_for_collections(
-            db,
-            collections,
-            workspace_id,
-            source_lookup_query=source_lookup_query,
-        )
+        if set(ledger_collections) != set(collections):
+            collections = ledger_collections
+            rows, collection_rows = _rows_for_collections(
+                db,
+                collections,
+                workspace_id,
+                source_lookup_query=source_lookup_query,
+            )
+        else:
+            collections = ledger_collections
     ledger_source_count = len(rows)
     collection_source_count = sum(
         int(c.document_count or 0) or _collection_source_count(db, c)
@@ -1254,11 +1336,16 @@ def plan_corpus(
     elif dense and latency_profile != "deep":
         allow_legacy_hybrid = False
         if not filters:
-            dense_policy = "fast_scoped_dense_auto"
-            use_hybrid = False
+            if latency_profile == "fast":
+                dense_policy = "fast_sparse_direct"
+                use_hybrid = True
+                fallback_reason = None
+            else:
+                dense_policy = "fast_scoped_dense_auto"
+                use_hybrid = False
+                fallback_reason = "dense_unscoped_fast_policy"
             allow_hah_chah = False
             deep_retrieval_recommended = True
-            fallback_reason = "dense_unscoped_fast_policy"
         else:
             dense_policy = "fast_scoped_dense"
             allow_hah_chah = latency_profile == "balanced"

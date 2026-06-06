@@ -1777,6 +1777,7 @@ async def retrieve_rag_context(
         and corpus_plan.dense
         and not corpus_plan.filters
         and not retrieval_filters
+        and corpus_plan.fallback_reason
     ):
         coarse_context = _retrieve_dense_unscoped_coarse_context(
             profile,

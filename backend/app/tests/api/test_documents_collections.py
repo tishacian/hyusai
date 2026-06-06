@@ -301,8 +301,8 @@ def test_document_search_skips_dense_unscoped_global_search(db_session, monkeypa
     body = response.json()
     assert body["results"] == []
     assert body["total"] == 0
-    assert body["dense_policy"] == "fast_scoped_dense_auto"
-    assert body["fallback_reason"] in {"dense_unscoped_fast_policy", "dense_unscoped_search_skipped"}
+    assert body["dense_policy"] == "fast_sparse_direct"
+    assert body["fallback_reason"] in {None, "dense_unscoped_fast_policy", "dense_unscoped_search_skipped"}
     assert body["latency_budget"]["candidate_pool_k"] <= 20
     assert body["retrieval_plan"]["guardrails"]["global_chunk_search_allowed"] is False
 
