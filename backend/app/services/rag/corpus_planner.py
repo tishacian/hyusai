@@ -1010,15 +1010,16 @@ def _fast_ledger_candidate_rows(
             if term and term in compact:
                 term_hits += 1
                 score += 2
-        family_score, _family_matches = score_source_family_match(
-            query=query,
-            row_text=text,
-            metadata=meta,
-            policy=policy,
-        )
-        if family_score:
-            term_hits += 1
-            score += int(round(family_score))
+        if term_hits or project_codes:
+            family_score, _family_matches = score_source_family_match(
+                query=query,
+                row_text=text,
+                metadata=meta,
+                policy=policy,
+            )
+            if family_score:
+                term_hits += 1
+                score += int(round(family_score))
         if not project_codes and term_hits < 2:
             continue
         filename = str(getattr(row, "filename", "") or "").lower()
