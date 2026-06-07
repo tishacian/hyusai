@@ -27,6 +27,10 @@ _POLICY_FENCE_RE = re.compile(
 )
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]+")
 _PROJECT_REF_RE = re.compile(r"\b([A-Z]{3})[\s_-]?(\d{3})\b", re.IGNORECASE)
+_DIMENSION_REF_RE = re.compile(
+    r"\b(?:d|dia|diameter|diametre|diamètre)\.?\s*\d+(?:[,.]\d+)?\b",
+    re.IGNORECASE,
+)
 _DEFAULT_NAVIGATION_TERMS = (
     "table of contents",
     "contents",
@@ -63,6 +67,58 @@ _PROVENANCE_KEYS = (
     "provenance_status",
     "trust_level",
 )
+_EVIDENCE_STOPWORDS = {
+    "a",
+    "afin",
+    "and",
+    "as",
+    "au",
+    "aux",
+    "avec",
+    "ce",
+    "ces",
+    "cet",
+    "cette",
+    "dans",
+    "de",
+    "des",
+    "dois",
+    "du",
+    "en",
+    "est",
+    "et",
+    "fichier",
+    "fichiers",
+    "for",
+    "faut",
+    "il",
+    "in",
+    "je",
+    "la",
+    "le",
+    "les",
+    "of",
+    "on",
+    "ou",
+    "où",
+    "pour",
+    "que",
+    "quel",
+    "quelle",
+    "quels",
+    "quelles",
+    "contient",
+    "contain",
+    "contains",
+    "source",
+    "sources",
+    "the",
+    "to",
+    "trouve",
+    "trouver",
+    "quelle",
+    "which",
+}
 
 
 @dataclass(frozen=True)
@@ -352,6 +408,183 @@ def _contains_any_term_form(text: str, term: str) -> bool:
     return any(_contains_term(text, form) for form in _term_forms(term))
 
 
+def _fold_evidence(value: Any) -> str:
+    text = _strip_accents(str(value or "")).lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def _contains_evidence_form(folded_haystack: str, form: str) -> bool:
+    folded = _fold_evidence(form)
+    if not folded or not folded_haystack:
+        return False
+    if len(folded) <= 2:
+        return bool(re.search(rf"(?<![a-z0-9]){re.escape(folded)}(?![a-z0-9])", folded_haystack))
+    return folded in folded_haystack
+
+
+def _add_evidence_group(
+    groups: list[tuple[str, tuple[str, ...]]],
+    seen: set[str],
+    label: str,
+    forms: Sequence[str],
+) -> None:
+    clean_label = _clean_text(label, max_len=80)
+    clean_forms = tuple(form for form in _clean_terms(forms, max_items=24) if form)
+    key = _fold_evidence(clean_label)
+    if not clean_label or not clean_forms or not key or key in seen:
+        return
+    seen.add(key)
+    groups.append((clean_label, clean_forms))
+
+
+def _technical_token_forms(token: str) -> tuple[str, ...]:
+    clean = _clean_text(token, max_len=80)
+    if not clean:
+        return ()
+    forms = [clean]
+    compact_match = re.fullmatch(r"([A-Za-zÀ-ÿ]+)(\d+(?:[,.]\d+)?)", clean)
+    if compact_match:
+        prefix = compact_match.group(1)
+        number = compact_match.group(2)
+        forms.extend(
+            (
+                f"{prefix} {number}",
+                f"{prefix}-{number}",
+                f"{prefix}_{number}",
+            )
+        )
+    return tuple(forms)
+
+
+def evidence_groups_from_query(
+    query: str,
+    policy: RetrievalPolicy | None = None,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Extract generic evidence groups that a strong result should cover.
+
+    This is deliberately query-driven: no golden case ids, expected sources, or
+    expected answers. KnowledgeGuide aliases enrich the groups when available;
+    otherwise technical tokens and dimensions still provide a small signal.
+    """
+    q = str(query or "")
+    if not q.strip():
+        return ()
+
+    groups: list[tuple[str, tuple[str, ...]]] = []
+    seen: set[str] = set()
+
+    for match in _DIMENSION_REF_RE.finditer(q):
+        value = match.group(0)
+        compact = re.sub(r"\s+", " ", value.replace(",", "."))
+        numeric = re.search(r"\d+(?:[,.]\d+)?", value)
+        number = numeric.group(0).replace(",", ".") if numeric else ""
+        _add_evidence_group(
+            groups,
+            seen,
+            value,
+            (
+                value,
+                compact,
+                compact.replace(".", ","),
+                compact.replace(" ", ""),
+                f"diameter {number}" if number else "",
+                f"diametre {number}" if number else "",
+            ),
+        )
+
+    for term in _project_reference_terms(q):
+        _add_evidence_group(groups, seen, term, _term_forms(term))
+
+    if policy:
+        for term in policy.protected_terms:
+            if _contains_any_term_form(q, term):
+                forms: list[str] = list(_term_forms(term))
+                for alias_term, expansions in policy.aliases:
+                    alias_group = (alias_term, *expansions)
+                    if any(_contains_any_term_form(term, item) or _contains_any_term_form(item, term) for item in alias_group):
+                        forms.extend(alias_group)
+                _add_evidence_group(groups, seen, term, tuple(forms))
+
+        for term, expansions in policy.aliases:
+            group = (term, *expansions)
+            if any(_contains_any_term_form(q, item) for item in group):
+                _add_evidence_group(groups, seen, term, group)
+
+    raw_tokens = _TOKEN_RE.findall(q)
+    folded_tokens: list[tuple[str, str]] = []
+    for token in raw_tokens:
+        folded = _fold_evidence(token)
+        if not folded or folded in _EVIDENCE_STOPWORDS:
+            continue
+        if len(folded) < 4 and not any(ch.isdigit() for ch in folded):
+            continue
+        if folded.isdigit() and len(folded) < 3:
+            continue
+        folded_tokens.append((token, folded))
+        _add_evidence_group(groups, seen, token, _technical_token_forms(token))
+        if len(groups) >= 14:
+            return tuple(groups)
+
+    for index in range(len(folded_tokens) - 1):
+        first_raw, first_folded = folded_tokens[index]
+        second_raw, second_folded = folded_tokens[index + 1]
+        if first_folded in _EVIDENCE_STOPWORDS or second_folded in _EVIDENCE_STOPWORDS:
+            continue
+        if not (len(first_folded) >= 4 or len(second_folded) >= 4):
+            continue
+        phrase = f"{first_raw} {second_raw}"
+        _add_evidence_group(groups, seen, phrase, (phrase, f"{first_raw}-{second_raw}"))
+        if len(groups) >= 14:
+            break
+
+    return tuple(groups)
+
+
+def evidence_coverage_details(
+    *,
+    content: str,
+    metadata: Mapping[str, Any] | None,
+    query: str,
+    policy: RetrievalPolicy | None = None,
+) -> dict[str, Any]:
+    groups = evidence_groups_from_query(query, policy)
+    if not groups:
+        return {
+            "score": 0,
+            "coverage": 0.0,
+            "matched": [],
+            "missing": [],
+            "groups": [],
+        }
+    metadata = metadata or {}
+    haystack = f"{content}\n{_metadata_text(metadata)}\n{metadata.get('content') or ''}"
+    folded_haystack = _fold_evidence(haystack)
+    matched: list[str] = []
+    missing: list[str] = []
+    for label, forms in groups:
+        if any(_contains_evidence_form(folded_haystack, form) for form in forms):
+            matched.append(label)
+        else:
+            missing.append(label)
+
+    coverage = len(matched) / max(len(groups), 1)
+    score = len(matched) * 5
+    if len(groups) >= 2 and coverage >= 0.75:
+        score += 8
+    if len(groups) >= 3 and coverage >= 0.95:
+        score += 6
+    if len(missing) >= 3 and coverage < 0.35:
+        score -= 4
+    return {
+        "score": score,
+        "coverage": coverage,
+        "matched": matched,
+        "missing": missing,
+        "groups": [label for label, _ in groups],
+    }
+
+
 def required_terms_from_query(query: str, policy: RetrievalPolicy | None) -> tuple[str, ...]:
     if not policy or not policy.enabled:
         return ()
@@ -448,6 +681,13 @@ def score_result_with_policy(
         config=policy.lexical_config if policy else None,
     )
     score += int(lexical_details.get("score") or 0)
+    evidence_details = evidence_coverage_details(
+        content=content,
+        metadata=metadata,
+        query=query,
+        policy=policy,
+    )
+    score += int(evidence_details.get("score") or 0)
 
     if not policy or not policy.enabled:
         return score
@@ -568,6 +808,12 @@ def rerank_results_with_policy(
             policy=policy,
             is_document_discovery=is_document_discovery,
         )
+        evidence_details = evidence_coverage_details(
+            content=content,
+            metadata=metadata,
+            query=query,
+            policy=policy,
+        )
         has_provenance_boost = has_provenance_boost or bool(provenance_boost_score(metadata))
         if lexical_details.get("signals_detected"):
             lexical_score = int(lexical_details.get("score") or 0)
@@ -577,6 +823,13 @@ def rerank_results_with_policy(
             metadata["retrieval_exact_match_missing"] = bool(lexical_details.get("missing_exact_match"))
             row = {**row, "metadata": metadata}
             if lexical_score:
+                has_policy_ranking = True
+        if evidence_details.get("groups"):
+            metadata["retrieval_evidence_terms"] = list(evidence_details.get("groups") or [])
+            metadata["retrieval_evidence_terms_matched"] = list(evidence_details.get("matched") or [])
+            metadata["retrieval_evidence_terms_missing"] = list(evidence_details.get("missing") or [])
+            metadata["retrieval_evidence_coverage"] = float(evidence_details.get("coverage") or 0.0)
+            if int(evidence_details.get("score") or 0) > 0:
                 has_policy_ranking = True
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score
@@ -618,6 +871,12 @@ def rerank_aligned_with_policy(
             policy=policy,
             is_document_discovery=is_document_discovery,
         )
+        evidence_details = evidence_coverage_details(
+            content=chunk,
+            metadata=metadata,
+            query=query,
+            policy=policy,
+        )
         has_provenance_boost = has_provenance_boost or bool(provenance_boost_score(metadata))
         if lexical_details.get("signals_detected"):
             lexical_score = int(lexical_details.get("score") or 0)
@@ -626,6 +885,13 @@ def rerank_aligned_with_policy(
             metadata["retrieval_document_types_matched"] = list(lexical_details.get("matched_document_types") or [])
             metadata["retrieval_exact_match_missing"] = bool(lexical_details.get("missing_exact_match"))
             if lexical_score:
+                has_policy_ranking = True
+        if evidence_details.get("groups"):
+            metadata["retrieval_evidence_terms"] = list(evidence_details.get("groups") or [])
+            metadata["retrieval_evidence_terms_matched"] = list(evidence_details.get("matched") or [])
+            metadata["retrieval_evidence_terms_missing"] = list(evidence_details.get("missing") or [])
+            metadata["retrieval_evidence_coverage"] = float(evidence_details.get("coverage") or 0.0)
+            if int(evidence_details.get("score") or 0) > 0:
                 has_policy_ranking = True
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score

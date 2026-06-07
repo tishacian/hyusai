@@ -39,6 +39,7 @@ from app.services.evaluation.canonical_answer_service import (
 from app.services.action_plans import action_context_for_chat
 from app.services.actions import handle_registry_chat_action, handle_transverse_chat_action
 from app.services.chat_grounding import resolve_grounding_policy
+from app.services.chat_trivial_bypass import TrivialBypass, maybe_trivial_bypass
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
 from app.services.workspace_maps import handle_map_chat_query
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
@@ -387,6 +388,96 @@ def _apply_retrieval_budget_policy(request_dict: Dict[str, Any]) -> None:
         "top_k": top_k,
         "candidate_pool_k": candidate_pool_k,
     }
+
+
+def _persist_trivial_bypass_turn(
+    db: Session,
+    *,
+    workspace: Workspace,
+    request: ChatRequest,
+    query: str,
+    bypass: TrivialBypass,
+) -> Optional[str]:
+    metadata = {
+        "trivial_bypass": True,
+        "retrieval_metrics": bypass.metadata(),
+    }
+    if request.session_id:
+        db.add(
+            Message(
+                id=str(uuid.uuid4()),
+                session_id=request.session_id,
+                role="user",
+                content=request.query,
+                meta_data={},
+            )
+        )
+        db.add(
+            Message(
+                id=str(uuid.uuid4()),
+                session_id=request.session_id,
+                role="assistant",
+                content=bypass.content,
+                meta_data=metadata,
+            )
+        )
+        session = db.query(ChatSession).filter(ChatSession.id == request.session_id).first()
+        if session:
+            _touch_chat_session(db, session, query=query)
+    now = datetime.utcnow()
+    run_id = _persist_chat_run(
+        db,
+        workspace_id=workspace.id,
+        system_id=_resolve_system_id(db, workspace.id, request.agent_id),
+        query=query,
+        response_text=bypass.content,
+        sources=[],
+        reasoning_trace=None,
+        started_at=now,
+        completed_at=now,
+        duration_ms=0.0,
+        trigger="trivial_bypass",
+        schedule=False,
+        extra_output={
+            **metadata,
+            "assistant_profile": request.assistant_profile,
+            "knowledge_scope": request.knowledge_scope,
+            "retrieval_fallback": False,
+            "deep_retrieval_recommended": False,
+        },
+    )
+    db.commit()
+    return run_id
+
+
+def _trivial_bypass_completion_payload(run_id: Optional[str], bypass: TrivialBypass) -> Dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "content": bypass.content,
+        "reasoning_trace": None,
+        "sources": [],
+        "retrieval_metrics": bypass.metadata(),
+        "trivial_bypass": True,
+        "deep_retrieval_recommended": False,
+        "status": "completed",
+    }
+
+
+def _can_apply_trivial_bypass(
+    db: Session,
+    *,
+    workspace: Workspace,
+    request: ChatRequest,
+) -> bool:
+    """Do not steal short confirmation turns from the action layer."""
+    try:
+        from app.services.actions.executor import get_awaiting_state
+
+        awaiting = get_awaiting_state(db, workspace, session_id=request.session_id)
+        return not bool(awaiting)
+    except Exception as exc:  # noqa: BLE001 - bypass is optional.
+        logger.debug("chat: trivial bypass awaiting-state check failed", error=str(exc))
+        return False
 
 
 def _persist_chat_run(
@@ -1048,11 +1139,37 @@ async def chat_completion(
         if request.context_id and chat_context is None:
             raise HTTPException(status_code=404, detail="Chat context not found")
 
+        empty_bypass = maybe_trivial_bypass(request.query)
+        if (
+            empty_bypass
+            and not str(request.query or "").strip()
+            and _can_apply_trivial_bypass(db, workspace=workspace, request=request)
+        ):
+            run_id = _persist_trivial_bypass_turn(
+                db,
+                workspace=workspace,
+                request=request,
+                query="",
+                bypass=empty_bypass,
+            )
+            return _trivial_bypass_completion_payload(run_id, empty_bypass)
+
         # Validate query
         try:
             validated_query = query_validator.validate(request.query)
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
+
+        trivial_bypass = maybe_trivial_bypass(validated_query)
+        if trivial_bypass and _can_apply_trivial_bypass(db, workspace=workspace, request=request):
+            run_id = _persist_trivial_bypass_turn(
+                db,
+                workspace=workspace,
+                request=request,
+                query=validated_query,
+                bypass=trivial_bypass,
+            )
+            return _trivial_bypass_completion_payload(run_id, trivial_bypass)
         
         canonical = None if (request.context_id or request.knowledge_scope) else _canonical_answer_hit(
             db,
@@ -1901,18 +2018,6 @@ async def chat_stream(
                 yield _sse_done()
                 return
 
-            orchestrator = get_orchestrator()
-            if not orchestrator:
-                yield _sse_data(
-                    _error_chunk(
-                        "ORCHESTRATOR_UNAVAILABLE",
-                        "Orchestrator not initialized",
-                        recoverable=True,
-                    )
-                )
-                yield _sse_done()
-                return
-
             app_settings = get_resolved_settings(workspace_id=workspace.id)
 
             request_dict = request.model_dump()
@@ -1921,6 +2026,42 @@ async def chat_stream(
             _apply_context_to_chat_request(request_dict, chat_context)
             if request.rag_mode_override:
                 request_dict["rag_pipeline_mode"] = request.rag_mode_override
+
+            empty_bypass = maybe_trivial_bypass(request.query)
+            if (
+                empty_bypass
+                and not str(request.query or "").strip()
+                and _can_apply_trivial_bypass(db, workspace=workspace, request=request)
+            ):
+                run_id = _persist_trivial_bypass_turn(
+                    db,
+                    workspace=workspace,
+                    request=request,
+                    query="",
+                    bypass=empty_bypass,
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "retrieval",
+                        "phase": "bypassed",
+                        "content": "",
+                        "message": "Trivial chat bypassed retrieval",
+                        "details": empty_bypass.metadata(),
+                        "is_final": False,
+                    }
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "text",
+                        "content": empty_bypass.content,
+                        "sources": [],
+                        "run_id": run_id,
+                        "trivial_bypass": True,
+                        "is_final": True,
+                    }
+                )
+                yield _sse_done()
+                return
 
             try:
                 validated_query = query_validator.validate(request.query)
@@ -1935,6 +2076,50 @@ async def chat_stream(
                 yield _sse_done()
                 return
             request_dict["query"] = validated_query
+
+            trivial_bypass = maybe_trivial_bypass(validated_query)
+            if trivial_bypass and _can_apply_trivial_bypass(db, workspace=workspace, request=request):
+                run_id = _persist_trivial_bypass_turn(
+                    db,
+                    workspace=workspace,
+                    request=request,
+                    query=validated_query,
+                    bypass=trivial_bypass,
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "retrieval",
+                        "phase": "bypassed",
+                        "content": "",
+                        "message": "Trivial chat bypassed retrieval",
+                        "details": trivial_bypass.metadata(),
+                        "is_final": False,
+                    }
+                )
+                yield _sse_data(
+                    {
+                        "chunk_type": "text",
+                        "content": trivial_bypass.content,
+                        "sources": [],
+                        "run_id": run_id,
+                        "trivial_bypass": True,
+                        "is_final": True,
+                    }
+                )
+                yield _sse_done()
+                return
+
+            orchestrator = get_orchestrator()
+            if not orchestrator:
+                yield _sse_data(
+                    _error_chunk(
+                        "ORCHESTRATOR_UNAVAILABLE",
+                        "Orchestrator not initialized",
+                        recoverable=True,
+                    )
+                )
+                yield _sse_done()
+                return
 
             canonical = None if (request.context_id or request.knowledge_scope) else _canonical_answer_hit(
                 db,

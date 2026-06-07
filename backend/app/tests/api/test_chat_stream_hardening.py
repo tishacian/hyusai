@@ -175,6 +175,72 @@ class DeepRecommendedOrchestrator:
         yield {"chunk_type": "text", "content": "", "is_final": True}
 
 
+class ExplodingOrchestrator:
+    async def process_request(self, _request):
+        raise AssertionError("trivial bypass should not call orchestrator")
+
+
+def test_chat_completion_trivial_bypasses_orchestrator(db_session, monkeypatch):
+    workspace = Workspace(id="ws-trivial-completion", name="Trivial", slug="trivial")
+    db_session.add(workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, ExplodingOrchestrator(), monkeypatch).post(
+        "/chat/completion",
+        json={"query": "merci"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["content"] == "Avec plaisir."
+    assert payload["sources"] == []
+    assert payload["trivial_bypass"] is True
+    assert payload["retrieval_metrics"]["bypassed"] is True
+    run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.trigger == "trivial_bypass"
+    assert run.output_ref["sources"] == []
+    assert run.output_ref["trivial_bypass"] is True
+
+
+def test_chat_stream_trivial_bypasses_retrieval(db_session, monkeypatch):
+    workspace = Workspace(id="ws-trivial-stream", name="Trivial Stream", slug="trivial-stream")
+    db_session.add(workspace)
+    db_session.commit()
+
+    response = _client(db_session, workspace, ExplodingOrchestrator(), monkeypatch).post(
+        "/chat/stream",
+        json={"query": "salut"},
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert '"phase": "bypassed"' in body
+    assert '"trivial_bypass": true' in body
+    assert "Bonjour, je vous ecoute." in body
+    assert '"phase": "started"' not in body
+    assert '"chunk_type": "eval_pending"' not in body
+    assert "data: [DONE]" in body
+    run = db_session.query(Run).filter(Run.workspace_id == workspace.id).one()
+    assert run.trigger == "trivial_bypass"
+    assert run.output_ref["retrieval_metrics"]["bypassed"] is True
+
+
+def test_chat_stream_domain_greeting_does_not_bypass(db_session, monkeypatch):
+    workspace = Workspace(id="ws-domain-greeting", name="Domain Greeting", slug="domain-greeting")
+    db_session.add(workspace)
+    db_session.commit()
+    orchestrator = CapturingOrchestrator()
+
+    response = _client(db_session, workspace, orchestrator, monkeypatch).post(
+        "/chat/stream",
+        json={"query": "Bonjour, retrouve la SPL AKK200"},
+    )
+
+    assert response.status_code == 200
+    assert "context answer" in response.text
+    assert orchestrator.last_request["query"] == "Bonjour, retrouve la SPL AKK200"
+
+
 def test_chat_stream_emits_stable_retrieval_eval_and_persists_run(db_session, monkeypatch):
     workspace = Workspace(id="ws-chat", name="Chat", slug="chat")
     db_session.add(workspace)
@@ -293,7 +359,7 @@ def test_retrieval_plan_preview_routes_catalogue_to_inventory(db_session, monkey
     assert body["filters"] == {}
 
 
-def test_retrieval_plan_preview_downgrades_dense_quick_chah(db_session, monkeypatch):
+def test_retrieval_plan_preview_uses_sparse_direct_for_dense_quick_chah(db_session, monkeypatch):
     monkeypatch.setattr(chat.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(chat.settings, "rag_dense_source_threshold", 2)
     workspace = Workspace(id="ws-plan-dense", name="Plan Dense", slug="plan-dense")
@@ -319,14 +385,14 @@ def test_retrieval_plan_preview_downgrades_dense_quick_chah(db_session, monkeypa
     body = response.json()
     assert body["collection"] == collection.slug
     assert body["intent"] == "procedure"
-    assert body["dense_policy"] == "fast_scoped_dense_auto"
-    assert body["use_hybrid"] is False
+    assert body["dense_policy"] == "fast_sparse_direct"
+    assert body["use_hybrid"] is True
     assert body["allow_hah_chah"] is False
     assert body["allow_legacy_hybrid"] is False
     assert body["candidate_pool_k"] <= 20
     assert body["max_candidates"] <= 20
     assert body["retrieval_plan"]["layers"]["hah_chah"]["enabled"] is False
-    assert body["retrieval_plan"]["layers"]["sparse"]["enabled"] is False
+    assert body["retrieval_plan"]["layers"]["sparse"]["enabled"] is True
     assert body["retrieval_plan"]["guardrails"]["global_chunk_search_allowed"] is False
     assert body["retrieval_plan"]["guardrails"]["user_scope_required"] is False
     assert body["deep_retrieval_recommended"] is True

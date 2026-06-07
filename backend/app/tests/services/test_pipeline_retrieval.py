@@ -20,7 +20,11 @@ from app.services.rag.pipeline_retrieval import (
     retrieve_for_mode,
     retrieve_hah_like,
 )
-from app.services.rag.retrieval_policy import RetrievalPolicy
+from app.services.rag.retrieval_policy import (
+    RetrievalPolicy,
+    evidence_coverage_details,
+    rerank_results_with_policy,
+)
 
 
 def _mk_result(content: str, score: float, rank: int = 0) -> dict:
@@ -31,6 +35,61 @@ def _mk_result(content: str, score: float, rank: int = 0) -> dict:
         "metadata": {},
         "id": f"id-{rank}",
     }
+
+
+def test_evidence_coverage_matches_aliases_and_dimension_forms():
+    policy = RetrievalPolicy(
+        protected_terms=("AKK200", "LM 300"),
+        aliases=(
+            ("joint", ("O-ring", "O ring", "oring", "joint torique")),
+            ("cartouche", ("Filtering cartridge", "filtering cartridge", "LM300", "LM 300")),
+        ),
+    )
+
+    details = evidence_coverage_details(
+        query="Quel fichier contient Filtering cartridge LM300 et O-ring string D. 3,6 pour AKK200 ?",
+        content="Spare list AKK200: filtering cartridge LM 300, O ring string diameter 3.6.",
+        metadata={"document_filename": "Spare Parts List.pdf"},
+        policy=policy,
+    )
+
+    assert details["coverage"] >= 0.75
+    assert "AKK200" in details["matched"]
+    assert "joint" in details["matched"]
+    assert "cartouche" in details["matched"]
+
+
+def test_policy_rerank_prefers_evidence_complete_parent_over_raw_score():
+    policy = RetrievalPolicy(
+        protected_terms=("AKK200",),
+        aliases=(
+            ("joint", ("O-ring", "O ring", "oring")),
+            ("cartouche", ("Filtering cartridge", "filtering cartridge", "LM300", "LM 300")),
+        ),
+    )
+    rows = [
+        {
+            "content": "AKK200 spare list overview without the item labels.",
+            "score": 0.99,
+            "combined_score": 0.99,
+            "metadata": {"document_filename": "overview.pdf"},
+        },
+        {
+            "content": "AKK200 filtering cartridge LM 300 and O ring string D 3.6.",
+            "score": 0.2,
+            "combined_score": 0.2,
+            "metadata": {"document_filename": "parts.pdf"},
+        },
+    ]
+
+    out = rerank_results_with_policy(
+        rows,
+        "Quelle SPL AKK200 contient a la fois Filtering cartridge et O-ring ?",
+        policy,
+    )
+
+    assert out[0]["metadata"]["document_filename"] == "parts.pdf"
+    assert out[0]["metadata"]["retrieval_evidence_coverage"] > out[1]["metadata"]["retrieval_evidence_coverage"]
 
 
 def test_prioritise_exact_project_reference_matches_before_near_codes():

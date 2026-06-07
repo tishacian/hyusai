@@ -100,7 +100,7 @@ def _selected_source_labels(context: Mapping[str, Any], *, top_n: int = 5) -> li
     return labels
 
 
-def _context_text(context: Mapping[str, Any], *, top_n: int = 12) -> str:
+def _context_text(context: Mapping[str, Any], *, top_n: int = 24) -> str:
     parts: list[str] = []
     for chunk in (context.get("chunks") or [])[:top_n]:
         parts.append(str(chunk or ""))
