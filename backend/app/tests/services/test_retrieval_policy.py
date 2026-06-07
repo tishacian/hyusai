@@ -13,6 +13,7 @@ from app.services.rag.retrieval_policy import (
     retrieval_policy_from_guides,
     score_result_with_policy,
 )
+from app.services.rag.corpus_planner import _fast_ledger_candidate_rows
 from app.services.rag.source_facets import score_source_family_match
 
 POLICY_GUIDE = SimpleNamespace(
@@ -144,6 +145,34 @@ def test_source_family_prefers_cleaning_procedure_over_spare_list():
     assert "injector_notice" in procedure_matches
     assert "spare_parts_list" in spare_matches
     assert procedure_score > spare_score
+
+
+def test_fast_ledger_candidates_keep_cleaning_procedure_in_noisy_spare_scope():
+    query = "Quelle procedure parle du nettoyage des cartridges d'autoclamped injector ?"
+    spare_rows = [
+        SimpleNamespace(
+            filename=f"A__PRJ{i:03d}__Spare Parts List PRJ{i:03d}.pdf",
+            normalized_name=f"A__PRJ{i:03d}__Spare Parts List PRJ{i:03d}.pdf",
+            source_kind="pdf",
+            extension="pdf",
+            mime_type="application/pdf",
+            source_metadata={"source_family": "spare_parts_list"},
+        )
+        for i in range(20)
+    ]
+    procedure_row = SimpleNamespace(
+        filename="B__BEX200__IN 07 A- EXH injector cartridge cleaning.pdf",
+        normalized_name="B__BEX200__IN 07 A- EXH injector cartridge cleaning.pdf",
+        source_kind="pdf",
+        extension="pdf",
+        mime_type="application/pdf",
+        source_metadata={"source_family": "unknown"},
+    )
+
+    rows = _fast_ledger_candidate_rows(query, [*spare_rows, procedure_row], policy=None, limit=5)
+
+    assert rows[0].filename == procedure_row.filename
+    assert any(row.filename == procedure_row.filename for row in rows)
 
 
 def test_policy_adds_dynamic_project_reference_variants():

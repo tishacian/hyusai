@@ -968,7 +968,7 @@ def _fast_ledger_candidate_rows(
         _compact_text(term)
         for term in _expanded_query_terms(query, policy)
         if len(_compact_text(term)) >= 5
-    ][:10]
+    ][:24]
     if len(rows) <= limit and not project_codes:
         return rows
     if not project_codes and not terms:
@@ -1010,6 +1010,15 @@ def _fast_ledger_candidate_rows(
             if term and term in compact:
                 term_hits += 1
                 score += 2
+        family_score, _family_matches = score_source_family_match(
+            query=query,
+            row_text=text,
+            metadata=meta,
+            policy=policy,
+        )
+        if family_score:
+            term_hits += 1
+            score += int(round(family_score))
         if not project_codes and term_hits < 2:
             continue
         filename = str(getattr(row, "filename", "") or "").lower()
