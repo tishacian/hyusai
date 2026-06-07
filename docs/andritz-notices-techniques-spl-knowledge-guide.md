@@ -86,6 +86,20 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
         "LM 300",
         "LM300"
       ],
+      "nettoyage": [
+        "cleaning",
+        "clean",
+        "cleaning procedure",
+        "maintenance cleaning",
+        "injector cartridge cleaning"
+      ],
+      "nettoyer": [
+        "cleaning",
+        "clean",
+        "cleaning procedure",
+        "maintenance cleaning",
+        "injector cartridge cleaning"
+      ],
       "filtration": [
         "filtration",
         "filtering",
@@ -209,7 +223,7 @@ Ce guide est un contexte d'interpretation. Il ne remplace jamais les notices sou
     ],
     "prefer_source_families": [
       {
-        "when_terms": ["procedure", "maintenance", "reglage", "operation", "demarrage", "clean", "cleaning", "filtration", "vacuum"],
+        "when_terms": ["procedure", "maintenance", "reglage", "operation", "demarrage", "nettoyer", "nettoyage", "clean", "cleaning", "filtration", "vacuum"],
         "source_families": ["operating_manual", "maintenance", "commissioning", "html_manual"]
       },
       {

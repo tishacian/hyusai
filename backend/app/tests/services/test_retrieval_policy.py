@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from app.services.rag.retrieval_policy import (
     clarification_from_policy,
+    evidence_coverage_details,
     filter_aligned_to_required_terms,
     is_document_discovery_query,
     query_variants_from_policy,
@@ -12,6 +13,7 @@ from app.services.rag.retrieval_policy import (
     retrieval_policy_from_guides,
     score_result_with_policy,
 )
+from app.services.rag.source_facets import score_source_family_match
 
 POLICY_GUIDE = SimpleNamespace(
     markdown="""# Guide
@@ -90,6 +92,58 @@ def test_policy_adds_query_variants_only_when_alias_matches():
     assert any("sensor" in variant for variant in variants)
     assert any("AKK200" == variant or variant.endswith(" AKK200") for variant in variants)
     assert query_variants_from_policy("Comment demarrer la pompe ?", policy) == []
+
+
+def test_policy_evidence_matches_bilingual_cleaning_alias():
+    guide = SimpleNamespace(
+        markdown="""```agentium-retrieval-policy
+{
+  "query_planning": {
+    "aliases": {
+      "nettoyage": ["cleaning", "clean", "injector cartridge cleaning"],
+      "nettoyer": ["cleaning", "clean", "injector cartridge cleaning"],
+      "injecteur": ["injector", "injector cartridge"],
+      "cartouche": ["cartridge", "injector cartridge"]
+    }
+  }
+}
+```"""
+    )
+    policy = retrieval_policy_from_guides([guide])
+
+    details = evidence_coverage_details(
+        content="IN 07 A - EXH injector cartridge cleaning procedure.",
+        metadata={"document_filename": "IN 07 A- EXH injector cartridge cleaning.pdf"},
+        query="Comment nettoyer les cartouches d'injecteurs ?",
+        policy=policy,
+    )
+
+    assert "nettoyer" in details["matched"]
+    assert "injecteur" in details["matched"]
+    assert "cartouche" in details["matched"]
+    assert "comment" not in {term.lower() for term in details["groups"]}
+
+
+def test_source_family_prefers_cleaning_procedure_over_spare_list():
+    query = "Quelle procedure parle du nettoyage des cartridges d'autoclamped injector ?"
+
+    procedure_score, procedure_matches = score_source_family_match(
+        query=query,
+        row_text="BEX200 section IV IN 07 A EXH injector cartridge cleaning.pdf",
+        metadata={"source_family": "unknown"},
+        policy=None,
+    )
+    spare_score, spare_matches = score_source_family_match(
+        query=query,
+        row_text="AMM100 Hydroentanglement unit Spare Parts List AMM100.pdf",
+        metadata={"source_family": "spare_parts_list"},
+        policy=None,
+    )
+
+    assert "maintenance_procedure" in procedure_matches
+    assert "injector_notice" in procedure_matches
+    assert "spare_parts_list" in spare_matches
+    assert procedure_score > spare_score
 
 
 def test_policy_adds_dynamic_project_reference_variants():

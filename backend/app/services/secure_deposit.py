@@ -546,7 +546,7 @@ def _classify_archive_source_family(path: str, extension: str | None = None) -> 
         return "safety"
     if any(token in haystack for token in ("annex", "annexe", "annexes")):
         return "annex"
-    if any(token in haystack for token in ("maintenance", "service manual", "manuel de service")):
+    if any(token in haystack for token in ("maintenance", "service manual", "manuel de service", "cleaning", "nettoyage")):
         return "maintenance"
     if any(token in haystack for token in ("operating manual", "operator manual", "user manual", "users manual", "user's manual", "manual")):
         return "operating_manual"
