@@ -2362,31 +2362,47 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     if (!nodes.length) return;
     const minX = Math.min(...nodes.map((node) => node.pos_x));
     const minY = Math.min(...nodes.map((node) => node.pos_y));
-    const maxX = Math.max(...nodes.map((node) => node.pos_x + 220));
-    const maxY = Math.max(...nodes.map((node) => node.pos_y + 120));
+    const maxX = Math.max(...nodes.map((node) => node.pos_x + 240));
+    const maxY = Math.max(...nodes.map((node) => node.pos_y + 132));
     const width = Math.max(1, maxX - minX);
     const height = Math.max(1, maxY - minY);
     const rect = this.container.nativeElement.getBoundingClientRect();
-    const zoom = Math.min(1, Math.max(0.45, Math.min((rect.width - 96) / width, (rect.height - 96) / height)));
-    const tx = Math.max(24, (rect.width - width * zoom) / 2 - minX * zoom);
-    const ty = Math.max(56, (rect.height - height * zoom) / 2 - minY * zoom);
+    const availableW = Math.max(240, rect.width - 128);
+    const availableH = Math.max(220, rect.height - 128);
+    const zoom = Math.min(1, Math.max(0.5, Math.min(availableW / width, availableH / height)));
+    const rawTx = (rect.width - width * zoom) / 2 - minX * zoom;
+    const rawTy = (rect.height - height * zoom) / 2 - minY * zoom;
+    const tx = Math.max(40, Math.min(120, rawTx));
+    const ty = Math.max(36, Math.min(104, rawTy));
     this.editor.zoom = zoom;
     this.editor.canvas_x = tx;
     this.editor.canvas_y = ty;
     const precanvas = this.container.nativeElement.querySelector('.precanvas') as HTMLElement | null;
     if (precanvas) {
+      precanvas.style.minWidth = '3600px';
+      precanvas.style.minHeight = '2200px';
       precanvas.style.transform = `translate(${tx}px, ${ty}px) scale(${zoom})`;
       precanvas.style.transformOrigin = '0 0';
     }
-    try {
-      this.editor.updateConnectionNodes?.('node-*');
-    } catch {
-      // ignore redraw drift on older Drawflow builds
-    }
+    this.redrawConnectionsSoon();
   }
 
   private fitCanvasSoon(): void {
     window.setTimeout(() => this.zone.runOutsideAngular(() => this.fitCanvas()), 80);
+  }
+
+  private redrawConnectionsSoon(): void {
+    if (!this.editor) return;
+    const redraw = () => {
+      try {
+        this.editor?.updateConnectionNodes?.('node-*');
+      } catch {
+        // ignore redraw drift on older Drawflow builds
+      }
+    };
+    redraw();
+    window.requestAnimationFrame(redraw);
+    window.setTimeout(redraw, 80);
   }
 
   /**
@@ -3882,10 +3898,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       byLayer.get(l)!.push(id);
     });
 
-    const COL_W = 260;
-    const ROW_H = 140;
-    const START_X = 60;
-    const START_Y = 80;
+    const COL_W = 320;
+    const ROW_H = 156;
+    const START_X = 96;
+    const START_Y = 72;
+    const maxRows = Math.max(1, ...Array.from(byLayer.values()).map((ids) => ids.length));
 
     // Find drawflow numeric id per canonical id.
     const canonicalToNum = new Map<string, string>();
@@ -3896,11 +3913,12 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
     let moved = 0;
     byLayer.forEach((ids, l) => {
+      const layerOffsetY = ((maxRows - ids.length) * ROW_H) / 2;
       ids.forEach((id, row) => {
         const num = canonicalToNum.get(id);
         if (!num) return;
         const x = START_X + l * COL_W;
-        const y = START_Y + row * ROW_H;
+        const y = START_Y + layerOffsetY + row * ROW_H;
         try {
           const dn = graph.drawflow?.Home?.data?.[num];
           if (dn) {
@@ -3919,12 +3937,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       });
     });
 
-    try {
-      // Redraw connections after moving nodes.
-      this.editor.updateConnectionNodes?.('node-*');
-    } catch {
-      // noop
-    }
+    this.redrawConnectionsSoon();
+    this.fitCanvasSoon();
     this.toastr.success(`${moved} nodes rearranged.`, 'Auto-layout');
     this.refreshKpis();
   }

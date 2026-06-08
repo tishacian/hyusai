@@ -53,11 +53,16 @@
 .df-canvas-card {
   display: flex;
   flex-direction: column;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.84), rgba(2, 6, 23, 0.92)),
+    var(--ck-bg-base, #0b0f1a);
 }
 
 .df-host {
   flex: 1 1 auto;
   min-height: 360px;
+  position: relative;
+  overflow: hidden;
 }
 
 .df-inspector-collapsed {
@@ -65,16 +70,35 @@
 }
 
 /* ============================================================
-   Drawflow host — dot grid background like the mockup.
+   Drawflow host — continuous operational grid.
    ============================================================ */
 .df-host {
-  background-color: var(--ck-bg-base, #0b0f1a);
-  background-image: radial-gradient(
-    circle,
-    rgba(148, 163, 184, 0.08) 1px,
-    transparent 1px
-  );
-  background-size: 24px 24px;
+  background-color: #070b12;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+    radial-gradient(circle, rgba(56, 189, 248, 0.06) 1px, transparent 1px);
+  background-position: 0 0, 0 0, 0 0;
+  background-size: 96px 96px, 96px 96px, 24px 24px;
+}
+
+.df-host .parent-drawflow,
+.df-host .drawflow {
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  min-height: 100%;
+  background: transparent !important;
+}
+
+.df-host .drawflow .precanvas {
+  min-width: 3600px;
+  min-height: 2200px;
+  background: transparent !important;
+}
+
+.df-host svg {
+  overflow: visible !important;
 }
 
 /* ============================================================
@@ -84,7 +108,8 @@
   padding: 0;
   border: none;
   background: transparent;
-  min-width: 180px;
+  width: 214px;
+  min-width: 214px;
 }
 
 .drawflow .drawflow-node .df-node {
@@ -93,7 +118,11 @@
   border: 1px solid var(--ck-stroke-2, rgba(148, 163, 184, 0.15));
   border-radius: 6px;
   padding: 10px 12px 12px;
-  min-width: 180px;
+  width: 214px;
+  min-width: 214px;
+  box-shadow:
+    0 12px 28px rgba(2, 6, 23, 0.22),
+    0 0 0 1px rgba(2, 6, 23, 0.44);
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease;
@@ -185,32 +214,23 @@
 }
 
 /* ============================================================
-   Edges — dashed animated stroke for all connections.
+   Edges — stable readable links for operational DAGs.
    ============================================================ */
 .drawflow .connection .main-path {
-  stroke: var(--ck-stroke-3, rgba(148, 163, 184, 0.45));
-  stroke-width: 1.5;
-  stroke-dasharray: 6 4;
+  stroke: rgba(125, 211, 252, 0.46);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: none;
   fill: none;
-  animation: df-edge-flow 1.2s linear infinite;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 2px rgba(56, 189, 248, 0.16));
 }
 
 .drawflow .connection.selected .main-path {
   stroke: var(--ck-signal-cool, #38bdf8);
-  stroke-width: 2;
-  filter: drop-shadow(0 0 4px var(--ck-signal-cool, #38bdf8));
-}
-
-@keyframes df-edge-flow {
-  to {
-    stroke-dashoffset: -10;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .drawflow .connection .main-path {
-    animation: none;
-  }
+  stroke-width: 2.4;
+  filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.5));
 }
 
 /* ============================================================
@@ -218,11 +238,32 @@
    ============================================================ */
 .drawflow .drawflow-node .input,
 .drawflow .drawflow-node .output {
-  background: var(--ck-bg-inset, #0f172a);
-  border: 1.5px solid var(--ck-stroke-2, rgba(148, 163, 184, 0.2));
-  width: 10px;
-  height: 10px;
-  top: 50%;
+  background: #07111f;
+  border: 2px solid rgba(125, 211, 252, 0.42);
+  border-radius: 999px;
+  width: 12px;
+  height: 12px;
+  top: 2px;
+  margin-bottom: 8px;
+  box-shadow:
+    0 0 0 3px rgba(7, 11, 18, 0.9),
+    0 0 8px rgba(56, 189, 248, 0.12);
+}
+
+.drawflow .drawflow-node .input {
+  left: -19px;
+}
+
+.drawflow .drawflow-node .output {
+  right: -7px;
+}
+
+.drawflow .drawflow-node .inputs,
+.drawflow .drawflow-node .outputs {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
 }
 
 .drawflow .drawflow-node:hover .input,
