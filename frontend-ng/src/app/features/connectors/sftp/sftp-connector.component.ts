@@ -1,6 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
@@ -75,6 +75,80 @@ interface SecureDepositHealth {
   workspace: string;
   enabled: boolean;
   default_allowed_extensions: string[];
+}
+
+interface WorkspaceJob {
+  id: string;
+  kind: string;
+  title: string;
+  status: 'created' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  progress: number;
+  stage: string;
+  error?: string | null;
+  input_ref?: Record<string, unknown> | null;
+  result?: Record<string, unknown> | null;
+  created_at: string | null;
+  updated_at: string | null;
+  completed_at: string | null;
+  poll_url?: string;
+}
+
+interface SftpLiveUpload {
+  id: string;
+  temp_name: string;
+  filename: string;
+  access_id: string;
+  link_id?: string | null;
+  link_label?: string | null;
+  workspace_id: string;
+  size_bytes: number;
+  max_bytes: number;
+  created_at: string;
+  modified_at: string;
+  age_seconds: number;
+  idle_seconds: number;
+  status: 'receiving' | 'idle' | 'stale_candidate';
+  attributed: boolean;
+  actionable: boolean;
+}
+
+interface SftpOperationsSummary {
+  active_count: number;
+  idle_count: number;
+  stale_count: number;
+  temporary_count: number;
+  temporary_size_bytes: number;
+  unattributed_partial_count: number;
+  unattributed_partial_size_bytes: number;
+  last_received_at: string | null;
+  last_received_filename: string | null;
+  deposit_counts?: Record<string, { count: number; size_bytes: number }>;
+  link_count: number;
+}
+
+interface SftpReconciliationSummary {
+  mode?: string | null;
+  status?: string | null;
+  stale_after_hours?: number | null;
+  stale_partials?: number;
+  orphan_files?: number;
+  missing_db_files?: number;
+  pending_rows?: number;
+  unattributed_partials?: number;
+  stale_partial_bytes?: number;
+  orphan_file_bytes?: number;
+  generated_at?: string | null;
+  confirm_from_job_id?: string | null;
+}
+
+interface SftpOperations {
+  stale_after_hours: number;
+  poll_interval_seconds: number;
+  active_uploads: SftpLiveUpload[];
+  stale_partials: SftpLiveUpload[];
+  storage_summary: SftpOperationsSummary;
+  reconciliation_summary: SftpReconciliationSummary;
+  last_jobs: WorkspaceJob[];
 }
 
 type QueueStatusFilter = 'received' | 'rejected' | 'promoted' | 'all';
@@ -270,6 +344,173 @@ const BULK_PROMOTE_LIMIT = 25;
               }
             </ul>
           }
+        </section>
+
+        <section class="t-card t-elevated rounded-md overflow-hidden">
+          <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">SFTP operations</p>
+              <h2 class="mt-1 text-sm font-semibold text-white">Live uploads and reconciliation</h2>
+              <p class="mt-1 text-xs text-gray-500">Workspace-scoped SFTP telemetry and cleanup jobs.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <label class="flex items-center gap-2 text-xs text-gray-400">
+                <span>Stale after</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="720"
+                  name="staleAfterHours"
+                  [(ngModel)]="staleAfterHours"
+                  class="w-20 rounded bg-black/30 border border-white/10 px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                />
+                <span>h</span>
+              </label>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                [disabled]="operationsLoading()"
+                (click)="loadOperations()"
+              >
+                <app-icon name="refresh-cw" [size]="13" [class.animate-spin]="operationsLoading()" />
+                Refresh ops
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center gap-1.5 rounded bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-100 ring-1 ring-cyan-500/20 hover:bg-cyan-500/15 disabled:opacity-40"
+                [disabled]="reconciliationRunning()"
+                (click)="runReconciliationCheck()"
+              >
+                <app-icon name="shield-check" [size]="13" />
+                Run check
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center gap-1.5 rounded bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-100 ring-1 ring-amber-500/20 hover:bg-amber-500/15 disabled:opacity-40"
+                [disabled]="reconciliationRunning() || quarantineCandidateCount() <= 0"
+                (click)="quarantineFromDryRun()"
+              >
+                <app-icon name="archive" [size]="13" />
+                Move to quarantine
+              </button>
+            </div>
+          </div>
+
+          @if (operationsError()) {
+            <div class="border-b border-white/5 px-5 py-3 text-sm text-red-100 bg-red-500/10">
+              {{ operationsError() }}
+            </div>
+          }
+
+          <div class="grid gap-3 border-b border-white/5 px-5 py-4 md:grid-cols-2 xl:grid-cols-5">
+            @if (operationsSummary(); as summary) {
+              <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Receiving</p>
+                <p class="mt-1 text-lg font-semibold text-white">{{ summary.active_count }}</p>
+                <p class="text-[11px] text-gray-500">{{ formatBytes(summary.temporary_size_bytes) }} temp</p>
+              </div>
+              <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Idle</p>
+                <p class="mt-1 text-lg font-semibold text-white">{{ summary.idle_count }}</p>
+                <p class="text-[11px] text-gray-500">{{ summary.stale_count }} stale</p>
+              </div>
+              <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Unattributed</p>
+                <p class="mt-1 text-lg font-semibold text-white">{{ summary.unattributed_partial_count }}</p>
+                <p class="text-[11px] text-gray-500">{{ formatBytes(summary.unattributed_partial_size_bytes) }}</p>
+              </div>
+              <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Last received</p>
+                <p class="mt-1 truncate text-sm font-semibold text-white">{{ summary.last_received_filename || 'None' }}</p>
+                <p class="text-[11px] text-gray-500">{{ summary.last_received_at ? (summary.last_received_at | date:'short') : 'No file yet' }}</p>
+              </div>
+              <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Last check</p>
+                <p class="mt-1 text-lg font-semibold text-white">{{ latestReconciliation().orphan_files || 0 }}</p>
+                <p class="text-[11px] text-gray-500">orphans · {{ latestReconciliation().stale_partials || 0 }} stale</p>
+              </div>
+            } @else {
+              <div class="col-span-full rounded bg-white/[0.03] p-4 text-sm text-gray-500 ring-1 ring-white/10">
+                Operations snapshot is loading.
+              </div>
+            }
+          </div>
+
+          <div class="grid gap-4 px-5 py-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.6fr)]">
+            <div class="min-w-0">
+              <div class="mb-3 flex items-center justify-between">
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-300">Live uploads</h3>
+                <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ liveUploads().length }} tracked</span>
+              </div>
+              @if (liveUploads().length === 0) {
+                <div class="rounded bg-white/[0.03] p-4 text-sm text-gray-500 ring-1 ring-white/10">
+                  No temporary upload currently attributed to this workspace.
+                </div>
+              } @else {
+                <ul class="max-h-72 divide-y divide-white/5 overflow-auto rounded ring-1 ring-white/10">
+                  @for (upload of liveUploads(); track upload.id) {
+                    <li class="grid gap-3 bg-black/10 px-3 py-3 lg:grid-cols-[minmax(0,1fr)_130px_110px_120px] lg:items-center">
+                      <div class="min-w-0">
+                        <p class="truncate text-sm font-semibold text-white">{{ upload.filename }}</p>
+                        <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ upload.temp_name }}</p>
+                        <p class="mt-1 truncate text-[11px] text-gray-500">{{ upload.link_label || 'Unknown link' }}</p>
+                      </div>
+                      <span class="rounded px-2 py-1 text-[11px] ring-1" [class]="uploadStatusClass(upload.status)">
+                        {{ uploadStatusLabel(upload.status) }}
+                      </span>
+                      <span class="text-xs text-gray-400">{{ formatBytes(upload.size_bytes) }}</span>
+                      <span class="text-xs text-gray-400">idle {{ formatDuration(upload.idle_seconds) }}</span>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+            <div class="min-w-0">
+              <div class="mb-3 flex items-center justify-between">
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-300">Reconciliation</h3>
+                @if (lastDryRunJob(); as dryJob) {
+                  <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ dryJob.completed_at ? (dryJob.completed_at | date:'short') : dryJob.status }}</span>
+                }
+              </div>
+              <div class="rounded bg-white/[0.03] p-4 ring-1 ring-white/10">
+                @if (lastDryRunJob(); as dryJob) {
+                  <p class="text-sm font-semibold text-white">Dry-run {{ dryJob.status }}</p>
+                  <p class="mt-2 text-xs text-gray-400">
+                    {{ quarantineCandidateCount() }} quarantine candidate{{ quarantineCandidateCount() === 1 ? '' : 's' }}
+                    · {{ formatBytes(quarantineCandidateBytes()) }}
+                  </p>
+                  <div class="mt-3 grid grid-cols-2 gap-2 text-[11px] text-gray-400">
+                    <span>Stale partials</span>
+                    <span class="text-right font-mono">{{ resultCount(dryJob, 'stale_partials') }}</span>
+                    <span>Orphan files</span>
+                    <span class="text-right font-mono">{{ resultCount(dryJob, 'orphan_files') }}</span>
+                    <span>Missing DB files</span>
+                    <span class="text-right font-mono">{{ resultCount(dryJob, 'missing_db_files') }}</span>
+                    <span>Pending rows</span>
+                    <span class="text-right font-mono">{{ resultCount(dryJob, 'pending_rows') }}</span>
+                  </div>
+                } @else {
+                  <p class="text-sm font-semibold text-white">No dry-run yet</p>
+                  <p class="mt-2 text-xs text-gray-500">No completed reconciliation check for this workspace.</p>
+                }
+                @if (lastOperationsJobs().length > 0) {
+                  <div class="mt-4 border-t border-white/10 pt-3">
+                    <p class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Recent jobs</p>
+                    <ul class="space-y-1.5">
+                      @for (job of lastOperationsJobs().slice(0, 3); track job.id) {
+                        <li class="flex items-center justify-between gap-3 text-[11px] text-gray-400">
+                          <span class="truncate">{{ job.input_ref?.['mode'] || job.title }}</span>
+                          <span class="rounded px-1.5 py-0.5 font-mono ring-1" [ngClass]="job.status === 'completed' ? 'text-emerald-200 ring-emerald-500/20 bg-emerald-500/10' : job.status === 'failed' ? 'text-red-200 ring-red-500/20 bg-red-500/10' : 'text-cyan-200 ring-cyan-500/20 bg-cyan-500/10'">
+                            {{ job.status }}
+                          </span>
+                        </li>
+                      }
+                    </ul>
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
         </section>
 
         <section class="t-card t-elevated rounded-md overflow-hidden">
@@ -656,7 +897,7 @@ const BULK_PROMOTE_LIMIT = 25;
     }
   `],
 })
-export class SftpConnectorComponent implements OnInit {
+export class SftpConnectorComponent implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
   private readonly http = inject(HttpClient);
   private readonly workspace = inject(WorkspaceService);
@@ -675,6 +916,10 @@ export class SftpConnectorComponent implements OnInit {
   readonly bulkPromoting = signal(false);
   readonly downloading = signal(false);
   readonly downloadingFileId = signal<string | null>(null);
+  readonly operations = signal<SftpOperations | null>(null);
+  readonly operationsLoading = signal(false);
+  readonly operationsError = signal<string | null>(null);
+  readonly reconciliationRunning = signal(false);
   readonly error = signal<string | null>(null);
   readonly previewOpen = signal(false);
   readonly previewLoading = signal(false);
@@ -744,16 +989,44 @@ export class SftpConnectorComponent implements OnInit {
     }, '');
     return crumbs;
   });
+  readonly liveUploads = computed(() => this.operations()?.active_uploads || []);
+  readonly operationsSummary = computed(() => this.operations()?.storage_summary || null);
+  readonly lastOperationsJobs = computed(() => this.operations()?.last_jobs || []);
+  readonly lastDryRunJob = computed(() =>
+    this.lastOperationsJobs().find((job) => job.status === 'completed' && String(job.input_ref?.['mode'] || '') === 'dry_run') || null,
+  );
+  readonly latestReconciliation = computed(() => this.operations()?.reconciliation_summary || {});
+  readonly quarantineCandidateCount = computed(() => {
+    const result = this.lastDryRunJob()?.result || {};
+    const counts = (result['counts'] as Record<string, unknown> | undefined) || {};
+    return Number(counts['stale_partials'] || 0) + Number(counts['orphan_files'] || 0);
+  });
+  readonly quarantineCandidateBytes = computed(() => {
+    const result = this.lastDryRunJob()?.result || {};
+    const sizes = (result['sizes'] as Record<string, unknown> | undefined) || {};
+    return Number(sizes['stale_partial_bytes'] || 0) + Number(sizes['orphan_file_bytes'] || 0);
+  });
 
   draftLabel = '';
   draftMaxMb = 30720;
   draftExpires = '';
   draftExtensions = '';
   collectionSlug = '';
+  staleAfterHours = 24;
+  private operationsPollId: ReturnType<typeof setInterval> | null = null;
 
   ngOnInit(): void {
     this.resetWorkspaceDefaults();
     this.load();
+    this.operationsPollId = setInterval(() => this.loadOperations(true), 5000);
+  }
+
+  ngOnDestroy(): void {
+    if (this.operationsPollId) {
+      clearInterval(this.operationsPollId);
+      this.operationsPollId = null;
+    }
+    this.revokePreviewObjectUrl();
   }
 
   load(): void {
@@ -777,6 +1050,76 @@ export class SftpConnectorComponent implements OnInit {
       next: (res) => this.files.set(res.files || []),
       error: () => this.files.set([]),
     });
+    this.loadOperations(true);
+  }
+
+  loadOperations(silent = false): void {
+    if (!silent) {
+      this.operationsLoading.set(true);
+    }
+    this.operationsError.set(null);
+    this.api
+      .get<SftpOperations>('/sftp/operations', { stale_after_hours: String(this.staleAfterHours || 24) })
+      .subscribe({
+        next: (res) => {
+          this.operations.set(res);
+          this.operationsLoading.set(false);
+        },
+        error: (err) => {
+          this.operationsError.set(this.errorMessage(err, 'Unable to load SFTP operations.'));
+          this.operationsLoading.set(false);
+        },
+      });
+  }
+
+  runReconciliationCheck(): void {
+    this.reconciliationRunning.set(true);
+    this.api
+      .post<{ job: WorkspaceJob }>('/sftp/operations/reconcile', {
+        mode: 'dry_run',
+        stale_after_hours: Number(this.staleAfterHours) || 24,
+      })
+      .subscribe({
+        next: (res) => {
+          this.toast.info(`Reconciliation ${res.job.status}`, 'SFTP Operations');
+          this.reconciliationRunning.set(false);
+          this.loadOperations();
+        },
+        error: (err) => {
+          this.toast.error(this.errorMessage(err, 'Unable to start reconciliation.'), 'SFTP Operations');
+          this.reconciliationRunning.set(false);
+        },
+      });
+  }
+
+  quarantineFromDryRun(): void {
+    const job = this.lastDryRunJob();
+    if (!job || this.quarantineCandidateCount() <= 0) {
+      this.toast.info('Run a reconciliation check before moving files to quarantine.', 'SFTP Operations');
+      return;
+    }
+    const accepted = window.confirm(
+      `Move ${this.quarantineCandidateCount()} stale/orphan item(s) (${this.formatBytes(this.quarantineCandidateBytes())}) to quarantine?\n\nNo active upload or recent file will be touched.`,
+    );
+    if (!accepted) return;
+    this.reconciliationRunning.set(true);
+    this.api
+      .post<{ job: WorkspaceJob }>('/sftp/operations/reconcile', {
+        mode: 'quarantine',
+        stale_after_hours: Number(this.staleAfterHours) || 24,
+        confirm_from_job_id: job.id,
+      })
+      .subscribe({
+        next: (res) => {
+          this.toast.success(`Quarantine ${res.job.status}`, 'SFTP Operations');
+          this.reconciliationRunning.set(false);
+          this.loadOperations();
+        },
+        error: (err) => {
+          this.toast.error(this.errorMessage(err, 'Unable to move files to quarantine.'), 'SFTP Operations');
+          this.reconciliationRunning.set(false);
+        },
+      });
   }
 
   createLink(): void {
@@ -1073,6 +1416,34 @@ export class SftpConnectorComponent implements OnInit {
     if (status === 'received') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/25';
     if (status === 'promoted') return 'bg-emerald-500/10 text-emerald-200 ring-emerald-500/25';
     return 'bg-red-500/10 text-red-200 ring-red-500/25';
+  }
+
+  uploadStatusLabel(status: SftpLiveUpload['status']): string {
+    if (status === 'stale_candidate') return 'Stale candidate';
+    if (status === 'idle') return 'Idle';
+    return 'Receiving';
+  }
+
+  uploadStatusClass(status: SftpLiveUpload['status']): string {
+    if (status === 'stale_candidate') return 'bg-amber-500/10 text-amber-100 ring-amber-500/25';
+    if (status === 'idle') return 'bg-white/5 text-gray-200 ring-white/10';
+    return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/25';
+  }
+
+  formatDuration(seconds: number): string {
+    const safe = Math.max(0, Number(seconds) || 0);
+    if (safe < 60) return `${safe}s`;
+    const minutes = Math.floor(safe / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d`;
+  }
+
+  resultCount(job: WorkspaceJob, key: string): number {
+    const result = job.result || {};
+    const counts = (result['counts'] as Record<string, unknown> | undefined) || {};
+    return Number(counts[key] || 0);
   }
 
   statusSummaryClass(status: QueueStatusFilter, active: boolean): string {

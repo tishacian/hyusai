@@ -40,7 +40,13 @@ from app.services.secure_deposit import (
     staged_file_path,
     verify_session_token,
 )
+from app.services.secure_deposit_operations import (
+    SFTP_DEFAULT_STALE_AFTER_HOURS,
+    SFTP_RECONCILIATION_JOB_KIND,
+    get_sftp_operations_snapshot,
+)
 from app.services.audit_logger import emit_audit_event
+from app.services.workspace_jobs import create_workspace_job, dispatch_workspace_job, serialize_job
 
 public_router = APIRouter()
 internal_router = APIRouter()
@@ -74,6 +80,12 @@ class DepositPromoteRequest(BaseModel):
 class DepositBulkPromoteRequest(BaseModel):
     collection_slug: Optional[str] = Field(default=None, max_length=120)
     file_ids: list[str] = Field(default_factory=list)
+
+
+class SftpReconcileRequest(BaseModel):
+    mode: str = Field(default="dry_run", pattern="^(dry_run|quarantine)$")
+    stale_after_hours: int = Field(default=SFTP_DEFAULT_STALE_AFTER_HOURS, ge=1, le=720)
+    confirm_from_job_id: Optional[str] = Field(default=None, max_length=80)
 
 
 def _bearer_token(authorization: str | None) -> str:
@@ -243,6 +255,47 @@ def secure_deposit_health(
         "enabled": is_workspace_enabled(workspace),
         "default_allowed_extensions": default_allowed_extensions(),
     }
+
+
+@internal_router.get("/operations")
+def sftp_operations(
+    stale_after_hours: int = Query(default=SFTP_DEFAULT_STALE_AFTER_HOURS, ge=1, le=720),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    _enforce(db, user=user, workspace=workspace, resource_kind="deposit_file", action="read_all")
+    return get_sftp_operations_snapshot(db, workspace=workspace, stale_after_hours=stale_after_hours)
+
+
+@internal_router.post("/operations/reconcile")
+def run_sftp_reconciliation(
+    body: SftpReconcileRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    _enforce(db, user=user, workspace=workspace, resource_kind="deposit_file", action="operate")
+    if body.mode == "quarantine" and not body.confirm_from_job_id:
+        raise HTTPException(status_code=422, detail="confirm_from_job_id is required for quarantine")
+    actor = user.email or user.username or user.id
+    job = create_workspace_job(
+        db,
+        workspace,
+        user,
+        kind=SFTP_RECONCILIATION_JOB_KIND,
+        title="SFTP reconciliation",
+        input_ref={
+            "mode": body.mode,
+            "stale_after_hours": body.stale_after_hours,
+            "confirm_from_job_id": body.confirm_from_job_id,
+            "actor": actor,
+        },
+        status="queued",
+    )
+    dispatch_workspace_job(db, workspace, job, allow_inline_fallback=False)
+    db.commit()
+    return {"job": serialize_job(job)}
 
 
 @internal_router.get("/links")

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from app.services.rag.context import run_rag_retrieve_context
+from app.services.secure_deposit_operations import run_sftp_reconciliation_job
 from app.services.visual_intelligence import run_visual_capture_job
 from app.services.worker_bm25 import run_bm25_rebuild
 from app.services.worker_deep_retrieval import run_deep_retrieval, run_workspace_deep_retrieval
@@ -28,6 +29,11 @@ def rag_deep_retrieval(job_id: str) -> dict:
 @celery_app.task(name="agentium.workspace_rag_deep_retrieval")
 def workspace_rag_deep_retrieval(job_id: str) -> dict:
     return run_workspace_deep_retrieval(job_id)
+
+
+@celery_app.task(name="agentium.sftp_reconciliation")
+def sftp_reconciliation(job_id: str) -> dict:
+    return run_sftp_reconciliation_job(job_id)
 
 
 @celery_app.task(name="agentium.offline_retrieval_artifact")

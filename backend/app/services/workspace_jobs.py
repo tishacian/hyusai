@@ -189,10 +189,11 @@ def set_workspace_job_task_id(db: DBSession, job_id: str, task_id: str) -> None:
 
 def dispatch_workspace_job(db: DBSession, workspace: Workspace, job: WorkspaceJob, *, allow_inline_fallback: bool = True) -> str | None:
     """Dispatch a product-facing WorkspaceJob and persist its task id in input_ref."""
-    if job.kind != "rag_deep_retrieval":
+    if job.kind not in {"rag_deep_retrieval", "sftp_reconciliation"}:
         raise ValueError(f"Unsupported workspace job kind: {job.kind}")
     from app.core.config import settings
     from app.core.logging import get_logger
+    from app.services.secure_deposit_operations import run_sftp_reconciliation_job
     from app.services.worker_deep_retrieval import run_workspace_deep_retrieval
 
     logger = get_logger(__name__)
@@ -200,13 +201,17 @@ def dispatch_workspace_job(db: DBSession, workspace: Workspace, job: WorkspaceJo
         task_id = f"eager:{job.id}"
         set_workspace_job_task_id(db, job.id, task_id)
         db.commit()
-        run_workspace_deep_retrieval(job.id)
+        if job.kind == "sftp_reconciliation":
+            run_sftp_reconciliation_job(job.id)
+        else:
+            run_workspace_deep_retrieval(job.id)
         return task_id
 
     try:
-        from app.workers.tasks import workspace_rag_deep_retrieval
+        from app.workers.tasks import sftp_reconciliation, workspace_rag_deep_retrieval
 
-        async_result = workspace_rag_deep_retrieval.apply_async(
+        task = sftp_reconciliation if job.kind == "sftp_reconciliation" else workspace_rag_deep_retrieval
+        async_result = task.apply_async(
             args=(job.id,),
             queue=settings.celery_task_default_queue,
         )
@@ -240,7 +245,10 @@ def dispatch_workspace_job(db: DBSession, workspace: Workspace, job: WorkspaceJo
         task_id = f"eager:{job.id}"
         set_workspace_job_task_id(db, job.id, task_id)
         db.commit()
-        run_workspace_deep_retrieval(job.id)
+        if job.kind == "sftp_reconciliation":
+            run_sftp_reconciliation_job(job.id)
+        else:
+            run_workspace_deep_retrieval(job.id)
         return task_id
 
 

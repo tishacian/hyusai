@@ -26,6 +26,7 @@ from app.services.secure_deposit import (
     safe_relative_path,
     verify_password,
 )
+from app.services.secure_deposit_operations import delete_sftp_upload_sidecar, write_sftp_upload_sidecar
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +240,13 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
                 dir=str(_sftp_temp_dir()),
             )
             self.tmp_path = Path(tmp_name)
+            write_sftp_upload_sidecar(
+                self.tmp_path,
+                access_id=access_id,
+                workspace_id=workspace_id,
+                filename=filename,
+                max_bytes=max_bytes,
+            )
             self.handle = os.fdopen(fd, "w+b", buffering=0)
 
         def fileno(self) -> int:
@@ -280,6 +288,7 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
                 self.handle.close()
                 if self.rejected:
                     self.tmp_path.unlink(missing_ok=True)
+                    delete_sftp_upload_sidecar(self.tmp_path)
                     return
                 db = SessionLocal()
                 try:
@@ -296,13 +305,16 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
                         transport="sftp",
                     )
                     db.commit()
+                    delete_sftp_upload_sidecar(self.tmp_path)
                 except HTTPException as exc:
                     db.rollback()
                     self.tmp_path.unlink(missing_ok=True)
+                    delete_sftp_upload_sidecar(self.tmp_path)
                     raise asyncssh.SFTPFailure(str(exc.detail))
                 except Exception as exc:  # noqa: BLE001
                     db.rollback()
                     self.tmp_path.unlink(missing_ok=True)
+                    delete_sftp_upload_sidecar(self.tmp_path)
                     logger.exception("SFTP upload failed for access_id=%s filename=%s", self.access_id, self.filename)
                     raise asyncssh.SFTPFailure("Upload failed") from exc
                 finally:
@@ -311,6 +323,7 @@ def _build_asyncssh_components(asyncssh: Any) -> tuple[type, type]:
                 raise
             except Exception as exc:  # noqa: BLE001
                 self.tmp_path.unlink(missing_ok=True)
+                delete_sftp_upload_sidecar(self.tmp_path)
                 raise asyncssh.SFTPFailure("Upload failed") from exc
 
     class SecureDepositSSHServer(asyncssh.SSHServer):

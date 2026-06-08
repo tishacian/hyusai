@@ -8,9 +8,12 @@ import pytest
 
 from app.api.v1.endpoints import secure_deposit
 from app.core.config import settings
+from app.models.audit import AuditLog
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.models.workspace_job import WorkspaceJob
 from app.services.secure_deposit import create_link, record_staged_file_from_path
+from app.services.secure_deposit_operations import write_sftp_upload_sidecar
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -20,6 +23,22 @@ def _client(db_session, workspace: Workspace, user: User) -> TestClient:
     app.dependency_overrides[secure_deposit.get_current_user] = lambda: user
     app.dependency_overrides[secure_deposit.get_db] = lambda: db_session
     return TestClient(app)
+
+
+def _touch_old(path, seconds: int = 48 * 3600) -> None:
+    import os
+    import time
+
+    old = time.time() - seconds
+    os.utime(path, (old, old))
+
+
+def _touch_now(path) -> None:
+    import os
+    import time
+
+    now = time.time()
+    os.utime(path, (now, now))
 
 
 def test_promote_deposit_zip_returns_queued_worker_payload(db_session, monkeypatch, tmp_path):
@@ -245,3 +264,169 @@ def test_bulk_promote_supported_documents_uses_one_worker_job(db_session, monkey
     assert body["result"]["celery_task_id"] == "task-document-bulk"
     assert {item["extension"] for item in body["result"]["files"]} == {"xlsx", "pdf"}
     assert len({file["worker_job_id"] for file in body["files"]}) == 1
+
+
+def test_sftp_operations_lists_active_sidecar_upload(db_session, monkeypatch, tmp_path):
+    storage = tmp_path / "secure-deposit"
+    temp_dir = storage / "_sftp_uploads"
+    temp_dir.mkdir(parents=True)
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(storage))
+    monkeypatch.setattr(settings, "secure_deposit_sftp_temp_dir", str(temp_dir))
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Andritz SFTP",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    part = temp_dir / ".sftp-Manual.zip-abc.part"
+    part.write_bytes(b"uploading")
+    write_sftp_upload_sidecar(
+        part,
+        access_id=link.access_id,
+        workspace_id=workspace.id,
+        filename="Notices_Techniques_SPL/C/Manual.zip",
+        max_bytes=link.max_file_size_mb * 1024 * 1024,
+    )
+
+    response = _client(db_session, workspace, user).get("/sftp/operations")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["storage_summary"]["temporary_count"] == 1
+    assert body["storage_summary"]["active_count"] == 1
+    assert body["active_uploads"][0]["filename"] == "Notices_Techniques_SPL/C/Manual.zip"
+    assert body["active_uploads"][0]["link_label"] == "Andritz SFTP"
+    assert body["active_uploads"][0]["status"] == "receiving"
+
+
+def test_sftp_reconciliation_dry_run_then_quarantine(db_session, monkeypatch, tmp_path):
+    storage = tmp_path / "secure-deposit"
+    temp_dir = storage / "_sftp_uploads"
+    temp_dir.mkdir(parents=True)
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(storage))
+    monkeypatch.setattr(settings, "secure_deposit_sftp_temp_dir", str(temp_dir))
+    monkeypatch.setattr(settings, "worker_eager_mode", True)
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Andritz SFTP",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+
+    part = temp_dir / ".sftp-stale-abc.part"
+    part.write_bytes(b"stale partial")
+    write_sftp_upload_sidecar(
+        part,
+        access_id=link.access_id,
+        workspace_id=workspace.id,
+        filename="Notices_Techniques_SPL/C/stale.zip",
+        max_bytes=link.max_file_size_mb * 1024 * 1024,
+    )
+    _touch_old(part)
+
+    unattributed = temp_dir / ".sftp-legacy.part"
+    unattributed.write_bytes(b"legacy partial")
+    _touch_old(unattributed)
+
+    orphan = storage / "workspaces" / workspace.id / "secure-deposit" / link.access_id / "orphan-id" / "orphan.txt"
+    orphan.parent.mkdir(parents=True)
+    orphan.write_bytes(b"orphan")
+    _touch_old(orphan)
+
+    client = _client(db_session, workspace, user)
+    dry_response = client.post("/sftp/operations/reconcile", json={"mode": "dry_run", "stale_after_hours": 24})
+
+    assert dry_response.status_code == 200, dry_response.text
+    dry_job = dry_response.json()["job"]
+    assert dry_job["status"] == "completed"
+    assert dry_job["result"]["counts"]["stale_partials"] == 1
+    assert dry_job["result"]["counts"]["orphan_files"] == 1
+    assert dry_job["result"]["counts"]["unattributed_partials"] == 1
+    assert part.exists()
+    assert orphan.exists()
+
+    quarantine_response = client.post(
+        "/sftp/operations/reconcile",
+        json={"mode": "quarantine", "stale_after_hours": 24, "confirm_from_job_id": dry_job["id"]},
+    )
+
+    assert quarantine_response.status_code == 200, quarantine_response.text
+    quarantine_job = quarantine_response.json()["job"]
+    assert quarantine_job["status"] == "completed"
+    assert quarantine_job["result"]["quarantined_partial_count"] == 1
+    assert quarantine_job["result"]["quarantined_orphan_count"] == 1
+    assert not part.exists()
+    assert not orphan.exists()
+    assert unattributed.exists()
+    assert db_session.query(WorkspaceJob).filter(WorkspaceJob.kind == "sftp_reconciliation").count() == 2
+    event_types = {row.event_type for row in db_session.query(AuditLog).all()}
+    assert "deposit.sftp.partial.quarantined" in event_types
+    assert "deposit.sftp.orphan.quarantined" in event_types
+
+
+def test_sftp_quarantine_skips_partial_that_became_recent(db_session, monkeypatch, tmp_path):
+    storage = tmp_path / "secure-deposit"
+    temp_dir = storage / "_sftp_uploads"
+    temp_dir.mkdir(parents=True)
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(storage))
+    monkeypatch.setattr(settings, "secure_deposit_sftp_temp_dir", str(temp_dir))
+    monkeypatch.setattr(settings, "worker_eager_mode", True)
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+
+    workspace = Workspace(id="ws-andritz", name="Andritz", slug="andritz")
+    user = User(id="user-1", email="thibaud.ishacian@datategy.net", username="thib")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Andritz SFTP",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+
+    part = temp_dir / ".sftp-resumed-abc.part"
+    part.write_bytes(b"stale then resumed")
+    write_sftp_upload_sidecar(
+        part,
+        access_id=link.access_id,
+        workspace_id=workspace.id,
+        filename="Notices_Techniques_SPL/C/resumed.zip",
+        max_bytes=link.max_file_size_mb * 1024 * 1024,
+    )
+    _touch_old(part)
+
+    client = _client(db_session, workspace, user)
+    dry_job = client.post("/sftp/operations/reconcile", json={"mode": "dry_run", "stale_after_hours": 24}).json()["job"]
+    _touch_now(part)
+
+    response = client.post(
+        "/sftp/operations/reconcile",
+        json={"mode": "quarantine", "stale_after_hours": 24, "confirm_from_job_id": dry_job["id"]},
+    )
+
+    assert response.status_code == 200, response.text
+    job = response.json()["job"]
+    assert job["result"]["quarantined_partial_count"] == 0
+    assert job["result"]["skipped_count"] == 1
+    assert part.exists()
