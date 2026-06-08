@@ -411,6 +411,8 @@
    Runtime manifest — operational overlay for real System flows.
    ============================================================ */
 .df-runtime-manifest {
+  position: relative;
+  z-index: 20;
   border-color: rgba(56, 189, 248, 0.22);
   background:
     linear-gradient(180deg, rgba(14, 165, 233, 0.045), rgba(15, 23, 42, 0)),
@@ -493,6 +495,8 @@
 }
 
 .df-runtime-unit {
+  position: relative;
+  z-index: 1;
   min-width: 0;
   max-width: 210px;
   display: inline-flex;
@@ -504,6 +508,8 @@
   border-radius: 5px;
   background: rgba(15, 23, 42, 0.66);
   color: var(--ck-fg-2, #e2e8f0);
+  cursor: pointer;
+  pointer-events: auto;
   text-align: left;
   transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
 
