@@ -421,6 +421,8 @@ const ICONS = {
   files: Files,
   'folder-open': FolderOpen,
   'file-search': FileSearch,
+  'search-check': FileSearch,
+  bug: TestTubeDiagonal,
   'arrow-up': ArrowUp,
   'arrow-down': ArrowDown,
   list: List,

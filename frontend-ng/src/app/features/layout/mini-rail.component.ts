@@ -62,7 +62,7 @@ const SCOPE_ORDER: CockpitScopeType[] = [
           <nav class="ck-mini-nav">
             @for (s of visibleSections(); track s.key) {
               <a
-                [routerLink]="s.route"
+                [routerLink]="routeFor(s)"
                 class="ck-mini-item"
                 [class.ck-mini-item-active]="isSectionActive(s)"
                 [attr.aria-current]="isSectionActive(s) ? 'page' : null"
@@ -261,8 +261,15 @@ export class MiniRailComponent {
 
   isSectionActive(s: CockpitSection): boolean {
     const path = this.currentPath();
-    const patterns = s.matches ?? [s.route];
+    const route = this.routeFor(s);
+    const patterns = s.matches ?? [route];
     return patterns.some((m) => path === m || path.startsWith(m + '/'));
+  }
+
+  routeFor(s: CockpitSection): string {
+    const systemId = this.ctx.systemId();
+    if (s.key === 'flows' && systemId) return `/systems/${systemId}/flow`;
+    return s.route;
   }
 
   /**
