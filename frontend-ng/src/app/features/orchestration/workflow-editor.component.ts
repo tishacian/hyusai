@@ -2119,6 +2119,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         this.editor.reroute = false;
         this.editor.reroute_fix_curvature = false;
         this.editor.start();
+        this.installStableConnectionRenderer();
         el.addEventListener('mousedown', this.onCanvasNodePointerCapture, true);
         this.markPerf('editor.start');
 
@@ -2884,10 +2885,6 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     if (!this.editor) return;
     const redraw = () => {
       try {
-        const data = this.exportGraph().drawflow?.Home?.data ?? {};
-        for (const rawId of Object.keys(data)) {
-          this.editor?.updateConnectionNodes?.(`node-${rawId}`);
-        }
         this.editor?.updateConnectionNodes?.('node-*');
       } catch {
         // ignore redraw drift on older Drawflow builds
@@ -2897,6 +2894,98 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     window.requestAnimationFrame(redraw);
     window.setTimeout(redraw, 80);
     window.setTimeout(redraw, 180);
+  }
+
+  private installStableConnectionRenderer(): void {
+    if (!this.editor || !this.container?.nativeElement) return;
+    this.editor.updateConnectionNodes = () => {
+      this.redrawStableConnectionPaths();
+    };
+    this.redrawConnectionsSoon();
+  }
+
+  private redrawStableConnectionPaths(): void {
+    const host = this.container?.nativeElement;
+    const precanvas =
+      (this.editor?.precanvas as HTMLElement | null | undefined) ??
+      host?.querySelector<HTMLElement>('.drawflow');
+    if (!host || !precanvas) return;
+    const zoom = Number(this.editor?.zoom) || 1;
+    const precanvasRect = precanvas.getBoundingClientRect();
+    const connections = Array.from(precanvas.querySelectorAll<SVGSVGElement>('svg.connection'));
+    const nodesById = new Map(
+      Array.from(host.querySelectorAll<HTMLElement>('.drawflow-node')).map((node) => [node.id, node]),
+    );
+    for (const connection of connections) {
+      const classes = Array.from(connection.classList);
+      const inputNodeId = classes
+        .find((name) => name.startsWith('node_in_node-'))
+        ?.replace('node_in_', '');
+      const outputNodeId = classes
+        .find((name) => name.startsWith('node_out_node-'))
+        ?.replace('node_out_', '');
+      const outputPort = classes.find((name) => /^output_\d+$/.test(name)) ?? 'output_1';
+      const inputPort = classes.find((name) => /^input_\d+$/.test(name)) ?? 'input_1';
+      if (!inputNodeId || !outputNodeId) continue;
+
+      const outputEl = this.findPortElement(nodesById, outputNodeId, 'outputs', 'output', outputPort);
+      const inputEl = this.findPortElement(nodesById, inputNodeId, 'inputs', 'input', inputPort);
+      const start = this.portCenter(outputEl, precanvasRect, zoom);
+      const end = this.portCenter(inputEl, precanvasRect, zoom);
+      if (!start || !end) continue;
+
+      const path = this.primaryConnectionPath(connection);
+      const d = this.connectionCurve(start.x, start.y, end.x, end.y);
+      path.setAttributeNS(null, 'd', d);
+      connection.style.overflow = 'visible';
+      connection.classList.add('df-stable-connection');
+      connection.querySelectorAll<SVGCircleElement>('.point').forEach((point) => point.remove());
+    }
+  }
+
+  private primaryConnectionPath(connection: SVGSVGElement): SVGPathElement {
+    const paths = Array.from(connection.querySelectorAll<SVGPathElement>('.main-path'));
+    const [primary, ...extras] = paths;
+    extras.forEach((path) => path.remove());
+    if (primary) return primary;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.classList.add('main-path');
+    connection.appendChild(path);
+    return path;
+  }
+
+  private findPortElement(
+    nodesById: Map<string, HTMLElement>,
+    nodeDomId: string,
+    portGroup: 'inputs' | 'outputs',
+    portClass: 'input' | 'output',
+    portName: string,
+  ): HTMLElement | null {
+    const node = nodesById.get(nodeDomId);
+    return node?.querySelector<HTMLElement>(`.${portGroup} .${portClass}.${portName}`) ?? null;
+  }
+
+  private portCenter(
+    port: HTMLElement | null,
+    precanvasRect: DOMRect,
+    zoom: number,
+  ): { x: number; y: number } | null {
+    if (!port || zoom <= 0) return null;
+    const rect = port.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: (rect.left + rect.width / 2 - precanvasRect.left) / zoom,
+      y: (rect.top + rect.height / 2 - precanvasRect.top) / zoom,
+    };
+  }
+
+  private connectionCurve(sx: number, sy: number, tx: number, ty: number): string {
+    const direction = sx <= tx ? 1 : -1;
+    const distance = Math.abs(tx - sx);
+    const bend = Math.max(54, Math.min(180, distance * 0.42));
+    const c1x = sx + bend * direction;
+    const c2x = tx - bend * direction;
+    return `M ${sx} ${sy} C ${c1x} ${sy} ${c2x} ${ty} ${tx} ${ty}`;
   }
 
   /**

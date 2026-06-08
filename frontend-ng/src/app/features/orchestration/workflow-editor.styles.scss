@@ -228,6 +228,10 @@
   animation: df-edge-pulse 2.6s ease-in-out infinite;
 }
 
+.drawflow .connection.df-stable-connection {
+  overflow: visible !important;
+}
+
 .drawflow .connection.selected .main-path,
 .drawflow .connection .main-path.selected {
   stroke: var(--ck-signal-cool, #38bdf8);
