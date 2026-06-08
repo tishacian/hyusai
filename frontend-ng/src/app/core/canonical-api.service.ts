@@ -200,6 +200,7 @@ export interface FlowManifestUnit {
   operational?: boolean;
   editable_fields?: FlowManifestField[];
   parameter_count?: number;
+  position?: { x?: number; y?: number };
   implementation?: {
     source?: string;
     execution?: Record<string, unknown>;

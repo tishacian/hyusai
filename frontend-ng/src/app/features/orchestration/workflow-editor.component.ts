@@ -317,8 +317,8 @@ export interface FlowTemplate {
                 class="df-runtime-unit"
                 [attr.data-active]="unit.operational ? 'true' : 'false'"
                 [title]="unit.runtime_ref || unit.skill_slug || unit.description || unit.id"
-                (mousedown)="selectCanvasNode(unit.id)"
-                (click)="selectCanvasNode(unit.id)"
+                (mousedown)="selectManifestUnit(unit)"
+                (click)="selectManifestUnit(unit)"
               >
                 <span>{{ unit.label }}</span>
                 <small>{{ unit.skill_slug || unit.unit_type || unit.kind }}</small>
@@ -2060,6 +2060,17 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.scheduleCanonicalNodeSelection(canonicalId);
   }
 
+  selectManifestUnit(unit: FlowManifestUnit): void {
+    if (!unit?.id) return;
+    const node = this.canonicalNodeById(unit.id) ?? this.canonicalNodeFromManifestUnit(unit);
+    this.zone.run(() => {
+      this.selectCanonicalNode(node, unit.id);
+      this.inspectorOpen.set(true);
+      this.cdr.markForCheck();
+    });
+    this.selectCanvasNode(unit.id);
+  }
+
   onCanvasClick(event: MouseEvent): void {
     const target = event.target as HTMLElement | null;
     const nodeEl = target?.closest('.drawflow-node') as HTMLElement | null;
@@ -2114,6 +2125,31 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     if (!Number.isFinite(idx) || idx < 1) return null;
     const flow = this.system()?.flow_definition as unknown as CanonicalFlow | undefined;
     return flow?.nodes?.[idx - 1] ?? null;
+  }
+
+  private canonicalNodeFromManifestUnit(unit: FlowManifestUnit): CanonicalFlowNode {
+    const position =
+      typeof unit.position?.x === 'number' && typeof unit.position?.y === 'number'
+        ? { x: unit.position.x, y: unit.position.y }
+        : undefined;
+    return {
+      id: unit.id,
+      type: unit.node_type || unit.unit_type || 'tool',
+      kind: (unit.kind as NodeKind) || 'task',
+      label: unit.label || unit.id,
+      data: {
+        description: unit.description,
+        runtime_ref: unit.runtime_ref,
+      },
+      config: {
+        runtime_ref: unit.runtime_ref,
+        skill_slug: unit.skill_slug,
+        skill_id: unit.skill_id,
+      },
+      inputs: [],
+      outputs: [],
+      position,
+    };
   }
 
   private selectCanonicalNode(node: CanonicalFlowNode, selectedId: string): void {
