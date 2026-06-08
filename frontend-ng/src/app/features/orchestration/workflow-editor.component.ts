@@ -360,6 +360,7 @@ export interface FlowTemplate {
         <div
           #drawflowContainer
           class="w-full h-full pt-10 df-host"
+          (click)="onCanvasClick($event)"
           (dragover)="onDragOver($event)"
           (drop)="onDrop($event)"
         ></div>
@@ -2027,6 +2028,43 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.inspectorOpen.set(true);
       return;
     }
+
+    const fallbackNode = this.findCanvasNodeByCanonicalId(canonicalId);
+    const rawId = this.rawIdFromCanvasNode(fallbackNode);
+    if (rawId) {
+      this.onNodeSelected(rawId);
+      this.inspectorOpen.set(true);
+    }
+  }
+
+  onCanvasClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    const nodeEl = target?.closest('.drawflow-node') as HTMLElement | null;
+    const rawId = this.rawIdFromCanvasNode(nodeEl);
+    if (!rawId) return;
+    this.onNodeSelected(rawId);
+    this.inspectorOpen.set(true);
+  }
+
+  private rawIdFromCanvasNode(nodeEl: HTMLElement | null): string | null {
+    const id = nodeEl?.id ?? '';
+    const match = /^node-(.+)$/.exec(id);
+    return match?.[1] ?? null;
+  }
+
+  private findCanvasNodeByCanonicalId(canonicalId: string): HTMLElement | null {
+    const host = this.container?.nativeElement;
+    if (!host) return null;
+    const nodes = Array.from(host.querySelectorAll<HTMLElement>('.drawflow-node'));
+    const graph = this.exportGraph();
+    for (const nodeEl of nodes) {
+      const rawId = this.rawIdFromCanvasNode(nodeEl);
+      if (!rawId) continue;
+      const nodeData = graph.drawflow?.Home?.data?.[rawId];
+      const cid = (nodeData?.data?.['canonical_id'] as string) || `flow.${rawId}`;
+      if (cid === canonicalId) return nodeEl;
+    }
+    return null;
   }
 
   private paletteFor(type: string): PaletteItem {
