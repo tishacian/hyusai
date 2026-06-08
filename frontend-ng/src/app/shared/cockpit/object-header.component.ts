@@ -55,8 +55,9 @@ export interface CkObjectKpi {
         [style.alignItems]="'flex-start'"
         [style.justifyContent]="'space-between'"
         [style.gap.px]="16"
+        [style.flexWrap]="'wrap'"
       >
-        <div [style.minWidth]="'0'" [style.flex]="'1 1 auto'">
+        <div [style.minWidth]="'280px'" [style.flex]="'1 1 360px'">
           @if (eyebrow) {
             <div
               class="ck-mono"
@@ -101,7 +102,9 @@ export interface CkObjectKpi {
           [style.display]="'inline-flex'"
           [style.alignItems]="'center'"
           [style.gap.px]="8"
-          [style.flexShrink]="0"
+          [style.flex]="'1 1 360px'"
+          [style.flexWrap]="'wrap'"
+          [style.justifyContent]="'flex-end'"
         >
           <ng-content select="[actions]" />
         </div>

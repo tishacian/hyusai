@@ -442,10 +442,10 @@ export interface FlowTemplate {
                 <div class="ck-mono text-[10px] text-gray-500 mt-1">id: {{ selectedNode()!.id }}</div>
 
                 <div class="df-inspector-actions">
-                  <button type="button" class="df-primary-soft-btn" (click)="openConfigSheet('config')">
+                  <button type="button" class="df-primary-soft-btn" (click)="openConfigSheet('config', $event)">
                     <app-icon name="settings-2" [size]="13" /> Configure
                   </button>
-                  <button type="button" class="df-ghost-btn" (click)="openConfigSheet('prompts')">
+                  <button type="button" class="df-ghost-btn" (click)="openConfigSheet('prompts', $event)">
                     <app-icon name="file-text" [size]="12" /> Instructions {{ promptBlocks().length }}
                   </button>
                 </div>
@@ -2368,7 +2368,9 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.fitCanvasSoon();
   }
 
-  openConfigSheet(tab: ConfigSheetTab = 'overview'): void {
+  openConfigSheet(tab: ConfigSheetTab = 'overview', event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
     if (!this.selectedNode()) return;
     this.configSheetTab.set(tab);
     this.configSheetOpen.set(true);
@@ -2378,12 +2380,14 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     if (tab === 'config' && (this.selectedNode()?.kind ?? 'task') === 'subflow') {
       this.ensureOtherSystemsLoaded();
     }
+    this.cdr.markForCheck();
   }
 
   closeConfigSheet(): void {
     this.configSheetOpen.set(false);
     this.promptEditKey.set(null);
     this.promptDraft.set('');
+    this.cdr.markForCheck();
   }
 
   setConfigSheetTab(tab: ConfigSheetTab): void {
@@ -4806,6 +4810,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.promptDraft.set(block.body);
     this.configSheetTab.set('prompts');
     this.configSheetOpen.set(true);
+    this.cdr.markForCheck();
   }
 
   cancelPromptEdit(): void {
