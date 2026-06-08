@@ -20,6 +20,7 @@ import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional
+from urllib.parse import quote
 
 import jwt
 from fastapi import HTTPException, UploadFile, status
@@ -77,6 +78,7 @@ _DOCX_EXTENSIONS = {"docx"}
 _IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"}
 _DOCX_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
 _DOCX_PREVIEW_MAX_CHARS = 200_000
+_ARCHIVE_BROWSER_MAX_ENTRIES = 5_000
 _ARCHIVE_PROMOTION_EXTENSIONS = {"csv", "html", "htm", "md", "pdf", "txt"} | _DOCX_EXTENSIONS | _IMAGE_EXTENSIONS
 _WORKER_PROMOTION_EXTENSIONS = (
     _ARCHIVE_PROMOTION_EXTENSIONS
@@ -424,6 +426,176 @@ def preview_deposit_file(file: DepositFile) -> dict[str, Any]:
         size_bytes=int(file.size_bytes or 0),
         download_url=f"/api/v1/sftp/deposits/{file.id}/download",
     )
+
+
+def _normalize_archive_browser_path(path: str | None) -> str:
+    raw = str(path or "").replace("\\", "/").strip("/")
+    if not raw:
+        return ""
+    pure = PurePosixPath(raw)
+    if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+        raise HTTPException(status_code=422, detail="Unsafe ZIP path")
+    if any(":" in part for part in pure.parts):
+        raise HTTPException(status_code=422, detail="Unsafe ZIP path")
+    return pure.as_posix()
+
+
+def _assert_zip_deposit(file: DepositFile) -> Path:
+    if extension_for(file.filename or "") != "zip":
+        raise HTTPException(status_code=415, detail="Archive browsing is only available for ZIP files")
+    return staged_file_path(file)
+
+
+def _open_zip_archive(path: Path) -> zipfile.ZipFile:
+    try:
+        return zipfile.ZipFile(path)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=422, detail="Archive is not a valid ZIP file") from exc
+
+
+def _archive_member_previewable(filename: str, media_type: str, size_bytes: int) -> bool:
+    ext = extension_for(filename)
+    if ext in _SPREADSHEET_EXTENSIONS:
+        return size_bytes <= _STRUCTURED_PREVIEW_MAX_BYTES
+    if ext in _DOCX_EXTENSIONS:
+        return size_bytes <= _DOCX_PREVIEW_MAX_BYTES
+    if ext in _TEXT_EXTENSIONS or media_type.startswith("text/"):
+        return size_bytes <= _TEXT_PREVIEW_BYTES
+    return size_bytes <= _INLINE_PREVIEW_MAX_BYTES and (media_type.startswith("image/") or media_type == "application/pdf")
+
+
+def _archive_entry_payload(path: str, *, kind: str, size_bytes: int = 0, compressed_size: int = 0) -> dict[str, Any]:
+    name = PurePosixPath(path).name or path
+    extension = extension_for(name) if kind == "file" else ""
+    media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    return {
+        "kind": kind,
+        "name": name,
+        "path": path,
+        "extension": extension,
+        "content_type": media_type if kind == "file" else None,
+        "size_bytes": int(size_bytes or 0),
+        "compressed_size_bytes": int(compressed_size or 0),
+        "previewable": kind == "file" and _archive_member_previewable(name, media_type, int(size_bytes or 0)),
+    }
+
+
+def list_deposit_zip_archive(file: DepositFile, *, path: str | None = None, max_entries: int = _ARCHIVE_BROWSER_MAX_ENTRIES) -> dict[str, Any]:
+    archive_path = _assert_zip_deposit(file)
+    current_path = _normalize_archive_browser_path(path)
+    prefix = f"{current_path}/" if current_path else ""
+    folders: dict[str, dict[str, Any]] = {}
+    files: list[dict[str, Any]] = []
+    total_files = 0
+    total_size = 0
+    truncated = False
+
+    with _open_zip_archive(archive_path) as archive:
+        for info in archive.infolist():
+            try:
+                member_path = _validated_archive_member_path(info)
+            except HTTPException:
+                raise
+            if member_path is None:
+                continue
+            member = member_path.as_posix()
+            total_files += 1
+            total_size += int(info.file_size or 0)
+            if current_path and not member.startswith(prefix):
+                continue
+            remainder = member[len(prefix) :] if prefix else member
+            if not remainder:
+                continue
+            head, *rest = remainder.split("/")
+            if rest:
+                folder_path = f"{prefix}{head}" if prefix else head
+                folder = folders.get(folder_path)
+                if folder is None:
+                    folder = _archive_entry_payload(folder_path, kind="folder")
+                    folder["count"] = 0
+                    folder["size_bytes"] = 0
+                    folders[folder_path] = folder
+                folder["count"] += 1
+                folder["size_bytes"] += int(info.file_size or 0)
+                continue
+            if len(files) + len(folders) >= max_entries:
+                truncated = True
+                continue
+            if info.flag_bits & 0x1:
+                files.append({**_archive_entry_payload(member, kind="file", size_bytes=info.file_size, compressed_size=info.compress_size), "encrypted": True, "previewable": False})
+            else:
+                files.append(_archive_entry_payload(member, kind="file", size_bytes=info.file_size, compressed_size=info.compress_size))
+
+    if total_files <= 0:
+        raise HTTPException(status_code=422, detail="Archive contains no files")
+    folder_items = list(folders.values())
+    if len(folder_items) + len(files) > max_entries:
+        truncated = True
+        folder_items = folder_items[:max_entries]
+        files = files[: max(0, max_entries - len(folder_items))]
+    items = sorted(folder_items, key=lambda item: item["name"].lower()) + sorted(files, key=lambda item: item["name"].lower())
+    return {
+        "file_id": file.id,
+        "filename": file.filename,
+        "path": current_path,
+        "items": items,
+        "truncated": truncated,
+        "max_entries": max_entries,
+        "total_files": total_files,
+        "total_size_bytes": total_size,
+    }
+
+
+def _find_zip_member(archive: zipfile.ZipFile, member_path: str) -> zipfile.ZipInfo:
+    wanted = _normalize_archive_browser_path(member_path)
+    if not wanted:
+        raise HTTPException(status_code=422, detail="ZIP member path is required")
+    for info in archive.infolist():
+        candidate = _validated_archive_member_path(info)
+        if candidate is not None and candidate.as_posix() == wanted:
+            if info.flag_bits & 0x1:
+                raise HTTPException(status_code=422, detail="Encrypted ZIP member is not supported")
+            return info
+    raise HTTPException(status_code=404, detail="ZIP member not found")
+
+
+def extract_deposit_zip_member_to_temp(file: DepositFile, *, member_path: str) -> tuple[Path, zipfile.ZipInfo, str]:
+    archive_path = _assert_zip_deposit(file)
+    with _open_zip_archive(archive_path) as archive:
+        info = _find_zip_member(archive, member_path)
+        safe_name = safe_filename(PurePosixPath(info.filename).name)
+        suffix = PurePosixPath(safe_name).suffix
+        fd, tmp_name = tempfile.mkstemp(prefix=".zip-member-", suffix=suffix)
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "wb") as handle, archive.open(info) as source:
+                shutil.copyfileobj(source, handle, length=_UPLOAD_CHUNK_BYTES)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
+        return tmp_path, info, safe_name
+
+
+def _zip_member_download_url(file: DepositFile, member_path: str) -> str:
+    return f"/api/v1/sftp/deposits/{file.id}/archive/member/download?path={quote(member_path, safe='')}"
+
+
+def preview_deposit_zip_member(file: DepositFile, *, member_path: str) -> dict[str, Any]:
+    normalized = _normalize_archive_browser_path(member_path)
+    archive_path = _assert_zip_deposit(file)
+    with _open_zip_archive(archive_path) as archive:
+        info = _find_zip_member(archive, normalized)
+    safe_name = safe_filename(PurePosixPath(info.filename).name)
+    media_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+    size = int(info.file_size or 0)
+    download_url = _zip_member_download_url(file, normalized)
+    if not preview_needs_file_bytes(safe_name, media_type, size):
+        return build_file_preview(Path(safe_name), filename=safe_name, media_type=media_type, size_bytes=size, download_url=download_url)
+    temp_path, _info, _safe_name = extract_deposit_zip_member_to_temp(file, member_path=normalized)
+    try:
+        return build_file_preview(temp_path, filename=safe_name, media_type=media_type, size_bytes=size, download_url=download_url)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def _archive_component(value: str | None, fallback: str) -> str:

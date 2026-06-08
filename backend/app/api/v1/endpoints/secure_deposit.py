@@ -1,6 +1,7 @@
 """Secure Deposit public portal and internal workspace APIs."""
 from __future__ import annotations
 
+import mimetypes
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -23,11 +24,14 @@ from app.services.secure_deposit import (
     build_deposit_archive,
     create_link,
     default_allowed_extensions,
+    extract_deposit_zip_member_to_temp,
     get_link_by_access_id,
     is_workspace_enabled,
+    list_deposit_zip_archive,
     promote_files_to_collection_batch,
     promote_file_to_collection,
     preview_deposit_file,
+    preview_deposit_zip_member,
     receive_file,
     revoke_link,
     rotate_link_password,
@@ -509,6 +513,77 @@ def preview_deposit_staged_file(
     payload = preview_deposit_file(file)
     payload["file"] = serialize_file(file)
     return payload
+
+
+@internal_router.get("/deposits/{file_id}/archive")
+def browse_deposit_zip_archive(
+    file_id: str,
+    path: str = Query(default=""),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    file = _workspace_file(db, workspace, file_id)
+    link = _workspace_file_link(db, workspace, file)
+    _enforce_file_read(db, user=user, workspace=workspace, file=file, link=link)
+    payload = list_deposit_zip_archive(file, path=path)
+    payload["file"] = serialize_file(file)
+    return payload
+
+
+@internal_router.get("/deposits/{file_id}/archive/member/preview")
+def preview_deposit_zip_archive_member(
+    file_id: str,
+    path: str = Query(min_length=1),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    file = _workspace_file(db, workspace, file_id)
+    link = _workspace_file_link(db, workspace, file)
+    _enforce_file_read(db, user=user, workspace=workspace, file=file, link=link)
+    payload = preview_deposit_zip_member(file, member_path=path)
+    payload["file"] = serialize_file(file)
+    payload["archive_path"] = path
+    return payload
+
+
+@internal_router.get("/deposits/{file_id}/archive/member/download")
+def download_deposit_zip_archive_member(
+    file_id: str,
+    path: str = Query(min_length=1),
+    disposition: str = Query(default="attachment", pattern="^(attachment|inline)$"),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    file = _workspace_file(db, workspace, file_id)
+    link = _workspace_file_link(db, workspace, file)
+    _enforce_file_read(db, user=user, workspace=workspace, file=file, link=link)
+    temp_path, info, filename = extract_deposit_zip_member_to_temp(file, member_path=path)
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="deposit.archive_member.downloaded",
+        actor=user.email or user.username or user.id,
+        details={
+            "file_id": file.id,
+            "link_id": link.id,
+            "access_id": link.access_id,
+            "filename": file.filename,
+            "archive_path": info.filename,
+            "size_bytes": info.file_size,
+            "disposition": disposition,
+        },
+    )
+    db.commit()
+    return FileResponse(
+        temp_path,
+        media_type=mimetypes.guess_type(filename)[0] or "application/octet-stream",
+        filename=filename,
+        content_disposition_type=disposition,
+        background=BackgroundTask(_cleanup_archive, temp_path),
+    )
 
 
 @internal_router.get("/deposits/{file_id}/download")

@@ -155,6 +155,137 @@ def test_promote_deposit_spreadsheet_returns_queued_worker_payload(db_session, m
     assert body["promotion_result"]["celery_task_id"] == "task-excel"
 
 
+def test_browse_deposit_zip_archive_lists_folders_and_members(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    monkeypatch.setattr(secure_deposit, "_enforce_file_read", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.secure_deposit.is_workspace_enabled", lambda workspace: True)
+
+    workspace = Workspace(id="ws-zip", name="Zip", slug="zip")
+    user = User(id="user-zip", email="zip@datategy.net", username="zip")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Archive upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    source = tmp_path / "manual.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("docs/readme.txt", b"hello archive")
+        archive.writestr("docs/manual.pdf", b"%PDF-1.4")
+        archive.writestr("images/photo.png", b"\x89PNG\r\n\x1a\n")
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=source,
+        filename="archives/manual.zip",
+        content_type="application/zip",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+    db_session.commit()
+
+    client = _client(db_session, workspace, user)
+    root = client.get(f"/sftp/deposits/{row.id}/archive")
+    assert root.status_code == 200
+    root_items = root.json()["items"]
+    assert [item["name"] for item in root_items] == ["docs", "images"]
+
+    docs = client.get(f"/sftp/deposits/{row.id}/archive", params={"path": "docs"})
+    assert docs.status_code == 200
+    doc_items = docs.json()["items"]
+    assert [item["name"] for item in doc_items] == ["manual.pdf", "readme.txt"]
+    assert next(item for item in doc_items if item["name"] == "readme.txt")["previewable"] is True
+
+
+def test_browse_deposit_zip_member_preview_and_download(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    monkeypatch.setattr(secure_deposit, "_enforce_file_read", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.secure_deposit.is_workspace_enabled", lambda workspace: True)
+
+    workspace = Workspace(id="ws-zip-preview", name="Zip", slug="zip-preview")
+    user = User(id="user-zip-preview", email="zip@datategy.net", username="zip")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Archive upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    source = tmp_path / "manual.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("docs/readme.txt", b"hello archive")
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=source,
+        filename="archives/manual.zip",
+        content_type="application/zip",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+    db_session.commit()
+
+    client = _client(db_session, workspace, user)
+    preview = client.get(f"/sftp/deposits/{row.id}/archive/member/preview", params={"path": "docs/readme.txt"})
+    assert preview.status_code == 200
+    assert preview.json()["kind"] == "text"
+    assert "hello archive" in preview.json()["content"]
+
+    download = client.get(f"/sftp/deposits/{row.id}/archive/member/download", params={"path": "docs/readme.txt"})
+    assert download.status_code == 200
+    assert download.content == b"hello archive"
+    assert download.headers["content-type"].startswith("text/plain")
+
+
+def test_browse_deposit_zip_member_rejects_unsafe_path(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    monkeypatch.setattr(secure_deposit, "_enforce_file_read", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.secure_deposit.is_workspace_enabled", lambda workspace: True)
+
+    workspace = Workspace(id="ws-zip-unsafe", name="Zip", slug="zip-unsafe")
+    user = User(id="user-zip-unsafe", email="zip@datategy.net", username="zip")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Archive upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    source = tmp_path / "manual.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("readme.txt", b"hello")
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=source,
+        filename="manual.zip",
+        content_type="application/zip",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+    db_session.commit()
+
+    response = _client(db_session, workspace, user).get(
+        f"/sftp/deposits/{row.id}/archive/member/preview",
+        params={"path": "../readme.txt"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_bulk_promote_supported_documents_uses_one_worker_job(db_session, monkeypatch, tmp_path):
     openpyxl = pytest.importorskip("openpyxl")
     monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))

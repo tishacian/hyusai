@@ -63,11 +63,37 @@ interface DepositPreview {
   content_type: string;
   size_bytes: number;
   download_url: string;
+  archive_path?: string;
   content?: string;
   rows?: string[][];
   sheet_name?: string;
   truncated?: boolean;
   reason?: string;
+}
+
+interface ZipArchiveItem {
+  kind: 'folder' | 'file';
+  name: string;
+  path: string;
+  extension: string;
+  content_type?: string | null;
+  size_bytes: number;
+  compressed_size_bytes: number;
+  previewable: boolean;
+  count?: number;
+  encrypted?: boolean;
+}
+
+interface ZipArchiveBrowser {
+  file_id: string;
+  filename: string;
+  path: string;
+  items: ZipArchiveItem[];
+  truncated: boolean;
+  max_entries: number;
+  total_files: number;
+  total_size_bytes: number;
+  file?: DepositFile;
 }
 
 interface SecureDepositHealth {
@@ -769,11 +795,11 @@ const BULK_PROMOTE_LIMIT = 25;
                         <button
                           type="button"
                           class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300 disabled:opacity-40"
-                          title="Preview file"
+                          [title]="isZipFile(file) ? 'Browse ZIP archive' : 'Preview file'"
                           [disabled]="file.status === 'rejected'"
                           (click)="previewFile(file)"
                         >
-                          <app-icon name="eye" [size]="13" />
+                          <app-icon [name]="isZipFile(file) ? 'folder-open' : 'eye'" [size]="13" />
                         </button>
                         <button
                           type="button"
@@ -814,70 +840,258 @@ const BULK_PROMOTE_LIMIT = 25;
 
     <app-drawer
       [open]="previewOpen()"
-      [title]="previewFileTarget()?.filename ?? 'File preview'"
+      [title]="archiveMode() ? (previewFileTarget()?.filename ?? 'Archive browser') : (previewFileTarget()?.filename ?? 'File preview')"
       subtitle="Secure Deposit staging"
-      icon="eye"
-      [width]="760"
+      [icon]="archiveMode() ? 'folder-open' : 'eye'"
+      [width]="archiveMode() ? 1040 : 760"
       (close)="closePreview()"
     >
-      @if (previewLoading()) {
-        <div class="space-y-2">
-          @for (_ of [0, 1, 2, 3, 4, 5, 6]; track $index) {
-            <div class="h-3 rounded bg-white/5 animate-pulse"></div>
-          }
-        </div>
-      } @else if (previewError()) {
-        <div class="rounded bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-500/20">{{ previewError() }}</div>
-      } @else if (previewData(); as preview) {
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div class="min-w-0">
-            <p class="truncate text-sm font-semibold text-white">{{ basename(preview.filename) }}</p>
-            <p class="mt-1 font-mono text-[11px] text-gray-500">{{ preview.content_type }} · {{ formatBytes(preview.size_bytes) }}</p>
+      @if (archiveMode()) {
+        @if (previewFileTarget(); as archiveFile) {
+          <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="min-w-0">
+              <p class="truncate text-sm font-semibold text-white">{{ basename(archiveFile.filename) }}</p>
+              <p class="mt-1 font-mono text-[11px] text-gray-500">{{ archiveFile.filename }} · {{ formatBytes(archiveFile.size_bytes) }}</p>
+            </div>
+            <button
+              type="button"
+              class="inline-flex items-center justify-center gap-1.5 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-400"
+              (click)="downloadFile(archiveFile)"
+            >
+              <app-icon name="download" [size]="13" /> Download ZIP
+            </button>
           </div>
-          <button
-            type="button"
-            class="inline-flex items-center justify-center gap-1.5 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-400"
-            (click)="previewFileTarget() && downloadFile(previewFileTarget()!)"
-          >
-            <app-icon name="download" [size]="13" /> Download
-          </button>
-        </div>
+        }
 
-        @if (preview.kind === 'text') {
-          @if (preview.truncated) {
-            <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
-          }
-          <pre class="max-h-[70vh] overflow-auto rounded bg-black/30 p-3 font-mono text-[11px] leading-relaxed text-gray-200 whitespace-pre-wrap ring-1 ring-white/10">{{ preview.content }}</pre>
-        } @else if (preview.kind === 'spreadsheet') {
-          <div class="mb-2 flex items-center justify-between text-xs text-gray-400">
-            <span>Sheet: {{ preview.sheet_name || 'Sheet 1' }}</span>
-            @if (preview.truncated) {
-              <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-100 ring-1 ring-amber-500/20">Preview truncated</span>
+        @if (archiveLoading()) {
+          <div class="space-y-2">
+            @for (_ of [0, 1, 2, 3, 4, 5, 6]; track $index) {
+              <div class="h-3 rounded bg-white/5 animate-pulse"></div>
             }
           </div>
-          <div class="max-h-[70vh] overflow-auto rounded ring-1 ring-white/10">
-            <table class="min-w-full border-collapse text-left text-xs">
-              <tbody>
-                @for (row of preview.rows || []; track $index) {
-                  <tr class="border-b border-white/5 odd:bg-white/[0.02]">
-                    @for (cell of row; track $index) {
-                      <td class="max-w-[220px] truncate px-3 py-2 text-gray-200">{{ cell || ' ' }}</td>
+        } @else if (previewError()) {
+          <div class="rounded bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-500/20">{{ previewError() }}</div>
+        } @else if (archiveData(); as archive) {
+          <div class="mb-3 grid gap-3 md:grid-cols-3">
+            <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Files</p>
+              <p class="mt-1 text-lg font-semibold text-white">{{ archive.total_files }}</p>
+            </div>
+            <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Uncompressed</p>
+              <p class="mt-1 text-lg font-semibold text-white">{{ formatBytes(archive.total_size_bytes) }}</p>
+            </div>
+            <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Current folder</p>
+              <p class="mt-1 truncate text-sm font-semibold text-white">{{ archive.path || 'Root' }}</p>
+            </div>
+          </div>
+          @if (archive.truncated) {
+            <p class="mb-3 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">
+              Listing truncated to {{ archive.max_entries }} entries.
+            </p>
+          }
+          <nav class="mb-3 flex min-w-0 flex-wrap items-center gap-1.5 text-xs" aria-label="Archive folder path">
+            @for (crumb of archiveCrumbs(); track crumb.path) {
+              <button
+                type="button"
+                class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5 hover:text-white"
+                [ngClass]="crumb.path === archivePath() ? 'bg-white/10' : ''"
+                (click)="openArchiveFolder(crumb.path)"
+              >
+                {{ crumb.label }}
+              </button>
+              @if (!$last) {
+                <app-icon name="chevron-right" [size]="12" class="text-gray-600" />
+              }
+            }
+          </nav>
+          <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
+            <div class="min-h-[360px] overflow-hidden rounded ring-1 ring-white/10">
+              @if (archive.items.length === 0) {
+                <div class="p-8 text-center text-sm text-gray-500">No files in this archive folder.</div>
+              } @else {
+                <ul class="max-h-[68vh] divide-y divide-white/5 overflow-auto">
+                  @for (item of archive.items; track item.kind + ':' + item.path) {
+                    <li class="grid gap-3 px-3 py-3 lg:grid-cols-[minmax(0,1fr)_120px_112px] lg:items-center">
+                      <button
+                        type="button"
+                        class="flex min-w-0 items-center gap-3 text-left"
+                        [disabled]="item.kind !== 'folder'"
+                        (click)="item.kind === 'folder' && openArchiveFolder(item.path)"
+                      >
+                        <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10">
+                          <app-icon [name]="item.kind === 'folder' ? 'folder' : 'file'" [size]="15" />
+                        </span>
+                        <span class="min-w-0">
+                          <span class="block truncate text-sm font-semibold text-white">{{ item.name }}</span>
+                          <span class="mt-1 block truncate font-mono text-[10px] text-gray-500">{{ item.path }}</span>
+                        </span>
+                      </button>
+                      <div class="text-xs text-gray-400">
+                        @if (item.kind === 'folder') {
+                          {{ item.count || 0 }} files
+                        } @else {
+                          {{ formatBytes(item.size_bytes) }}
+                        }
+                      </div>
+                      <div class="flex items-center gap-2 lg:justify-end">
+                        @if (item.kind === 'file') {
+                          <button
+                            type="button"
+                            class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300 disabled:opacity-40"
+                            title="Preview archive member"
+                            [disabled]="!item.previewable || item.encrypted || archivePreviewLoading()"
+                            (click)="previewArchiveMember(item)"
+                          >
+                            <app-icon name="eye" [size]="13" />
+                          </button>
+                          <button
+                            type="button"
+                            class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300 disabled:opacity-40"
+                            title="Download archive member"
+                            [disabled]="item.encrypted || archiveDownloadingPath() === item.path"
+                            (click)="downloadArchiveMember(item)"
+                          >
+                            <app-icon name="download" [size]="13" />
+                          </button>
+                        } @else {
+                          <app-icon name="chevron-right" [size]="14" class="text-gray-500" />
+                        }
+                      </div>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+            <div class="min-h-[360px] rounded bg-white/[0.03] p-4 ring-1 ring-white/10">
+              @if (archivePreviewLoading()) {
+                <div class="space-y-2">
+                  @for (_ of [0, 1, 2, 3, 4, 5]; track $index) {
+                    <div class="h-3 rounded bg-white/5 animate-pulse"></div>
+                  }
+                </div>
+              } @else if (archivePreviewError()) {
+                <div class="rounded bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-500/20">{{ archivePreviewError() }}</div>
+              } @else if (previewData(); as preview) {
+                <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-semibold text-white">{{ basename(preview.filename) }}</p>
+                    <p class="mt-1 truncate font-mono text-[11px] text-gray-500">{{ archivePreviewPath() }} · {{ formatBytes(preview.size_bytes) }}</p>
+                  </div>
+                  <button
+                    type="button"
+                    class="inline-flex items-center justify-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10"
+                    [disabled]="!archivePreviewPath()"
+                    (click)="archivePreviewPath() && downloadArchiveMemberPath(archivePreviewPath()!)"
+                  >
+                    <app-icon name="download" [size]="13" /> Download
+                  </button>
+                </div>
+                @if (preview.kind === 'text') {
+                  @if (preview.truncated) {
+                    <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
+                  }
+                  <pre class="max-h-[58vh] overflow-auto rounded bg-black/30 p-3 font-mono text-[11px] leading-relaxed text-gray-200 whitespace-pre-wrap ring-1 ring-white/10">{{ preview.content }}</pre>
+                } @else if (preview.kind === 'spreadsheet') {
+                  <div class="mb-2 flex items-center justify-between text-xs text-gray-400">
+                    <span>Sheet: {{ preview.sheet_name || 'Sheet 1' }}</span>
+                    @if (preview.truncated) {
+                      <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-100 ring-1 ring-amber-500/20">Preview truncated</span>
                     }
-                  </tr>
+                  </div>
+                  <div class="max-h-[58vh] overflow-auto rounded ring-1 ring-white/10">
+                    <table class="min-w-full border-collapse text-left text-xs">
+                      <tbody>
+                        @for (row of preview.rows || []; track $index) {
+                          <tr class="border-b border-white/5 odd:bg-white/[0.02]">
+                            @for (cell of row; track $index) {
+                              <td class="max-w-[220px] truncate px-3 py-2 text-gray-200">{{ cell || ' ' }}</td>
+                            }
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                } @else if (preview.kind === 'image' && previewObjectUrl()) {
+                  <div class="max-h-[58vh] overflow-auto rounded bg-black/30 p-2 ring-1 ring-white/10">
+                    <img [src]="previewObjectUrl()!" [alt]="preview.filename" class="mx-auto max-h-[56vh] max-w-full object-contain" />
+                  </div>
+                } @else if (preview.kind === 'pdf' && previewPdfUrl()) {
+                  <iframe [src]="previewPdfUrl()!" class="h-[58vh] w-full rounded bg-black/30 ring-1 ring-white/10"></iframe>
+                } @else {
+                  <div class="rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
+                    Inline preview is not available for this archive member.
+                  </div>
                 }
-              </tbody>
-            </table>
+              } @else {
+                <div class="rounded bg-black/20 p-4 text-sm text-gray-400 ring-1 ring-white/10">
+                  Select a previewable file in the archive.
+                </div>
+              }
+            </div>
           </div>
-        } @else if (preview.kind === 'image' && previewObjectUrl()) {
-          <div class="max-h-[70vh] overflow-auto rounded bg-black/30 p-2 ring-1 ring-white/10">
-            <img [src]="previewObjectUrl()!" [alt]="preview.filename" class="mx-auto max-h-[68vh] max-w-full object-contain" />
+        }
+      } @else {
+        @if (previewLoading()) {
+          <div class="space-y-2">
+            @for (_ of [0, 1, 2, 3, 4, 5, 6]; track $index) {
+              <div class="h-3 rounded bg-white/5 animate-pulse"></div>
+            }
           </div>
-        } @else if (preview.kind === 'pdf' && previewPdfUrl()) {
-          <iframe [src]="previewPdfUrl()!" class="h-[70vh] w-full rounded bg-black/30 ring-1 ring-white/10"></iframe>
-        } @else {
-          <div class="rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
-            Inline preview is not available for this file type or size. Download the file to inspect it locally.
+        } @else if (previewError()) {
+          <div class="rounded bg-red-500/10 p-3 text-sm text-red-100 ring-1 ring-red-500/20">{{ previewError() }}</div>
+        } @else if (previewData(); as preview) {
+          <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="min-w-0">
+              <p class="truncate text-sm font-semibold text-white">{{ basename(preview.filename) }}</p>
+              <p class="mt-1 font-mono text-[11px] text-gray-500">{{ preview.content_type }} · {{ formatBytes(preview.size_bytes) }}</p>
+            </div>
+            <button
+              type="button"
+              class="inline-flex items-center justify-center gap-1.5 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-400"
+              (click)="previewFileTarget() && downloadFile(previewFileTarget()!)"
+            >
+              <app-icon name="download" [size]="13" /> Download
+            </button>
           </div>
+
+          @if (preview.kind === 'text') {
+            @if (preview.truncated) {
+              <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
+            }
+            <pre class="max-h-[70vh] overflow-auto rounded bg-black/30 p-3 font-mono text-[11px] leading-relaxed text-gray-200 whitespace-pre-wrap ring-1 ring-white/10">{{ preview.content }}</pre>
+          } @else if (preview.kind === 'spreadsheet') {
+            <div class="mb-2 flex items-center justify-between text-xs text-gray-400">
+              <span>Sheet: {{ preview.sheet_name || 'Sheet 1' }}</span>
+              @if (preview.truncated) {
+                <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-100 ring-1 ring-amber-500/20">Preview truncated</span>
+              }
+            </div>
+            <div class="max-h-[70vh] overflow-auto rounded ring-1 ring-white/10">
+              <table class="min-w-full border-collapse text-left text-xs">
+                <tbody>
+                  @for (row of preview.rows || []; track $index) {
+                    <tr class="border-b border-white/5 odd:bg-white/[0.02]">
+                      @for (cell of row; track $index) {
+                        <td class="max-w-[220px] truncate px-3 py-2 text-gray-200">{{ cell || ' ' }}</td>
+                      }
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else if (preview.kind === 'image' && previewObjectUrl()) {
+            <div class="max-h-[70vh] overflow-auto rounded bg-black/30 p-2 ring-1 ring-white/10">
+              <img [src]="previewObjectUrl()!" [alt]="preview.filename" class="mx-auto max-h-[68vh] max-w-full object-contain" />
+            </div>
+          } @else if (preview.kind === 'pdf' && previewPdfUrl()) {
+            <iframe [src]="previewPdfUrl()!" class="h-[70vh] w-full rounded bg-black/30 ring-1 ring-white/10"></iframe>
+          } @else {
+            <div class="rounded bg-white/5 p-4 text-sm text-gray-300 ring-1 ring-white/10">
+              Inline preview is not available for this file type or size. Download the file to inspect it locally.
+            </div>
+          }
         }
       }
     </app-drawer>
@@ -947,6 +1161,14 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   readonly previewData = signal<DepositPreview | null>(null);
   readonly previewObjectUrl = signal<string | null>(null);
   readonly previewPdfUrl = signal<SafeResourceUrl | null>(null);
+  readonly archiveMode = signal(false);
+  readonly archiveLoading = signal(false);
+  readonly archiveData = signal<ZipArchiveBrowser | null>(null);
+  readonly archivePath = signal('');
+  readonly archivePreviewLoading = signal(false);
+  readonly archivePreviewError = signal<string | null>(null);
+  readonly archivePreviewPath = signal<string | null>(null);
+  readonly archiveDownloadingPath = signal<string | null>(null);
   readonly selectedLinkId = signal('');
   readonly currentFolder = signal('');
   readonly queueSearch = signal('');
@@ -1000,6 +1222,16 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   });
   readonly folderCrumbs = computed<FolderCrumb[]>(() => {
     const parts = this.currentFolder().split('/').filter(Boolean);
+    const crumbs: FolderCrumb[] = [{ label: 'Root', path: '' }];
+    parts.reduce((path, part) => {
+      const next = path ? `${path}/${part}` : part;
+      crumbs.push({ label: part, path: next });
+      return next;
+    }, '');
+    return crumbs;
+  });
+  readonly archiveCrumbs = computed<FolderCrumb[]>(() => {
+    const parts = this.archivePath().split('/').filter(Boolean);
     const crumbs: FolderCrumb[] = [{ label: 'Root', path: '' }];
     parts.reduce((path, part) => {
       const next = path ? `${path}/${part}` : part;
@@ -1289,7 +1521,12 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   }
 
   previewFile(file: DepositFile): void {
+    if (this.isZipFile(file)) {
+      this.openZipArchive(file, '');
+      return;
+    }
     this.revokePreviewObjectUrl();
+    this.archiveMode.set(false);
     this.previewOpen.set(true);
     this.previewLoading.set(true);
     this.previewError.set(null);
@@ -1311,12 +1548,110 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     });
   }
 
+  openZipArchive(file: DepositFile, path = ''): void {
+    this.revokePreviewObjectUrl();
+    this.archiveMode.set(true);
+    this.previewOpen.set(true);
+    this.previewLoading.set(false);
+    this.previewError.set(null);
+    this.previewFileTarget.set(file);
+    this.previewData.set(null);
+    this.archiveData.set(null);
+    this.archivePath.set(path);
+    this.archivePreviewPath.set(null);
+    this.archivePreviewError.set(null);
+    this.archivePreviewLoading.set(false);
+    this.archiveLoading.set(true);
+    this.api.get<ZipArchiveBrowser>(`/sftp/deposits/${file.id}/archive`, { path }).subscribe({
+      next: (archive) => {
+        this.archiveData.set(archive);
+        this.archivePath.set(archive.path || path || '');
+        this.archiveLoading.set(false);
+      },
+      error: (err) => {
+        this.previewError.set(this.errorMessage(err, 'Unable to browse ZIP archive.'));
+        this.archiveLoading.set(false);
+      },
+    });
+  }
+
+  openArchiveFolder(path: string): void {
+    const file = this.previewFileTarget();
+    if (!file) return;
+    this.openZipArchive(file, path);
+  }
+
+  previewArchiveMember(item: ZipArchiveItem): void {
+    const file = this.previewFileTarget();
+    if (!file || item.kind !== 'file') return;
+    this.revokePreviewObjectUrl();
+    this.archivePreviewPath.set(item.path);
+    this.archivePreviewError.set(null);
+    this.archivePreviewLoading.set(true);
+    this.previewData.set(null);
+    this.api.get<DepositPreview>(`/sftp/deposits/${file.id}/archive/member/preview`, { path: item.path }).subscribe({
+      next: (preview) => {
+        this.previewData.set(preview);
+        if (preview.kind === 'image' || preview.kind === 'pdf') {
+          this.loadArchiveMemberPreviewBlob(file, item.path, preview.kind);
+          return;
+        }
+        this.archivePreviewLoading.set(false);
+      },
+      error: (err) => {
+        this.archivePreviewError.set(this.errorMessage(err, 'Unable to preview archive member.'));
+        this.archivePreviewLoading.set(false);
+      },
+    });
+  }
+
+  downloadArchiveMember(item: ZipArchiveItem): void {
+    if (item.kind !== 'file') return;
+    this.downloadArchiveMemberPath(item.path);
+  }
+
+  downloadArchiveMemberPath(path: string): void {
+    const file = this.previewFileTarget();
+    if (!file) return;
+    this.archiveDownloadingPath.set(path);
+    this.http
+      .get(`${this.api.base}/sftp/deposits/${file.id}/archive/member/download`, {
+        params: new HttpParams().set('path', path),
+        observe: 'response',
+        responseType: 'blob',
+      })
+      .subscribe({
+        next: (response) => {
+          const blob = response.body;
+          if (!blob) {
+            this.toast.error('Empty file response', 'Secure Deposit');
+            this.archiveDownloadingPath.set(null);
+            return;
+          }
+          this.saveBlob(blob, this.responseFilename(response.headers.get('content-disposition'), this.basename(path)));
+          this.archiveDownloadingPath.set(null);
+        },
+        error: (err) => {
+          this.toast.error(this.errorMessage(err, 'Unable to download archive member.'), 'Secure Deposit');
+          this.archiveDownloadingPath.set(null);
+        },
+      });
+  }
+
   closePreview(): void {
     this.previewOpen.set(false);
     this.previewLoading.set(false);
     this.previewFileTarget.set(null);
     this.previewData.set(null);
     this.previewError.set(null);
+    this.archiveMode.set(false);
+    this.archiveLoading.set(false);
+    this.archiveData.set(null);
+    this.archivePath.set('');
+    this.archivePreviewLoading.set(false);
+    this.archivePreviewError.set(null);
+    this.archivePreviewPath.set(null);
+    this.archiveDownloadingPath.set(null);
     this.revokePreviewObjectUrl();
   }
 
@@ -1489,6 +1824,30 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   basename(path: string): string {
     const parts = path.split('/').filter(Boolean);
     return parts.at(-1) || path || 'upload';
+  }
+
+  isZipFile(file: DepositFile): boolean {
+    return this.basename(file.filename).toLowerCase().endsWith('.zip');
+  }
+
+  private loadArchiveMemberPreviewBlob(file: DepositFile, path: string, kind: 'image' | 'pdf'): void {
+    this.http
+      .get(`${this.api.base}/sftp/deposits/${file.id}/archive/member/download`, {
+        params: new HttpParams().set('path', path).set('disposition', 'inline'),
+        responseType: 'blob',
+      })
+      .subscribe({
+        next: (blob) => {
+          const url = URL.createObjectURL(blob);
+          this.previewObjectUrl.set(url);
+          this.previewPdfUrl.set(kind === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(url) : null);
+          this.archivePreviewLoading.set(false);
+        },
+        error: (err) => {
+          this.archivePreviewError.set(this.errorMessage(err, 'Unable to load inline archive preview.'));
+          this.archivePreviewLoading.set(false);
+        },
+      });
   }
 
   private loadPreviewBlob(file: DepositFile, kind: 'image' | 'pdf'): void {
