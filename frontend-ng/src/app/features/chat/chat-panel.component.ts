@@ -81,7 +81,7 @@ export type AnswerToken =
   | { kind: 'em'; value: string }
   | { kind: 'code'; value: string }
   | { kind: 'link'; value: string; href: string }
-  | { kind: 'cite'; n: number };
+  | { kind: 'cite'; n: number; label?: string };
 
 type AnswerBlock =
   | { kind: 'paragraph'; tokens: AnswerToken[] }
@@ -1019,7 +1019,13 @@ const STEP_ICONS: Record<string, string> = {
                 </div>
               }
 
-              <ng-template #answerInline let-tokens="tokens">
+              <ng-template
+                #answerInline
+                let-tokens="tokens"
+                let-sources="sources"
+                let-sourceHostId="sourceHostId"
+                let-openDirectSources="openDirectSources"
+              >
                 @for (tok of tokens; track $index) {
                   @if (tok.kind === 'text') {
                     <span>{{ tok.value }}</span>
@@ -1031,12 +1037,12 @@ const STEP_ICONS: Record<string, string> = {
                     <code class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.5 font-mono text-[0.92em]">{{ tok.value }}</code>
                   } @else if (tok.kind === 'link') {
                     <a class="text-brand-500 dark:text-brand-300 underline underline-offset-2" [href]="safeMarkdownHref(tok.href)" target="_blank" rel="noreferrer">{{ tok.value }}</a>
-                  } @else if (isValidCitation(msg, tok.n)) {
+                  } @else if (isValidCitationForSources(sources, tok.n)) {
                     <button
                       type="button"
                       class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono font-semibold bg-brand-500/15 text-brand-500 dark:text-brand-300 hover:bg-brand-500/30 hover:text-brand-200 transition ring-1 ring-brand-500/30 cursor-pointer"
-                      [title]="citationTooltip(msg, tok.n)"
-                      (click)="gotoSource(msg, tok.n)"
+                      [title]="citationTooltipForSources(sources, tok.n)"
+                      (click)="gotoSourceTarget(msg, tok.n, sourceHostId || msg.id, openDirectSources !== false)"
                     >
                       {{ tok.n }}
                     </button>
@@ -1057,22 +1063,22 @@ const STEP_ICONS: Record<string, string> = {
                   class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-black/5 dark:ring-white/5"
                   [class.vigie-assistant-bubble]="executiveMode()"
                 >
-                  @for (block of renderMarkdownAnswer(msg.content); track $index) {
+                  @for (block of renderMarkdownAnswer(msg.content, msg.sources); track $index) {
                     @if (block.kind === 'heading') {
                       <h3 class="mt-2 first:mt-0 mb-1 text-[0.95rem] font-semibold text-gray-950 dark:text-white">
-                        <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens }"></ng-container>
+                        <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens, sources: msg.sources, sourceHostId: msg.id, openDirectSources: true }"></ng-container>
                       </h3>
                     } @else if (block.kind === 'list') {
                       @if (block.ordered) {
                         <ol class="my-1.5 list-decimal pl-5 space-y-0.5">
                           @for (item of block.items; track $index) {
-                            <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item }"></ng-container></li>
+                            <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item, sources: msg.sources, sourceHostId: msg.id, openDirectSources: true }"></ng-container></li>
                           }
                         </ol>
                       } @else {
                         <ul class="my-1.5 list-disc pl-5 space-y-0.5">
                           @for (item of block.items; track $index) {
-                            <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item }"></ng-container></li>
+                            <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item, sources: msg.sources, sourceHostId: msg.id, openDirectSources: true }"></ng-container></li>
                           }
                         </ul>
                       }
@@ -1080,7 +1086,7 @@ const STEP_ICONS: Record<string, string> = {
                       <pre class="my-2 max-w-full overflow-auto rounded-md bg-black/5 dark:bg-white/[0.06] p-2 text-xs leading-relaxed"><code>{{ block.value }}</code></pre>
                     } @else {
                       <p class="my-1 first:mt-0 last:mb-0">
-                        <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens }"></ng-container>
+                        <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens, sources: msg.sources, sourceHostId: msg.id, openDirectSources: true }"></ng-container>
                       </p>
                     }
                   }
@@ -1378,22 +1384,22 @@ const STEP_ICONS: Record<string, string> = {
                           <div class="mb-2 text-[10px] uppercase tracking-[0.16em] font-semibold text-violet-300">
                             Réponse Deep Search
                           </div>
-                          @for (block of renderMarkdownAnswer(deepAnswer); track $index) {
+                          @for (block of renderMarkdownAnswer(deepAnswer, deepInfo.deepSources || msg.sources); track $index) {
                             @if (block.kind === 'heading') {
                               <h3 class="mt-2 first:mt-0 mb-1 text-[0.95rem] font-semibold text-gray-950 dark:text-white">
-                                <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens }"></ng-container>
+                                <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens, sources: deepInfo.deepSources || msg.sources, sourceHostId: deepSourceHostId(msg), openDirectSources: false }"></ng-container>
                               </h3>
                             } @else if (block.kind === 'list') {
                               @if (block.ordered) {
                                 <ol class="my-1.5 list-decimal pl-5 space-y-0.5">
                                   @for (item of block.items; track $index) {
-                                    <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item }"></ng-container></li>
+                                    <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item, sources: deepInfo.deepSources || msg.sources, sourceHostId: deepSourceHostId(msg), openDirectSources: false }"></ng-container></li>
                                   }
                                 </ol>
                               } @else {
                                 <ul class="my-1.5 list-disc pl-5 space-y-0.5">
                                   @for (item of block.items; track $index) {
-                                    <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item }"></ng-container></li>
+                                    <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item, sources: deepInfo.deepSources || msg.sources, sourceHostId: deepSourceHostId(msg), openDirectSources: false }"></ng-container></li>
                                   }
                                 </ul>
                               }
@@ -1401,7 +1407,7 @@ const STEP_ICONS: Record<string, string> = {
                               <pre class="my-2 max-w-full overflow-auto rounded-md bg-black/5 dark:bg-white/[0.06] p-2 text-xs leading-relaxed"><code>{{ block.value }}</code></pre>
                             } @else {
                               <p class="my-1 first:mt-0 last:mb-0">
-                                <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens }"></ng-container>
+                                <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens, sources: deepInfo.deepSources || msg.sources, sourceHostId: deepSourceHostId(msg), openDirectSources: false }"></ng-container>
                               </p>
                             }
                           }
@@ -1411,7 +1417,12 @@ const STEP_ICONS: Record<string, string> = {
                       @if (deepInfo.deepSources?.length) {
                         <ol class="divide-y divide-white/5">
                           @for (src of deepInfo.deepSources!.slice(0, 8); track $index; let i = $index) {
-                            <li class="px-3 py-2 text-[12px]">
+                            <li
+                              [id]="sourceDomId(deepSourceHostId(msg), i + 1)"
+                              [class]="isSourceCitedForContent(deepInfo.deepAnswer || '', deepInfo.deepSources, i + 1)
+                                ? 'px-3 py-2 text-[12px] transition-all bg-violet-500/10 ring-1 ring-violet-500/25'
+                                : 'px-3 py-2 text-[12px] transition-all'"
+                            >
                               <div class="flex items-center gap-2 mb-0.5">
                                 <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-violet-500/15 text-violet-300">
                                   {{ i + 1 }}
@@ -3862,22 +3873,34 @@ export class ChatPanelComponent implements AfterViewInit {
   /**
    * Split an assistant answer into plain-text runs and citation markers
    * so the template can render ``[N]`` as clickable chips wired to the
-   * ``sources`` panel. Supports stacked refs like ``[1][2][3]`` and also
-   * the ``[1, 2]`` form sometimes produced by models.
+   * ``sources`` panel. Supports stacked refs like ``[1][2][3]``, the
+   * ``[1, 2]`` form, and source-label refs like ``[menu.html]`` when the
+   * label can be matched to a returned source.
    */
-  renderAnswer(content: string | undefined | null): AnswerToken[] {
+  renderAnswer(content: string | undefined | null, sources?: Source[] | null): AnswerToken[] {
     if (!content) return [{ kind: 'text', value: '(no response)' }];
     const tokens: AnswerToken[] = [];
-    const re = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+    const re = /\[([^\]\n]{1,180})\]/g;
     let last = 0;
     for (const m of content.matchAll(re)) {
       const idx = m.index ?? 0;
       if (idx > last) {
         tokens.push({ kind: 'text', value: content.slice(last, idx) });
       }
-      for (const part of m[1].split(',')) {
-        const n = parseInt(part.trim(), 10);
-        if (Number.isFinite(n) && n > 0) tokens.push({ kind: 'cite', n });
+      const label = m[1].trim();
+      const numeric = /^\d+(?:\s*,\s*\d+)*$/.test(label);
+      if (numeric) {
+        for (const part of label.split(',')) {
+          const n = parseInt(part.trim(), 10);
+          if (Number.isFinite(n) && n > 0) tokens.push({ kind: 'cite', n });
+        }
+      } else {
+        const n = this.resolveSourceReferenceIndex(label, sources);
+        if (n) {
+          tokens.push({ kind: 'cite', n, label });
+        } else {
+          tokens.push({ kind: 'text', value: m[0] });
+        }
       }
       last = idx + m[0].length;
     }
@@ -3887,7 +3910,7 @@ export class ChatPanelComponent implements AfterViewInit {
     return tokens.length ? tokens : [{ kind: 'text', value: content }];
   }
 
-  renderMarkdownAnswer(content: string | undefined | null): AnswerBlock[] {
+  renderMarkdownAnswer(content: string | undefined | null, sources?: Source[] | null): AnswerBlock[] {
     const text = this.normalizeAnswerMarkdown(content || '(no response)').replace(/\r\n?/g, '\n');
     const lines = text.split('\n');
     const blocks: AnswerBlock[] = [];
@@ -3899,7 +3922,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
     const flushParagraph = () => {
       const value = paragraph.join('\n').trim();
-      if (value) blocks.push({ kind: 'paragraph', tokens: this.inlineMarkdownTokens(value) });
+      if (value) blocks.push({ kind: 'paragraph', tokens: this.inlineMarkdownTokens(value, sources) });
       paragraph = [];
     };
     const flushList = () => {
@@ -3936,7 +3959,7 @@ export class ChatPanelComponent implements AfterViewInit {
         flushParagraph();
         flushList();
         const level = Math.min(4, Math.max(2, heading[1].length + 1)) as 2 | 3 | 4;
-        blocks.push({ kind: 'heading', level, tokens: this.inlineMarkdownTokens(heading[2]) });
+        blocks.push({ kind: 'heading', level, tokens: this.inlineMarkdownTokens(heading[2], sources) });
         continue;
       }
       const unordered = /^\s*[-*•]\s+(.+)$/.exec(line);
@@ -3948,7 +3971,7 @@ export class ChatPanelComponent implements AfterViewInit {
           flushList();
         }
         listOrdered = isOrdered;
-        listItems.push(this.inlineMarkdownTokens((ordered || unordered)![1]));
+        listItems.push(this.inlineMarkdownTokens((ordered || unordered)![1], sources));
         continue;
       }
       flushList();
@@ -3986,29 +4009,33 @@ export class ChatPanelComponent implements AfterViewInit {
     return !!normalizedAnswer && normalizedMessage !== normalizedAnswer;
   }
 
-  private inlineMarkdownTokens(value: string): AnswerToken[] {
+  private inlineMarkdownTokens(value: string, sources?: Source[] | null): AnswerToken[] {
     const tokens: AnswerToken[] = [];
     const re =
-      /(\[(\d+(?:\s*,\s*\d+)*)\])|(\[([^\]]+)\]\(((?:https?:\/\/|\/)[^) \t]+)\))|(\*\*([^*]+)\*\*)|(__([^_]+)__)|(`([^`]+)`)|(\*([^*]+)\*)|(_([^_]+)_)/g;
+      /(\[([^\]\n]+)\]\(((?:https?:\/\/|\/)[^) \t]+)\))|(\[(\d+(?:\s*,\s*\d+)*)\])|(\[([^\]\n]{1,180})\])|(\*\*([^*]+)\*\*)|(__([^_]+)__)|(`([^`]+)`)|(\*([^*]+)\*)|(_([^_]+)_)/g;
     let last = 0;
     for (const match of value.matchAll(re)) {
       const index = match.index ?? 0;
       if (index > last) {
         tokens.push({ kind: 'text', value: value.slice(last, index) });
       }
-      if (match[2]) {
-        for (const part of match[2].split(',')) {
+      if (match[2] && match[3]) {
+        tokens.push({ kind: 'link', value: match[2], href: match[3] });
+      } else if (match[5]) {
+        for (const part of match[5].split(',')) {
           const n = parseInt(part.trim(), 10);
           if (Number.isFinite(n) && n > 0) tokens.push({ kind: 'cite', n });
         }
-      } else if (match[4] && match[5]) {
-        tokens.push({ kind: 'link', value: match[4], href: match[5] });
-      } else if (match[7] || match[9]) {
-        tokens.push({ kind: 'strong', value: match[7] ?? match[9] ?? '' });
-      } else if (match[11]) {
-        tokens.push({ kind: 'code', value: match[11] });
-      } else if (match[13] || match[15]) {
-        tokens.push({ kind: 'em', value: match[13] ?? match[15] ?? '' });
+      } else if (match[7]) {
+        const label = match[7].trim();
+        const n = this.resolveSourceReferenceIndex(label, sources);
+        tokens.push(n ? { kind: 'cite', n, label } : { kind: 'text', value: match[0] });
+      } else if (match[9] || match[11]) {
+        tokens.push({ kind: 'strong', value: match[9] ?? match[11] ?? '' });
+      } else if (match[13]) {
+        tokens.push({ kind: 'code', value: match[13] });
+      } else if (match[15] || match[17]) {
+        tokens.push({ kind: 'em', value: match[15] ?? match[17] ?? '' });
       }
       last = index + match[0].length;
     }
@@ -4028,9 +4055,17 @@ export class ChatPanelComponent implements AfterViewInit {
     return `msg-${msgId}-src-${n}`;
   }
 
+  deepSourceHostId(msg: ChatMessage): string {
+    return `${msg.id}-deep`;
+  }
+
   /** Whether a citation ``[n]`` resolves to a real entry in ``msg.sources``. */
   isValidCitation(msg: ChatMessage, n: number): boolean {
-    return !!msg.sources && n >= 1 && n <= msg.sources.length;
+    return this.isValidCitationForSources(msg.sources, n);
+  }
+
+  isValidCitationForSources(sources: Source[] | undefined | null, n: number): boolean {
+    return !!sources && n >= 1 && n <= sources.length;
   }
 
   /**
@@ -4043,7 +4078,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (!msg.content) return [];
     const available = msg.sources?.length ?? 0;
     const seen = new Set<number>();
-    for (const tok of this.renderAnswer(msg.content)) {
+    for (const tok of this.renderAnswer(msg.content, msg.sources)) {
       if (tok.kind === 'cite' && tok.n > available) seen.add(tok.n);
     }
     return Array.from(seen).sort((a, b) => a - b);
@@ -4057,13 +4092,10 @@ export class ChatPanelComponent implements AfterViewInit {
    */
   private citedIndicesCache = new Map<string, Set<number>>();
   citedIndices(msg: ChatMessage): Set<number> {
-    const key = `${msg.id}:${(msg.content ?? '').length}`;
+    const key = `${msg.id}:${(msg.content ?? '').length}:${this.sourceSignature(msg.sources)}`;
     const cached = this.citedIndicesCache.get(key);
     if (cached) return cached;
-    const set = new Set<number>();
-    for (const tok of this.renderAnswer(msg.content)) {
-      if (tok.kind === 'cite') set.add(tok.n);
-    }
+    const set = this.citedIndicesForContent(msg.content, msg.sources);
     this.citedIndicesCache.set(key, set);
     return set;
   }
@@ -4072,9 +4104,25 @@ export class ChatPanelComponent implements AfterViewInit {
     return this.citedIndices(msg).has(index1Based);
   }
 
+  isSourceCitedForContent(content: string | undefined | null, sources: Source[] | undefined | null, index1Based: number): boolean {
+    return this.citedIndicesForContent(content, sources).has(index1Based);
+  }
+
+  private citedIndicesForContent(content: string | undefined | null, sources?: Source[] | null): Set<number> {
+    const set = new Set<number>();
+    for (const tok of this.renderAnswer(content, sources)) {
+      if (tok.kind === 'cite') set.add(tok.n);
+    }
+    return set;
+  }
+
   /** Short preview shown in a chip's native ``title`` tooltip on hover. */
   citationTooltip(msg: ChatMessage, n: number): string {
-    const src = msg.sources?.[n - 1];
+    return this.citationTooltipForSources(msg.sources, n);
+  }
+
+  citationTooltipForSources(sources: Source[] | undefined | null, n: number): string {
+    const src = sources?.[n - 1];
     if (!src) return `Source [${n}] — not available`;
     const title = this.sourceTitle(src);
     const loc = this.sourceLocator(src);
@@ -4087,15 +4135,119 @@ export class ChatPanelComponent implements AfterViewInit {
    * no-op if the citation index is out of bounds.
    */
   gotoSource(msg: ChatMessage, n: number): void {
-    if (!this.isValidCitation(msg, n)) return;
-    if (!this.isSourcesOpen(msg.id)) this.toggleSources(msg.id);
+    this.gotoSourceTarget(msg, n, msg.id, true);
+  }
+
+  gotoSourceTarget(msg: ChatMessage, n: number, sourceHostId: string, openDirectSources: boolean): void {
+    const sources = sourceHostId === this.deepSourceHostId(msg)
+      ? (msg.retrievalInfo?.deepSources?.length ? msg.retrievalInfo.deepSources : msg.sources)
+      : msg.sources;
+    if (!this.isValidCitationForSources(sources, n)) return;
+    if (openDirectSources && !this.isSourcesOpen(msg.id)) this.toggleSources(msg.id);
     setTimeout(() => {
-      const el = document.getElementById(this.sourceDomId(msg.id, n));
+      const el = document.getElementById(this.sourceDomId(sourceHostId, n));
       if (!el) return;
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       el.classList.add('ring-brand-400', 'ring-2');
       setTimeout(() => el.classList.remove('ring-brand-400', 'ring-2'), 1600);
     }, 50);
+  }
+
+  private resolveSourceReferenceIndex(label: string, sources?: Source[] | null): number | null {
+    if (!sources?.length) return null;
+    const target = this.normalizeSourceReference(label);
+    if (!target || /^[\d,\s]+$/.test(target)) return null;
+    const targetBase = this.normalizeSourceReference(this.basenameSourceReference(label));
+    const targetStem = this.stripSourceExtension(targetBase);
+    const allowLooseMatch = target.length >= 10 && /[\s._/-]/.test(label);
+    let looseMatch: number | null = null;
+
+    for (let i = 0; i < sources.length; i += 1) {
+      for (const candidate of this.sourceReferenceCandidates(sources[i])) {
+        const candidateNorm = this.normalizeSourceReference(candidate);
+        if (!candidateNorm) continue;
+        const candidateBase = this.normalizeSourceReference(this.basenameSourceReference(candidate));
+        const candidateStem = this.stripSourceExtension(candidateBase);
+        const exact =
+          target === candidateNorm ||
+          target === candidateBase ||
+          targetBase === candidateNorm ||
+          targetBase === candidateBase ||
+          (!!targetStem && targetStem.length >= 4 && targetStem === candidateStem);
+        if (exact) return i + 1;
+        if (
+          looseMatch == null &&
+          allowLooseMatch &&
+          ((target.length >= 6 && candidateNorm.includes(target)) ||
+            (candidateNorm.length >= 6 && target.includes(candidateNorm)))
+        ) {
+          looseMatch = i + 1;
+        }
+      }
+    }
+    return looseMatch;
+  }
+
+  private sourceReferenceCandidates(src: Source): string[] {
+    const meta = (src.metadata ?? {}) as Record<string, unknown>;
+    const values: string[] = [];
+    const add = (value: unknown) => {
+      if (typeof value !== 'string') return;
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      values.push(trimmed);
+      const basename = this.basenameSourceReference(trimmed);
+      if (basename && basename !== trimmed) values.push(basename);
+    };
+    add(src.title);
+    add(src.filename);
+    add(src.document_id);
+    add(src.id);
+    add(src.url);
+    for (const key of [
+      'title',
+      'filename',
+      'document_filename',
+      'document_title',
+      'source_filename',
+      'source_path',
+      'file_path',
+      'path',
+      'name',
+      'citation_label',
+      'url',
+    ]) {
+      add(meta[key]);
+    }
+    return Array.from(new Set(values));
+  }
+
+  private normalizeSourceReference(value: string): string {
+    return String(value || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[’‘]/g, "'")
+      .replace(/[“”]/g, '"')
+      .replace(/^source\s*:\s*/i, '')
+      .replace(/^["'`]+|["'`]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  private basenameSourceReference(value: string): string {
+    const clean = String(value || '').split(/[?#]/, 1)[0].replace(/\\/g, '/');
+    return clean.split('/').pop() || clean;
+  }
+
+  private stripSourceExtension(value: string): string {
+    return value.replace(/\.[a-z0-9]{1,8}$/i, '');
+  }
+
+  private sourceSignature(sources?: Source[] | null): string {
+    return (sources || [])
+      .map((source) => `${this.sourceTitle(source)}:${source.filename || ''}:${source.document_id || ''}`)
+      .join('|');
   }
 
   sourceTitle(src: Source): string {

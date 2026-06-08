@@ -485,17 +485,16 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 continue
             status = "ready" if item.get("status") == "success" else "error"
             source_results_by_name[str(filename)] = item
+            manifest_metadata = dict(document_metadata_by_name.get(str(filename)) or {})
             upsert_collection_source(
                 db,
                 collection=collection,
                 filename=str(filename),
                 status=status,
-                origin=(document_metadata_by_name.get(str(filename)) or {}).get(
-                    "origin"
-                )
-                or "upload",
+                origin=manifest_metadata.get("origin") or "upload",
                 chunk_count=int(item.get("chunks_processed") or 0),
                 source_metadata={
+                    **manifest_metadata,
                     "document_id": item.get("document_id"),
                     "table_facts_processed": item.get("table_facts_processed"),
                     "document_facts_processed": item.get("document_facts_processed"),

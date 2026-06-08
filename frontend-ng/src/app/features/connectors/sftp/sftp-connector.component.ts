@@ -30,6 +30,7 @@ interface DepositFile {
   id: string;
   access_link_id: string;
   filename: string;
+  content_type?: string | null;
   size_bytes: number;
   sha256: string;
   status: 'received' | 'rejected' | 'promoted';
@@ -37,6 +38,8 @@ interface DepositFile {
   promoted_at: string | null;
   promoted_collection_slug?: string | null;
   worker_job_id: string | null;
+  promotion_result?: Record<string, unknown> | null;
+  rejection_reason?: string | null;
 }
 
 interface QueueItem {
@@ -75,6 +78,13 @@ interface SecureDepositHealth {
 }
 
 type QueueStatusFilter = 'received' | 'rejected' | 'promoted' | 'all';
+
+interface QueueStatusSummary {
+  status: QueueStatusFilter;
+  label: string;
+  count: number;
+  sizeBytes: number;
+}
 
 const DEFAULT_QUEUE_PAGE_SIZE = 100;
 const BULK_PROMOTE_LIMIT = 25;
@@ -337,6 +347,40 @@ const BULK_PROMOTE_LIMIT = 25;
               </span>
             </div>
           </div>
+          <div class="flex flex-col gap-3 border-b border-white/5 px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+              @for (summary of queueStatusSummaries(); track summary.status) {
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11px] font-semibold ring-1 transition"
+                  [ngClass]="statusSummaryClass(summary.status, statusFilter() === summary.status)"
+                  (click)="setStatusFilter(summary.status)"
+                  [title]="summary.label + ': ' + summary.count + ' files · ' + formatBytes(summary.sizeBytes)"
+                >
+                  <span>{{ summary.label }}</span>
+                  <span class="font-mono">{{ summary.count }}</span>
+                  <span class="font-mono text-[10px] opacity-70">{{ formatBytes(summary.sizeBytes) }}</span>
+                </button>
+              }
+            </div>
+            <div class="flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-gray-500">
+              @if (hiddenByStatusCount() > 0) {
+                <span class="rounded bg-amber-500/10 px-2 py-1 text-amber-100 ring-1 ring-amber-500/20">
+                  {{ hiddenByStatusCount() }} hidden by status filter
+                </span>
+                <button
+                  type="button"
+                  class="rounded px-2 py-1 text-gray-300 ring-1 ring-white/10 hover:bg-white/5"
+                  (click)="setStatusFilter('all')"
+                >
+                  Show all
+                </button>
+              }
+              <span class="truncate">
+                Scope: {{ scopedFiles().length }} files · {{ formatBytes(scopeSizeBytes()) }}
+              </span>
+            </div>
+          </div>
           @if (files().length === 0) {
             <div class="p-8 text-center text-sm text-gray-500">No staged files.</div>
           } @else {
@@ -433,6 +477,19 @@ const BULK_PROMOTE_LIMIT = 25;
                         <h3 class="truncate text-sm font-semibold text-white">{{ item.name }}</h3>
                         <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ item.path }}</p>
                         <p class="mt-1 truncate font-mono text-[10px] text-gray-600">{{ file.sha256 }}</p>
+                        @if (file.status === 'promoted' && file.promoted_collection_slug) {
+                          <p class="mt-1 truncate text-[11px] text-emerald-300/80">
+                            Indexed target · {{ file.promoted_collection_slug }}
+                            @if (promotionIndexingStatus(file); as indexingStatus) {
+                              <span class="font-mono text-emerald-200/70">· {{ indexingStatus }}</span>
+                            }
+                          </p>
+                        }
+                        @if (file.status === 'rejected' && file.rejection_reason) {
+                          <p class="mt-1 line-clamp-2 text-[11px] text-amber-200/80">
+                            {{ file.rejection_reason }}
+                          </p>
+                        }
                       </div>
                       <div class="min-w-0">
                         <p class="truncate text-xs font-medium text-gray-200">{{ linkLabel(file.access_link_id) }}</p>
@@ -634,13 +691,24 @@ export class SftpConnectorComponent implements OnInit {
   readonly queuePageSize = signal(DEFAULT_QUEUE_PAGE_SIZE);
   readonly pageSizeOptions = [50, 100, 300];
   readonly linkLookup = computed(() => new Map(this.links().map((link) => [link.id, link])));
-  readonly filteredFiles = computed(() => {
+  readonly linkFilteredFiles = computed(() => {
     const selected = this.selectedLinkId();
+    return this.files().filter((file) => !selected || file.access_link_id === selected);
+  });
+  readonly scopedFiles = computed(() =>
+    this.filesInCurrentScope(this.linkFilteredFiles(), this.currentFolder(), this.queueSearch()),
+  );
+  readonly queueStatusSummaries = computed(() => this.buildStatusSummaries(this.scopedFiles()));
+  readonly hiddenByStatusCount = computed(() => {
     const status = this.statusFilter();
-    return this.files().filter((file) => {
-      const linkMatches = !selected || file.access_link_id === selected;
+    if (status === 'all') return 0;
+    return this.scopedFiles().filter((file) => file.status !== status).length;
+  });
+  readonly filteredFiles = computed(() => {
+    const status = this.statusFilter();
+    return this.linkFilteredFiles().filter((file) => {
       const statusMatches = status === 'all' || file.status === status;
-      return linkMatches && statusMatches;
+      return statusMatches;
     });
   });
   readonly queueItems = computed(() => this.buildQueueItems(this.filteredFiles(), this.currentFolder(), this.queueSearch()));
@@ -1007,6 +1075,27 @@ export class SftpConnectorComponent implements OnInit {
     return 'bg-red-500/10 text-red-200 ring-red-500/25';
   }
 
+  statusSummaryClass(status: QueueStatusFilter, active: boolean): string {
+    const base = active ? 'ring-white/25' : 'ring-white/10 hover:bg-white/5';
+    if (status === 'all') return `${base} ${active ? 'bg-white/10 text-white' : 'bg-white/[0.03] text-gray-300'}`;
+    if (status === 'received') return `${base} ${active ? 'bg-cyan-500/20 text-cyan-100' : 'bg-cyan-500/10 text-cyan-200'}`;
+    if (status === 'promoted') return `${base} ${active ? 'bg-emerald-500/20 text-emerald-100' : 'bg-emerald-500/10 text-emerald-200'}`;
+    return `${base} ${active ? 'bg-red-500/20 text-red-100' : 'bg-red-500/10 text-red-200'}`;
+  }
+
+  scopeSizeBytes(): number {
+    return this.scopedFiles().reduce((sum, file) => sum + (file.size_bytes || 0), 0);
+  }
+
+  promotionIndexingStatus(file: DepositFile): string | null {
+    const result = file.promotion_result || {};
+    const value =
+      result['indexing_status'] ||
+      (result['indexing'] as Record<string, unknown> | undefined)?.['status'] ||
+      (result['worker'] as Record<string, unknown> | undefined)?.['status'];
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+
   basename(path: string): string {
     const parts = path.split('/').filter(Boolean);
     return parts.at(-1) || path || 'upload';
@@ -1142,6 +1231,39 @@ export class SftpConnectorComponent implements OnInit {
       ...Array.from(folders.values()).sort((a, b) => a.name.localeCompare(b.name)),
       ...directFiles.sort((a, b) => a.name.localeCompare(b.name)),
     ];
+  }
+
+  private filesInCurrentScope(files: DepositFile[], folder: string, query: string): DepositFile[] {
+    const q = query.trim().toLowerCase();
+    if (q) {
+      return files.filter((file) => {
+        const path = this.filePath(file);
+        return path.toLowerCase().includes(q) || file.sha256?.toLowerCase().includes(q);
+      });
+    }
+    if (!folder) return files;
+    const prefix = `${folder}/`;
+    return files.filter((file) => {
+      const path = this.filePath(file);
+      return path === folder || path.startsWith(prefix);
+    });
+  }
+
+  private buildStatusSummaries(files: DepositFile[]): QueueStatusSummary[] {
+    const initial: Record<QueueStatusFilter, QueueStatusSummary> = {
+      all: { status: 'all', label: 'All', count: 0, sizeBytes: 0 },
+      received: { status: 'received', label: 'Received', count: 0, sizeBytes: 0 },
+      promoted: { status: 'promoted', label: 'Promoted', count: 0, sizeBytes: 0 },
+      rejected: { status: 'rejected', label: 'Rejected', count: 0, sizeBytes: 0 },
+    };
+    for (const file of files) {
+      const size = file.size_bytes || 0;
+      initial.all.count += 1;
+      initial.all.sizeBytes += size;
+      initial[file.status].count += 1;
+      initial[file.status].sizeBytes += size;
+    }
+    return [initial.all, initial.received, initial.promoted, initial.rejected];
   }
 
   private fileItem(file: DepositFile, path: string): QueueItem {

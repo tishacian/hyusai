@@ -163,7 +163,7 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
                 "total": len(paths),
                 "successful": len(paths),
                 "failed": 0,
-                "results": [{"status": "success", "chunks_processed": 1}],
+                "results": [{"status": "success", "chunks_processed": 1, "document_id": "doc-1"}],
             }
 
         async def get_document_count(self):
@@ -193,10 +193,21 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
         .one()
     )
     refreshed_job = db_session.query(WorkerJob).filter(WorkerJob.id == job.id).one()
+    source = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(
+            KnowledgeCollectionSource.collection_id == collection.id,
+            KnowledgeCollectionSource.filename == "manual.txt",
+        )
+        .one()
+    )
     assert result["chunk_count"] == 1
     assert refreshed_collection.status == "ready"
     assert refreshed_collection.document_count == 1
     assert refreshed_job.status == "completed"
+    assert source.source_metadata["project_code"] == "BBA120"
+    assert source.source_metadata["source_family"] == "operating_manual"
+    assert source.source_metadata["document_id"] is not None
     assert len(parse_calls) == 1
     assert (
         get_object_store().read_bytes(

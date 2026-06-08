@@ -284,11 +284,14 @@ def _synthesis_prompt(
         f"{chr(10).join(excerpts)}\n\n"
         "Redige une reponse finale en francais si la question est en francais, sinon dans la langue de la question. "
         "Appuie-toi uniquement sur les extraits ci-dessus. Si les extraits sont insuffisants, dis-le clairement. "
-        "Sois concret, cite les documents utiles par leur nom, et produis une vraie reponse assistant finale.\n\n"
+        "Sois concret et cite les sources utiles avec leur numero entre crochets, par exemple [1] ou [2]. "
+        "N'utilise pas de references documentaires brutes comme [menu.html] ou [I.2.html] dans la reponse; "
+        "si tu veux nommer un document, ecris son nom en texte normal puis ajoute la citation numerique. "
+        "Produis une vraie reponse assistant finale.\n\n"
         "Format obligatoire: Markdown lisible. Utilise des paragraphes courts et des listes a puces ou numerotees "
         "quand la reponse contient plusieurs points. Ne compacte jamais plusieurs items sous la forme "
-        "\"- item - item - item\" sur une seule ligne. Termine par une ligne Source: quand une source principale "
-        "est identifiable."
+        "\"- item - item - item\" sur une seule ligne. Termine par une ligne Sources: avec les citations "
+        "numeriques principales quand des sources sont identifiables."
     )
 
 

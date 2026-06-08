@@ -658,12 +658,14 @@ Do not include citation markers like [1] because no source was retrieved."""
         grounding_instructions = """
 Grounding instructions:
 Use the workspace context as the source of factual claims and cite retrieved sources by [number] when relevant.
+Do not write raw filename or chapter references in brackets such as [menu.html] or [I.2.html]; use the numeric source id instead.
 You may add general advisory framing only when it is clearly separated from sourced facts.
 Do not invent citations."""
     else:
         grounding_instructions = """
 Grounding instructions:
 Answer using the context above. Cite sources by their [number] when relevant.
+Do not write raw filename or chapter references in brackets such as [menu.html] or [I.2.html]; use the numeric source id instead.
 If the context is not relevant or missing, say so clearly rather than guessing."""
 
     constraint_lines: list[str] = []
