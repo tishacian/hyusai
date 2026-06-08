@@ -322,8 +322,8 @@ export interface DrawflowNode {
   class?: string;
   html?: string;
   typenode?: boolean;
-  inputs: Record<string, { connections: { node: string; input: string }[] }>;
-  outputs: Record<string, { connections: { node: string; output: string }[] }>;
+  inputs: Record<string, { connections: { node: string; input?: string; output?: string }[] }>;
+  outputs: Record<string, { connections: { node: string; input?: string; output?: string }[] }>;
   pos_x: number;
   pos_y: number;
 }
@@ -510,10 +510,22 @@ export class FlowSerializerService {
   materialize(flow: CanonicalFlow): DrawflowGraph {
     const data: Record<string, DrawflowNode> = {};
     const idToNum = new Map<string, number>();
+    const outgoing = new Map<string, CanonicalFlowEdge[]>();
+    const incoming = new Map<string, CanonicalFlowEdge[]>();
+    for (const n of flow.nodes) {
+      outgoing.set(n.id, []);
+      incoming.set(n.id, []);
+    }
+    for (const edge of flow.edges) {
+      outgoing.get(edge.from)?.push(edge);
+      incoming.get(edge.to)?.push(edge);
+    }
     flow.nodes.forEach((n, idx) => {
       const num = idx + 1;
       idToNum.set(n.id, num);
       const kind = n.kind ?? 'task';
+      const inputCount = kind === 'source' ? 0 : Math.max(1, incoming.get(n.id)?.length ?? 0);
+      const outputCount = kind === 'sink' ? 0 : Math.max(1, outgoing.get(n.id)?.length ?? 0);
       data[String(num)] = {
         id: num,
         name: String(n.type),
@@ -528,27 +540,34 @@ export class FlowSerializerService {
           canonical_config: n.config ?? null,
           canonical_inputs: n.inputs ?? null,
           canonical_outputs: n.outputs ?? null,
+          canonical_edge_meta: (outgoing.get(n.id) ?? []).map((edge) => ({ ...edge })),
         },
-        inputs: { input_1: { connections: [] } },
-        outputs: { output_1: { connections: [] } },
+        inputs: this.makePorts('input', inputCount),
+        outputs: this.makePorts('output', outputCount),
         pos_x: n.position?.x ?? 60 + idx * 260,
         pos_y: n.position?.y ?? 80,
       };
     });
 
+    const outIndex = new Map<string, number>();
     for (const edge of flow.edges) {
       const fromNum = idToNum.get(edge.from);
       const toNum = idToNum.get(edge.to);
       if (!fromNum || !toNum) continue;
       const fromNode = data[String(fromNum)];
       const toNode = data[String(toNum)];
-      fromNode.outputs['output_1'].connections.push({
+      const nextOut = (outIndex.get(edge.from) ?? 0) + 1;
+      outIndex.set(edge.from, nextOut);
+      const outputName = fromNode.outputs[`output_${nextOut}`] ? `output_${nextOut}` : 'output_1';
+      const inputName = toNode.inputs['input_1'] ? 'input_1' : Object.keys(toNode.inputs)[0];
+      if (!outputName || !inputName) continue;
+      fromNode.outputs[outputName].connections.push({
         node: String(toNum),
-        output: 'input_1',
+        output: inputName,
       });
-      toNode.inputs['input_1'].connections.push({
+      toNode.inputs[inputName].connections.push({
         node: String(fromNum),
-        input: 'output_1',
+        input: outputName,
       });
     }
 
@@ -586,6 +605,7 @@ export class FlowSerializerService {
         canonical_config: _cc,
         canonical_inputs: _cin,
         canonical_outputs: _cout,
+        canonical_edge_meta: _cem,
         ...rest
       } = node.data ?? {};
       nodes.push({
@@ -605,10 +625,25 @@ export class FlowSerializerService {
     for (const [key, node] of Object.entries(raw)) {
       const fromId = numToCanonical.get(key);
       if (!fromId) continue;
+      const edgeMeta = Array.isArray(node.data?.['canonical_edge_meta'])
+        ? (node.data?.['canonical_edge_meta'] as CanonicalFlowEdge[])
+        : [];
+      const usedMeta = new Set<number>();
       for (const out of Object.values(node.outputs ?? {})) {
         for (const conn of out.connections ?? []) {
           const toId = numToCanonical.get(conn.node);
-          if (toId) edges.push({ from: fromId, to: toId, kind: 'data' });
+          if (!toId) continue;
+          const metaIndex = edgeMeta.findIndex(
+            (edge, idx) => !usedMeta.has(idx) && edge.from === fromId && edge.to === toId,
+          );
+          const meta = metaIndex >= 0 ? edgeMeta[metaIndex] : undefined;
+          if (metaIndex >= 0) usedMeta.add(metaIndex);
+          edges.push({
+            ...(meta ?? {}),
+            from: fromId,
+            to: toId,
+            kind: meta?.kind ?? 'data',
+          });
         }
       }
     }
@@ -718,11 +753,13 @@ export class FlowSerializerService {
       if (kind === 'task') {
         const skillId = cfg['skill_id'];
         const skillSlug = cfg['skill_slug'];
+        const runtimeRef = cfg['runtime_ref'];
         const hasSkill =
           (typeof skillId === 'string' && skillId.length > 0) ||
           (typeof skillSlug === 'string' && skillSlug.length > 0);
+        const hasRuntimeRef = typeof runtimeRef === 'string' && runtimeRef.trim().length > 0;
         const isBuilderNode = CANONICAL_ID_SET.has(n.id);
-        if (!hasSkill && !isBuilderNode) {
+        if (!hasSkill && !hasRuntimeRef && !isBuilderNode) {
           issues.push({
             level: 'warn',
             node_id: n.id,
@@ -940,14 +977,97 @@ export class FlowSerializerService {
   }
 
   private nodeHtml(n: CanonicalFlowNode): string {
-    const label = n.label ?? String(n.type);
-    return `<div class="fn-title">${this.escape(label)}</div>`;
+    const label = this.escape(n.label ?? String(n.type));
+    const description = this.escape(this.nodeDescription(n));
+    const typeLabel = this.escape(this.nodeTypeLabel(n));
+    const tone = this.nodeTone(n);
+    const kind = n.kind ?? 'task';
+    return `
+      <div class="df-node df-tone-${tone} df-kind-${kind}">
+        <div class="df-node-bar"></div>
+        <div class="df-node-head">
+          <span class="df-node-icon"></span>
+          <span class="df-node-pill">${typeLabel}</span>
+        </div>
+        <div class="df-node-title">${label}</div>
+        <div class="df-node-body mono">${description}</div>
+      </div>`;
   }
 
   private extractLabel(node: DrawflowNode): string {
     const raw = node.html ?? '';
+    const title = raw.match(/class="df-node-title"[^>]*>([^<]+)</);
+    if (title?.[1]) return title[1].trim();
+    const legacy = raw.match(/class="fn-title"[^>]*>([^<]+)</);
+    if (legacy?.[1]) return legacy[1].trim();
     const match = raw.match(/>(.*?)</);
     return match?.[1] ?? node.name ?? '';
+  }
+
+  private makePorts(
+    prefix: 'input' | 'output',
+    count: number,
+  ): Record<string, { connections: { node: string; input?: string; output?: string }[] }> {
+    const ports: Record<string, { connections: { node: string; input?: string; output?: string }[] }> = {};
+    for (let i = 1; i <= count; i += 1) {
+      ports[`${prefix}_${i}`] = { connections: [] };
+    }
+    return ports;
+  }
+
+  private nodeDescription(n: CanonicalFlowNode): string {
+    const data = n.data ?? {};
+    const cfg = (n.config ?? {}) as Record<string, unknown>;
+    const explicit = data['description'];
+    if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
+    const runtime = cfg['runtime_ref'] ?? data['runtime_ref'];
+    if (typeof runtime === 'string' && runtime.trim()) return runtime.trim();
+    const skill = cfg['skill_slug'];
+    if (typeof skill === 'string' && skill.trim()) return skill.trim();
+    return String(n.type);
+  }
+
+  private nodeTypeLabel(n: CanonicalFlowNode): string {
+    const cfg = (n.config ?? {}) as Record<string, unknown>;
+    if (typeof cfg['skill_slug'] === 'string' && cfg['skill_slug']) return 'SKILL';
+    if (typeof cfg['runtime_ref'] === 'string' && cfg['runtime_ref']) return 'RUNTIME';
+    switch (n.kind ?? 'task') {
+      case 'source':
+        return 'TRIGGER';
+      case 'sink':
+        return 'OUTPUT';
+      case 'decision':
+        return 'ROUTER';
+      case 'hitl':
+        return 'HITL';
+      default:
+        return String(n.type).toUpperCase().slice(0, 14);
+    }
+  }
+
+  private nodeTone(n: CanonicalFlowNode): 'brand' | 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose' {
+    switch (n.kind ?? 'task') {
+      case 'source':
+      case 'sink':
+        return 'emerald';
+      case 'decision':
+      case 'fork':
+      case 'join':
+      case 'subflow':
+        return 'violet';
+      case 'loop':
+      case 'retry':
+      case 'hitl':
+        return 'amber';
+      default:
+        break;
+    }
+    const type = String(n.type);
+    if (type === 'guardrail') return 'rose';
+    if (type === 'retrieve') return 'violet';
+    if (type === 'llm') return 'cyan';
+    if (type === 'tool') return 'emerald';
+    return 'cyan';
   }
 
   private escape(s: string): string {

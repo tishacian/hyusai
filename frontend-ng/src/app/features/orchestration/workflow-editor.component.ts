@@ -32,6 +32,8 @@ import {
   type SystemVersionFull,
   type SystemVersionSummary,
   type System,
+  type FlowManifestUnit,
+  type FlowRuntimeManifest,
 } from '@app/core/canonical-api.service';
 import {
   RunStreamService,
@@ -259,6 +261,73 @@ export interface FlowTemplate {
       }
     </section>
 
+    @if (flowManifest(); as manifest) {
+      <section class="df-runtime-manifest t-card t-elevated rounded-md px-4 py-3 mb-3">
+        <div class="df-runtime-manifest__head">
+          <div>
+            <div class="ck-mono text-[10px] uppercase tracking-[0.14em] text-brand-300">Runtime manifest</div>
+            <div class="text-sm font-medium text-white mt-1">
+              {{ manifest.runtime_mode === 'chat_runtime' ? 'Workspace chat' : 'Run engine DAG' }}
+              @if (manifest.live_surface) {
+                <span class="ck-mono text-[11px] text-gray-500">· {{ manifest.live_surface }}</span>
+              }
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="df-tag" [attr.data-tone]="manifest.operational_sync ? 'pos' : 'cool'">
+              {{ manifest.operational_sync ? 'LIVE SYNC' : 'DAG RUNTIME' }}
+            </span>
+            @if (flowManifestLoading()) {
+              <span class="df-tag df-tag-cool"><app-icon name="loader-2" [size]="10" class="animate-spin" /> REFRESH</span>
+            }
+          </div>
+        </div>
+
+        <div class="df-runtime-grid">
+          <div class="df-runtime-card">
+            <span class="df-runtime-card__label">Units</span>
+            <strong>{{ manifest.summary?.operational_units ?? 0 }}/{{ manifest.summary?.nodes ?? 0 }}</strong>
+            <span>{{ manifest.summary?.editable_parameters ?? 0 }} params</span>
+          </div>
+          <div class="df-runtime-card">
+            <span class="df-runtime-card__label">Source</span>
+            <strong>{{ manifest.source || 'flow' }}</strong>
+            <span>{{ manifest.schema_version ? 'schema v' + manifest.schema_version : 'schema —' }}</span>
+          </div>
+          <div class="df-runtime-card df-runtime-card--wide">
+            <span class="df-runtime-card__label">Effective config</span>
+            @if (manifestEffectiveRows().length === 0) {
+              <span class="text-gray-500">No flow overrides</span>
+            } @else {
+              <div class="df-runtime-kv">
+                @for (row of manifestEffectiveRows(); track row.key) {
+                  <span>{{ row.key }}</span>
+                  <strong>{{ row.value }}</strong>
+                }
+              </div>
+            }
+          </div>
+        </div>
+
+        @if (manifestUnitsPreview().length > 0) {
+          <div class="df-runtime-units">
+            @for (unit of manifestUnitsPreview(); track unit.id) {
+              <button
+                type="button"
+                class="df-runtime-unit"
+                [attr.data-active]="unit.operational ? 'true' : 'false'"
+                [title]="unit.runtime_ref || unit.skill_slug || unit.description || unit.id"
+                (click)="selectCanvasNode(unit.id)"
+              >
+                <span>{{ unit.label }}</span>
+                <small>{{ unit.skill_slug || unit.unit_type || unit.kind }}</small>
+              </button>
+            }
+          </div>
+        }
+      </section>
+    }
+
     <div class="grid grid-cols-1 gap-3 df-shell" [attr.data-inspector]="inspectorOpen() ? 'open' : 'closed'">
       <app-flow-palette
         [palette]="palette"
@@ -358,6 +427,46 @@ export interface FlowTemplate {
                   title="Rename this node"
                 />
                 <div class="ck-mono text-[10px] text-gray-500 mt-1">id: {{ selectedNode()!.id }}</div>
+
+                @if (selectedManifestUnit(); as unit) {
+                  <div class="df-inspector-section">
+                    <div class="df-inspector-label">Runtime unit</div>
+                    <div class="df-runtime-unit-card">
+                      <div class="df-runtime-unit-card__head">
+                        <div>
+                          <strong>{{ unit.label }}</strong>
+                          <span>{{ unit.description || unit.id }}</span>
+                        </div>
+                        <span class="df-tag" [attr.data-tone]="unit.operational ? 'pos' : 'info'">
+                          {{ unit.operational ? 'OPERATIONAL' : 'MANIFEST' }}
+                        </span>
+                      </div>
+                      @if (selectedManifestRows().length > 0) {
+                        <div class="df-inspector-config ck-mono">
+                          @for (row of selectedManifestRows(); track row.key) {
+                            <div class="df-config-row">
+                              <span class="text-gray-400">{{ row.key }}</span>
+                              <span class="text-gray-200">{{ row.value }}</span>
+                            </div>
+                          }
+                        </div>
+                      }
+                      @if (selectedManifestFieldRows().length > 0) {
+                        <div class="df-runtime-fields">
+                          @for (field of selectedManifestFieldRows(); track field.key) {
+                            <div class="df-runtime-field">
+                              <div>
+                                <span>{{ field.key }}</span>
+                                <small>{{ field.source }}</small>
+                              </div>
+                              <strong>{{ field.value }}</strong>
+                            </div>
+                          }
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
 
                 <!-- Debugger breakpoint toggle — only visible when debug mode is active -->
                 @if (debugMode() !== 'off') {
@@ -813,6 +922,34 @@ export interface FlowTemplate {
                     Metrics appear after this System executes a Run. Until then, this inspector focuses on contract, binding and config.
                   </div>
                 </div>
+
+                @if (runtimeEvidenceRows().length > 0) {
+                  <div class="df-inspector-section">
+                    <div class="df-inspector-label">Runtime evidence</div>
+                    <div class="df-inspector-config ck-mono">
+                      @for (row of runtimeEvidenceRows(); track row.key) {
+                        <div class="df-config-row">
+                          <span class="text-gray-400">{{ row.key }}</span>
+                          <span class="text-gray-200">{{ row.value }}</span>
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
+
+                @if (promptBlocks().length > 0) {
+                  <div class="df-inspector-section">
+                    <div class="df-inspector-label">Prompts & instructions</div>
+                    <div class="space-y-2">
+                      @for (block of promptBlocks(); track block.title) {
+                        <div class="df-prompt-block">
+                          <div class="df-prompt-block__title">{{ block.title }}</div>
+                          <pre class="df-prompt-block__body">{{ block.body }}</pre>
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
               </div>
             }
           </div>
@@ -1116,6 +1253,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   readonly systemId = signal<string | null>(null);
   readonly system = signal<System | null>(null);
   readonly saving = signal(false);
+  readonly flowManifest = signal<FlowRuntimeManifest | null>(null);
+  readonly flowManifestLoading = signal(false);
 
   // Semantic projection of the current canvas.
   readonly nodeCount = signal(0);
@@ -1230,7 +1369,58 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       value: this.extended() ? 'Yes' : 'No',
       tone: this.extended() ? 'warn' : 'neutral',
     },
+    {
+      label: 'Runtime',
+      value: this.flowManifest()?.operational_sync ? 'Synced' : 'DAG',
+      tone: this.flowManifest()?.operational_sync ? 'pos' : 'neutral',
+    },
   ]);
+
+  readonly manifestUnitsPreview = computed(() =>
+    (this.flowManifest()?.unit_catalog ?? []).slice(0, 8),
+  );
+
+  readonly manifestEffectiveRows = computed(() => {
+    const cfg = (this.flowManifest()?.effective_config ?? {}) as Record<string, unknown>;
+    return [
+      ['assistant_profile', cfg['assistant_profile']],
+      ['knowledge_scope', cfg['knowledge_scope']],
+      ['retrieval', cfg['retrieval_defaults']],
+      ['grounding', cfg['grounding']],
+      ['source_policy', cfg['source_policy']],
+    ]
+      .filter(([, value]) => value !== undefined && value !== null && value !== '')
+      .map(([key, value]) => ({ key: String(key), value: this.compactInspectorValue(value, 160) }));
+  });
+
+  readonly selectedManifestUnit = computed<FlowManifestUnit | null>(() => {
+    const node = this.selectedNode();
+    if (!node) return null;
+    return (this.flowManifest()?.unit_catalog ?? []).find((unit) => unit.id === node.id) ?? null;
+  });
+
+  readonly selectedManifestRows = computed(() => {
+    const unit = this.selectedManifestUnit();
+    if (!unit) return [];
+    return [
+      ['unit_type', unit.unit_type],
+      ['runtime_status', unit.runtime_status],
+      ['runtime_ref', unit.runtime_ref],
+      ['skill_slug', unit.skill_slug],
+      ['implementation', unit.implementation?.source],
+    ]
+      .filter(([, value]) => value !== undefined && value !== null && value !== '')
+      .map(([key, value]) => ({ key: String(key), value: this.compactInspectorValue(value, 220) }));
+  });
+
+  readonly selectedManifestFieldRows = computed(() =>
+    (this.selectedManifestUnit()?.editable_fields ?? []).slice(0, 12).map((field) => ({
+      key: field.key,
+      value: this.compactInspectorValue(field.current_value ?? field.type ?? 'field', 220),
+      source: field.source,
+      required: field.required === true,
+    })),
+  );
 
   readonly palette: PaletteItem[] = [
     // ── Execution-kind DAG primitives (Vague C) ──
@@ -1645,6 +1835,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     }
     const { canonical_id: _ci, canonical_type: _ct, canonical_kind: _ck,
             canonical_config: _cc, canonical_inputs: _cin, canonical_outputs: _cout,
+            canonical_edge_meta: _cem,
             ...rest } = nodeData.data ?? {};
     this.selectedNodeId.set(rawId);
     this.selectedNode.set({
@@ -1661,6 +1852,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   private extractLabelFromHtml(html: string): string {
+    const nodeTitle = html.match(/class="df-node-title"[^>]*>([^<]+)</);
+    if (nodeTitle?.[1]) return nodeTitle[1].trim();
+    const fnTitle = html.match(/class="fn-title"[^>]*>([^<]+)</);
+    if (fnTitle?.[1]) return fnTitle[1].trim();
     const match = html.match(/class="df-title[^"]*"[^>]*>([^<]+)</);
     if (match?.[1]) return match[1].trim();
     const fallback = html.match(/>(.*?)</);
@@ -1752,6 +1947,21 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     }
     this.importFlow(flow);
     this.zone.run(() => this.source.set(flow.source ?? 'form'));
+    this.loadFlowManifest(systemId);
+  }
+
+  private loadFlowManifest(systemId: string): void {
+    this.flowManifestLoading.set(true);
+    this.canonical.getSystemFlowManifest(systemId).subscribe({
+      next: (manifest) => {
+        this.flowManifestLoading.set(false);
+        this.flowManifest.set(manifest);
+      },
+      error: () => {
+        this.flowManifestLoading.set(false);
+        this.flowManifest.set(null);
+      },
+    });
   }
 
   /** Import a canonical flow into the current Drawflow instance. */
@@ -1798,6 +2008,24 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       return this.editor?.export?.() ?? { drawflow: { Home: { data: {} } } };
     } catch {
       return { drawflow: { Home: { data: {} } } };
+    }
+  }
+
+  selectCanvasNode(canonicalId: string | undefined): void {
+    if (!canonicalId) return;
+    const graph = this.exportGraph();
+    for (const [rawId, node] of Object.entries(graph.drawflow?.Home?.data ?? {})) {
+      const cid = (node.data?.['canonical_id'] as string) || `flow.${rawId}`;
+      if (cid !== canonicalId) continue;
+      try {
+        this.editor?.node_selected?.(rawId);
+      } catch {
+        // Some Drawflow builds do not expose node_selected. The inspector
+        // still updates from the graph, which is the important part.
+      }
+      this.onNodeSelected(rawId);
+      this.inspectorOpen.set(true);
+      return;
     }
   }
 
@@ -2610,6 +2838,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           this.system.set(res.system);
           this.source.set('flow');
           this.extended.set(!!merged.extended);
+          this.loadFlowManifest(sid);
           // Server-side warnings survive the save — surface them in the
           // strip alongside client issues so the user sees the full
           // picture (e.g. missing HITL prompt that the backend tolerates
@@ -3595,6 +3824,119 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       return this.skills().find((s) => s.slug === slug) ?? null;
     }
     return null;
+  }
+
+  runtimeEvidenceRows(): { key: string; value: string }[] {
+    const node = this.selectedNode();
+    if (!node) return [];
+    const rows: { key: string; value: string }[] = [];
+    const cfg = (node.config ?? {}) as Record<string, unknown>;
+    const data = (node.data ?? {}) as Record<string, unknown>;
+    const add = (key: string, value: unknown, max = 220) => {
+      if (value === undefined || value === null || value === '') return;
+      rows.push({ key, value: this.compactInspectorValue(value, max) });
+    };
+
+    add('type', node.type, 80);
+    add('kind', node.kind ?? 'task', 80);
+    add('skill_slug', cfg['skill_slug'], 140);
+    add('runtime_ref', cfg['runtime_ref'] ?? data['runtime_ref'], 260);
+    add('stage', data['stage'], 120);
+    add('surface', data['surface'], 120);
+    add('assistant_profile', data['assistant_profile'], 160);
+    add('knowledge_scope', data['knowledge_scope'], 180);
+    add('system_fallback', data['system_fallback'], 180);
+    add('render_contract', data['render_contract'], 180);
+
+    for (const key of [
+      'routes',
+      'routing_order',
+      'handlers',
+      'guardrails',
+      'triggers',
+      'retrieval_defaults',
+      'budget_policy',
+      'source_policy',
+      'grounding',
+      'actions',
+      'response_contract',
+      'input_contract',
+      'chunk_types',
+    ]) {
+      add(key, data[key], 260);
+    }
+
+    const branches = (cfg['branches'] ?? data['branches']) as unknown;
+    if (Array.isArray(branches)) {
+      add(
+        'branches',
+        branches
+          .map((branch) => {
+            if (!branch || typeof branch !== 'object') return String(branch);
+            const b = branch as Record<string, unknown>;
+            return `${b['label'] ?? 'branch'}: ${b['condition'] ?? '—'}`;
+          })
+          .join(' | '),
+        360,
+      );
+    }
+    add('default_branch', cfg['default_branch'], 160);
+
+    return rows;
+  }
+
+  promptBlocks(): { title: string; body: string }[] {
+    const node = this.selectedNode();
+    if (!node) return [];
+    const data = (node.data ?? {}) as Record<string, unknown>;
+    const contract = this.objectValue(data['prompt_contract']);
+    if (!contract) return [];
+
+    const blocks: { title: string; body: string }[] = [];
+    const add = (title: string, value: unknown) => {
+      if (value === undefined || value === null || value === '') return;
+      const body = Array.isArray(value)
+        ? value.map((item) => `- ${String(item)}`).join('\n')
+        : typeof value === 'object'
+          ? JSON.stringify(value, null, 2)
+          : String(value);
+      if (body.trim()) blocks.push({ title, body: body.trim() });
+    };
+
+    add('Base system prompt', contract['base_system_prompt'] ?? contract['system_prompt']);
+    add('Balanced grounding appendix', contract['balanced_grounding_appendix'] ?? contract['balanced_appendix']);
+    add('Reasoning template · factual', contract['reasoning_template_factual']);
+    add('RAG user prompt builder', contract['rag_user_prompt_builder']);
+    add('System prompt builder', contract['system_prompt_builder']);
+    add('Answer shaping instructions', contract['answer_shaping_instructions']);
+    return blocks;
+  }
+
+  private objectValue(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  }
+
+  private compactInspectorValue(value: unknown, maxChars = 160): string {
+    let text: string;
+    if (Array.isArray(value)) {
+      text = value
+        .map((item) => {
+          if (item && typeof item === 'object') {
+            const obj = item as Record<string, unknown>;
+            return String(obj['label'] ?? obj['name'] ?? obj['id'] ?? JSON.stringify(obj));
+          }
+          return String(item);
+        })
+        .join(', ');
+    } else if (value && typeof value === 'object') {
+      text = JSON.stringify(value);
+    } else {
+      text = String(value);
+    }
+    text = text.replace(/\s+/g, ' ').trim();
+    return text.length > maxChars ? text.slice(0, Math.max(0, maxChars - 1)).trimEnd() + '…' : text;
   }
 
   /**

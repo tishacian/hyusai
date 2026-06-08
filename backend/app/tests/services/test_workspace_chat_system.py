@@ -1,6 +1,7 @@
 from app.models.capability import Capability
 from app.models.system import System
 from app.models.workspace import Workspace
+from app.api.v1.endpoints.chat import ChatRequest, _apply_workspace_chat_flow_defaults
 from app.services.chains.dag_validator import validate_flow
 from app.services.skills_registry.seed import seed_skills_and_capabilities
 from app.services.skills_registry.wrappers import runtime_status
@@ -28,8 +29,24 @@ def test_workspace_chat_capability_and_system_are_seeded(db_session):
     assert system.flow_definition["variant"] == WORKSPACE_CHAT_VARIANT
     assert system.flow_definition["ui"]["entry_route"] == "chat"
     assert system.flow_definition["template_id"] == WORKSPACE_CHAT_VARIANT
+    assert system.flow_definition["runtime_contract"]["source_of_truth"] == "backend/app/api/v1/endpoints/chat.py"
+    assert system.flow_definition["prompt_contract"]["base_system_prompt"]
     assert workspace_chat_system_id(db_session, workspace.id) == system.id
     assert [issue for issue in validate_flow(system.flow_definition) if issue.level == "error"] == []
+    assert [issue for issue in validate_flow(system.flow_definition) if issue.code == "task_no_skill"] == []
+    node_ids = {node["id"] for node in system.flow_definition["nodes"]}
+    assert {
+        "router.fast_exit",
+        "skill.grounding_policy",
+        "runtime.prompt_assembly",
+        "skill.fast_answer",
+        "runtime.deep_router",
+        "skill.answer_audit",
+        "chat.response",
+    }.issubset(node_ids)
+    prompt_node = next(node for node in system.flow_definition["nodes"] if node["id"] == "runtime.prompt_assembly")
+    assert "base_system_prompt" in prompt_node["data"]["prompt_contract"]
+    assert "procurement_agent._build_rag_user_prompt" in prompt_node["data"]["runtime_ref"]
 
     capability = db_session.query(Capability).filter(Capability.slug == WORKSPACE_CHAT_CAPABILITY_SLUG).one()
     assert system.capability_id == capability.id
@@ -94,6 +111,16 @@ def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
         "andritz-notices-techniques-spl-pilot",
     ]
     assert system.retrieval_mode_default == "chah"
+
+    request = ChatRequest(query="quelle vitesse AKK200 ?")
+    resolved_id = _apply_workspace_chat_flow_defaults(db_session, workspace=workspace, request=request)
+    assert resolved_id == system.id
+    assert request.agent_id == system.id
+    assert request.assistant_profile == "andritz_spl_advisor"
+    assert request.knowledge_scope == "andritz-spl-knowledge-experiment"
+    assert request.rag_pipeline_mode == "chah"
+    assert request.top_k == 6
+    assert request.system_prompt and "curated knowledge base" in request.system_prompt
 
 
 def test_sentinel_workspace_chat_reuses_aya_profile(db_session):

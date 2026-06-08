@@ -11,7 +11,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Mapping, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -40,6 +40,7 @@ from app.services.action_plans import action_context_for_chat
 from app.services.actions import handle_registry_chat_action, handle_transverse_chat_action
 from app.services.chat_grounding import resolve_grounding_policy
 from app.services.chat_trivial_bypass import TrivialBypass, maybe_trivial_bypass
+from app.services.systems.bootstrap import WORKSPACE_CHAT_VARIANT
 from app.services.systems.bootstrap import workspace_chat_system_id
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
 from app.services.workspace_maps import handle_map_chat_query
@@ -133,6 +134,87 @@ def _resolve_system_id(
         .first()
     )
     return row[0] if row else workspace_chat_system_id(db, workspace_id)
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _chat_flow_node(flow: Dict[str, Any], node_id: str) -> Dict[str, Any]:
+    nodes = flow.get("nodes")
+    if not isinstance(nodes, list):
+        return {}
+    for node in nodes:
+        if isinstance(node, Mapping) and node.get("id") == node_id:
+            return dict(node)
+    return {}
+
+
+def _apply_workspace_chat_flow_defaults(
+    db: Session,
+    *,
+    workspace: Workspace,
+    request: ChatRequest,
+) -> Optional[str]:
+    """Fold editable Flow Builder chat defaults into a request.
+
+    The Flow Builder does not replace the hardened chat endpoint. Instead it
+    owns a versioned manifest whose safe defaults are read on every turn:
+    profile, scope, retrieval budget, RAG mode and optional system prompt.
+    User-supplied request fields always win.
+    """
+    system_id = _resolve_system_id(db, workspace.id, request.agent_id)
+    if not system_id:
+        return None
+    system = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+    if not system:
+        return None
+    flow = _as_dict(system.flow_definition)
+    if flow.get("variant") != WORKSPACE_CHAT_VARIANT:
+        return system_id
+
+    request.agent_id = system.id
+    chat = _as_dict(flow.get("chat"))
+    prompt_contract = _as_dict(flow.get("prompt_contract"))
+    budget_node = _as_dict(_chat_flow_node(flow, "runtime.settings_budget").get("data"))
+    grounding_node = _as_dict(_chat_flow_node(flow, "skill.grounding_policy").get("data"))
+    fast_answer_node = _as_dict(_chat_flow_node(flow, "skill.fast_answer").get("data"))
+    node_prompt_contract = _as_dict(fast_answer_node.get("prompt_contract"))
+    retrieval_defaults = _as_dict(budget_node.get("retrieval_defaults")) or _as_dict(chat.get("retrieval_defaults"))
+
+    if not request.assistant_profile and chat.get("assistant_profile"):
+        request.assistant_profile = str(chat["assistant_profile"])
+    if not request.knowledge_scope and chat.get("knowledge_scope"):
+        request.knowledge_scope = str(chat["knowledge_scope"])
+    if request.latency_profile is None and retrieval_defaults.get("latency_profile") in {"fast", "balanced", "deep"}:
+        request.latency_profile = retrieval_defaults["latency_profile"]  # type: ignore[assignment]
+    if request.retrieval_profile is None and retrieval_defaults.get("retrieval_profile"):
+        request.retrieval_profile = str(retrieval_defaults["retrieval_profile"])
+    if request.rag_pipeline_mode is None and request.rag_mode_override is None and retrieval_defaults.get("mode"):
+        request.rag_pipeline_mode = str(retrieval_defaults["mode"])
+    if request.top_k is None and retrieval_defaults.get("top_k") is not None:
+        try:
+            request.top_k = int(retrieval_defaults["top_k"])
+        except (TypeError, ValueError):
+            pass
+    if request.prompt_type is None and prompt_contract.get("default_prompt_type"):
+        request.prompt_type = str(prompt_contract["default_prompt_type"])
+
+    # Grounding config can set a default mode, but the normal resolver still
+    # enforces strict guards for documents/current-state/workspace facts.
+    grounding = _as_dict(grounding_node.get("grounding")) or _as_dict(chat.get("grounding"))
+    if request.grounding_mode is None and grounding.get("default_mode") in {"strict", "balanced"}:
+        request.grounding_mode = grounding["default_mode"]  # type: ignore[assignment]
+
+    # The prompt is intentionally restricted to the chat flow's prompt contract.
+    # It lets Flow Builder edits change the provider instruction while keeping
+    # all retrieval and grounding policy guards active downstream.
+    if request.system_prompt is None:
+        system_prompt = node_prompt_contract.get("system_prompt") or prompt_contract.get("base_system_prompt")
+        if isinstance(system_prompt, str) and system_prompt.strip():
+            request.system_prompt = system_prompt
+
+    return system_id
 
 
 def _user_id(user: Optional[User]) -> Optional[str]:
@@ -1125,6 +1207,7 @@ async def chat_completion(
 ):
     """Non-streaming chat completion (scoped to current workspace)."""
     try:
+        _apply_workspace_chat_flow_defaults(db, workspace=workspace, request=request)
         chat_session = _ensure_chat_session(
             db,
             workspace=workspace,
@@ -1744,6 +1827,7 @@ async def create_deep_retrieval_job(
     from app.services.rag.context import get_retrieval_profile
     from app.services.workspace_jobs import create_workspace_job, dispatch_workspace_job, serialize_job
 
+    _apply_workspace_chat_flow_defaults(db, workspace=workspace, request=request)
     try:
         validated_query = query_validator.validate(request.query)
     except ValidationError as e:
@@ -1976,6 +2060,7 @@ async def chat_stream(
         )
         try:
             provided_session_id = request.session_id
+            _apply_workspace_chat_flow_defaults(db, workspace=workspace, request=request)
             try:
                 chat_session = _ensure_chat_session(
                     db,

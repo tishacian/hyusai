@@ -180,14 +180,16 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
         if kind == "task":
             skill_id = cfg.get("skill_id")
             skill_slug = cfg.get("skill_slug")
+            runtime_ref = cfg.get("runtime_ref")
             has_skill = (
                 isinstance(skill_id, str)
                 and skill_id
                 or isinstance(skill_slug, str)
                 and skill_slug
             )
+            has_runtime_ref = isinstance(runtime_ref, str) and bool(runtime_ref.strip())
             is_builder_node = nid in _CANONICAL_BUILDER_IDS
-            if not has_skill and not is_builder_node:
+            if not has_skill and not has_runtime_ref and not is_builder_node:
                 issues.append(
                     ValidationIssue(
                         level="warn",

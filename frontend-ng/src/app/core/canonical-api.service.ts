@@ -176,6 +176,66 @@ export interface System {
   updated_at?: string;
 }
 
+export interface FlowManifestField {
+  key: string;
+  source: string;
+  type?: string;
+  required?: boolean;
+  description?: string | null;
+  enum?: string[] | null;
+  current_value?: unknown;
+}
+
+export interface FlowManifestUnit {
+  id: string;
+  label: string;
+  kind: string;
+  node_type?: string;
+  unit_type?: string;
+  description?: string | null;
+  runtime_ref?: string | null;
+  skill_slug?: string | null;
+  skill_id?: string | null;
+  runtime_status?: 'bound' | 'stub' | 'unbound' | 'catalog_only' | 'manifest_only';
+  operational?: boolean;
+  editable_fields?: FlowManifestField[];
+  parameter_count?: number;
+  implementation?: {
+    source?: string;
+    execution?: Record<string, unknown>;
+    input_schema?: Record<string, unknown>;
+    output_schema?: Record<string, unknown>;
+  };
+}
+
+export interface FlowRuntimeManifest {
+  system_id: string;
+  system_name: string;
+  variant?: string | null;
+  schema_version?: number | null;
+  source?: string | null;
+  runtime_mode?: 'chat_runtime' | 'run_engine_dag' | string;
+  operational_sync?: boolean;
+  live_surface?: string | null;
+  runtime_contract?: Record<string, unknown>;
+  effective_config?: Record<string, unknown>;
+  unit_catalog?: FlowManifestUnit[];
+  summary?: {
+    nodes?: number;
+    edges?: number;
+    operational_units?: number;
+    runtime_refs?: number;
+    skill_units?: number;
+    editable_parameters?: number;
+  };
+  sync_controls?: {
+    chat_reads_flow_overrides?: boolean;
+    flow_definition_persists_on_save?: boolean;
+    versioned?: boolean;
+    runtime_note?: string;
+  };
+}
+
 /** Structured validation diagnostic for a flow graph. Mirrors
  *  ``FlowValidationIssue`` from ``flow-serializer.service.ts`` and the
  *  backend ``services.chains.dag_validator.ValidationIssue`` shape so a
@@ -604,6 +664,12 @@ export class CanonicalApiService {
 
   getSystem(id: string): Observable<System | null> {
     return this.api.get<System>(`/systems/${id}`).pipe(catchError(() => of(null)));
+  }
+
+  getSystemFlowManifest(id: string): Observable<FlowRuntimeManifest | null> {
+    return this.api
+      .get<FlowRuntimeManifest>(`/systems/${id}/flow-manifest`)
+      .pipe(catchError(() => of(null)));
   }
 
   createSystem(body: Partial<System>): Observable<System | null> {

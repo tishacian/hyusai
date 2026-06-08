@@ -227,6 +227,55 @@ def _workspace_chat_profile(workspace: Workspace) -> Dict[str, Any]:
 
 
 def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, Skill]) -> Dict[str, object]:
+    def prompt_contract() -> Dict[str, object]:
+        try:
+            from app.agents.procurement_agent import BALANCED_GROUNDING_APPENDIX, SYSTEM_PROMPT
+            from app.services.system_prompts import SYSTEM_PROMPT_TEMPLATES, SystemPromptType
+
+            factual_template = SYSTEM_PROMPT_TEMPLATES.get(SystemPromptType.FACTUAL, "")
+        except Exception:  # noqa: BLE001 - seed must never fail because prompt modules changed.
+            SYSTEM_PROMPT = (
+                "You are an intelligent assistant with access to a curated knowledge base.\n\n"
+                "Answer questions accurately and concisely using the retrieved context.\n"
+                "When the context contains relevant information, cite it specifically.\n"
+                "If no relevant context is available, say so clearly rather than guessing.\n"
+                "Do not reproduce generic supplier-document footers such as \"contact Andritz for more information\" "
+                "as advice in the chat; Agentium users in the Andritz workspace are already Andritz experts.\n\n"
+                "Be professional, precise, and helpful."
+            )
+            BALANCED_GROUNDING_APPENDIX = (
+                "Grounding policy for this turn:\n"
+                "- Use retrieved workspace context first whenever it exists.\n"
+                "- If no relevant workspace context is available and the user asks for advice, explanation, drafting, "
+                "planning, or general reasoning, answer from general knowledge.\n"
+                "- For workspace-specific facts, documents, live/current state, numbers, actions, agenda, security/OSINT, "
+                "or operational claims, do not invent."
+            )
+            factual_template = (
+                "You are an AI assistant specialized in providing precise and factual information.\n\n"
+                "Context: {context}\n\nQuestion: {question}\n\n"
+                "Provide a clear factual response based on the context."
+            )
+        return {
+            "default_prompt_type": "factual",
+            "base_system_prompt": SYSTEM_PROMPT,
+            "balanced_grounding_appendix": BALANCED_GROUNDING_APPENDIX,
+            "reasoning_template_factual": factual_template,
+            "rag_user_prompt_builder": "app.agents.procurement_agent._build_rag_user_prompt",
+            "system_prompt_builder": "app.agents.procurement_agent._system_prompt_with_grounding",
+            "answer_shaping_instructions": [
+                "Start with a concise synthesis of what the retrieved content says.",
+                "Use numeric source ids when workspace sources exist; do not emit raw filename references as citations.",
+                "For broad questions, give 3 to 5 key points.",
+                "If retrieved content is thin or contradictory, name the gap explicitly.",
+                "Do not end with generic Andritz contact boilerplate unless the user asked for contacts.",
+            ],
+        }
+
+    prompts = prompt_contract()
+    retrieval_defaults = _as_dict(profile.get("retrieval_defaults"))
+    source_policy = _as_dict(profile.get("source_policy"))
+
     def node(
         node_id: str,
         *,
@@ -237,14 +286,17 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
         y: int,
         slug: Optional[str] = None,
         data: Optional[Dict[str, object]] = None,
+        config: Optional[Dict[str, object]] = None,
         inputs: Optional[List[Dict[str, object]]] = None,
         outputs: Optional[List[Dict[str, object]]] = None,
     ) -> Dict[str, object]:
         skill = skills.get(slug or "")
-        config: Dict[str, object] = {}
+        node_config: Dict[str, object] = dict(config or {})
         if slug:
-            config["skill_slug"] = slug
-            config["skill_id"] = skill.id if skill else None
+            node_config["skill_slug"] = slug
+            node_config["skill_id"] = skill.id if skill else None
+        if data and data.get("runtime_ref") and "runtime_ref" not in node_config:
+            node_config["runtime_ref"] = data["runtime_ref"]
         return {
             "id": node_id,
             "type": node_type,
@@ -252,110 +304,375 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
             "label": label,
             "position": {"x": x, "y": y},
             "data": data or {},
-            "config": config,
+            "config": node_config,
             "inputs": inputs or [],
             "outputs": outputs or [],
         }
 
     nodes: List[Dict[str, object]] = [
         node(
-            "chat.user_message",
+            "chat.request",
             kind="source",
             node_type="input",
-            label="User chat turn",
+            label="/chat request",
             x=40,
-            y=220,
-            data={"surface": "/chat", "quick_mode": True},
-            outputs=[{"name": "query", "schema": "string"}],
+            y=280,
+            data={
+                "description": "Streaming and non-streaming chat entrypoint.",
+                "surface": "/chat",
+                "routes": ["/api/v1/chat/stream", "/api/v1/chat/completion"],
+                "quick_mode": True,
+                "input_contract": {
+                    "query": "string",
+                    "agent_id": "optional System id; falls back to workspace chat System",
+                    "assistant_profile": profile.get("assistant_profile"),
+                    "knowledge_scope": profile.get("knowledge_scope"),
+                    "grounding_mode": "strict | balanced",
+                    "latency_profile": "fast | balanced | deep",
+                },
+            },
+            outputs=[{"name": "request", "schema": "ref:chat.request"}],
         ),
         node(
-            "skill.chat_trivial_bypass",
+            "runtime.session_system_context",
             kind="task",
-            node_type="chat_trivial_bypass_v1",
-            label="Trivial bypass",
+            node_type="tool",
+            label="Resolve session, System & Context",
             x=300,
-            y=90,
+            y=280,
+            data={
+                "description": "Bind the turn to the chat session, workspace chat System and selected Context.",
+                "runtime_ref": "chat._ensure_chat_session + chat._resolve_system_id + chat._resolve_chat_context + chat._apply_context_to_chat_request",
+                "system_fallback": "workspace_chat_system_id",
+                "context_mode": "replace | combine",
+                "assistant_profile": profile.get("assistant_profile"),
+                "knowledge_scope": profile.get("knowledge_scope"),
+            },
+            inputs=[{"name": "request", "schema": "ref:chat.request"}],
+            outputs=[{"name": "scoped_request", "schema": "ref:chat.request.scoped"}],
+        ),
+        node(
+            "runtime.query_validation",
+            kind="task",
+            node_type="guardrail",
+            label="Validate query",
+            x=560,
+            y=280,
+            data={
+                "description": "Normalize and validate the user query before routing.",
+                "runtime_ref": "QueryValidator.validate",
+                "empty_query_path": "safe local trivial bypass",
+            },
+            inputs=[{"name": "scoped_request", "schema": "ref:chat.request.scoped"}],
+            outputs=[{"name": "validated_query", "schema": "string"}],
+        ),
+        node(
+            "router.fast_exit",
+            kind="decision",
+            node_type="router",
+            label="Fast-exit router",
+            x=820,
+            y=280,
+            data={
+                "description": "Exact runtime order before full RAG orchestration.",
+                "runtime_ref": "chat.chat_stream / chat.chat_completion pre-orchestrator routing",
+                "routing_order": [
+                    "trivial_bypass",
+                    "canonical_answer_cache",
+                    "workspace_action_router",
+                    "rag_orchestrator",
+                ],
+            },
+            config={
+                "branches": [
+                    {"label": "trivial_bypass", "condition": "maybe_trivial_bypass(query) && no pending action"},
+                    {"label": "canonical_answer", "condition": "no context_id and no knowledge_scope and canonical answer match"},
+                    {"label": "workspace_action", "condition": "registry/calendar/action-plan/visual/map/vigie handler matches"},
+                    {"label": "rag_orchestrator", "condition": "default route"},
+                ],
+                "default_branch": "rag_orchestrator",
+                "runtime_ref": "chat.maybe_trivial_bypass + chat._canonical_answer_hit + action handlers",
+            },
+            inputs=[{"name": "validated_query", "schema": "string"}],
+            outputs=[{"name": "route", "schema": "string"}],
+        ),
+        node(
+            "skill.trivial_bypass",
+            kind="task",
+            node_type="guardrail",
+            label="Trivial bypass",
+            x=1080,
+            y=60,
             slug="chat_trivial_bypass_v1",
-            data={"stage": "latency_guard", "description": "Handle greetings/acks without retrieval."},
+            data={
+                "stage": "latency_guard",
+                "description": "Handle greetings/thanks/acks locally without provider or retrieval.",
+                "runtime_ref": "app.services.chat_trivial_bypass.maybe_trivial_bypass",
+                "guardrails": [
+                    "refuses question-like text",
+                    "refuses domain/document/reference terms",
+                    "refuses long messages",
+                ],
+            },
             inputs=[{"name": "query", "schema": "string"}],
             outputs=[{"name": "bypass", "schema": "object"}],
         ),
         node(
-            "skill.chat_action_resolver",
+            "runtime.canonical_answer",
             kind="task",
-            node_type="chat_action_resolver_v1",
-            label="Action resolver",
-            x=300,
-            y=220,
+            node_type="tool",
+            label="Canonical answer cache",
+            x=1080,
+            y=180,
+            data={
+                "description": "Return a curated answer hit only when no Context/Knowledge Scope override is selected.",
+                "runtime_ref": "chat._canonical_answer_hit",
+                "side_effect": "record canonical answer hit",
+            },
+            inputs=[{"name": "query", "schema": "string"}],
+            outputs=[{"name": "canonical_answer", "schema": "object"}],
+        ),
+        node(
+            "skill.action_resolver",
+            kind="task",
+            node_type="tool",
+            label="Workspace action router",
+            x=1080,
+            y=350,
             slug="chat_action_resolver_v1",
-            data={"stage": "actions", "actions": profile.get("actions") or {}},
+            data={
+                "stage": "actions",
+                "description": "Sequentially probes action manifests and workspace-specific handlers; side effects still require their own policy.",
+                "runtime_ref": "handle_registry_chat_action -> handle_calendar_chat_action -> handle_transverse_chat_action -> handle_visual_chat_query -> handle_map_chat_query -> _vigie_executive_quick_reply",
+                "actions": profile.get("actions") or {},
+                "handlers": [
+                    "app.services.actions.handle_registry_chat_action",
+                    "app.services.workspace_calendar.handle_calendar_chat_action",
+                    "app.services.actions.handle_transverse_chat_action",
+                    "app.services.visual_intelligence.handle_visual_chat_query",
+                    "app.services.workspace_maps.handle_map_chat_query",
+                    "chat._vigie_executive_quick_reply",
+                ],
+            },
             inputs=[{"name": "query", "schema": "string"}],
             outputs=[{"name": "action", "schema": "object"}],
         ),
         node(
-            "skill.chat_grounding_policy",
+            "skill.grounding_policy",
             kind="task",
-            node_type="chat_grounding_policy_v1",
+            node_type="guardrail",
             label="Grounding policy",
-            x=560,
-            y=220,
+            x=1080,
+            y=520,
             slug="chat_grounding_policy_v1",
             data={
                 "stage": "grounding",
+                "description": "Resolve effective strict/balanced grounding from platform, workspace, assistant profile and request.",
+                "runtime_ref": "app.services.chat_grounding.resolve_grounding_policy",
                 "assistant_profile": profile.get("assistant_profile"),
                 "knowledge_scope": profile.get("knowledge_scope"),
                 "grounding": profile.get("grounding") or {},
-                "source_policy": profile.get("source_policy") or {},
+                "source_policy": source_policy,
             },
             inputs=[{"name": "query", "schema": "string"}],
             outputs=[{"name": "policy", "schema": "object"}],
         ),
         node(
+            "runtime.settings_budget",
+            kind="task",
+            node_type="guardrail",
+            label="Settings & latency budget",
+            x=1340,
+            y=520,
+            data={
+                "description": "Apply workspace provider/model defaults and clamp retrieval fan-out for the selected latency profile.",
+                "runtime_ref": "get_resolved_settings + chat._apply_retrieval_budget_policy",
+                "retrieval_defaults": retrieval_defaults,
+                "provider_defaults": "workspace settings defaultProvider/defaultModel, then global settings",
+                "budget_policy": {
+                    "fast": {"top_k_max": 8, "candidate_pool_k_max": 20, "source_display_k_max": 8},
+                    "balanced": {"top_k_max": 12, "candidate_pool_k_max": 80, "source_display_k_max": 24},
+                    "deep": {"top_k_max": 24, "candidate_pool_k_max": 200, "source_display_k_max": 24},
+                },
+            },
+            inputs=[{"name": "policy", "schema": "object"}],
+            outputs=[{"name": "budgeted_request", "schema": "object"}],
+        ),
+        node(
+            "runtime.orchestrator",
+            kind="task",
+            node_type="tool",
+            label="Chat orchestrator",
+            x=1600,
+            y=520,
+            data={
+                "description": "Delegates the turn to the existing orchestrator; streams decision_step, retrieval and text chunks.",
+                "runtime_ref": "get_orchestrator().process_request(request_dict)",
+                "chunk_types": ["decision_step", "retrieval", "text", "error"],
+            },
+            inputs=[{"name": "budgeted_request", "schema": "object"}],
+            outputs=[{"name": "orchestrator_chunks", "schema": "array"}],
+        ),
+        node(
             "skill.fast_retrieval",
             kind="task",
-            node_type="semantic_search_v1",
+            node_type="retrieve",
             label="Fast retrieval",
-            x=820,
-            y=220,
+            x=1860,
+            y=430,
             slug="semantic_search_v1",
-            data={"stage": "fast_retrieval", **_as_dict(profile.get("retrieval_defaults"))},
+            data={
+                "stage": "fast_retrieval",
+                "description": "Runtime retrieval performed inside the RAG agent; surfaced here as the searchable context step.",
+                "runtime_ref": "app.services.rag.context.retrieve_rag_context",
+                **retrieval_defaults,
+            },
             inputs=[{"name": "query", "schema": "string"}],
             outputs=[{"name": "sources", "schema": "array"}],
         ),
         node(
+            "runtime.prompt_assembly",
+            kind="task",
+            node_type="llm",
+            label="Prompt assembly",
+            x=1860,
+            y=600,
+            data={
+                "description": "Build the exact system/user prompt envelope used by RAG answer generation.",
+                "runtime_ref": "procurement_agent._system_prompt_with_grounding + procurement_agent._build_rag_user_prompt",
+                "prompt_contract": prompts,
+            },
+            inputs=[{"name": "sources", "schema": "array"}],
+            outputs=[{"name": "prompt", "schema": "object"}],
+        ),
+        node(
             "skill.fast_answer",
             kind="task",
-            node_type="llm_rag_answer_v1",
+            node_type="llm",
             label="Fast sourced answer",
-            x=1080,
-            y=220,
+            x=2120,
+            y=520,
             slug="llm_rag_answer_v1",
-            data={"stage": "direct_answer", "latency_profile": "fast", "require_sources": True},
-            inputs=[{"name": "sources", "schema": "array"}],
+            data={
+                "stage": "direct_answer",
+                "description": "Generate the direct chat answer with markdown and citations when sources exist.",
+                "runtime_ref": "app.agents.procurement_agent.RAGAgent.process",
+                "latency_profile": "fast",
+                "require_sources": True,
+                "prompt_contract": {
+                    "system_prompt": prompts["base_system_prompt"],
+                    "balanced_appendix": prompts["balanced_grounding_appendix"],
+                    "answer_shaping_instructions": prompts["answer_shaping_instructions"],
+                },
+            },
+            inputs=[{"name": "prompt", "schema": "object"}],
             outputs=[{"name": "answer", "schema": "string"}],
+        ),
+        node(
+            "runtime.deep_router",
+            kind="decision",
+            node_type="router",
+            label="Deep Search router",
+            x=2380,
+            y=520,
+            data={
+                "description": "Decide whether the fast answer is enough or should queue/manual-route to Deep Search.",
+                "runtime_ref": "chat._should_queue_auto_deep_retrieval + Deep Search button payload",
+            },
+            config={
+                "branches": [
+                    {"label": "fast_finalize", "condition": "no deep recommendation or direct answer sufficient"},
+                    {"label": "queue_deep_search", "condition": "retrieval degraded or Deep Search requested"},
+                ],
+                "default_branch": "fast_finalize",
+                "runtime_ref": "chat._queue_auto_deep_retrieval_job",
+            },
+            inputs=[{"name": "answer", "schema": "string"}],
+            outputs=[{"name": "route", "schema": "string"}],
         ),
         node(
             "skill.deep_search",
             kind="task",
-            node_type="chain_mixed_hah_v1",
-            label="Deep Search escalation",
-            x=1080,
-            y=390,
+            node_type="tool",
+            label="Deep Search job",
+            x=2640,
+            y=660,
             slug="chain_mixed_hah_v1",
-            data={"stage": "deep_search", "latency_profile": "deep", "manual_trigger": True},
+            data={
+                "stage": "deep_search",
+                "description": "Async deep retrieval/synthesis job; the direct answer remains fast while the user can push harder.",
+                "runtime_ref": "chat._queue_auto_deep_retrieval_job + app.services.worker_deep_retrieval",
+                "latency_profile": "deep",
+                "manual_trigger": True,
+                "auto_trigger": "only when retrieval policy recommends it",
+            },
             inputs=[{"name": "query", "schema": "string"}],
             outputs=[{"name": "deep_answer", "schema": "string"}],
         ),
         node(
+            "runtime.response_validation",
+            kind="task",
+            node_type="guardrail",
+            label="Validate response",
+            x=2640,
+            y=400,
+            data={
+                "description": "Validate non-empty response and preserve markdown/source metadata for the chat renderer.",
+                "runtime_ref": "ResponseValidator.validate + chat._collect_chat_chunk",
+                "render_contract": "markdown_with_numeric_sources",
+            },
+            inputs=[{"name": "answer", "schema": "string"}],
+            outputs=[{"name": "validated_answer", "schema": "string"}],
+        ),
+        node(
             "skill.answer_audit",
             kind="task",
-            node_type="audit_log_v1",
+            node_type="tool",
             label="Run ledger and audit",
-            x=1340,
-            y=220,
+            x=2900,
+            y=520,
             slug="audit_log_v1",
-            data={"stage": "audit", "record_run": True, "record_sources": True},
+            data={
+                "stage": "audit",
+                "description": "Persist messages, Run output_ref, retrieval metrics, selected sources and eval scheduling.",
+                "runtime_ref": "chat._persist_chat_run + schedule_eval",
+                "record_run": True,
+                "record_sources": True,
+                "record_grounding_policy": True,
+                "record_retrieval_metrics": True,
+            },
             inputs=[{"name": "answer", "schema": "string"}],
+            outputs=[{"name": "run", "schema": "object"}],
+        ),
+        node(
+            "skill.claim_audit",
+            kind="task",
+            node_type="guardrail",
+            label="Async evaluation",
+            x=3160,
+            y=660,
+            slug="claim_audit_v1",
+            data={
+                "description": "Best-effort quality loop attached to the persisted Run.",
+                "runtime_ref": "app.services.evaluation.auto_eval.schedule_eval",
+                "async": True,
+            },
+            inputs=[{"name": "run", "schema": "object"}],
+            outputs=[{"name": "evaluation", "schema": "object"}],
+        ),
+        node(
+            "runtime.shortcut_persist",
+            kind="task",
+            node_type="tool",
+            label="Persist shortcut response",
+            x=1340,
+            y=180,
+            data={
+                "description": "Persist trivial, canonical or action responses with the same Run ledger contract.",
+                "runtime_ref": "chat._persist_trivial_bypass_turn + chat._persist_chat_run",
+                "triggers": ["trivial_bypass", "canonical_answer", "action_registry", "calendar_action", "action_plan", "visual_observation", "map_command", "vigie_quick_brief"],
+            },
+            inputs=[{"name": "shortcut_response", "schema": "object"}],
             outputs=[{"name": "run", "schema": "object"}],
         ),
         node(
@@ -363,22 +680,46 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
             kind="sink",
             node_type="output",
             label="Chat response",
-            x=1600,
-            y=220,
-            data={"surface": "/chat", "render": "markdown_with_sources"},
+            x=3420,
+            y=520,
+            data={
+                "description": "Return text/SSE chunks to the chat bubble and source chips.",
+                "surface": "/chat",
+                "render": "markdown_with_sources",
+                "response_contract": {
+                    "content": "markdown",
+                    "sources": "source chips and numeric citations",
+                    "run_id": "Run ledger id",
+                    "deep_job": "optional async refinement job",
+                },
+            },
             inputs=[{"name": "run", "schema": "object"}],
         ),
     ]
     edges = [
-        {"from": "chat.user_message", "to": "skill.chat_trivial_bypass", "kind": "data"},
-        {"from": "chat.user_message", "to": "skill.chat_action_resolver", "kind": "data"},
-        {"from": "skill.chat_action_resolver", "to": "skill.chat_grounding_policy", "kind": "data"},
-        {"from": "skill.chat_grounding_policy", "to": "skill.fast_retrieval", "kind": "data"},
-        {"from": "skill.fast_retrieval", "to": "skill.fast_answer", "kind": "data"},
-        {"from": "skill.fast_answer", "to": "skill.answer_audit", "kind": "data"},
-        {"from": "skill.answer_audit", "to": "chat.response", "kind": "data"},
-        {"from": "skill.chat_grounding_policy", "to": "skill.deep_search", "kind": "control"},
+        {"from": "chat.request", "to": "runtime.session_system_context", "kind": "data", "label": "request"},
+        {"from": "runtime.session_system_context", "to": "runtime.query_validation", "kind": "data"},
+        {"from": "runtime.query_validation", "to": "router.fast_exit", "kind": "data"},
+        {"from": "router.fast_exit", "to": "skill.trivial_bypass", "kind": "branch", "branch_label": "trivial_bypass"},
+        {"from": "router.fast_exit", "to": "runtime.canonical_answer", "kind": "branch", "branch_label": "canonical_answer"},
+        {"from": "router.fast_exit", "to": "skill.action_resolver", "kind": "branch", "branch_label": "workspace_action"},
+        {"from": "skill.trivial_bypass", "to": "runtime.shortcut_persist", "kind": "data"},
+        {"from": "runtime.canonical_answer", "to": "runtime.shortcut_persist", "kind": "data"},
+        {"from": "skill.action_resolver", "to": "runtime.shortcut_persist", "kind": "data"},
+        {"from": "router.fast_exit", "to": "skill.grounding_policy", "kind": "branch", "branch_label": "rag_orchestrator"},
+        {"from": "skill.grounding_policy", "to": "runtime.settings_budget", "kind": "data"},
+        {"from": "runtime.settings_budget", "to": "runtime.orchestrator", "kind": "data"},
+        {"from": "runtime.orchestrator", "to": "skill.fast_retrieval", "kind": "data", "label": "retrieval chunk"},
+        {"from": "skill.fast_retrieval", "to": "runtime.prompt_assembly", "kind": "data"},
+        {"from": "runtime.prompt_assembly", "to": "skill.fast_answer", "kind": "data"},
+        {"from": "skill.fast_answer", "to": "runtime.deep_router", "kind": "data"},
+        {"from": "runtime.deep_router", "to": "runtime.response_validation", "kind": "branch", "branch_label": "fast_finalize"},
+        {"from": "runtime.deep_router", "to": "skill.deep_search", "kind": "branch", "branch_label": "queue_deep_search"},
         {"from": "skill.deep_search", "to": "skill.answer_audit", "kind": "data"},
+        {"from": "runtime.response_validation", "to": "skill.answer_audit", "kind": "data"},
+        {"from": "runtime.shortcut_persist", "to": "chat.response", "kind": "data"},
+        {"from": "skill.answer_audit", "to": "skill.claim_audit", "kind": "control", "label": "async eval"},
+        {"from": "skill.answer_audit", "to": "chat.response", "kind": "data"},
     ]
     return {
         "variant": WORKSPACE_CHAT_VARIANT,
@@ -395,10 +736,20 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
             "primary_action": "Open chat",
             "flow_builder_enabled": True,
         },
+        "runtime_contract": {
+            "surface": "/chat",
+            "entrypoints": ["POST /api/v1/chat/stream", "POST /api/v1/chat/completion"],
+            "source_of_truth": "backend/app/api/v1/endpoints/chat.py",
+            "orchestrator": "app.api.v1.endpoints.agents.get_orchestrator().process_request",
+            "answer_agent": "app.agents.procurement_agent.RAGAgent",
+            "deep_search_worker": "app.services.worker_deep_retrieval",
+            "routes_are_runtime": True,
+        },
+        "prompt_contract": prompts,
         "chat": profile,
         "collections": profile.get("collection_slugs") or [],
-        "rag_mode": _as_dict(profile.get("retrieval_defaults")).get("mode") or "auto",
-        "canonical_rag_mode": _as_dict(profile.get("retrieval_defaults")).get("mode") or "auto",
+        "rag_mode": retrieval_defaults.get("mode") or "auto",
+        "canonical_rag_mode": retrieval_defaults.get("mode") or "auto",
         "policy": {
             "require_citations": True,
             "enable_audit": True,

@@ -34,6 +34,7 @@ from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.chains import dag_validator, export_service, version_service
 from app.services.run_engine import schedule_run
+from app.services.systems.flow_manifest import serialize_flow_manifest
 
 router = APIRouter()
 
@@ -241,6 +242,24 @@ async def get_system(
     if not s:
         raise HTTPException(404, "System not found")
     return _serialize(s)
+
+
+@router.get("/{system_id}/flow-manifest")
+async def get_system_flow_manifest(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Runtime manifest consumed by the no-code Flow Builder.
+
+    The response is derived from the real ``System.flow_definition`` and the
+    live Skill registry, so the UI can distinguish decorative graph structure
+    from nodes that actually drive /chat or run_engine execution.
+    """
+    s = db.query(System).filter(System.id == system_id, System.workspace_id == workspace.id).first()
+    if not s:
+        raise HTTPException(404, "System not found")
+    return serialize_flow_manifest(db, s)
 
 
 @router.patch("/{system_id}")
