@@ -1979,6 +1979,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       next: (manifest) => {
         this.flowManifestLoading.set(false);
         this.flowManifest.set(manifest);
+        const firstUnit = manifest?.unit_catalog?.[0];
+        if (!this.selectedNode() && firstUnit) {
+          this.selectManifestUnit(firstUnit, false);
+        }
       },
       error: () => {
         this.flowManifestLoading.set(false);
@@ -2060,7 +2064,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.scheduleCanonicalNodeSelection(canonicalId);
   }
 
-  selectManifestUnit(unit: FlowManifestUnit): void {
+  selectManifestUnit(unit: FlowManifestUnit, syncCanvas = true): void {
     if (!unit?.id) return;
     const node = this.canonicalNodeById(unit.id) ?? this.canonicalNodeFromManifestUnit(unit);
     this.zone.run(() => {
@@ -2068,7 +2072,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.inspectorOpen.set(true);
       this.cdr.markForCheck();
     });
-    this.selectCanvasNode(unit.id);
+    if (syncCanvas) this.selectCanvasNode(unit.id);
   }
 
   onCanvasClick(event: MouseEvent): void {
