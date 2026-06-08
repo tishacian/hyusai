@@ -221,26 +221,30 @@
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-dasharray: 10 18;
-  stroke-dashoffset: 0;
+  stroke-dasharray: none;
   fill: none;
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 0 2px rgba(56, 189, 248, 0.16));
-  animation: df-edge-flow 2.8s linear infinite;
+  animation: df-edge-pulse 2.6s ease-in-out infinite;
 }
 
 .drawflow .connection.selected .main-path,
 .drawflow .connection .main-path.selected {
   stroke: var(--ck-signal-cool, #38bdf8);
   stroke-width: 2.4;
-  stroke-dasharray: 12 12;
   filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.5));
-  animation-duration: 1.4s;
+  animation-duration: 1.5s;
 }
 
-@keyframes df-edge-flow {
-  to {
-    stroke-dashoffset: -28;
+@keyframes df-edge-pulse {
+  0%,
+  100% {
+    stroke-opacity: 0.56;
+    filter: drop-shadow(0 0 2px rgba(56, 189, 248, 0.12));
+  }
+  45% {
+    stroke-opacity: 0.88;
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.32));
   }
 }
 
