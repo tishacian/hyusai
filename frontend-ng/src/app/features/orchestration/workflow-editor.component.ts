@@ -1837,6 +1837,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const graph = this.exportGraph();
     const nodeData = graph?.drawflow?.Home?.data?.[rawId];
     if (!nodeData) {
+      const fallback = this.canonicalNodeFromRawId(rawId);
+      if (fallback) {
+        this.selectCanonicalNode(fallback, rawId);
+        return;
+      }
       this.selectedNodeId.set(null);
       this.selectedNode.set(null);
       return;
@@ -2046,7 +2051,12 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
     const fallbackNode = this.findCanvasNodeByCanonicalId(canonicalId);
     const rawId = this.rawIdFromCanvasNode(fallbackNode);
-    if (rawId) this.scheduleCanvasSelection(rawId);
+    if (rawId) {
+      this.scheduleCanvasSelection(rawId);
+      return;
+    }
+
+    this.scheduleCanonicalNodeSelection(canonicalId);
   }
 
   onCanvasClick(event: MouseEvent): void {
@@ -2071,10 +2081,53 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     }, 0);
   }
 
+  private scheduleCanonicalNodeSelection(canonicalId: string): void {
+    if (this.canvasSelectionTimer !== null) {
+      window.clearTimeout(this.canvasSelectionTimer);
+    }
+    this.canvasSelectionTimer = window.setTimeout(() => {
+      this.canvasSelectionTimer = null;
+      const node = this.canonicalNodeById(canonicalId);
+      if (!node) return;
+      this.zone.run(() => {
+        this.selectCanonicalNode(node, canonicalId);
+        this.inspectorOpen.set(true);
+        this.cdr.markForCheck();
+      });
+    }, 0);
+  }
+
   private rawIdFromCanvasNode(nodeEl: HTMLElement | null): string | null {
     const id = nodeEl?.id ?? '';
     const match = /^node-(.+)$/.exec(id);
     return match?.[1] ?? null;
+  }
+
+  private canonicalNodeById(canonicalId: string): CanonicalFlowNode | null {
+    const flow = this.system()?.flow_definition as unknown as CanonicalFlow | undefined;
+    return flow?.nodes?.find((node) => node.id === canonicalId) ?? null;
+  }
+
+  private canonicalNodeFromRawId(rawId: string): CanonicalFlowNode | null {
+    const idx = Number.parseInt(rawId, 10);
+    if (!Number.isFinite(idx) || idx < 1) return null;
+    const flow = this.system()?.flow_definition as unknown as CanonicalFlow | undefined;
+    return flow?.nodes?.[idx - 1] ?? null;
+  }
+
+  private selectCanonicalNode(node: CanonicalFlowNode, selectedId: string): void {
+    const config = { ...((node.config ?? {}) as Record<string, unknown>) };
+    if (!config['skill_slug'] && this.skills().some((skill) => skill.slug === node.type)) {
+      config['skill_slug'] = node.type;
+    }
+    this.selectedNodeId.set(selectedId);
+    this.selectedNode.set({
+      ...node,
+      data: { ...((node.data ?? {}) as Record<string, unknown>) },
+      config,
+      inputs: node.inputs ?? [],
+      outputs: node.outputs ?? [],
+    });
   }
 
   private findCanvasNodeByCanonicalId(canonicalId: string): HTMLElement | null {
