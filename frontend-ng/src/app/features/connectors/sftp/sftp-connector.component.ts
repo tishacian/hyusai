@@ -350,8 +350,8 @@ const BULK_PROMOTE_LIMIT = 25;
           <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">SFTP operations</p>
-              <h2 class="mt-1 text-sm font-semibold text-white">Live uploads and reconciliation</h2>
-              <p class="mt-1 text-xs text-gray-500">Workspace-scoped SFTP telemetry and cleanup jobs.</p>
+              <h2 class="mt-1 text-sm font-semibold text-white">Live upload monitor</h2>
+              <p class="mt-1 text-xs text-gray-500">Workspace-scoped SFTP transfers, reconciliation checks and cleanup jobs.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <label class="flex items-center gap-2 text-xs text-gray-400">
@@ -437,17 +437,36 @@ const BULK_PROMOTE_LIMIT = 25;
           </div>
 
           <div class="grid gap-4 px-5 py-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.6fr)]">
-            <div class="min-w-0">
-              <div class="mb-3 flex items-center justify-between">
-                <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-300">Live uploads</h3>
-                <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ liveUploads().length }} tracked</span>
+            <div class="min-w-0 rounded-md bg-cyan-500/[0.04] p-4 ring-1 ring-cyan-400/20">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex min-w-0 items-center gap-3">
+                  <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-cyan-500/10 text-cyan-200 ring-1 ring-cyan-400/25">
+                    <app-icon name="upload-cloud" [size]="16" />
+                  </span>
+                  <div class="min-w-0">
+                    <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Live uploads</p>
+                    <h3 class="mt-0.5 truncate text-sm font-semibold text-white">
+                      {{ liveUploads().length > 0 ? liveUploads().length + ' active transfer' + (liveUploads().length === 1 ? '' : 's') : 'No active SFTP transfer' }}
+                    </h3>
+                  </div>
+                </div>
+                <span class="ck-mono inline-flex w-fit items-center rounded px-2 py-1 text-[10px] uppercase tracking-wider ring-1"
+                  [ngClass]="liveUploads().length > 0 ? 'bg-cyan-500/10 text-cyan-100 ring-cyan-400/25' : 'bg-white/5 text-gray-400 ring-white/10'"
+                >
+                  {{ liveUploads().length }} tracked
+                </span>
               </div>
               @if (liveUploads().length === 0) {
-                <div class="rounded bg-white/[0.03] p-4 text-sm text-gray-500 ring-1 ring-white/10">
-                  No temporary upload currently attributed to this workspace.
+                <div class="mt-4 rounded bg-black/20 p-4 text-sm text-gray-300 ring-1 ring-white/10">
+                  No live SFTP upload right now.
+                  @if (operationsSummary(); as summary) {
+                    <p class="mt-1 text-xs text-gray-500">
+                      Last received: {{ summary.last_received_filename || 'None' }}
+                    </p>
+                  }
                 </div>
               } @else {
-                <ul class="max-h-72 divide-y divide-white/5 overflow-auto rounded ring-1 ring-white/10">
+                <ul class="mt-4 max-h-72 divide-y divide-white/5 overflow-auto rounded ring-1 ring-cyan-400/20">
                   @for (upload of liveUploads(); track upload.id) {
                     <li class="grid gap-3 bg-black/10 px-3 py-3 lg:grid-cols-[minmax(0,1fr)_130px_110px_120px] lg:items-center">
                       <div class="min-w-0">
