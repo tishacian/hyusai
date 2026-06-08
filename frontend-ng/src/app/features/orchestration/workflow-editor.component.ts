@@ -446,7 +446,7 @@ export interface FlowTemplate {
                     <app-icon name="settings-2" [size]="13" /> Configure
                   </button>
                   <button type="button" class="df-ghost-btn" (click)="openConfigSheet('prompts')">
-                    <app-icon name="file-text" [size]="12" /> Prompts {{ promptBlocks().length }}
+                    <app-icon name="file-text" [size]="12" /> Instructions {{ promptBlocks().length }}
                   </button>
                 </div>
 
@@ -963,7 +963,7 @@ export interface FlowTemplate {
                   <div class="df-inspector-section df-inspector-section--editor">
                     <div class="df-inspector-label">Prompts & instructions</div>
                     <div class="space-y-2">
-                      @for (block of promptBlocks(); track block.title) {
+                      @for (block of promptBlocks(); track block.key) {
                         <div class="df-prompt-block">
                           <div class="df-prompt-block__title">{{ block.title }}</div>
                           <pre class="df-prompt-block__body">{{ block.body }}</pre>
@@ -1034,7 +1034,7 @@ export interface FlowTemplate {
                     <strong>{{ selectedNode()!.type }}</strong>
                   </div>
                   <div class="df-sheet-card">
-                    <span>Prompts</span>
+                    <span>Instructions</span>
                     <strong>{{ promptBlocks().length }}</strong>
                   </div>
                 </div>
@@ -1265,7 +1265,7 @@ export interface FlowTemplate {
               <section class="df-sheet-section">
                 <div class="df-sheet-label">Prompts & instructions</div>
                 @if (promptBlocks().length === 0) {
-                  <div class="df-sheet-empty">No prompt contract exposed for this node.</div>
+                  <div class="df-sheet-empty">No prompt or runtime instruction exposed for this node.</div>
                 } @else {
                   <div class="df-prompt-list">
                     @for (block of promptBlocks(); track block.key) {
@@ -1274,14 +1274,14 @@ export interface FlowTemplate {
                           <span>{{ block.title }}</span>
                           <small>{{ block.source }} · {{ block.path }}</small>
                           <div class="df-prompt-actions">
-                            <button type="button" class="df-tool-btn df-tool-btn--small" (click)="copyPrompt(block)" title="Copy prompt">
+                            <button type="button" class="df-tool-btn df-tool-btn--small" (click)="copyPrompt(block)" title="Copy instruction">
                               <app-icon name="copy" [size]="12" />
                             </button>
-                            <button type="button" class="df-tool-btn df-tool-btn--small" (click)="togglePromptExpanded(block)" title="Expand prompt">
+                            <button type="button" class="df-tool-btn df-tool-btn--small" (click)="togglePromptExpanded(block)" title="Expand instruction">
                               <app-icon name="maximize" [size]="12" />
                             </button>
                             @if (block.editable) {
-                              <button type="button" class="df-tool-btn df-tool-btn--small" (click)="beginPromptEdit(block)" title="Edit prompt">
+                              <button type="button" class="df-tool-btn df-tool-btn--small" (click)="beginPromptEdit(block)" title="Edit prompt instruction">
                                 <app-icon name="pencil" [size]="12" />
                               </button>
                             }
@@ -4603,6 +4603,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const flowContract =
       this.objectValue(flow['prompt_contract']) ??
       this.objectValue(this.flowManifest()?.prompt_contract);
+    const chatConfig = this.objectValue(flow['chat']);
+    const effectiveConfig = (this.flowManifest()?.effective_config ?? {}) as Record<string, unknown>;
 
     const blocks: PromptBlock[] = [];
     const add = (
@@ -4636,12 +4638,34 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       add('node', 'system_prompt_builder', 'System prompt builder', nodeContract['system_prompt_builder']);
       add('node', 'answer_shaping_instructions', 'Answer shaping instructions', nodeContract['answer_shaping_instructions']);
     }
+    add('node', 'grounding', 'Grounding policy', data['grounding'], false);
+    add('node', 'source_policy', 'Source policy', data['source_policy'], false);
+    add('node', 'retrieval_defaults', 'Retrieval profile', data['retrieval_defaults'], false);
+    add('node', 'budget_policy', 'Budget policy', data['budget_policy'], false);
+    add('node', 'response_contract', 'Response contract', data['response_contract'], false);
+    add('node', 'render_contract', 'Render contract', data['render_contract'], false);
+    add('node', 'latency_profile', 'Latency profile', data['latency_profile'], false);
+    add('node', 'require_sources', 'Source requirement', data['require_sources'], false);
     if (flowContract) {
       add('flow', 'base_system_prompt', 'Flow base system prompt', flowContract['base_system_prompt']);
       add('flow', 'balanced_grounding_appendix', 'Flow balanced appendix', flowContract['balanced_grounding_appendix']);
       add('flow', 'reasoning_template_factual', 'Flow reasoning template · factual', flowContract['reasoning_template_factual']);
       add('flow', 'answer_shaping_instructions', 'Flow answer shaping instructions', flowContract['answer_shaping_instructions']);
     }
+    if (chatConfig) {
+      add('flow', 'chat.assistant_profile', 'Assistant profile', chatConfig['assistant_profile'], false);
+      add('flow', 'chat.knowledge_scope', 'Knowledge scope', chatConfig['knowledge_scope'], false);
+      add('flow', 'chat.retrieval_defaults', 'Chat retrieval defaults', chatConfig['retrieval_defaults'], false);
+      add('flow', 'chat.grounding', 'Chat grounding defaults', chatConfig['grounding'], false);
+      add('flow', 'chat.source_policy', 'Chat source policy defaults', chatConfig['source_policy'], false);
+    }
+    add('flow', 'effective_config.assistant_profile', 'Effective assistant profile', effectiveConfig['assistant_profile'], false);
+    add('flow', 'effective_config.knowledge_scope', 'Effective knowledge scope', effectiveConfig['knowledge_scope'], false);
+    add('flow', 'effective_config.system_prompt', 'Effective system prompt', effectiveConfig['system_prompt'], false);
+    add('flow', 'effective_config.prompt_type', 'Effective prompt type', effectiveConfig['prompt_type'], false);
+    add('flow', 'effective_config.retrieval_defaults', 'Effective retrieval profile', effectiveConfig['retrieval_defaults'], false);
+    add('flow', 'effective_config.grounding', 'Effective grounding', effectiveConfig['grounding'], false);
+    add('flow', 'effective_config.source_policy', 'Effective source policy', effectiveConfig['source_policy'], false);
     return blocks;
   }
 
@@ -4666,7 +4690,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       try {
         return JSON.parse(raw);
       } catch {
-        this.toastr.warning('Invalid JSON prompt payload; edit was not applied.', 'Prompts');
+        this.toastr.warning('Invalid JSON instruction payload; edit was not applied.', 'Instructions');
         return previous;
       }
     }
@@ -4700,17 +4724,17 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     }
     this.promptEditKey.set(null);
     this.promptDraft.set('');
-    this.toastr.success('Prompt updated locally. Use Save to System to persist.', 'Prompts');
+    this.toastr.success('Instruction updated locally. Use Save to System to persist.', 'Instructions');
   }
 
   copyPrompt(block: PromptBlock): void {
     if (!navigator.clipboard?.writeText) {
-      this.toastr.warning('Clipboard is not available.', 'Prompts');
+      this.toastr.warning('Clipboard is not available.', 'Instructions');
       return;
     }
     navigator.clipboard.writeText(block.body).then(
-      () => this.toastr.success('Prompt copied.', 'Prompts'),
-      () => this.toastr.warning('Clipboard is not available.', 'Prompts'),
+      () => this.toastr.success('Instruction copied.', 'Instructions'),
+      () => this.toastr.warning('Clipboard is not available.', 'Instructions'),
     );
   }
 
