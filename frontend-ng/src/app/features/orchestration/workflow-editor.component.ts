@@ -317,6 +317,7 @@ export interface FlowTemplate {
                 class="df-runtime-unit"
                 [attr.data-active]="unit.operational ? 'true' : 'false'"
                 [title]="unit.runtime_ref || unit.skill_slug || unit.description || unit.id"
+                (mousedown)="selectCanvasNode(unit.id)"
                 (click)="selectCanvasNode(unit.id)"
               >
                 <span>{{ unit.label }}</span>
