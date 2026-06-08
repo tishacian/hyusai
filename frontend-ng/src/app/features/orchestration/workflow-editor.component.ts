@@ -360,7 +360,6 @@ export interface FlowTemplate {
         <div
           #drawflowContainer
           class="w-full h-full pt-10 df-host"
-          (click)="onCanvasClick($event)"
           (dragover)="onDragOver($event)"
           (drop)="onDrop($event)"
         ></div>
@@ -1647,7 +1646,14 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private refreshScheduled = false;
   private validationScheduled = false;
   private refreshRaf: number | null = null;
+  private canvasSelectionTimer: number | null = null;
   private perfStart = 0;
+  private readonly onCanvasNodePointerCapture = (event: Event) => {
+    const target = event.target as HTMLElement | null;
+    const nodeEl = target?.closest('.drawflow-node') as HTMLElement | null;
+    const rawId = this.rawIdFromCanvasNode(nodeEl);
+    if (rawId) this.scheduleCanvasSelection(rawId);
+  };
 
   ngOnInit(): void {
     const sid =
@@ -1683,6 +1689,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         this.editor.reroute = false;
         this.editor.reroute_fix_curvature = false;
         this.editor.start();
+        el.addEventListener('mousedown', this.onCanvasNodePointerCapture, true);
         this.markPerf('editor.start');
 
         if (this.systemId()) {
@@ -1714,6 +1721,15 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       cancelAnimationFrame(this.refreshRaf);
       this.refreshRaf = null;
     }
+    if (this.canvasSelectionTimer !== null) {
+      window.clearTimeout(this.canvasSelectionTimer);
+      this.canvasSelectionTimer = null;
+    }
+    this.container?.nativeElement?.removeEventListener(
+      'mousedown',
+      this.onCanvasNodePointerCapture,
+      true,
+    );
     try {
       this.editor?.clear?.();
     } catch {
@@ -2024,17 +2040,13 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         // Some Drawflow builds do not expose node_selected. The inspector
         // still updates from the graph, which is the important part.
       }
-      this.onNodeSelected(rawId);
-      this.inspectorOpen.set(true);
+      this.scheduleCanvasSelection(rawId);
       return;
     }
 
     const fallbackNode = this.findCanvasNodeByCanonicalId(canonicalId);
     const rawId = this.rawIdFromCanvasNode(fallbackNode);
-    if (rawId) {
-      this.onNodeSelected(rawId);
-      this.inspectorOpen.set(true);
-    }
+    if (rawId) this.scheduleCanvasSelection(rawId);
   }
 
   onCanvasClick(event: MouseEvent): void {
@@ -2042,8 +2054,21 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const nodeEl = target?.closest('.drawflow-node') as HTMLElement | null;
     const rawId = this.rawIdFromCanvasNode(nodeEl);
     if (!rawId) return;
-    this.onNodeSelected(rawId);
-    this.inspectorOpen.set(true);
+    this.scheduleCanvasSelection(rawId);
+  }
+
+  private scheduleCanvasSelection(rawId: string): void {
+    if (this.canvasSelectionTimer !== null) {
+      window.clearTimeout(this.canvasSelectionTimer);
+    }
+    this.canvasSelectionTimer = window.setTimeout(() => {
+      this.canvasSelectionTimer = null;
+      this.zone.run(() => {
+        this.onNodeSelected(rawId);
+        this.inspectorOpen.set(true);
+        this.cdr.markForCheck();
+      });
+    }, 0);
   }
 
   private rawIdFromCanvasNode(nodeEl: HTMLElement | null): string | null {
