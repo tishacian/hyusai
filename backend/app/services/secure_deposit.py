@@ -31,12 +31,15 @@ from app.core.settings_manager import get_resolved_settings
 from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.services.audit_logger import emit_audit_event
 from app.services.knowledge_collections import (
+    collection_inventory,
     create_or_get_collection,
     create_worker_job,
     document_manifest_key,
     original_key,
+    serialize_job as serialize_worker_job,
     update_collection_status,
 )
 from app.services.object_store import get_object_store
@@ -72,6 +75,7 @@ _TEXT_EXTENSIONS = {
     "yaml",
     "yml",
 }
+_HTML_EXTENSIONS = {"html", "htm"}
 _SPREADSHEET_EXTENSIONS = {"xlsx", "xlsm", "xltx", "xltm"}
 _LEGACY_SPREADSHEET_EXTENSIONS = {"xls"}
 _DOCX_EXTENSIONS = {"docx"}
@@ -357,7 +361,7 @@ def build_file_preview(
 
     Shared by the Secure Deposit staging queue and the Knowledge collection
     Sources browser so both surfaces produce the same ``kind`` contract
-    (``text`` | ``spreadsheet`` | ``image`` | ``pdf`` | ``binary``).
+    (``text`` | ``html`` | ``spreadsheet`` | ``image`` | ``pdf`` | ``binary``).
     """
     ext = extension_for(filename)
     size = int(size_bytes or 0)
@@ -374,20 +378,22 @@ def build_file_preview(
     if ext in _DOCX_EXTENSIONS and size <= _DOCX_PREVIEW_MAX_BYTES:
         return {**base, **_docx_preview(path)}
 
+    if ext in _HTML_EXTENSIONS or media_type == "text/html":
+        if size > _TEXT_PREVIEW_BYTES:
+            return {**base, "kind": "binary", "reason": "html_preview_too_large"}
+        data = path.read_bytes()
+        truncated = len(data) > _TEXT_PREVIEW_BYTES
+        data = data[:_TEXT_PREVIEW_BYTES]
+        content = _decode_preview_text(data)
+        return {**base, "kind": "html", "content": content, "truncated": truncated}
+
     if ext in _TEXT_EXTENSIONS or media_type.startswith("text/"):
         if size > _TEXT_PREVIEW_BYTES:
             return {**base, "kind": "binary", "reason": "text_preview_too_large"}
         data = path.read_bytes()
         truncated = len(data) > _TEXT_PREVIEW_BYTES
         data = data[:_TEXT_PREVIEW_BYTES]
-        for encoding in ("utf-8-sig", "utf-8", "latin-1"):
-            try:
-                content = data.decode(encoding)
-                break
-            except UnicodeDecodeError:
-                continue
-        else:
-            content = data.decode("utf-8", errors="replace")
+        content = _decode_preview_text(data)
         return {**base, "kind": "text", "content": content, "truncated": truncated}
 
     if size <= _INLINE_PREVIEW_MAX_BYTES:
@@ -397,6 +403,15 @@ def build_file_preview(
             return {**base, "kind": "pdf"}
 
     return {**base, "kind": "binary"}
+
+
+def _decode_preview_text(data: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
 
 
 def preview_needs_file_bytes(filename: str, media_type: str, size_bytes: int) -> bool:
@@ -559,20 +574,25 @@ def _find_zip_member(archive: zipfile.ZipFile, member_path: str) -> zipfile.ZipI
     raise HTTPException(status_code=404, detail="ZIP member not found")
 
 
+def _extract_zip_info_to_temp(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> tuple[Path, str]:
+    safe_name = safe_filename(PurePosixPath(info.filename).name)
+    suffix = PurePosixPath(safe_name).suffix
+    fd, tmp_name = tempfile.mkstemp(prefix=".zip-member-", suffix=suffix)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle, archive.open(info) as source:
+            shutil.copyfileobj(source, handle, length=_UPLOAD_CHUNK_BYTES)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return tmp_path, safe_name
+
+
 def extract_deposit_zip_member_to_temp(file: DepositFile, *, member_path: str) -> tuple[Path, zipfile.ZipInfo, str]:
     archive_path = _assert_zip_deposit(file)
     with _open_zip_archive(archive_path) as archive:
         info = _find_zip_member(archive, member_path)
-        safe_name = safe_filename(PurePosixPath(info.filename).name)
-        suffix = PurePosixPath(safe_name).suffix
-        fd, tmp_name = tempfile.mkstemp(prefix=".zip-member-", suffix=suffix)
-        tmp_path = Path(tmp_name)
-        try:
-            with os.fdopen(fd, "wb") as handle, archive.open(info) as source:
-                shutil.copyfileobj(source, handle, length=_UPLOAD_CHUNK_BYTES)
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
+        tmp_path, safe_name = _extract_zip_info_to_temp(archive, info)
         return tmp_path, info, safe_name
 
 
@@ -585,17 +605,17 @@ def preview_deposit_zip_member(file: DepositFile, *, member_path: str) -> dict[s
     archive_path = _assert_zip_deposit(file)
     with _open_zip_archive(archive_path) as archive:
         info = _find_zip_member(archive, normalized)
-    safe_name = safe_filename(PurePosixPath(info.filename).name)
-    media_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
-    size = int(info.file_size or 0)
-    download_url = _zip_member_download_url(file, normalized)
-    if not preview_needs_file_bytes(safe_name, media_type, size):
-        return build_file_preview(Path(safe_name), filename=safe_name, media_type=media_type, size_bytes=size, download_url=download_url)
-    temp_path, _info, _safe_name = extract_deposit_zip_member_to_temp(file, member_path=normalized)
-    try:
-        return build_file_preview(temp_path, filename=safe_name, media_type=media_type, size_bytes=size, download_url=download_url)
-    finally:
-        temp_path.unlink(missing_ok=True)
+        safe_name = safe_filename(PurePosixPath(info.filename).name)
+        media_type = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+        size = int(info.file_size or 0)
+        download_url = _zip_member_download_url(file, normalized)
+        if not preview_needs_file_bytes(safe_name, media_type, size):
+            return build_file_preview(Path(safe_name), filename=safe_name, media_type=media_type, size_bytes=size, download_url=download_url)
+        temp_path, _safe_name = _extract_zip_info_to_temp(archive, info)
+        try:
+            return build_file_preview(temp_path, filename=safe_name, media_type=media_type, size_bytes=size, download_url=download_url)
+        finally:
+            temp_path.unlink(missing_ok=True)
 
 
 def _archive_component(value: str | None, fallback: str) -> str:
@@ -1047,6 +1067,322 @@ def serialize_public_file(file: DepositFile) -> dict[str, Any]:
         "status": file.status,
         "uploaded_at": file.uploaded_at.isoformat() if file.uploaded_at else None,
         "promoted_at": file.promoted_at.isoformat() if file.promoted_at else None,
+    }
+
+
+def _target_collection_slug(workspace: Workspace, collection_slug: str | None) -> str:
+    default_collection_slug = f"{workspace.slug}-secure-deposit"
+    return (collection_slug or default_collection_slug).strip() or default_collection_slug
+
+
+def _find_collection(db: DBSession, *, workspace: Workspace, collection_ref: str) -> KnowledgeCollection | None:
+    ref = collection_ref.strip()
+    if not ref:
+        return None
+    return (
+        db.query(KnowledgeCollection)
+        .filter(
+            KnowledgeCollection.workspace_id == workspace.id,
+            (
+                (KnowledgeCollection.id == ref)
+                | (KnowledgeCollection.slug == ref)
+                | (KnowledgeCollection.name == ref)
+            ),
+        )
+        .first()
+    )
+
+
+def _collection_indexing_snapshot(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    collection_slug: str,
+) -> dict[str, Any]:
+    collection = _find_collection(db, workspace=workspace, collection_ref=collection_slug)
+    if not collection:
+        return {
+            "slug": collection_slug,
+            "exists": False,
+            "status": "missing",
+            "source_count": 0,
+            "document_count": 0,
+            "chunk_count": 0,
+            "zero_chunk_sources": 0,
+            "error_sources": 0,
+            "job_counts": {},
+            "latest_job": None,
+            "jobs": [],
+        }
+
+    inventory = collection_inventory(db, collection=collection, include_sources=False)
+    jobs = (
+        db.query(WorkerJob)
+        .filter(WorkerJob.workspace_id == workspace.id, WorkerJob.collection_id == collection.id)
+        .order_by(WorkerJob.updated_at.desc(), WorkerJob.created_at.desc())
+        .limit(8)
+        .all()
+    )
+    job_counts: dict[str, int] = {}
+    for job in jobs:
+        job_counts[job.status] = job_counts.get(job.status, 0) + 1
+    serialized_jobs = [serialize_worker_job(job) for job in jobs]
+    return {
+        "id": collection.id,
+        "slug": collection.slug or collection_slug,
+        "name": collection.name,
+        "exists": True,
+        "status": collection.status,
+        "source_count": inventory.get("source_count", 0),
+        "document_count": inventory.get("document_count", 0),
+        "chunk_count": inventory.get("chunk_count", 0),
+        "zero_chunk_sources": inventory.get("zero_chunk_sources", 0),
+        "error_sources": inventory.get("error_sources", 0),
+        "job_counts": job_counts,
+        "latest_job": serialized_jobs[0] if serialized_jobs else None,
+        "jobs": serialized_jobs,
+    }
+
+
+def _archive_assist_summary(path: Path, *, deposit_filename: str | None) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        documents, stats = _read_supported_archive_documents(
+            path,
+            deposit_filename=deposit_filename,
+            include_content=False,
+            on_limit="truncate",
+        )
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "ZIP archive could not be analyzed"
+        return None, str(detail)
+    except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+        return None, str(exc)
+    return {
+        "supported_document_count": len(documents),
+        "supported_extensions": sorted({str(doc.get("extension") or "") for doc in documents if doc.get("extension")}),
+        "uncompressed_bytes": stats.get("uncompressed_bytes", 0),
+        "truncated_files": stats.get("truncated_files", 0),
+        "max_files": stats.get("max_files"),
+    }, None
+
+
+def _recommend_received_file(file: DepositFile) -> tuple[str, str, str, bool, dict[str, Any] | None]:
+    filename = file.filename or "upload"
+    ext = extension_for(filename)
+    source_path = staged_file_path(file)
+    archive_summary: dict[str, Any] | None = None
+
+    if not source_path.exists():
+        return (
+            "unsupported",
+            "Missing staged file",
+            "The database row exists, but the raw staged file is missing on disk.",
+            False,
+            None,
+        )
+    if (file.size_bytes or 0) <= 0:
+        return ("unsupported", "Empty file", "Empty files are kept in staging and are not indexable.", False, None)
+    if ext in _LEGACY_SPREADSHEET_EXTENSIONS:
+        return (
+            "unsupported",
+            "Unsupported",
+            "Legacy .xls spreadsheets are not supported for Knowledge promotion yet.",
+            False,
+            None,
+        )
+    if ext == "zip":
+        archive_summary, archive_error = _archive_assist_summary(source_path, deposit_filename=filename)
+        if archive_error:
+            if "no supported" in archive_error.lower():
+                return (
+                    "unsupported",
+                    "Unsupported",
+                    "ZIP contains no currently supported Knowledge document.",
+                    False,
+                    archive_summary,
+                )
+            return (
+                "inspect_archive",
+                "Inspect archive",
+                f"ZIP received, but the archive needs inspection before promotion: {archive_error}",
+                False,
+                archive_summary,
+            )
+        supported_count = int((archive_summary or {}).get("supported_document_count") or 0)
+        truncated_count = int((archive_summary or {}).get("truncated_files") or 0)
+        if supported_count <= 0:
+            return (
+                "unsupported",
+                "Unsupported",
+                "ZIP contains no currently supported Knowledge document.",
+                False,
+                archive_summary,
+            )
+        if supported_count > 10 or truncated_count > 0:
+            return (
+                "inspect_archive",
+                "Inspect archive",
+                f"ZIP contains {supported_count} supported document(s); browse it before batch promotion.",
+                False,
+                archive_summary,
+            )
+        return (
+            "promote_now",
+            "Promote now",
+            f"ZIP contains {supported_count} supported document(s) and is eligible for Knowledge ingestion.",
+            True,
+            archive_summary,
+        )
+    if ext in _SPREADSHEET_EXTENSIONS and not zipfile.is_zipfile(source_path):
+        return (
+            "unsupported",
+            "Unsupported",
+            "Office spreadsheet container is invalid or incomplete.",
+            False,
+            None,
+        )
+    if ext not in _WORKER_PROMOTION_EXTENSIONS:
+        return (
+            "unsupported",
+            "Unsupported",
+            f".{ext or 'unknown'} is not currently supported for Knowledge promotion.",
+            False,
+            None,
+        )
+    return (
+        "promote_now",
+        "Promote now",
+        "Received file is supported and ready for Knowledge ingestion.",
+        True,
+        None,
+    )
+
+
+def build_indexing_assist_snapshot(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    file_ids: list[str],
+    collection_slug: str | None,
+) -> dict[str, Any]:
+    safe_file_ids = [str(file_id).strip() for file_id in file_ids if str(file_id).strip()]
+    if len(safe_file_ids) > 200:
+        raise HTTPException(status_code=422, detail="Indexing assist is limited to 200 files")
+
+    target_slug = _target_collection_slug(workspace, collection_slug)
+    rows = (
+        db.query(DepositFile)
+        .filter(DepositFile.workspace_id == workspace.id, DepositFile.id.in_(safe_file_ids))
+        .all()
+    )
+    rows_by_id = {row.id: row for row in rows}
+    recommendations: list[dict[str, Any]] = []
+    recommended_file_ids: list[str] = []
+    summary = {
+        "total_files": len(safe_file_ids),
+        "found_files": len(rows),
+        "promote_now_count": 0,
+        "inspect_archive_count": 0,
+        "unsupported_count": 0,
+        "already_promoted_count": 0,
+        "needs_target_count": 0,
+        "recommended_count": 0,
+        "recommended_bytes": 0,
+        "zip_count": 0,
+        "missing_count": max(0, len(safe_file_ids) - len(rows)),
+    }
+
+    for file_id in safe_file_ids:
+        file = rows_by_id.get(file_id)
+        if not file:
+            summary["unsupported_count"] += 1
+            recommendations.append(
+                {
+                    "file_id": file_id,
+                    "filename": "",
+                    "status": "missing",
+                    "extension": "",
+                    "recommendation": "unsupported",
+                    "label": "Missing",
+                    "reason": "File is not visible in this workspace.",
+                    "eligible_for_batch": False,
+                    "size_bytes": 0,
+                    "archive": None,
+                }
+            )
+            continue
+
+        ext = extension_for(file.filename or "")
+        if ext == "zip":
+            summary["zip_count"] += 1
+        if not target_slug:
+            recommendation, label, reason, eligible, archive_summary = (
+                "needs_target",
+                "Target missing",
+                "Choose a target Knowledge collection before promotion.",
+                False,
+                None,
+            )
+        elif file.status == "promoted":
+            recommendation, label, reason, eligible, archive_summary = (
+                "already_promoted",
+                "Promoted",
+                f"Already promoted to {file.promoted_collection_slug or 'Knowledge'}.",
+                False,
+                None,
+            )
+        elif file.status != "received":
+            recommendation, label, reason, eligible, archive_summary = (
+                "unsupported",
+                "Unsupported",
+                f"File status is {file.status}; only received files can be promoted.",
+                False,
+                None,
+            )
+        else:
+            recommendation, label, reason, eligible, archive_summary = _recommend_received_file(file)
+
+        if recommendation == "promote_now":
+            summary["promote_now_count"] += 1
+        elif recommendation == "inspect_archive":
+            summary["inspect_archive_count"] += 1
+        elif recommendation == "already_promoted":
+            summary["already_promoted_count"] += 1
+        elif recommendation == "needs_target":
+            summary["needs_target_count"] += 1
+        else:
+            summary["unsupported_count"] += 1
+
+        if eligible:
+            recommended_file_ids.append(file.id)
+            summary["recommended_count"] += 1
+            summary["recommended_bytes"] += int(file.size_bytes or 0)
+
+        recommendations.append(
+            {
+                "file_id": file.id,
+                "filename": file.filename,
+                "status": file.status,
+                "extension": ext,
+                "recommendation": recommendation,
+                "label": label,
+                "reason": reason,
+                "eligible_for_batch": eligible,
+                "size_bytes": file.size_bytes or 0,
+                "archive": archive_summary,
+                "target_collection_slug": target_slug,
+                "promoted_collection_slug": file.promoted_collection_slug,
+                "worker_job_id": file.worker_job_id,
+                "promotion_result": file.promotion_result,
+            }
+        )
+
+    summary["recommended_file_ids"] = recommended_file_ids
+    summary["target_collection_slug"] = target_slug
+    return {
+        "summary": summary,
+        "recommendations": recommendations,
+        "collection": _collection_indexing_snapshot(db, workspace=workspace, collection_slug=target_slug),
     }
 
 

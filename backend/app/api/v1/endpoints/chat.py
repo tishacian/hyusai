@@ -40,6 +40,7 @@ from app.services.action_plans import action_context_for_chat
 from app.services.actions import handle_registry_chat_action, handle_transverse_chat_action
 from app.services.chat_grounding import resolve_grounding_policy
 from app.services.chat_trivial_bypass import TrivialBypass, maybe_trivial_bypass
+from app.services.systems.bootstrap import workspace_chat_system_id
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
 from app.services.workspace_maps import handle_map_chat_query
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
@@ -115,22 +116,23 @@ def _resolve_system_id(
     workspace_id: str,
     candidate: Optional[str],
 ) -> Optional[str]:
-    """Validate ``candidate`` as a System FK the current workspace owns.
+    """Validate ``candidate`` or fall back to the workspace chat System.
 
     Returns the id if it resolves to a real System row scoped to the
-    workspace, otherwise ``None``. Prevents cross-workspace FK leaks
+    workspace, otherwise the always-on workspace chat System when present.
+    Prevents cross-workspace FK leaks
     (a malicious client sending another tenant's system_id) and
     gracefully degrades when the front sends a stale id after a
-    System was deleted — the Run is still persisted, just unscoped.
+    System was deleted.
     """
     if not candidate:
-        return None
+        return workspace_chat_system_id(db, workspace_id)
     row = (
         db.query(System.id)
         .filter(System.id == candidate, System.workspace_id == workspace_id)
         .first()
     )
-    return row[0] if row else None
+    return row[0] if row else workspace_chat_system_id(db, workspace_id)
 
 
 def _user_id(user: Optional[User]) -> Optional[str]:

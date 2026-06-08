@@ -8,7 +8,7 @@ for every existing workspace (Vague A — P0, commit 2/5).
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -51,6 +51,502 @@ EXPERT_CAPTURE_SKILL_SLUGS = [
     "voice_tts_v1",
     "audit_log_v1",
 ]
+
+WORKSPACE_CHAT_SYSTEM_NAME = "Agentium Workspace Chat"
+WORKSPACE_CHAT_CAPABILITY_SLUG = "workspace_assistant"
+WORKSPACE_CHAT_VARIANT = "chat_transverse_v1"
+WORKSPACE_CHAT_SKILL_SLUGS = [
+    "chat_trivial_bypass_v1",
+    "chat_action_resolver_v1",
+    "chat_grounding_policy_v1",
+    "semantic_search_v1",
+    "llm_rag_answer_v1",
+    "chain_mixed_hah_v1",
+    "claim_audit_v1",
+    "audit_log_v1",
+]
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _as_list(value: Any) -> List[Any]:
+    return list(value) if isinstance(value, list) else []
+
+
+def _workspace_family(workspace: Workspace) -> str:
+    slug = (workspace.slug or "").lower()
+    name = (workspace.name or "").lower()
+    if "andritz" in slug or "andritz" in name:
+        return "andritz"
+    if slug == "sentinel-ci" or "sentinel" in slug:
+        return "sentinel_ci"
+    return "generic"
+
+
+def _profile_by_key(settings: Dict[str, Any], key: Optional[str]) -> Dict[str, Any]:
+    if not key:
+        return {}
+    for profile in _as_list(settings.get("assistant_profiles")):
+        if isinstance(profile, dict) and profile.get("key") == key:
+            return dict(profile)
+    return {}
+
+
+def _find_profile_key(settings: Dict[str, Any], preferred: List[str]) -> Optional[str]:
+    keys = {
+        str(profile.get("key"))
+        for profile in _as_list(settings.get("assistant_profiles"))
+        if isinstance(profile, dict) and profile.get("key")
+    }
+    for key in preferred:
+        if key in keys:
+            return key
+    default = settings.get("assistant_profile_default")
+    return str(default) if isinstance(default, str) and default else None
+
+
+def _default_scope(settings: Dict[str, Any], profile: Dict[str, Any]) -> Optional[str]:
+    scoped = profile.get("default_knowledge_scope")
+    if isinstance(scoped, str) and scoped:
+        return scoped
+    for scope in _as_list(settings.get("knowledge_scopes")):
+        if isinstance(scope, dict) and scope.get("is_default") and scope.get("key"):
+            return str(scope["key"])
+    for scope in _as_list(settings.get("knowledge_scopes")):
+        if isinstance(scope, dict) and scope.get("key"):
+            return str(scope["key"])
+    return None
+
+
+def _scope_config(settings: Dict[str, Any], key: Optional[str]) -> Dict[str, Any]:
+    if not key:
+        return {}
+    for scope in _as_list(settings.get("knowledge_scopes")):
+        if isinstance(scope, dict) and scope.get("key") == key:
+            return dict(scope)
+    return {}
+
+
+def _workspace_chat_name(workspace: Workspace, family: str) -> str:
+    if family == "andritz":
+        return "Andritz Workspace Chat"
+    if family == "sentinel_ci":
+        return "AYA Workspace Chat"
+    return WORKSPACE_CHAT_SYSTEM_NAME
+
+
+def _workspace_chat_objective(workspace: Workspace, family: str) -> str:
+    if family == "andritz":
+        return (
+            "Answer Andritz workspace questions with fast, sourced industrial grounding; "
+            "preserve machine, project, part and document references; offer Deep Search "
+            "when higher recall is needed."
+        )
+    if family == "sentinel_ci":
+        return (
+            "Provide AYA's always-on workspace chat for sourced executive questions, "
+            "mission-room actions, grounded briefings and Deep Search escalation."
+        )
+    workspace_label = workspace.name or workspace.slug or "the workspace"
+    return (
+        f"Provide the always-on chat system for {workspace_label}: fast sourced answers, "
+        "workspace actions, grounding policy and optional Deep Search."
+    )
+
+
+def _workspace_chat_profile(workspace: Workspace) -> Dict[str, Any]:
+    settings = _as_dict(workspace.settings)
+    family = _workspace_family(workspace)
+    profile_key = _find_profile_key(
+        settings,
+        ["andritz_spl_advisor"] if family == "andritz" else ["vigie_executive"] if family == "sentinel_ci" else [],
+    )
+    profile = _profile_by_key(settings, profile_key)
+    scope_key = _default_scope(settings, profile)
+    scope = _scope_config(settings, scope_key)
+    chat = _as_dict(settings.get("chat"))
+    profile_grounding = _as_dict(profile.get("grounding"))
+    grounding = profile_grounding or _as_dict(chat.get("grounding"))
+    actions = {
+        **_as_dict(settings.get("actions")),
+        **_as_dict(profile.get("actions")),
+    }
+
+    source_policy: Dict[str, Any] = {
+        "mode": "workspace_scoped",
+        "require_citations": True,
+        "preserve_user_terms": True,
+    }
+    if family == "andritz":
+        source_policy.update(
+            {
+                "mode": "industrial_grounding",
+                "prefer_exact_references": True,
+                "preserve_reference_types": [
+                    "machine",
+                    "project",
+                    "part_number",
+                    "document_name",
+                    "table_label",
+                ],
+                "reject_cross_project_sources": True,
+            }
+        )
+    elif family == "sentinel_ci":
+        source_policy.update(
+            {
+                "mode": "executive_mission_grounding",
+                "prefer_qualified_sources": True,
+                "advisory_actions_require_confirmation": True,
+            }
+        )
+
+    return {
+        "family": family,
+        "surface": "chat",
+        "surface_routes": ["/chat"],
+        "always_on": True,
+        "quick_mode_uses_system": True,
+        "assistant_profile": profile_key,
+        "assistant_label": profile.get("label"),
+        "knowledge_scope": scope_key,
+        "collection_slugs": scope.get("collection_slugs") or [],
+        "grounding": grounding,
+        "actions": actions,
+        "source_policy": source_policy,
+        "retrieval_defaults": {
+            "latency_profile": "fast",
+            "retrieval_profile": "chat",
+            "deep_search_enabled": True,
+            "top_k": scope.get("top_k") or 6,
+            "mode": scope.get("default_mode") or "auto",
+        },
+    }
+
+
+def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, Skill]) -> Dict[str, object]:
+    def node(
+        node_id: str,
+        *,
+        kind: str,
+        node_type: str,
+        label: str,
+        x: int,
+        y: int,
+        slug: Optional[str] = None,
+        data: Optional[Dict[str, object]] = None,
+        inputs: Optional[List[Dict[str, object]]] = None,
+        outputs: Optional[List[Dict[str, object]]] = None,
+    ) -> Dict[str, object]:
+        skill = skills.get(slug or "")
+        config: Dict[str, object] = {}
+        if slug:
+            config["skill_slug"] = slug
+            config["skill_id"] = skill.id if skill else None
+        return {
+            "id": node_id,
+            "type": node_type,
+            "kind": kind,
+            "label": label,
+            "position": {"x": x, "y": y},
+            "data": data or {},
+            "config": config,
+            "inputs": inputs or [],
+            "outputs": outputs or [],
+        }
+
+    nodes: List[Dict[str, object]] = [
+        node(
+            "chat.user_message",
+            kind="source",
+            node_type="input",
+            label="User chat turn",
+            x=40,
+            y=220,
+            data={"surface": "/chat", "quick_mode": True},
+            outputs=[{"name": "query", "schema": "string"}],
+        ),
+        node(
+            "skill.chat_trivial_bypass",
+            kind="task",
+            node_type="chat_trivial_bypass_v1",
+            label="Trivial bypass",
+            x=300,
+            y=90,
+            slug="chat_trivial_bypass_v1",
+            data={"stage": "latency_guard", "description": "Handle greetings/acks without retrieval."},
+            inputs=[{"name": "query", "schema": "string"}],
+            outputs=[{"name": "bypass", "schema": "object"}],
+        ),
+        node(
+            "skill.chat_action_resolver",
+            kind="task",
+            node_type="chat_action_resolver_v1",
+            label="Action resolver",
+            x=300,
+            y=220,
+            slug="chat_action_resolver_v1",
+            data={"stage": "actions", "actions": profile.get("actions") or {}},
+            inputs=[{"name": "query", "schema": "string"}],
+            outputs=[{"name": "action", "schema": "object"}],
+        ),
+        node(
+            "skill.chat_grounding_policy",
+            kind="task",
+            node_type="chat_grounding_policy_v1",
+            label="Grounding policy",
+            x=560,
+            y=220,
+            slug="chat_grounding_policy_v1",
+            data={
+                "stage": "grounding",
+                "assistant_profile": profile.get("assistant_profile"),
+                "knowledge_scope": profile.get("knowledge_scope"),
+                "grounding": profile.get("grounding") or {},
+                "source_policy": profile.get("source_policy") or {},
+            },
+            inputs=[{"name": "query", "schema": "string"}],
+            outputs=[{"name": "policy", "schema": "object"}],
+        ),
+        node(
+            "skill.fast_retrieval",
+            kind="task",
+            node_type="semantic_search_v1",
+            label="Fast retrieval",
+            x=820,
+            y=220,
+            slug="semantic_search_v1",
+            data={"stage": "fast_retrieval", **_as_dict(profile.get("retrieval_defaults"))},
+            inputs=[{"name": "query", "schema": "string"}],
+            outputs=[{"name": "sources", "schema": "array"}],
+        ),
+        node(
+            "skill.fast_answer",
+            kind="task",
+            node_type="llm_rag_answer_v1",
+            label="Fast sourced answer",
+            x=1080,
+            y=220,
+            slug="llm_rag_answer_v1",
+            data={"stage": "direct_answer", "latency_profile": "fast", "require_sources": True},
+            inputs=[{"name": "sources", "schema": "array"}],
+            outputs=[{"name": "answer", "schema": "string"}],
+        ),
+        node(
+            "skill.deep_search",
+            kind="task",
+            node_type="chain_mixed_hah_v1",
+            label="Deep Search escalation",
+            x=1080,
+            y=390,
+            slug="chain_mixed_hah_v1",
+            data={"stage": "deep_search", "latency_profile": "deep", "manual_trigger": True},
+            inputs=[{"name": "query", "schema": "string"}],
+            outputs=[{"name": "deep_answer", "schema": "string"}],
+        ),
+        node(
+            "skill.answer_audit",
+            kind="task",
+            node_type="audit_log_v1",
+            label="Run ledger and audit",
+            x=1340,
+            y=220,
+            slug="audit_log_v1",
+            data={"stage": "audit", "record_run": True, "record_sources": True},
+            inputs=[{"name": "answer", "schema": "string"}],
+            outputs=[{"name": "run", "schema": "object"}],
+        ),
+        node(
+            "chat.response",
+            kind="sink",
+            node_type="output",
+            label="Chat response",
+            x=1600,
+            y=220,
+            data={"surface": "/chat", "render": "markdown_with_sources"},
+            inputs=[{"name": "run", "schema": "object"}],
+        ),
+    ]
+    edges = [
+        {"from": "chat.user_message", "to": "skill.chat_trivial_bypass", "kind": "data"},
+        {"from": "chat.user_message", "to": "skill.chat_action_resolver", "kind": "data"},
+        {"from": "skill.chat_action_resolver", "to": "skill.chat_grounding_policy", "kind": "data"},
+        {"from": "skill.chat_grounding_policy", "to": "skill.fast_retrieval", "kind": "data"},
+        {"from": "skill.fast_retrieval", "to": "skill.fast_answer", "kind": "data"},
+        {"from": "skill.fast_answer", "to": "skill.answer_audit", "kind": "data"},
+        {"from": "skill.answer_audit", "to": "chat.response", "kind": "data"},
+        {"from": "skill.chat_grounding_policy", "to": "skill.deep_search", "kind": "control"},
+        {"from": "skill.deep_search", "to": "skill.answer_audit", "kind": "data"},
+    ]
+    return {
+        "variant": WORKSPACE_CHAT_VARIANT,
+        "source": "system_seed",
+        "template_id": WORKSPACE_CHAT_VARIANT,
+        "template_name": "Workspace Chat Transverse",
+        "schema_version": 2,
+        "nodes": nodes,
+        "edges": edges,
+        "ui": {
+            "type": "workspace_chat",
+            "entry_route": "chat",
+            "surface_routes": ["/chat"],
+            "primary_action": "Open chat",
+            "flow_builder_enabled": True,
+        },
+        "chat": profile,
+        "collections": profile.get("collection_slugs") or [],
+        "rag_mode": _as_dict(profile.get("retrieval_defaults")).get("mode") or "auto",
+        "canonical_rag_mode": _as_dict(profile.get("retrieval_defaults")).get("mode") or "auto",
+        "policy": {
+            "require_citations": True,
+            "enable_audit": True,
+            "max_latency_ms": 8000,
+            "confidence_threshold": 0.65,
+        },
+    }
+
+
+def _find_workspace_chat_system(db: DBSession, workspace_id: str) -> Optional[System]:
+    rows = db.query(System).filter(System.workspace_id == workspace_id).all()
+    for system in rows:
+        flow = _as_dict(system.flow_definition)
+        settings = _as_dict(getattr(system, "settings", None))
+        if flow.get("variant") == WORKSPACE_CHAT_VARIANT:
+            return system
+        if settings.get("system_type") == "workspace_chat":
+            return system
+    return (
+        db.query(System)
+        .filter(System.workspace_id == workspace_id, System.name == WORKSPACE_CHAT_SYSTEM_NAME)
+        .first()
+    )
+
+
+def workspace_chat_system_id(db: DBSession, workspace_id: str) -> Optional[str]:
+    """Return the canonical always-on chat System id for a workspace."""
+    system = _find_workspace_chat_system(db, workspace_id)
+    return system.id if system else None
+
+
+def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Optional[System]:
+    """Create or refresh the workspace's always-on chat System.
+
+    This is the `/chat` backing System: the UI can keep the friendly
+    "Quick ask" label while runs and Flow Builder edits are attached to a real
+    System row. The helper is idempotent and only specializes the profile from
+    workspace settings; it does not hardcode a document collection.
+    """
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        return None
+
+    capability = db.query(Capability).filter(Capability.slug == WORKSPACE_CHAT_CAPABILITY_SLUG).first()
+    if not capability:
+        logger.warning(
+            "workspace_chat_system_seed.skip.missing_capability",
+            workspace_id=workspace_id,
+            slug=WORKSPACE_CHAT_CAPABILITY_SLUG,
+        )
+        return None
+
+    skills = _skill_lookup(db, WORKSPACE_CHAT_SKILL_SLUGS)
+    skill_ids = [skills[slug].id for slug in WORKSPACE_CHAT_SKILL_SLUGS if slug in skills]
+    family = _workspace_family(workspace)
+    profile = _workspace_chat_profile(workspace)
+    flow_definition = _workspace_chat_flow_definition(profile, skills)
+    system_settings = {
+        "system_type": "workspace_chat",
+        "always_on": True,
+        "surface": "chat",
+        "surface_routes": ["/chat"],
+        "quick_mode_uses_system": True,
+        "family": family,
+        "assistant_profile": profile.get("assistant_profile"),
+        "knowledge_scope": profile.get("knowledge_scope"),
+        "retrieval_defaults": profile.get("retrieval_defaults") or {},
+        "source_policy": profile.get("source_policy") or {},
+    }
+
+    existing = _find_workspace_chat_system(db, workspace_id)
+    if existing:
+        existing.name = _workspace_chat_name(workspace, family)
+        existing.objective = existing.objective or _workspace_chat_objective(workspace, family)
+        existing.capability_id = capability.id
+        existing.skill_ids = skill_ids
+        existing.flow_definition = flow_definition
+        existing.settings = {**_as_dict(existing.settings), **system_settings}
+        existing.execution_mode = "real_time_decision"
+        existing.execution_profile = {
+            "surface": "chat",
+            "latency_profile": "fast",
+            "fast_answer_target_ms": 4500,
+            "deep_search": "manual_escalation",
+            "durability": "run_ledger",
+        }
+        existing.coordination_pattern = "single_agent"
+        existing.status = "active"
+        existing.default_prompt_type = existing.default_prompt_type or "factual"
+        existing.retrieval_mode_default = (
+            _as_dict(profile.get("retrieval_defaults")).get("mode") or existing.retrieval_mode_default or "auto"
+        )
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    system = System(
+        workspace_id=workspace_id,
+        name=_workspace_chat_name(workspace, family),
+        objective=_workspace_chat_objective(workspace, family),
+        capability_id=capability.id,
+        skill_ids=skill_ids,
+        flow_definition=flow_definition,
+        settings=system_settings,
+        execution_mode="real_time_decision",
+        execution_profile={
+            "surface": "chat",
+            "latency_profile": "fast",
+            "fast_answer_target_ms": 4500,
+            "deep_search": "manual_escalation",
+            "durability": "run_ledger",
+        },
+        coordination_pattern="single_agent",
+        status="active",
+        created_by="system:workspace_chat_seed",
+        default_prompt_type="factual",
+        retrieval_mode_default=_as_dict(profile.get("retrieval_defaults")).get("mode") or "auto",
+    )
+    db.add(system)
+    db.commit()
+    db.refresh(system)
+    logger.info(
+        "workspace_chat_system_seed.created",
+        workspace_id=workspace_id,
+        system_id=system.id,
+        capability_id=capability.id,
+        family=family,
+    )
+    return system
+
+
+def ensure_workspace_chat_system_for_all_workspaces(db: DBSession) -> Dict[str, int]:
+    report = {"created": 0, "skipped": 0, "already": 0}
+    workspaces = (
+        db.query(Workspace)
+        .filter(Workspace.is_active.is_(True), Workspace.deleted_at.is_(None))
+        .all()
+    )
+    for ws in workspaces:
+        before = 1 if _find_workspace_chat_system(db, ws.id) else 0
+        system = ensure_workspace_chat_system_default(db, ws.id)
+        if system is None:
+            report["skipped"] += 1
+        elif before == 0:
+            report["created"] += 1
+        else:
+            report["already"] += 1
+    return report
 
 
 def ensure_intelligence_system_default(

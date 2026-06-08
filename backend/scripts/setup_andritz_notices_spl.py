@@ -24,6 +24,8 @@ from app.models.workspace import Workspace
 from app.services.knowledge_collections import create_or_get_collection
 from app.services.knowledge_guides import create_guide, update_guide
 from app.services.rag.knowledge_scopes import normalize_knowledge_scopes
+from app.services.skills_registry.seed import seed_skills_and_capabilities
+from app.services.systems.bootstrap import ensure_workspace_chat_system_default
 
 
 DEFAULT_COLLECTION = "andritz-notices-techniques-spl-pilot"
@@ -237,11 +239,15 @@ def main() -> None:
         _upsert_scope(db, workspace, scope_key=args.scope, collection_slug=collection.slug)
         _upsert_chat_profiles(workspace, scope_key=args.scope, make_default=not args.keep_default_profile)
         db.commit()
+        seed_skills_and_capabilities(db)
+        workspace_chat = ensure_workspace_chat_system_default(db, workspace.id)
         guide_key = _publish_guide(db, workspace, collection_slug=collection.slug, actor=args.actor)
         print(
             "andritz_spl_setup ok "
             f"workspace={workspace.slug} collection={collection.slug} scope={args.scope} "
-            f"profile={ANDRITZ_SPL_ADVISOR_PROFILE} guide={guide_key}"
+            f"profile={ANDRITZ_SPL_ADVISOR_PROFILE} "
+            f"workspace_chat_system={workspace_chat.id if workspace_chat else 'skipped'} "
+            f"guide={guide_key}"
         )
     finally:
         db.close()

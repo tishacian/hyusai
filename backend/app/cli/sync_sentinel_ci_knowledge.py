@@ -17,6 +17,7 @@ from app.services.mission_room_knowledge_sync import (
     sync_visual_observations_to_knowledge,
 )
 from app.services.skills_registry import seed_skills_and_capabilities
+from app.services.systems.bootstrap import ensure_workspace_chat_system_default
 
 
 async def _main() -> None:
@@ -24,6 +25,7 @@ async def _main() -> None:
         seed_skills_and_capabilities(db)
         ensure_sentinel_ci_workspace(db)
         workspace = db.query(Workspace).filter_by(slug=SENTINEL_WORKSPACE_SLUG).one()
+        ensure_workspace_chat_system_default(db, workspace.id)
 
         fixture_result = await sync_mission_room_fixtures_to_knowledge(db, workspace)
         intelligence_result = await sync_intelligence_to_knowledge(

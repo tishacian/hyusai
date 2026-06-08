@@ -1260,6 +1260,29 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
   readonly flowTemplates: FlowTemplate[] = [
     {
+      id: 'chat_transverse_v1',
+      label: 'Chat · Transverse workspace',
+      description: 'Quick ask → actions/grounding → fast answer → Deep Search',
+      build: (add, connect) => {
+        const input = add('input', 60, 250);
+        const bypass = add('guardrail', 290, 120);
+        const actions = add('resolve_action', 290, 250);
+        const grounding = add('guardrail', 540, 250);
+        const retrieve = add('retrieve', 790, 250);
+        const answer = add('llm', 1040, 250);
+        const deep = add('tool', 1040, 420);
+        const output = add('output', 1290, 250);
+        connect(input, bypass);
+        connect(input, actions);
+        connect(actions, grounding);
+        connect(grounding, retrieve);
+        connect(retrieve, answer);
+        connect(grounding, deep);
+        connect(answer, output);
+        connect(deep, output);
+      },
+    },
+    {
       id: 'rag',
       label: 'RAG · Retrieve → Answer',
       description: 'Input → Retrieve → LLM → Output',

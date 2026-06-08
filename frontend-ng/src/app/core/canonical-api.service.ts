@@ -153,6 +153,7 @@ export interface System {
   objective?: string;
   capability_id?: string | null;
   skill_ids?: string[];
+  settings?: Record<string, unknown>;
   context_id?: string | null;
   control_policy_id?: string | null;
   adaptive_policy_id?: string | null;

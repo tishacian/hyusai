@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { CanonicalApiService, type Context, type System } from '@app/core/canonical-api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -99,6 +100,17 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
           </div>
           <div class="t-header-right">
             <span class="t-source-pill">{{ assistantScopeLabel() }}</span>
+            @if (flowBuilderSystemId()) {
+              <button
+                type="button"
+                class="t-flow-link"
+                (click)="openFlowBuilder()"
+                title="Open this workspace chat system in Flow Builder"
+              >
+                <app-icon name="workflow" [size]="13" />
+                Flow
+              </button>
+            }
           </div>
         } @else {
           <div class="t-header-left">
@@ -119,7 +131,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
               <div class="t-picker-wrap">
                 <select
                   class="t-picker"
-                  [(ngModel)]="selectedSystemId"
+                  [ngModel]="selectedSystemId()"
                   (ngModelChange)="onSystemChange($event)"
                 >
                   <option [ngValue]="null">Quick ask</option>
@@ -130,6 +142,17 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                 <app-icon name="chevron-down" [size]="12" class="t-picker-chevron" />
               </div>
             </div>
+            @if (flowBuilderSystemId()) {
+              <button
+                type="button"
+                class="t-flow-link"
+                (click)="openFlowBuilder()"
+                title="Open this workspace chat system in Flow Builder"
+              >
+                <app-icon name="workflow" [size]="13" />
+                Flow
+              </button>
+            }
           </div>
         }
       </header>
@@ -282,7 +305,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
         <!-- Chat panel -->
         <section class="t-chat">
           <app-chat-panel
-            [systemId]="selectedSystemId"
+            [systemId]="effectiveSystemId()"
             [contextId]="ephemeralContextId()"
             [assistantProfileKey]="assistantProfileKey()"
             [initialPrompt]="initialPrompt()"
@@ -444,6 +467,26 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       font-size: 11px;
       font-weight: 600;
       white-space: nowrap;
+    }
+    .t-flow-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      padding: 0 9px;
+      border-radius: 8px;
+      border: 1px solid rgba(103, 213, 246, 0.20);
+      background: rgba(34, 211, 238, 0.08);
+      color: rgb(207, 250, 254);
+      font-size: 11px;
+      font-weight: 750;
+      white-space: nowrap;
+      transition: 140ms ease;
+    }
+    .t-flow-link:hover {
+      border-color: rgba(103, 213, 246, 0.38);
+      background: rgba(34, 211, 238, 0.14);
+      color: rgb(245, 248, 252);
     }
     .t-executive-shell .t-source-pill {
       border-color: rgba(101, 214, 110, 0.30);
@@ -724,6 +767,7 @@ export class ChatWorkspaceComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly router = inject(Router);
 
   /** When `true`, render the compact (overlay) layout. Full-screen otherwise. */
   readonly inline = input<boolean>(false);
@@ -741,7 +785,7 @@ export class ChatWorkspaceComponent implements OnInit {
   readonly autoStartVoiceLoop = input(false);
 
   readonly systems = signal<System[]>([]);
-  selectedSystemId: string | null = null;
+  readonly selectedSystemId = signal<string | null>(null);
 
   readonly ephemeralContextId = signal<string | null>(null);
   /**
@@ -787,29 +831,42 @@ export class ChatWorkspaceComponent implements OnInit {
     return 'Sources du workspace';
   });
 
+  readonly workspaceChatSystem = computed<System | null>(() => {
+    return this.systems().find((system) => this.isWorkspaceChatSystem(system)) ?? null;
+  });
+
+  readonly effectiveSystemId = computed<string | null>(() => {
+    return this.selectedSystemId() ?? this.workspaceChatSystem()?.id ?? null;
+  });
+
+  readonly flowBuilderSystemId = computed<string | null>(() => this.effectiveSystemId());
+
   readonly modeLabel = computed<string>(() => {
     if (this.ephemeralContextId()) return 'Drop-and-ask';
-    if (this.selectedSystemId) return 'System chat';
+    if (this.selectedSystemId()) return 'System chat';
     return 'Quick ask';
   });
 
   readonly modeTone = computed<'cool' | 'violet' | 'pos'>(() => {
     if (this.ephemeralContextId()) return 'violet';
-    if (this.selectedSystemId) return 'cool';
+    if (this.selectedSystemId()) return 'cool';
     return 'pos';
   });
 
   readonly modeHint = computed<string>(() => {
     if (this.ephemeralContextId()) return 'Session docs ground the answer';
-    if (this.selectedSystemId) {
-      const s = this.systems().find((x) => x.id === this.selectedSystemId);
+    const selected = this.selectedSystemId();
+    if (selected) {
+      const s = this.systems().find((x) => x.id === selected);
       return s?.objective || 'Scoped to selected system';
     }
+    const chatSystem = this.workspaceChatSystem();
+    if (chatSystem) return chatSystem.objective || 'Fast workspace chat flow';
     return 'Contexte du workspace';
   });
 
   ngOnInit(): void {
-    this.selectedSystemId = this.initialSystemId() ?? null;
+    this.selectedSystemId.set(this.initialSystemId() ?? null);
     this.ephemeralContextId.set(this.initialContextId() ?? null);
     // Inline overlay: keep dropzone collapsed unless drop-mode was asked.
     if (this.inline() && this.startMode() !== 'drop') {
@@ -826,7 +883,19 @@ export class ChatWorkspaceComponent implements OnInit {
   }
 
   onSystemChange(id: string | null): void {
-    this.selectedSystemId = id;
+    this.selectedSystemId.set(id);
+  }
+
+  openFlowBuilder(): void {
+    const systemId = this.flowBuilderSystemId();
+    if (!systemId) return;
+    this.router.navigate(['/systems', systemId, 'flow']);
+  }
+
+  private isWorkspaceChatSystem(system: System): boolean {
+    const flow = (system.flow_definition ?? {}) as Record<string, unknown>;
+    const settings = (system.settings ?? {}) as Record<string, unknown>;
+    return flow['variant'] === 'chat_transverse_v1' || settings['system_type'] === 'workspace_chat';
   }
 
   onDragOver(e: DragEvent): void {

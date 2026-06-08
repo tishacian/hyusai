@@ -9,6 +9,7 @@ import pytest
 from app.api.v1.endpoints import secure_deposit
 from app.core.config import settings
 from app.models.audit import AuditLog
+from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
@@ -223,6 +224,8 @@ def test_browse_deposit_zip_member_preview_and_download(db_session, monkeypatch,
     source = tmp_path / "manual.zip"
     with zipfile.ZipFile(source, "w") as archive:
         archive.writestr("docs/readme.txt", b"hello archive")
+        archive.writestr("docs/manual.html", b"<html><body><h1>Manual</h1><script>alert(1)</script></body></html>")
+        archive.writestr("docs/manual.pdf", b"%PDF-1.4\n% manual")
     row = record_staged_file_from_path(
         db_session,
         link=link,
@@ -239,6 +242,16 @@ def test_browse_deposit_zip_member_preview_and_download(db_session, monkeypatch,
     assert preview.status_code == 200
     assert preview.json()["kind"] == "text"
     assert "hello archive" in preview.json()["content"]
+
+    html_preview = client.get(f"/sftp/deposits/{row.id}/archive/member/preview", params={"path": "docs/manual.html"})
+    assert html_preview.status_code == 200
+    assert html_preview.json()["kind"] == "html"
+    assert "<h1>Manual</h1>" in html_preview.json()["content"]
+
+    pdf_preview = client.get(f"/sftp/deposits/{row.id}/archive/member/preview", params={"path": "docs/manual.pdf"})
+    assert pdf_preview.status_code == 200
+    assert pdf_preview.json()["kind"] == "pdf"
+    assert pdf_preview.json()["download_url"].endswith("path=docs%2Fmanual.pdf")
 
     download = client.get(f"/sftp/deposits/{row.id}/archive/member/download", params={"path": "docs/readme.txt"})
     assert download.status_code == 200
@@ -395,6 +408,106 @@ def test_bulk_promote_supported_documents_uses_one_worker_job(db_session, monkey
     assert body["result"]["celery_task_id"] == "task-document-bulk"
     assert {item["extension"] for item in body["result"]["files"]} == {"xlsx", "pdf"}
     assert len({file["worker_job_id"] for file in body["files"]}) == 1
+
+
+def test_deposit_indexing_assist_recommends_and_summarizes_collection(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
+    monkeypatch.setattr(settings, "secure_deposit_archive_promotion_max_files", 50)
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.secure_deposit.is_workspace_enabled", lambda workspace: True)
+
+    workspace = Workspace(id="ws-assist", name="Assist", slug="assist")
+    user = User(id="user-assist", email="operator@example.test", username="operator")
+    collection = KnowledgeCollection(
+        id="collection-assist",
+        workspace_id=workspace.id,
+        name="assist-secure-deposit",
+        slug="assist-secure-deposit",
+        vector_collection_name="assist-secure-deposit",
+        artifact_prefix="workspaces/ws-assist/knowledge/assist-secure-deposit",
+        status="ready",
+        document_count=1,
+        chunk_count=12,
+    )
+    db_session.add_all([workspace, user, collection])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Indexing assist",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+
+    manual = tmp_path / "manual.txt"
+    manual.write_text("maintenance procedure", encoding="utf-8")
+    recommended = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=manual,
+        filename="Manuals/manual.txt",
+        content_type="text/plain",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    archive_path = tmp_path / "large-manual.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        for index in range(11):
+            archive.writestr(f"docs/chapter-{index}.txt", f"chapter {index}")
+    inspect_archive = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=archive_path,
+        filename="Archives/large-manual.zip",
+        content_type="application/zip",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    promoted_source = tmp_path / "already.pdf"
+    promoted_source.write_bytes(b"%PDF already indexed")
+    promoted = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=promoted_source,
+        filename="Already/already.pdf",
+        content_type="application/pdf",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+    promoted.status = "promoted"
+    promoted.promoted_collection_slug = collection.slug
+    db_session.commit()
+
+    response = _client(db_session, workspace, user).post(
+        "/sftp/deposits/indexing-assist",
+        json={
+            "collection_slug": collection.slug,
+            "file_ids": [recommended.id, inspect_archive.id, promoted.id],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["collection"]["exists"] is True
+    assert body["collection"]["slug"] == collection.slug
+    assert body["collection"]["chunk_count"] == 12
+    assert body["summary"]["recommended_file_ids"] == [recommended.id]
+    assert body["summary"]["recommended_count"] == 1
+    assert body["summary"]["inspect_archive_count"] == 1
+    assert body["summary"]["already_promoted_count"] == 1
+
+    recommendations = {item["file_id"]: item for item in body["recommendations"]}
+    assert recommendations[recommended.id]["recommendation"] == "promote_now"
+    assert recommendations[recommended.id]["eligible_for_batch"] is True
+    assert recommendations[inspect_archive.id]["recommendation"] == "inspect_archive"
+    assert recommendations[inspect_archive.id]["archive"]["supported_document_count"] == 11
+    assert recommendations[promoted.id]["recommendation"] == "already_promoted"
 
 
 def test_sftp_operations_lists_active_sidecar_upload(db_session, monkeypatch, tmp_path):

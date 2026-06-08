@@ -20,6 +20,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.secure_deposit import (
     authenticate_link,
+    build_indexing_assist_snapshot,
     assert_link_usable,
     build_deposit_archive,
     create_link,
@@ -82,6 +83,11 @@ class DepositPromoteRequest(BaseModel):
 
 
 class DepositBulkPromoteRequest(BaseModel):
+    collection_slug: Optional[str] = Field(default=None, max_length=120)
+    file_ids: list[str] = Field(default_factory=list)
+
+
+class DepositIndexingAssistRequest(BaseModel):
     collection_slug: Optional[str] = Field(default=None, max_length=120)
     file_ids: list[str] = Field(default_factory=list)
 
@@ -618,6 +624,43 @@ def download_deposit_staged_file(
         media_type=staged_file_media_type(file),
         filename=staged_file_download_name(file),
         content_disposition_type=disposition,
+    )
+
+
+@internal_router.post("/deposits/indexing-assist")
+def get_deposit_indexing_assist(
+    body: DepositIndexingAssistRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    file_ids = [file_id for file_id in body.file_ids if file_id]
+    if not _can_read_all(db, user=user, workspace=workspace, resource_kind="deposit_file"):
+        owned_link_ids = [
+            row.id
+            for row in db.query(DepositAccessLink.id)
+            .filter(
+                DepositAccessLink.workspace_id == workspace.id,
+                DepositAccessLink.created_by_user_id == user.id,
+            )
+            .all()
+        ]
+        visible_file_ids = {
+            row.id
+            for row in db.query(DepositFile.id)
+            .filter(
+                DepositFile.workspace_id == workspace.id,
+                DepositFile.id.in_(file_ids or ["__none__"]),
+                DepositFile.access_link_id.in_(owned_link_ids or ["__none__"]),
+            )
+            .all()
+        }
+        file_ids = [file_id for file_id in file_ids if file_id in visible_file_ids]
+    return build_indexing_assist_snapshot(
+        db,
+        workspace=workspace,
+        file_ids=file_ids,
+        collection_slug=body.collection_slug,
     )
 
 

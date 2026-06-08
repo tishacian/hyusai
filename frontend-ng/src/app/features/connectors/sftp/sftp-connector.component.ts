@@ -58,7 +58,7 @@ interface FolderCrumb {
 }
 
 interface DepositPreview {
-  kind: 'text' | 'spreadsheet' | 'image' | 'pdf' | 'binary';
+  kind: 'text' | 'html' | 'spreadsheet' | 'image' | 'pdf' | 'binary';
   filename: string;
   content_type: string;
   size_bytes: number;
@@ -117,6 +117,94 @@ interface WorkspaceJob {
   updated_at: string | null;
   completed_at: string | null;
   poll_url?: string;
+}
+
+interface KnowledgeWorkerJob {
+  id: string;
+  workspace_id?: string;
+  collection_id?: string | null;
+  kind: string;
+  celery_task_id?: string | null;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  progress: number;
+  error?: string | null;
+  stage?: string | null;
+  result?: Record<string, unknown> | null;
+  created_at: string | null;
+  started_at?: string | null;
+  completed_at: string | null;
+  updated_at: string | null;
+  poll_url?: string;
+}
+
+type IndexingRecommendationCode =
+  | 'promote_now'
+  | 'inspect_archive'
+  | 'unsupported'
+  | 'already_promoted'
+  | 'needs_target';
+
+interface IndexingArchiveSummary {
+  supported_document_count: number;
+  supported_extensions: string[];
+  uncompressed_bytes: number;
+  truncated_files: number;
+  max_files?: number | null;
+}
+
+interface IndexingRecommendation {
+  file_id: string;
+  filename: string;
+  status: string;
+  extension: string;
+  recommendation: IndexingRecommendationCode;
+  label: string;
+  reason: string;
+  eligible_for_batch: boolean;
+  size_bytes: number;
+  archive?: IndexingArchiveSummary | null;
+  target_collection_slug?: string | null;
+  promoted_collection_slug?: string | null;
+  worker_job_id?: string | null;
+  promotion_result?: Record<string, unknown> | null;
+}
+
+interface TargetCollectionSnapshot {
+  id?: string;
+  slug: string;
+  name?: string | null;
+  exists: boolean;
+  status: string;
+  source_count: number;
+  document_count: number;
+  chunk_count: number;
+  zero_chunk_sources: number;
+  error_sources: number;
+  job_counts: Record<string, number>;
+  latest_job?: KnowledgeWorkerJob | null;
+  jobs: KnowledgeWorkerJob[];
+}
+
+interface IndexingAssistSummary {
+  total_files: number;
+  found_files: number;
+  promote_now_count: number;
+  inspect_archive_count: number;
+  unsupported_count: number;
+  already_promoted_count: number;
+  needs_target_count: number;
+  recommended_count: number;
+  recommended_bytes: number;
+  zip_count: number;
+  missing_count: number;
+  recommended_file_ids: string[];
+  target_collection_slug: string;
+}
+
+interface IndexingAssistResponse {
+  summary: IndexingAssistSummary;
+  recommendations: IndexingRecommendation[];
+  collection: TargetCollectionSnapshot;
 }
 
 interface SftpLiveUpload {
@@ -317,15 +405,65 @@ const BULK_PROMOTE_LIMIT = 25;
         </section>
 
         <section class="t-card t-elevated rounded-md p-5">
-          <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Promotion target</p>
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Target collection</p>
+              <h2 class="mt-1 text-base font-semibold text-white">Knowledge destination</h2>
+            </div>
+            <a
+              [routerLink]="['/knowledge', targetCollectionSlug()]"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10"
+            >
+              <app-icon name="external-link" [size]="12" />
+              Open
+            </a>
+          </div>
           <label class="mt-3 block">
             <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Collection slug</span>
             <input
               name="collection"
-              [(ngModel)]="collectionSlug"
+              [ngModel]="collectionSlug"
+              (ngModelChange)="setCollectionSlug($event)"
               class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
             />
           </label>
+          <div class="mt-4 rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+            @if (targetCollection(); as collection) {
+              <div class="flex items-center justify-between gap-3">
+                <span class="rounded px-2 py-1 text-[11px] ring-1" [ngClass]="collection.exists ? statusClass('promoted') : 'bg-amber-500/10 text-amber-100 ring-amber-500/25'">
+                  {{ collection.exists ? collection.status : 'missing' }}
+                </span>
+                <button
+                  type="button"
+                  class="rounded px-2 py-1 text-[11px] text-gray-300 ring-1 ring-white/10 hover:bg-white/5 disabled:opacity-40"
+                  [disabled]="indexingAssistLoading() || knowledgeJobsLoading()"
+                  (click)="refreshTargetCollection()"
+                >
+                  <app-icon name="refresh-cw" [size]="12" [class.animate-spin]="indexingAssistLoading() || knowledgeJobsLoading()" />
+                  Refresh
+                </button>
+              </div>
+              <div class="mt-3 grid grid-cols-2 gap-2 text-[11px] text-gray-400">
+                <span>Sources</span>
+                <span class="text-right font-mono text-gray-200">{{ collection.source_count }}</span>
+                <span>Chunks</span>
+                <span class="text-right font-mono text-gray-200">{{ collection.chunk_count }}</span>
+                <span>Errors</span>
+                <span class="text-right font-mono" [ngClass]="collection.error_sources > 0 ? 'text-red-200' : 'text-gray-200'">{{ collection.error_sources }}</span>
+                <span>Latest job</span>
+                <span class="truncate text-right text-gray-200">{{ knowledgeJobLabel(latestKnowledgeJob()) }}</span>
+              </div>
+            } @else {
+              <p class="text-xs text-gray-500">Refresh the target collection to load its indexing status.</p>
+              <button
+                type="button"
+                class="mt-3 rounded px-2.5 py-1.5 text-[11px] text-gray-200 ring-1 ring-white/10 hover:bg-white/5"
+                (click)="refreshTargetCollection()"
+              >
+                Load collection status
+              </button>
+            }
+          </div>
         </section>
       </div>
 
@@ -370,6 +508,232 @@ const BULK_PROMOTE_LIMIT = 25;
               }
             </ul>
           }
+        </section>
+
+        <section class="t-card t-elevated rounded-md overflow-hidden">
+          <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Indexing assist</p>
+              <h2 class="mt-1 text-sm font-semibold text-white">Promotion readiness and indexing pipeline</h2>
+              <p class="mt-1 text-xs text-gray-500">Analyze the current file view, promote only recommended candidates, then track Knowledge ingestion.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                class="inline-flex items-center justify-center gap-1.5 rounded bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-100 ring-1 ring-cyan-500/20 hover:bg-cyan-500/15 disabled:opacity-40"
+                [disabled]="indexingAssistLoading()"
+                (click)="analyzeCurrentView()"
+              >
+                <app-icon name="file-search" [size]="13" [class.animate-spin]="indexingAssistLoading()" />
+                Analyze current view
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40"
+                [disabled]="recommendedBatchFiles().length === 0 || bulkPromoting() || saving()"
+                (click)="promoteBatch()"
+                title="Promote files explicitly recommended by the latest indexing assist run."
+              >
+                <app-icon name="archive-restore" [size]="13" />
+                {{ bulkPromoting() ? 'Promoting recommended' : 'Recommended batch' }}
+                @if (recommendedBatchFiles().length > 0) {
+                  <span class="rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono text-[10px]">{{ recommendedBatchFiles().length }}</span>
+                }
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                [disabled]="knowledgeJobsLoading()"
+                (click)="loadIndexingMonitor()"
+              >
+                <app-icon name="activity" [size]="13" [class.animate-spin]="knowledgeJobsLoading()" />
+                Refresh pipeline
+              </button>
+              <a
+                [routerLink]="['/knowledge', targetCollectionSlug()]"
+                class="inline-flex items-center justify-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-semibold text-gray-100 ring-1 ring-white/10 hover:bg-white/10"
+              >
+                <app-icon name="external-link" [size]="13" />
+                Open collection
+              </a>
+            </div>
+          </div>
+
+          @if (indexingAssistError()) {
+            <div class="border-b border-white/5 bg-red-500/10 px-5 py-3 text-sm text-red-100">
+              {{ indexingAssistError() }}
+            </div>
+          }
+
+          @if (lastPromotionBanner(); as banner) {
+            <div class="border-b border-emerald-400/15 bg-emerald-500/10 px-5 py-3">
+              <div class="flex flex-col gap-2 text-sm text-emerald-100 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  {{ banner.count }} file{{ banner.count === 1 ? '' : 's' }} queued to {{ banner.collection_slug }}
+                  @if (banner.job_id) {
+                    <span class="font-mono text-[11px] text-emerald-200/70">· job {{ banner.job_id }}</span>
+                  }
+                </span>
+                <a [routerLink]="['/knowledge', banner.collection_slug]" class="inline-flex w-fit items-center gap-1.5 rounded bg-emerald-400/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-50 ring-1 ring-emerald-300/20 hover:bg-emerald-400/15">
+                  Open collection
+                  <app-icon name="external-link" [size]="12" />
+                </a>
+              </div>
+            </div>
+          }
+
+          <div class="grid gap-4 px-5 py-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+            <div class="min-w-0 space-y-4">
+              <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">View files</p>
+                  <p class="mt-1 text-lg font-semibold text-white">{{ assistCandidateFiles().length }}</p>
+                  <p class="text-[11px] text-gray-500">analyzed on request</p>
+                </div>
+                <div class="rounded bg-emerald-500/[0.06] p-3 ring-1 ring-emerald-500/15">
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-emerald-300">Recommended</p>
+                  <p class="mt-1 text-lg font-semibold text-white">{{ indexingAssist()?.summary?.recommended_count || 0 }}</p>
+                  <p class="text-[11px] text-gray-500">{{ formatBytes(indexingAssist()?.summary?.recommended_bytes || 0) }}</p>
+                </div>
+                <div class="rounded bg-amber-500/[0.06] p-3 ring-1 ring-amber-500/15">
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-300">Inspect</p>
+                  <p class="mt-1 text-lg font-semibold text-white">{{ indexingAssist()?.summary?.inspect_archive_count || 0 }}</p>
+                  <p class="text-[11px] text-gray-500">archives or uncertain files</p>
+                </div>
+                <div class="rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Skipped</p>
+                  <p class="mt-1 text-lg font-semibold text-white">{{ (indexingAssist()?.summary?.unsupported_count || 0) + (indexingAssist()?.summary?.already_promoted_count || 0) }}</p>
+                  <p class="text-[11px] text-gray-500">unsupported or already promoted</p>
+                </div>
+              </div>
+
+              @if (indexingAssist(); as assist) {
+                @if (assist.recommendations.length) {
+                <div class="rounded-md bg-white/[0.02] ring-1 ring-white/10">
+                  <div class="flex items-center justify-between border-b border-white/5 px-4 py-3">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-gray-300">Recommendations</h3>
+                    <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ assist.summary.found_files || 0 }} files</span>
+                  </div>
+                  <ul class="max-h-72 divide-y divide-white/5 overflow-auto">
+                    @for (rec of assist.recommendations.slice(0, 12); track rec.file_id) {
+                      <li class="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_150px] lg:items-start">
+                        <div class="min-w-0">
+                          <div class="flex min-w-0 flex-wrap items-center gap-2">
+                            <p class="truncate text-sm font-semibold text-white">{{ basename(rec.filename || rec.file_id) }}</p>
+                            <span class="rounded px-2 py-0.5 text-[10px] ring-1" [ngClass]="assistBadgeClass(rec.recommendation)">
+                              {{ rec.label }}
+                            </span>
+                          </div>
+                          <p class="mt-1 line-clamp-2 text-xs text-gray-400">{{ rec.reason }}</p>
+                          @if (rec.archive) {
+                            <p class="mt-1 truncate font-mono text-[10px] text-gray-500">
+                              ZIP docs {{ rec.archive.supported_document_count }} · {{ rec.archive.supported_extensions.join(', ') || 'no supported extension' }}
+                            </p>
+                          }
+                        </div>
+                        <div class="flex items-center gap-2 lg:justify-end">
+                          @if (rec.recommendation === 'inspect_archive') {
+                            @if (fileLookup().get(rec.file_id); as archiveFile) {
+                              <button type="button" class="rounded px-2.5 py-1.5 text-xs text-amber-100 ring-1 ring-amber-500/20 hover:bg-amber-500/10" (click)="openZipArchive(archiveFile)">
+                                Browse ZIP
+                              </button>
+                            }
+                          }
+                          @if (rec.eligible_for_batch) {
+                            <span class="rounded bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200 ring-1 ring-emerald-500/20">In batch</span>
+                          }
+                        </div>
+                      </li>
+                    }
+                  </ul>
+                </div>
+                } @else {
+                  <div class="rounded-md bg-white/[0.02] p-4 text-sm text-gray-500 ring-1 ring-white/10">
+                    No recommendation for the current analysis.
+                  </div>
+                }
+              } @else {
+                <div class="rounded-md bg-white/[0.02] p-4 text-sm text-gray-500 ring-1 ring-white/10">
+                  Run indexing assist on the current folder or search results to prepare a recommended promotion batch.
+                </div>
+              }
+            </div>
+
+            <div class="min-w-0 rounded-md bg-cyan-500/[0.04] p-4 ring-1 ring-cyan-400/20">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Indexing pipeline</p>
+                  <h3 class="mt-1 text-sm font-semibold text-white">{{ knowledgeJobLabel(latestKnowledgeJob()) }}</h3>
+                  <p class="mt-1 truncate text-xs text-gray-500">{{ targetCollectionSlug() }}</p>
+                </div>
+                @if (activeKnowledgeJobs().length > 0) {
+                  <span class="inline-flex items-center gap-1.5 rounded bg-cyan-500/10 px-2 py-1 text-[10px] uppercase tracking-wider text-cyan-100 ring-1 ring-cyan-500/25">
+                    <app-icon name="loader-2" [size]="12" class="animate-spin" />
+                    {{ activeKnowledgeJobs().length }} active
+                  </span>
+                }
+              </div>
+              <div class="mt-4 grid grid-cols-4 gap-2">
+                <div class="rounded bg-white/[0.03] p-2 text-center ring-1 ring-white/10">
+                  <p class="font-mono text-sm text-white">{{ indexingJobCount('queued') }}</p>
+                  <p class="text-[10px] uppercase tracking-wider text-gray-500">Queued</p>
+                </div>
+                <div class="rounded bg-white/[0.03] p-2 text-center ring-1 ring-white/10">
+                  <p class="font-mono text-sm text-white">{{ indexingJobCount('running') }}</p>
+                  <p class="text-[10px] uppercase tracking-wider text-gray-500">Running</p>
+                </div>
+                <div class="rounded bg-white/[0.03] p-2 text-center ring-1 ring-white/10">
+                  <p class="font-mono text-sm text-white">{{ indexingJobCount('completed') }}</p>
+                  <p class="text-[10px] uppercase tracking-wider text-gray-500">Done</p>
+                </div>
+                <div class="rounded bg-white/[0.03] p-2 text-center ring-1 ring-white/10">
+                  <p class="font-mono text-sm text-white">{{ indexingJobCount('failed') }}</p>
+                  <p class="text-[10px] uppercase tracking-wider text-gray-500">Failed</p>
+                </div>
+              </div>
+              @if (targetCollection(); as collection) {
+                <div class="mt-4 grid grid-cols-3 gap-2 text-center">
+                  <div class="rounded bg-black/20 p-2 ring-1 ring-white/10">
+                    <p class="font-mono text-sm text-white">{{ collection.source_count }}</p>
+                    <p class="text-[10px] uppercase tracking-wider text-gray-500">Sources</p>
+                  </div>
+                  <div class="rounded bg-black/20 p-2 ring-1 ring-white/10">
+                    <p class="font-mono text-sm text-white">{{ collection.chunk_count }}</p>
+                    <p class="text-[10px] uppercase tracking-wider text-gray-500">Chunks</p>
+                  </div>
+                  <div class="rounded bg-black/20 p-2 ring-1 ring-white/10">
+                    <p class="font-mono text-sm" [ngClass]="collection.error_sources > 0 ? 'text-red-200' : 'text-white'">{{ collection.error_sources }}</p>
+                    <p class="text-[10px] uppercase tracking-wider text-gray-500">Errors</p>
+                  </div>
+                </div>
+              }
+              <ul class="mt-4 max-h-72 space-y-2 overflow-auto">
+                @for (job of knowledgeJobs().slice(0, 6); track job.id) {
+                  <li class="rounded bg-black/20 p-3 ring-1 ring-white/10">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <p class="truncate text-xs font-semibold text-white">{{ job.stage || job.kind }}</p>
+                        <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ job.id }}</p>
+                      </div>
+                      <span class="rounded px-2 py-1 text-[10px] ring-1" [ngClass]="knowledgeJobClass(job.status)">
+                        {{ job.status }}
+                      </span>
+                    </div>
+                    <div class="mt-2 h-1.5 overflow-hidden rounded bg-white/10">
+                      <div class="h-full rounded bg-cyan-300" [style.width.%]="job.progress || (job.status === 'completed' ? 100 : 0)"></div>
+                    </div>
+                    @if (job.error) {
+                      <p class="mt-2 line-clamp-2 text-[11px] text-red-200">{{ job.error }}</p>
+                    }
+                  </li>
+                } @empty {
+                  <li class="rounded bg-black/20 p-4 text-sm text-gray-500 ring-1 ring-white/10">
+                    No indexing job found for this target collection yet.
+                  </li>
+                }
+              </ul>
+            </div>
+          </div>
         </section>
 
         <section class="t-card t-elevated rounded-md overflow-hidden">
@@ -569,14 +933,14 @@ const BULK_PROMOTE_LIMIT = 25;
               <button
                 type="button"
                 class="inline-flex w-full items-center justify-center gap-1.5 rounded bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-100 ring-1 ring-emerald-500/20 hover:bg-emerald-500/15 disabled:opacity-40 sm:w-auto"
-                [disabled]="bulkEligibleFiles().length === 0 || bulkPromoting() || saving()"
+                [disabled]="recommendedBatchFiles().length === 0 || bulkPromoting() || saving()"
                 (click)="promoteBatch()"
-                title="Promote up to 25 received Knowledge-supported files from the current folder or search view."
+                title="Promote up to 25 files recommended by the latest indexing assist run."
               >
                 <app-icon name="archive-restore" [size]="13" />
-                {{ bulkPromoting() ? 'Promoting batch' : 'Promote batch' }}
-                @if (bulkEligibleFiles().length > 0) {
-                  <span class="rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono text-[10px]">{{ bulkEligibleFiles().length }}</span>
+                {{ bulkPromoting() ? 'Promoting recommended' : 'Recommended batch' }}
+                @if (recommendedBatchFiles().length > 0) {
+                  <span class="rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono text-[10px]">{{ recommendedBatchFiles().length }}</span>
                 }
               </button>
               <button
@@ -763,10 +1127,21 @@ const BULK_PROMOTE_LIMIT = 25;
                         <h3 class="truncate text-sm font-semibold text-white">{{ item.name }}</h3>
                         <p class="mt-1 truncate font-mono text-[10px] text-gray-500">{{ item.path }}</p>
                         <p class="mt-1 truncate font-mono text-[10px] text-gray-600">{{ file.sha256 }}</p>
+                        @if (assistRecommendation(file.id); as assist) {
+                          <p class="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-gray-400">
+                            <span class="rounded px-2 py-0.5 text-[10px] ring-1" [ngClass]="assistBadgeClass(assist.recommendation)">
+                              {{ assist.label }}
+                            </span>
+                            <span class="truncate">{{ assist.reason }}</span>
+                          </p>
+                        }
                         @if (file.status === 'promoted' && file.promoted_collection_slug) {
                           <p class="mt-1 truncate text-[11px] text-emerald-300/80">
-                            Indexed target · {{ file.promoted_collection_slug }}
-                            @if (promotionIndexingStatus(file); as indexingStatus) {
+                            Indexed target ·
+                            <a [routerLink]="['/knowledge', file.promoted_collection_slug]" class="underline decoration-emerald-300/30 underline-offset-2 hover:text-emerald-100">
+                              {{ file.promoted_collection_slug }}
+                            </a>
+                            @if (fileIndexingState(file); as indexingStatus) {
                               <span class="font-mono text-emerald-200/70">· {{ indexingStatus }}</span>
                             }
                           </p>
@@ -988,7 +1363,21 @@ const BULK_PROMOTE_LIMIT = 25;
                     <app-icon name="download" [size]="13" /> Download
                   </button>
                 </div>
-                @if (preview.kind === 'text') {
+                @if (preview.kind === 'html') {
+                  @if (preview.truncated) {
+                    <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
+                  }
+                  <iframe
+                    sandbox=""
+                    referrerpolicy="no-referrer"
+                    [srcdoc]="previewHtmlSrcdoc() || ''"
+                    class="h-[58vh] w-full rounded bg-white ring-1 ring-white/10"
+                  ></iframe>
+                  <details class="mt-3 rounded bg-black/20 p-3 text-xs text-gray-300 ring-1 ring-white/10">
+                    <summary class="cursor-pointer text-gray-200">Source</summary>
+                    <pre class="mt-3 max-h-56 overflow-auto font-mono text-[11px] leading-relaxed text-gray-300 whitespace-pre-wrap">{{ preview.content }}</pre>
+                  </details>
+                } @else if (preview.kind === 'text') {
                   @if (preview.truncated) {
                     <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
                   }
@@ -1056,7 +1445,21 @@ const BULK_PROMOTE_LIMIT = 25;
             </button>
           </div>
 
-          @if (preview.kind === 'text') {
+          @if (preview.kind === 'html') {
+            @if (preview.truncated) {
+              <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
+            }
+            <iframe
+              sandbox=""
+              referrerpolicy="no-referrer"
+              [srcdoc]="previewHtmlSrcdoc() || ''"
+              class="h-[70vh] w-full rounded bg-white ring-1 ring-white/10"
+            ></iframe>
+            <details class="mt-3 rounded bg-black/20 p-3 text-xs text-gray-300 ring-1 ring-white/10">
+              <summary class="cursor-pointer text-gray-200">Source</summary>
+              <pre class="mt-3 max-h-64 overflow-auto font-mono text-[11px] leading-relaxed text-gray-300 whitespace-pre-wrap">{{ preview.content }}</pre>
+            </details>
+          } @else if (preview.kind === 'text') {
             @if (preview.truncated) {
               <p class="mb-2 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-500/20">Preview truncated to the first megabyte.</p>
             }
@@ -1153,6 +1556,12 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   readonly operationsLoading = signal(false);
   readonly operationsError = signal<string | null>(null);
   readonly reconciliationRunning = signal(false);
+  readonly indexingAssist = signal<IndexingAssistResponse | null>(null);
+  readonly indexingAssistLoading = signal(false);
+  readonly indexingAssistError = signal<string | null>(null);
+  readonly knowledgeJobs = signal<KnowledgeWorkerJob[]>([]);
+  readonly knowledgeJobsLoading = signal(false);
+  readonly lastPromotionBanner = signal<{ collection_slug: string; job_id?: string | null; count: number } | null>(null);
   readonly error = signal<string | null>(null);
   readonly previewOpen = signal(false);
   readonly previewLoading = signal(false);
@@ -1161,6 +1570,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   readonly previewData = signal<DepositPreview | null>(null);
   readonly previewObjectUrl = signal<string | null>(null);
   readonly previewPdfUrl = signal<SafeResourceUrl | null>(null);
+  readonly previewHtmlSrcdoc = signal<string | null>(null);
   readonly archiveMode = signal(false);
   readonly archiveLoading = signal(false);
   readonly archiveData = signal<ZipArchiveBrowser | null>(null);
@@ -1177,6 +1587,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   readonly queuePageSize = signal(DEFAULT_QUEUE_PAGE_SIZE);
   readonly pageSizeOptions = [50, 100, 300];
   readonly linkLookup = computed(() => new Map(this.links().map((link) => [link.id, link])));
+  readonly fileLookup = computed(() => new Map(this.files().map((file) => [file.id, file])));
   readonly linkFilteredFiles = computed(() => {
     const selected = this.selectedLinkId();
     return this.files().filter((file) => !selected || file.access_link_id === selected);
@@ -1204,15 +1615,33 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     const start = (this.currentQueuePage() - 1) * this.queuePageSize();
     return this.queueItems().slice(start, start + this.queuePageSize());
   });
-  readonly bulkEligibleFiles = computed(() =>
+  readonly assistCandidateFiles = computed(() =>
     this.queueItems()
       .map((item) => item.file)
       .filter((file): file is DepositFile => {
         if (!file) return false;
-        return file.status === 'received' && this.isKnowledgePromotable(file);
+        return file.status !== 'rejected';
       })
-      .slice(0, BULK_PROMOTE_LIMIT),
+      .slice(0, 100),
   );
+  readonly assistRecommendationsById = computed(() => {
+    const recommendations = this.indexingAssist()?.recommendations || [];
+    return new Map(recommendations.map((item) => [item.file_id, item]));
+  });
+  readonly targetCollection = computed(() => this.indexingAssist()?.collection || null);
+  readonly recommendedBatchFiles = computed(() => {
+    const ids = this.indexingAssist()?.summary?.recommended_file_ids || [];
+    const lookup = this.fileLookup();
+    return ids
+      .map((id) => lookup.get(id))
+      .filter((file): file is DepositFile => Boolean(file))
+      .slice(0, BULK_PROMOTE_LIMIT);
+  });
+  readonly latestKnowledgeJob = computed(() => this.knowledgeJobs()[0] || this.targetCollection()?.latest_job || null);
+  readonly activeKnowledgeJobs = computed(() =>
+    this.knowledgeJobs().filter((job) => job.status === 'queued' || job.status === 'running'),
+  );
+  readonly workerJobById = computed(() => new Map(this.knowledgeJobs().map((job) => [job.id, job])));
   readonly queueRangeLabel = computed(() => {
     const total = this.queueItems().length;
     if (total === 0) return '0 rows';
@@ -1265,17 +1694,24 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   collectionSlug = '';
   staleAfterHours = 24;
   private operationsPollId: ReturnType<typeof setInterval> | null = null;
+  private indexingPollId: ReturnType<typeof setInterval> | null = null;
+  private lastPassiveIndexingPollAt = 0;
 
   ngOnInit(): void {
     this.resetWorkspaceDefaults();
     this.load();
     this.operationsPollId = setInterval(() => this.loadOperations(true), 5000);
+    this.indexingPollId = setInterval(() => this.pollIndexingMonitor(), 5000);
   }
 
   ngOnDestroy(): void {
     if (this.operationsPollId) {
       clearInterval(this.operationsPollId);
       this.operationsPollId = null;
+    }
+    if (this.indexingPollId) {
+      clearInterval(this.indexingPollId);
+      this.indexingPollId = null;
     }
     this.revokePreviewObjectUrl();
   }
@@ -1302,6 +1738,8 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
       error: () => this.files.set([]),
     });
     this.loadOperations(true);
+    this.loadIndexingAssist(true, []);
+    this.loadIndexingMonitor(true);
   }
 
   loadOperations(silent = false): void {
@@ -1321,6 +1759,89 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
           this.operationsLoading.set(false);
         },
       });
+  }
+
+  loadIndexingAssist(silent = false, files: DepositFile[] | null = null): void {
+    const selectedFiles = files ?? this.assistCandidateFiles();
+    if (!silent) {
+      this.indexingAssistLoading.set(true);
+    }
+    this.indexingAssistError.set(null);
+    this.api
+      .post<IndexingAssistResponse>('/sftp/deposits/indexing-assist', {
+        collection_slug: this.targetCollectionSlug(),
+        file_ids: selectedFiles.map((file) => file.id),
+      })
+      .subscribe({
+        next: (res) => {
+          this.indexingAssist.set(res);
+          if (res.collection?.jobs?.length) {
+            this.knowledgeJobs.set(res.collection.jobs);
+          }
+          this.indexingAssistLoading.set(false);
+        },
+        error: (err) => {
+          this.indexingAssistError.set(this.errorMessage(err, 'Unable to analyze indexing readiness.'));
+          this.indexingAssistLoading.set(false);
+        },
+      });
+  }
+
+  loadIndexingMonitor(silent = false): void {
+    const collection = this.targetCollectionSlug();
+    if (!collection) return;
+    if (!silent) {
+      this.knowledgeJobsLoading.set(true);
+    }
+    this.api
+      .get<{ items: KnowledgeWorkerJob[] }>('/documents/jobs', {
+        collection_id: collection,
+        limit: '8',
+      })
+      .subscribe({
+        next: (res) => {
+          this.knowledgeJobs.set(res.items || []);
+          this.knowledgeJobsLoading.set(false);
+        },
+        error: () => {
+          this.knowledgeJobs.set([]);
+          this.knowledgeJobsLoading.set(false);
+        },
+      });
+  }
+
+  pollIndexingMonitor(): void {
+    const active = this.activeKnowledgeJobs().length > 0;
+    const now = Date.now();
+    if (!active && now - this.lastPassiveIndexingPollAt < 30_000) {
+      return;
+    }
+    if (!active) {
+      this.lastPassiveIndexingPollAt = now;
+    }
+    this.loadIndexingMonitor(true);
+  }
+
+  analyzeCurrentView(): void {
+    const files = this.assistCandidateFiles();
+    if (!files.length) {
+      this.toast.info('Open a folder or search files before running indexing assist.', 'Indexing Assist');
+      this.loadIndexingAssist(false, []);
+      return;
+    }
+    this.loadIndexingAssist(false, files);
+  }
+
+  refreshTargetCollection(): void {
+    this.loadIndexingAssist(false, []);
+    this.loadIndexingMonitor(false);
+  }
+
+  setCollectionSlug(value: string): void {
+    this.collectionSlug = value;
+    this.indexingAssist.set(null);
+    this.lastPromotionBanner.set(null);
+    this.loadIndexingMonitor(true);
   }
 
   runReconciliationCheck(): void {
@@ -1432,16 +1953,26 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   }
 
   promote(file: DepositFile): void {
+    const collection = this.targetCollectionSlug();
     this.saving.set(true);
     this.api
       .post<{ file: DepositFile }>(`/sftp/deposits/${file.id}/promote`, {
-        collection_slug: this.collectionSlug || this.defaultCollectionSlug(),
+        collection_slug: collection,
       })
       .subscribe({
-        next: () => {
+        next: (res) => {
+          const promoted = res.file;
+          const result = promoted.promotion_result || {};
+          this.lastPromotionBanner.set({
+            collection_slug: promoted.promoted_collection_slug || collection,
+            job_id: (promoted.worker_job_id || (result['job_id'] as string | undefined)) ?? null,
+            count: 1,
+          });
           this.toast.success('File promoted to Knowledge ingestion', 'Secure Deposit');
           this.saving.set(false);
           this.load();
+          this.loadIndexingAssist(true, []);
+          this.loadIndexingMonitor(true);
         },
         error: (err) => {
           this.toast.error(this.errorMessage(err, 'Unable to promote file'), 'Secure Deposit');
@@ -1451,14 +1982,15 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   }
 
   promoteBatch(): void {
-    const files = this.bulkEligibleFiles();
+    const files = this.recommendedBatchFiles();
     if (!files.length) {
-      this.toast.info('No received Knowledge-supported files in the current view.', 'Secure Deposit');
+      this.toast.info('Run indexing assist first, then promote the recommended files.', 'Secure Deposit');
       return;
     }
-    const collection = this.collectionSlug || this.defaultCollectionSlug();
+    const collection = this.targetCollectionSlug();
+    const summary = this.indexingAssist()?.summary;
     const accepted = window.confirm(
-      `Promote ${files.length} Knowledge-supported files from the current view to "${collection}"?\n\nA single Knowledge worker job will index the batch. Unsupported files such as legacy .xls remain in staging.`,
+      `Promote ${files.length} recommended file(s) to "${collection}"?\n\nEstimated volume: ${this.formatBytes(summary?.recommended_bytes || 0)}.\nInspect: ${summary?.inspect_archive_count || 0}. Unsupported/skipped: ${summary?.unsupported_count || 0}.\n\nA single Knowledge worker job will index the batch.`,
     );
     if (!accepted) return;
 
@@ -1474,9 +2006,16 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (res) => {
           const skipped = res.skipped?.length ? `, ${res.skipped.length} skipped` : '';
+          this.lastPromotionBanner.set({
+            collection_slug: collection,
+            job_id: res.result?.job_id || null,
+            count: res.files?.length || files.length,
+          });
           this.toast.success(`${res.files?.length || files.length} files queued${skipped}`, 'Secure Deposit');
           this.bulkPromoting.set(false);
           this.load();
+          this.loadIndexingAssist(true, []);
+          this.loadIndexingMonitor(true);
         },
         error: (err) => {
           this.toast.error(this.errorMessage(err, 'Unable to promote batch'), 'Secure Deposit');
@@ -1531,10 +2070,10 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.previewLoading.set(true);
     this.previewError.set(null);
     this.previewFileTarget.set(file);
-    this.previewData.set(null);
+    this.clearPreviewData();
     this.api.get<DepositPreview>(`/sftp/deposits/${file.id}/preview`).subscribe({
       next: (preview) => {
-        this.previewData.set(preview);
+        this.setPreviewData(preview);
         if (preview.kind === 'image' || preview.kind === 'pdf') {
           this.loadPreviewBlob(file, preview.kind);
           return;
@@ -1555,7 +2094,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.previewLoading.set(false);
     this.previewError.set(null);
     this.previewFileTarget.set(file);
-    this.previewData.set(null);
+    this.clearPreviewData();
     this.archiveData.set(null);
     this.archivePath.set(path);
     this.archivePreviewPath.set(null);
@@ -1588,10 +2127,10 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.archivePreviewPath.set(item.path);
     this.archivePreviewError.set(null);
     this.archivePreviewLoading.set(true);
-    this.previewData.set(null);
+    this.clearPreviewData();
     this.api.get<DepositPreview>(`/sftp/deposits/${file.id}/archive/member/preview`, { path: item.path }).subscribe({
       next: (preview) => {
-        this.previewData.set(preview);
+        this.setPreviewData(preview);
         if (preview.kind === 'image' || preview.kind === 'pdf') {
           this.loadArchiveMemberPreviewBlob(file, item.path, preview.kind);
           return;
@@ -1642,7 +2181,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.previewOpen.set(false);
     this.previewLoading.set(false);
     this.previewFileTarget.set(null);
-    this.previewData.set(null);
+    this.clearPreviewData();
     this.previewError.set(null);
     this.archiveMode.set(false);
     this.archiveLoading.set(false);
@@ -1772,6 +2311,52 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     return 'bg-red-500/10 text-red-200 ring-red-500/25';
   }
 
+  assistRecommendation(fileId: string): IndexingRecommendation | null {
+    return this.assistRecommendationsById().get(fileId) || null;
+  }
+
+  assistBadgeClass(recommendation: IndexingRecommendationCode): string {
+    if (recommendation === 'promote_now') return 'bg-emerald-500/10 text-emerald-200 ring-emerald-500/25';
+    if (recommendation === 'inspect_archive') return 'bg-amber-500/10 text-amber-100 ring-amber-500/25';
+    if (recommendation === 'already_promoted') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/25';
+    if (recommendation === 'needs_target') return 'bg-purple-500/10 text-purple-100 ring-purple-500/25';
+    return 'bg-white/5 text-gray-300 ring-white/10';
+  }
+
+  indexingJobCount(status: KnowledgeWorkerJob['status']): number {
+    return this.knowledgeJobs().filter((job) => job.status === status).length;
+  }
+
+  knowledgeJobClass(status: KnowledgeWorkerJob['status']): string {
+    if (status === 'completed') return 'bg-emerald-500/10 text-emerald-200 ring-emerald-500/25';
+    if (status === 'failed' || status === 'cancelled') return 'bg-red-500/10 text-red-200 ring-red-500/25';
+    if (status === 'running') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/25';
+    return 'bg-amber-500/10 text-amber-100 ring-amber-500/25';
+  }
+
+  knowledgeJobLabel(job: KnowledgeWorkerJob | null): string {
+    if (!job) return 'No job yet';
+    if (job.status === 'queued') return 'Promotion queued';
+    if (job.status === 'running') return 'Indexing running';
+    if (job.status === 'completed') return 'Indexed';
+    if (job.status === 'failed') return 'Indexing failed';
+    return 'Indexing cancelled';
+  }
+
+  fileIndexingState(file: DepositFile): string | null {
+    if (file.worker_job_id) {
+      const job = this.workerJobById().get(file.worker_job_id);
+      if (job) return this.knowledgeJobLabel(job);
+    }
+    const status = this.promotionIndexingStatus(file);
+    if (!status) return null;
+    if (status === 'queued') return 'Promotion queued';
+    if (status === 'running' || status === 'ingesting') return 'Indexing running';
+    if (status === 'completed' || status === 'indexed' || status === 'ready') return 'Indexed';
+    if (status === 'failed' || status === 'error') return 'Indexing failed';
+    return status;
+  }
+
   uploadStatusLabel(status: SftpLiveUpload['status']): string {
     if (status === 'stale_candidate') return 'Stale candidate';
     if (status === 'idle') return 'Idle';
@@ -1798,6 +2383,10 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     const result = job.result || {};
     const counts = (result['counts'] as Record<string, unknown> | undefined) || {};
     return Number(counts[key] || 0);
+  }
+
+  targetCollectionSlug(): string {
+    return this.collectionSlug.trim() || this.defaultCollectionSlug();
   }
 
   statusSummaryClass(status: QueueStatusFilter, active: boolean): string {
@@ -1848,6 +2437,70 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
           this.archivePreviewLoading.set(false);
         },
       });
+  }
+
+  private setPreviewData(preview: DepositPreview): void {
+    this.previewData.set(preview);
+    this.previewHtmlSrcdoc.set(preview.kind === 'html' ? this.buildHtmlPreviewSrcdoc(preview.content || '') : null);
+  }
+
+  private clearPreviewData(): void {
+    this.previewData.set(null);
+    this.previewHtmlSrcdoc.set(null);
+  }
+
+  private buildHtmlPreviewSrcdoc(content: string): string {
+    const sanitized = this.sanitizeHtmlPreview(content);
+    return [
+      '<!doctype html>',
+      '<html>',
+      '<head>',
+      '<meta charset="utf-8">',
+      '<base target="_blank">',
+      '<style>',
+      'html,body{margin:0;padding:0;background:#fff;color:#111;font:14px/1.45 Arial,Helvetica,sans-serif;}',
+      'body{padding:16px;} img,svg,video,canvas{max-width:100%;height:auto;} table{border-collapse:collapse;max-width:100%;} td,th{border:1px solid #d7dce2;padding:4px 6px;vertical-align:top;} a{color:#075985;}',
+      sanitized.styles,
+      '</style>',
+      '</head>',
+      '<body>',
+      sanitized.body || '<p>No HTML body content found.</p>',
+      '</body>',
+      '</html>',
+    ].join('');
+  }
+
+  private sanitizeHtmlPreview(content: string): { body: string; styles: string } {
+    if (typeof DOMParser === 'undefined') {
+      return { body: `<pre>${this.escapeHtml(content)}</pre>`, styles: '' };
+    }
+    const doc = new DOMParser().parseFromString(content || '', 'text/html');
+    doc.querySelectorAll('script, iframe, object, embed, form, input, button, meta[http-equiv]').forEach((node) => node.remove());
+    for (const element of Array.from(doc.querySelectorAll('*'))) {
+      for (const attr of Array.from(element.attributes)) {
+        const name = attr.name.toLowerCase();
+        const value = attr.value.trim().toLowerCase();
+        const unsafeUrl =
+          ['href', 'src', 'xlink:href', 'formaction'].includes(name) &&
+          (value.startsWith('javascript:') || value.startsWith('data:text/html'));
+        if (name.startsWith('on') || name === 'srcdoc' || unsafeUrl) {
+          element.removeAttribute(attr.name);
+        }
+      }
+    }
+    const styles = Array.from(doc.querySelectorAll('style'))
+      .map((style) => (style.textContent || '').replace(/@import[^;]+;/gi, '').replace(/<\/style/gi, '<\\/style'))
+      .join('\n');
+    return { body: doc.body?.innerHTML || '', styles };
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   private loadPreviewBlob(file: DepositFile, kind: 'image' | 'pdf'): void {
@@ -2029,35 +2682,6 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
 
   private filePath(file: DepositFile): string {
     return (file.filename || 'upload').replace(/\\/g, '/').split('/').filter(Boolean).join('/');
-  }
-
-  private isKnowledgePromotable(file: DepositFile): boolean {
-    return [
-      'csv',
-      'html',
-      'htm',
-      'json',
-      'log',
-      'markdown',
-      'md',
-      'pdf',
-      'rst',
-      'txt',
-      'xml',
-      'xlsx',
-      'xlsm',
-      'xltm',
-      'xltx',
-      'yaml',
-      'yml',
-      'zip',
-    ].includes(this.extension(file.filename));
-  }
-
-  private extension(path: string): string {
-    const name = this.basename(path).toLowerCase();
-    const index = name.lastIndexOf('.');
-    return index > -1 ? name.slice(index + 1) : '';
   }
 
   private errorMessage(err: unknown, fallback: string): string {

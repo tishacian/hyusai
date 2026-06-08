@@ -87,6 +87,20 @@ async def _stub(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -
 # ---------------------------------------------------------------------------
 # Concrete wrappers
 # ---------------------------------------------------------------------------
+async def _chat_trivial_bypass_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.chat_trivial_bypass import maybe_trivial_bypass
+
+    bypass = maybe_trivial_bypass(str(payload.get("query") or ""))
+    if not bypass:
+        return {"bypassed": False, "answer": "", "reason": None}
+    return {
+        "bypassed": True,
+        "answer": bypass.content,
+        "reason": bypass.reason,
+        "meta": bypass.metadata(),
+    }
+
+
 async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from app.services.rag.rag_service import answer
 
@@ -1836,6 +1850,9 @@ async def _chain_mixed_hah_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
 _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "llm_rag_answer_v1":       (_llm_rag_answer_v1,       "app.services.rag.rag_service",          "bound"),
     "semantic_search_v1":      (_semantic_search_v1,      "app.services.rag.context",              "bound"),
+    "chat_trivial_bypass_v1":  (_chat_trivial_bypass_v1,  None,                                     "bound"),
+    "chat_grounding_policy_v1": (_stub,                   None,                                     "stub"),
+    "chat_action_resolver_v1": (_stub,                    None,                                     "stub"),
     "document_ingestion_v1":   (_document_ingestion_v1,   "app.services.rag.document_service",     "bound"),
     "eval_radar_v1":           (_eval_radar_v1,           "app.services.evaluation.judge",         "bound"),
     "claim_audit_v1":          (_claim_audit_v1,          "app.services.evaluation.judge",         "bound"),
