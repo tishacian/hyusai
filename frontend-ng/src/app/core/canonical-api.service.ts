@@ -198,6 +198,7 @@ export interface FlowManifestUnit {
   skill_id?: string | null;
   runtime_status?: 'bound' | 'stub' | 'unbound' | 'catalog_only' | 'manifest_only';
   operational?: boolean;
+  prompt_contract?: Record<string, unknown> | null;
   editable_fields?: FlowManifestField[];
   parameter_count?: number;
   position?: { x?: number; y?: number };
@@ -219,6 +220,7 @@ export interface FlowRuntimeManifest {
   operational_sync?: boolean;
   live_surface?: string | null;
   runtime_contract?: Record<string, unknown>;
+  prompt_contract?: Record<string, unknown>;
   effective_config?: Record<string, unknown>;
   unit_catalog?: FlowManifestUnit[];
   summary?: {

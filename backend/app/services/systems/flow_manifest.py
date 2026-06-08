@@ -145,6 +145,7 @@ def _unit_for_node(node: Mapping[str, Any], skills: Mapping[str, Skill]) -> Dict
         "skill_id": skill.id if skill else cfg.get("skill_id"),
         "runtime_status": status,
         "operational": operational,
+        "prompt_contract": data.get("prompt_contract") or None,
         "editable_fields": fields,
         "parameter_count": len(fields),
         "position": node.get("position") or {},
@@ -204,6 +205,7 @@ def serialize_flow_manifest(db: DBSession, system: System) -> Dict[str, Any]:
         "operational_sync": sync_mode == "chat_runtime",
         "live_surface": f"/{live_surface}" if live_surface else None,
         "runtime_contract": flow.get("runtime_contract") or {},
+        "prompt_contract": flow.get("prompt_contract") or {},
         "effective_config": _effective_chat_config(flow) if sync_mode == "chat_runtime" else {},
         "unit_catalog": units,
         "summary": {

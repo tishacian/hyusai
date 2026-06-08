@@ -42,6 +42,7 @@ import {
 import { ZoomContextService } from '@app/core/zoom-context.service';
 import { FlowCanvasToolbarComponent } from './flow-canvas-toolbar.component';
 import { FlowPaletteComponent } from './flow-palette.component';
+import { FlowSelectComponent, type FlowSelectOption } from './flow-select.component';
 import { FlowTerminalComponent } from './flow-terminal.component';
 import {
   FlowSerializerService,
@@ -55,6 +56,16 @@ import {
 
 /** Tone vocabulary — maps 1:1 to the mockup's `--signal-*` tokens. */
 type NodeTone = 'brand' | 'violet' | 'emerald' | 'amber' | 'rose' | 'cyan';
+type ConfigSheetTab = 'overview' | 'config' | 'prompts' | 'runtime';
+
+interface PromptBlock {
+  key: string;
+  title: string;
+  body: string;
+  source: 'node' | 'flow';
+  path: string;
+  editable: boolean;
+}
 
 export interface PaletteItem {
   type: string;
@@ -104,6 +115,7 @@ export interface FlowTemplate {
     RouterLink,
     FlowCanvasToolbarComponent,
     FlowPaletteComponent,
+    FlowSelectComponent,
     FlowTerminalComponent,
   ],
   styleUrls: ['./workflow-editor.styles.scss'],
@@ -429,6 +441,15 @@ export interface FlowTemplate {
                 />
                 <div class="ck-mono text-[10px] text-gray-500 mt-1">id: {{ selectedNode()!.id }}</div>
 
+                <div class="df-inspector-actions">
+                  <button type="button" class="df-primary-soft-btn" (click)="openConfigSheet('config')">
+                    <app-icon name="settings-2" [size]="13" /> Configure
+                  </button>
+                  <button type="button" class="df-ghost-btn" (click)="openConfigSheet('prompts')">
+                    <app-icon name="file-text" [size]="12" /> Prompts {{ promptBlocks().length }}
+                  </button>
+                </div>
+
                 @if (selectedManifestUnit(); as unit) {
                   <div class="df-inspector-section">
                     <div class="df-inspector-label">Runtime unit</div>
@@ -522,7 +543,7 @@ export interface FlowTemplate {
 
                 <!-- Skill binder — only for task kind -->
                 @if ((selectedNode()!.kind ?? 'task') === 'task') {
-                  <div class="df-inspector-section">
+                  <div class="df-inspector-section df-inspector-section--editor">
                     <div class="df-inspector-label">Bound skill</div>
                     <select
                       class="df-skill-select ck-mono"
@@ -551,7 +572,7 @@ export interface FlowTemplate {
                 }
 
                 <!-- Kind-specific config editor (Vague E / E3.3) -->
-                <div class="df-inspector-section">
+                <div class="df-inspector-section df-inspector-section--editor">
                   <div class="df-inspector-label">Config · {{ kindLabel(selectedNode()!.kind) }}</div>
 
                   @switch (selectedNode()!.kind ?? 'task') {
@@ -939,7 +960,7 @@ export interface FlowTemplate {
                 }
 
                 @if (promptBlocks().length > 0) {
-                  <div class="df-inspector-section">
+                  <div class="df-inspector-section df-inspector-section--editor">
                     <div class="df-inspector-label">Prompts & instructions</div>
                     <div class="space-y-2">
                       @for (block of promptBlocks(); track block.title) {
@@ -964,6 +985,374 @@ export interface FlowTemplate {
         </aside>
       }
     </div>
+
+    @if (configSheetOpen() && selectedNode()) {
+      <div class="df-config-sheet-backdrop" (click)="closeConfigSheet()" aria-hidden="true"></div>
+      <aside class="df-config-sheet t-card t-elevated" role="dialog" aria-label="Node configuration">
+        <div class="df-config-sheet__head">
+          <div>
+            <div class="ck-mono text-[10px] uppercase tracking-[0.14em] text-brand-300">Node configuration</div>
+            <h2>{{ selectedNode()!.label || selectedNode()!.type }}</h2>
+            <span class="ck-mono">{{ selectedNode()!.id }}</span>
+          </div>
+          <button type="button" class="df-tool-btn" (click)="closeConfigSheet()" title="Close">
+            <app-icon name="x" [size]="16" />
+          </button>
+        </div>
+
+        <div class="df-config-tabs">
+          @for (tab of ['overview', 'config', 'prompts', 'runtime']; track tab) {
+            <button
+              type="button"
+              [attr.data-active]="configSheetTab() === tab ? 'true' : 'false'"
+              (click)="setConfigSheetTab($any(tab))"
+            >
+              {{ tab }}
+            </button>
+          }
+        </div>
+
+        <div class="df-config-sheet__body">
+          @switch (configSheetTab()) {
+            @case ('overview') {
+              <section class="df-sheet-section">
+                <div class="df-sheet-label">Identity</div>
+                <input
+                  type="text"
+                  class="df-input df-input--large"
+                  [value]="selectedNode()!.label || selectedNode()!.type"
+                  (change)="onNodeLabelChange($event)"
+                  maxlength="120"
+                />
+                <div class="df-sheet-grid mt-3">
+                  <div class="df-sheet-card">
+                    <span>Kind</span>
+                    <strong>{{ kindLabel(selectedNode()!.kind) }}</strong>
+                  </div>
+                  <div class="df-sheet-card">
+                    <span>Type</span>
+                    <strong>{{ selectedNode()!.type }}</strong>
+                  </div>
+                  <div class="df-sheet-card">
+                    <span>Prompts</span>
+                    <strong>{{ promptBlocks().length }}</strong>
+                  </div>
+                </div>
+              </section>
+
+              @if ((selectedNode()!.inputs?.length ?? 0) > 0 || (selectedNode()!.outputs?.length ?? 0) > 0) {
+                <section class="df-sheet-section">
+                  <div class="df-sheet-label">Typed contract</div>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <div class="text-[10px] text-gray-500 mb-1 ck-mono">INPUTS</div>
+                      @for (p of selectedNode()!.inputs; track p.name) {
+                        <div class="df-port-row mb-1">
+                          <span class="df-port-dot" data-dir="in"></span>
+                          <span class="text-xs text-gray-200 ck-mono">{{ p.name }}</span>
+                          <span class="df-port-schema">{{ p.schema }}</span>
+                        </div>
+                      }
+                    </div>
+                    <div>
+                      <div class="text-[10px] text-gray-500 mb-1 ck-mono">OUTPUTS</div>
+                      @for (p of selectedNode()!.outputs; track p.name) {
+                        <div class="df-port-row mb-1">
+                          <span class="df-port-dot" data-dir="out"></span>
+                          <span class="text-xs text-gray-200 ck-mono">{{ p.name }}</span>
+                          <span class="df-port-schema">{{ p.schema }}</span>
+                        </div>
+                      }
+                    </div>
+                  </div>
+                </section>
+              }
+            }
+
+            @case ('config') {
+              <section class="df-sheet-section">
+                <div class="df-sheet-label">Config · {{ kindLabel(selectedNode()!.kind) }}</div>
+                @switch (selectedNode()!.kind ?? 'task') {
+                  @case ('decision') {
+                    <div class="df-kind-editor df-kind-editor--wide">
+                      <div class="df-field-hint">Each branch emits a branch edge whose label is routed by the condition.</div>
+                      @for (b of decisionBranches(); track $index) {
+                        <div class="df-branch-row">
+                          <input type="text" class="df-input df-input--mono" [value]="b.label" (change)="patchDecisionBranch($index, 'label', $event)" placeholder="branch label" maxlength="64" />
+                          <input type="text" class="df-input" [value]="b.condition" (change)="patchDecisionBranch($index, 'condition', $event)" placeholder="context.score > 0.5" maxlength="240" />
+                          <button type="button" class="df-icon-btn" (click)="removeDecisionBranch($index)" [disabled]="decisionBranches().length <= 2" title="Remove branch">
+                            <app-icon name="x" [size]="11" />
+                          </button>
+                        </div>
+                      }
+                      <button type="button" class="df-ghost-btn" (click)="addDecisionBranch()" [disabled]="decisionBranches().length >= 8">
+                        <app-icon name="plus" [size]="11" /> Add branch
+                      </button>
+                      <label class="df-field-label">Default branch</label>
+                      <app-flow-select
+                        [value]="decisionDefault()"
+                        [options]="decisionDefaultOptions()"
+                        [allowEmpty]="true"
+                        emptyLabel="No default branch"
+                        placeholder="Choose default branch"
+                        (valueChange)="setDecisionDefault($event)"
+                      />
+                    </div>
+                  }
+
+                  @case ('fork') {
+                    <div class="df-kind-editor df-kind-editor--wide">
+                      <div class="df-field-hint">Each label names one parallel branch.</div>
+                      @for (name of forkBranches(); track $index) {
+                        <div class="df-branch-row df-branch-row--two">
+                          <input type="text" class="df-input df-input--mono" [value]="name" (change)="patchForkBranch($index, $event)" placeholder="branch-name" maxlength="48" />
+                          <button type="button" class="df-icon-btn" (click)="removeForkBranch($index)" [disabled]="forkBranches().length <= 2" title="Remove branch">
+                            <app-icon name="x" [size]="11" />
+                          </button>
+                        </div>
+                      }
+                      <button type="button" class="df-ghost-btn" (click)="addForkBranch()" [disabled]="forkBranches().length >= 8">
+                        <app-icon name="plus" [size]="11" /> Add branch
+                      </button>
+                    </div>
+                  }
+
+                  @case ('join') {
+                    <div class="df-kind-editor df-kind-editor--wide">
+                      <label class="df-field-label">Wait strategy</label>
+                      <app-flow-select
+                        [value]="joinStrategy()"
+                        [options]="joinStrategyOptions"
+                        placeholder="Join strategy"
+                        (valueChange)="setJoinStrategy($event)"
+                      />
+                    </div>
+                  }
+
+                  @case ('loop') {
+                    <div class="df-kind-editor df-kind-editor--wide">
+                      <label class="df-field-label">Iterator</label>
+                      <input type="text" class="df-input df-input--mono" [value]="loopIterator()" (change)="patchLoopField('iterator', $event)" placeholder="context.chunks" maxlength="240" />
+                      <label class="df-field-label">Max iterations</label>
+                      <input type="number" class="df-input" min="1" max="1000" [value]="loopMaxIterations()" (change)="patchLoopField('max_iterations', $event)" />
+                      <label class="df-field-label">Break when</label>
+                      <input type="text" class="df-input df-input--mono" [value]="loopBreakOn()" (change)="patchLoopField('break_on', $event)" placeholder="context.done === true" maxlength="240" />
+                    </div>
+                  }
+
+                  @case ('retry') {
+                    <div class="df-kind-editor df-kind-editor--wide">
+                      <label class="df-field-label">Max attempts</label>
+                      <input type="number" class="df-input" min="1" max="20" [value]="retryMaxAttempts()" (change)="patchRetryField('max_attempts', $event)" />
+                      <label class="df-field-label">Backoff (ms)</label>
+                      <input type="number" class="df-input" min="0" max="60000" step="100" [value]="retryBackoffMs()" (change)="patchRetryField('backoff_ms', $event)" />
+                      <label class="df-field-label">Retry on errors</label>
+                      <input type="text" class="df-input df-input--mono" [value]="retryOnErrors()" (change)="patchRetryField('on_errors', $event)" placeholder="TimeoutError, RateLimitError" maxlength="240" />
+                    </div>
+                  }
+
+                  @case ('hitl') {
+                    <div class="df-kind-editor df-kind-editor--wide">
+                      <label class="df-field-label">Prompt to operator</label>
+                      <textarea class="df-input df-textarea" [value]="hitlPrompt()" (change)="patchHitlField('prompt', $event)" rows="6" maxlength="2000"></textarea>
+                      <label class="df-field-label">Timeout (ms)</label>
+                      <input type="number" class="df-input" min="0" step="1000" [value]="hitlTimeoutMs()" (change)="patchHitlField('timeout_ms', $event)" />
+                      <label class="df-field-label">Approver roles</label>
+                      <input type="text" class="df-input df-input--mono" [value]="hitlApprovers()" (change)="patchHitlField('approvers', $event)" placeholder="reviewer, compliance" maxlength="240" />
+                    </div>
+                  }
+
+                  @case ('subflow') {
+                    <div class="df-kind-editor df-kind-editor--wide">
+                      <label class="df-field-label">Target system</label>
+                      <app-flow-select
+                        [value]="subflowSystemId()"
+                        [options]="subflowSystemOptions()"
+                        [loading]="otherSystemsLoading()"
+                        [allowEmpty]="true"
+                        [searchable]="true"
+                        emptyLabel="Unset"
+                        placeholder="Select system"
+                        (opened)="ensureOtherSystemsLoaded()"
+                        (valueChange)="setSubflowSystem($event)"
+                      />
+                      <label class="df-field-label">Input map</label>
+                      <textarea class="df-input df-textarea ck-mono" [value]="subflowInputMap()" (change)="onSubflowInputMapChange($event)" rows="5" placeholder="query = context.query&#10;lang = context.lang"></textarea>
+                    </div>
+                  }
+
+                  @default {
+                    <div class="df-kind-editor df-kind-editor--wide">
+                      @if ((selectedNode()!.kind ?? 'task') === 'task') {
+                        <label class="df-field-label">Bound skill</label>
+                        <app-flow-select
+                          [value]="currentSkillId(selectedNode()!)"
+                          [options]="skillSelectOptions()"
+                          [loading]="skillsLoading()"
+                          [allowEmpty]="true"
+                          [searchable]="true"
+                          emptyLabel="Unbound"
+                          placeholder="Bind skill"
+                          (opened)="ensureSkillsLoaded()"
+                          (valueChange)="onSkillSelect($event)"
+                        />
+                        @if (taskParamFields().length > 0) {
+                          <label class="df-field-label">Skill parameters</label>
+                          @for (field of taskParamFields(); track field.key) {
+                            <div class="df-param-row df-param-row--wide">
+                              <label class="df-param-label" [title]="field.description ?? ''">
+                                {{ field.key }}
+                                @if (field.required) { <span class="text-rose-400">*</span> }
+                                <span class="ck-mono text-[9px] text-gray-500 ml-1">{{ field.type }}</span>
+                              </label>
+                              @switch (field.type) {
+                                @case ('boolean') {
+                                  <input type="checkbox" class="df-checkbox" [checked]="$any(field.value) === true" (change)="onTaskParamChange(field.key, $event, field.type)" />
+                                }
+                                @case ('object') {
+                                  <textarea class="df-input df-textarea ck-mono" [value]="jsonParamValue(field.value)" (change)="onTaskParamJsonChange(field.key, $event)" [placeholder]="field.description ?? '{ }'" rows="5"></textarea>
+                                }
+                                @case ('array') {
+                                  <textarea class="df-input df-textarea ck-mono" [value]="jsonParamValue(field.value)" (change)="onTaskParamJsonChange(field.key, $event)" [placeholder]="field.description ?? '[ ]'" rows="5"></textarea>
+                                }
+                                @case ('number') {
+                                  <input type="number" class="df-input" [value]="field.value ?? ''" (change)="onTaskParamChange(field.key, $event, field.type)" />
+                                }
+                                @case ('integer') {
+                                  <input type="number" class="df-input" step="1" [value]="field.value ?? ''" (change)="onTaskParamChange(field.key, $event, field.type)" />
+                                }
+                                @default {
+                                  @if ((field.enum ?? []).length > 0) {
+                                    <app-flow-select
+                                      [value]="$any(field.value) ?? null"
+                                      [options]="enumOptions(field)"
+                                      [allowEmpty]="true"
+                                      emptyLabel="Unset"
+                                      placeholder="Choose value"
+                                      (valueChange)="setTaskParamValue(field.key, $event, field.type)"
+                                    />
+                                  } @else {
+                                    <input type="text" class="df-input" [value]="field.value ?? ''" (change)="onTaskParamChange(field.key, $event, field.type)" [placeholder]="field.description ?? ''" />
+                                  }
+                                }
+                              }
+                            </div>
+                          }
+                        }
+                        <label class="df-field-label">Inputs map</label>
+                        <textarea class="df-input df-textarea ck-mono" [value]="taskInputsMap()" (change)="onTaskInputsMapChange($event)" placeholder="query = context.query" rows="4"></textarea>
+                        <label class="df-field-label">Outputs map</label>
+                        <textarea class="df-input df-textarea ck-mono" [value]="taskOutputsMap()" (change)="onTaskOutputsMapChange($event)" placeholder="answer = context.answer" rows="4"></textarea>
+                      } @else if (configSummary(selectedNode()!).length === 0) {
+                        <div class="text-[11px] text-gray-500">No config for this node.</div>
+                      } @else {
+                        <div class="df-inspector-config ck-mono">
+                          @for (row of configSummary(selectedNode()!); track row.key) {
+                            <div class="df-config-row">
+                              <span class="text-gray-400">{{ row.key }}</span>
+                              <span class="text-gray-200">{{ row.value }}</span>
+                            </div>
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+                }
+              </section>
+            }
+
+            @case ('prompts') {
+              <section class="df-sheet-section">
+                <div class="df-sheet-label">Prompts & instructions</div>
+                @if (promptBlocks().length === 0) {
+                  <div class="df-sheet-empty">No prompt contract exposed for this node.</div>
+                } @else {
+                  <div class="df-prompt-list">
+                    @for (block of promptBlocks(); track block.key) {
+                      <article class="df-prompt-block df-prompt-block--sheet" [attr.data-expanded]="expandedPromptKey() === block.key ? 'true' : 'false'">
+                        <div class="df-prompt-block__title">
+                          <span>{{ block.title }}</span>
+                          <small>{{ block.source }} · {{ block.path }}</small>
+                          <div class="df-prompt-actions">
+                            <button type="button" class="df-tool-btn df-tool-btn--small" (click)="copyPrompt(block)" title="Copy prompt">
+                              <app-icon name="copy" [size]="12" />
+                            </button>
+                            <button type="button" class="df-tool-btn df-tool-btn--small" (click)="togglePromptExpanded(block)" title="Expand prompt">
+                              <app-icon name="maximize" [size]="12" />
+                            </button>
+                            @if (block.editable) {
+                              <button type="button" class="df-tool-btn df-tool-btn--small" (click)="beginPromptEdit(block)" title="Edit prompt">
+                                <app-icon name="pencil" [size]="12" />
+                              </button>
+                            }
+                          </div>
+                        </div>
+                        @if (promptEditKey() === block.key) {
+                          <textarea class="df-input df-prompt-editor ck-mono" [value]="promptDraft()" (input)="onPromptDraftChange($event)" rows="12"></textarea>
+                          <div class="df-prompt-edit-actions">
+                            <button type="button" class="df-ghost-btn" (click)="cancelPromptEdit()">Cancel</button>
+                            <button type="button" class="df-primary-soft-btn" (click)="savePromptEdit(block)">
+                              <app-icon name="save" [size]="12" /> Apply locally
+                            </button>
+                          </div>
+                        } @else {
+                          <pre class="df-prompt-block__body">{{ block.body }}</pre>
+                        }
+                      </article>
+                    }
+                  </div>
+                }
+              </section>
+            }
+
+            @case ('runtime') {
+              <section class="df-sheet-section">
+                <div class="df-sheet-label">Runtime unit</div>
+                @if (selectedManifestUnit(); as unit) {
+                  <div class="df-runtime-unit-card">
+                    <div class="df-runtime-unit-card__head">
+                      <div>
+                        <strong>{{ unit.label }}</strong>
+                        <span>{{ unit.description || unit.id }}</span>
+                      </div>
+                      <span class="df-tag" [attr.data-tone]="unit.operational ? 'pos' : 'info'">
+                        {{ unit.operational ? 'OPERATIONAL' : 'MANIFEST' }}
+                      </span>
+                    </div>
+                    @if (selectedManifestRows().length > 0) {
+                      <div class="df-inspector-config ck-mono">
+                        @for (row of selectedManifestRows(); track row.key) {
+                          <div class="df-config-row">
+                            <span class="text-gray-400">{{ row.key }}</span>
+                            <span class="text-gray-200">{{ row.value }}</span>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <div class="df-sheet-empty">No runtime manifest unit matched this node.</div>
+                }
+              </section>
+
+              @if (runtimeEvidenceRows().length > 0) {
+                <section class="df-sheet-section">
+                  <div class="df-sheet-label">Runtime evidence</div>
+                  <div class="df-inspector-config ck-mono">
+                    @for (row of runtimeEvidenceRows(); track row.key) {
+                      <div class="df-config-row">
+                        <span class="text-gray-400">{{ row.key }}</span>
+                        <span class="text-gray-200">{{ row.value }}</span>
+                      </div>
+                    }
+                  </div>
+                </section>
+              }
+            }
+          }
+        </div>
+      </aside>
+    }
 
     <!-- Validation issues strip -->
     @if (allIssues().length > 0) {
@@ -1313,6 +1702,11 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   readonly selectedNodeId = signal<string | null>(null);
   readonly selectedNode = signal<CanonicalFlowNode | null>(null);
   readonly inspectorOpen = signal(true);
+  readonly configSheetOpen = signal(false);
+  readonly configSheetTab = signal<ConfigSheetTab>('overview');
+  readonly promptEditKey = signal<string | null>(null);
+  readonly promptDraft = signal('');
+  readonly expandedPromptKey = signal<string | null>(null);
   readonly terminalOpen = signal(true);
   readonly terminalLog = signal<TerminalEntry[]>([]);
   readonly loadPhase = signal('Preparing editor…');
@@ -1641,6 +2035,41 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   readonly otherSystems = signal<System[]>([]);
   readonly otherSystemsLoading = signal(false);
 
+  readonly skillSelectOptions = computed<FlowSelectOption[]>(() =>
+    this.skills().map((skill) => ({
+      value: skill.id,
+      label: skill.slug,
+      description: skill.name,
+      tone: 'cyan',
+    })),
+  );
+
+  readonly decisionDefaultOptions = computed<FlowSelectOption[]>(() =>
+    this.decisionBranches()
+      .filter((branch) => !!branch.label.trim())
+      .map((branch) => ({
+        value: branch.label,
+        label: branch.label,
+        description: branch.condition || 'Default branch candidate',
+        tone: 'violet',
+      })),
+  );
+
+  readonly joinStrategyOptions: FlowSelectOption[] = [
+    { value: 'all', label: 'all', description: 'Wait for every inbound branch', tone: 'emerald' },
+    { value: 'any', label: 'any', description: 'Continue as soon as one branch completes', tone: 'cyan' },
+    { value: 'race', label: 'race', description: 'First branch wins; others are cancelled', tone: 'amber' },
+  ];
+
+  readonly subflowSystemOptions = computed<FlowSelectOption[]>(() =>
+    this.otherSystems().map((system) => ({
+      value: system.id,
+      label: system.name,
+      description: system.id,
+      tone: 'cyan',
+    })),
+  );
+
   private pendingDrop: PaletteItem | null = null;
   private ids = 0;
   private terminalSeq = 0;
@@ -1784,6 +2213,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.zone.run(() => {
         this.selectedNodeId.set(null);
         this.selectedNode.set(null);
+        this.closeConfigSheet();
       });
     };
     try {
@@ -1927,10 +2357,42 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
   toggleTerminal(): void {
     this.terminalOpen.update((v) => !v);
+    this.redrawConnectionsSoon();
+    this.fitCanvasSoon();
   }
 
   toggleInspector(): void {
     this.inspectorOpen.update((v) => !v);
+    this.redrawConnectionsSoon();
+    this.fitCanvasSoon();
+  }
+
+  openConfigSheet(tab: ConfigSheetTab = 'overview'): void {
+    if (!this.selectedNode()) return;
+    this.configSheetTab.set(tab);
+    this.configSheetOpen.set(true);
+    if (tab === 'config' && (this.selectedNode()?.kind ?? 'task') === 'task') {
+      this.ensureSkillsLoaded();
+    }
+    if (tab === 'config' && (this.selectedNode()?.kind ?? 'task') === 'subflow') {
+      this.ensureOtherSystemsLoaded();
+    }
+  }
+
+  closeConfigSheet(): void {
+    this.configSheetOpen.set(false);
+    this.promptEditKey.set(null);
+    this.promptDraft.set('');
+  }
+
+  setConfigSheetTab(tab: ConfigSheetTab): void {
+    this.configSheetTab.set(tab);
+    if (tab === 'config' && (this.selectedNode()?.kind ?? 'task') === 'task') {
+      this.ensureSkillsLoaded();
+    }
+    if (tab === 'config' && (this.selectedNode()?.kind ?? 'task') === 'subflow') {
+      this.ensureOtherSystemsLoaded();
+    }
   }
 
   private async hydrateFromSystem(systemId: string): Promise<void> {
@@ -2119,6 +2581,19 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     return match?.[1] ?? null;
   }
 
+  private selectedRawNodeId(): string | null {
+    const selected = this.selectedNodeId();
+    const graph = this.exportGraph();
+    const data = graph.drawflow?.Home?.data ?? {};
+    if (selected && data[selected]) return selected;
+    const canonicalId = this.selectedNode()?.id ?? selected;
+    if (!canonicalId) return null;
+    for (const [rawId, node] of Object.entries(data)) {
+      if ((node.data?.['canonical_id'] as string) === canonicalId) return rawId;
+    }
+    return null;
+  }
+
   private canonicalNodeById(canonicalId: string): CanonicalFlowNode | null {
     const flow = this.system()?.flow_definition as unknown as CanonicalFlow | undefined;
     return flow?.nodes?.find((node) => node.id === canonicalId) ?? null;
@@ -2144,6 +2619,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       data: {
         description: unit.description,
         runtime_ref: unit.runtime_ref,
+        prompt_contract: unit.prompt_contract ?? undefined,
       },
       config: {
         runtime_ref: unit.runtime_ref,
@@ -2348,22 +2824,35 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     if (!this.editor) return;
     if (dir === 'in') this.editor.zoom_in();
     else this.editor.zoom_out();
+    this.redrawConnectionsSoon();
   }
 
   zoomReset(): void {
     if (!this.editor) return;
     this.editor.zoom_reset();
+    this.redrawConnectionsSoon();
   }
 
   fitCanvas(): void {
     if (!this.editor || !this.container?.nativeElement) return;
     const graph = this.exportGraph();
-    const nodes = Object.values(graph.drawflow?.Home?.data ?? {});
-    if (!nodes.length) return;
-    const minX = Math.min(...nodes.map((node) => node.pos_x));
-    const minY = Math.min(...nodes.map((node) => node.pos_y));
-    const maxX = Math.max(...nodes.map((node) => node.pos_x + 240));
-    const maxY = Math.max(...nodes.map((node) => node.pos_y + 132));
+    const entries = Object.entries(graph.drawflow?.Home?.data ?? {});
+    if (!entries.length) return;
+    const boxes = entries.map(([rawId, node]) => {
+      const el = document.getElementById(`node-${rawId}`);
+      const rect = el?.getBoundingClientRect();
+      const scale = this.editor?.zoom || 1;
+      return {
+        x: node.pos_x,
+        y: node.pos_y,
+        w: rect?.width ? rect.width / scale : 240,
+        h: rect?.height ? rect.height / scale : 132,
+      };
+    });
+    const minX = Math.min(...boxes.map((box) => box.x));
+    const minY = Math.min(...boxes.map((box) => box.y));
+    const maxX = Math.max(...boxes.map((box) => box.x + box.w));
+    const maxY = Math.max(...boxes.map((box) => box.y + box.h));
     const width = Math.max(1, maxX - minX);
     const height = Math.max(1, maxY - minY);
     const rect = this.container.nativeElement.getBoundingClientRect();
@@ -2395,6 +2884,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     if (!this.editor) return;
     const redraw = () => {
       try {
+        const data = this.exportGraph().drawflow?.Home?.data ?? {};
+        for (const rawId of Object.keys(data)) {
+          this.editor?.updateConnectionNodes?.(`node-${rawId}`);
+        }
         this.editor?.updateConnectionNodes?.('node-*');
       } catch {
         // ignore redraw drift on older Drawflow builds
@@ -2403,6 +2896,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     redraw();
     window.requestAnimationFrame(redraw);
     window.setTimeout(redraw, 80);
+    window.setTimeout(redraw, 180);
   }
 
   /**
@@ -3411,7 +3905,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
    * data so the next project() picks it up and serializes it.
    */
   bindSkill(skillId: string | null): void {
-    const rawId = this.selectedNodeId();
+    const rawId = this.selectedRawNodeId();
     const node = this.selectedNode();
     if (!rawId || !node || !this.editor) return;
     const nodeData = this.exportGraph()?.drawflow?.Home?.data?.[rawId];
@@ -3449,6 +3943,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.bindSkill(value || null);
   }
 
+  onSkillSelect(value: string | null): void {
+    this.bindSkill(value || null);
+  }
+
   // ---------- Kind-specific node-props editors (Vague E / E3.3) ----------
   //
   // The editors below all follow the same two-step pattern the Skill
@@ -3462,7 +3960,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   /** Rename the currently selected node. Writes to both the Drawflow
    *  node data (``name`` + ``data.label``) and the canonical projection. */
   onNodeLabelChange(ev: Event): void {
-    const rawId = this.selectedNodeId();
+    const rawId = this.selectedRawNodeId();
     const node = this.selectedNode();
     if (!rawId || !node || !this.editor) return;
     const next = (ev.target as HTMLInputElement | null)?.value?.trim() ?? '';
@@ -3487,7 +3985,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   /** Generic ``canonical_config`` merge — pushes a partial update into
    *  the selected node and keeps the inspector signal in sync. */
   private patchSelectedConfig(partial: Record<string, unknown>): void {
-    const rawId = this.selectedNodeId();
+    const rawId = this.selectedRawNodeId();
     const node = this.selectedNode();
     if (!rawId || !node || !this.editor) return;
     const graph = this.exportGraph();
@@ -3553,6 +4051,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.patchSelectedConfig({ default_branch: v || undefined });
   }
 
+  setDecisionDefault(value: string | null): void {
+    this.patchSelectedConfig({ default_branch: value || undefined });
+  }
+
   // ── Fork ──────────────────────────────────────────────────────────
   forkBranches(): string[] {
     const cfg = (this.selectedNode()?.config ?? {}) as { branches?: string[] };
@@ -3589,6 +4091,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   onJoinStrategyChange(ev: Event): void {
     const v = (ev.target as HTMLSelectElement | null)?.value ?? 'all';
     this.patchSelectedConfig({ strategy: v });
+  }
+
+  setJoinStrategy(value: string | null): void {
+    this.patchSelectedConfig({ strategy: value || 'all' });
   }
 
   // ── Loop ──────────────────────────────────────────────────────────
@@ -3709,6 +4215,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.patchSelectedConfig({ system_id: v || undefined });
   }
 
+  setSubflowSystem(value: string | null): void {
+    this.patchSelectedConfig({ system_id: value || undefined });
+  }
+
   onSubflowInputMapChange(ev: Event): void {
     const raw = (ev.target as HTMLTextAreaElement | null)?.value ?? '';
     const map = this.parseKvBlock(raw);
@@ -3808,6 +4318,33 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.patchSelectedConfig({
       params: Object.keys(nextParams).length > 0 ? nextParams : undefined,
     });
+  }
+
+  setTaskParamValue(key: string, value: unknown, type: string): void {
+    let parsed = value;
+    if (value === '' || value === null) {
+      parsed = undefined;
+    } else if (type === 'number' || type === 'integer') {
+      const raw = String(value);
+      const n = type === 'integer' ? Number.parseInt(raw, 10) : Number.parseFloat(raw);
+      parsed = Number.isFinite(n) ? n : undefined;
+    }
+    const node = this.selectedNode();
+    const cfg = (node?.config ?? {}) as { params?: Record<string, unknown> };
+    const nextParams = { ...(cfg.params ?? {}) };
+    if (parsed === undefined) delete nextParams[key];
+    else nextParams[key] = parsed;
+    this.patchSelectedConfig({
+      params: Object.keys(nextParams).length > 0 ? nextParams : undefined,
+    });
+  }
+
+  enumOptions(field: { enum?: string[] }): FlowSelectOption[] {
+    return (field.enum ?? []).map((value) => ({
+      value,
+      label: value,
+      tone: 'cyan',
+    }));
   }
 
   taskInputsMap(): string {
@@ -4056,31 +4593,166 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     return rows;
   }
 
-  promptBlocks(): { title: string; body: string }[] {
+  promptBlocks(): PromptBlock[] {
     const node = this.selectedNode();
     if (!node) return [];
     const data = (node.data ?? {}) as Record<string, unknown>;
-    const contract = this.objectValue(data['prompt_contract']);
-    if (!contract) return [];
+    const unitContract = this.objectValue(this.selectedManifestUnit()?.prompt_contract);
+    const nodeContract = this.objectValue(data['prompt_contract']) ?? unitContract;
+    const flow = (this.system()?.flow_definition ?? {}) as Record<string, unknown>;
+    const flowContract =
+      this.objectValue(flow['prompt_contract']) ??
+      this.objectValue(this.flowManifest()?.prompt_contract);
 
-    const blocks: { title: string; body: string }[] = [];
-    const add = (title: string, value: unknown) => {
+    const blocks: PromptBlock[] = [];
+    const add = (
+      source: 'node' | 'flow',
+      path: string,
+      title: string,
+      value: unknown,
+      editable = true,
+    ) => {
       if (value === undefined || value === null || value === '') return;
-      const body = Array.isArray(value)
-        ? value.map((item) => `- ${String(item)}`).join('\n')
-        : typeof value === 'object'
-          ? JSON.stringify(value, null, 2)
-          : String(value);
-      if (body.trim()) blocks.push({ title, body: body.trim() });
+      const body = this.promptValueToBody(value);
+      if (body.trim()) {
+        blocks.push({
+          key: `${source}:${path}`,
+          title,
+          body: body.trim(),
+          source,
+          path,
+          editable,
+        });
+      }
     };
 
-    add('Base system prompt', contract['base_system_prompt'] ?? contract['system_prompt']);
-    add('Balanced grounding appendix', contract['balanced_grounding_appendix'] ?? contract['balanced_appendix']);
-    add('Reasoning template · factual', contract['reasoning_template_factual']);
-    add('RAG user prompt builder', contract['rag_user_prompt_builder']);
-    add('System prompt builder', contract['system_prompt_builder']);
-    add('Answer shaping instructions', contract['answer_shaping_instructions']);
+    if (nodeContract) {
+      add('node', 'system_prompt', 'Node system prompt', nodeContract['system_prompt']);
+      add('node', 'base_system_prompt', 'Node base system prompt', nodeContract['base_system_prompt']);
+      add('node', 'balanced_grounding_appendix', 'Balanced grounding appendix', nodeContract['balanced_grounding_appendix']);
+      add('node', 'balanced_appendix', 'Balanced grounding appendix', nodeContract['balanced_appendix']);
+      add('node', 'reasoning_template_factual', 'Reasoning template · factual', nodeContract['reasoning_template_factual']);
+      add('node', 'rag_user_prompt_builder', 'RAG user prompt builder', nodeContract['rag_user_prompt_builder']);
+      add('node', 'system_prompt_builder', 'System prompt builder', nodeContract['system_prompt_builder']);
+      add('node', 'answer_shaping_instructions', 'Answer shaping instructions', nodeContract['answer_shaping_instructions']);
+    }
+    if (flowContract) {
+      add('flow', 'base_system_prompt', 'Flow base system prompt', flowContract['base_system_prompt']);
+      add('flow', 'balanced_grounding_appendix', 'Flow balanced appendix', flowContract['balanced_grounding_appendix']);
+      add('flow', 'reasoning_template_factual', 'Flow reasoning template · factual', flowContract['reasoning_template_factual']);
+      add('flow', 'answer_shaping_instructions', 'Flow answer shaping instructions', flowContract['answer_shaping_instructions']);
+    }
     return blocks;
+  }
+
+  private promptValueToBody(value: unknown): string {
+    if (Array.isArray(value)) return value.map((item) => `- ${String(item)}`).join('\n');
+    if (value && typeof value === 'object') return JSON.stringify(value, null, 2);
+    return String(value);
+  }
+
+  private promptBodyToValue(source: 'node' | 'flow', path: string, raw: string): unknown {
+    const previous =
+      source === 'node'
+        ? this.objectValue(this.selectedNode()?.data?.['prompt_contract'])?.[path]
+        : this.objectValue(((this.system()?.flow_definition ?? {}) as Record<string, unknown>)['prompt_contract'])?.[path];
+    if (Array.isArray(previous)) {
+      return raw
+        .split(/\r?\n/)
+        .map((line) => line.trim().replace(/^-\s*/, ''))
+        .filter(Boolean);
+    }
+    if (previous && typeof previous === 'object') {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        this.toastr.warning('Invalid JSON prompt payload; edit was not applied.', 'Prompts');
+        return previous;
+      }
+    }
+    return raw;
+  }
+
+  beginPromptEdit(block: PromptBlock): void {
+    if (!block.editable) return;
+    this.promptEditKey.set(block.key);
+    this.promptDraft.set(block.body);
+    this.configSheetTab.set('prompts');
+    this.configSheetOpen.set(true);
+  }
+
+  cancelPromptEdit(): void {
+    this.promptEditKey.set(null);
+    this.promptDraft.set('');
+  }
+
+  onPromptDraftChange(ev: Event): void {
+    this.promptDraft.set((ev.target as HTMLTextAreaElement | null)?.value ?? '');
+  }
+
+  savePromptEdit(block: PromptBlock): void {
+    const raw = this.promptDraft();
+    const nextValue = this.promptBodyToValue(block.source, block.path, raw);
+    if (block.source === 'node') {
+      this.patchSelectedNodeDataPrompt(block.path, nextValue);
+    } else {
+      this.patchFlowPrompt(block.path, nextValue);
+    }
+    this.promptEditKey.set(null);
+    this.promptDraft.set('');
+    this.toastr.success('Prompt updated locally. Use Save to System to persist.', 'Prompts');
+  }
+
+  copyPrompt(block: PromptBlock): void {
+    if (!navigator.clipboard?.writeText) {
+      this.toastr.warning('Clipboard is not available.', 'Prompts');
+      return;
+    }
+    navigator.clipboard.writeText(block.body).then(
+      () => this.toastr.success('Prompt copied.', 'Prompts'),
+      () => this.toastr.warning('Clipboard is not available.', 'Prompts'),
+    );
+  }
+
+  togglePromptExpanded(block: PromptBlock): void {
+    this.expandedPromptKey.update((key) => (key === block.key ? null : block.key));
+  }
+
+  private patchSelectedNodeDataPrompt(path: string, value: unknown): void {
+    const rawId = this.selectedRawNodeId();
+    const node = this.selectedNode();
+    if (!rawId || !node || !this.editor) return;
+    const graph = this.exportGraph();
+    const nodeData = graph.drawflow?.Home?.data?.[rawId];
+    if (!nodeData) return;
+    const prevContract = this.objectValue(nodeData.data?.['prompt_contract']) ?? {};
+    const prompt_contract = { ...prevContract, [path]: value };
+    const nextData = { ...(nodeData.data ?? {}), prompt_contract };
+    try {
+      this.editor.updateNodeDataFromId(rawId, nextData);
+    } catch {
+      return;
+    }
+    this.selectedNode.set({
+      ...node,
+      data: { ...((node.data ?? {}) as Record<string, unknown>), prompt_contract },
+    });
+    this.refreshKpis();
+  }
+
+  private patchFlowPrompt(path: string, value: unknown): void {
+    const sys = this.system();
+    if (!sys) return;
+    const flow = (sys.flow_definition ?? {}) as Record<string, unknown>;
+    const prevContract = this.objectValue(flow['prompt_contract']) ?? {};
+    const nextFlow = {
+      ...flow,
+      prompt_contract: { ...prevContract, [path]: value },
+    };
+    this.system.set({
+      ...sys,
+      flow_definition: nextFlow,
+    });
   }
 
   private objectValue(value: unknown): Record<string, unknown> | null {
