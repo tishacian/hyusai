@@ -2910,7 +2910,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       (this.editor?.precanvas as HTMLElement | null | undefined) ??
       host?.querySelector<HTMLElement>('.drawflow');
     if (!host || !precanvas) return;
-    const zoom = Number(this.editor?.zoom) || 1;
+    const zoom = this.canvasCoordinateScale(precanvas);
     const precanvasRect = precanvas.getBoundingClientRect();
     const connections = Array.from(precanvas.querySelectorAll<SVGSVGElement>('svg.connection'));
     const nodesById = new Map(
@@ -2963,6 +2963,20 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   ): HTMLElement | null {
     const node = nodesById.get(nodeDomId);
     return node?.querySelector<HTMLElement>(`.${portGroup} .${portClass}.${portName}`) ?? null;
+  }
+
+  private canvasCoordinateScale(precanvas: HTMLElement): number {
+    const transform = precanvas.style.transform || getComputedStyle(precanvas).transform || '';
+    const scaleMatch = /scale\(([^)]+)\)/.exec(transform);
+    if (scaleMatch) return Number(scaleMatch[1]) || 1;
+    const matrixMatch = /^matrix\(([^,]+),\s*([^,]+),/.exec(transform);
+    if (matrixMatch) {
+      const a = Number(matrixMatch[1]) || 0;
+      const b = Number(matrixMatch[2]) || 0;
+      const scale = Math.hypot(a, b);
+      return scale || 1;
+    }
+    return 1;
   }
 
   private portCenter(
