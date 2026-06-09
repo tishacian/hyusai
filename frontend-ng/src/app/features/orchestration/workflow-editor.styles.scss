@@ -239,6 +239,12 @@
 
 .drawflow .connection {
   pointer-events: none;
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 0;
+  height: 0;
+  overflow: visible !important;
+  aspect-ratio: auto;
 }
 
 .drawflow .connection .main-path {
@@ -1696,6 +1702,56 @@
   gap: 10px;
 }
 
+.df-runtime-config-block {
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  background:
+    linear-gradient(180deg, rgba(16, 185, 129, 0.07), rgba(14, 165, 233, 0.035)),
+    rgba(2, 6, 23, 0.38);
+}
+
+.df-runtime-config-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+
+  strong {
+    display: block;
+    color: var(--ck-fg-1, #f8fafc);
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  span:not(.df-tag) {
+    display: block;
+    margin-top: 2px;
+    color: var(--ck-fg-5, #64748b);
+    font-family: var(--ck-mono, ui-monospace, monospace);
+    font-size: 10px;
+    overflow-wrap: anywhere;
+  }
+
+  .df-tag,
+  .df-primary-soft-btn {
+    flex-shrink: 0;
+  }
+}
+
+.df-runtime-config-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.df-runtime-config-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .df-branch-row--two {
   grid-template-columns: minmax(0, 1fr) auto;
 }
@@ -1720,6 +1776,7 @@
 
 @media (max-width: 760px) {
   .df-sheet-grid,
+  .df-runtime-config-grid,
   .df-param-row--wide {
     grid-template-columns: 1fr;
   }

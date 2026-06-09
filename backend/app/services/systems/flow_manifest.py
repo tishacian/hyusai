@@ -38,6 +38,54 @@ def _compact(value: Any, *, max_chars: int = 360) -> str:
     return text if len(text) <= max_chars else text[: max(0, max_chars - 1)].rstrip() + "…"
 
 
+def _reasoning_template_catalog() -> List[Dict[str, Any]]:
+    """Expose the reasoning template registry in manifest-friendly form."""
+    try:
+        from app.services.system_prompts import SYSTEM_PROMPT_TEMPLATES, SystemPromptType
+    except Exception:  # noqa: BLE001 - manifest must remain available if registry import drifts.
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    for prompt_type in SystemPromptType:
+        template = SYSTEM_PROMPT_TEMPLATES.get(prompt_type)
+        if not template:
+            continue
+        rows.append(
+            {
+                "key": prompt_type.value,
+                "label": prompt_type.value.replace("_", " ").title(),
+                "template": template,
+                "source": "backend/app/services/system_prompts/prompts.py",
+            }
+        )
+    return rows
+
+
+def _selected_reasoning_template(prompt_type: Any, catalog: List[Dict[str, Any]]) -> Dict[str, Any]:
+    key = str(prompt_type or "factual")
+    for row in catalog:
+        if row.get("key") == key:
+            return row
+    return {"key": key, "label": key.replace("_", " ").title(), "template": "", "source": "flow.prompt_contract"}
+
+
+def _grounded_system_prompt_preview(
+    *,
+    base_prompt: Any,
+    grounding: Mapping[str, Any],
+    appendix: Any,
+) -> str:
+    base = str(base_prompt or "")
+    if not base:
+        return ""
+    if str(grounding.get("default_mode") or grounding.get("mode") or "").lower() != "balanced":
+        return base
+    appendix_text = str(appendix or "")
+    if not appendix_text:
+        return base
+    return f"{base}\n\n{appendix_text}"
+
+
 def _skill_lookup(db: DBSession, slugs: Iterable[str]) -> Dict[str, Skill]:
     clean = sorted({slug for slug in slugs if slug})
     if not clean:
@@ -111,13 +159,19 @@ def _editable_fields_from_node(node: Mapping[str, Any]) -> List[Dict[str, Any]]:
     prompt_contract = _as_dict(data.get("prompt_contract"))
     if prompt_contract:
         for key in (
+            "system_prompt",
+            "default_prompt_type",
             "base_system_prompt",
             "balanced_grounding_appendix",
+            "balanced_appendix",
             "reasoning_template_factual",
+            "rag_user_prompt_builder",
+            "system_prompt_builder",
             "answer_shaping_instructions",
         ):
             if prompt_contract.get(key) is not None:
-                add(f"prompt_contract.{key}", "node.data", "text" if "prompt" in key else "array", prompt_contract.get(key))
+                field_type = "array" if isinstance(prompt_contract.get(key), list) else "text"
+                add(f"prompt_contract.{key}", "node.data", field_type, prompt_contract.get(key))
     return fields
 
 
@@ -165,20 +219,129 @@ def _effective_chat_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
     by_id = {str(node.get("id")): _as_dict(node) for node in nodes if isinstance(node, Mapping)}
     budget_node = by_id.get("runtime.settings_budget", {})
     grounding_node = by_id.get("skill.grounding_policy", {})
+    retrieval_node = by_id.get("skill.fast_retrieval", {})
+    prompt_node = by_id.get("runtime.prompt_assembly", {})
     answer_node = by_id.get("skill.fast_answer", {})
     budget_data = _as_dict(budget_node.get("data"))
     grounding_data = _as_dict(grounding_node.get("data"))
+    retrieval_data = _as_dict(retrieval_node.get("data"))
+    prompt_data = _as_dict(prompt_node.get("data"))
     answer_data = _as_dict(answer_node.get("data"))
+    node_prompt_contract = _as_dict(answer_data.get("prompt_contract"))
+    prompt_node_contract = _as_dict(prompt_data.get("prompt_contract"))
+    retrieval_defaults = budget_data.get("retrieval_defaults") or chat.get("retrieval_defaults") or {}
+    grounding = grounding_data.get("grounding") or chat.get("grounding") or {}
+    source_policy = grounding_data.get("source_policy") or chat.get("source_policy") or {}
+    system_prompt = node_prompt_contract.get("system_prompt") or prompt_contract.get("base_system_prompt")
+    grounding_appendix = (
+        node_prompt_contract.get("balanced_appendix")
+        or prompt_node_contract.get("balanced_grounding_appendix")
+        or prompt_contract.get("balanced_grounding_appendix")
+    )
+    answer_shaping = (
+        node_prompt_contract.get("answer_shaping_instructions")
+        or prompt_node_contract.get("answer_shaping_instructions")
+        or prompt_contract.get("answer_shaping_instructions")
+        or []
+    )
+    prompt_type = prompt_contract.get("default_prompt_type")
+    reasoning_templates = _reasoning_template_catalog()
+    selected_template = _selected_reasoning_template(prompt_type, reasoning_templates)
+
+    citation_instructions = [
+        "Use workspace context as the source of factual claims when retrieved sources exist.",
+        "Cite retrieved sources by numeric source id such as [1].",
+        "Do not emit raw filenames or chapter names as citation markers.",
+        "Do not invent citations.",
+    ]
+    missing_source_instructions = [
+        "If context is missing for workspace-specific facts, say that the workspace source is missing.",
+        "Do not answer from other projects or similar documents as if they applied.",
+        "Offer a safe next check or name the visible gap.",
+    ]
+
     return {
         "assistant_profile": chat.get("assistant_profile"),
         "knowledge_scope": chat.get("knowledge_scope"),
         "collection_slugs": chat.get("collection_slugs") or [],
-        "retrieval_defaults": budget_data.get("retrieval_defaults") or chat.get("retrieval_defaults") or {},
-        "grounding": grounding_data.get("grounding") or chat.get("grounding") or {},
-        "source_policy": grounding_data.get("source_policy") or chat.get("source_policy") or {},
-        "system_prompt": _as_dict(answer_data.get("prompt_contract")).get("system_prompt")
-        or prompt_contract.get("base_system_prompt"),
-        "prompt_type": prompt_contract.get("default_prompt_type"),
+        "retrieval_defaults": retrieval_defaults,
+        "grounding": grounding,
+        "source_policy": source_policy,
+        "system_prompt": system_prompt,
+        "prompt_type": prompt_type,
+        "retrieval_config": {
+            "value": retrieval_defaults,
+            "runtime_read_path": "nodes.runtime.settings_budget.data.retrieval_defaults",
+            "fallback_path": "flow.chat.retrieval_defaults",
+            "node_id": "runtime.settings_budget",
+            "runtime_effect": "chat request defaults: latency_profile, retrieval_profile, mode, top_k",
+            "retrieval_runtime_ref": retrieval_data.get("runtime_ref") or "app.services.rag.context.retrieve_rag_context",
+        },
+        "grounding_policy": {
+            "value": grounding,
+            "runtime_read_path": "nodes.skill.grounding_policy.data.grounding",
+            "fallback_path": "flow.chat.grounding",
+            "node_id": "skill.grounding_policy",
+            "runtime_effect": "default grounding mode; strict guards still enforced downstream",
+        },
+        "source_policy_config": {
+            "value": source_policy,
+            "runtime_read_path": "nodes.skill.grounding_policy.data.source_policy",
+            "fallback_path": "flow.chat.source_policy",
+            "node_id": "skill.grounding_policy",
+            "runtime_effect": "industrial/source selection constraints consumed by retrieval policy",
+        },
+        "prompt_stack": {
+            "system_prompt": system_prompt,
+            "base_system_prompt": prompt_contract.get("base_system_prompt"),
+            "grounding_appendix": grounding_appendix,
+            "effective_system_prompt_preview": _grounded_system_prompt_preview(
+                base_prompt=system_prompt,
+                grounding=_as_dict(grounding),
+                appendix=grounding_appendix,
+            ),
+            "default_prompt_type": prompt_type,
+            "selected_reasoning_template": selected_template,
+            "available_reasoning_templates": reasoning_templates,
+            "rag_user_prompt_contract": {
+                "builder": prompt_contract.get("rag_user_prompt_builder")
+                or prompt_node_contract.get("rag_user_prompt_builder")
+                or "app.agents.procurement_agent._build_rag_user_prompt",
+                "context_slots": [
+                    "query",
+                    "context_text",
+                    "keyword_hint",
+                    "retrieval_policy_prompt",
+                    "retrieval_constraints",
+                    "retrieval_summary",
+                ],
+                "citation_instructions": citation_instructions,
+                "missing_source_instructions": missing_source_instructions,
+                "answer_shaping_instructions": answer_shaping,
+            },
+            "runtime_read_fields": [
+                "nodes.skill.fast_answer.data.prompt_contract.system_prompt",
+                "flow.prompt_contract.default_prompt_type",
+            ],
+            "manifest_only_fields": [
+                "flow.prompt_contract.balanced_grounding_appendix",
+                "flow.prompt_contract.answer_shaping_instructions",
+                "nodes.runtime.prompt_assembly.data.prompt_contract",
+            ],
+        },
+        "runtime_builders": {
+            "chat_defaults": "app.api.v1.endpoints.chat._apply_workspace_chat_flow_defaults",
+            "grounding_policy_from_request": "app.agents.procurement_agent._grounding_policy_from_request",
+            "system_prompt_builder": prompt_contract.get("system_prompt_builder")
+            or prompt_node_contract.get("system_prompt_builder")
+            or "app.agents.procurement_agent._system_prompt_with_grounding",
+            "rag_user_prompt_builder": prompt_contract.get("rag_user_prompt_builder")
+            or prompt_node_contract.get("rag_user_prompt_builder")
+            or "app.agents.procurement_agent._build_rag_user_prompt",
+            "answer_agent": answer_data.get("runtime_ref") or "app.agents.procurement_agent.OmniRAGAgent.process",
+            "retrieval_context": retrieval_data.get("runtime_ref") or "app.services.rag.context.retrieve_rag_context",
+            "reasoning_template_registry": "backend/app/services/system_prompts/prompts.py",
+        },
     }
 
 

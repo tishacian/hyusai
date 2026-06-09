@@ -57,12 +57,13 @@ import {
 /** Tone vocabulary — maps 1:1 to the mockup's `--signal-*` tokens. */
 type NodeTone = 'brand' | 'violet' | 'emerald' | 'amber' | 'rose' | 'cyan';
 type ConfigSheetTab = 'overview' | 'config' | 'prompts' | 'runtime';
+type PromptBlockSource = 'node' | 'flow' | 'runtime';
 
 interface PromptBlock {
   key: string;
   title: string;
   body: string;
-  source: 'node' | 'flow';
+  source: PromptBlockSource;
   path: string;
   editable: boolean;
 }
@@ -1072,6 +1073,91 @@ export interface FlowTemplate {
             @case ('config') {
               <section class="df-sheet-section">
                 <div class="df-sheet-label">Config · {{ kindLabel(selectedNode()!.kind) }}</div>
+                @if (runtimeConfigKind(); as runtimeKind) {
+                  <div class="df-runtime-config-block">
+                    @if (runtimeKind === 'retrieval') {
+                      <div class="df-runtime-config-head">
+                        <div>
+                          <strong>Retrieval tuning</strong>
+                          <span>Runtime path: nodes.runtime.settings_budget.data.retrieval_defaults</span>
+                        </div>
+                        <span class="df-tag df-tag-pos">CHAT READS THIS</span>
+                      </div>
+                      <div class="df-runtime-config-grid">
+                        <div>
+                          <label class="df-field-label">Latency profile</label>
+                          <app-flow-select
+                            [value]="retrievalDefaultText('latency_profile')"
+                            [options]="latencyProfileOptions"
+                            placeholder="Latency"
+                            (valueChange)="setRetrievalDefault('latency_profile', $event || 'fast')"
+                          />
+                        </div>
+                        <div>
+                          <label class="df-field-label">Retrieval mode</label>
+                          <app-flow-select
+                            [value]="retrievalDefaultText('mode')"
+                            [options]="retrievalModeOptions"
+                            placeholder="Mode"
+                            (valueChange)="setRetrievalDefault('mode', $event || 'chah')"
+                          />
+                        </div>
+                        <div>
+                          <label class="df-field-label">Profile</label>
+                          <app-flow-select
+                            [value]="retrievalDefaultText('retrieval_profile')"
+                            [options]="retrievalProfileOptions"
+                            placeholder="Profile"
+                            (valueChange)="setRetrievalDefault('retrieval_profile', $event || 'chat')"
+                          />
+                        </div>
+                        <div>
+                          <label class="df-field-label">Top K</label>
+                          <input type="number" class="df-input" min="1" max="30" step="1" [value]="retrievalDefaultNumber('top_k')" (change)="setRetrievalDefaultFromEvent('top_k', $event, 'number')" />
+                        </div>
+                      </div>
+                      <label class="df-field-label">Full retrieval defaults</label>
+                      <textarea class="df-input df-textarea ck-mono" [value]="nodeDataJson('retrieval_defaults')" (change)="onNodeDataJsonChange('retrieval_defaults', $event, 'Retrieval defaults')" rows="8"></textarea>
+                    } @else if (runtimeKind === 'grounding') {
+                      <div class="df-runtime-config-head">
+                        <div>
+                          <strong>Grounding & source policy</strong>
+                          <span>Runtime paths: nodes.skill.grounding_policy.data.grounding/source_policy</span>
+                        </div>
+                        <span class="df-tag df-tag-pos">CHAT READS THIS</span>
+                      </div>
+                      <div class="df-runtime-config-grid df-runtime-config-grid--two">
+                        <div>
+                          <label class="df-field-label">Grounding mode</label>
+                          <app-flow-select
+                            [value]="groundingDefaultMode()"
+                            [options]="groundingModeOptions"
+                            placeholder="Grounding mode"
+                            (valueChange)="setGroundingDefaultMode($event || 'balanced')"
+                          />
+                        </div>
+                        <div>
+                          <label class="df-field-label">Source policy mode</label>
+                          <input type="text" class="df-input df-input--mono" [value]="sourcePolicyText('mode')" (change)="setSourcePolicyFieldFromEvent('mode', $event)" placeholder="industrial_grounding" />
+                        </div>
+                      </div>
+                      <label class="df-field-label">Grounding policy JSON</label>
+                      <textarea class="df-input df-textarea ck-mono" [value]="nodeDataJson('grounding')" (change)="onNodeDataJsonChange('grounding', $event, 'Grounding policy')" rows="8"></textarea>
+                      <label class="df-field-label">Source policy JSON</label>
+                      <textarea class="df-input df-textarea ck-mono" [value]="nodeDataJson('source_policy')" (change)="onNodeDataJsonChange('source_policy', $event, 'Source policy')" rows="8"></textarea>
+                    } @else if (runtimeKind === 'prompt') {
+                      <div class="df-runtime-config-head">
+                        <div>
+                          <strong>Prompt assembly</strong>
+                          <span>Prompt stack and runtime builders are exposed in the Instructions tab.</span>
+                        </div>
+                        <button type="button" class="df-primary-soft-btn" (click)="setConfigSheetTab('prompts')">
+                          <app-icon name="file-text" [size]="12" /> Open instructions
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
                 @switch (selectedNode()!.kind ?? 'task') {
                   @case ('decision') {
                     <div class="df-kind-editor df-kind-editor--wide">
@@ -1263,7 +1349,7 @@ export interface FlowTemplate {
 
             @case ('prompts') {
               <section class="df-sheet-section">
-                <div class="df-sheet-label">Prompts & instructions</div>
+                <div class="df-sheet-label">Instructions & prompt stack</div>
                 @if (promptBlocks().length === 0) {
                   <div class="df-sheet-empty">No prompt or runtime instruction exposed for this node.</div>
                 } @else {
@@ -2061,6 +2147,31 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     { value: 'race', label: 'race', description: 'First branch wins; others are cancelled', tone: 'amber' },
   ];
 
+  readonly latencyProfileOptions: FlowSelectOption[] = [
+    { value: 'fast', label: 'fast', description: 'Direct answer latency budget', tone: 'emerald' },
+    { value: 'balanced', label: 'balanced', description: 'More recall while staying interactive', tone: 'cyan' },
+    { value: 'deep', label: 'deep', description: 'Higher recall for Deep Search paths', tone: 'violet' },
+  ];
+
+  readonly retrievalModeOptions: FlowSelectOption[] = [
+    { value: 'chah', label: 'chah', description: 'Current chat retrieval orchestration', tone: 'cyan' },
+    { value: 'hybrid', label: 'hybrid', description: 'Keyword and semantic evidence combined', tone: 'violet' },
+    { value: 'vector', label: 'vector', description: 'Semantic evidence focused', tone: 'emerald' },
+    { value: 'bm25', label: 'bm25', description: 'Exact lexical evidence focused', tone: 'amber' },
+  ];
+
+  readonly retrievalProfileOptions: FlowSelectOption[] = [
+    { value: 'chat', label: 'chat', description: 'Fast sourced answer profile', tone: 'cyan' },
+    { value: 'direct', label: 'direct', description: 'Minimal retrieval overhead', tone: 'emerald' },
+    { value: 'deep_search', label: 'deep_search', description: 'Expanded search profile', tone: 'violet' },
+    { value: 'industrial', label: 'industrial', description: 'Reference-preserving industrial retrieval', tone: 'amber' },
+  ];
+
+  readonly groundingModeOptions: FlowSelectOption[] = [
+    { value: 'balanced', label: 'balanced', description: 'Useful answer, source-first constraints', tone: 'cyan' },
+    { value: 'strict', label: 'strict', description: 'Stronger refusal when sources are thin', tone: 'emerald' },
+  ];
+
   readonly subflowSystemOptions = computed<FlowSelectOption[]>(() =>
     this.otherSystems().map((system) => ({
       value: system.id,
@@ -2078,10 +2189,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private refreshRaf: number | null = null;
   private canvasSelectionTimer: number | null = null;
   private perfStart = 0;
-  private readonly canvasZoomMin = 0.12;
+  private readonly canvasZoomMin = 0.045;
   private readonly canvasZoomMax = 1.8;
-  private readonly canvasZoomStep = 0.08;
-  private readonly canvasFitPadding = 72;
+  private readonly canvasZoomStep = 0.07;
+  private readonly canvasFitPadding = 128;
   private readonly onCanvasNodePointerCapture = (event: Event) => {
     const target = event.target as HTMLElement | null;
     const nodeEl = target?.closest('.drawflow-node') as HTMLElement | null;
@@ -2232,6 +2343,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.editor.on('connectionRemoved', refresh);
       this.editor.on('nodeSelected', onSelect);
       this.editor.on('nodeUnselected', onUnselect);
+      this.editor.on('translate', () => this.redrawConnectionsSoon());
+      this.editor.on('zoom', () => this.redrawConnectionsSoon());
     } catch {
       // older drawflow builds silently ignore unknown events
     }
@@ -2909,10 +3022,13 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const precanvas = this.precanvasElement();
     if (!precanvas) return;
     if (boxes.length) {
-      const maxX = Math.max(...boxes.map((box) => box.x + box.w), 3600);
-      const maxY = Math.max(...boxes.map((box) => box.y + box.h), 2200);
-      precanvas.style.minWidth = `${Math.ceil(maxX + this.canvasFitPadding * 2)}px`;
-      precanvas.style.minHeight = `${Math.ceil(maxY + this.canvasFitPadding * 2)}px`;
+      const minX = Math.min(...boxes.map((box) => box.x), 0);
+      const minY = Math.min(...boxes.map((box) => box.y), 0);
+      const maxX = Math.max(...boxes.map((box) => box.x + box.w), 7200);
+      const maxY = Math.max(...boxes.map((box) => box.y + box.h), 4200);
+      const margin = this.canvasFitPadding * 4;
+      precanvas.style.minWidth = `${Math.ceil(maxX - Math.min(0, minX) + margin)}px`;
+      precanvas.style.minHeight = `${Math.ceil(maxY - Math.min(0, minY) + margin)}px`;
     }
     precanvas.style.transform = `translate(${x}px, ${y}px) scale(${nextZoom})`;
     precanvas.style.transformOrigin = '0 0';
@@ -4151,6 +4267,119 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     this.refreshKpis();
   }
 
+  runtimeConfigKind(): 'retrieval' | 'grounding' | 'prompt' | null {
+    const node = this.selectedNode();
+    if (!node) return null;
+    if (node.id === 'runtime.settings_budget') return 'retrieval';
+    if (node.id === 'skill.grounding_policy') return 'grounding';
+    if (node.id === 'runtime.prompt_assembly' || node.id === 'skill.fast_answer') return 'prompt';
+    return null;
+  }
+
+  private selectedNodeDataRecord(): Record<string, unknown> {
+    return ((this.selectedNode()?.data ?? {}) as Record<string, unknown>) ?? {};
+  }
+
+  private nodeDataObject(key: string): Record<string, unknown> {
+    return this.objectValue(this.selectedNodeDataRecord()[key]) ?? {};
+  }
+
+  retrievalDefaultText(key: string): string | null {
+    const value = this.nodeDataObject('retrieval_defaults')[key];
+    return value === undefined || value === null || value === '' ? null : String(value);
+  }
+
+  retrievalDefaultNumber(key: string): number | string {
+    const value = this.nodeDataObject('retrieval_defaults')[key];
+    return typeof value === 'number' ? value : value === undefined || value === null ? '' : Number(value) || '';
+  }
+
+  groundingDefaultMode(): string | null {
+    const value = this.nodeDataObject('grounding')['default_mode'];
+    return value === undefined || value === null || value === '' ? 'balanced' : String(value);
+  }
+
+  sourcePolicyText(key: string): string {
+    const value = this.nodeDataObject('source_policy')[key];
+    return value === undefined || value === null ? '' : String(value);
+  }
+
+  nodeDataJson(key: string): string {
+    const value = this.selectedNodeDataRecord()[key];
+    if (value === undefined || value === null) return '{}';
+    return this.promptValueToBody(value);
+  }
+
+  setRetrievalDefault(key: string, value: unknown): void {
+    const current = this.nodeDataObject('retrieval_defaults');
+    this.patchSelectedNodeData({
+      retrieval_defaults: {
+        ...current,
+        [key]: value,
+      },
+    });
+  }
+
+  setRetrievalDefaultFromEvent(key: string, ev: Event, type: 'number' | 'string' = 'string'): void {
+    const raw = (ev.target as HTMLInputElement | null)?.value ?? '';
+    if (type === 'number') {
+      const n = Number(raw);
+      this.setRetrievalDefault(key, Number.isFinite(n) ? n : undefined);
+      return;
+    }
+    this.setRetrievalDefault(key, raw.trim() || undefined);
+  }
+
+  setGroundingDefaultMode(value: string): void {
+    const current = this.nodeDataObject('grounding');
+    this.patchSelectedNodeData({
+      grounding: {
+        ...current,
+        default_mode: value,
+      },
+    });
+  }
+
+  setSourcePolicyFieldFromEvent(key: string, ev: Event): void {
+    const raw = (ev.target as HTMLInputElement | null)?.value ?? '';
+    const current = this.nodeDataObject('source_policy');
+    const next = { ...current, [key]: raw.trim() || undefined };
+    if (next[key] === undefined) delete next[key];
+    this.patchSelectedNodeData({ source_policy: next });
+  }
+
+  onNodeDataJsonChange(key: string, ev: Event, label: string): void {
+    const raw = (ev.target as HTMLTextAreaElement | null)?.value ?? '';
+    try {
+      this.patchSelectedNodeData({ [key]: raw.trim() ? JSON.parse(raw) : {} });
+    } catch {
+      this.toastr.warning(`${label} must be valid JSON.`, 'Flow config');
+    }
+  }
+
+  private patchSelectedNodeData(partial: Record<string, unknown>): void {
+    const rawId = this.selectedRawNodeId();
+    const node = this.selectedNode();
+    if (!rawId || !node || !this.editor) return;
+    const graph = this.exportGraph();
+    const nodeData = graph.drawflow?.Home?.data?.[rawId];
+    if (!nodeData) return;
+    const nextData: Record<string, unknown> = { ...(nodeData.data ?? {}), ...partial };
+    for (const key of Object.keys(partial)) {
+      if (partial[key] === undefined) delete nextData[key];
+    }
+    try {
+      this.editor.updateNodeDataFromId(rawId, nextData);
+    } catch {
+      return;
+    }
+    this.selectedNode.set({
+      ...node,
+      data: { ...((node.data ?? {}) as Record<string, unknown>), ...partial },
+    });
+    this.refreshKpis();
+  }
+
   // ── Decision ──────────────────────────────────────────────────────
   decisionBranches(): { label: string; condition: string }[] {
     const cfg = (this.selectedNode()?.config ?? {}) as {
@@ -4748,7 +4977,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
 
     const blocks: PromptBlock[] = [];
     const add = (
-      source: 'node' | 'flow',
+      source: PromptBlockSource,
       path: string,
       title: string,
       value: unknown,
@@ -4768,6 +4997,82 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       }
     };
 
+    const promptStack = this.objectValue(effectiveConfig['prompt_stack']);
+    const runtimeBuilders = this.objectValue(effectiveConfig['runtime_builders']);
+    if (promptStack) {
+      add(
+        'runtime',
+        'effective_config.prompt_stack.effective_system_prompt_preview',
+        'Effective system prompt preview',
+        promptStack['effective_system_prompt_preview'],
+        false,
+      );
+      add(
+        'runtime',
+        'effective_config.prompt_stack.system_prompt',
+        'Runtime-read system prompt',
+        promptStack['system_prompt'],
+        false,
+      );
+      add(
+        'runtime',
+        'effective_config.prompt_stack.base_system_prompt',
+        'Flow base system prompt',
+        promptStack['base_system_prompt'],
+        false,
+      );
+      add(
+        'runtime',
+        'effective_config.prompt_stack.grounding_appendix',
+        'Grounding appendix',
+        promptStack['grounding_appendix'],
+        false,
+      );
+      add(
+        'runtime',
+        'effective_config.prompt_stack.selected_reasoning_template',
+        'Selected reasoning template',
+        promptStack['selected_reasoning_template'],
+        false,
+      );
+      add(
+        'runtime',
+        'effective_config.prompt_stack.rag_user_prompt_contract',
+        'RAG user prompt contract',
+        promptStack['rag_user_prompt_contract'],
+        false,
+      );
+      add(
+        'runtime',
+        'effective_config.prompt_stack.runtime_read_fields',
+        'Runtime-read fields',
+        promptStack['runtime_read_fields'],
+        false,
+      );
+      add(
+        'runtime',
+        'effective_config.prompt_stack.manifest_only_fields',
+        'Manifest-only fields',
+        promptStack['manifest_only_fields'],
+        false,
+      );
+      add(
+        'runtime',
+        'effective_config.prompt_stack.available_reasoning_templates',
+        'Available reasoning templates',
+        promptStack['available_reasoning_templates'],
+        false,
+      );
+    }
+    if (runtimeBuilders) {
+      add(
+        'runtime',
+        'effective_config.runtime_builders',
+        'Runtime builders',
+        runtimeBuilders,
+        false,
+      );
+    }
     if (nodeContract) {
       add('node', 'system_prompt', 'Node system prompt', nodeContract['system_prompt']);
       add('node', 'base_system_prompt', 'Node base system prompt', nodeContract['base_system_prompt']);
@@ -4788,6 +5093,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     add('node', 'require_sources', 'Source requirement', data['require_sources'], false);
     if (flowContract) {
       add('flow', 'base_system_prompt', 'Flow base system prompt', flowContract['base_system_prompt']);
+      add('flow', 'default_prompt_type', 'Flow default reasoning template', flowContract['default_prompt_type']);
       add('flow', 'balanced_grounding_appendix', 'Flow balanced appendix', flowContract['balanced_grounding_appendix']);
       add('flow', 'reasoning_template_factual', 'Flow reasoning template · factual', flowContract['reasoning_template_factual']);
       add('flow', 'answer_shaping_instructions', 'Flow answer shaping instructions', flowContract['answer_shaping_instructions']);
@@ -4815,7 +5121,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     return String(value);
   }
 
-  private promptBodyToValue(source: 'node' | 'flow', path: string, raw: string): unknown {
+  private promptBodyToValue(source: PromptBlockSource, path: string, raw: string): unknown {
+    if (source === 'runtime') return raw;
     const previous =
       source === 'node'
         ? this.objectValue(this.selectedNode()?.data?.['prompt_contract'])?.[path]
@@ -4856,6 +5163,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   }
 
   savePromptEdit(block: PromptBlock): void {
+    if (block.source === 'runtime') {
+      this.toastr.info('Runtime evidence is read-only. Edit node or flow prompt fields instead.', 'Instructions');
+      return;
+    }
     const raw = this.promptDraft();
     const nextValue = this.promptBodyToValue(block.source, block.path, raw);
     if (block.source === 'node') {

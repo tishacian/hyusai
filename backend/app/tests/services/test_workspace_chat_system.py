@@ -11,6 +11,7 @@ from app.services.systems.bootstrap import (
     ensure_workspace_chat_system_default,
     workspace_chat_system_id,
 )
+from app.services.systems.flow_manifest import serialize_flow_manifest
 
 
 def test_workspace_chat_capability_and_system_are_seeded(db_session):
@@ -121,6 +122,23 @@ def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
     assert request.rag_pipeline_mode == "chah"
     assert request.top_k == 6
     assert request.system_prompt and "curated knowledge base" in request.system_prompt
+
+    manifest = serialize_flow_manifest(db_session, system)
+    effective = manifest["effective_config"]
+    assert effective["retrieval_config"]["runtime_read_path"] == "nodes.runtime.settings_budget.data.retrieval_defaults"
+    assert effective["grounding_policy"]["node_id"] == "skill.grounding_policy"
+    assert effective["source_policy_config"]["value"]["mode"] == "industrial_grounding"
+
+    prompt_stack = effective["prompt_stack"]
+    assert "curated knowledge base" in prompt_stack["system_prompt"]
+    assert prompt_stack["selected_reasoning_template"]["key"] == "factual"
+    assert prompt_stack["selected_reasoning_template"]["template"]
+    assert any(row["key"] == "trivial" for row in prompt_stack["available_reasoning_templates"])
+    assert "citation_instructions" in prompt_stack["rag_user_prompt_contract"]
+
+    builders = effective["runtime_builders"]
+    assert builders["chat_defaults"].endswith("_apply_workspace_chat_flow_defaults")
+    assert builders["rag_user_prompt_builder"].endswith("_build_rag_user_prompt")
 
 
 def test_sentinel_workspace_chat_reuses_aya_profile(db_session):
