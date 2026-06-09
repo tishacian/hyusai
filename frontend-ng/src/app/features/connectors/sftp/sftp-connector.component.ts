@@ -1814,7 +1814,14 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
         this.knowledgeCollections.set(items);
         const current = this.collectionSlug.trim();
         const currentExists = items.some((item) => item.slug === current);
-        const fallback = (res.default && items.some((item) => item.slug === res.default) ? res.default : items[0]?.slug) || '';
+        const workspacePrefix = `${this.slugify(this.workspaceSlug())}-`;
+        const workspaceCollection = [...items]
+          .filter((item) => item.slug.startsWith(workspacePrefix))
+          .sort((a, b) => Number(b.chunk_count || b.document_count || 0) - Number(a.chunk_count || a.document_count || 0))[0];
+        const fallback =
+          workspaceCollection?.slug ||
+          (res.default && items.some((item) => item.slug === res.default) ? res.default : items[0]?.slug) ||
+          '';
         if (!this.collectionSlugTouched && fallback && (!current || !currentExists)) {
           this.collectionSlug = fallback;
           this.indexingAssist.set(null);
