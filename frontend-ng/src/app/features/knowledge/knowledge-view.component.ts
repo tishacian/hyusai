@@ -93,9 +93,12 @@ interface CollectionsPayload {
   items?: Array<{
     slug?: string;
     name?: string;
+    status?: string;
     document_count?: number;
     source_count?: number;
     chunk_count?: number;
+    embedding_model?: string | null;
+    chunking_method?: string | null;
   }>;
   vector_db_type?: string;
   default?: string | null;
@@ -323,6 +326,23 @@ type KbTabId =
             The collection holds embedded chunks of source documents. Presets (RAG,
             CHAH, HAH) decide how it is consumed by a System at run time. Last
             ingestion time is tracked per document in the Sources tab.
+          </div>
+          <div class="grid gap-3 border-t border-white/5 pt-4 md:grid-cols-3">
+            <article class="rounded border border-white/10 bg-black/20 p-3">
+              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Status</div>
+              <div class="mt-1 text-sm font-semibold text-white">{{ collectionStatus() || '—' }}</div>
+              <p class="mt-1 text-[11px] text-gray-500">Ledger status for this Knowledge collection.</p>
+            </article>
+            <article class="rounded border border-white/10 bg-black/20 p-3">
+              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Embedding model</div>
+              <div class="mt-1 break-all text-sm font-semibold text-white">{{ embeddingModel() || '—' }}</div>
+              <p class="mt-1 text-[11px] text-gray-500">Vectorization model recorded by ingestion.</p>
+            </article>
+            <article class="rounded border border-white/10 bg-black/20 p-3">
+              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Chunking</div>
+              <div class="mt-1 text-sm font-semibold text-white">{{ chunkingMethod() || '—' }}</div>
+              <p class="mt-1 text-[11px] text-gray-500">Method used to segment source documents.</p>
+            </article>
           </div>
           <div class="flex items-center gap-2 flex-wrap text-xs pt-2">
             <p class="text-[11px] text-gray-500">
@@ -1598,6 +1618,9 @@ export class KnowledgeViewComponent implements OnInit {
   readonly chunkCount = signal(0);
   readonly vectorDim = signal<number | null>(null);
   readonly vectorDbType = signal<string>('');
+  readonly collectionStatus = signal('');
+  readonly embeddingModel = signal('');
+  readonly chunkingMethod = signal('');
 
   readonly sources = signal<DocRow[]>([]);
   readonly sourceTotal = signal(0);
@@ -2179,17 +2202,11 @@ export class KnowledgeViewComponent implements OnInit {
     const q = encodeURIComponent(this.kbId);
 
     forkJoin({
-      stats: this.http
-        .get<StatsPayload>(`${this.base}/stats?collection_name=${q}`)
-        .pipe(catchError(() => of<StatsPayload>({}))),
       inventory: this.http
         .get<InventoryPayload>(
           this.sourceInventoryUrl(0),
         )
         .pipe(catchError(() => of<InventoryPayload>({ sources: [], source_count: 0 }))),
-      diagnostics: this.http
-        .get<CollectionDiagnosticsPayload>(`${this.base}/collections/${q}/diagnostics`)
-        .pipe(catchError(() => of<CollectionDiagnosticsPayload | null>(null))),
       meta: this.http
         .get<CollectionsPayload>(`${this.base}/collections`)
         .pipe(catchError(() => of<CollectionsPayload>({}))),
@@ -2199,20 +2216,39 @@ export class KnowledgeViewComponent implements OnInit {
       scopes: this.api
         .get<{ scopes: KnowledgeScopeApi[] }>('/knowledge/scopes')
         .pipe(catchError(() => of({ scopes: [] }))),
-    }).subscribe(({ stats, inventory, diagnostics, meta, guides, scopes }) => {
-      this.chunkCount.set(stats.total_chunks ?? inventory.chunk_count ?? 0);
-      this.vectorDim.set(stats.vector_dim ?? null);
-      this.vectorDbType.set(stats.vector_db_type ?? meta.vector_db_type ?? '');
+    }).subscribe(({ inventory, meta, guides, scopes }) => {
+      const metaItem = (meta.items || []).find((item) => item.slug === this.kbId);
       this.applyInventoryPage(inventory, 0);
-      if (diagnostics) {
-        this.applyDiagnostics(diagnostics);
-      }
-      this.docCount.set(inventory.document_count ?? inventory.source_count ?? this.sources().length);
+      this.docCount.set(
+        inventory.document_count ??
+          inventory.source_count ??
+          metaItem?.document_count ??
+          metaItem?.source_count ??
+          this.sources().length,
+      );
+      this.chunkCount.set(inventory.chunk_count ?? metaItem?.chunk_count ?? 0);
+      this.vectorDbType.set(meta.vector_db_type ?? '');
+      this.collectionStatus.set(metaItem?.status || '');
+      this.embeddingModel.set(metaItem?.embedding_model || '');
+      this.chunkingMethod.set(metaItem?.chunking_method || '');
       this.loading.set(false);
       this.knowledgeGuides.set(guides.items || []);
       this.knowledgeScopes.set(scopes.scopes || []);
       this.hydrateGuideEditor();
     });
+
+    this.http
+      .get<StatsPayload>(`${this.base}/stats?collection_name=${q}`)
+      .pipe(catchError(() => of<StatsPayload>({})))
+      .subscribe((stats) => {
+        if (stats.total_chunks !== undefined) {
+          this.chunkCount.set(stats.total_chunks);
+        }
+        this.vectorDim.set(stats.vector_dim ?? null);
+        if (stats.vector_db_type) {
+          this.vectorDbType.set(stats.vector_db_type);
+        }
+      });
 
     this.canonical.listSystems().subscribe({
       next: (systems) => {
