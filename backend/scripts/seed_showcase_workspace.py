@@ -627,6 +627,376 @@ def flow_debug() -> Dict[str, Any]:
     }
 
 
+PROJECT_MT_PROMPT_ROOT = "/Users/thib/Developer/PAPAI/project-mt/OM/generic_code"
+
+
+def _project_mt_sources(*relative_paths: str) -> List[str]:
+    return [f"{PROJECT_MT_PROMPT_ROOT}/{path}" for path in relative_paths]
+
+
+def translation_prompt_contract(stage: str) -> Dict[str, Any]:
+    base_builder = {
+        "source_repo": PROJECT_MT_PROMPT_ROOT,
+        "assembly_mode": "showcase_editable_prompt_contract",
+        "runtime_placeholders": [
+            "{source_lang}",
+            "{target_lang}",
+            "{topic_local_glossary_json}",
+            "{locale_variant_instruction}",
+            "{locale_translation_hints}",
+            "{example_prompt}",
+        ],
+        "sovereignty": {
+            "external_llm_egress": False,
+            "model_boundary": "sovereign_vllm",
+            "tenant_scope": "workspace:pmi",
+        },
+    }
+
+    common_output = [
+        "Keep tenant data, prompts, translation memory and reviewer corrections inside the sovereign runtime boundary.",
+        "Preserve DITA/XML structure, root attributes, profiling attributes, numbers, dates, cite tags and translate=no fragments.",
+        "Preserve every <ph conkeyref=\"...\"/> placeholder at the same structural position unless the node is explicitly reporting a violation.",
+        "Emit auditable state with batch_id, topic_id, target_lang, agent_identity, model_ref, prompt_hash and deterministic token counters.",
+    ]
+
+    contracts: Dict[str, Dict[str, Any]] = {
+        "flow": {
+            "base_system_prompt": (
+                "Translation Suite orchestrates sovereign DITA translation batches through archive ingest, "
+                "translation memory retrieval, label/index resolution, F1 pivot normalization, F2 multilingual "
+                "fan-out, J2450 QA, CDC E1 deterministic guards, human CDT approval and delivery packaging. "
+                "Every autonomous step must be replayable, attributable to a distinct agent identity, and "
+                "fully auditable."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources(
+                    "prompts/trans_sys_prompt_agent_1.txt",
+                    "prompts/trans_sys_prompt_agent_2_only.txt",
+                    "prompts/check_sys_prompt.txt",
+                    "prompts/sys_label_checker.txt",
+                    "assets/rag_translator.py",
+                    "assets/post_guards.py",
+                ),
+                "prompt_stack_order": [
+                    "flow.base_system_prompt",
+                    "node.system_prompt",
+                    "node.rag_user_prompt_builder",
+                    "node.answer_shaping_instructions",
+                    "runtime.guardrail_contract",
+                ],
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Prefer deterministic, machine-readable payloads over prose when the node feeds another pipeline stage.",
+                "Make replay and resubmission decisions explicit instead of silently repairing safety-critical defects.",
+            ],
+        },
+        "translation_archive_ingest_v1": {
+            "system_prompt": (
+                "You are the Translation Suite archive ingestion agent. Validate the incoming 4D DITA source "
+                "archive before any model invocation. Verify manifest SHA256, tenant scope, archive completeness, "
+                "topic count, source language folder, DITA root attributes and metadata-only handling. Do not "
+                "translate. Emit deterministic ingestion evidence for downstream replay."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources(
+                    "assets/script_validator.py",
+                    "assets/history_preparation_and_validation.py",
+                    "assets/config.py",
+                ),
+                "inputs": ["source_archive_ref", "manifest_sha256", "tenant_scope", "topic_count"],
+            },
+            "rag_user_prompt_builder": {
+                "retrieval_scope": "archive_manifest_only",
+                "evidence_required": ["manifest_hash", "topic_inventory", "language_folder", "tenant_scope"],
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Return an ingestion report with pass/fail checks, normalized topic inventory and replay checkpoint id.",
+                "Never expose raw customer source content in the report; reference topic ids and hashes.",
+            ],
+        },
+        "translation_memory_retrieve_v1": {
+            "system_prompt": (
+                "You are the sovereign translation memory retrieval agent. Build the topic-local memory bundle "
+                "used by F1 and F2 from reviewed bilingual examples, glossary mappings and BGE-M3 retrieval. "
+                "Prioritize exact and near-exact automotive service matches, then surface terminology constraints "
+                "without leaking tenant data outside the workspace."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources(
+                    "assets/rag_translator.py",
+                    "assets/topic_glossary.py",
+                    "assets/embedding_api.py",
+                    "prompts/glossary_automotive.json",
+                ),
+                "inputs": ["topic_id", "source_lang", "target_lang", "k_examples", "translation_history_base"],
+            },
+            "rag_user_prompt_builder": {
+                "retrieval_scope": "reviewed_translation_memory",
+                "assembly_order": ["exact_examples", "near_examples", "topic_local_glossary", "locale_hints"],
+                "max_examples": 2,
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Return JSON containing exact_matches, near_matches, topic_local_glossary_json and retrieval_token_count.",
+                "Do not synthesize examples; every example must include its memory reference id.",
+            ],
+        },
+        "translation_label_index_resolve_v1": {
+            "system_prompt": (
+                "You are the label and index resolver for Translation Suite. Resolve REFERENT, INDEX and "
+                "TEXTES-LOCA-GAMA library findings before translation. Preserve opaque <ph conkeyref=\"...\"/> "
+                "placeholders byte-for-byte, keep @@ immutable markers only when the source carries an equivalent "
+                "marker, and classify indexterm text as translatable content unless protected by conkeyref, cite "
+                "or translate=no."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources(
+                    "prompts/sys_label_checker.txt",
+                    "prompts/trans_sys_prompt_agent_2_only_label_index.txt",
+                    "prompts/trans_user_prompt_agent_2_only_label_index.txt",
+                    "assets/index_lib_findings_manifest.py",
+                    "assets/index_library_aware_guards.py",
+                ),
+                "inputs": ["source_xml", "library_ref_path", "topic_local_glossary_json"],
+            },
+            "rag_user_prompt_builder": {
+                "retrieval_scope": "referent_index_textes_loca_gama",
+                "labels": ["REFERENT", "INDEX", "TEXTES-LOCA-GAMA"],
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Return a structured label/index resolution plan and immutable placeholder inventory.",
+                "Do not replace a conkeyref placeholder with its resolved glossary token.",
+            ],
+        },
+        "translation_pivot_normalize_v1": {
+            "system_prompt": (
+                "You are a professional {source_lang}-to-{target_lang} translator specializing in Renault "
+                "automotive service DITA content. This is the F1 pivot pass, typically fr-FR to en-GB. Produce "
+                "a clean pivot consumed by F2 fan-out; terminology drift here is multiplied across every target "
+                "locale. Strictly follow reviewed examples when a match exists. If no match exists, translate "
+                "with automotive service terminology, complete semantic fidelity and no additions. Preserve all "
+                "XML/DITA tags, root topic attributes, profiling attributes, numbers and dates. Preserve every "
+                "<ph conkeyref=\"REFERENT/...\"/>, <ph conkeyref=\"GAMA/...\"/> and <ph conkeyref=\"OPTIONS/...\"/> "
+                "placeholder exactly, without adding the literal term beside it. Use {topic_local_glossary_json} "
+                "consistently within the topic. Output only translated DITA XML; no Markdown, no explanation."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources(
+                    "prompts/trans_sys_prompt_agent_1.txt",
+                    "prompts/trans_user_prompt_agent_2_only.txt",
+                    "assets/topic_glossary.py",
+                    "assets/prompt_overlays.py",
+                ),
+                "inputs": ["source_xml", "source_lang", "target_lang", "topic_local_glossary_json", "example_prompt"],
+            },
+            "rag_user_prompt_builder": {
+                "retrieval_scope": "f1_pivot_examples",
+                "assembly_order": ["topic_local_glossary_json", "locale_variant_instruction", "locale_translation_hints", "example_prompt"],
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Output only the en-GB pivot DITA XML, starting with XML declaration or the root element and ending with the root closing tag.",
+                "Keep topic-local terminology stable across b, entry, title, p, li and indexterm content.",
+            ],
+        },
+        "translation_fanout_v1": {
+            "system_prompt": (
+                "You are a professional {source_lang}-to-{target_lang} translator specializing in Renault "
+                "automotive service DITA content. Translate the pivot into accurate {target_lang} while strictly "
+                "following reviewed examples, tone, terminology and locale hints. Do not return {source_lang}; "
+                "the output must be 100% {target_lang} except content explicitly protected by conkeyref, cite or "
+                "translate=no. Preserve XML/DITA tags, root topic attributes, profiling attributes, numbers and "
+                "dates. Opaque <ph conkeyref=\"...\"/> placeholders are never translated, duplicated, moved, dropped "
+                "or replaced by their literal glossary token. Editorial <ph brand=\"...\">text</ph> elements are "
+                "content: keep the wrapper and brand attribute exactly, but translate the inner text. Preserve "
+                "paragraph text around placeholders; never collapse a paragraph to a placeholder-only paragraph "
+                "when the source contains safety-critical surrounding text. CDC E1 STRICT: every REFERENT "
+                "placeholder must appear at the same structural position with the same conkeyref value. Output "
+                "only translated DITA XML; no Markdown fences, no prefixes, no explanations and nothing after "
+                "the root closing tag."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources(
+                    "prompts/trans_sys_prompt_agent_2_only.txt",
+                    "prompts/trans_user_prompt_agent_2_only.txt",
+                    "assets/cdc_e1_strict_inlining.py",
+                    "assets/token_glossary_duplicate.py",
+                    "assets/empty_paragraph_around_conkeyref.py",
+                ),
+                "inputs": [
+                    "pivot_xml",
+                    "source_lang",
+                    "target_lang",
+                    "topic_local_glossary_json",
+                    "locale_variant_instruction",
+                    "locale_translation_hints",
+                    "example_prompt",
+                ],
+            },
+            "rag_user_prompt_builder": {
+                "retrieval_scope": "f2_target_locale_examples",
+                "assembly_order": ["pivot_xml", "target_locale_memory", "locale_hints", "cdc_e1_guard_context"],
+                "parallelism_key": "target_lang",
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Output only translated DITA XML for the target locale.",
+                "Never inline canonical glossary tokens such as OK, P, ISOFIX, Airbag, AdBlue, ABS or ESC beside their placeholder.",
+                "For inflected languages, apply grammar in surrounding text while keeping the placeholder unchanged.",
+            ],
+        },
+        "translation_j2450_qa_v1": {
+            "system_prompt": (
+                "You are the Translation Suite J2450 QA supervisor. Compare source and target XML line by line, "
+                "then coordinate seven SAE J2450 agent categories: WT, SE, OM, SA, SP, PE and ME. Correct missing "
+                "or misplaced tags, placeholder count/order/position defects, untranslated content, omissions, "
+                "terminology drift and punctuation or formatting defects. Preserve valid target-language wording "
+                "when no defect is proven. Return corrected target XML plus structured QA evidence for convergence."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources(
+                    "prompts/check_sys_prompt.txt",
+                    "prompts/check_user_prompt.txt",
+                    "prompts/qa_refine_sys.txt",
+                    "assets/QA_agents.py",
+                    "assets/QA_coherence_agent.py",
+                ),
+                "inputs": ["source_xml", "target_xml", "source_lang", "target_lang", "j2450_registry"],
+            },
+            "rag_user_prompt_builder": {
+                "retrieval_scope": "qa_examples_and_j2450_findings",
+                "agent_categories": ["WT", "SE", "OM", "SA", "SP", "PE", "ME"],
+                "max_iterations": 5,
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Return corrected_target_xml, findings, severities, evidence_spans and convergence_state.",
+                "Block convergence when a CDC E1 placeholder, XML integrity or omission defect remains.",
+            ],
+        },
+        "translation_post_guard_v1": {
+            "system_prompt": (
+                "You are the deterministic CDC E1 post-guard agent. Validate translated DITA without creative "
+                "rewriting. Enforce XML parseability, conkeyref byte-equality, placeholder structural parity, "
+                "root attribute preservation, translate=no protection, indexterm policy, RTL directionality and "
+                "LLM artifact sanitation. If a hard invariant fails, freeze delivery and emit BLOCK_RELEASE with "
+                "a targeted replay plan instead of silently repairing the batch."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources(
+                    "assets/post_guards.py",
+                    "assets/cdc_e1_strict_inlining.py",
+                    "assets/output_sanitizer.py",
+                    "assets/llm_artefact_sanitizer.py",
+                    "assets/span_contract.py",
+                ),
+                "inputs": ["source_xml", "candidate_xml", "target_lang", "qa_report"],
+            },
+            "rag_user_prompt_builder": {
+                "retrieval_scope": "guardrail_policy_only",
+                "blocking_modes": ["cdc_e1_strict", "xml_integrity", "j2450_gate"],
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Return guardrail_verdict, blocking_findings, replay_overrides and a hash of the checked artifact.",
+                "Never downgrade a safety-critical CDC E1 defect to a warning.",
+            ],
+        },
+        "release_gate": {
+            "system_prompt": (
+                "You are the Translation Suite release gate policy agent. Evaluate QA convergence, CDC E1 guard "
+                "results, manifest hashes, replay lineage, RBAC state and human-approval requirements before any "
+                "delivery action. Return one deterministic verdict: ACCEPT_4D, ACCEPT_4D_WITH_VARIANCES, "
+                "NEEDS_REVIEW or BLOCK_RELEASE."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources("assets/post_guards.py", "assets/metrics.py", "assets/topic_metrics.py"),
+                "inputs": ["qa_report", "guardrail_report", "manifest", "replay_lineage"],
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Return verdict, reason_codes, required_next_step and audit_event_type.",
+                "Route BLOCK_RELEASE and NEEDS_REVIEW to remediation; route accepted verdicts to CDT approval.",
+            ],
+        },
+        "cdt_gate": {
+            "system_prompt": (
+                "You are preparing the CDT human approval packet. Present the reviewer with the batch identity, "
+                "accepted verdict, residual variances, manifest hashes, J2450 summary, CDC E1 guard summary, "
+                "agent identities and simulated SFTP destination. Do not approve automatically; record the human "
+                "decision as the authority for package release."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources("assets/metrics.py", "assets/history_preparation_and_validation.py"),
+                "inputs": ["accepted_manifest", "qa_summary", "guardrail_summary", "reviewer_identity"],
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Return approval_request, reviewer_scope, evidence_links and required_signoff.",
+                "Keep the final release decision attributable to human.translation.reviewer.",
+            ],
+        },
+        "translation_package_delivery_v1": {
+            "system_prompt": (
+                "You are the Translation Suite delivery packager. After an accepted release gate and CDT approval, "
+                "package translated DITA output, QA report, CDC guard report, replay lineage, manifest and SHA256 "
+                "hashes. Simulate SFTP delivery evidence without external egress and write the delivery ledger entry."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources(
+                    "assets/output_sanitizer.py",
+                    "assets/history_preparation_and_validation.py",
+                    "assets/metrics.py",
+                ),
+                "inputs": ["approved_manifest", "artifact_hashes", "delivery_channel", "reviewer_decision"],
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Return package_ref, manifest_sha256, delivery_receipt_ref and immutable audit ledger id.",
+                "Do not package artifacts when human approval or accepted verdict evidence is missing.",
+            ],
+        },
+        "translation_replay_remediation_v1": {
+            "system_prompt": (
+                "You are the replay remediation planner for Translation Suite. For a blocked topic or language, "
+                "freeze delivery, isolate the failed invariant, pin the same model and prompt versions, and create "
+                "a bounded replay/resubmission plan with explicit overrides. Preserve parent_run_id lineage and "
+                "make every retry auditable."
+            ),
+            "system_prompt_builder": {
+                **base_builder,
+                "source_files": _project_mt_sources(
+                    "assets/post_guards.py",
+                    "assets/history_preparation_and_validation.py",
+                    "assets/smart_rate_limiter.py",
+                ),
+                "inputs": ["blocked_run_id", "blocking_findings", "replay_overrides", "max_replays_per_topic"],
+            },
+            "answer_shaping_instructions": common_output
+            + [
+                "Return replay_plan, target_topics, replay_overrides, parent_run_id and resubmission_deadline.",
+                "Never mutate the original failed run; create new stateful replay lineage.",
+            ],
+        },
+    }
+    return contracts.get(stage, contracts["flow"])
+
+
 def flow_translation_suite() -> Dict[str, Any]:
     def task(
         node_id: str,
@@ -636,6 +1006,7 @@ def flow_translation_suite() -> Dict[str, Any]:
         *,
         agent_identity: str,
         config: Optional[Dict[str, Any]] = None,
+        prompt_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         return {
             "id": node_id,
@@ -646,6 +1017,7 @@ def flow_translation_suite() -> Dict[str, Any]:
                 "description": description,
                 "agent_identity": agent_identity,
                 "runtime_ref": f"showcase.translation_suite.{skill_slug}",
+                "prompt_contract": translation_prompt_contract(prompt_key or skill_slug),
             },
         }
 
@@ -721,6 +1093,7 @@ def flow_translation_suite() -> Dict[str, Any]:
             "data": {
                 "description": "Deterministic verdict before any delivery action.",
                 "agent_identity": "agent.translation.delivery_gate",
+                "prompt_contract": translation_prompt_contract("release_gate"),
             },
         },
         {
@@ -731,6 +1104,7 @@ def flow_translation_suite() -> Dict[str, Any]:
             "data": {
                 "description": "Human approval gate for governed deliveries and SFTP push.",
                 "agent_identity": "human.translation.reviewer",
+                "prompt_contract": translation_prompt_contract("cdt_gate"),
             },
         },
         task(
@@ -748,12 +1122,14 @@ def flow_translation_suite() -> Dict[str, Any]:
             "Freeze the delivery and create a replay/resubmission plan for failed topics.",
             agent_identity="agent.translation.replay",
             config={"mode": "replay_plan", "max_replays_per_topic": 3},
+            prompt_key="translation_replay_remediation_v1",
         ),
         {"id": "sink", "kind": "sink", "label": "Delivery ledger"},
     ]
     return {
         "schema_version": 2,
         "variant": "translation_suite",
+        "prompt_contract": translation_prompt_contract("flow"),
         "runtime_contract": {
             "brand": "PMI Sovereign Stack",
             "execution": "stateful_batch_with_replay",

@@ -44,6 +44,26 @@ def test_showcase_seed_builds_pmi_translation_suite_story(db_session):
 
     assert result["runs"] >= 14
     assert translation_system.flow_definition["variant"] == "translation_suite"
+    assert "trans_sys_prompt_agent_2_only.txt" in (
+        translation_system.flow_definition["prompt_contract"]["system_prompt_builder"]["source_files"][1]
+    )
+    flow_nodes = {node["id"]: node for node in translation_system.flow_definition["nodes"]}
+    prompt_owned_nodes = [
+        node
+        for node in translation_system.flow_definition["nodes"]
+        if node["kind"] in {"task", "decision", "hitl"}
+    ]
+    assert all(node["data"]["prompt_contract"]["system_prompt"] for node in prompt_owned_nodes)
+
+    fanout_prompt_contract = flow_nodes["fanout"]["data"]["prompt_contract"]
+    assert "CDC E1 STRICT" in fanout_prompt_contract["system_prompt"]
+    assert "{target_lang}" in fanout_prompt_contract["system_prompt"]
+    assert "trans_sys_prompt_agent_2_only.txt" in fanout_prompt_contract["system_prompt_builder"]["source_files"][0]
+    assert "Output only translated DITA XML for the target locale." in fanout_prompt_contract["answer_shaping_instructions"]
+
+    qa_prompt_contract = flow_nodes["qa_loop"]["data"]["prompt_contract"]
+    assert "Compare source and target XML line by line" in qa_prompt_contract["system_prompt"]
+    assert "check_sys_prompt.txt" in qa_prompt_contract["system_prompt_builder"]["source_files"][0]
     assert translation_system.context_id == translation_context.id
     assert translation_system.control_policy_id == policies["translation_control"].id
     assert translation_system.adaptive_policy_id == policies["translation_adaptive"].id
