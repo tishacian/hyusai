@@ -36,6 +36,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
+import { I18nService, type Locale } from '@app/core/i18n.service';
 import { RuntimeStatusBadgeComponent } from '@app/shared/cockpit';
 import {
   SharedVoiceOracleStep,
@@ -2645,6 +2646,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly workspace = inject(WorkspaceService);
   private readonly assistantEffects = inject(AssistantEffectsService);
+  private readonly i18n = inject(I18nService);
   readonly settings = inject(SettingsService);
 
   messages = signal<ChatMessage[]>([]);
@@ -5129,6 +5131,18 @@ export class ChatPanelComponent implements AfterViewInit {
     return bits.length ? `counts ${bits.join(', ')}` : null;
   }
 
+  private responseLanguageFor(query: string): Locale {
+    const text = (query || '').trim();
+    if (!text) return this.i18n.locale();
+    const french = /[àâçéèêëîïôùûüÿœæ]|\b(bonjour|bonsoir|salut|merci|quel|quelle|quels|quelles|comment|pourquoi|où|peux[\s-]?tu|pouvez[\s-]?vous|donne|retrouve|résume|resume|explique|source|fichier|documents?|données)\b/i;
+    const english = /\b(hello|hi|thanks|thank\s+you|what|which|how|why|where|when|who|can\s+you|could\s+you|please|show\s+me|tell\s+me|find|retrieve|summari[sz]e|explain|give\s+me|documents?|sources?|files?|data|knowledge)\b/i;
+    const hasFrench = french.test(text);
+    const hasEnglish = english.test(text);
+    if (hasEnglish && !hasFrench) return 'en';
+    if (hasFrench && !hasEnglish) return 'fr';
+    return this.i18n.locale();
+  }
+
   onKey(e: KeyboardEvent): void {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -5204,9 +5218,12 @@ export class ChatPanelComponent implements AfterViewInit {
 
     const ragOverride = this.ragModeOverride();
     const promptTypeSel = this.promptType();
+    const responseLanguage = this.responseLanguageFor(text);
     this.sse
       .stream('/api/v1/chat/stream', {
         query: text,
+        ui_locale: this.i18n.locale(),
+        response_language: responseLanguage,
         agent_id: this.systemId(),
         session_id: this.chatSessionId,
         context_id: this.contextId(),
@@ -5524,6 +5541,7 @@ export class ChatPanelComponent implements AfterViewInit {
     const s = this.settings.settings();
     const ragOverride = this.ragModeOverride();
     const promptTypeSel = this.promptType();
+    const responseLanguage = this.responseLanguageFor(query);
     this.deepSearchLaunchingId.set(msg.id);
     this.api
       .post<{
@@ -5536,6 +5554,8 @@ export class ChatPanelComponent implements AfterViewInit {
         parent_message_id?: string | null;
       }>('/chat/deep-retrieval-jobs', {
         query,
+        ui_locale: this.i18n.locale(),
+        response_language: responseLanguage,
         parent_message_id: msg.id,
         previous_answer: msg.content,
         agent_id: this.systemId(),

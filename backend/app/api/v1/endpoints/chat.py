@@ -9,6 +9,7 @@ same Run ledger as explicit ``/runs/launch`` triggers.
 """
 import asyncio
 import json
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Dict, Literal, Mapping, Optional
@@ -110,6 +111,104 @@ class ChatRequest(BaseModel):
     # user to restate their intent.
     parent_message_id: Optional[str] = None
     previous_answer: Optional[str] = None
+    # UI language is the chrome language selected by the user. Response language
+    # is the generation contract for /chat and may be inferred from the query.
+    # Retrieved evidence is kept in its original language unless the user asks
+    # for translation explicitly.
+    ui_locale: Optional[Literal["fr", "en"]] = None
+    response_language: Optional[Literal["fr", "en"]] = None
+
+
+_FR_QUERY_RE = re.compile(
+    r"[àâçéèêëîïôùûüÿœæ]|"
+    r"\b(?:bonjour|bonsoir|salut|merci|quel|quelle|quels|quelles|comment|pourquoi|"
+    r"où|peux[\s-]?tu|pouvez[\s-]?vous|donne|donner|retrouve|retrouver|résume|resume|"
+    r"explique|source|sources|fichier|fichiers|documents?|données|connais?sances?)\b",
+    re.IGNORECASE,
+)
+_EN_QUERY_RE = re.compile(
+    r"\b(?:hello|hi|thanks|thank\s+you|what|which|how|why|where|when|who|can\s+you|"
+    r"could\s+you|please|show\s+me|tell\s+me|find|retrieve|summari[sz]e|explain|"
+    r"give\s+me|do\s+you|does|should|about|documents?|sources?|files?|data|knowledge)\b",
+    re.IGNORECASE,
+)
+
+
+def _normalise_response_language(value: Optional[str]) -> Optional[Literal["fr", "en"]]:
+    if value == "fr" or value == "en":
+        return value
+    return None
+
+
+def _detect_query_language(query: str) -> Optional[Literal["fr", "en"]]:
+    text = str(query or "").strip()
+    if not text:
+        return None
+    fr_hits = len(_FR_QUERY_RE.findall(text))
+    en_hits = len(_EN_QUERY_RE.findall(text))
+    if fr_hits and not en_hits:
+        return "fr"
+    if en_hits and not fr_hits:
+        return "en"
+    if fr_hits > en_hits:
+        return "fr"
+    if en_hits > fr_hits:
+        return "en"
+    return None
+
+
+def _resolve_response_language(request: ChatRequest, query: str) -> Literal["fr", "en"]:
+    explicit = _normalise_response_language(request.response_language)
+    if explicit:
+        return explicit
+    detected = _detect_query_language(query)
+    if detected:
+        return detected
+    return _normalise_response_language(request.ui_locale) or "fr"
+
+
+def _response_language_instruction(language: str) -> str:
+    if language == "en":
+        return (
+            "Answer in English. Keep cited excerpts, filenames, source titles, table values, "
+            "and retrieved evidence in their original language. Do not translate retrieved "
+            "content unless the user explicitly asks for a translation."
+        )
+    return (
+        "Réponds en français. Conserve les extraits cités, noms de fichiers, titres de sources, "
+        "valeurs de tableaux et preuves récupérées dans leur langue d’origine. Ne traduis pas "
+        "le contenu récupéré sauf demande explicite de l’utilisateur."
+    )
+
+
+def _apply_response_language_contract(
+    request_dict: Dict[str, Any],
+    language: Literal["fr", "en"],
+) -> None:
+    request_dict["response_language"] = language
+    instruction = _response_language_instruction(language)
+    current_prompt = str(request_dict.get("system_prompt") or "").strip()
+    if instruction in current_prompt:
+        return
+    request_dict["system_prompt"] = (
+        f"{current_prompt}\n\n{instruction}" if current_prompt else instruction
+    )
+
+
+def _trivial_bypass_for_language(
+    bypass: TrivialBypass,
+    language: Literal["fr", "en"],
+) -> TrivialBypass:
+    if language != "en":
+        return bypass
+    english = {
+        "trivial_empty": "I'm here. Tell me what you'd like to do.",
+        "trivial_thanks": "You're welcome.",
+        "trivial_farewell": "See you soon.",
+        "trivial_ack": "Noted.",
+        "trivial_greeting": "Hello, I'm listening.",
+    }
+    return TrivialBypass(content=english.get(bypass.reason, bypass.content), reason=bypass.reason)
 
 
 def _resolve_system_id(
@@ -1230,6 +1329,9 @@ async def chat_completion(
             and not str(request.query or "").strip()
             and _can_apply_trivial_bypass(db, workspace=workspace, request=request)
         ):
+            response_language = _resolve_response_language(request, request.query)
+            request.response_language = response_language
+            empty_bypass = _trivial_bypass_for_language(empty_bypass, response_language)
             run_id = _persist_trivial_bypass_turn(
                 db,
                 workspace=workspace,
@@ -1245,8 +1347,11 @@ async def chat_completion(
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+        response_language = _resolve_response_language(request, validated_query)
+        request.response_language = response_language
         trivial_bypass = maybe_trivial_bypass(validated_query)
         if trivial_bypass and _can_apply_trivial_bypass(db, workspace=workspace, request=request):
+            trivial_bypass = _trivial_bypass_for_language(trivial_bypass, response_language)
             run_id = _persist_trivial_bypass_turn(
                 db,
                 workspace=workspace,
@@ -1256,7 +1361,7 @@ async def chat_completion(
             )
             return _trivial_bypass_completion_payload(run_id, trivial_bypass)
         
-        canonical = None if (request.context_id or request.knowledge_scope) else _canonical_answer_hit(
+        canonical = None if (request.context_id or request.knowledge_scope or response_language != "fr") else _canonical_answer_hit(
             db,
             workspace_id=workspace.id,
             query=validated_query,
@@ -1557,6 +1662,8 @@ async def chat_completion(
         request_dict["query"] = validated_query
         request_dict["workspace_slug"] = workspace.slug
         request_dict["workspace_id"] = workspace.id
+        request_dict["ui_locale"] = request.ui_locale
+        _apply_response_language_contract(request_dict, response_language)
         _apply_context_to_chat_request(request_dict, chat_context)
         if request.assistant_profile == "vigie_executive":
             request_dict.setdefault("context", {})["workspace_calendar"] = calendar_context_for_chat(db, workspace)
@@ -1697,6 +1804,7 @@ async def chat_completion(
                 "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                 "grounding_mode": grounding_policy["mode"],
                 "grounding_policy": grounding_policy,
+                "response_language": response_language,
                 "retrieval_scope": chunk_state.get("retrieval_scope"),
                 "retrieval_plan": chunk_state.get("retrieval_plan"),
                 "scope_confidence": chunk_state.get("scope_confidence"),
@@ -1759,6 +1867,7 @@ async def chat_completion(
                 "context_id": request.context_id,
                 "context_mode": request.context_mode,
                 "assistant_profile": request.assistant_profile,
+                "response_language": response_language,
                 "collections_touched": chunk_state.get("collections_touched"),
                 "retrieval_scope": chunk_state.get("retrieval_scope"),
                 "retrieval_plan": chunk_state.get("retrieval_plan"),
@@ -1832,6 +1941,8 @@ async def create_deep_retrieval_job(
         validated_query = query_validator.validate(request.query)
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    response_language = _resolve_response_language(request, validated_query)
+    request.response_language = response_language
     if not request.session_id:
         session = _ensure_chat_session(
             db,
@@ -1866,6 +1977,8 @@ async def create_deep_retrieval_job(
     request_dict["workspace_id"] = workspace.id
     request_dict["latency_profile"] = "deep"
     request_dict["deep_retrieval"] = True
+    request_dict["ui_locale"] = request.ui_locale
+    _apply_response_language_contract(request_dict, response_language)
     if request.rag_mode_override:
         request_dict["rag_pipeline_mode"] = request.rag_mode_override
     _apply_context_to_chat_request(request_dict, chat_context)
@@ -1919,6 +2032,7 @@ async def create_deep_retrieval_job(
             "deep_stage": "manual_deep_search",
             "deep_poll_url": None,
             "parent_message_id": parent_message_id,
+            "response_language": response_language,
             "sources": [],
         },
     )
@@ -2120,6 +2234,9 @@ async def chat_stream(
                 and not str(request.query or "").strip()
                 and _can_apply_trivial_bypass(db, workspace=workspace, request=request)
             ):
+                response_language = _resolve_response_language(request, request.query)
+                request.response_language = response_language
+                empty_bypass = _trivial_bypass_for_language(empty_bypass, response_language)
                 run_id = _persist_trivial_bypass_turn(
                     db,
                     workspace=workspace,
@@ -2163,9 +2280,14 @@ async def chat_stream(
                 yield _sse_done()
                 return
             request_dict["query"] = validated_query
+            response_language = _resolve_response_language(request, validated_query)
+            request.response_language = response_language
+            request_dict["ui_locale"] = request.ui_locale
+            _apply_response_language_contract(request_dict, response_language)
 
             trivial_bypass = maybe_trivial_bypass(validated_query)
             if trivial_bypass and _can_apply_trivial_bypass(db, workspace=workspace, request=request):
+                trivial_bypass = _trivial_bypass_for_language(trivial_bypass, response_language)
                 run_id = _persist_trivial_bypass_turn(
                     db,
                     workspace=workspace,
@@ -2208,7 +2330,7 @@ async def chat_stream(
                 yield _sse_done()
                 return
 
-            canonical = None if (request.context_id or request.knowledge_scope) else _canonical_answer_hit(
+            canonical = None if (request.context_id or request.knowledge_scope or response_language != "fr") else _canonical_answer_hit(
                 db,
                 workspace_id=workspace.id,
                 query=validated_query,
@@ -2913,6 +3035,7 @@ async def chat_stream(
                     "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                     "grounding_mode": grounding_policy["mode"],
                     "grounding_policy": grounding_policy,
+                    "response_language": response_language,
                     "retrieval_scope": chunk_state.get("retrieval_scope"),
                     "retrieval_plan": chunk_state.get("retrieval_plan"),
                     "scope_confidence": chunk_state.get("scope_confidence"),
@@ -3034,6 +3157,7 @@ async def chat_stream(
                         "context_id": request.context_id,
                         "context_mode": request.context_mode,
                         "assistant_profile": request.assistant_profile,
+                        "response_language": response_language,
                         "collections_touched": chunk_state.get("collections_touched"),
                         "retrieval_scope": chunk_state.get("retrieval_scope"),
                         "retrieval_plan": chunk_state.get("retrieval_plan"),

@@ -154,7 +154,7 @@ interface CommandItem {
                     [style.textOverflow]="'ellipsis'"
                   >{{ r.hint }}</span>
                 </div>
-                <ck-tag [tone]="r.tone" variant="outline">{{ r.kind.toUpperCase() }}</ck-tag>
+                <ck-tag [tone]="r.tone" variant="outline">{{ kindLabel(r.kind) }}</ck-tag>
               </button>
             }
           </div>
@@ -175,11 +175,11 @@ interface CommandItem {
             <span>
               <ck-kbd>↑</ck-kbd>
               <ck-kbd>↓</ck-kbd>
-              navigate
+              {{ i18n.t('palette.footer.navigate') }}
             </span>
             <span>
               <ck-kbd>↵</ck-kbd>
-              open · {{ results().length }} results
+              {{ i18n.t('palette.footer.open') }} · {{ i18n.t('palette.footer.results', { count: results().length }) }}
             </span>
           </div>
         </div>
@@ -203,19 +203,16 @@ export class CommandPaletteComponent implements OnInit {
   private readonly skills = signal<Skill[]>([]);
   private readonly systems = signal<System[]>([]);
 
-  // Imperative chat actions — open the global overlay instead of navigating.
-  // Bound lazily (constructor) so `this.chatOverlay` is available.
-  private chatCommands: CommandItem[] = [];
-
-  private readonly viewCommands: CommandItem[] = [
-    { id: 'view.hypervisor', label: 'Hypervisor · Executive cockpit', hint: 'Portfolio balance · ROI · signals', tone: 'cool', kind: 'view', route: '/hypervisor', keywords: 'dashboard balance overview portfolio' },
-    { id: 'view.steering', label: 'Steering · Control plane', hint: 'Levers · policies · simulate', tone: 'violet', kind: 'view', route: '/steering', keywords: 'levers policy control governance' },
-    { id: 'view.review-queue', label: 'Review queue · Eval triage', hint: 'Runs flagged by auto-eval · accept · reject', tone: 'warn', kind: 'view', route: '/steering/review-queue', keywords: 'review eval evaluation queue triage hallucination threshold' },
-    { id: 'view.eval-thresholds', label: 'Evaluation thresholds', hint: 'Composite · hallucination · dimension floors', tone: 'violet', kind: 'view', route: '/presets/evaluation', keywords: 'evaluation thresholds preset composite hallucination' },
-    { id: 'view.capabilities', label: 'Capability catalog', hint: 'Universal · Industry · Client', tone: 'pos', kind: 'view', route: '/capabilities', keywords: 'catalog capability marketplace' },
-    { id: 'view.skills', label: 'Skill registry', hint: 'Atomic certified skills', tone: 'cool', kind: 'view', route: '/skills', keywords: 'skills registry atomic' },
-    { id: 'view.systems', label: 'Systems · Compositions', hint: 'All deployed systems', tone: 'cool', kind: 'view', route: '/systems', keywords: 'system composition deployments' },
-    { id: 'view.knowledge', label: 'Knowledge base', hint: 'Contexts & collections', tone: 'violet', kind: 'view', route: '/knowledge', keywords: 'knowledge rag documents collections' },
+  private get viewCommands(): CommandItem[] {
+    return [
+    { id: 'view.hypervisor', label: this.i18n.t('palette.view.hypervisor'), hint: this.i18n.t('palette.view.hypervisor.hint'), tone: 'cool', kind: 'view', route: '/hypervisor', keywords: 'dashboard balance overview portfolio' },
+    { id: 'view.steering', label: this.i18n.t('palette.view.steering'), hint: this.i18n.t('palette.view.steering.hint'), tone: 'violet', kind: 'view', route: '/steering', keywords: 'levers policy control governance' },
+    { id: 'view.review-queue', label: this.i18n.t('palette.view.review_queue'), hint: this.i18n.t('palette.view.review_queue.hint'), tone: 'warn', kind: 'view', route: '/steering/review-queue', keywords: 'review eval evaluation queue triage hallucination threshold' },
+    { id: 'view.eval-thresholds', label: this.i18n.t('palette.view.eval_thresholds'), hint: this.i18n.t('palette.view.eval_thresholds.hint'), tone: 'violet', kind: 'view', route: '/presets/evaluation', keywords: 'evaluation thresholds preset composite hallucination' },
+    { id: 'view.capabilities', label: this.i18n.t('palette.view.capabilities'), hint: this.i18n.t('palette.view.capabilities.hint'), tone: 'pos', kind: 'view', route: '/capabilities', keywords: 'catalog capability marketplace' },
+    { id: 'view.skills', label: this.i18n.t('palette.view.skills'), hint: this.i18n.t('palette.view.skills.hint'), tone: 'cool', kind: 'view', route: '/skills', keywords: 'skills registry atomic' },
+    { id: 'view.systems', label: this.i18n.t('palette.view.systems'), hint: this.i18n.t('palette.view.systems.hint'), tone: 'cool', kind: 'view', route: '/systems', keywords: 'system composition deployments' },
+    { id: 'view.knowledge', label: this.i18n.t('palette.view.knowledge'), hint: this.i18n.t('palette.view.knowledge.hint'), tone: 'violet', kind: 'view', route: '/knowledge', keywords: 'knowledge rag documents collections' },
     {
       id: 'view.expert-capture',
       label: this.i18n.t('palette.view.expert_capture'),
@@ -225,11 +222,47 @@ export class CommandPaletteComponent implements OnInit {
       route: '/knowledge/capture',
       keywords: 'expert capture knowledge interview voice context capability',
     },
-    { id: 'view.chat', label: 'Chat workspace', hint: 'Full-screen chat · drop-and-ask · session', tone: 'pos', kind: 'view', route: '/chat', keywords: 'chat ask question playground session test' },
-    { id: 'view.observability', label: 'Observability', hint: 'Quality · performance · signals', tone: 'warn', kind: 'view', route: '/observability', keywords: 'observability quality performance metrics' },
-    { id: 'view.runs', label: 'Runs · Execution log', hint: 'Every system execution — input · trail · outcome', tone: 'warn', kind: 'view', route: '/runs', keywords: 'runs traces executions logs history' },
-    { id: 'action.new-system', label: 'New system builder', hint: 'Objective → Capability → Context → Policy', tone: 'pos', kind: 'action', route: '/systems/new', keywords: 'create new build wizard' },
+    { id: 'view.chat', label: this.i18n.t('palette.view.chat'), hint: this.i18n.t('palette.view.chat.hint'), tone: 'pos', kind: 'view', route: '/chat', keywords: 'chat ask question playground session test' },
+    { id: 'view.observability', label: this.i18n.t('palette.view.observability'), hint: this.i18n.t('palette.view.observability.hint'), tone: 'warn', kind: 'view', route: '/observability', keywords: 'observability quality performance metrics' },
+    { id: 'view.runs', label: this.i18n.t('palette.view.runs'), hint: this.i18n.t('palette.view.runs.hint'), tone: 'warn', kind: 'view', route: '/runs', keywords: 'runs traces executions logs history' },
+    { id: 'action.new-system', label: this.i18n.t('palette.action.new_system'), hint: this.i18n.t('palette.action.new_system.hint'), tone: 'pos', kind: 'action', route: '/systems/new', keywords: 'create new build wizard' },
   ];
+  }
+
+  private get chatCommands(): CommandItem[] {
+    return [
+      {
+        id: 'chat.ask',
+        label: this.i18n.t('palette.chat.ask'),
+        hint: this.i18n.t('palette.chat.ask.hint'),
+        tone: 'pos',
+        kind: 'chat',
+        route: '',
+        keywords: 'ask quick question chat playground rag',
+        action: () => this.openChat({ mode: 'quick' }),
+      },
+      {
+        id: 'chat.system',
+        label: this.i18n.t('palette.chat.system'),
+        hint: this.i18n.t('palette.chat.system.hint'),
+        tone: 'cool',
+        kind: 'chat',
+        route: '',
+        keywords: 'chat system scoped test demo',
+        action: () => this.openChat({ mode: 'system' }),
+      },
+      {
+        id: 'chat.drop',
+        label: this.i18n.t('palette.chat.drop'),
+        hint: this.i18n.t('palette.chat.drop.hint'),
+        tone: 'violet',
+        kind: 'chat',
+        route: '',
+        keywords: 'drop upload files documents ephemeral context session pdf rag',
+        action: () => this.openChat({ mode: 'drop' }),
+      },
+    ];
+  }
 
   readonly results = computed(() => {
     const q = this.query().trim().toLowerCase();
@@ -254,7 +287,7 @@ export class CommandPaletteComponent implements OnInit {
     const sys: CommandItem[] = this.systems().map((s) => ({
       id: `sys.${s.id}`,
       label: s.name,
-      hint: `System · ${s.status || 'draft'}`,
+      hint: `${this.i18n.t('palette.kind.system')} · ${s.status || 'draft'}`,
       tone: (s.status === 'active' ? 'pos' : 'warn') as Tone,
       kind: 'system',
       route: `/systems/${s.id}`,
@@ -278,38 +311,6 @@ export class CommandPaletteComponent implements OnInit {
       const _ = this.results();
       this.selectedIndex.set(0);
     });
-    this.chatCommands = [
-      {
-        id: 'chat.ask',
-        label: 'Ask a question…',
-        hint: 'Quick ask · workspace context',
-        tone: 'pos',
-        kind: 'chat',
-        route: '',
-        keywords: 'ask quick question chat playground rag',
-        action: () => this.openChat({ mode: 'quick' }),
-      },
-      {
-        id: 'chat.system',
-        label: 'Chat with a system…',
-        hint: 'Pick a system, chat with its policy / skills / knowledge',
-        tone: 'cool',
-        kind: 'chat',
-        route: '',
-        keywords: 'chat system scoped test demo',
-        action: () => this.openChat({ mode: 'system' }),
-      },
-      {
-        id: 'chat.drop',
-        label: 'Drop files and ask…',
-        hint: 'Upload docs into an ephemeral context, ground answers on them',
-        tone: 'violet',
-        kind: 'chat',
-        route: '',
-        keywords: 'drop upload files documents ephemeral context session pdf rag',
-        action: () => this.openChat({ mode: 'drop' }),
-      },
-    ];
   }
 
   private openChat(options: Parameters<ChatOverlayService['open']>[0]): void {
@@ -408,5 +409,9 @@ export class CommandPaletteComponent implements OnInit {
       case 'view':
       default:           return 'focus';
     }
+  }
+
+  kindLabel(kind: CommandItem['kind']): string {
+    return this.i18n.t(`palette.kind.${kind}`).toUpperCase();
   }
 }

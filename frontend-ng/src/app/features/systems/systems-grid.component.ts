@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { CanonicalApiService, Run } from '@app/core/canonical-api.service';
+import { I18nService } from '@app/core/i18n.service';
 import {
   GlyphComponent,
   KbdComponent,
@@ -20,9 +21,9 @@ interface AgentStats {
 
 interface Template {
   id: string;
-  label: string;
-  description: string;
-  prompt: string;
+  labelKey: string;
+  descriptionKey: string;
+  promptKey: string;
 }
 
 /**
@@ -46,10 +47,10 @@ interface Template {
   ],
   template: `
     <ck-page-frame
-      eyebrow="Build · Systems"
-      title="Your deployed systems"
-      description="Each System is a composition of a Capability, a Context and a Policy. Launch one from scratch or start from a goal."
-      [status]="agents().length + ' ACTIVE'"
+      [eyebrow]="i18n.t('systems.grid.eyebrow')"
+      [title]="i18n.t('systems.grid.title')"
+      [description]="i18n.t('systems.grid.description')"
+      [status]="i18n.t('systems.grid.status_active', { count: agents().length })"
     >
       <a
         actions
@@ -72,7 +73,7 @@ interface Template {
         [style.textDecoration]="'none'"
       >
         <ck-glyph name="bolt" [size]="12" />
-        New system
+        {{ i18n.t('systems.create') }}
       </a>
 
       <!-- Quick-start composer -->
@@ -86,7 +87,7 @@ interface Template {
         [style.marginBottom.px]="24"
       >
         <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="10" [style.marginBottom.px]="12">
-          <span class="ck-label" [style.color]="'var(--ck-signal-cool)'">QUICK START</span>
+          <span class="ck-label" [style.color]="'var(--ck-signal-cool)'">{{ i18n.t('systems.grid.quick_start') }}</span>
           <ck-live-dot tone="cool" />
         </div>
         <h2
@@ -97,9 +98,9 @@ interface Template {
           [style.color]="'var(--ck-fg-1)'"
           [style.margin]="'0 0 6px 0'"
           [style.maxWidth.ch]="64"
-        >What would you like your AI team to achieve today?</h2>
+        >{{ i18n.t('systems.grid.quick_title') }}</h2>
         <p [style.color]="'var(--ck-fg-3)'" [style.fontSize.px]="12" [style.margin]="'0 0 14px 0'" [style.maxWidth.ch]="72">
-          Describe a goal and we'll compose a Capability, Context and Policy around it.
+          {{ i18n.t('systems.grid.quick_description') }}
         </p>
 
         <form (ngSubmit)="startFromPrompt()" [style.display]="'flex'" [style.gap.px]="8" [style.maxWidth.px]="720">
@@ -119,7 +120,7 @@ interface Template {
               [style.borderRadius.px]="4"
               [style.color]="'var(--ck-fg-1)'"
               [style.fontSize.px]="13"
-              placeholder="Summarise incoming contracts and flag risks…"
+              [placeholder]="i18n.t('systems.grid.prompt_placeholder')"
             />
           </div>
           <button
@@ -138,7 +139,7 @@ interface Template {
             [style.textTransform]="'uppercase'"
             [style.cursor]="prompt.trim() ? 'pointer' : 'not-allowed'"
             [style.opacity]="prompt.trim() ? 1 : 0.4"
-          >Compose</button>
+          >{{ i18n.t('systems.grid.compose') }}</button>
         </form>
 
         <div [style.display]="'flex'" [style.flexWrap]="'wrap'" [style.gap.px]="6" [style.marginTop.px]="14">
@@ -156,17 +157,17 @@ interface Template {
               [style.letterSpacing]="'0.08em'"
               [style.textTransform]="'uppercase'"
               [style.cursor]="'pointer'"
-              [title]="tpl.description"
-            >{{ tpl.label }}</button>
+              [title]="i18n.t(tpl.descriptionKey)"
+            >{{ i18n.t(tpl.labelKey) }}</button>
           }
         </div>
       </section>
 
       <!-- Grid header -->
       <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'" [style.marginBottom.px]="12">
-        <span class="ck-label">SYSTEMS · {{ agents().length }}</span>
+        <span class="ck-label">{{ i18n.t('systems.grid.count', { count: agents().length }) }}</span>
         <span class="ck-mono" [style.fontSize.px]="10" [style.color]="'var(--ck-fg-4)'" [style.letterSpacing]="'0.10em'">
-          <ck-kbd>⌘K</ck-kbd> to navigate
+          <ck-kbd>⌘K</ck-kbd> {{ i18n.t('systems.grid.navigate_hint') }}
         </span>
       </div>
 
@@ -197,9 +198,9 @@ interface Template {
             [style.fontWeight]="500"
             [style.color]="'var(--ck-fg-1)'"
             [style.margin]="'12px 0 6px 0'"
-          >No systems yet</h3>
+          >{{ i18n.t('systems.empty') }}</h3>
           <p [style.color]="'var(--ck-fg-3)'" [style.fontSize.px]="13" [style.margin]="'0 auto 18px'" [style.maxWidth.ch]="54">
-            Your first AI system is just a prompt away. Compose one from scratch or pick a template above.
+            {{ i18n.t('systems.grid.empty_description') }}
           </p>
           <a
             routerLink="/systems/new"
@@ -219,7 +220,7 @@ interface Template {
             [style.textDecoration]="'none'"
           >
             <ck-glyph name="bolt" [size]="12" />
-            Create your first system
+            {{ i18n.t('systems.grid.create_first') }}
           </a>
         </div>
       } @else {
@@ -281,14 +282,14 @@ interface Template {
                     [style.display]="'-webkit-box'"
                     [style.overflow]="'hidden'"
                     style="-webkit-line-clamp: 2; -webkit-box-orient: vertical;"
-                  >{{ agent.description || 'No description yet.' }}</p>
+                  >{{ agent.description || i18n.t('systems.grid.no_description') }}</p>
                 </div>
               </div>
 
               <div [style.display]="'grid'" [style.gridTemplateColumns]="'repeat(3, 1fr)'" [style.gap.px]="8" [style.paddingTop.px]="12" [style.borderTop]="'1px solid var(--ck-stroke-1)'">
-                <ck-stat-readout label="RUNS"   [value]="statsFor(agent.id).runs > 0 ? statsFor(agent.id).runs.toString() : '—'" tone="cool" [size]="14" />
-                <ck-stat-readout label="AVG MS" [value]="statsFor(agent.id).avgLatency > 0 ? statsFor(agent.id).avgLatency.toString() : '—'" tone="pos" [size]="14" />
-                <ck-stat-readout label="LAST"   [value]="statsFor(agent.id).lastRun ?? '—'" tone="violet" [size]="14" />
+                <ck-stat-readout [label]="i18n.t('systems.grid.stat_runs')"   [value]="statsFor(agent.id).runs > 0 ? statsFor(agent.id).runs.toString() : '—'" tone="cool" [size]="14" />
+                <ck-stat-readout [label]="i18n.t('systems.grid.stat_avg_ms')" [value]="statsFor(agent.id).avgLatency > 0 ? statsFor(agent.id).avgLatency.toString() : '—'" tone="pos" [size]="14" />
+                <ck-stat-readout [label]="i18n.t('systems.grid.stat_last')"   [value]="statsFor(agent.id).lastRun ?? '—'" tone="violet" [size]="14" />
               </div>
 
               <div [style.display]="'flex'" [style.alignItems]="'center'" [style.justifyContent]="'space-between'">
@@ -310,6 +311,7 @@ export class SystemsGridComponent implements OnInit {
   protected readonly store = inject(SystemsStore);
   private readonly router = inject(Router);
   private readonly canonical = inject(CanonicalApiService);
+  protected readonly i18n = inject(I18nService);
 
   prompt = '';
   private readonly runs = signal<Run[]>([]);
@@ -356,12 +358,12 @@ export class SystemsGridComponent implements OnInit {
   readonly agents = this.store.systems;
 
   readonly templates: Template[] = [
-    { id: 'contract',   label: 'Contract Analysis', description: 'Flag risky clauses in contracts',       prompt: 'Analyze contracts and flag risk clauses' },
-    { id: 'support',    label: 'Customer Support',  description: 'Answer questions from your docs',        prompt: 'Answer customer questions from docs' },
-    { id: 'code',       label: 'Code Review',       description: 'Review PRs for bugs and style',          prompt: 'Review pull requests for bugs and style' },
-    { id: 'research',   label: 'Market Research',   description: 'Synthesize competitor intel',            prompt: 'Synthesize competitor intelligence' },
-    { id: 'onboarding', label: 'HR Onboarding',     description: 'Guide new hires in the first weeks',     prompt: 'Guide new hires through their first weeks' },
-    { id: 'insights',   label: 'Data Insights',     description: 'Extract KPIs from CSVs',                 prompt: 'Extract KPIs from CSVs and reports' },
+    { id: 'contract',   labelKey: 'systems.template.contract',   descriptionKey: 'systems.template.contract.desc',   promptKey: 'systems.template.contract.prompt' },
+    { id: 'support',    labelKey: 'systems.template.support',    descriptionKey: 'systems.template.support.desc',    promptKey: 'systems.template.support.prompt' },
+    { id: 'code',       labelKey: 'systems.template.code',       descriptionKey: 'systems.template.code.desc',       promptKey: 'systems.template.code.prompt' },
+    { id: 'research',   labelKey: 'systems.template.research',   descriptionKey: 'systems.template.research.desc',   promptKey: 'systems.template.research.prompt' },
+    { id: 'onboarding', labelKey: 'systems.template.onboarding', descriptionKey: 'systems.template.onboarding.desc', promptKey: 'systems.template.onboarding.prompt' },
+    { id: 'insights',   labelKey: 'systems.template.insights',   descriptionKey: 'systems.template.insights.desc',   promptKey: 'systems.template.insights.prompt' },
   ];
 
   ngOnInit(): void {
@@ -374,7 +376,7 @@ export class SystemsGridComponent implements OnInit {
   }
 
   applyTemplate(tpl: Template): void {
-    this.prompt = tpl.prompt;
+    this.prompt = this.i18n.t(tpl.promptKey);
   }
 
   startFromPrompt(): void {
@@ -390,7 +392,7 @@ export class SystemsGridComponent implements OnInit {
 
   private suggestNameFromPrompt(p: string): string {
     const words = p.replace(/[^a-zA-Z0-9\s]/g, '').trim().split(/\s+/).slice(0, 4);
-    if (words.length === 0) return 'New system';
+    if (words.length === 0) return this.i18n.t('systems.create');
     return words
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
       .join(' ');
