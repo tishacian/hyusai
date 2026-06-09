@@ -589,12 +589,26 @@ export class ApiService {
     body: {
       items: Array<{
         question_key?: string | null;
+        question_id?: string | null;
         question_text?: string | null;
-        status: 'open' | 'dismissed' | 'deferred';
+        status: 'open' | 'answered' | 'invalid' | 'deferred';
       }>;
     },
   ): Observable<unknown> {
     return this.patch(`/knowledge-capture/proposals/${proposalId}/open-questions`, body);
+  }
+
+  /** Answer a single open question (text OR voice-transcribed-to-text). Marks the
+   * question `answered` and returns the proposal after targeted section re-synthesis. */
+  answerCaptureProposalOpenQuestion(
+    proposalId: string,
+    questionId: string,
+    body: { text: string },
+  ): Observable<unknown> {
+    return this.post(
+      `/knowledge-capture/proposals/${proposalId}/open-questions/${questionId}/answer`,
+      body,
+    );
   }
 
   applyCaptureProposalInstruction(

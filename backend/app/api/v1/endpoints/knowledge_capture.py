@@ -29,6 +29,7 @@ from app.services.iam.config_service import effective_role_flags, load_iam_confi
 from app.services.knowledge_capture import (
     amend_capture_event,
     amend_capture_plan,
+    answer_proposal_open_question,
     append_turn,
     apply_proposal_report_instruction,
     apply_session_closure_action,
@@ -389,12 +390,19 @@ class ProposalInstructionRequest(BaseModel):
 
 class ProposalOpenQuestionStatusItem(BaseModel):
     question_key: Optional[str] = None
+    question_id: Optional[str] = None
     question_text: Optional[str] = None
-    status: Literal["open", "dismissed", "deferred"] = "open"
+    # Unified lifecycle: open | answered | invalid | deferred. Legacy "dismissed"
+    # is still accepted and mapped to "invalid" server-side.
+    status: Literal["open", "answered", "invalid", "deferred", "dismissed"] = "open"
 
 
 class ProposalOpenQuestionStatusRequest(BaseModel):
     items: List[ProposalOpenQuestionStatusItem] = Field(default_factory=list)
+
+
+class ProposalOpenQuestionAnswerRequest(BaseModel):
+    text: str = Field(..., min_length=1)
 
 
 class EventAmendRequest(BaseModel):
@@ -1040,6 +1048,47 @@ async def update_capture_proposal_open_questions(
             items=[item.dict() for item in body.items],
             actor_user_id=user.id,
             actor_label=_actor_label(user),
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    return serialize_proposal(proposal)
+
+
+@router.post("/proposals/{proposal_id}/open-questions/{question_id}/answer")
+async def answer_capture_proposal_open_question(
+    proposal_id: str,
+    question_id: str,
+    body: ProposalOpenQuestionAnswerRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Answer ONE open question: inject the answer into its plan section, mark it
+    answered and re-synthesize ONLY that section (targeted, not a full rebuild).
+
+    Voice answers arrive as already-transcribed text (the frontend transcribes via
+    the existing voice endpoint, then calls this).
+    """
+    try:
+        existing, session = _load_proposal_with_session(db, workspace_id=workspace.id, proposal_id=proposal_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="knowledge_proposal",
+            action="review_decide",
+            resource_attrs=_proposal_attrs(existing, session),
+            audit_prefix="kc",
+        )
+        proposal = await answer_proposal_open_question(
+            db,
+            workspace_id=workspace.id,
+            proposal_id=proposal_id,
+            question_id=question_id,
+            text=body.text,
+            actor_user_id=user.id,
+            actor_label=_actor_label(user),
+            workspace_slug=workspace.slug,
         )
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc

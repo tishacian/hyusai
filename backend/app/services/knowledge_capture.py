@@ -62,7 +62,16 @@ RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
 CAPTURE_RETRIEVAL_WARM_CACHE_TTL_SECONDS = 300
 CAPTURE_RETRIEVAL_WARM_CACHE_MAX_ENTRIES = 128
 ORACLE_QUESTION_STATUSES = frozenset({"open", "active", "answered", "dismissed", "deferred", "addressed"})
-PROPOSAL_OPEN_QUESTION_STATUSES = frozenset({"open", "dismissed", "deferred"})
+# Unified proposal open-question lifecycle. ``invalid`` is the delete/exclude
+# status (replaces the legacy ``dismissed``); ``answered`` marks a question that
+# was resolved via the targeted answer endpoint; ``deferred`` keeps it open for
+# later / another user (publishable when ``include_unresolved_questions``).
+PROPOSAL_OPEN_QUESTION_STATUSES = frozenset({"open", "answered", "invalid", "deferred"})
+# Legacy aliases accepted on input and mapped into the unified set so older
+# clients / stored payloads keep working.
+_PROPOSAL_OPEN_QUESTION_STATUS_ALIASES = {"dismissed": "invalid", "addressed": "answered"}
+# Statuses excluded from the publishable knowledge sheet.
+PROPOSAL_OPEN_QUESTION_EXCLUDED_STATUSES = frozenset({"invalid", "answered"})
 
 _logger = logging.getLogger(__name__)
 _CAPTURE_RETRIEVAL_WARM_CACHE: OrderedDict[str, tuple[float, Dict[str, Any]]] = OrderedDict()
@@ -1069,7 +1078,7 @@ def _oracle_question_status_key(
 
 def _proposal_open_question_keys(question: Dict[str, Any], index: Optional[int] = None) -> set[str]:
     keys: set[str] = set()
-    for field in ("gap_id", "follow_up", "reason"):
+    for field in ("id", "gap_id", "follow_up", "reason", "text"):
         value = _clean_optional_string(question.get(field))
         if value:
             keys.add(value)
@@ -1081,6 +1090,7 @@ def _proposal_open_question_keys(question: Dict[str, Any], index: Optional[int] 
 
 def _normalize_proposal_open_question_status(value: Any) -> str:
     status = str(value or "open").strip().lower()
+    status = _PROPOSAL_OPEN_QUESTION_STATUS_ALIASES.get(status, status)
     if status not in PROPOSAL_OPEN_QUESTION_STATUSES:
         return "open"
     return status
@@ -1326,10 +1336,19 @@ async def _retrieve_context_chunks_async(
     session: ExpertCaptureSession,
     query: str,
     top_k: int = 4,
+    retrieval_profile: str = "oracle_fast",
 ) -> Tuple[List[str], List[Dict[str, Any]], List[float]]:
+    """Retrieve context chunks for the capture session.
+
+    ``retrieval_profile`` selects the RAG lane: ``oracle_fast`` (default) for the
+    live capture path (low latency), or ``chat`` for the FINAL phase
+    (corpus_planner + hybrid + cross-encoder, chat-grade quality).
+    """
     text = (query or "").strip()
     if not text:
         return [], [], []
+    profile = (retrieval_profile or "oracle_fast").strip() or "oracle_fast"
+    latency_profile = "balanced" if profile == "chat" else "fast"
     try:
         ctx = _load_context(db, workspace_id, session.context_id)
         collection_name = _resolve_collection_name(ctx)
@@ -1343,8 +1362,8 @@ async def _retrieve_context_chunks_async(
                 "capability_id": session.capability_id,
                 "system_id": session.system_id,
                 "context_collection": collection_name,
-                "retrieval_profile": "oracle_fast",
-                "latency_profile": "fast",
+                "retrieval_profile": profile,
+                "latency_profile": latency_profile,
                 "rag_pipeline_mode": "auto",
                 "top_k": max(1, min(top_k, 8)),
                 "source_display_k": max(1, min(top_k, 8)),
@@ -3483,15 +3502,25 @@ def structure_capture_payload(
         if event.event_type == "transcript_amended" or event.text_amended
     ]
 
+    plan = session.plan or {}
     open_questions = [
         {
             "gap_id": ev.get("gap_id"),
             "reason": ev.get("verdict"),
             "follow_up": ev.get("follow_up"),
+            "status": "open",
         }
         for ev in evaluations
         if ev.get("verdict") != "sufficient"
     ]
+    # Merge the oracle's FINAL grounded open questions (computed per section at
+    # section.finish / capture.finish and stored on the plan) into the proposal's
+    # unified open_questions list with the lifecycle status carried through.
+    open_questions = _merge_grounded_open_questions(open_questions, plan)
+    # Plan-hierarchy aligned structuring of the captured facts, enriched with the
+    # per-section FINAL synthesis when available (cabled _structure_facts_by_plan).
+    plan_structure = _structure_facts_by_plan(plan, captured)
+    plan_structure = _attach_section_synthesis(plan_structure, plan)
     from app.services.capture_report_templates import (
         build_knowledge_sheet_content,
         resolve_knowledge_sheet_template,
@@ -3512,6 +3541,7 @@ def structure_capture_payload(
         "objective": session.objective,
         "context_id": session.context_id,
         "captured_facts": captured,
+        "plan_structure": plan_structure,
         "open_questions": open_questions,
         "transcript": [],
         "transcript_events": [],
@@ -3894,6 +3924,74 @@ def _retrieval_refs_from_event(event: Optional[ExpertCaptureEvent]) -> List[Dict
             }
         )
     return refs
+
+
+def _section_key(topic_id: Optional[str], subtopic_id: Optional[str]) -> str:
+    """Stable key for storing per-section FINAL synthesis on the plan."""
+    return str(subtopic_id or topic_id or "session")
+
+
+def _attach_section_synthesis(plan_structure: Dict[str, Any], plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Attach the stored per-section FINAL synthesis text onto the structured plan."""
+    stored = (plan or {}).get("section_synthesis") or {}
+    if not isinstance(stored, dict) or not stored:
+        return plan_structure
+    for topic in plan_structure.get("topics") or []:
+        topic_key = _section_key(topic.get("topic_id"), None)
+        entry = stored.get(topic_key)
+        if isinstance(entry, dict) and entry.get("synthesis"):
+            topic["synthesis"] = entry.get("synthesis")
+        for subtopic in topic.get("subtopics") or []:
+            sub_key = _section_key(topic.get("topic_id"), subtopic.get("subtopic_id"))
+            sub_entry = stored.get(sub_key)
+            if isinstance(sub_entry, dict) and sub_entry.get("synthesis"):
+                subtopic["synthesis"] = sub_entry.get("synthesis")
+    return plan_structure
+
+
+def _merge_grounded_open_questions(
+    open_questions: List[Dict[str, Any]],
+    plan: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Append the oracle's stored grounded open questions to the proposal list.
+
+    Grounded questions (from generate_grounded_open_questions_async, computed in
+    the FINAL phase) replace the generic ``_BASE_GAPS`` fallback. Existing
+    evaluation-derived questions are kept; duplicates by text are skipped.
+    """
+    merged = list(open_questions or [])
+    seen = {
+        str(q.get("follow_up") or q.get("text") or q.get("reason") or "").strip().lower()
+        for q in merged
+        if isinstance(q, dict)
+    }
+    stored = (plan or {}).get("section_synthesis") or {}
+    if not isinstance(stored, dict):
+        return merged
+    for entry in stored.values():
+        if not isinstance(entry, dict):
+            continue
+        for question in entry.get("open_questions") or []:
+            if not isinstance(question, dict):
+                continue
+            text = str(question.get("text") or question.get("follow_up") or "").strip()
+            if not text or text.lower() in seen:
+                continue
+            seen.add(text.lower())
+            merged.append(
+                {
+                    "gap_id": question.get("id") or question.get("gap_id"),
+                    "reason": question.get("source") or "oracle_grounded",
+                    "follow_up": text,
+                    "text": text,
+                    "topic_id": question.get("topic_id"),
+                    "subtopic_id": question.get("subtopic_id"),
+                    "priority": question.get("priority"),
+                    "status": _normalize_proposal_open_question_status(question.get("status")),
+                    "source": question.get("source") or "oracle_grounded",
+                }
+            )
+    return merged
 
 
 def _structure_facts_by_plan(
@@ -4326,6 +4424,9 @@ def append_turn(
     text_partials: Optional[List[str]] = None,
     latency_ms: Optional[Dict[str, Any]] = None,
     contradiction_candidates: Optional[List[Dict[str, Any]]] = None,
+    topic_id: Optional[str] = None,
+    subtopic_id: Optional[str] = None,
+    topic_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     if session.status == "planned" and _topic_plan_requires_approval(session.plan or {}):
@@ -4375,9 +4476,11 @@ def append_turn(
         "speaker": speaker,
         "text": text,
         "question_id": question_id,
-        "topic_id": question_meta.get("topic_id"),
-        "subtopic_id": question_meta.get("subtopic_id"),
-        "topic_path": question_meta.get("topic_path"),
+        # Explicit section tags (from section.select) win over question-derived
+        # tags so free-flow capture turns still map to the active plan node.
+        "topic_id": topic_id or question_meta.get("topic_id"),
+        "subtopic_id": subtopic_id or question_meta.get("subtopic_id"),
+        "topic_path": topic_path or question_meta.get("topic_path"),
         "audio_ref": audio_ref,
         "client_turn_id": client_turn_id,
         "retrieval_event_id": retrieval_event_id,
@@ -4681,7 +4784,9 @@ def update_proposal_open_question_statuses(
         status = _normalize_proposal_open_question_status(raw.get("status"))
         aliases = [
             raw.get("question_key"),
+            raw.get("question_id"),
             raw.get("key"),
+            raw.get("id"),
             raw.get("gap_id"),
             raw.get("question_text"),
             raw.get("follow_up"),
@@ -4753,6 +4858,455 @@ def update_proposal_open_question_statuses(
             },
         )
 
+    db.commit()
+    db.refresh(proposal)
+    return proposal
+
+
+def _resolve_rewrite_context(workspace_settings: Optional[Dict[str, Any]] = None) -> str:
+    """Static domain framing for the FINAL reformulation only.
+
+    Workspace ``settings.voice.transcript_rewrite_context`` overrides the global
+    ``settings.voice_transcript_rewrite_context``.
+    """
+    if isinstance(workspace_settings, dict):
+        voice_cfg = workspace_settings.get("voice")
+        if isinstance(voice_cfg, dict):
+            override = str(voice_cfg.get("transcript_rewrite_context") or "").strip()
+            if override:
+                return override
+    from app.core.config import settings as cfg
+
+    return str(getattr(cfg, "voice_transcript_rewrite_context", "") or "").strip()
+
+
+def _resolve_plan_section_meta(
+    plan: Dict[str, Any],
+    topic_id: Optional[str],
+    subtopic_id: Optional[str],
+) -> Dict[str, Any]:
+    """Resolve titles / path for a plan section addressed by topic/subtopic id."""
+    meta = {
+        "topic_id": topic_id,
+        "subtopic_id": subtopic_id,
+        "topic_title": None,
+        "subtopic_title": None,
+        "topic_path": None,
+    }
+    for topic in (plan or {}).get("topics") or []:
+        if not isinstance(topic, dict):
+            continue
+        t_id = topic.get("id")
+        for subtopic in topic.get("subtopics") or []:
+            if not isinstance(subtopic, dict):
+                continue
+            if subtopic_id and subtopic.get("id") == subtopic_id:
+                meta["topic_id"] = t_id
+                meta["topic_title"] = topic.get("title")
+                meta["subtopic_title"] = subtopic.get("title")
+                meta["topic_path"] = " / ".join(
+                    part for part in [topic.get("title"), subtopic.get("title")] if part
+                )
+                return meta
+        if topic_id and not subtopic_id and t_id == topic_id:
+            meta["topic_title"] = topic.get("title")
+            meta["topic_path"] = topic.get("title")
+            return meta
+    return meta
+
+
+def _section_statements(
+    session: ExpertCaptureSession,
+    topic_id: Optional[str],
+    subtopic_id: Optional[str],
+) -> List[str]:
+    """Tier-1 corrected expert statements belonging to a section (or all if unscoped)."""
+    statements: List[str] = []
+    for turn in session.transcript or []:
+        if not isinstance(turn, dict) or turn.get("speaker") != "expert":
+            continue
+        text = str(turn.get("text") or turn.get("text_raw") or "").strip()
+        if not text:
+            continue
+        if subtopic_id:
+            if turn.get("subtopic_id") == subtopic_id:
+                statements.append(text)
+        elif topic_id:
+            if turn.get("topic_id") == topic_id:
+                statements.append(text)
+        else:
+            statements.append(text)
+    return statements
+
+
+def _assemble_report_from_sections(
+    session: ExpertCaptureSession,
+    plan_structure: Dict[str, Any],
+    open_questions: List[Dict[str, Any]],
+) -> str:
+    """Assemble a Markdown report from the per-section FINAL synthesis.
+
+    Prefers each section's reformulated ``synthesis``; falls back to fact bullets.
+    """
+    lines: List[str] = [f"# {session.title}", "", f"Objectif : {session.objective}", ""]
+
+    def _emit_facts(facts: List[Dict[str, Any]]) -> None:
+        for fact in facts or []:
+            statement = str(fact.get("text") or "").strip()
+            if statement:
+                lines.append(f"- {statement}")
+
+    for topic in plan_structure.get("topics") or []:
+        lines.append(f"## {topic.get('title') or 'Sujet'}")
+        if topic.get("synthesis"):
+            lines.append(str(topic["synthesis"]).strip())
+        else:
+            _emit_facts(topic.get("facts") or [])
+        for subtopic in topic.get("subtopics") or []:
+            lines.append(f"### {subtopic.get('title') or 'Sous-sujet'}")
+            if subtopic.get("synthesis"):
+                lines.append(str(subtopic["synthesis"]).strip())
+            else:
+                _emit_facts(subtopic.get("facts") or [])
+        lines.append("")
+    unassigned = plan_structure.get("unassigned") or []
+    if unassigned:
+        lines.append("## Points hors plan")
+        _emit_facts(unassigned)
+        lines.append("")
+    visible_questions = [
+        q
+        for q in open_questions or []
+        if isinstance(q, dict)
+        and _normalize_proposal_open_question_status(q.get("status")) in {"open", "deferred"}
+    ]
+    if visible_questions:
+        lines.append("## Questions ouvertes")
+        for item in visible_questions:
+            label = item.get("follow_up") or item.get("text") or item.get("reason") or item.get("gap_id")
+            if label:
+                lines.append(f"- {label}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def set_active_capture_section(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    topic_id: Optional[str] = None,
+    subtopic_id: Optional[str] = None,
+    actor_user_id: Optional[str] = None,
+) -> ExpertCaptureSession:
+    """Set the active topic/subtopic for the session (section.select). No relance."""
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    metrics = dict(session.metrics or {})
+    meta = _resolve_plan_section_meta(session.plan or {}, topic_id, subtopic_id)
+    if topic_id is not None:
+        metrics["active_topic_id"] = meta.get("topic_id") or topic_id or None
+    if subtopic_id is not None:
+        metrics["active_subtopic_id"] = subtopic_id or None
+    session.metrics = metrics
+    flag_modified(session, "metrics")
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+async def finalize_capture_section(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    topic_id: Optional[str] = None,
+    subtopic_id: Optional[str] = None,
+    workspace_slug: Optional[str] = None,
+    static_context: Optional[str] = None,
+) -> Dict[str, Any]:
+    """FINAL phase for ONE section (section.finish).
+
+    Runs the chat-grade retrieval, the exhaustive LLM reformulation and the
+    grounded open-question generation for the section, then stores the result on
+    the plan under ``section_synthesis``. Non-fatal: returns an empty entry when
+    the section has no captured statements.
+    """
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    plan = dict(session.plan or {})
+    meta = _resolve_plan_section_meta(plan, topic_id, subtopic_id)
+    section_key = _section_key(meta.get("topic_id"), meta.get("subtopic_id"))
+    statements = _section_statements(session, meta.get("topic_id"), meta.get("subtopic_id"))
+    if not statements:
+        return {
+            "section_key": section_key,
+            "topic_id": meta.get("topic_id"),
+            "subtopic_id": meta.get("subtopic_id"),
+            "synthesis": "",
+            "open_questions": [],
+            "statement_count": 0,
+            "skipped": True,
+        }
+    label = (
+        meta.get("topic_path")
+        or " / ".join(part for part in [meta.get("topic_title"), meta.get("subtopic_title")] if part)
+        or (session.title or "")
+    )
+    if static_context is None:
+        static_context = _resolve_rewrite_context(None)
+    query = f"{label} {' '.join(statements)}".strip()[:1200]
+    try:
+        chunks, metadatas, _scores = await _retrieve_context_chunks_async(
+            db,
+            workspace_id=workspace_id,
+            workspace_slug=workspace_slug,
+            session=session,
+            query=query,
+            top_k=4,
+            retrieval_profile="chat",
+        )
+    except Exception:
+        chunks, metadatas = [], []
+
+    from app.services.capture_knowledge_oracle import (
+        generate_grounded_open_questions_async,
+        reformulate_section_async,
+    )
+
+    synthesis = await reformulate_section_async(
+        workspace_id=workspace_id,
+        section_label=label,
+        statements=statements,
+        kb_chunks=chunks,
+        static_context=static_context,
+    )
+    grounded = await generate_grounded_open_questions_async(
+        "\n".join(statements),
+        chunks,
+        metadatas,
+        {
+            "topic_id": meta.get("topic_id"),
+            "subtopic_id": meta.get("subtopic_id"),
+            "topic_title": meta.get("topic_title"),
+            "subtopic_title": meta.get("subtopic_title"),
+        },
+        workspace_id=workspace_id,
+    )
+    entry = {
+        "section_key": section_key,
+        "topic_id": meta.get("topic_id"),
+        "subtopic_id": meta.get("subtopic_id"),
+        "section_label": label,
+        "synthesis": synthesis,
+        "open_questions": grounded,
+        "statement_count": len(statements),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    plan = dict(session.plan or {})
+    section_synthesis = dict(plan.get("section_synthesis") or {})
+    section_synthesis[section_key] = entry
+    plan["section_synthesis"] = section_synthesis
+    session.plan = plan
+    flag_modified(session, "plan")
+    _record_capture_event(
+        db,
+        session=session,
+        event_type="capture_section_finalized",
+        source="capture_engine",
+        status="accepted",
+        meta_data={
+            "section_key": section_key,
+            "topic_id": meta.get("topic_id"),
+            "subtopic_id": meta.get("subtopic_id"),
+            "statement_count": len(statements),
+            "grounded_question_count": len(grounded),
+        },
+    )
+    db.commit()
+    db.refresh(session)
+    return entry
+
+
+async def finalize_capture(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    workspace_slug: Optional[str] = None,
+    static_context: Optional[str] = None,
+    created_by_user_id: Optional[str] = None,
+) -> KnowledgeUpdateProposal:
+    """FINAL phase for the whole capture (capture.finish).
+
+    Closes every remaining section (per-section FINAL reformulation + grounded
+    questions) then builds/refreshes the proposal from the stored syntheses.
+    """
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    plan = dict(session.plan or {})
+    sections: List[Tuple[Optional[str], Optional[str]]] = []
+    for topic in plan.get("topics") or []:
+        if not isinstance(topic, dict):
+            continue
+        subtopics = [st for st in (topic.get("subtopics") or []) if isinstance(st, dict)]
+        if subtopics:
+            for subtopic in subtopics:
+                sections.append((topic.get("id"), subtopic.get("id")))
+        else:
+            sections.append((topic.get("id"), None))
+    if not sections:
+        sections = [(None, None)]
+    for topic_id, subtopic_id in sections:
+        try:
+            await finalize_capture_section(
+                db,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                topic_id=topic_id,
+                subtopic_id=subtopic_id,
+                workspace_slug=workspace_slug,
+                static_context=static_context,
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad section must not abort the proposal.
+            _logger.warning("knowledge_capture_finalize_section_failed: %s", exc)
+    return create_update_proposal(
+        db,
+        workspace_id=workspace_id,
+        session_id=session_id,
+        created_by_user_id=created_by_user_id,
+    )
+
+
+def _match_proposal_open_question(
+    questions: List[Dict[str, Any]],
+    question_id: str,
+) -> Optional[int]:
+    qid = _clean_optional_string(question_id)
+    if not qid:
+        return None
+    qid_lower = qid.lower()
+    for index, question in enumerate(questions):
+        keys = {key.lower() for key in _proposal_open_question_keys(question, index)}
+        if qid_lower in keys:
+            return index
+        for field in ("gap_id", "id", "follow_up", "text", "reason"):
+            value = _clean_optional_string(question.get(field))
+            if value and value.lower() == qid_lower:
+                return index
+    return None
+
+
+async def answer_proposal_open_question(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    proposal_id: str,
+    question_id: str,
+    text: str,
+    actor_user_id: Optional[str] = None,
+    actor_label: Optional[str] = None,
+    workspace_slug: Optional[str] = None,
+    static_context: Optional[str] = None,
+) -> KnowledgeUpdateProposal:
+    """Answer ONE proposal open question (text already transcribed for voice).
+
+    Injects the answer into the relevant plan section, marks the question
+    ``answered`` and RE-SYNTHESIZES ONLY THAT SECTION (the LLM reformulation +
+    grounded questions are scoped to the section; other sections keep their
+    cached synthesis — no full rebuild).
+    """
+    proposal = (
+        db.query(KnowledgeUpdateProposal)
+        .filter(KnowledgeUpdateProposal.id == proposal_id, KnowledgeUpdateProposal.workspace_id == workspace_id)
+        .first()
+    )
+    if not proposal:
+        raise ValueError("Knowledge update proposal not found")
+    answer = (text or "").strip()
+    if not answer:
+        raise ValueError("Answer text cannot be empty")
+    session = get_session(db, workspace_id=workspace_id, session_id=proposal.session_id)
+    payload = dict(proposal.proposal or {})
+    questions = [
+        dict(question)
+        for question in (payload.get("open_questions") or [])
+        if isinstance(question, dict)
+    ]
+    if not questions:
+        raise ValueError("Knowledge update proposal has no open questions")
+    target_index = _match_proposal_open_question(questions, question_id)
+    if target_index is None:
+        raise ValueError("Open question not found")
+    target = questions[target_index]
+    topic_id = target.get("topic_id")
+    subtopic_id = target.get("subtopic_id")
+
+    # Inject the answer as a section-tagged expert turn so the targeted
+    # re-synthesis (and captured_facts) pick it up.
+    append_turn(
+        db,
+        workspace_id=workspace_id,
+        session_id=session.id,
+        speaker="expert",
+        text=answer,
+        turn_kind="complement",
+        actor_user_id=actor_user_id,
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+    )
+    await finalize_capture_section(
+        db,
+        workspace_id=workspace_id,
+        session_id=session.id,
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        workspace_slug=workspace_slug,
+        static_context=static_context,
+    )
+    session = get_session(db, workspace_id=workspace_id, session_id=session.id)
+
+    now = datetime.utcnow().isoformat()
+    questions[target_index]["status"] = "answered"
+    questions[target_index]["answer_text"] = answer
+    questions[target_index]["status_updated_at"] = now
+    questions[target_index]["status_updated_by_user_id"] = actor_user_id
+
+    plan = session.plan or {}
+    captured = list(session.captured_facts or [])
+    plan_structure = _attach_section_synthesis(_structure_facts_by_plan(plan, captured), plan)
+    report = _assemble_report_from_sections(session, plan_structure, questions)
+
+    payload["open_questions"] = questions
+    payload["captured_facts"] = captured
+    payload["plan_structure"] = plan_structure
+    payload["report_markdown"] = report
+    recommended = dict(payload.get("recommended_ingestion") or {})
+    recommended["content"] = report
+    metadata = dict(recommended.get("metadata") or {})
+    metadata.update(
+        {
+            "edited_by_user_id": actor_user_id,
+            "edited_at": now,
+            "last_answered_question_id": _clean_optional_string(question_id),
+        }
+    )
+    recommended["metadata"] = metadata
+    payload["recommended_ingestion"] = recommended
+    proposal.proposal = payload
+    flag_modified(proposal, "proposal")
+    _record_capture_event(
+        db,
+        session=session,
+        event_type="proposal_open_question_answered",
+        source="operator_edit",
+        status="answered",
+        created_by=actor_label or actor_user_id,
+        meta_data={
+            "proposal_id": proposal.id,
+            "question_id": _clean_optional_string(question_id),
+            "topic_id": topic_id,
+            "subtopic_id": subtopic_id,
+            "answer_chars": len(answer),
+        },
+    )
     db.commit()
     db.refresh(proposal)
     return proposal

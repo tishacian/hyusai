@@ -204,6 +204,11 @@ class Settings(BaseSettings):
     voice_transcript_rewrite_timeout_ms: int = 1200
     voice_transcript_glossary_max_terms: int = 120
 
+    # Static domain framing injected into the FINAL (end-of-section / end-of-capture)
+    # LLM reformulation only — never the live capture path. Overridable per
+    # workspace via ``workspace.settings.voice.transcript_rewrite_context``.
+    voice_transcript_rewrite_context: str = "Nous sommes dans le contexte industriel Andritz."
+
     # Cascade TTS voice + steering. The steerable gpt-4o-mini-tts model accepts
     # an `instructions` field to control accent / persona / prosody; tts-1 and
     # tts-1-hd do NOT (instructions are dropped whenever the resolved model is

@@ -1006,3 +1006,178 @@ async def generate_question_bank_entry_async(
         }
     except Exception:
         return fallback
+
+
+# --- FINAL phase (end-of-section / end-of-capture) helpers ------------------
+
+
+def _section_label(plan_section: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(plan_section, dict):
+        return ""
+    parts = [
+        str(plan_section.get("topic_title") or "").strip(),
+        str(plan_section.get("subtopic_title") or plan_section.get("title") or "").strip(),
+    ]
+    return " / ".join(part for part in parts if part)
+
+
+async def reformulate_section_async(
+    *,
+    workspace_id: Optional[str],
+    section_label: str,
+    statements: List[str],
+    kb_chunks: Optional[List[str]] = None,
+    static_context: Optional[str] = None,
+) -> str:
+    """FINAL exhaustive LLM reformulation of one captured section.
+
+    Produces a clean, exhaustive synthesis of what the expert said, stripped of
+    oral artifacts (hesitations, repetitions, false starts) while staying faithful
+    to the substance — it never invents facts. ``static_context`` (e.g. the Andritz
+    framing) and ``kb_chunks`` only inform phrasing/terminology, never new content.
+
+    Falls back to a deterministic bullet join of the statements when no LLM is
+    configured, so the final phase always returns usable text.
+    """
+    clean_statements = [str(s).strip() for s in (statements or []) if str(s).strip()]
+    fallback = "\n".join(f"- {s}" for s in clean_statements)
+    if not clean_statements:
+        return ""
+    api_key, model = _resolve_llm_config(workspace_id)
+    if not api_key:
+        return fallback
+    try:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=api_key)
+        payload = {
+            "section": section_label,
+            "static_context": (static_context or "").strip(),
+            "expert_statements": clean_statements,
+            "kb_chunks": [str(c)[:600] for c in (kb_chunks or [])[:4]],
+            "instruction": (
+                "Reformule de façon EXHAUSTIVE et fidèle ce que l'expert a dit sur cette "
+                "section. Nettoie les artefacts oraux (hésitations, répétitions, faux départs, "
+                "mots de remplissage) et structure le propos en prose claire ou en puces. "
+                "N'invente AUCUNE information, ne supprime AUCUN fait substantiel, ne change "
+                "aucune valeur numérique. Le 'static_context' et les 'kb_chunks' servent "
+                "uniquement à caler la terminologie métier, jamais à ajouter du contenu. "
+                "Réponds en Markdown, sans titre de section ni méta-commentaire."
+            ),
+        }
+        response = await client.chat.completions.create(
+            model=model,
+            **_model_chat_kwargs(model, temperature=0.2),
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Tu es un rédacteur technique. Synthèse exhaustive et fidèle, "
+                        "nettoyée des artefacts oraux. N'invente rien."
+                    ),
+                },
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+        content = response.choices[0].message.content if response.choices else None
+        synthesis = (content or "").strip()
+        return synthesis or fallback
+    except Exception:
+        return fallback
+
+
+async def generate_grounded_open_questions_async(
+    context: str,
+    chunks: Optional[List[str]] = None,
+    metadatas: Optional[List[Dict[str, Any]]] = None,
+    plan_section: Optional[Dict[str, Any]] = None,
+    *,
+    workspace_id: Optional[str] = None,
+    max_questions: int = 5,
+) -> List[Dict[str, Any]]:
+    """LLM open questions grounded on what the expert stated + KB chunks.
+
+    Returns specific, answerable gaps tied to the section (not the generic
+    ``_BASE_GAPS`` taxonomy). Each item is
+    ``{id, text, topic_id, subtopic_id, priority, status, source}``.
+
+    Returns ``[]`` when no LLM is configured so callers can keep their existing
+    deterministic fallback.
+    """
+    statements = (context or "").strip()
+    if not statements:
+        return []
+    api_key, model = _resolve_llm_config(workspace_id)
+    if not api_key:
+        return []
+    topic_id = (plan_section or {}).get("topic_id") if isinstance(plan_section, dict) else None
+    subtopic_id = (plan_section or {}).get("subtopic_id") if isinstance(plan_section, dict) else None
+    try:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=api_key)
+        payload = {
+            "section": _section_label(plan_section),
+            "expert_statements": statements[:6000],
+            "kb_chunks": [str(c)[:600] for c in (chunks or [])[:4]],
+            "kb_metadatas": [m for m in (metadatas or [])[:4] if isinstance(m, dict)],
+            "max_questions": max(1, int(max_questions)),
+            "instruction": (
+                "À partir de ce que l'expert a réellement dit ('expert_statements') et des "
+                "extraits de la base de connaissances ('kb_chunks'), identifie les VRAIS trous "
+                "de connaissance restants pour cette section : informations promises mais non "
+                "détaillées, valeurs/conditions manquantes, exceptions évoquées sans précision, "
+                "contradictions avec la base. Formule des questions SPÉCIFIQUES et répondables, "
+                "ancrées sur le contenu, jamais génériques. N'invente pas de sujet hors de ce "
+                "qui a été dit. Retourne un JSON {questions: [{text, priority}]} où priority est "
+                "un nombre 0..1 (1 = plus pressant)."
+            ),
+        }
+        response = await client.chat.completions.create(
+            model=model,
+            **_model_chat_kwargs(model, temperature=0.2),
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Grounded open questions JSON only. Specific, answerable, no generic gaps.",
+                },
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+        content = response.choices[0].message.content if response.choices else None
+        if not content:
+            return []
+        parsed = json.loads(content)
+        raw_questions = parsed.get("questions") if isinstance(parsed, dict) else None
+        if not isinstance(raw_questions, list):
+            return []
+        items: List[Dict[str, Any]] = []
+        for index, raw in enumerate(raw_questions, start=1):
+            if isinstance(raw, str):
+                raw = {"text": raw}
+            if not isinstance(raw, dict):
+                continue
+            text = str(raw.get("text") or raw.get("question") or "").strip()
+            if not text:
+                continue
+            try:
+                priority = float(raw.get("priority"))
+            except (TypeError, ValueError):
+                priority = 0.7
+            items.append(
+                {
+                    "id": f"grounded-{(subtopic_id or topic_id or 'sec')}-{index:02d}",
+                    "text": text,
+                    "topic_id": topic_id,
+                    "subtopic_id": subtopic_id,
+                    "priority": round(min(max(priority, 0.0), 1.0), 2),
+                    "status": "open",
+                    "source": "oracle_grounded",
+                }
+            )
+            if len(items) >= max(1, int(max_questions)):
+                break
+        return items
+    except Exception:
+        return []

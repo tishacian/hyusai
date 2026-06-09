@@ -21,6 +21,10 @@ from app.services.knowledge_capture import (
     classify_conversation_intent,
     create_update_proposal,
     extend_capture_session,
+    finalize_capture,
+    finalize_capture_section,
+    answer_proposal_open_question,
+    set_active_capture_section,
     get_session,
     list_capture_events,
     prefetch_capture_retrieval,
@@ -512,6 +516,36 @@ def test_proposal_open_question_statuses_are_persisted(db_session):
     assert restored.proposal["open_questions"][0]["status"] == "open"
     events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
     assert any(event.event_type == "proposal_open_question_status_updated" for event in events)
+
+    # Unified lifecycle (c3): "invalid" is the new delete/exclude status.
+    invalidated = update_proposal_open_question_statuses(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        items=[{"question_key": "validation-owner", "status": "invalid"}],
+        actor_user_id=user.id,
+    )
+    assert invalidated.proposal["open_questions"][0]["status"] == "invalid"
+
+    # Legacy "dismissed" is still accepted and normalized to "invalid".
+    legacy = update_proposal_open_question_statuses(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        items=[{"question_key": "validation-owner", "status": "dismissed"}],
+        actor_user_id=user.id,
+    )
+    assert legacy.proposal["open_questions"][0]["status"] == "invalid"
+
+    # "answered" is a valid terminal status too.
+    answered = update_proposal_open_question_statuses(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        items=[{"question_key": "validation-owner", "status": "answered"}],
+        actor_user_id=user.id,
+    )
+    assert answered.proposal["open_questions"][0]["status"] == "answered"
 
 
 @pytest.mark.asyncio
@@ -1560,13 +1594,13 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
     partial_texts = [p.get("text") for t, p in sent if t == "transcript.partial"]
     assert all("numéro" in (text or "") for text in partial_texts)
     assert all(p.get("segment_id") == "seg-live-1" for t, p in sent if t == "transcript.partial")
-    # The reframe / final / fact-extraction stages must NOT have run yet.
+    # The final stage must NOT have run yet (and transcript.improved is gone for good).
     assert "transcript.improved" not in types_before
     assert "text.final" not in types_before
     reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
     assert not [turn for turn in (reloaded.transcript or []) if turn.get("speaker") == "expert"]
 
-    # Natural pause: the authoritative segment end runs reframe + final + fact extraction.
+    # Natural pause: the authoritative segment end runs the FAST Tier-1 capture only.
     await gateway._handle_event(
         websocket,
         db_session,
@@ -1577,11 +1611,16 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
     )
 
     types_after = [t for t, _ in sent]
-    assert "transcript.improved" in types_after
+    # A1: Tier-1-only fast capture — text.final ships, the reframed transcript.improved
+    # stage is removed from the live path entirely.
     assert "text.final" in types_after
-    improved = next(p for t, p in sent if t == "transcript.improved")
-    assert improved.get("reframed") is True
-    assert improved.get("segment_id") == "seg-live-1"
+    assert "transcript.improved" not in types_after
+    final = next(p for t, p in sent if t == "text.final")
+    assert final.get("reframed") is False
+    # B2: no content relance / next prompt / proposal during capture (timeline only).
+    assert "prompt.next" not in types_after
+    assert "conversation.step" not in types_after
+    # The turn is still persisted SILENTLY so the FINAL phase has the content.
     reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
     assert [turn for turn in (reloaded.transcript or []) if turn.get("speaker") == "expert"]
     # The incremental path never cleared/corrupted the buffer used at endpoint.
@@ -1892,9 +1931,10 @@ def test_serialize_session_exposes_dashboard_summary_fields(db_session):
 
 @pytest.mark.asyncio
 async def test_gateway_forwards_open_questions_and_retrieval_in_free_conversation(db_session, monkeypatch):
-    """End-to-end: in free-conversation, an audio.endpoint must emit conversation.step
-    carrying TOP-LEVEL open_questions (oracle internal) and retrieval.chunks so the
-    live assist panels populate."""
+    """New contract: during capture an audio.endpoint stays SILENT — it emits NO
+    conversation.step and NO pushed open_questions/relances. It only feeds the
+    passive 'contexte retrouvé' retrieval via evaluation.delta and persists the
+    turn for the FINAL phase."""
     from app.services import voice_session_gateway as gw
     from app.services.knowledge_capture import create_capture_plan, start_session
 
@@ -1976,19 +2016,24 @@ async def test_gateway_forwards_open_questions_and_retrieval_in_free_conversatio
         event={"type": "audio.endpoint", "payload": {"turn_id": "seg-free-1"}},
     )
 
-    step = next((p for t, p in sent if t == "conversation.step"), None)
-    assert step is not None, "conversation.step must be emitted in conversation_only mode"
-    # open_questions + retrieval ride at the TOP LEVEL (the shape the frontend reads).
-    assert step.get("open_questions"), "open_questions must be forwarded and non-empty"
-    assert step.get("retrieval", {}).get("chunks"), "retrieval.chunks must be forwarded and non-empty"
-    first_chunk = step["retrieval"]["chunks"][0]
+    # Capture stays silent: no conversation.step / prompt.next / content push.
+    assert not any(t == "conversation.step" for t, _ in sent)
+    assert not any(t == "prompt.next" for t, _ in sent)
+
+    # Passive "contexte retrouvé" retrieval still rides on evaluation.delta, but
+    # without any pushed open_questions/relance.
+    evaluation_delta = next((p for t, p in sent if t == "evaluation.delta"), None)
+    assert evaluation_delta is not None
+    assert not evaluation_delta.get("open_questions")
+    assert (evaluation_delta.get("relance") or {}).get("text") is None
+    assert evaluation_delta.get("retrieval", {}).get("chunks"), "retrieval.chunks must be forwarded and non-empty"
+    first_chunk = evaluation_delta["retrieval"]["chunks"][0]
     assert first_chunk["text"]
     assert first_chunk["title"] == "Manuel BBA120"
 
-    evaluation_delta = next((p for t, p in sent if t == "evaluation.delta"), None)
-    assert evaluation_delta is not None
-    assert evaluation_delta.get("open_questions")
-    assert evaluation_delta.get("retrieval", {}).get("chunks")
+    # The turn is persisted silently for the FINAL phase.
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert [turn for turn in (reloaded.transcript or []) if turn.get("speaker") == "expert"]
 
 
 @pytest.mark.asyncio
@@ -2819,3 +2864,304 @@ def test_andritz_knowledge_sheet_template_for_technical_domain(db_session):
         transcript=loaded.transcript or [],
     )
     assert "Fiche connaissance" in direct
+
+
+# --------------------------------------------------------------------------- #
+# FINAL phase (section.finish / capture.finish) + targeted answer re-synthesis #
+# --------------------------------------------------------------------------- #
+
+
+def _final_phase_session(db_session, workspace, user):
+    """A started, approved ai_plan session with one expert turn tagged to the
+    first plan subtopic — the substrate for the FINAL-phase tests."""
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Réglages ligne",
+        objective="Capturer les réglages de vitesse sur la ligne.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        created_by_user_id=user.id,
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    topic = (session.plan.get("topics") or [])[0]
+    subtopic = (topic.get("subtopics") or [])[0]
+    return session, topic["id"], subtopic["id"]
+
+
+@pytest.mark.asyncio
+async def test_finalize_capture_section_builds_section_synthesis(db_session, monkeypatch):
+    """section.finish (C1/C2): the FINAL per-section pass reformulates the captured
+    statements (deterministic fallback without an LLM) and stores the synthesis on
+    the plan under ``section_synthesis``."""
+    import app.services.knowledge_capture as kc
+
+    async def _no_retrieval(*_a, **_k):
+        return ([], [], [])
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _no_retrieval)
+
+    workspace = Workspace(id="ws-final-sec", name="Final Sec", slug="final-sec")
+    user = User(id="user-final-sec", username="fs@datategy.local", email="fs@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="La vitesse nominale des rouleaux est de 120 par minute selon le grade.",
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        actor_user_id=user.id,
+    )
+
+    entry = await finalize_capture_section(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        workspace_slug=workspace.slug,
+    )
+
+    assert entry.get("skipped") is not True
+    assert entry["statement_count"] == 1
+    assert "120 par minute" in entry["synthesis"]
+
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    stored = (reloaded.plan or {}).get("section_synthesis") or {}
+    assert subtopic_id in stored
+    assert "120 par minute" in stored[subtopic_id]["synthesis"]
+
+
+@pytest.mark.asyncio
+async def test_finalize_capture_builds_proposal_with_plan_structure(db_session, monkeypatch):
+    """capture.finish: closes every section and builds a proposal whose
+    ``plan_structure`` carries the per-section FINAL synthesis."""
+    import app.services.knowledge_capture as kc
+
+    async def _no_retrieval(*_a, **_k):
+        return ([], [], [])
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _no_retrieval)
+
+    workspace = Workspace(id="ws-final-cap", name="Final Cap", slug="final-cap")
+    user = User(id="user-final-cap", username="fc@datategy.local", email="fc@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="On contrôle la pression hydraulique à 12 bar avant le démarrage.",
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        actor_user_id=user.id,
+    )
+
+    proposal = await finalize_capture(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        workspace_slug=workspace.slug,
+        created_by_user_id=user.id,
+    )
+
+    assert proposal.proposal.get("plan_structure")
+    content = proposal.proposal["recommended_ingestion"]["content"]
+    assert "12 bar" in content
+
+
+@pytest.mark.asyncio
+async def test_answer_proposal_open_question_resynthesizes_only_that_section(db_session, monkeypatch):
+    """POST .../open-questions/{id}/answer (c3): injects the answer into the right
+    section, marks the question answered, and re-synthesizes ONLY that section."""
+    import app.services.knowledge_capture as kc
+
+    async def _no_retrieval(*_a, **_k):
+        return ([], [], [])
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _no_retrieval)
+
+    workspace = Workspace(id="ws-answer", name="Answer", slug="answer")
+    user = User(id="user-answer", username="ans@datategy.local", email="ans@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="La vitesse nominale est de 120 par minute.",
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        actor_user_id=user.id,
+    )
+    proposal = create_update_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        created_by_user_id=user.id,
+    )
+    payload = dict(proposal.proposal or {})
+    payload["open_questions"] = [
+        {
+            "gap_id": "speed-exception",
+            "follow_up": "Quelle vitesse en exception terrain ?",
+            "text": "Quelle vitesse en exception terrain ?",
+            "topic_id": topic_id,
+            "subtopic_id": subtopic_id,
+            "status": "open",
+        }
+    ]
+    proposal.proposal = payload
+    db_session.commit()
+
+    updated = await answer_proposal_open_question(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        question_id="speed-exception",
+        text="En exception terrain on monte à 180 par minute.",
+        actor_user_id=user.id,
+        actor_label=user.email,
+        workspace_slug=workspace.slug,
+    )
+
+    question = updated.proposal["open_questions"][0]
+    assert question["status"] == "answered"
+    assert "180" in question["answer_text"]
+    # The answer was injected into the section and the report re-synthesized.
+    content = updated.proposal["recommended_ingestion"]["content"]
+    assert "180 par minute" in content
+    assert updated.proposal.get("plan_structure")
+
+
+@pytest.mark.asyncio
+async def test_gateway_section_finish_emits_single_timeline_relance(db_session, monkeypatch):
+    """section.finish over WS: exactly ONE conversation.step timeline relance with
+    the fixed prompt, NO pushed content questions, and the section synthesis stored."""
+    from app.services import voice_session_gateway as gw
+    import app.services.knowledge_capture as kc
+
+    async def _no_retrieval(*_a, **_k):
+        return ([], [], [])
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _no_retrieval)
+
+    workspace = Workspace(id="ws-sec-finish", name="Sec Finish", slug="sec-finish")
+    user = User(id="user-sec-finish", username="sf@datategy.local", email="sf@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="Le réglage tambour se fait à 7 millimètres d'entrefer.",
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        actor_user_id=user.id,
+    )
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id=session.id, mode="guided", tandem_oracle_enabled=True)
+    state.active_topic_id = topic_id
+    state.active_subtopic_id = subtopic_id
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "section.finish", "payload": {"topic_id": topic_id, "subtopic_id": subtopic_id}},
+    )
+
+    steps = [p for t, p in sent if t == "conversation.step"]
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["next_prompt"] == gw.SECTION_FINISH_RELANCE
+    assert step["relance"]["text"] == gw.SECTION_FINISH_RELANCE
+    assert step["open_questions"] == []
+    assert step["section_synthesis"]["statement_count"] == 1
+
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert subtopic_id in ((reloaded.plan or {}).get("section_synthesis") or {})
+
+
+@pytest.mark.asyncio
+async def test_gateway_capture_finish_emits_proposal(db_session, monkeypatch):
+    """capture.finish over WS: builds the proposal and emits proposal-ready via
+    conversation.step (capture_finished=True, proposal payload present)."""
+    from app.services import voice_session_gateway as gw
+    import app.services.knowledge_capture as kc
+
+    async def _no_retrieval(*_a, **_k):
+        return ([], [], [])
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _no_retrieval)
+
+    workspace = Workspace(id="ws-cap-finish", name="Cap Finish", slug="cap-finish")
+    user = User(id="user-cap-finish", username="cf@datategy.local", email="cf@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="On valide le démarrage quand la pression atteint 12 bar.",
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        actor_user_id=user.id,
+    )
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id=session.id, mode="guided", tandem_oracle_enabled=True)
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "capture.finish", "payload": {}},
+    )
+
+    step = next((p for t, p in sent if t == "conversation.step"), None)
+    assert step is not None
+    assert step["capture_finished"] is True
+    assert step["proposal"] and step["proposal"].get("id")
+    assert step["open_questions"] == []

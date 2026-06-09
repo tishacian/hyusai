@@ -30,11 +30,15 @@ from app.services.knowledge_capture import (
     _retrieve_context_chunks_async,
     append_turn,
     build_open_questions,
+    finalize_capture,
+    finalize_capture_section,
     format_retrieval_chunks,
     get_session,
     is_capture_text_noise,
     process_capture_partial_hints,
-    process_conversation_step,
+    serialize_proposal,
+    serialize_session,
+    set_active_capture_section,
 )
 from app.services.voice_runtime import (
     VoiceProviderError,
@@ -44,13 +48,29 @@ from app.services.voice_runtime import (
 from app.services.livekit_service import LiveKitService, LiveKitServiceError
 from app.services.voice_tandem_oracle import VoiceTandemOracle
 from app.services.voice_transcript_glossary import (
-    correct_transcript_segment,
+    correct_transcript_segment_tier1,
     resolve_glossary,
 )
 
 
 logger = get_logger(__name__)
 _ORIGINAL_RETRIEVE_CONTEXT_CHUNKS = _retrieve_context_chunks
+
+# The only AI utterance allowed during capture: a timeline relance fired on
+# section.finish. No content questions, no oracle relances.
+SECTION_FINISH_RELANCE = "Avez-vous terminé cette section ? Souhaitez-vous continuer ?"
+
+
+def _resolve_rewrite_context(workspace: Workspace) -> str:
+    """Static FINAL-reformulation framing, workspace-overridable."""
+    settings_obj = getattr(workspace, "settings", None)
+    if isinstance(settings_obj, dict):
+        voice_cfg = settings_obj.get("voice")
+        if isinstance(voice_cfg, dict):
+            override = str(voice_cfg.get("transcript_rewrite_context") or "").strip()
+            if override:
+                return override
+    return str(getattr(settings, "voice_transcript_rewrite_context", "") or "").strip()
 
 
 def _provider_accepts_language(provider: Any) -> bool:
@@ -115,6 +135,10 @@ class VoiceSessionState:
     partial_stt_in_flight: bool = False
     last_partial_text: str = ""
     last_partial_chunk_count: int = 0
+    # Active plan section (set by section.select); used to tag captured turns so
+    # the FINAL per-section reformulation maps them to the plan hierarchy.
+    active_topic_id: Optional[str] = None
+    active_subtopic_id: Optional[str] = None
 
 
 _PARTIAL_STT_MIN_INTERVAL_MS = 1500
@@ -344,6 +368,18 @@ class VoiceSessionGateway:
             if event_type == "audio.endpoint.auto":
                 payload = {**payload, "auto": True, "event_type": event_type}
             await self._handle_audio_endpoint(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
+            return
+        if event_type == "audio.pause":
+            await self._handle_audio_pause(websocket, state=state, payload=payload)
+            return
+        if event_type == "section.select":
+            await self._handle_section_select(websocket, db, workspace=workspace, state=state, payload=payload)
+            return
+        if event_type == "section.finish":
+            await self._handle_section_finish(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
+            return
+        if event_type == "capture.finish":
+            await self._handle_capture_finish(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
             return
         if event_type == "barge_in":
             self._reset_partial_stt_state(state)
@@ -649,22 +685,11 @@ class VoiceSessionGateway:
         candidates = result.get("contradiction_candidates") or []
         if candidates:
             state.last_contradiction_candidates = candidates
-        for hint in result.get("hints") or []:
-            hint_events = state.oracle.emit_hint(
-                str(hint.get("hint") or ""),
-                turn_id=state.client_turn_id or str(uuid.uuid4()),
-                subtopic_id=hint.get("subtopic_id"),
-                kb_excerpt=hint.get("kb_excerpt"),
-                oracle_id=hint.get("oracle_id"),
-            )
-            await self._emit_oracle_events(
-                websocket,
-                db,
-                user=user,
-                workspace=workspace,
-                state=state,
-                events=hint_events,
-            )
+        # Silent oracle (b2): during capture the oracle keeps running (retrieval +
+        # contradiction tracking) and ACCUMULATES candidates/chunks into session
+        # state, but it never pushes content hints/relances. The only AI utterance
+        # during capture is the section.finish timeline relance. The passive
+        # "contexte retrouvé" panel is still fed via state.last_retrieval_* above.
 
     async def _handle_text_final(
         self,
@@ -775,49 +800,29 @@ class VoiceSessionGateway:
                 },
             )
             await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=oracle_events)
-        # Two-stage transcript contract keyed by a stable segment_id (== turn_id):
-        # the raw STT text as the partial, then the cleaned text as the improved stage.
+        # Fast-capture contract (A1): apply ONLY the deterministic, network-free
+        # Tier-1 glossary correction, ONCE, and never re-correct. The Tier-2 LLM
+        # pass and the plan-label reframe are gone from the live path (moved to the
+        # FINAL phase) so text.final ships immediately. The glossary is decoupled
+        # from live retrieval (A2): workspace + plan labels only, never chunks.
         segment_id = state.client_turn_id or str(uuid.uuid4())
         capture_session = self._capture_session(db, workspace.id, state.session_id)
-        # Domain-aware correction (hybrid glossary) feeds BOTH the improved stage
-        # and the committed text.final / downstream turn, so captured facts use the
-        # corrected wording. The raw transcript.partial below stays untouched, so no
-        # latency is added to what the expert sees first. Gated by config.
         corrected_text = text
         if text and settings.voice_transcript_rewrite_enabled:
             try:
-                glossary = resolve_glossary(workspace, capture_session, state.last_retrieval_chunks)
-                if not glossary.is_empty:
-                    corrected_text = await correct_transcript_segment(
-                        text,
-                        glossary,
-                        llm_enabled=settings.voice_transcript_rewrite_llm_enabled,
-                        timeout_ms=settings.voice_transcript_rewrite_timeout_ms,
-                        workspace_id=workspace.id,
-                    )
+                glossary = resolve_glossary(workspace, capture_session, None)
+                corrected_text = correct_transcript_segment_tier1(text, glossary)
             except Exception:
                 corrected_text = text
         if text:
-            # Plan-aware reformulation: reframe the corrected chunk against the relevant
-            # plan topic, not just disfluency cleanup. The UI labels it via reframed=True.
-            plan_topic_label = self._active_plan_topic_label(capture_session)
-            improved_text = reframe_transcript_segment(corrected_text, plan_topic_label=plan_topic_label)
+            # The raw STT text is the live partial; the Tier-1 corrected text is the
+            # final. No transcript.improved / reframed stage — the frontend renders the
+            # flowing transcript directly from text.final.
             await self._send(
                 websocket,
                 state,
                 "transcript.partial",
                 {"segment_id": segment_id, "turn_id": state.client_turn_id, "text": text},
-            )
-            await self._send(
-                websocket,
-                state,
-                "transcript.improved",
-                {
-                    "segment_id": segment_id,
-                    "turn_id": state.client_turn_id,
-                    "text": improved_text,
-                    "reframed": True,
-                },
             )
         await self._send(
             websocket,
@@ -827,6 +832,7 @@ class VoiceSessionGateway:
                 "turn_id": state.client_turn_id,
                 "speaker": "expert",
                 "text": corrected_text,
+                "reframed": False,
                 "empty": not bool(text),
                 "reason": None if text else (ignored_reason or "empty_transcript"),
                 "confidence": transcript.get("confidence"),
@@ -855,53 +861,33 @@ class VoiceSessionGateway:
 
         if capture_session and text:
             turn_started = time.perf_counter()
-            if state.mode == "conversation_only":
-                result = process_conversation_step(
-                    db,
-                    workspace_id=workspace.id,
-                    session_id=capture_session.id,
-                    client_turn_id=state.client_turn_id,
-                    text=corrected_text,
-                    question_id=state.question_id,
-                    retrieval_event_id=state.retrieval_event_id,
-                    interruption_of_event_id=state.interruption_of_event_id,
-                    last_proposal_id=state.last_proposal_id,
-                    actor_user_id=user.id,
-                    actor_label=self._actor_label(user),
-                    contradiction_candidates=state.last_contradiction_candidates,
-                )
-                proposal_payload = result.get("proposal") if isinstance(result.get("proposal"), dict) else None
-                if proposal_payload and proposal_payload.get("id"):
-                    state.last_proposal_id = str(proposal_payload["id"])
-            else:
-                result = append_turn(
-                    db,
-                    workspace_id=workspace.id,
-                    session_id=capture_session.id,
-                    speaker="expert",
-                    text=corrected_text,
-                    question_id=state.question_id,
-                    client_turn_id=state.client_turn_id,
-                    retrieval_event_id=state.retrieval_event_id,
-                    interruption_of_event_id=state.interruption_of_event_id,
-                    turn_kind="correction" if state.interruption_of_event_id else "answer",
-                    actor_user_id=user.id,
-                    text_partials=state.text_partials[-5:],
-                    latency_ms=latency,
-                    contradiction_candidates=state.last_contradiction_candidates,
-                )
+            # PENDANT la capture = fast capture + timeline only. We persist the turn
+            # SILENTLY (no process_conversation_step, no relance, no next_prompt, no
+            # TTS, no proposal). All heavy work (reformulation, grounded questions,
+            # proposal synthesis) is deferred to section.finish / capture.finish. The
+            # turn is tagged with the active plan section so the FINAL per-section
+            # reformulation can map it to the plan hierarchy.
+            append_turn(
+                db,
+                workspace_id=workspace.id,
+                session_id=capture_session.id,
+                speaker="expert",
+                text=corrected_text,
+                question_id=state.question_id,
+                client_turn_id=state.client_turn_id,
+                retrieval_event_id=state.retrieval_event_id,
+                interruption_of_event_id=state.interruption_of_event_id,
+                turn_kind="correction" if state.interruption_of_event_id else "answer",
+                actor_user_id=user.id,
+                text_partials=state.text_partials[-5:],
+                latency_ms=latency,
+                contradiction_candidates=state.last_contradiction_candidates,
+                topic_id=state.active_topic_id,
+                subtopic_id=state.active_subtopic_id,
+            )
             turn_to_prompt_ms = int((time.perf_counter() - turn_started) * 1000)
             self._merge_capture_metrics(db, workspace.id, capture_session.id, {**latency, "turn_end_to_prompt": turn_to_prompt_ms})
-            # Oracle live payload (non-blocking): the AI's own sorted open_questions, the
-            # passive optional suggestions, and the plan/question-contextualized retrieval.
-            oracle_suggestions = result.get("suggestions") or []
-            oracle_open_questions = result.get("open_questions")
-            if not oracle_open_questions:
-                refreshed = self._capture_session(db, workspace.id, state.session_id)
-                oracle_open_questions = build_open_questions(
-                    refreshed,
-                    contradiction_candidates=state.last_contradiction_candidates,
-                ) if refreshed else []
+            # Passive "contexte retrouvé" panel only — no content questions/relances.
             oracle_retrieval = {
                 "chunks": format_retrieval_chunks(
                     state.last_retrieval_chunks,
@@ -909,63 +895,23 @@ class VoiceSessionGateway:
                     state.last_retrieval_scores,
                 )
             }
-            if state.mode == "conversation_only":
-                await self._send(
-                    websocket,
-                    state,
-                    "conversation.step",
-                    {
-                        "turn_id": state.client_turn_id,
-                        "intent": result.get("intent"),
-                        "confidence": result.get("confidence"),
-                        "action_taken": result.get("action_taken"),
-                        "session": result.get("session"),
-                        "proposal": result.get("proposal"),
-                        "requires_confirmation": result.get("requires_confirmation"),
-                        "confirmation_target": result.get("confirmation_target"),
-                        "closure_sheet": result.get("closure_sheet"),
-                        "next_prompt": result.get("next_prompt"),
-                        "next_question_id": result.get("next_question_id"),
-                        "relance": result.get("relance") or {"kind": None, "text": None},
-                        "suggestions": oracle_suggestions,
-                        "open_questions": oracle_open_questions,
-                        "retrieval": oracle_retrieval,
-                    },
-                )
             await self._send(
                 websocket,
                 state,
                 "evaluation.delta",
                 {
                     "turn_id": state.client_turn_id,
-                    "evaluation": result.get("evaluation"),
-                    "relance": result.get("relance") or {"kind": None, "text": None},
-                    "suggestions": oracle_suggestions,
-                    "open_questions": oracle_open_questions,
+                    "relance": {"kind": None, "text": None},
+                    "suggestions": [],
+                    "open_questions": [],
                     "retrieval": oracle_retrieval,
-                    "next_question_id": result.get("next_question_id"),
-                    "session": result.get("session"),
-                    "proposal": result.get("proposal"),
-                    "conversation_step": {
-                        "intent": result.get("intent"),
-                        "confidence": result.get("confidence"),
-                        "action_taken": result.get("action_taken"),
-                        "requires_confirmation": result.get("requires_confirmation"),
-                        "confirmation_target": result.get("confirmation_target"),
-                        "closure_sheet": result.get("closure_sheet"),
-                        "next_prompt": result.get("next_prompt"),
-                        "next_question_id": result.get("next_question_id"),
-                    }
-                    if state.mode == "conversation_only"
-                    else None,
                 },
             )
             if state.tandem_oracle_enabled:
+                # Inner-monologue track only (oracle "thinking"); no pushed prompt.
                 oracle_events = state.oracle.commit_final(
                     text,
                     turn_id=state.client_turn_id or str(uuid.uuid4()),
-                    evaluation=result.get("evaluation") if isinstance(result.get("evaluation"), dict) else None,
-                    next_prompt=result.get("next_prompt") if result.get("next_prompt") else None,
                     duration_ms=turn_to_prompt_ms,
                 )
                 await self._emit_oracle_events(
@@ -976,22 +922,6 @@ class VoiceSessionGateway:
                     state=state,
                     events=oracle_events,
                 )
-            next_prompt = result.get("next_prompt")
-            if next_prompt:
-                await self._send(
-                    websocket,
-                    state,
-                    "prompt.next",
-                    {
-                        "turn_id": state.client_turn_id,
-                        "question_id": result.get("next_question_id") or state.question_id,
-                        "text": next_prompt,
-                        "reason": "capture_evaluator",
-                        "speak": True,
-                        "system_prompt_event_id": result.get("system_prompt_event_id"),
-                    },
-                )
-                await self._send_prompt_audio(websocket, state, provider, str(next_prompt), started)
         elif state.tandem_oracle_enabled and text:
             oracle_events = state.oracle.commit_final(
                 text,
@@ -1011,6 +941,151 @@ class VoiceSessionGateway:
         state.last_retrieval_metadatas = []
         state.last_retrieval_scores = []
         self._reset_partial_stt_state(state)
+
+    async def _handle_audio_pause(
+        self,
+        websocket: WebSocket,
+        *,
+        state: VoiceSessionState,
+        payload: Dict[str, Any],
+    ) -> None:
+        """Pause mic (B1): NEVER run process_conversation_step / append_turn /
+        final phase. No relance, no content — just stop listening and ack."""
+        self._reset_partial_stt_state(state)
+        await self._send(websocket, state, "audio.pause", {"status": "ok", **payload})
+
+    async def _handle_section_select(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        payload: Dict[str, Any],
+    ) -> None:
+        """Jump directly to a plan section (B1). Sets the active topic/subtopic in
+        session metrics so subsequent capture turns are tagged. NO relance."""
+        topic_id = payload.get("topic_id") if payload.get("topic_id") else None
+        subtopic_id = payload.get("subtopic_id") if payload.get("subtopic_id") else None
+        state.active_topic_id = str(topic_id) if topic_id else None
+        state.active_subtopic_id = str(subtopic_id) if subtopic_id else None
+        capture_session = self._capture_session(db, workspace.id, state.session_id)
+        if capture_session:
+            try:
+                set_active_capture_section(
+                    db,
+                    workspace_id=workspace.id,
+                    session_id=capture_session.id,
+                    topic_id=state.active_topic_id,
+                    subtopic_id=state.active_subtopic_id,
+                )
+            except Exception:
+                db.rollback()
+        await self._send(
+            websocket,
+            state,
+            "section.select",
+            {
+                "status": "ok",
+                "topic_id": state.active_topic_id,
+                "subtopic_id": state.active_subtopic_id,
+            },
+        )
+
+    async def _handle_section_finish(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        payload: Dict[str, Any],
+    ) -> None:
+        """Finish the current section (B1/C1/C2): trigger the FINAL per-section
+        reformulation + grounded questions, then emit exactly ONE timeline relance
+        via conversation.step. No content questions."""
+        topic_id = payload.get("topic_id") or state.active_topic_id
+        subtopic_id = payload.get("subtopic_id") or state.active_subtopic_id
+        capture_session = self._capture_session(db, workspace.id, state.session_id)
+        section_summary: Dict[str, Any] = {}
+        if capture_session:
+            try:
+                section_summary = await finalize_capture_section(
+                    db,
+                    workspace_id=workspace.id,
+                    session_id=capture_session.id,
+                    topic_id=str(topic_id) if topic_id else None,
+                    subtopic_id=str(subtopic_id) if subtopic_id else None,
+                    workspace_slug=workspace.slug,
+                    static_context=_resolve_rewrite_context(workspace),
+                )
+            except Exception as exc:
+                logger.warning("voice_section_finish_failed", error=str(exc), session_id=state.session_id)
+                db.rollback()
+        await self._send(
+            websocket,
+            state,
+            "conversation.step",
+            {
+                "turn_id": state.client_turn_id,
+                "section": {"topic_id": topic_id, "subtopic_id": subtopic_id},
+                "section_synthesis": section_summary,
+                "next_prompt": SECTION_FINISH_RELANCE,
+                "relance": {"kind": "timeline", "text": SECTION_FINISH_RELANCE},
+                "suggestions": [],
+                "open_questions": [],
+            },
+        )
+
+    async def _handle_capture_finish(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        payload: Dict[str, Any],
+    ) -> None:
+        """Finish the whole capture (B1/C*): close all remaining sections and
+        build/refresh the proposal, then emit proposal-ready via conversation.step."""
+        capture_session = self._capture_session(db, workspace.id, state.session_id)
+        proposal_payload: Optional[Dict[str, Any]] = None
+        session_payload: Optional[Dict[str, Any]] = None
+        if capture_session:
+            try:
+                proposal = await finalize_capture(
+                    db,
+                    workspace_id=workspace.id,
+                    session_id=capture_session.id,
+                    workspace_slug=workspace.slug,
+                    static_context=_resolve_rewrite_context(workspace),
+                    created_by_user_id=user.id,
+                )
+                proposal_payload = serialize_proposal(proposal)
+                if proposal_payload and proposal_payload.get("id"):
+                    state.last_proposal_id = str(proposal_payload["id"])
+                refreshed = self._capture_session(db, workspace.id, state.session_id)
+                if refreshed:
+                    session_payload = serialize_session(refreshed)
+            except Exception as exc:
+                logger.warning("voice_capture_finish_failed", error=str(exc), session_id=state.session_id)
+                db.rollback()
+        await self._send(
+            websocket,
+            state,
+            "conversation.step",
+            {
+                "turn_id": state.client_turn_id,
+                "capture_finished": True,
+                "proposal": proposal_payload,
+                "session": session_payload,
+                "relance": {"kind": None, "text": None},
+                "suggestions": [],
+                "open_questions": [],
+            },
+        )
 
     async def _send_prompt_audio(
         self,

@@ -107,6 +107,23 @@ def test_resolve_glossary_handles_none_capture_session():
     assert "carde" in {t.lower() for t in glossary.terms}
 
 
+def test_resolve_glossary_decoupled_from_retrieval_when_chunks_none():
+    """A2: the live capture path passes live_chunks=None so the glossary is built
+    from workspace + plan labels only — never from retrieved chunks."""
+    workspace = _workspace(glossary_terms=["Carde"])
+    plan = {"topics": [{"title": "Préparation", "subtopics": [{"title": "Réglage tambour"}]}]}
+    capture_session = _capture_session(plan=plan)
+
+    glossary = resolve_glossary(workspace, capture_session, None)
+    lowered = {t.lower() for t in glossary.terms}
+
+    # Workspace + plan labels are present.
+    assert {"carde", "préparation", "réglage tambour"} <= lowered
+    # No chunk-derived acronyms/terms leaked in (decoupled from retrieval).
+    assert "jetlace" not in lowered
+    assert "kd724" not in lowered
+
+
 def test_resolve_glossary_tolerates_dict_term_entries():
     workspace = SimpleNamespace(
         id="ws",

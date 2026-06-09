@@ -12,9 +12,13 @@ export type VoiceSessionEventType =
   | 'loop.stop'
   | 'loop.armed'
   | 'audio.frame'
+  | 'audio.pause'
   | 'audio.endpoint'
   | 'audio.endpoint.auto'
   | 'audio.out'
+  | 'section.select'
+  | 'section.finish'
+  | 'capture.finish'
   | 'tts.started'
   | 'tts.ended'
   | 'tts.interrupted'
@@ -174,6 +178,28 @@ export class VoiceSessionConnection {
 
   bargeIn(promptEventId?: string | null): void {
     this.send('barge_in', { prompt_event_id: promptEventId || null });
+  }
+
+  /** Stop sending audio frames / close the mic locally without ending the turn.
+   * Must NOT trigger any relance or conversation step on the backend. */
+  audioPause(payload: Record<string, any> = {}): void {
+    this.send('audio.pause', payload);
+  }
+
+  /** User jumped directly to a plan section/subsection in the selector. */
+  sectionSelect(payload: { topic_id?: string | null; subtopic_id?: string | null } & Record<string, any> = {}): void {
+    this.send('section.select', payload);
+  }
+
+  /** User explicitly finished a section — the ONLY trigger of the timeline relance
+   * ("avez-vous terminé ? / souhaitez-vous continuer ?") and section reformulation. */
+  sectionFinish(payload: { topic_id?: string | null; subtopic_id?: string | null } & Record<string, any> = {}): void {
+    this.send('section.finish', payload);
+  }
+
+  /** User finished the whole capture — closes remaining sections and starts the final phase. */
+  captureFinish(payload: Record<string, any> = {}): void {
+    this.send('capture.finish', payload);
   }
 
   loopStart(payload: Record<string, any> = {}): void {

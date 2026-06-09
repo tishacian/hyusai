@@ -139,6 +139,24 @@ export class LiveKitConversationConnection {
     void this.sendControl('barge_in', { prompt_event_id: promptEventId || null });
   }
 
+  /** Stop sending audio frames locally without ending the turn. No relance. */
+  audioPause(payload: Record<string, unknown> = {}): void {
+    void this.sendControl('audio.pause', payload);
+    void this.room.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
+  }
+
+  sectionSelect(payload: { topic_id?: string | null; subtopic_id?: string | null } & Record<string, unknown> = {}): void {
+    void this.sendControl('section.select', payload);
+  }
+
+  sectionFinish(payload: { topic_id?: string | null; subtopic_id?: string | null } & Record<string, unknown> = {}): void {
+    void this.sendControl('section.finish', payload);
+  }
+
+  captureFinish(payload: Record<string, unknown> = {}): void {
+    void this.sendControl('capture.finish', payload);
+  }
+
   loopStart(payload: Record<string, unknown> = {}): void {
     void this.sendControl('loop.start', payload);
   }

@@ -328,12 +328,18 @@ interface CaptureProposal {
   };
 }
 
-type ProposalQuestionStatus = 'open' | 'deferred' | 'dismissed';
+// Unified open-question lifecycle (shared with the backend contract):
+//  open | answered | invalid (supprimer, exclu de la publication) | deferred (laisser ouverte).
+type ProposalQuestionStatus = 'open' | 'answered' | 'invalid' | 'deferred';
 
 interface ProposalOpenQuestion {
+  id?: string;
+  question_id?: string;
   gap_id?: string;
   reason?: string;
   follow_up?: string;
+  answer?: string | null;
+  answered_text?: string | null;
   priority?: number | string | null;
   severity?: number | string | null;
   status?: string | null;
@@ -1287,28 +1293,7 @@ interface ProposalFact {
                         } @else if (row.kind === 'ia') {
                           <p class="my-3 border-l-2 border-brand-400/40 pl-3 text-sm italic text-brand-200/90">{{ row.text }}</p>
                         } @else {
-                          <div class="my-3 rounded border border-white/5 bg-white/[0.025] px-3 py-2.5">
-                            <div class="mb-1 flex items-center gap-2">
-                              <span [class]="transcriptStatusClass(row.status)">
-                                {{ transcriptStatusLabel(row.status) }}
-                              </span>
-                              @if (row.reframed) {
-                                <span
-                                  class="inline-flex items-center gap-1 text-[10px] text-brand-200/70"
-                                  title="Texte reformulé selon le plan de capture."
-                                >
-                                  <app-icon name="sparkles" [size]="10" /> selon le plan
-                                </span>
-                              }
-                            </div>
-                            <p
-                              [class]="row.status === 'live'
-                                ? 'text-sm text-gray-400 italic whitespace-pre-wrap'
-                                : row.status === 'amended'
-                                  ? 'text-sm text-emerald-100 whitespace-pre-wrap'
-                                : 'text-sm text-gray-100'"
-                            >{{ row.text }}</p>
-                          </div>
+                          <p class="my-3 first:mt-0 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ row.text }}@if (row.liveText) {<span class="text-gray-400 italic">{{ row.text ? ' ' : '' }}{{ row.liveText }}</span>}</p>
                         }
                       } @empty {
                         <div class="flex h-full flex-col items-center justify-center text-center">
@@ -1388,19 +1373,44 @@ interface ProposalFact {
                         type="button"
                         class="inline-flex w-full items-center justify-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
                         [disabled]="transcribing() || !canCaptureExecute(s)"
-                        (click)="conversationMode() === 'conversation_only' ? toggleConversationSession() : toggleRecording()"
+                        [title]="recording() ? 'Met le micro en pause sans déclencher de relance.' : 'Ouvre le micro pour parler librement.'"
+                        (click)="onPrimaryCaptureAction(s)"
                       >
                         <app-icon [name]="conversationPrimaryIcon()" [size]="15" />
                         {{ conversationPrimaryLabel() }}
                       </button>
-                      @if (captureStopAvailable()) {
+                      @if (sessionHasStarted(s) && !isFreeConversationSession(s) && captureSectionOptions(s).length) {
+                        <div class="inline-flex w-full items-center gap-2 sm:w-auto">
+                          <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 shrink-0">Section</span>
+                          <select
+                            class="w-full rounded bg-white/[0.04] border border-white/10 px-2 py-2 text-xs text-gray-100 sm:w-56"
+                            title="Sauter directement vers une section ou sous-section."
+                            [ngModel]="currentSectionValue()"
+                            (ngModelChange)="onCaptureSectionSelect($event)"
+                          >
+                            @for (opt of captureSectionOptions(s); track opt.value) {
+                              <option [value]="opt.value">{{ opt.label }}</option>
+                            }
+                          </select>
+                        </div>
                         <button
                           type="button"
-                          class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-red-500/20 hover:bg-red-500/30 text-sm font-semibold text-red-100 ring-1 ring-red-400/30 sm:w-auto"
-                          title="Couper la voix sans clôturer la capture."
-                          (click)="stopConversation()"
+                          class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-sm font-semibold text-amber-100 ring-1 ring-amber-400/30 sm:w-auto"
+                          title="Clôt la section courante. C’est la seule action qui déclenche la relance « avez-vous terminé ? »."
+                          (click)="finishCurrentSection(s)"
                         >
-                          <app-icon name="square" [size]="14" /> Stop voix
+                          <app-icon name="check" [size]="14" /> Terminer la section
+                        </button>
+                      }
+                      @if (sessionHasStarted(s) && s.status === 'active') {
+                        <button
+                          type="button"
+                          class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50 sm:w-auto"
+                          [disabled]="closureActionLoading() || transcribing()"
+                          title="Clôt toutes les sections restantes et lance la phase finale (proposition)."
+                          (click)="finishCapture(s)"
+                        >
+                          <app-icon name="flag" [size]="14" /> Terminer la capture
                         </button>
                       }
                       @if (speaking()) {
@@ -1438,17 +1448,6 @@ interface ProposalFact {
                         class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50 sm:w-auto"
                         [disabled]="!canProposalSubmit(s)"
                         (click)="createProposal(s)"
-                      >
-                        <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.action.continue') }}
-                      </button>
-                    }
-                    @if (sessionHasStarted(s) && s.status === 'active') {
-                      <button
-                        type="button"
-                        class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50 sm:w-auto"
-                        [disabled]="closureActionLoading() || recording() || transcribing() || !canCaptureExecute(s)"
-                        [title]="i18n.t('capture.action.continue')"
-                        (click)="applySessionClosure(s, 'finish')"
                       >
                         <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.action.continue') }}
                       </button>
@@ -2458,7 +2457,7 @@ interface ProposalFact {
                   <span class="text-[10px] text-amber-100/70">{{ i18n.t('capture.review.to_process', { count: proposalReviewQuestions().length }) }}</span>
                 </div>
                 <div class="mt-3 space-y-2">
-                @for (row of proposalReviewQuestions(); track row.key) {
+                @for (row of proposalReviewQuestions(); track row.key; let i = $index) {
                   <article
                     class="rounded border border-amber-300/15 bg-black/20 p-3"
                     [class.opacity-70]="row.status === 'deferred'"
@@ -2467,7 +2466,11 @@ interface ProposalFact {
                       <span [class]="proposalQuestionPriorityClass(row.priority)">
                         {{ proposalQuestionPriorityLabel(row.priority) }}
                       </span>
-                      @if (row.status === 'deferred') {
+                      @if (row.status === 'answered') {
+                        <span class="rounded bg-emerald-500/15 px-2 py-0.5 text-[9px] uppercase tracking-wider text-emerald-200 ring-1 ring-emerald-300/20">
+                          répondue
+                        </span>
+                      } @else if (row.status === 'deferred') {
                         <span class="rounded bg-white/5 px-2 py-0.5 text-[9px] uppercase tracking-wider text-gray-400">
                           {{ i18n.t('capture.review.deferred') }}
                         </span>
@@ -2477,14 +2480,61 @@ interface ProposalFact {
                     @if (proposalQuestionDetail(row.question); as detail) {
                       <p class="mt-1 text-[11px] leading-relaxed text-gray-500">{{ detail }}</p>
                     }
+                    @if (proposalQuestionAnswer(row.question); as answered) {
+                      <p class="mt-2 rounded bg-emerald-500/10 border border-emerald-400/20 px-2 py-1.5 text-[11px] leading-relaxed text-emerald-100/90">
+                        <span class="text-emerald-300/80">Réponse :</span> {{ answered }}
+                      </p>
+                    }
+                    @if (answeringQuestionKey() === row.key) {
+                      <div class="mt-3 space-y-2">
+                        <textarea
+                          class="w-full min-h-16 rounded bg-black/30 border border-white/10 px-2 py-1.5 text-xs text-white leading-relaxed"
+                          [(ngModel)]="questionAnswerDraft"
+                          placeholder="Saisissez la réponse, ou dictez-la avec le micro…"
+                        ></textarea>
+                        <div class="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            class="inline-flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-[10px] text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                            title="Répondre à la voix (transcrite en texte)."
+                            (click)="dictateProposalQuestionAnswer()"
+                          >
+                            <app-icon [name]="recording() ? 'square' : 'mic'" [size]="12" />
+                            {{ recording() ? 'Arrêter la dictée' : 'Dicter' }}
+                          </button>
+                          <button
+                            type="button"
+                            class="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-2 py-1 text-[10px] font-medium text-emerald-100 ring-1 ring-emerald-300/20 hover:bg-emerald-500/30 disabled:opacity-50"
+                            [disabled]="!questionAnswerDraft.trim() || questionAnswerLoading()"
+                            (click)="submitProposalQuestionAnswer(row, i)"
+                          >
+                            @if (questionAnswerLoading()) {
+                              <span class="inline-block h-3 w-3 shrink-0 rounded-full border-2 border-emerald-200/40 border-t-emerald-200 animate-spin"></span>
+                              Enregistrement…
+                            } @else {
+                              <app-icon name="send" [size]="12" /> Valider la réponse
+                            }
+                          </button>
+                          <button
+                            type="button"
+                            class="rounded bg-white/5 px-2 py-1 text-[10px] text-gray-400 ring-1 ring-white/10 hover:bg-white/10"
+                            (click)="cancelProposalQuestionAnswer()"
+                          >
+                            Annuler
+                          </button>
+                        </div>
+                      </div>
+                    }
                     <div class="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        class="rounded bg-brand-500/15 px-2 py-1 text-[10px] font-medium text-brand-100 ring-1 ring-brand-300/20 hover:bg-brand-500/25"
-                        (click)="useProposalQuestionAsInstruction(row.question)"
-                      >
-                        {{ i18n.t('capture.review.add_to_instruction') }}
-                      </button>
+                      @if (answeringQuestionKey() !== row.key) {
+                        <button
+                          type="button"
+                          class="rounded bg-brand-500/15 px-2 py-1 text-[10px] font-medium text-brand-100 ring-1 ring-brand-300/20 hover:bg-brand-500/25"
+                          (click)="beginProposalQuestionAnswer(row.key)"
+                        >
+                          {{ row.status === 'answered' ? 'Modifier la réponse' : 'Répondre' }}
+                        </button>
+                      }
                       <button
                         type="button"
                         class="rounded bg-white/5 px-2 py-1 text-[10px] text-gray-300 ring-1 ring-white/10 hover:bg-white/10"
@@ -2494,8 +2544,9 @@ interface ProposalFact {
                       </button>
                       <button
                         type="button"
-                        class="rounded bg-white/5 px-2 py-1 text-[10px] text-gray-400 ring-1 ring-white/10 hover:bg-white/10"
-                        (click)="dismissProposalOpenQuestion(row.key)"
+                        class="rounded bg-red-500/10 px-2 py-1 text-[10px] text-red-200 ring-1 ring-red-400/20 hover:bg-red-500/20"
+                        title="Supprime la question : masquée et exclue de la publication."
+                        (click)="invalidateProposalOpenQuestion(row.key)"
                       >
                         {{ i18n.t('capture.review.hide') }}
                       </button>
@@ -2903,6 +2954,9 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly proposalFactDecisions = signal<Record<string, ProposalFactDecision>>({});
   readonly proposalFactEdits = signal<Record<string, string>>({});
   readonly proposalQuestionStatuses = signal<Record<string, ProposalQuestionStatus>>({});
+  readonly answeringQuestionKey = signal<string | null>(null);
+  readonly questionAnswerLoading = signal(false);
+  questionAnswerDraft = '';
   readonly editingProposalFactKey = signal<string | null>(null);
   readonly proposalReportDirty = signal(false);
   readonly proposalReportSaving = signal(false);
@@ -4249,85 +4303,109 @@ export class KnowledgeCaptureComponent implements OnInit {
     return title || undefined;
   }
 
+  /**
+   * Continuous capture transcript: committed expert speech is grouped into a
+   * single flowing paragraph per active section (plan mode) or one global stream
+   * (no-plan). The live partial appends to the tail of the current paragraph.
+   * No per-utterance bordered blocks, no successive re-correction display — we
+   * rely on text.final (Tier-1 corrected) as the single committed source.
+   * The only IA paroles interleaved are timeline relances ("terminé ? continuer ?").
+   */
   captureTranscriptRows(): Array<{
     key: string;
-    kind: 'topic' | 'expert' | 'ia';
+    kind: 'topic' | 'flow' | 'ia';
     text: string;
-    status?: CaptureTranscriptStatus;
-    reframed?: boolean;
+    liveText?: string;
   }> {
     const expert = this.textEvents()
-      .filter((event) => (event.speaker || '').toLowerCase() === 'expert' && Boolean(this.eventDisplayText(event)))
+      .filter(
+        (event) =>
+          (event.speaker || '').toLowerCase() === 'expert' &&
+          !this.isTrivialTranscriptSegment(this.eventDisplayText(event)),
+      )
       .map((event) => ({
         order: event.sequence,
         kind: 'expert' as const,
         id: event.id,
-        text: this.eventDisplayText(event),
+        text: this.eventDisplayText(event).trim(),
         topic: this.eventOutlineTitle(event),
-        status: (event.event_type === 'transcript_amended' || event.text_amended ? 'amended' : 'refined') as CaptureTranscriptStatus,
       }));
-    const annotations = this.relanceAnnotations().map((item) => ({
-      order: item.order,
-      kind: 'ia' as const,
-      id: item.id,
-      text: item.text,
-      topic: undefined as string | undefined,
-    }));
+    const annotations = this.relanceAnnotations()
+      .filter((item) => !this.isTrivialTranscriptSegment(item.text))
+      .map((item) => ({
+        order: item.order,
+        kind: 'ia' as const,
+        id: item.id,
+        text: item.text.trim(),
+        topic: undefined as string | undefined,
+      }));
     const ordered = [...expert, ...annotations].sort((a, b) => a.order - b.order);
 
-    const rows: Array<{
-      key: string;
-      kind: 'topic' | 'expert' | 'ia';
-      text: string;
-      status?: CaptureTranscriptStatus;
-      reframed?: boolean;
-    }> = [];
+    const rows: Array<{ key: string; kind: 'topic' | 'flow' | 'ia'; text: string; liveText?: string }> = [];
     let lastTopic: string | undefined;
     let lastExpertTextKey = '';
+    // Accumulated flowing paragraph for the current section.
+    let buffer: string[] = [];
+    let bufferKey = '';
+    const flushBuffer = () => {
+      if (!buffer.length) return;
+      rows.push({ key: `flow-${bufferKey}`, kind: 'flow', text: buffer.join(' ') });
+      buffer = [];
+      bufferKey = '';
+    };
+
     for (const item of ordered) {
       if (item.kind === 'expert') {
         if (item.topic && item.topic !== lastTopic) {
+          flushBuffer();
           rows.push({ key: `topic-${item.id}`, kind: 'topic', text: item.topic });
           lastTopic = item.topic;
         }
-        lastExpertTextKey = this.transcriptTextKey(item.text);
-        rows.push({ key: `expert-${item.id}`, kind: 'expert', text: item.text, status: item.status });
+        const key = this.transcriptTextKey(item.text);
+        // Drop exact successive duplicates (re-emitted finals).
+        if (key && key !== lastExpertTextKey) {
+          if (!buffer.length) bufferKey = item.id;
+          buffer.push(item.text);
+          lastExpertTextKey = key;
+        }
       } else {
+        // Timeline relance: close the running paragraph then show the IA line.
+        flushBuffer();
+        lastExpertTextKey = '';
         rows.push({ key: `ia-${item.id}`, kind: 'ia', text: item.text });
       }
     }
+
     const live = this.liveTranscript();
-    if (live && live.text.trim()) {
-      const isDuplicate = live.status !== 'live' && this.transcriptTextKey(live.text) === lastExpertTextKey;
+    const liveText = live ? live.text.trim() : '';
+    if (liveText && !this.isTrivialTranscriptSegment(liveText)) {
+      const isDuplicate = live!.status !== 'live' && this.transcriptTextKey(liveText) === lastExpertTextKey;
       if (!isDuplicate) {
-        rows.push({
-          key: `live-${live.id}`,
-          kind: 'expert',
-          text: live.text,
-          status: live.status,
-          reframed: live.reframed,
-        });
+        if (buffer.length) {
+          // Append the live tail to the current flowing paragraph.
+          rows.push({ key: `flow-${bufferKey}`, kind: 'flow', text: buffer.join(' '), liveText });
+          buffer = [];
+          bufferKey = '';
+        } else {
+          rows.push({ key: `live-${live!.id}`, kind: 'flow', text: '', liveText });
+        }
+        return rows;
       }
     }
+    flushBuffer();
     return rows;
+  }
+
+  /** Filter out empty / trivial segments (single punctuation, lone filler tokens). */
+  private isTrivialTranscriptSegment(text: string | null | undefined): boolean {
+    const clean = (text || '').replace(/\s+/g, ' ').trim();
+    if (!clean) return true;
+    const alphanumeric = clean.replace(/[^\p{L}\p{N}]/gu, '');
+    return alphanumeric.length < 2;
   }
 
   private transcriptTextKey(text: string): string {
     return text.replace(/\s+/g, ' ').trim().toLowerCase();
-  }
-
-  transcriptStatusLabel(status?: CaptureTranscriptStatus): string {
-    if (status === 'live') return 'En direct';
-    if (status === 'amended') return 'Corrigé';
-    return 'Texte reformulé';
-  }
-
-  transcriptStatusClass(status?: CaptureTranscriptStatus): string {
-    if (status === 'live') return 'rounded bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wider text-gray-500';
-    if (status === 'amended') {
-      return 'rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-emerald-200';
-    }
-    return 'rounded bg-brand-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-brand-200';
   }
 
   private setLivePartial(id: string, text: string): void {
@@ -6175,7 +6253,9 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (this.conversationMode() !== 'conversation_only') {
       return this.recording() ? 'square' : 'mic';
     }
-    if (this.recording()) return 'square';
+    // During capture the mic stays open continuously; the primary control
+    // pauses it (no relance) rather than ending the turn.
+    if (this.recording()) return 'pause';
     if (this.speaking()) return 'pause';
     return 'mic';
   }
@@ -6191,7 +6271,7 @@ export class KnowledgeCaptureComponent implements OnInit {
             : 'Démarrer';
     }
     if (this.transcribing()) return 'Transcription';
-    if (this.recording()) return 'Arrêter';
+    if (this.recording()) return 'Pause micro';
     if (this.speaking()) return 'Pause';
     return 'Parler';
   }
@@ -6606,6 +6686,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   proposalReviewQuestions(): ProposalReviewQuestion[] {
     const statuses = this.proposalQuestionStatuses();
+    const rank: Record<ProposalQuestionStatus, number> = { open: 0, answered: 2, deferred: 3, invalid: 9 };
     return this.proposalOpenQuestions()
       .map((question, index) => {
         const key = this.proposalQuestionKey(question, index);
@@ -6617,11 +6698,16 @@ export class KnowledgeCaptureComponent implements OnInit {
           status,
         };
       })
-      .filter((row) => row.status !== 'dismissed')
+      // `invalid` (supprimer) is hidden and excluded from publication.
+      .filter((row) => row.status !== 'invalid')
       .sort((a, b) => {
-        if (a.status !== b.status) return a.status === 'deferred' ? 1 : -1;
+        if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
         return b.priority - a.priority;
       });
+  }
+
+  proposalQuestionAnswer(question: ProposalOpenQuestion): string {
+    return String(question.answer || question.answered_text || '').trim();
   }
 
   proposalQuestionText(question: ProposalOpenQuestion): string {
@@ -6661,6 +6747,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.setVoiceNotice('Question ajoutée à la consigne de modification.', 'info');
   }
 
+  /** "Laisser ouverte" — keep the question for later / another expert (publishable). */
   deferProposalOpenQuestion(key: string): void {
     this.setProposalOpenQuestionStatus(key, 'deferred');
   }
@@ -6669,8 +6756,60 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.setProposalOpenQuestionStatus(key, 'open');
   }
 
-  dismissProposalOpenQuestion(key: string): void {
-    this.setProposalOpenQuestionStatus(key, 'dismissed');
+  /** "Invalider / Supprimer" — mark the question invalid: hidden and excluded from publication. */
+  invalidateProposalOpenQuestion(key: string): void {
+    if (this.answeringQuestionKey() === key) this.cancelProposalQuestionAnswer();
+    this.setProposalOpenQuestionStatus(key, 'invalid');
+  }
+
+  /** Open the inline answer composer for a single question. */
+  beginProposalQuestionAnswer(key: string): void {
+    this.answeringQuestionKey.set(key);
+    this.questionAnswerDraft = '';
+  }
+
+  cancelProposalQuestionAnswer(): void {
+    if (this.recording()) this.finishDictation();
+    this.answeringQuestionKey.set(null);
+    this.questionAnswerDraft = '';
+  }
+
+  /** Voice answer: dictate into the answer draft (transcribed-to-text), then submit. */
+  async dictateProposalQuestionAnswer(): Promise<void> {
+    if (this.recording()) {
+      this.finishDictation();
+      return;
+    }
+    await this.beginDictation((text) => {
+      this.questionAnswerDraft = text;
+    });
+  }
+
+  /** Answer a single question (text OR voice) -> answer endpoint -> refresh proposal. */
+  submitProposalQuestionAnswer(row: ProposalReviewQuestion, index: number): void {
+    const proposal = this.proposal();
+    const text = this.questionAnswerDraft.trim();
+    if (!proposal || !text || this.questionAnswerLoading()) return;
+    if (this.recording()) this.finishDictation();
+    const questionId = this.proposalQuestionId(row.question, index);
+    this.questionAnswerLoading.set(true);
+    this.api
+      .answerCaptureProposalOpenQuestion(proposal.id, questionId, { text })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          this.questionAnswerLoading.set(false);
+          this.answeringQuestionKey.set(null);
+          this.questionAnswerDraft = '';
+          this.proposalQuestionStatuses.update((current) => ({ ...current, [row.key]: 'answered' }));
+          this.setProposal(updated as CaptureProposal);
+          this.setVoiceNotice('Réponse enregistrée. La section concernée a été re-synthétisée.', 'info');
+        },
+        error: () => {
+          this.questionAnswerLoading.set(false);
+          this.setVoiceNotice('Réponse non enregistrée pour le moment. Réessayez.', 'error');
+        },
+      });
   }
 
   private setProposalOpenQuestionStatus(key: string, status: ProposalQuestionStatus): void {
@@ -6679,11 +6818,13 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: status }));
     const proposal = this.proposal();
     if (!proposal || !row) return;
+    const index = this.proposalOpenQuestions().findIndex((candidate) => candidate === row.question);
     this.api
       .patchCaptureProposalOpenQuestions(proposal.id, {
         items: [
           {
             question_key: key,
+            question_id: this.proposalQuestionId(row.question, index >= 0 ? index : 0),
             question_text: this.proposalQuestionText(row.question),
             status,
           },
@@ -6700,11 +6841,23 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   private proposalQuestionKey(question: ProposalOpenQuestion, index: number): string {
-    return question.gap_id || question.follow_up || question.reason || `question-${index}`;
+    return (
+      question.question_id ||
+      question.id ||
+      question.gap_id ||
+      question.follow_up ||
+      question.reason ||
+      `question-${index}`
+    );
+  }
+
+  private proposalQuestionId(question: ProposalOpenQuestion, index: number): string {
+    return question.question_id || question.id || question.gap_id || `question-${index}`;
   }
 
   private normalizeProposalQuestionStatus(status?: string | null): ProposalQuestionStatus {
-    if (status === 'dismissed') return 'dismissed';
+    if (status === 'answered') return 'answered';
+    if (status === 'invalid' || status === 'dismissed') return 'invalid';
     if (status === 'deferred') return 'deferred';
     return 'open';
   }
@@ -6991,15 +7144,6 @@ export class KnowledgeCaptureComponent implements OnInit {
         // Keep the live indicator visible during speech (set after the
         // prefetch call, which may otherwise flip the state to "retrieving").
         this.voiceState.set('partial_transcribing');
-      }
-      return;
-    }
-    if (event.type === 'transcript.improved') {
-      const text = String(payload['text'] || '').trim();
-      if (text) {
-        this.answer = text;
-        // New model: the refined transcript is the plan-aware reformulation.
-        this.setLiveImproved(this.voiceSegmentId(payload), text, Boolean(payload['reframed']));
       }
       return;
     }
@@ -7422,7 +7566,9 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   private voiceEndpointSilenceMs(): number {
-    return this.voiceLoopSettingNumber('silence_ms', 1200, 300, 5000);
+    // Continuous capture: a turn should only auto-close on a very long silence,
+    // never on the short conversational pauses an expert makes while thinking.
+    return this.voiceLoopSettingNumber('silence_ms', 8000, 300, 30000);
   }
 
   private voiceEndpointMinSpeechMs(): number {
@@ -7430,7 +7576,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   private voiceEndpointMaxTurnMs(): number {
-    return this.voiceLoopSettingNumber('max_turn_ms', 45000, 5000, 180000);
+    // Keep the mic open far longer so the expert can speak a whole section at once.
+    return this.voiceLoopSettingNumber('max_turn_ms', 120000, 5000, 600000);
   }
 
   private voiceEndpointRmsThreshold(): number {
@@ -7500,13 +7647,6 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.voiceState.set('interrupted');
   }
 
-  /** True while there is something to STOP: an active conversation session, a
-   * live recording, or the assistant reading a prompt/answer aloud. Drives the
-   * capture STOP affordance. */
-  captureStopAvailable(): boolean {
-    return this.conversationSessionActive() || this.recording() || this.speaking();
-  }
-
   /**
    * The explicit STOP the user asked for on the capture surface: immediately cut
    * any TTS voice-out and hard-stop the conversation loop so it does not
@@ -7540,6 +7680,167 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.closeVoiceConnection();
     this.voiceState.set('idle');
     this.setVoiceNotice('Conversation arrêtée. La lecture vocale a été coupée.', 'info');
+  }
+
+  /** Primary capture control: open the mic when idle, pause it (no relance) while
+   * recording. Pausing must NOT end the turn or trigger a conversation step. */
+  onPrimaryCaptureAction(session: CaptureSession): void {
+    if (this.conversationMode() === 'conversation_only') {
+      if (this.recording()) {
+        this.pauseMicrophone();
+        return;
+      }
+      void this.toggleConversationSession();
+      return;
+    }
+    void this.toggleRecording();
+  }
+
+  /**
+   * "Pause micro" — stop sending audio frames and close the mic locally without
+   * ending the turn. Sends audio.pause so the backend keeps the section open and
+   * does NOT emit any relance or conversation step. Resume via the primary button.
+   */
+  pauseMicrophone(): void {
+    this.clearAutoResumeTimer();
+    this.deferredLoopStopAfterStreamingTurn = null;
+    this.closeVoiceAfterStreamingTurn = false;
+    this.captureEndpointReason = 'stop';
+    this.stopCaptureEndpointMonitor();
+    this.voiceConnection?.audioPause({ surface: 'knowledge_capture' });
+    this.stopSpeech(false);
+    if (this.recorder) {
+      try {
+        this.recorder.onstop = null;
+      } catch {
+        /* browser cleanup only */
+      }
+      try {
+        if (this.recorder.state !== 'inactive') this.recorder.stop();
+      } catch {
+        /* browser cleanup only */
+      }
+      this.recorder = null;
+    }
+    this.recording.set(false);
+    // Keep the streaming connection open so the user can resume the same section.
+    this.conversationSessionActive.set(false);
+    this.releaseAudioStream();
+    this.voiceState.set('idle');
+    this.setVoiceNotice('Micro en pause. Aucune relance déclenchée — reprenez quand vous voulez.', 'info');
+  }
+
+  /** Resolve the active section (topic/subtopic) for section.select / section.finish. */
+  private activeSectionRef(session: CaptureSession): { topic_id?: string; subtopic_id?: string } {
+    const topics = this.planTopics(session);
+    const subtopicId = this.activeSubtopicId();
+    if (subtopicId) {
+      const topic = topics.find((t) => (t.subtopics || []).some((st) => st.id === subtopicId));
+      return { topic_id: topic?.id, subtopic_id: subtopicId };
+    }
+    const question = this.currentQuestion();
+    if (question?.subtopic_id) {
+      const topic =
+        topics.find((t) => (t.subtopics || []).some((st) => st.id === question.subtopic_id)) ||
+        topics.find((t) => t.id === question.topic_id);
+      return { topic_id: topic?.id || question.topic_id, subtopic_id: question.subtopic_id };
+    }
+    if (question?.topic_id) return { topic_id: question.topic_id };
+    const firstTopic = topics[0];
+    return firstTopic ? { topic_id: firstTopic.id } : {};
+  }
+
+  /** Flat list of plan sections (topics + subtopics) for the jump selector. */
+  captureSectionOptions(session: CaptureSession): Array<{ value: string; label: string }> {
+    if (this.isFreeConversationSession(session)) return [];
+    const options: Array<{ value: string; label: string }> = [];
+    for (const topic of this.planTopics(session)) {
+      const topicTitle = (topic.title || 'Sujet').trim();
+      options.push({ value: topic.id, label: topicTitle });
+      for (const subtopic of topic.subtopics || []) {
+        const subTitle = (subtopic.title || 'Sous-sujet').trim();
+        options.push({ value: `${topic.id}|${subtopic.id}`, label: `   ↳ ${subTitle}` });
+      }
+    }
+    return options;
+  }
+
+  currentSectionValue(): string {
+    const session = this.session();
+    if (!session) return '';
+    const ref = this.activeSectionRef(session);
+    if (ref.subtopic_id && ref.topic_id) return `${ref.topic_id}|${ref.subtopic_id}`;
+    return ref.topic_id || '';
+  }
+
+  /** Jump directly to any topic/subtopic. Sends section.select; keeps the mic open. */
+  onCaptureSectionSelect(value: string): void {
+    if (!value) return;
+    const [topicId, subtopicId] = value.split('|');
+    if (subtopicId) {
+      this.selectCaptureSubtopic(subtopicId);
+    } else {
+      this.activeSubtopicId.set(null);
+      const session = this.session();
+      const topic = session ? this.planTopics(session).find((t) => t.id === topicId) : null;
+      const firstSubtopic = topic?.subtopics?.[0];
+      if (firstSubtopic) this.activeSubtopicId.set(firstSubtopic.id);
+    }
+    this.voiceConnection?.sectionSelect({ topic_id: topicId || null, subtopic_id: subtopicId || null });
+    this.setVoiceNotice('Section sélectionnée. Le micro reste ouvert sur cette section.', 'info');
+  }
+
+  /**
+   * "Terminer la section" — the ONLY action that triggers the timeline relance
+   * ("avez-vous terminé ? / souhaitez-vous continuer ?") and the section
+   * reformulation. Sends section.finish with the active section reference.
+   */
+  finishCurrentSection(session: CaptureSession): void {
+    const ref = this.activeSectionRef(session);
+    this.clearAutoResumeTimer();
+    this.stopCaptureEndpointMonitor();
+    this.voiceConnection?.sectionFinish({
+      topic_id: ref.topic_id || null,
+      subtopic_id: ref.subtopic_id || null,
+      surface: 'knowledge_capture',
+    });
+    this.setVoiceNotice('Section terminée. L’IA va vous demander si vous souhaitez continuer.', 'info');
+  }
+
+  /**
+   * "Terminer la capture" — closes all remaining sections and starts the final
+   * phase (reformulation + proposal). Sends capture.finish, then tears down the
+   * local mic. The existing closure flow still advances the UI to the proposal.
+   */
+  finishCapture(session: CaptureSession): void {
+    this.clearAutoResumeTimer();
+    this.deferredLoopStopAfterStreamingTurn = null;
+    this.closeVoiceAfterStreamingTurn = false;
+    this.captureEndpointReason = 'stop';
+    this.stopCaptureEndpointMonitor();
+    this.voiceConnection?.captureFinish({ surface: 'knowledge_capture' });
+    this.stopSpeech(false);
+    if (this.recorder) {
+      try {
+        this.recorder.onstop = null;
+      } catch {
+        /* browser cleanup only */
+      }
+      try {
+        if (this.recorder.state !== 'inactive') this.recorder.stop();
+      } catch {
+        /* browser cleanup only */
+      }
+      this.recorder = null;
+    }
+    this.recording.set(false);
+    this.conversationSessionActive.set(false);
+    this.releaseAudioStream();
+    this.voiceState.set('thinking');
+    this.setVoiceNotice('Capture terminée. Préparation de la synthèse finale…', 'info');
+    if (session.status === 'active') {
+      this.applySessionClosure(session, 'finish');
+    }
   }
 
   private transcribeRecording(): void {
