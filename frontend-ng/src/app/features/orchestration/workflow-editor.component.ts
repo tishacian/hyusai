@@ -372,7 +372,7 @@ export interface FlowTemplate {
         <!-- Drawflow host -->
         <div
           #drawflowContainer
-          class="w-full h-full pt-10 df-host"
+          class="parent-drawflow w-full h-full pt-10 df-host"
           (dragover)="onDragOver($event)"
           (drop)="onDrop($event)"
         ></div>
@@ -2078,6 +2078,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
   private refreshRaf: number | null = null;
   private canvasSelectionTimer: number | null = null;
   private perfStart = 0;
+  private readonly canvasZoomMin = 0.12;
+  private readonly canvasZoomMax = 1.8;
+  private readonly canvasZoomStep = 0.08;
+  private readonly canvasFitPadding = 72;
   private readonly onCanvasNodePointerCapture = (event: Event) => {
     const target = event.target as HTMLElement | null;
     const nodeEl = target?.closest('.drawflow-node') as HTMLElement | null;
@@ -2118,6 +2122,9 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         this.editor = new Drawflow(el);
         this.editor.reroute = false;
         this.editor.reroute_fix_curvature = false;
+        this.editor.zoom_min = this.canvasZoomMin;
+        this.editor.zoom_max = this.canvasZoomMax;
+        this.editor.zoom_value = this.canvasZoomStep;
         this.editor.start();
         this.installStableConnectionRenderer();
         el.addEventListener('mousedown', this.onCanvasNodePointerCapture, true);
@@ -2843,15 +2850,16 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const graph = this.exportGraph();
     const entries = Object.entries(graph.drawflow?.Home?.data ?? {});
     if (!entries.length) return;
+    const precanvas = this.precanvasElement();
+    const currentZoom = this.editor?.zoom || (precanvas ? this.canvasCoordinateScale(precanvas) : 1) || 1;
     const boxes = entries.map(([rawId, node]) => {
       const el = document.getElementById(`node-${rawId}`);
       const rect = el?.getBoundingClientRect();
-      const scale = this.editor?.zoom || 1;
       return {
         x: node.pos_x,
         y: node.pos_y,
-        w: rect?.width ? rect.width / scale : 240,
-        h: rect?.height ? rect.height / scale : 132,
+        w: rect?.width ? rect.width / currentZoom : 240,
+        h: rect?.height ? rect.height / currentZoom : 132,
       };
     });
     const minX = Math.min(...boxes.map((box) => box.x));
@@ -2861,28 +2869,53 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     const width = Math.max(1, maxX - minX);
     const height = Math.max(1, maxY - minY);
     const rect = this.container.nativeElement.getBoundingClientRect();
-    const availableW = Math.max(240, rect.width - 128);
-    const availableH = Math.max(220, rect.height - 128);
-    const zoom = Math.min(1, Math.max(0.5, Math.min(availableW / width, availableH / height)));
+    const pad = this.canvasFitPadding;
+    const availableW = Math.max(240, rect.width - pad * 2);
+    const availableH = Math.max(220, rect.height - pad * 2);
+    const zoom = Math.min(1, Math.max(this.canvasZoomMin, Math.min(availableW / width, availableH / height)));
     const rawTx = (rect.width - width * zoom) / 2 - minX * zoom;
     const rawTy = (rect.height - height * zoom) / 2 - minY * zoom;
-    const tx = Math.max(40, Math.min(120, rawTx));
-    const ty = Math.max(36, Math.min(104, rawTy));
-    this.editor.zoom = zoom;
-    this.editor.canvas_x = tx;
-    this.editor.canvas_y = ty;
-    const precanvas = this.container.nativeElement.querySelector('.precanvas') as HTMLElement | null;
-    if (precanvas) {
-      precanvas.style.minWidth = '3600px';
-      precanvas.style.minHeight = '2200px';
-      precanvas.style.transform = `translate(${tx}px, ${ty}px) scale(${zoom})`;
-      precanvas.style.transformOrigin = '0 0';
-    }
+    this.applyCanvasTransform(zoom, rawTx, rawTy, boxes);
     this.redrawConnectionsSoon();
   }
 
   private fitCanvasSoon(): void {
-    window.setTimeout(() => this.zone.runOutsideAngular(() => this.fitCanvas()), 80);
+    for (const delay of [80, 180, 360]) {
+      window.setTimeout(() => this.zone.runOutsideAngular(() => this.fitCanvas()), delay);
+    }
+  }
+
+  private precanvasElement(): HTMLElement | null {
+    return (
+      (this.editor?.precanvas as HTMLElement | null | undefined) ??
+      this.container?.nativeElement?.querySelector<HTMLElement>('.drawflow') ??
+      this.container?.nativeElement?.querySelector<HTMLElement>('.precanvas') ??
+      null
+    );
+  }
+
+  private applyCanvasTransform(
+    zoom: number,
+    x: number,
+    y: number,
+    boxes: Array<{ x: number; y: number; w: number; h: number }> = [],
+  ): void {
+    if (!this.editor) return;
+    const nextZoom = Math.max(this.canvasZoomMin, Math.min(this.canvasZoomMax, zoom));
+    this.editor.zoom = nextZoom;
+    this.editor.zoom_last_value = nextZoom;
+    this.editor.canvas_x = x;
+    this.editor.canvas_y = y;
+    const precanvas = this.precanvasElement();
+    if (!precanvas) return;
+    if (boxes.length) {
+      const maxX = Math.max(...boxes.map((box) => box.x + box.w), 3600);
+      const maxY = Math.max(...boxes.map((box) => box.y + box.h), 2200);
+      precanvas.style.minWidth = `${Math.ceil(maxX + this.canvasFitPadding * 2)}px`;
+      precanvas.style.minHeight = `${Math.ceil(maxY + this.canvasFitPadding * 2)}px`;
+    }
+    precanvas.style.transform = `translate(${x}px, ${y}px) scale(${nextZoom})`;
+    precanvas.style.transformOrigin = '0 0';
   }
 
   private redrawConnectionsSoon(): void {

@@ -89,6 +89,13 @@
   min-width: 100%;
   min-height: 100%;
   background: transparent !important;
+  cursor: grab;
+  user-select: none;
+}
+
+.df-host .parent-drawflow:active,
+.df-host .drawflow:active {
+  cursor: grabbing;
 }
 
 .df-host .drawflow .precanvas {
@@ -110,6 +117,8 @@
   background: transparent;
   width: 214px;
   min-width: 214px;
+  cursor: move;
+  user-select: none;
 }
 
 .drawflow .drawflow-node .df-node {
@@ -226,6 +235,14 @@
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 0 2px rgba(56, 189, 248, 0.16));
   animation: df-edge-pulse 2.6s ease-in-out infinite;
+}
+
+.drawflow .connection {
+  pointer-events: none;
+}
+
+.drawflow .connection .main-path {
+  pointer-events: stroke;
 }
 
 .drawflow .connection.df-stable-connection {
