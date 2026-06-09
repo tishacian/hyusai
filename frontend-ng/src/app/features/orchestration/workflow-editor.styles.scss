@@ -988,6 +988,17 @@
   border-color: rgba(56, 189, 248, 0.18);
 }
 
+.df-prompt-block[data-inherited='true'] {
+  border-color: rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.58), rgba(2, 6, 23, 0.92)),
+    var(--ck-bg-code, #020617);
+}
+
+.df-prompt-block[data-inherited='true'] .df-prompt-block__title {
+  color: var(--ck-fg-3, #cbd5e1);
+}
+
 .df-prompt-block--sheet[data-expanded='true'] .df-prompt-block__body {
   max-height: min(64vh, 680px);
 }

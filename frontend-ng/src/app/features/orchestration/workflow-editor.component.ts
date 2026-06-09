@@ -66,6 +66,8 @@ interface PromptBlock {
   source: PromptBlockSource;
   path: string;
   editable: boolean;
+  inherited?: boolean;
+  scopeLabel?: string;
 }
 
 export interface PaletteItem {
@@ -965,7 +967,7 @@ export interface FlowTemplate {
                     <div class="df-inspector-label">Prompts & instructions</div>
                     <div class="space-y-2">
                       @for (block of promptBlocks(); track block.key) {
-                        <div class="df-prompt-block">
+                        <div class="df-prompt-block" [attr.data-inherited]="block.inherited ? 'true' : 'false'">
                           <div class="df-prompt-block__title">{{ block.title }}</div>
                           <pre class="df-prompt-block__body">{{ block.body }}</pre>
                         </div>
@@ -1355,10 +1357,14 @@ export interface FlowTemplate {
                 } @else {
                   <div class="df-prompt-list">
                     @for (block of promptBlocks(); track block.key) {
-                      <article class="df-prompt-block df-prompt-block--sheet" [attr.data-expanded]="expandedPromptKey() === block.key ? 'true' : 'false'">
+                      <article
+                        class="df-prompt-block df-prompt-block--sheet"
+                        [attr.data-expanded]="expandedPromptKey() === block.key ? 'true' : 'false'"
+                        [attr.data-inherited]="block.inherited ? 'true' : 'false'"
+                      >
                         <div class="df-prompt-block__title">
                           <span>{{ block.title }}</span>
-                          <small>{{ block.source }} · {{ block.path }}</small>
+                          <small>{{ block.scopeLabel || (block.source + ' · ' + block.path) }}</small>
                           <div class="df-prompt-actions">
                             <button type="button" class="df-tool-btn df-tool-btn--small" (click)="copyPrompt(block)" title="Copy instruction">
                               <app-icon name="copy" [size]="12" />
@@ -4974,6 +4980,7 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       this.objectValue(this.flowManifest()?.prompt_contract);
     const chatConfig = this.objectValue(flow['chat']);
     const effectiveConfig = (this.flowManifest()?.effective_config ?? {}) as Record<string, unknown>;
+    const showGlobalPromptStack = this.shouldShowGlobalPromptStack(node, nodeContract);
 
     const blocks: PromptBlock[] = [];
     const add = (
@@ -4982,6 +4989,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       title: string,
       value: unknown,
       editable = true,
+      inherited = false,
+      scopeLabel?: string,
     ) => {
       if (value === undefined || value === null || value === '') return;
       const body = this.promptValueToBody(value);
@@ -4993,19 +5002,23 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
           source,
           path,
           editable,
+          inherited,
+          scopeLabel,
         });
       }
     };
 
     const promptStack = this.objectValue(effectiveConfig['prompt_stack']);
     const runtimeBuilders = this.objectValue(effectiveConfig['runtime_builders']);
-    if (promptStack) {
+    if (showGlobalPromptStack && promptStack) {
       add(
         'runtime',
         'effective_config.prompt_stack.effective_system_prompt_preview',
         'Effective system prompt preview',
         promptStack['effective_system_prompt_preview'],
         false,
+        true,
+        'runtime · inherited from chat prompt stack',
       );
       add(
         'runtime',
@@ -5013,6 +5026,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         'Runtime-read system prompt',
         promptStack['system_prompt'],
         false,
+        true,
+        'runtime · field read by /chat',
       );
       add(
         'runtime',
@@ -5020,6 +5035,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         'Flow base system prompt',
         promptStack['base_system_prompt'],
         false,
+        true,
+        'runtime · inherited flow prompt',
       );
       add(
         'runtime',
@@ -5027,6 +5044,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         'Grounding appendix',
         promptStack['grounding_appendix'],
         false,
+        true,
+        'runtime · inherited flow prompt',
       );
       add(
         'runtime',
@@ -5034,6 +5053,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         'Selected reasoning template',
         promptStack['selected_reasoning_template'],
         false,
+        true,
+        'runtime · selected reasoning profile',
       );
       add(
         'runtime',
@@ -5041,6 +5062,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         'RAG user prompt contract',
         promptStack['rag_user_prompt_contract'],
         false,
+        true,
+        'runtime · prompt assembly contract',
       );
       add(
         'runtime',
@@ -5048,6 +5071,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         'Runtime-read fields',
         promptStack['runtime_read_fields'],
         false,
+        true,
+        'runtime · fields consumed by /chat',
       );
       add(
         'runtime',
@@ -5055,6 +5080,8 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         'Manifest-only fields',
         promptStack['manifest_only_fields'],
         false,
+        true,
+        'runtime · manifest observability',
       );
       add(
         'runtime',
@@ -5062,15 +5089,19 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
         'Available reasoning templates',
         promptStack['available_reasoning_templates'],
         false,
+        true,
+        'runtime · reasoning registry',
       );
     }
-    if (runtimeBuilders) {
+    if (showGlobalPromptStack && runtimeBuilders) {
       add(
         'runtime',
         'effective_config.runtime_builders',
         'Runtime builders',
         runtimeBuilders,
         false,
+        true,
+        'runtime · Python builders used by /chat',
       );
     }
     if (nodeContract) {
@@ -5091,28 +5122,60 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
     add('node', 'render_contract', 'Render contract', data['render_contract'], false);
     add('node', 'latency_profile', 'Latency profile', data['latency_profile'], false);
     add('node', 'require_sources', 'Source requirement', data['require_sources'], false);
-    if (flowContract) {
-      add('flow', 'base_system_prompt', 'Flow base system prompt', flowContract['base_system_prompt']);
-      add('flow', 'default_prompt_type', 'Flow default reasoning template', flowContract['default_prompt_type']);
-      add('flow', 'balanced_grounding_appendix', 'Flow balanced appendix', flowContract['balanced_grounding_appendix']);
-      add('flow', 'reasoning_template_factual', 'Flow reasoning template · factual', flowContract['reasoning_template_factual']);
-      add('flow', 'answer_shaping_instructions', 'Flow answer shaping instructions', flowContract['answer_shaping_instructions']);
+    if (showGlobalPromptStack && flowContract) {
+      add('flow', 'base_system_prompt', 'Flow base system prompt', flowContract['base_system_prompt'], true, true, 'flow · inherited prompt contract');
+      add('flow', 'default_prompt_type', 'Flow default reasoning template', flowContract['default_prompt_type'], true, true, 'flow · inherited prompt contract');
+      add('flow', 'balanced_grounding_appendix', 'Flow balanced appendix', flowContract['balanced_grounding_appendix'], true, true, 'flow · inherited prompt contract');
+      add('flow', 'reasoning_template_factual', 'Flow reasoning template · factual', flowContract['reasoning_template_factual'], true, true, 'flow · inherited prompt contract');
+      add('flow', 'answer_shaping_instructions', 'Flow answer shaping instructions', flowContract['answer_shaping_instructions'], true, true, 'flow · inherited prompt contract');
     }
-    if (chatConfig) {
+    if (showGlobalPromptStack && chatConfig) {
       add('flow', 'chat.assistant_profile', 'Assistant profile', chatConfig['assistant_profile'], false);
       add('flow', 'chat.knowledge_scope', 'Knowledge scope', chatConfig['knowledge_scope'], false);
       add('flow', 'chat.retrieval_defaults', 'Chat retrieval defaults', chatConfig['retrieval_defaults'], false);
       add('flow', 'chat.grounding', 'Chat grounding defaults', chatConfig['grounding'], false);
       add('flow', 'chat.source_policy', 'Chat source policy defaults', chatConfig['source_policy'], false);
     }
-    add('flow', 'effective_config.assistant_profile', 'Effective assistant profile', effectiveConfig['assistant_profile'], false);
-    add('flow', 'effective_config.knowledge_scope', 'Effective knowledge scope', effectiveConfig['knowledge_scope'], false);
-    add('flow', 'effective_config.system_prompt', 'Effective system prompt', effectiveConfig['system_prompt'], false);
-    add('flow', 'effective_config.prompt_type', 'Effective prompt type', effectiveConfig['prompt_type'], false);
-    add('flow', 'effective_config.retrieval_defaults', 'Effective retrieval profile', effectiveConfig['retrieval_defaults'], false);
-    add('flow', 'effective_config.grounding', 'Effective grounding', effectiveConfig['grounding'], false);
-    add('flow', 'effective_config.source_policy', 'Effective source policy', effectiveConfig['source_policy'], false);
+    if (showGlobalPromptStack) {
+      add('flow', 'effective_config.assistant_profile', 'Effective assistant profile', effectiveConfig['assistant_profile'], false, true, 'flow · effective runtime config');
+      add('flow', 'effective_config.knowledge_scope', 'Effective knowledge scope', effectiveConfig['knowledge_scope'], false, true, 'flow · effective runtime config');
+      add('flow', 'effective_config.system_prompt', 'Effective system prompt', effectiveConfig['system_prompt'], false, true, 'flow · effective runtime config');
+      add('flow', 'effective_config.prompt_type', 'Effective prompt type', effectiveConfig['prompt_type'], false, true, 'flow · effective runtime config');
+      add('flow', 'effective_config.retrieval_defaults', 'Effective retrieval profile', effectiveConfig['retrieval_defaults'], false, true, 'flow · effective runtime config');
+      add('flow', 'effective_config.grounding', 'Effective grounding', effectiveConfig['grounding'], false, true, 'flow · effective runtime config');
+      add('flow', 'effective_config.source_policy', 'Effective source policy', effectiveConfig['source_policy'], false, true, 'flow · effective runtime config');
+    }
+    if (!showGlobalPromptStack && blocks.length === 0) {
+      add(
+        'flow',
+        'prompt_contract.inherited',
+        'Inherited flow instructions',
+        [
+          'This node does not define its own prompt_contract.',
+          'It participates in the chat DAG, so it inherits the global workspace chat contract from the surrounding flow.',
+          'Edit the effective prompt stack on Fast sourced answer, Prompt assembly, Grounding policy, or Settings & latency budget.',
+        ].join('\n'),
+        false,
+        true,
+        'flow · inherited, not node-owned',
+      );
+    }
     return blocks;
+  }
+
+  private shouldShowGlobalPromptStack(
+    node: CanonicalFlowNode,
+    nodeContract: Record<string, unknown> | null,
+  ): boolean {
+    if (nodeContract && Object.keys(nodeContract).length > 0) return true;
+    if (node.type === 'llm') return true;
+    return new Set([
+      'skill.fast_answer',
+      'runtime.prompt_assembly',
+      'skill.grounding_policy',
+      'runtime.settings_budget',
+      'skill.fast_retrieval',
+    ]).has(node.id);
   }
 
   private promptValueToBody(value: unknown): string {
