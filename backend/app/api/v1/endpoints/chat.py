@@ -40,6 +40,7 @@ from app.services.evaluation.canonical_answer_service import (
 from app.services.action_plans import action_context_for_chat
 from app.services.actions import handle_registry_chat_action, handle_transverse_chat_action
 from app.services.chat_grounding import resolve_grounding_policy
+from app.services.chat_run_ledger import enrich_chat_run_ledger
 from app.services.chat_trivial_bypass import TrivialBypass, maybe_trivial_bypass
 from app.services.systems.bootstrap import WORKSPACE_CHAT_VARIANT
 from app.services.systems.bootstrap import workspace_chat_system_id
@@ -708,6 +709,15 @@ def _persist_chat_run(
             trigger=trigger,
         )
         db.add(run)
+        db.flush()
+        enrich_chat_run_ledger(
+            db,
+            run,
+            sources=sources,
+            reasoning_trace=reasoning_trace,
+            extra_output=extra_output or {},
+            create_invocations_if_missing=True,
+        )
         db.commit()
     except Exception as exc:  # noqa: BLE001
         db.rollback()

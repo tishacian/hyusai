@@ -9,6 +9,11 @@ export const observabilityRoutes: Routes = [
       {
         path: '',
         loadComponent: () =>
+          import('./workspace-monitor.component').then((m) => m.WorkspaceMonitorComponent),
+      },
+      {
+        path: 'quality',
+        loadComponent: () =>
           import('./quality-dashboard.component').then((m) => m.QualityDashboardComponent),
       },
       {

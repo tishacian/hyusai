@@ -116,6 +116,9 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
                 · COST <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ formatCurrency(portfolio()?.total_cost) }}</span>
                 · RUNS <span class="ck-tnum" style="color:var(--ck-fg-2);">{{ portfolio()?.runs_count || 0 }}</span>
               </div>
+              <div class="ck-mono" style="font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-5); margin-top:8px;">
+                Estimated value from capability ROI model
+              </div>
             </div>
 
             <div class="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -188,8 +191,18 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
           @if (loading()) {
             <div class="ck-mono" style="padding:24px 0; font-size:11px; color:var(--ck-fg-4); text-align:center;">Loading…</div>
           } @else if (capabilities().length === 0) {
-            <div class="ck-mono" style="padding:32px 0; font-size:11px; color:var(--ck-fg-4); text-align:center;">
-              NO CAPABILITY HAS PRODUCED A RUN YET
+            <div style="padding:32px 0; text-align:center;">
+              <div class="ck-mono" style="font-size:11px; color:var(--ck-fg-4); letter-spacing:0.12em; text-transform:uppercase;">
+                No valued capability run yet
+              </div>
+              <div class="ck-mono" style="font-size:10px; color:var(--ck-fg-5); margin-top:8px;">
+                Start with chat activity, inspect Observability, then drill into Runs.
+              </div>
+              <div style="display:inline-flex; gap:8px; margin-top:14px;">
+                <a routerLink="/observability" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">OBSERVABILITY</a>
+                <a routerLink="/chat" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">CHAT</a>
+                <a routerLink="/runs" class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-signal-cool);">RUNS</a>
+              </div>
             </div>
           } @else {
             <table style="width:100%; border-collapse: collapse;">

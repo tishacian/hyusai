@@ -17,6 +17,7 @@ __all__ = [
     "livekit",
     "tasks",
     "evaluation",
+    "observability",
     "intelligence",
     "sharepoint",
     "systems",

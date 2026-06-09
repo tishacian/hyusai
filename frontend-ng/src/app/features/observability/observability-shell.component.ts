@@ -12,8 +12,8 @@ interface Tab {
 }
 
 /**
- * Observability parent shell — exposes a cockpit-grade tab strip (Quality,
- * Performance, Traces) and delegates rendering of each view to its child
+ * Observability parent shell — exposes a cockpit-grade tab strip (Operations,
+ * Quality, Performance, Runs) and delegates rendering of each view to its child
  * component. The shell stays thin so each child can own its own
  * {@link PageFrameComponent} header + actions.
  */
@@ -81,7 +81,8 @@ export class ObservabilityShellComponent {
   readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
 
   readonly tabs: Tab[] = [
-    { label: 'Quality',     glyph: 'pulse',     route: '/observability',             exact: true },
+    { label: 'Operations',  glyph: 'telemetry', route: '/observability',             exact: true },
+    { label: 'Quality',     glyph: 'pulse',     route: '/observability/quality' },
     { label: 'Performance', glyph: 'telemetry', route: '/observability/performance' },
     { label: 'Runs',        glyph: 'ledger',    route: '/runs' },
   ];

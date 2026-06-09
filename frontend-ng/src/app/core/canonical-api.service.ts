@@ -124,6 +124,90 @@ export interface Run {
   debug?: RunDebugPayload;
 }
 
+export interface SystemHealthRow {
+  id: string;
+  name: string;
+  status?: string;
+  capability_id?: string | null;
+  surface?: string | null;
+  system_type?: string | null;
+  route?: string;
+  runs_total: number;
+  runs_completed: number;
+  runs_failed: number;
+  avg_latency_ms?: number | null;
+  latest_run_id?: string | null;
+  latest_run_status?: string | null;
+  latest_run_at?: string | null;
+}
+
+export interface JobHealthRow {
+  id: string;
+  kind: string;
+  title: string;
+  status: string;
+  stage?: string;
+  progress?: number;
+  error?: string | null;
+  system_id?: string | null;
+  run_id?: string | null;
+  route?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ObservabilityAlert {
+  id: string;
+  kind: string;
+  tone: 'pos' | 'neg' | 'warn' | 'info' | string;
+  label: string;
+  route: string;
+  timestamp?: string | null;
+}
+
+export interface ActivityTimelineItem {
+  id: string;
+  kind: string;
+  tone: 'pos' | 'neg' | 'warn' | 'info' | string;
+  label: string;
+  route: string;
+  timestamp?: string | null;
+  meta?: Record<string, unknown>;
+}
+
+export interface WorkspaceOverview {
+  window: string;
+  since: string;
+  generated_at: string;
+  workspace: { id: string; slug?: string; name?: string };
+  summary: {
+    active_systems: number;
+    runs_total: number;
+    runs_completed: number;
+    runs_failed: number;
+    runs_running: number;
+    avg_latency_ms?: number | null;
+    p95_latency_ms?: number | null;
+    jobs_total: number;
+    jobs_active: number;
+    jobs_failed: number;
+    evaluations_total: number;
+    alerts_total: number;
+  };
+  systems: SystemHealthRow[];
+  jobs: JobHealthRow[];
+  evaluations: {
+    total: number;
+    avg_composite?: number | null;
+    avg_hallucination_rate?: number | null;
+    breaches: number;
+    latest?: Record<string, unknown> | null;
+    thresholds?: Record<string, unknown>;
+  };
+  alerts: ObservabilityAlert[];
+  timeline: ActivityTimelineItem[];
+}
+
 export interface Context {
   id: string;
   system_id?: string | null;
@@ -927,6 +1011,12 @@ export class CanonicalApiService {
       }),
       catchError(() => of(null)),
     );
+  }
+
+  workspaceOverview(window = '24h'): Observable<WorkspaceOverview | null> {
+    return this.api
+      .get<WorkspaceOverview>('/observability/workspace-overview', { window })
+      .pipe(catchError(() => of(null)));
   }
 
   /**
