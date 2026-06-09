@@ -207,6 +207,20 @@ interface IndexingAssistResponse {
   collection: TargetCollectionSnapshot;
 }
 
+interface KnowledgeCollectionItem {
+  slug: string;
+  name?: string | null;
+  status?: string | null;
+  document_count?: number | null;
+  chunk_count?: number | null;
+}
+
+interface KnowledgeCollectionsResponse {
+  collections: string[];
+  items?: KnowledgeCollectionItem[];
+  default?: string | null;
+}
+
 interface SftpLiveUpload {
   id: string;
   temp_name: string;
@@ -419,7 +433,26 @@ const BULK_PROMOTE_LIMIT = 25;
             </a>
           </div>
           <label class="mt-3 block">
-            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Collection slug</span>
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Existing collection</span>
+            <select
+              name="collectionPicker"
+              [ngModel]="targetCollectionSlug()"
+              (ngModelChange)="setCollectionSlug($event)"
+              [disabled]="knowledgeCollectionsLoading() || knowledgeCollectionOptions().length === 0"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60 disabled:opacity-50"
+            >
+              @if (knowledgeCollectionOptions().length === 0) {
+                <option [value]="targetCollectionSlug()">{{ knowledgeCollectionsLoading() ? 'Loading collections…' : 'No collection found' }}</option>
+              }
+              @for (collection of knowledgeCollectionOptions(); track collection.slug) {
+                <option [value]="collection.slug">
+                  {{ collection.slug }}{{ collection.status ? ' · ' + collection.status : '' }}{{ collection.chunk_count !== undefined && collection.chunk_count !== null ? ' · ' + collection.chunk_count + ' chunks' : '' }}
+                </option>
+              }
+            </select>
+          </label>
+          <label class="mt-3 block">
+            <span class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Collection slug / manual override</span>
             <input
               name="collection"
               [ngModel]="collectionSlug"
@@ -427,6 +460,18 @@ const BULK_PROMOTE_LIMIT = 25;
               class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
             />
           </label>
+          @if (selectedKnowledgeCollection(); as selected) {
+            <div class="mt-2 rounded bg-cyan-500/[0.06] px-3 py-2 text-[11px] text-cyan-100 ring-1 ring-cyan-400/15">
+              <span class="font-semibold">{{ selected.name || selected.slug }}</span>
+              <span class="text-cyan-200/70"> · {{ selected.status || 'status unknown' }}</span>
+              <span class="text-cyan-200/70"> · {{ selected.document_count || 0 }} docs</span>
+              <span class="text-cyan-200/70"> · {{ selected.chunk_count || 0 }} chunks</span>
+            </div>
+          } @else if (knowledgeCollectionOptions().length > 0) {
+            <div class="mt-2 rounded bg-amber-500/[0.06] px-3 py-2 text-[11px] text-amber-100 ring-1 ring-amber-400/15">
+              This slug is not in the current Knowledge collection list. It can still be used as a manual promotion target, but the collection link may be missing until it is created.
+            </div>
+          }
           <div class="mt-4 rounded bg-white/[0.03] p-3 ring-1 ring-white/10">
             @if (targetCollection(); as collection) {
               <div class="flex items-center justify-between gap-3">
@@ -1642,6 +1687,10 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     this.knowledgeJobs().filter((job) => job.status === 'queued' || job.status === 'running'),
   );
   readonly workerJobById = computed(() => new Map(this.knowledgeJobs().map((job) => [job.id, job])));
+  readonly knowledgeCollectionOptions = computed(() => this.knowledgeCollections());
+  readonly selectedKnowledgeCollection = computed(() =>
+    this.knowledgeCollectionOptions().find((collection) => collection.slug === this.targetCollectionSlug()) || null,
+  );
   readonly queueRangeLabel = computed(() => {
     const total = this.queueItems().length;
     if (total === 0) return '0 rows';
@@ -1692,6 +1741,9 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   draftExpires = '';
   draftExtensions = '';
   collectionSlug = '';
+  private collectionSlugTouched = false;
+  readonly knowledgeCollections = signal<KnowledgeCollectionItem[]>([]);
+  readonly knowledgeCollectionsLoading = signal(false);
   staleAfterHours = 24;
   private operationsPollId: ReturnType<typeof setInterval> | null = null;
   private indexingPollId: ReturnType<typeof setInterval> | null = null;
@@ -1738,8 +1790,44 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
       error: () => this.files.set([]),
     });
     this.loadOperations(true);
+    this.loadKnowledgeCollections();
     this.loadIndexingAssist(true, []);
     this.loadIndexingMonitor(true);
+  }
+
+  loadKnowledgeCollections(): void {
+    this.knowledgeCollectionsLoading.set(true);
+    this.api.get<KnowledgeCollectionsResponse>('/documents/collections').subscribe({
+      next: (res) => {
+        const seen = new Set<string>();
+        const items: KnowledgeCollectionItem[] = [];
+        for (const item of res.items || []) {
+          if (!item.slug || seen.has(item.slug)) continue;
+          seen.add(item.slug);
+          items.push(item);
+        }
+        for (const slug of res.collections || []) {
+          if (!slug || seen.has(slug)) continue;
+          seen.add(slug);
+          items.push({ slug, name: slug });
+        }
+        this.knowledgeCollections.set(items);
+        const current = this.collectionSlug.trim();
+        const currentExists = items.some((item) => item.slug === current);
+        const fallback = (res.default && items.some((item) => item.slug === res.default) ? res.default : items[0]?.slug) || '';
+        if (!this.collectionSlugTouched && fallback && (!current || !currentExists)) {
+          this.collectionSlug = fallback;
+          this.indexingAssist.set(null);
+          this.loadIndexingAssist(true, []);
+          this.loadIndexingMonitor(true);
+        }
+        this.knowledgeCollectionsLoading.set(false);
+      },
+      error: () => {
+        this.knowledgeCollections.set([]);
+        this.knowledgeCollectionsLoading.set(false);
+      },
+    });
   }
 
   loadOperations(silent = false): void {
@@ -1838,6 +1926,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   }
 
   setCollectionSlug(value: string): void {
+    this.collectionSlugTouched = true;
     this.collectionSlug = value;
     this.indexingAssist.set(null);
     this.lastPromotionBanner.set(null);
