@@ -4,6 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom } from 'rxjs';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '@app/core/api.service';
+import { I18nService } from '@app/core/i18n.service';
 import { LiveKitConversationConnection, LiveKitConversationService } from '@app/core/livekit-conversation.service';
 import { PermissionsService } from '@app/core/permissions.service';
 import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-playback.service';
@@ -394,14 +395,14 @@ interface ProposalFact {
       <header class="t-card t-elevated rounded-lg p-5 flex items-start justify-between gap-4">
         <div>
           <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
-            Capture
+            {{ i18n.t('capture.eyebrow') }}
           </p>
           <h1 class="text-2xl font-semibold text-white mt-1">
-            Capture de connaissances
+            {{ i18n.t('capture.title') }}
           </h1>
           @if (!isDemoMode()) {
             <p class="text-sm text-gray-400 mt-2 max-w-3xl">
-              Préparez une session, échangez avec un expert, relisez le rapport, puis publiez la connaissance.
+              {{ i18n.t('capture.description') }}
             </p>
           }
         </div>
@@ -413,14 +414,14 @@ interface ProposalFact {
               (click)="showAdvancedSetup.set(!showAdvancedSetup())"
             >
               <app-icon [name]="showAdvancedSetup() ? 'chevron-up' : 'settings-2'" [size]="12" />
-              Avancé
+              {{ i18n.t('capture.advanced') }}
             </button>
             <a
               [routerLink]="workspaceAccessRoute()"
               class="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
             >
               <app-icon name="settings-2" [size]="12" />
-              Gérer les accès
+              {{ i18n.t('capture.manage_access') }}
             </a>
           }
         </div>
@@ -460,28 +461,28 @@ interface ProposalFact {
       @if (activeSurface() === 'prep') {
         <section class="max-w-5xl mx-auto py-6 lg:py-8 space-y-6 min-h-[calc(100vh-15rem)] flex flex-col">
           <div>
-            <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">Préparation</p>
-            <h2 class="mt-2 text-3xl text-white font-semibold">Préparer la capture</h2>
+            <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">{{ i18n.t('capture.prep.eyebrow') }}</p>
+            <h2 class="mt-2 text-3xl text-white font-semibold">{{ i18n.t('capture.prep.title') }}</h2>
             <p class="mt-2 text-sm text-gray-400 max-w-3xl">
               {{ isDemoMode()
-                ? 'Donnez un titre, choisissez une durée et un mode. Le plan et le rapport se construisent ensuite dans le parcours.'
-                : 'Donnez un titre, choisissez une durée et un mode. Les sources et paramètres avancés restent disponibles sans encombrer le parcours.' }}
+                ? i18n.t('capture.prep.description_demo')
+                : i18n.t('capture.prep.description_full') }}
             </p>
           </div>
 
           <div class="space-y-5 flex-1">
             <div>
-              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Titre de session *</label>
+              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.prep.session_title') }}</label>
               <input
                 class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
                 [(ngModel)]="sessionTitle"
-                placeholder="Ex. Usure prématurée des paliers - retours terrain"
+                [placeholder]="i18n.t('capture.prep.session_title_placeholder')"
               />
             </div>
 
             @if (!isDemoMode() && showAdvancedSetup()) {
             <div>
-              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Domaine</label>
+              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.prep.domain') }}</label>
               <div class="grid md:grid-cols-3 gap-3">
                 @for (domain of captureDomains; track domain.id) {
                   <button
@@ -512,17 +513,17 @@ interface ProposalFact {
                 (click)="showAdvancedSetup.set(!showAdvancedSetup())"
               >
                 <app-icon [name]="showAdvancedSetup() ? 'chevron-up' : 'chevron-down'" [size]="14" />
-                Sources et contexte avancés
+                {{ i18n.t('capture.prep.advanced_sources') }}
               </button>
               @if (showAdvancedSetup()) {
               <div class="mt-3">
-              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Contexte documentaire</label>
+              <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.prep.document_context') }}</label>
               <select
                 class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
                 [(ngModel)]="contextId"
                 (ngModelChange)="onContextChange($event)"
               >
-                <option value="">Sources par défaut du workspace</option>
+                <option value="">{{ i18n.t('capture.prep.workspace_default_sources') }}</option>
                 @for (ctx of contexts(); track ctx.id) {
                   <option [value]="ctx.id">
                     {{ ctx.name }}{{ ctx.environment_state?.collection ? ' · ' + ctx.environment_state?.collection : '' }}
@@ -541,7 +542,7 @@ interface ProposalFact {
                     </div>
                     @if (newContextId() === ctx.id) {
                       <span class="shrink-0 text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/20">
-                        Nouveau contexte
+                        {{ i18n.t('capture.prep.new_context') }}
                       </span>
                     }
                   </div>
@@ -617,9 +618,9 @@ interface ProposalFact {
 
             <div class="grid md:grid-cols-[220px_minmax(0,1fr)] gap-5 items-start">
               <div>
-                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Durée estimée</label>
+                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.prep.duration') }}</label>
                 @if (!isDemoMode() && durationUnlimited()) {
-                  <div class="rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-brand-100">Sans limite</div>
+                  <div class="rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-brand-100">{{ i18n.t('capture.prep.no_limit') }}</div>
                 } @else {
                   <input
                     type="number"
@@ -636,12 +637,12 @@ interface ProposalFact {
                     class="mt-2 text-xs text-brand-200 hover:text-brand-100"
                     (click)="toggleDurationUnlimited()"
                   >
-                    {{ durationUnlimited() ? 'Fixer une durée' : 'Sans limite' }}
+                    {{ durationUnlimited() ? i18n.t('capture.prep.set_duration') : i18n.t('capture.prep.no_limit') }}
                   </button>
                 }
               </div>
               <div class="space-y-3">
-                <p class="block text-[11px] uppercase tracking-wider text-gray-500">Mode de capture</p>
+                <p class="block text-[11px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.prep.mode') }}</p>
                 <div class="grid md:grid-cols-2 gap-3">
                   @for (mode of visiblePlanModes(); track mode.id) {
                     <button
@@ -679,7 +680,7 @@ interface ProposalFact {
                 class="px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-300 ring-1 ring-white/10"
                 (click)="goSurface('dashboard')"
               >
-                Annuler
+                {{ i18n.t('common.cancel') }}
               </button>
               <button
                 type="button"
@@ -688,7 +689,7 @@ interface ProposalFact {
                 [title]="preparationBlockingHint() || ''"
                 (click)="continueFromPreparation()"
               >
-                Continuer
+                {{ loading() ? i18n.t('capture.action.preparing') : i18n.t('capture.action.continue') }}
                 <app-icon name="arrow-right" [size]="14" />
               </button>
             </div>
@@ -704,9 +705,9 @@ interface ProposalFact {
           <div class="t-card rounded-lg p-5 space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Sessions de capture</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.dashboard.eyebrow') }}</p>
                 <h2 class="text-lg font-semibold text-white">
-                  {{ isDemoMode() ? 'Vos sessions' : 'Tableau de bord' }}
+                  {{ isDemoMode() ? i18n.t('capture.dashboard.title') : i18n.t('capture.dashboard.title_full') }}
                 </h2>
               </div>
               @if (!isDemoMode()) {
@@ -715,7 +716,7 @@ interface ProposalFact {
                 [(ngModel)]="dashboardDomainFilter"
                 (ngModelChange)="refreshDashboard()"
               >
-                <option value="">Tous les domaines</option>
+                <option value="">{{ i18n.t('capture.dashboard.all_domains') }}</option>
                 @for (domain of captureDomains; track domain.id) {
                   <option [value]="domain.id">{{ domain.label }}</option>
                 }
@@ -727,25 +728,25 @@ interface ProposalFact {
                 [disabled]="!canCaptureCreate()"
                 (click)="startNewSessionDraft()"
               >
-                <app-icon name="plus" [size]="14" /> {{ isDemoMode() ? 'Nouvelle capture' : 'Nouvelle session' }}
+                <app-icon name="plus" [size]="14" /> {{ isDemoMode() ? i18n.t('capture.dashboard.new_capture') : i18n.t('capture.dashboard.new_session') }}
               </button>
             </div>
             @if (!isDemoMode() && showAdvancedSetup()) {
             <div class="grid md:grid-cols-4 gap-3">
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Sessions</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.dashboard.sessions') }}</div>
                 <div class="text-2xl text-white font-semibold">{{ dashboardSessions().length }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Actives</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.dashboard.active') }}</div>
                 <div class="text-2xl text-white font-semibold">{{ activeSessionCount() }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Rapports</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.dashboard.reports') }}</div>
                 <div class="text-2xl text-white font-semibold">{{ dashboardProposals().length }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">À relire</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.dashboard.to_review') }}</div>
                 <div class="text-2xl text-white font-semibold">{{ pendingProposalCount() }}</div>
               </div>
             </div>
@@ -763,7 +764,7 @@ interface ProposalFact {
                       <p class="text-xs text-gray-500 mt-1 line-clamp-2">{{ sessionCardSummary(row) }}</p>
                       @if (!isDemoMode() && showAdvancedSetup() && isAuthor(row)) {
                         <span class="mt-2 inline-flex px-2 py-0.5 rounded bg-brand-500/15 text-[10px] uppercase tracking-wider text-brand-200">
-                          Auteur
+                          {{ i18n.t('capture.dashboard.author') }}
                         </span>
                       }
                     </div>
@@ -773,7 +774,7 @@ interface ProposalFact {
                     <div class="flex flex-wrap gap-2">
                       <span>{{ sessionLastActivityLabel(row) }}</span>
                       @if (sessionOpenQuestionCount(row) > 0) {
-                        <span class="text-amber-200">{{ sessionOpenQuestionCount(row) }} question(s) ouverte(s)</span>
+                        <span class="text-amber-200">{{ sessionOpenQuestionsLabel(row) }}</span>
                       }
                     </div>
                     <span class="inline-flex shrink-0 items-center gap-1 rounded bg-brand-500/15 px-2 py-1 text-brand-100 ring-1 ring-brand-300/20">
@@ -784,7 +785,7 @@ interface ProposalFact {
                 </button>
               } @empty {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-8 text-center text-gray-500">
-                  Aucune session pour l’instant. Créez une capture pour commencer.
+                  {{ i18n.t('capture.dashboard.empty') }}
                 </div>
               }
             </div>
@@ -849,7 +850,7 @@ interface ProposalFact {
             <section class="t-card rounded-lg p-4">
               <div class="flex flex-wrap items-center justify-between gap-4">
                 <div class="min-w-0">
-                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Capture en cours</p>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.session.status.in_progress') }}</p>
                   <h2 class="text-lg font-semibold text-white mt-1 truncate">{{ s.title }}</h2>
                 </div>
                 <div class="flex flex-wrap items-center gap-2 text-xs">
@@ -876,14 +877,14 @@ interface ProposalFact {
                       {{ knowledgeScopeLabel() }}
                     </span>
                     @if (isAuthor(s)) {
-                      <span class="px-2 py-1 rounded bg-brand-500/15 text-brand-100 ring-1 ring-brand-300/20">Auteur</span>
+                      <span class="px-2 py-1 rounded bg-brand-500/15 text-brand-100 ring-1 ring-brand-300/20">{{ i18n.t('capture.dashboard.author') }}</span>
                     }
                   }
                   @if (s.status === 'active') {
-                    <button type="button" class="px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white text-xs" (click)="pauseSession(s)">Pause</button>
+                    <button type="button" class="px-2 py-1 rounded bg-white/5 text-gray-300 hover:text-white text-xs" (click)="pauseSession(s)">{{ i18n.t('capture.action.pause') }}</button>
                   }
                   @if (s.status === 'paused') {
-                    <button type="button" class="px-2 py-1 rounded bg-brand-500/20 text-brand-100 text-xs" (click)="resumeSession(s)">Reprendre</button>
+                    <button type="button" class="px-2 py-1 rounded bg-brand-500/20 text-brand-100 text-xs" (click)="resumeSession(s)">{{ i18n.t('capture.action.resume') }}</button>
                   }
                 </div>
               </div>
@@ -976,7 +977,7 @@ interface ProposalFact {
                 <div class="flex-1 min-h-0 overflow-y-auto pr-1">
                 @if (isFreeConversationSession(s)) {
                   <div class="rounded border border-dashed border-white/10 bg-black/20 p-4 text-sm text-gray-400">
-                    L’expert pilote le fil. L’IA extrait les faits, corrections et demandes de synthèse sans plan imposé.
+                    {{ i18n.t('capture.session.free_guidance') }}
                   </div>
                 } @else {
                   <div class="space-y-3">
@@ -990,7 +991,7 @@ interface ProposalFact {
                             }
                           </div>
                           <span class="shrink-0 rounded bg-white/5 px-2 py-1 text-[10px] text-gray-400">
-                            {{ (topic.subtopics || []).length }} sous-sujet(s)
+                            {{ subtopicsLabel((topic.subtopics || []).length) }}
                           </span>
                         </div>
                         @for (subtopic of topic.subtopics || []; track subtopic.id) {
@@ -1237,7 +1238,7 @@ interface ProposalFact {
                           <div class="flex items-center justify-between gap-2">
                             <span class="text-xs text-brand-300 font-mono">{{ questionDisplayId(q) }}</span>
                             <span
-                              [class]="questionStateLabel(s, q) === 'en cours'
+                              [class]="selectedQuestionId() === q.id
                                 ? 'text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-brand-500/20 text-brand-100'
                                 : 'text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-white/5 text-gray-500'"
                             >
@@ -1866,7 +1867,7 @@ interface ProposalFact {
                               >
                                 <span class="ck-mono">{{ questionDisplayId(q) }}</span>
                                 <span
-                                  [class]="questionStateLabel(s, q) === 'en cours'
+                                  [class]="selectedQuestionId() === q.id
                                     ? 'text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-brand-500/20 text-brand-100'
                                     : 'text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-white/5 text-gray-400'"
                                 >
@@ -2161,7 +2162,7 @@ interface ProposalFact {
                   [disabled]="loading() || extractingPlanSource() || !canSubmitProvidedPlanSource()"
                   (click)="createPlan()"
                 >
-                  {{ loading() ? 'Préparation en cours...' : 'Continuer' }}
+                  {{ loading() ? i18n.t('capture.action.preparing') : i18n.t('capture.action.continue') }}
                   <app-icon name="arrow-right" [size]="14" />
                 </button>
               </div>
@@ -2709,6 +2710,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   private readonly livekitConversation = inject(LiveKitConversationService);
   private readonly ttsPlaybackFactory = inject(VoiceTtsPlaybackService);
   private readonly workspace = inject(WorkspaceService);
+  readonly i18n = inject(I18nService);
   readonly permissions = inject(PermissionsService);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly isPilotMode = this.isDemoMode;
@@ -2808,15 +2810,15 @@ export class KnowledgeCaptureComponent implements OnInit {
     }> = [
       {
         id: 'plan_build',
-        label: 'Avec plan',
-        description: 'Préparer un plan éditable avant l’échange.',
+        label: this.i18n.t('capture.prep.with_plan'),
+        description: this.i18n.t('capture.prep.with_plan_description'),
         icon: 'layout-grid',
         recommended: false,
       },
       {
         id: 'free_conversation',
-        label: 'Sans plan',
-        description: 'Démarrer directement et structurer après l’échange.',
+        label: this.i18n.t('capture.prep.without_plan'),
+        description: this.i18n.t('capture.prep.without_plan_description'),
         icon: 'activity',
         recommended: false,
       },
@@ -2939,26 +2941,16 @@ export class KnowledgeCaptureComponent implements OnInit {
   private dismissedSuggestionKeys = new Set<string>();
 
   readonly surfaceNav: Array<{ id: CaptureSurfaceView; label: string; icon: string; step: number }> = [
-    { id: 'dashboard', label: 'Sessions', icon: 'layout-dashboard', step: 1 },
-    { id: 'prep', label: 'Préparer', icon: 'sliders-horizontal', step: 2 },
-    { id: 'plan', label: 'Plan', icon: 'list-checks', step: 3 },
-    { id: 'session', label: 'Capture', icon: 'mic', step: 4 },
-    { id: 'review', label: 'Rapport', icon: 'file-text', step: 5 },
-    { id: 'publish', label: 'Publier', icon: 'upload', step: 6 },
+    { id: 'dashboard', label: 'capture.step.dashboard', icon: 'layout-dashboard', step: 1 },
+    { id: 'prep', label: 'capture.step.prep', icon: 'sliders-horizontal', step: 2 },
+    { id: 'plan', label: 'capture.step.plan', icon: 'list-checks', step: 3 },
+    { id: 'session', label: 'capture.step.capture', icon: 'mic', step: 4 },
+    { id: 'review', label: 'capture.step.review', icon: 'file-text', step: 5 },
+    { id: 'publish', label: 'capture.step.publish', icon: 'upload', step: 6 },
   ];
 
   surfaceNavLabel(item: { id: CaptureSurfaceView; label: string }): string {
-    if (!this.isDemoMode()) return item.label;
-    const labels: Partial<Record<CaptureSurfaceView, string>> = {
-      dashboard: 'Sessions',
-      prep: 'Préparer',
-      plan: 'Plan',
-      plan_build: 'Plan',
-      session: 'Capture',
-      review: 'Rapport',
-      publish: 'Publier',
-    };
-    return labels[item.id] || item.label;
+    return this.i18n.t(item.label);
   }
 
   readonly voiceWaveBars = [10, 18, 26, 14, 22, 30, 16, 24, 12, 20];
@@ -3187,15 +3179,15 @@ export class KnowledgeCaptureComponent implements OnInit {
         next: (session) => {
           const typed = session as CaptureSession;
           this.session.set(typed);
-          this.zoom.setCurrentCapability(typed.capability_id || null, 'Capture de connaissances');
+          this.zoom.setCurrentCapability(typed.capability_id || null, this.i18n.t('capture.title'));
           this.zoom.setCurrentSystem(typed.system_id || null, this.systemLabel(typed.system_id));
           this.zoom.setCurrentContext(typed.context_id || null, this.contextLabel(typed.context_id));
           this.selectedQuestionId.set(this.planQuestions(typed)[0]?.id || null);
           this.planNotice.set({
             tone: 'info',
             text: this.isFreeConversationSession(typed)
-              ? 'Capture libre prête. Continuez vers l’échange quand l’expert est prêt.'
-              : 'Plan prêt. Ajustez-le si nécessaire, puis continuez vers l’échange.',
+              ? this.i18n.t('capture.notice.free_ready')
+              : this.i18n.t('capture.notice.plan_ready'),
           });
           this.refreshEvents(typed.id);
           this.refreshDashboard();
@@ -3684,9 +3676,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     const summary = session.metrics?.['summary_short'];
     if (typeof summary === 'string' && summary.trim()) return summary.trim();
     if (session.objective?.trim()) return session.objective.trim();
-    if (this.isFreeConversationSession(session)) return 'Capture libre à reprendre.';
+    if (this.isFreeConversationSession(session)) return this.i18n.t('capture.session.free_summary');
     const topics = this.planTopics(session).map((topic) => topic.title).filter(Boolean).slice(0, 2);
-    return topics.length ? `Plan : ${topics.join(', ')}` : 'Session de capture.';
+    return topics.length
+      ? this.i18n.t('capture.session.plan_prefix', { topics: topics.join(', ') })
+      : this.i18n.t('capture.session.default_summary');
   }
 
   sessionOpenQuestionCount(session: CaptureSession): number {
@@ -3701,17 +3695,27 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   sessionCardActionLabel(session: CaptureSession): string {
     const status = String(session.status || '').toLowerCase();
-    if (status === 'active' || status === 'paused') return 'Reprendre';
-    return 'Ouvrir';
+    if (status === 'active' || status === 'paused') return this.i18n.t('capture.action.resume');
+    return this.i18n.t('capture.action.open');
   }
 
   captureSessionStatusLabel(session: CaptureSession): string {
     if (session.status === 'completed' && this.sessionOpenQuestionCount(session) > 0) {
-      return 'terminée avec questions ouvertes';
+      return this.i18n.t('capture.session.status.completed_with_open_questions');
     }
-    if (session.status === 'completed') return 'terminée';
-    if (session.status === 'active' || session.status === 'paused' || session.status === 'planned') return 'en cours';
+    if (session.status === 'completed') return this.i18n.t('capture.session.status.completed');
+    if (session.status === 'active' || session.status === 'paused' || session.status === 'planned') {
+      return this.i18n.t('capture.session.status.in_progress');
+    }
     return this.workflowStatusLabel(session.status);
+  }
+
+  sessionOpenQuestionsLabel(session: CaptureSession): string {
+    const count = this.sessionOpenQuestionCount(session);
+    return this.i18n.t(
+      count === 1 ? 'capture.dashboard.open_questions_one' : 'capture.dashboard.open_questions_many',
+      { count },
+    );
   }
 
   sessionLastActivityLabel(session: CaptureSession): string {
@@ -3721,24 +3725,33 @@ export class KnowledgeCaptureComponent implements OnInit {
       (typeof metricActivity === 'string' ? metricActivity : null) ||
       session.completed_at ||
       session.started_at;
-    if (!activity) return this.isFreeConversationSession(session) ? 'sans plan' : `${this.planSubtopicCount(session)} sous-sujet(s)`;
-    return `Dernière activité ${new Date(activity).toLocaleDateString()}`;
+    if (!activity) {
+      if (this.isFreeConversationSession(session)) return this.i18n.t('capture.dashboard.no_plan');
+      const count = this.planSubtopicCount(session);
+      return this.i18n.t(
+        count === 1 ? 'capture.dashboard.subtopics_one' : 'capture.dashboard.subtopics_many',
+        { count },
+      );
+    }
+    return this.i18n.t('capture.dashboard.last_activity', {
+      date: new Intl.DateTimeFormat(this.i18n.locale() === 'en' ? 'en-US' : 'fr-FR').format(new Date(activity)),
+    });
   }
 
   workflowStatusLabel(status?: string | null): string {
     const normalized = String(status || '').toLowerCase();
     const labels: Record<string, string> = {
-      planned: 'planifiée',
-      active: 'active',
-      paused: 'en pause',
-      completed: 'terminée',
-      pending_review: 'à relire',
-      accepted: 'validée',
-      rejected: 'rejetée',
-      published: 'publiée',
-      failed: 'en erreur',
+      planned: 'capture.workflow.status.planned',
+      active: 'capture.workflow.status.active',
+      paused: 'capture.workflow.status.paused',
+      completed: 'capture.workflow.status.completed',
+      pending_review: 'capture.workflow.status.pending_review',
+      accepted: 'capture.workflow.status.accepted',
+      rejected: 'capture.workflow.status.rejected',
+      published: 'capture.workflow.status.published',
+      failed: 'capture.workflow.status.failed',
     };
-    return labels[normalized] || status || 'inconnu';
+    return this.i18n.t(labels[normalized] || status || 'capture.workflow.status.unknown');
   }
 
   stepIsComplete(view: CaptureSurfaceView): boolean {
@@ -4005,7 +4018,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   contextLabel(contextId?: string | null): string {
     if (!contextId) {
-      return 'Sources par défaut du workspace';
+      return this.i18n.t('capture.prep.workspace_default_sources');
     }
     return this.contexts().find((ctx) => ctx.id === contextId)?.name || contextId.slice(0, 8);
   }
@@ -4017,7 +4030,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   currentPromptText(): string | null {
     const session = this.session();
     if (session && this.isFreeConversationSession(session)) {
-      return 'Capture libre active. Parlez du sujet, corrigez ou complétez naturellement ; l’IA structurera les éléments utiles.';
+      return this.i18n.t('capture.session.free_prompt');
     }
     const question = this.currentQuestion();
     if (question) {
@@ -5164,6 +5177,13 @@ export class KnowledgeCaptureComponent implements OnInit {
     return this.planTopics(session).reduce((total, topic) => total + (topic.subtopics?.length || 0), 0);
   }
 
+  subtopicsLabel(count: number): string {
+    return this.i18n.t(
+      count === 1 ? 'capture.progress.subtopics_one' : 'capture.progress.subtopics_many',
+      { count },
+    );
+  }
+
   subtopicQuestionCount(subtopic: CaptureSubtopic): number {
     return subtopic.questions?.length || 0;
   }
@@ -5204,9 +5224,13 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   subtopicProgressLabel(session: CaptureSession, subtopic: CaptureSubtopic): string {
     const count = this.subtopicQuestionCount(subtopic);
-    if (!count) return this.activeSubtopicId() === subtopic.id ? 'actif' : 'sujet';
-    if (this.subtopicHasCurrentQuestion(session, subtopic)) return 'en cours';
-    return `${count} relance(s)`;
+    if (!count) {
+      return this.i18n.t(
+        this.activeSubtopicId() === subtopic.id ? 'capture.subtopic.active' : 'capture.subtopic.subject',
+      );
+    }
+    if (this.subtopicHasCurrentQuestion(session, subtopic)) return this.i18n.t('capture.question.status.current');
+    return this.i18n.t(count === 1 ? 'capture.subtopic.prompts_one' : 'capture.subtopic.prompts_many', { count });
   }
 
   questionBankStatusLabel(session: CaptureSession): string {
@@ -6123,10 +6147,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   sessionStartStateLabel(session: CaptureSession): string {
-    if (session.status === 'planned') return 'non démarrée';
-    if (session.status === 'active') return 'active';
-    if (session.status === 'paused') return 'en pause';
-    if (session.status === 'completed') return 'terminée';
+    if (session.status === 'planned') return this.i18n.t('capture.session.state.not_started');
+    if (session.status === 'active') return this.i18n.t('capture.workflow.status.active');
+    if (session.status === 'paused') return this.i18n.t('capture.workflow.status.paused');
+    if (session.status === 'completed') return this.i18n.t('capture.workflow.status.completed');
     return session.status;
   }
 
@@ -7302,11 +7326,13 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   captureProgressLabel(session: CaptureSession): string {
-    if (this.isFreeConversationSession(session)) return 'Capture libre';
+    if (this.isFreeConversationSession(session)) return this.i18n.t('capture.progress.free');
     const total = this.planQuestions(session).length;
     if (!total) {
       const topics = this.planTopics(session).length;
-      return topics ? `${topics} sujet(s)` : 'Sans plan';
+      return topics
+        ? this.i18n.t(topics === 1 ? 'capture.progress.topics_one' : 'capture.progress.topics_many', { count: topics })
+        : this.i18n.t('capture.progress.no_plan');
     }
     return `${this.currentQuestionPosition(session)}/${total}`;
   }
@@ -7325,9 +7351,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     const selected = this.selectedQuestionId();
     const selectedIndex = questions.findIndex((item) => item.id === selected);
     const questionIndex = questions.findIndex((item) => item.id === question.id);
-    if (question.id === selected) return 'en cours';
-    if (selectedIndex >= 0 && questionIndex >= 0 && questionIndex < selectedIndex) return 'couverte';
-    return 'à venir';
+    if (question.id === selected) return this.i18n.t('capture.question.status.current');
+    if (selectedIndex >= 0 && questionIndex >= 0 && questionIndex < selectedIndex) {
+      return this.i18n.t('capture.question.status.covered');
+    }
+    return this.i18n.t('capture.question.status.upcoming');
   }
 
   voiceWaveHeight(base: number): number {
