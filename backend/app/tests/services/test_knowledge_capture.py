@@ -1600,7 +1600,9 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
     reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
     assert not [turn for turn in (reloaded.transcript or []) if turn.get("speaker") == "expert"]
 
-    # Natural pause: the authoritative segment end runs the FAST Tier-1 capture only.
+    # Natural pause: the authoritative segment end must REUSE the last full-buffer
+    # partial (no new audio arrived since), so it does NOT spend another STT call.
+    calls_before_endpoint = fake_provider.transcribe_calls
     await gateway._handle_event(
         websocket,
         db_session,
@@ -1611,12 +1613,18 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
     )
 
     types_after = [t for t, _ in sent]
-    # A1: Tier-1-only fast capture — text.final ships, the reframed transcript.improved
-    # stage is removed from the live path entirely.
+    # TASK 1: the endpoint reused the latest partial instead of re-transcribing the
+    # whole buffer — one redundant round-trip saved.
+    assert fake_provider.transcribe_calls == calls_before_endpoint
+    # text.final ships; the reframed transcript.improved stage stays removed.
     assert "text.final" in types_after
     assert "transcript.improved" not in types_after
     final = next(p for t, p in sent if t == "text.final")
     assert final.get("reframed") is False
+    # TASK 2: the committed live text stays RAW (no glossary substitution live); it is
+    # exactly the latest partial text.
+    last_partial = [p.get("text") for t, p in sent if t == "transcript.partial"][-1]
+    assert final.get("text") == last_partial
     # B2: no content relance / next prompt / proposal during capture (timeline only).
     assert "prompt.next" not in types_after
     assert "conversation.step" not in types_after

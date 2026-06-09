@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom } from 'rxjs';
@@ -1131,12 +1131,12 @@ interface ProposalFact {
               <main class="t-card rounded-lg p-4 min-h-[calc(100vh-270px)] flex flex-col">
                 <div
                   [class]="isDemoMode()
-                    ? 'sticky top-2 z-10 rounded bg-brand-500/10 border border-brand-400/20 p-4 backdrop-blur'
-                    : 'rounded bg-brand-500/10 border border-brand-400/20 p-4'"
+                    ? 'sticky top-2 z-10 rounded bg-brand-500/10 border border-brand-400/20 p-3 backdrop-blur'
+                    : 'rounded bg-brand-500/10 border border-brand-400/20 p-3'"
                 >
                   <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">
+                      <p class="ck-mono text-[9px] uppercase tracking-wider text-brand-200/80">
                         Plan de capture · vous parlez librement
                       </p>
                       @if (planTopics(s).length) {
@@ -1181,7 +1181,7 @@ interface ProposalFact {
                           </div>
                         </div>
                       } @else {
-                        <p class="mt-2 text-lg text-white leading-relaxed">Parlez librement : ce repère est seulement là pour ne rien oublier.</p>
+                        <p class="mt-1.5 text-sm text-gray-200 leading-relaxed">Parlez librement : ce repère est seulement là pour ne rien oublier.</p>
                       }
                     </div>
                     <button
@@ -1272,10 +1272,10 @@ interface ProposalFact {
                 <div class="mt-4 flex-1 flex flex-col gap-3 min-h-0">
                   <div class="flex items-center justify-between gap-3">
                     <div>
-                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">
+                      <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">
                         {{ isDemoMode() ? 'Échange avec l’expert' : 'Échange capturé' }}
                       </p>
-                      <h3 class="text-sm font-semibold text-white">{{ voiceStateLabel() }}</h3>
+                      <h3 class="text-xs font-medium text-gray-200">{{ voiceStateLabel() }}</h3>
                     </div>
                     @if (!isDemoMode()) {
                       @if (lastConversationStep(); as step) {
@@ -1286,14 +1286,14 @@ interface ProposalFact {
                     }
                   </div>
                   @if (isDemoMode() || !showAdvancedSetup()) {
-                    <div class="flex-1 min-h-80 rounded bg-black/20 border border-white/10 p-5 overflow-auto leading-relaxed">
+                    <div #captureTranscriptScroll class="flex-1 min-h-80 rounded bg-black/20 border border-white/10 p-5 overflow-auto leading-relaxed">
                       @for (row of captureTranscriptRows(); track row.key) {
                         @if (row.kind === 'topic') {
                           <p class="mt-6 first:mt-0 mb-2 ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ row.text }}</p>
                         } @else if (row.kind === 'ia') {
                           <p class="my-3 border-l-2 border-brand-400/40 pl-3 text-sm italic text-brand-200/90">{{ row.text }}</p>
                         } @else {
-                          <p class="my-3 first:mt-0 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ row.text }}@if (row.liveText) {<span class="text-gray-400 italic">{{ row.text ? ' ' : '' }}{{ row.liveText }}</span>}</p>
+                          <p class="my-3 first:mt-0 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ row.text }}@if (row.liveText) {<span [class]="row.liveCommitted ? 'text-gray-100' : 'text-gray-400 italic'">{{ row.text ? ' ' : '' }}{{ row.liveText }}</span>}</p>
                         }
                       } @empty {
                         <div class="flex h-full flex-col items-center justify-center text-center">
@@ -2752,6 +2752,30 @@ interface ProposalFact {
 export class KnowledgeCaptureComponent implements OnInit {
   @ViewChild('planOutlineEditor') private planOutlineEditor?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('planBuildOutlineEditor') private planBuildOutlineEditor?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('captureTranscriptScroll') private captureTranscriptScroll?: ElementRef<HTMLElement>;
+
+  // Keep the transcript pinned to the latest text while the expert is speaking.
+  // We measure stickiness BEFORE the new content renders so a manual scroll-up
+  // to read history is never yanked back, but active speech always sticks.
+  private readonly autoScrollTranscript = effect(() => {
+    // Track the signals that change as transcript text streams in.
+    this.captureTranscriptRows();
+    this.liveTranscript();
+    const speaking = this.recording();
+    const el = this.captureTranscriptScroll?.nativeElement;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const stick = speaking || distanceFromBottom < 120;
+    if (!stick) return;
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        const node = this.captureTranscriptScroll?.nativeElement;
+        if (node) node.scrollTop = node.scrollHeight;
+      });
+    } else {
+      el.scrollTop = el.scrollHeight;
+    }
+  });
 
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
@@ -4316,6 +4340,8 @@ export class KnowledgeCaptureComponent implements OnInit {
     kind: 'topic' | 'flow' | 'ia';
     text: string;
     liveText?: string;
+    /** True once the in-progress tail has been finalised (text.final / refined). */
+    liveCommitted?: boolean;
   }> {
     const expert = this.textEvents()
       .filter(
@@ -4329,6 +4355,12 @@ export class KnowledgeCaptureComponent implements OnInit {
         id: event.id,
         text: this.eventDisplayText(event).trim(),
         topic: this.eventOutlineTitle(event),
+        // A "round" = one VAD speaking turn. Each committed turn (client_turn_id)
+        // is rendered on its own line/paragraph within the section flow.
+        round:
+          event.metadata?.['client_turn_id'] != null
+            ? `turn:${event.metadata['client_turn_id']}`
+            : `evt:${event.id}`,
       }));
     const annotations = this.relanceAnnotations()
       .filter((item) => !this.isTrivialTranscriptSegment(item.text))
@@ -4338,15 +4370,23 @@ export class KnowledgeCaptureComponent implements OnInit {
         id: item.id,
         text: item.text.trim(),
         topic: undefined as string | undefined,
+        round: undefined as string | undefined,
       }));
     const ordered = [...expert, ...annotations].sort((a, b) => a.order - b.order);
 
-    const rows: Array<{ key: string; kind: 'topic' | 'flow' | 'ia'; text: string; liveText?: string }> = [];
+    const rows: Array<{
+      key: string;
+      kind: 'topic' | 'flow' | 'ia';
+      text: string;
+      liveText?: string;
+      liveCommitted?: boolean;
+    }> = [];
     let lastTopic: string | undefined;
     let lastExpertTextKey = '';
-    // Accumulated flowing paragraph for the current section.
+    // Accumulated flowing paragraph for the CURRENT round (one VAD turn).
     let buffer: string[] = [];
     let bufferKey = '';
+    let lastRound: string | undefined;
     const flushBuffer = () => {
       if (!buffer.length) return;
       rows.push({ key: `flow-${bufferKey}`, kind: 'flow', text: buffer.join(' ') });
@@ -4360,18 +4400,23 @@ export class KnowledgeCaptureComponent implements OnInit {
           flushBuffer();
           rows.push({ key: `topic-${item.id}`, kind: 'topic', text: item.topic });
           lastTopic = item.topic;
+          lastRound = undefined;
         }
         const key = this.transcriptTextKey(item.text);
         // Drop exact successive duplicates (re-emitted finals).
         if (key && key !== lastExpertTextKey) {
+          // A new round starts on its own line/paragraph in the section flow.
+          if (buffer.length && item.round !== lastRound) flushBuffer();
           if (!buffer.length) bufferKey = item.id;
           buffer.push(item.text);
           lastExpertTextKey = key;
+          lastRound = item.round;
         }
       } else {
         // Timeline relance: close the running paragraph then show the IA line.
         flushBuffer();
         lastExpertTextKey = '';
+        lastRound = undefined;
         rows.push({ key: `ia-${item.id}`, kind: 'ia', text: item.text });
       }
     }
@@ -4381,14 +4426,19 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (liveText && !this.isTrivialTranscriptSegment(liveText)) {
       const isDuplicate = live!.status !== 'live' && this.transcriptTextKey(liveText) === lastExpertTextKey;
       if (!isDuplicate) {
-        if (buffer.length) {
-          // Append the live tail to the current flowing paragraph.
-          rows.push({ key: `flow-${bufferKey}`, kind: 'flow', text: buffer.join(' '), liveText });
-          buffer = [];
-          bufferKey = '';
-        } else {
-          rows.push({ key: `live-${live!.id}`, kind: 'flow', text: '', liveText });
-        }
+        // The in-progress round is its own paragraph, so it always starts on a
+        // new line below the previously committed rounds. Once the tail is
+        // finalised (status 'refined'/'amended') it is styled as committed text
+        // (upright, high-contrast) even before the persisted event arrives, so
+        // the UI no longer looks like the analysis never finished.
+        flushBuffer();
+        rows.push({
+          key: `live-${live!.id}`,
+          kind: 'flow',
+          text: '',
+          liveText,
+          liveCommitted: live!.status !== 'live',
+        });
         return rows;
       }
     }
@@ -7171,15 +7221,25 @@ export class KnowledgeCaptureComponent implements OnInit {
       if (text) {
         this.answer = text;
         this.setLiveImproved(this.voiceSegmentId(payload), text);
-        this.armConversationProcessingWatchdog();
       }
       this.clearTranscriptionWatchdog();
       this.transcribing.set(false);
-      this.voiceState.set('thinking');
-      this.setVoiceNotice('Transcription finalisée par la session vocale streaming.', 'info');
-      if (this.closeVoiceAfterStreamingTurn && payload['empty'] === true) {
+      // Continuous capture path: the redesigned backend no longer emits a
+      // per-turn `conversation.step`, so entering `thinking` + arming the 60s
+      // `armConversationProcessingWatchdog()` here left every turn stuck in the
+      // dim/"thinking" state and fired a false "L'analyse prend trop de temps"
+      // after 60s. The `thinking` + analysis-watchdog pair is reserved for the
+      // explicit finalization flows (section.finish / capture.finish) and the
+      // HTTP `runConversationStep` path. Per turn we simply commit the
+      // transcript and keep the mic loop running.
+      if (this.closeVoiceAfterStreamingTurn) {
+        // A stop/finish was requested while this turn was finalising: tear down.
         this.finalizeDeferredStreamingStop();
+        return;
       }
+      this.voiceState.set('listening');
+      this.setVoiceNotice('Tour capturé. Le micro reste ouvert.', 'info');
+      this.scheduleConversationResume(this.voiceLoopCooldownMs());
       return;
     }
     if (event.type === 'conversation.step') {
@@ -7804,6 +7864,11 @@ export class KnowledgeCaptureComponent implements OnInit {
       subtopic_id: ref.subtopic_id || null,
       surface: 'knowledge_capture',
     });
+    // section.finish genuinely runs analysis and emits a `conversation.step`,
+    // so this is one of the few flows where the `thinking` state + 60s analysis
+    // watchdog are expected (the watchdog is cleared when conversation.step lands).
+    this.voiceState.set('thinking');
+    this.armConversationProcessingWatchdog();
     this.setVoiceNotice('Section terminée. L’IA va vous demander si vous souhaitez continuer.', 'info');
   }
 
@@ -7836,7 +7901,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.recording.set(false);
     this.conversationSessionActive.set(false);
     this.releaseAudioStream();
+    // capture.finish runs the final reformulation + proposal, which is a genuine
+    // analysis phase: keep the `thinking` state and arm the 60s analysis watchdog
+    // (it is a no-op once voiceState moves off `thinking` as the closure lands).
     this.voiceState.set('thinking');
+    this.armConversationProcessingWatchdog();
     this.setVoiceNotice('Capture terminée. Préparation de la synthèse finale…', 'info');
     if (session.status === 'active') {
       this.applySessionClosure(session, 'finish');

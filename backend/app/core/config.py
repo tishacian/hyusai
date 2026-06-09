@@ -204,6 +204,14 @@ class Settings(BaseSettings):
     voice_transcript_rewrite_timeout_ms: int = 1200
     voice_transcript_glossary_max_terms: int = 120
 
+    # Minimum delay between two server-side incremental transcriptions of the
+    # growing audio buffer. The live preview re-transcribes the whole utterance
+    # each tick (webm/opus clusters are not independently decodable, so true
+    # delta/windowed STT is unsafe), so a larger interval directly reduces how
+    # many times the live transcript is rewritten for a long answer (fewer,
+    # more stable refreshes instead of 10+).
+    voice_partial_stt_min_interval_ms: int = 4000
+
     # Static domain framing injected into the FINAL (end-of-section / end-of-capture)
     # LLM reformulation only — never the live capture path. Overridable per
     # workspace via ``workspace.settings.voice.transcript_rewrite_context``.

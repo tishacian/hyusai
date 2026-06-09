@@ -47,10 +47,6 @@ from app.services.voice_runtime import (
 )
 from app.services.livekit_service import LiveKitService, LiveKitServiceError
 from app.services.voice_tandem_oracle import VoiceTandemOracle
-from app.services.voice_transcript_glossary import (
-    correct_transcript_segment_tier1,
-    resolve_glossary,
-)
 
 
 logger = get_logger(__name__)
@@ -135,13 +131,27 @@ class VoiceSessionState:
     partial_stt_in_flight: bool = False
     last_partial_text: str = ""
     last_partial_chunk_count: int = 0
+    # Number of buffered audio chunks that produced the currently committed
+    # ``last_partial_text``. Used at endpoint time to reuse the latest full-buffer
+    # partial as the basis for ``text.final`` (skipping a redundant STT pass) when
+    # no new audio arrived since that partial.
+    last_partial_text_chunk_count: int = 0
     # Active plan section (set by section.select); used to tag captured turns so
     # the FINAL per-section reformulation maps them to the plan hierarchy.
     active_topic_id: Optional[str] = None
     active_subtopic_id: Optional[str] = None
 
 
-_PARTIAL_STT_MIN_INTERVAL_MS = 1500
+# Cadence of the server-side incremental transcription. The live preview
+# re-transcribes the WHOLE growing buffer on each tick (webm/opus clusters are
+# not independently decodable, so true delta/windowed STT is unsafe — see
+# TASK 1 rationale in ``_handle_audio_endpoint``). A larger interval is the
+# robust lever to reduce churn: a long answer now refreshes a handful of times
+# instead of 10-20. Resolved from settings at import (tests monkeypatch this
+# module global directly, so reading it keeps that override working).
+_PARTIAL_STT_MIN_INTERVAL_MS = int(
+    getattr(settings, "voice_partial_stt_min_interval_ms", 4000) or 4000
+)
 
 _TRANSCRIPT_FILLERS = (
     "euh",
@@ -454,6 +464,7 @@ class VoiceSessionGateway:
         state.partial_stt_in_flight = False
         state.last_partial_text = ""
         state.last_partial_chunk_count = 0
+        state.last_partial_text_chunk_count = 0
 
     async def _handle_audio_frame(
         self,
@@ -552,8 +563,15 @@ class VoiceSessionGateway:
         if is_capture_text_noise(text):
             return
         if not text or text == state.last_partial_text:
+            # Even when the text is unchanged, the bytes that produced it match the
+            # current buffer, so the endpoint can still reuse this committed partial.
+            if text and text == state.last_partial_text:
+                state.last_partial_text_chunk_count = chunk_count
             return
         state.last_partial_text = text
+        # Pin the committed partial to the exact buffer size that produced it so the
+        # endpoint can safely reuse it for text.final (identical bytes -> identical STT).
+        state.last_partial_text_chunk_count = chunk_count
         state.text_partials.append(text)
         await self._send(
             websocket,
@@ -730,31 +748,52 @@ class VoiceSessionGateway:
             await self._send_error(websocket, "empty_audio", "audio.endpoint received without audio frames", state=state)
             return
         state.endpoint_at = time.perf_counter()
-        try:
-            provider = get_voice_runtime_provider(state.runtime, workspace_settings=workspace.settings)
-        except VoiceProviderError as exc:
-            await self._send_error(websocket, exc.code, str(exc), state=state)
-            state.turn_started_at = None
-            return
+        chunk_count = len(state.audio_chunks)
         audio_bytes = b"".join(state.audio_chunks)
         state.audio_chunks = []
         started = state.turn_started_at or state.endpoint_at
-        try:
-            transcript = await _transcribe_audio(
-                provider,
-                audio_bytes,
-                filename=f"{state.client_turn_id or 'voice-session'}.webm",
-                content_type=state.content_type,
-                language=state.language or "fr",
-            )
-        except VoiceProviderError as exc:
-            await self._send_error(websocket, exc.code, str(exc), state=state)
-            state.turn_started_at = None
-            return
-        except Exception as exc:
-            await self._send_error(websocket, "transcribe_failed", str(exc), state=state)
-            state.turn_started_at = None
-            return
+        # TASK 1 (reuse): if the last incremental partial transcribed the EXACT same
+        # buffer (same chunk count == same bytes, since both join from chunk 0), its
+        # text is already the complete utterance. Reuse it as the basis for text.final
+        # and skip the redundant full-buffer STT round-trip. Correctness holds because
+        # no new audio arrived after that partial; if any chunk arrived since, we fall
+        # back to a fresh full transcription so text.final stays complete.
+        reuse_partial = bool(
+            state.last_partial_text
+            and chunk_count > 0
+            and state.last_partial_text_chunk_count == chunk_count
+        )
+        if reuse_partial:
+            transcript: Dict[str, Any] = {
+                "text": state.last_partial_text,
+                "transcript": state.last_partial_text,
+                "provider": state.runtime,
+                "model": state.model,
+                "reused_partial": True,
+            }
+        else:
+            try:
+                provider = get_voice_runtime_provider(state.runtime, workspace_settings=workspace.settings)
+            except VoiceProviderError as exc:
+                await self._send_error(websocket, exc.code, str(exc), state=state)
+                state.turn_started_at = None
+                return
+            try:
+                transcript = await _transcribe_audio(
+                    provider,
+                    audio_bytes,
+                    filename=f"{state.client_turn_id or 'voice-session'}.webm",
+                    content_type=state.content_type,
+                    language=state.language or "fr",
+                )
+            except VoiceProviderError as exc:
+                await self._send_error(websocket, exc.code, str(exc), state=state)
+                state.turn_started_at = None
+                return
+            except Exception as exc:
+                await self._send_error(websocket, "transcribe_failed", str(exc), state=state)
+                state.turn_started_at = None
+                return
 
         text = str(transcript.get("text") or transcript.get("transcript") or "").strip()
         ignored_reason = "stt_noise" if text and is_capture_text_noise(text) else None
@@ -800,23 +839,19 @@ class VoiceSessionGateway:
                 },
             )
             await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=oracle_events)
-        # Fast-capture contract (A1): apply ONLY the deterministic, network-free
-        # Tier-1 glossary correction, ONCE, and never re-correct. The Tier-2 LLM
-        # pass and the plan-label reframe are gone from the live path (moved to the
-        # FINAL phase) so text.final ships immediately. The glossary is decoupled
-        # from live retrieval (A2): workspace + plan labels only, never chunks.
+        # Raw-live contract (TASK 2 — "carde = final only"): the committed live
+        # text.final stays as close to raw STT as possible. NO domain-term glossary
+        # substitution happens here (no live carte->carde). All correction and
+        # reformulation — glossary terms, linking words, BOM/acronym casing, oral
+        # artifacts — is deferred to the FINAL phase (finalize_capture_section /
+        # finalize_capture), so the live transcript is direct and never rewritten by
+        # a correction pass mid-capture.
         segment_id = state.client_turn_id or str(uuid.uuid4())
         capture_session = self._capture_session(db, workspace.id, state.session_id)
         corrected_text = text
-        if text and settings.voice_transcript_rewrite_enabled:
-            try:
-                glossary = resolve_glossary(workspace, capture_session, None)
-                corrected_text = correct_transcript_segment_tier1(text, glossary)
-            except Exception:
-                corrected_text = text
         if text:
-            # The raw STT text is the live partial; the Tier-1 corrected text is the
-            # final. No transcript.improved / reframed stage — the frontend renders the
+            # The raw STT text is both the live partial and the committed final. No
+            # transcript.improved / reframed / glossary stage — the frontend renders the
             # flowing transcript directly from text.final.
             await self._send(
                 websocket,
