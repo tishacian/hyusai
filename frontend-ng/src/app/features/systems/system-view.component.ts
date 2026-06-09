@@ -59,7 +59,7 @@ type SystemTabId =
  * SystemViewComponent adapt its facets without introducing a separate
  * route. Specialist Systems can expose variant-specific labels and stages.
  */
-type SystemVariant = 'intelligence' | 'expert_knowledge_capture' | 'standard';
+type SystemVariant = 'intelligence' | 'expert_knowledge_capture' | 'translation_suite' | 'standard';
 
 interface WizardStep {
   key: 'identity' | 'knowledge' | 'model' | 'guardrails' | 'launch';
@@ -236,7 +236,7 @@ interface ContextConfigRow {
           <div class="relative flex items-center gap-3 flex-wrap">
             <app-icon name="atom" [size]="18" class="text-brand-400" />
             <span class="text-xs uppercase tracking-wider font-semibold text-brand-300">
-              {{ isExpertKnowledgeCapture() ? 'Parcours de capture' : 'OmniRAG pipeline' }}
+              {{ isTranslationSuite() ? 'Translation Suite' : (isExpertKnowledgeCapture() ? 'Parcours de capture' : 'OmniRAG pipeline') }}
             </span>
             <div class="flex items-center gap-2 ml-auto text-[11px]">
               @for (stage of pipelineStages; track stage.key; let last = $last) {
@@ -819,19 +819,24 @@ export class SystemViewComponent implements OnInit {
   readonly variant = signal<SystemVariant>('standard');
   readonly isIntelligence = computed(() => this.variant() === 'intelligence');
   readonly isExpertKnowledgeCapture = computed(() => this.variant() === 'expert_knowledge_capture');
+  readonly isTranslationSuite = computed(() => this.variant() === 'translation_suite');
   readonly headerEyebrow = computed(() =>
     this.isIntelligence()
       ? 'Systems · Intelligence'
       : this.isExpertKnowledgeCapture()
         ? 'Capture de connaissances'
-        : 'Systems · System',
+        : this.isTranslationSuite()
+          ? 'PMI Sovereign Stack'
+          : 'Systems · System',
   );
   readonly headerFallbackSubtitle = computed(() =>
     this.isIntelligence()
       ? 'Market-signal briefs and continuous monitoring.'
       : this.isExpertKnowledgeCapture()
         ? 'Préparer l’échange, capturer les réponses, relire puis publier.'
-      : 'Configure, run and refine this AI system.',
+        : this.isTranslationSuite()
+          ? 'Sovereign DITA translation, replay, agent QA, RBAC and audit-ready delivery.'
+          : 'Configure, run and refine this AI system.',
   );
   /** Side panels — Settings and Chat live here, never as tabs. */
   readonly settingsPanelOpen = signal(false);
@@ -1021,6 +1026,64 @@ export class SystemViewComponent implements OnInit {
   });
 
   get pipelineStages(): PipelineStage[] {
+    if (this.isTranslationSuite()) {
+      return [
+        {
+          key: 'archive',
+          name: 'Ingest',
+          icon: 'archive',
+          description: 'Validate DITA archive, manifest hash and topic inventory.',
+          configureLabel: 'Source',
+          route: ['/systems', this.systemId, 'flow'],
+          tone: 'brand',
+        },
+        {
+          key: 'memory',
+          name: 'Memory',
+          icon: 'database',
+          description: 'Retrieve reviewed bilingual examples from sovereign translation memory.',
+          configureLabel: 'Knowledge',
+          route: '/knowledge',
+          tone: 'violet',
+        },
+        {
+          key: 'pivot',
+          name: 'F1 Pivot',
+          icon: 'workflow',
+          description: 'Normalize source DITA into a deterministic en-GB pivot.',
+          configureLabel: 'Flow',
+          route: ['/systems', this.systemId, 'flow'],
+          tone: 'brand',
+        },
+        {
+          key: 'fanout',
+          name: 'F2 Fan-out',
+          icon: 'globe-2',
+          description: 'Translate the pivot into 39 target locales with bounded parallelism.',
+          configureLabel: 'Runtime',
+          route: ['/systems', this.systemId, 'flow'],
+          tone: 'violet',
+        },
+        {
+          key: 'qa',
+          name: 'J2450 QA',
+          icon: 'list-checks',
+          description: 'Run seven category agents and supervisor convergence.',
+          configureLabel: 'Guardrails',
+          route: '/governance/blueprints',
+          tone: 'emerald',
+        },
+        {
+          key: 'delivery',
+          name: 'Gate',
+          icon: 'shield-check',
+          description: 'Apply CDC E1 guards, CDT approval and ACCEPT_4D delivery evidence.',
+          configureLabel: 'Audit',
+          route: '/governance/audit',
+          tone: 'emerald',
+        },
+      ];
+    }
     if (this.isExpertKnowledgeCapture()) {
       return [
         {
@@ -1164,6 +1227,8 @@ export class SystemViewComponent implements OnInit {
           this.variant.set('intelligence');
         } else if (variant === 'expert_knowledge_capture') {
           this.variant.set('expert_knowledge_capture');
+        } else if (variant === 'translation_suite') {
+          this.variant.set('translation_suite');
         } else {
           this.variant.set('standard');
         }
@@ -1217,7 +1282,25 @@ export class SystemViewComponent implements OnInit {
   triggerRun(): void {
     if (this.triggering() || !this.systemId || this.isDraft()) return;
     this.triggering.set(true);
-    this.canonical.triggerRun(this.systemId, { trigger: 'manual', input_ref: {} }).subscribe((run) => {
+    const inputRef = this.isTranslationSuite()
+      ? {
+          suite: 'Translation Suite',
+          source_lang: 'fr-FR',
+          pivot_lang: 'en-GB',
+          target_lang_count: 39,
+          archive_ref: 'dita://pmi/kangoo3/owner_manual/source/fr-FR/archive.zip',
+          manifest_sha256: '7b8d1a9a6c2f76c2f3d6f2d4e16e4b90b2ef9e74fbd0a2f2a6f9f1b8e8c2d01d',
+          llm_provider: 'sovereign_vllm',
+          model: 'unsloth/gpt-oss-20b-BF16',
+          embedding_model: 'BAAI/bge-m3',
+          limit_qa_loop: 5,
+          num_parallel_topics: 5,
+          external_llm_egress: false,
+          replay_supported: true,
+          cdt_gate_required: true,
+        }
+      : {};
+    this.canonical.triggerRun(this.systemId, { trigger: 'manual', input_ref: inputRef }).subscribe((run) => {
       this.triggering.set(false);
       if (!run) {
         this.toast.warning('Could not reach the run engine', 'Run not triggered');

@@ -84,6 +84,46 @@ async def _stub(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -
     }
 
 
+async def _translation_showcase_stub(
+    payload: Dict[str, Any],
+    ctx: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Structured simulation for showcase Translation Suite stages.
+
+    The real project-mt runtime is intentionally not invoked from Agentium
+    showcase seeds. This preserves the canonical skill contract and run
+    engine behavior while keeping the demo deterministic and sovereign.
+    """
+    ctx = ctx or {}
+    skill_slug = str(payload.get("skill_slug") or ctx.get("skill_slug") or "translation_stage")
+    verdict = str(payload.get("expected_verdict") or payload.get("verdict") or "ACCEPT_4D")
+    agent_identity = payload.get("agent_identity") or ctx.get("agent_identity") or "agent.translation.showcase"
+    logger.info(
+        "translation_showcase_stub: simulated stage",
+        skill_slug=skill_slug,
+        verdict=verdict,
+        agent_identity=agent_identity,
+    )
+    return {
+        "status": "simulated",
+        "showcase_seed": True,
+        "skill_slug": skill_slug,
+        "verdict": verdict,
+        "agent_identity": agent_identity,
+        "sovereignty": {
+            "external_llm_egress": False,
+            "model_versions_frozen": True,
+            "tenant_scope": ctx.get("workspace_id") or payload.get("workspace_id"),
+        },
+        "metrics": {
+            "deterministic": True,
+            "prompt_tokens": payload.get("prompt_tokens", 0),
+            "completion_tokens": payload.get("completion_tokens", 0),
+        },
+        "input_echo": payload,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Concrete wrappers
 # ---------------------------------------------------------------------------
@@ -1901,6 +1941,15 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "visual_snapshot_analyze_v1": (_visual_snapshot_analyze_v1, "app.services.visual_intelligence",  "bound"),
     "visual_observation_sync_knowledge_v1": (_visual_observation_sync_knowledge_v1, "app.services.visual_intelligence", "bound"),
     "sharepoint_ingestion_v1": (_sharepoint_ingestion_v1, None,                                    "stub"),
+    "translation_archive_ingest_v1": (_translation_showcase_stub, None,                            "stub"),
+    "translation_memory_retrieve_v1": (_translation_showcase_stub, None,                           "stub"),
+    "translation_label_index_resolve_v1": (_translation_showcase_stub, None,                       "stub"),
+    "translation_pivot_normalize_v1": (_translation_showcase_stub, None,                           "stub"),
+    "translation_fanout_v1": (_translation_showcase_stub, None,                                   "stub"),
+    "translation_j2450_qa_v1": (_translation_showcase_stub, None,                                 "stub"),
+    "translation_post_guard_v1": (_translation_showcase_stub, None,                               "stub"),
+    "translation_cdt_gate_v1": (_translation_showcase_stub, None,                                 "stub"),
+    "translation_package_delivery_v1": (_translation_showcase_stub, None,                         "stub"),
     "voice_transcribe_v1":     (_voice_transcribe_v1,     "app.services.voice_runtime",            "bound"),
     "voice_tts_v1":            (_voice_tts_v1,            "app.services.voice_runtime",            "bound"),
     "voice_realtime_session_v1": (_voice_realtime_session_v1, "app.services.voice_runtime",         "bound"),

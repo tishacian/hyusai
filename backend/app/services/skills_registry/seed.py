@@ -32,10 +32,209 @@ RETRIEVAL_POLICY_PROPERTIES: Dict[str, Any] = {
 }
 
 
+def _translation_skill(
+    slug: str,
+    name: str,
+    description: str,
+    skill_type: str,
+    *,
+    mode: str = "async",
+    timeout_ms: int = 1_800_000,
+    required: List[str] | None = None,
+    properties: Dict[str, Any] | None = None,
+    outputs: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    return {
+        "slug": slug,
+        "version": "1",
+        "name": name,
+        "description": description,
+        "type": skill_type,
+        "provider": "internal",
+        "certification_level": "enterprise",
+        "execution": {"mode": mode, "timeout_ms": timeout_ms, "retryable": True, "idempotent": True},
+        "pricing": {"unit": "per_batch_stage", "unit_price": 0.0, "currency": "EUR"},
+        "input_schema": {
+            "type": "object",
+            "required": required or [],
+            "properties": {
+                "batch_id": {"type": "string"},
+                "agent_identity": {"type": "string"},
+                "tenant_policy": {"type": "object"},
+                **(properties or {}),
+            },
+        },
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "verdict": {"type": "string"},
+                "showcase_seed": {"type": "boolean"},
+                **(outputs or {}),
+            },
+        },
+    }
+
+
+TRANSLATION_SKILLS: List[Dict[str, Any]] = [
+    _translation_skill(
+        "translation_archive_ingest_v1",
+        "Translation Archive Ingest",
+        "Validates a tenant-scoped DITA source archive, manifest hash and topic inventory.",
+        "translation_ingestion",
+        required=["archive_ref", "manifest_sha256"],
+        properties={
+            "archive_ref": {"type": "string"},
+            "manifest_sha256": {"type": "string"},
+            "source_lang": {"type": "string", "default": "fr-FR"},
+            "target_langs": {"type": "array", "items": {"type": "string"}},
+        },
+        outputs={
+            "parsed_topics": {"type": "integer"},
+            "archive_hash": {"type": "string"},
+            "glossary_refs": {"type": "array"},
+        },
+    ),
+    _translation_skill(
+        "translation_memory_retrieve_v1",
+        "Translation Memory Retrieve",
+        "Retrieves bilingual examples from sovereign FAISS/BGE-M3 translation memory.",
+        "retrieval",
+        timeout_ms=600_000,
+        properties={
+            "source_segments": {"type": "array"},
+            "kb_dir": {"type": "string"},
+            "k_retrieval": {"type": "integer", "default": 2},
+            "embedding_model": {"type": "string", "default": "BAAI/bge-m3"},
+        },
+        outputs={
+            "examples": {"type": "array"},
+            "index_versions": {"type": "array"},
+            "cache_hit_rate": {"type": "number"},
+        },
+    ),
+    _translation_skill(
+        "translation_label_index_resolve_v1",
+        "Translation Label Index Resolve",
+        "Resolves REFERENT, INDEX and TEXTES-LOCA-GAMA values while preserving protected DITA placeholders.",
+        "transformation",
+        timeout_ms=600_000,
+        properties={
+            "library_ref_path": {"type": "string"},
+            "preserve_conkeyref_byte_equal": {"type": "boolean", "default": True},
+        },
+        outputs={
+            "labels_resolved": {"type": "integer"},
+            "protected_placeholders": {"type": "integer"},
+        },
+    ),
+    _translation_skill(
+        "translation_pivot_normalize_v1",
+        "Translation F1 Pivot Normalize",
+        "Normalizes fr-FR DITA content into an en-GB pivot with deterministic local model routing.",
+        "generation",
+        properties={
+            "source_lang": {"type": "string", "default": "fr-FR"},
+            "pivot_lang": {"type": "string", "default": "en-GB"},
+            "model": {"type": "string", "default": "sovereign-vllm:unsloth/gpt-oss-20b-BF16"},
+            "temperature": {"type": "number", "default": 0},
+        },
+        outputs={
+            "pivot_lang": {"type": "string"},
+            "segments": {"type": "integer"},
+            "token_usage": {"type": "object"},
+        },
+    ),
+    _translation_skill(
+        "translation_fanout_v1",
+        "Translation F2 Fan-out",
+        "Fans out the pivot into all target locales with bounded parallelism and replayable topic state.",
+        "batch",
+        properties={
+            "target_langs": {"type": "array", "items": {"type": "string"}},
+            "num_parallel_topics": {"type": "integer", "default": 5},
+            "gpu_ids": {"type": "array", "items": {"type": "integer"}},
+        },
+        outputs={
+            "target_langs": {"type": "integer"},
+            "completed_topics": {"type": "integer"},
+            "state_checkpoint_ref": {"type": "string"},
+        },
+    ),
+    _translation_skill(
+        "translation_j2450_qa_v1",
+        "Translation J2450 QA",
+        "Runs seven SAE J2450 QA agent identities and supervisor convergence.",
+        "analysis",
+        properties={
+            "limit_qa_loop": {"type": "integer", "default": 5},
+            "categories": {"type": "array", "items": {"type": "string"}},
+            "severity_policy": {"type": "string", "default": "no_error"},
+        },
+        outputs={
+            "agents": {"type": "array"},
+            "weighted_score": {"type": "number"},
+            "loop_count": {"type": "integer"},
+        },
+    ),
+    _translation_skill(
+        "translation_post_guard_v1",
+        "Translation Post Guard",
+        "Applies deterministic XML, DITA placeholder, RTL and LLM-artifact guardrails before delivery.",
+        "compliance",
+        timeout_ms=900_000,
+        properties={
+            "blocking_modes": {"type": "array", "items": {"type": "string"}},
+            "cdc_e1_strict": {"type": "boolean", "default": True},
+        },
+        outputs={
+            "cdc_e1_violations": {"type": "integer"},
+            "blocked_topic": {"type": "string"},
+            "guard_report_ref": {"type": "string"},
+        },
+    ),
+    _translation_skill(
+        "translation_cdt_gate_v1",
+        "Translation CDT Gate",
+        "Freezes, approves, rejects or resubmits delivery manifests under human review policy.",
+        "human_augmented",
+        mode="sync",
+        timeout_ms=300_000,
+        properties={
+            "action": {"type": "string"},
+            "reviewer_role": {"type": "string", "default": "translation_reviewer"},
+            "max_replays_per_topic": {"type": "integer", "default": 3},
+        },
+        outputs={
+            "approval": {"type": "string"},
+            "replayed_topics": {"type": "integer"},
+            "decision_id": {"type": "string"},
+        },
+    ),
+    _translation_skill(
+        "translation_package_delivery_v1",
+        "Translation Package Delivery",
+        "Packages DITA outputs, reports, SHA256 manifests and simulated SFTP delivery evidence.",
+        "delivery",
+        timeout_ms=900_000,
+        properties={
+            "delivery_channel": {"type": "string", "default": "simulated_sftp"},
+            "push_requires_human_approval": {"type": "boolean", "default": True},
+        },
+        outputs={
+            "delivery_package": {"type": "string"},
+            "receipt": {"type": "string"},
+            "manifest_ref": {"type": "string"},
+        },
+    ),
+]
+
+
 # ---- Skills ----------------------------------------------------------------
 # (slug, version, name, description, type, provider, certification, execution,
 #  pricing, input_schema, output_schema)
 SEED_SKILLS: List[Dict[str, Any]] = [
+    *TRANSLATION_SKILLS,
     {
         "slug": "llm_rag_answer_v1",
         "version": "1",
@@ -1266,6 +1465,32 @@ SEED_CAPABILITIES: List[Dict[str, Any]] = [
         "confidence_threshold": 0.70,
         "sla": {"target_duration_minutes": 20, "max_plan_latency_ms": 15000},
         "roi_model": {"type": "time_saved_plus_knowledge_retention"},
+    },
+    {
+        "slug": "sovereign_translation_suite",
+        "name": "Sovereign Translation Suite",
+        "tier": "industry",
+        "industry": "regulated_translation",
+        "description": "Runs DITA translation batches with local model routing, agent QA, deterministic guardrails, replay and audit-ready delivery.",
+        "input_unit": "dita_batch",
+        "output_unit": "accepted_delivery",
+        "skill_slugs": [
+            "translation_archive_ingest_v1",
+            "translation_memory_retrieve_v1",
+            "translation_label_index_resolve_v1",
+            "translation_pivot_normalize_v1",
+            "translation_fanout_v1",
+            "translation_j2450_qa_v1",
+            "translation_post_guard_v1",
+            "translation_cdt_gate_v1",
+            "translation_package_delivery_v1",
+            "audit_log_v1",
+        ],
+        "pricing": {"unit": "per_1000_source_words", "unit_price": 0.82, "currency": "EUR"},
+        "value_per_outcome": 4_800.00,
+        "confidence_threshold": 0.94,
+        "sla": {"availability": "99.95%", "batch_completion_target_hours": 36, "max_replay_sla_hours": 4},
+        "roi_model": {"type": "lsp_cost_avoidance_plus_cycle_time"},
     },
     {
         "slug": "answer_quality_audit",

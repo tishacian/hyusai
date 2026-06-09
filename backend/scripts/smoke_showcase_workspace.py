@@ -79,13 +79,14 @@ def main() -> int:
 
     checks = [
         ("workspaces", "/api/v1/auth/workspaces", lambda d: any(w.get("slug") == args.workspace_slug for w in (d if isinstance(d, list) else d.get("workspaces", [])))),
-        ("systems", "/api/v1/systems", lambda d: len(d.get("systems", [])) >= 3),
-        ("runs", "/api/v1/runs", lambda d: len(d.get("runs", [])) >= 8),
+        ("systems", "/api/v1/systems", lambda d: len(d.get("systems", [])) >= 4 and any(s.get("name") == "Translation Suite" for s in d.get("systems", []))),
+        ("runs", "/api/v1/runs", lambda d: len(d.get("runs", [])) >= 14),
         ("recommendations", "/api/v1/hypervisor/recommendations", lambda d: len(d.get("items", [])) >= 2),
         ("component health", "/api/v1/evaluation/component-health", lambda d: len(d.get("components", [])) >= 5),
         ("review queue", "/api/v1/evaluation/review-queue?status=all", lambda d: d.get("count", 0) >= 3),
         ("canonical answers", "/api/v1/evaluation/canonical-answers", lambda d: d.get("total", 0) >= 1),
-        ("audit", "/api/v1/audit?limit=20", lambda d: d.get("total", 0) >= 5),
+        ("audit", "/api/v1/audit?limit=100", lambda d: d.get("total", 0) >= 10 and any(str(row.get("event_type", "")).startswith("translation_suite.") for row in d.get("items", []) or d.get("logs", []))),
+        ("translation observability", "/api/v1/observability/workspace-overview?window=7d", lambda d: any(s.get("name") == "Translation Suite" for s in d.get("systems", [])) and any(str(j.get("kind", "")).startswith("translation_suite") for j in d.get("jobs", []))),
         ("document search", "/api/v1/documents/search", lambda d: d.get("total", 0) >= 1, "POST", {"query": "enterprise SLA", "top_k": 3, "collection_name": "documents"}),
     ]
     for item in checks:

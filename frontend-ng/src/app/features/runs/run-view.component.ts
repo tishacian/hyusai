@@ -238,6 +238,14 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
                         {{ inv.error }}
                       </div>
                     }
+                    @if (hasInvocationDetails(inv)) {
+                      <details class="mt-2 rounded border border-white/5 bg-black/20">
+                        <summary class="cursor-pointer px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-400 font-mono">
+                          Invocation audit
+                        </summary>
+                        <pre class="px-2 pb-2 text-[10px] font-mono text-gray-300 whitespace-pre-wrap break-words">{{ invocationDetailsJson(inv) }}</pre>
+                      </details>
+                    }
                   </div>
                 </li>
               }
@@ -387,6 +395,24 @@ export class RunViewComponent implements OnInit {
     } catch {
       return String(v);
     }
+  }
+
+  hasInvocationDetails(inv: SkillInvocation): boolean {
+    return !!(
+      inv.input_ref ||
+      inv.output_ref ||
+      inv.metrics ||
+      inv.trace
+    );
+  }
+
+  invocationDetailsJson(inv: SkillInvocation): string {
+    return this.asJson({
+      input_ref: inv.input_ref ?? {},
+      output_ref: inv.output_ref ?? {},
+      metrics: inv.metrics ?? {},
+      trace: inv.trace ?? {},
+    });
   }
 
   asInput(ev: Event): HTMLInputElement {

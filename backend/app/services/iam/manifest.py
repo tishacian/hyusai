@@ -114,12 +114,33 @@ AGENTIUM_ACTIONS_MANIFEST = CapabilityIAMManifest(
     ),
 )
 
+TRANSLATION_SUITE_MANIFEST = CapabilityIAMManifest(
+    capability_id="showcase_translation_suite",
+    permissions=(
+        PermissionRule("translation_batch", "read", ALL_CAPTURE_ROLES),
+        PermissionRule("translation_batch", "create", CONTRIBUTOR_OR_ADMIN),
+        PermissionRule("translation_batch", "execute", CONTRIBUTOR_OR_ADMIN),
+        PermissionRule("translation_batch", "replay", CONTRIBUTOR_OR_ADMIN),
+        PermissionRule("translation_batch", "approve", REVIEW_ROLES),
+        PermissionRule("translation_memory", "read", ALL_CAPTURE_ROLES),
+        PermissionRule("agent_identity", "read", ALL_CAPTURE_ROLES),
+        PermissionRule("agent_identity", "manage", ADMIN_ROLES),
+        PermissionRule("model_policy", "read", REVIEW_ROLES),
+        PermissionRule("model_policy", "manage", ADMIN_ROLES),
+        PermissionRule("delivery_manifest", "read", REVIEW_ROLES),
+        PermissionRule("delivery_manifest", "release", REVIEW_ROLES),
+        PermissionRule("audit_log", "read", REVIEW_ROLES),
+        PermissionRule("audit_log", "export", REVIEW_ROLES),
+    ),
+)
+
 
 MANIFESTS: Dict[str, CapabilityIAMManifest] = {
     CAPTURE_MANIFEST.capability_id: CAPTURE_MANIFEST,
     SECURE_DEPOSIT_MANIFEST.capability_id: SECURE_DEPOSIT_MANIFEST,
     VOICE2VOICE_MANIFEST.capability_id: VOICE2VOICE_MANIFEST,
     AGENTIUM_ACTIONS_MANIFEST.capability_id: AGENTIUM_ACTIONS_MANIFEST,
+    TRANSLATION_SUITE_MANIFEST.capability_id: TRANSLATION_SUITE_MANIFEST,
 }
 
 

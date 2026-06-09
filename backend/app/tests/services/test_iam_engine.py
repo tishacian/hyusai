@@ -125,3 +125,57 @@ def test_second_eye_flag_blocks_author_ingestion(db_session):
     )
 
     assert decision.allowed is False
+
+
+def test_translation_suite_manifest_enforces_operator_reviewer_admin_roles(db_session):
+    operator_ws, operator, operator_membership = _subject(db_session, WORKSPACE_CONTRIBUTOR)
+    reviewer_ws, reviewer, reviewer_membership = _subject(db_session, WORKSPACE_REVIEWER)
+    viewer_ws, viewer, viewer_membership = _subject(db_session, WORKSPACE_VIEWER)
+    admin_ws, admin, admin_membership = _subject(db_session, WORKSPACE_ADMIN)
+    engine = AuthorizationEngine()
+
+    operator_replay = engine.evaluate(
+        db_session,
+        user=operator,
+        workspace=operator_ws,
+        membership=operator_membership,
+        resource_kind="translation_batch",
+        action="replay",
+        resource_attrs={"capability": "showcase_translation_suite"},
+        audit_denials=False,
+    )
+    reviewer_release = engine.evaluate(
+        db_session,
+        user=reviewer,
+        workspace=reviewer_ws,
+        membership=reviewer_membership,
+        resource_kind="delivery_manifest",
+        action="release",
+        resource_attrs={"capability": "showcase_translation_suite"},
+        audit_denials=False,
+    )
+    viewer_policy_manage = engine.evaluate(
+        db_session,
+        user=viewer,
+        workspace=viewer_ws,
+        membership=viewer_membership,
+        resource_kind="model_policy",
+        action="manage",
+        resource_attrs={"capability": "showcase_translation_suite"},
+        audit_denials=False,
+    )
+    admin_identity_manage = engine.evaluate(
+        db_session,
+        user=admin,
+        workspace=admin_ws,
+        membership=admin_membership,
+        resource_kind="agent_identity",
+        action="manage",
+        resource_attrs={"capability": "showcase_translation_suite"},
+        audit_denials=False,
+    )
+
+    assert operator_replay.allowed is True
+    assert reviewer_release.allowed is True
+    assert viewer_policy_manage.allowed is False
+    assert admin_identity_manage.allowed is True

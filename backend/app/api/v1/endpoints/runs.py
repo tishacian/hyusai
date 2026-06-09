@@ -91,7 +91,10 @@ def _invocation(i: SkillInvocation) -> Dict[str, Any]:
         "completed_at": i.completed_at.isoformat() if i.completed_at else None,
         "latency_ms": i.latency_ms,
         "cost": i.cost,
+        "input_ref": i.input_ref or {},
+        "output_ref": i.output_ref or {},
         "metrics": i.metrics or {},
+        "trace": i.trace or {},
         "error": i.error,
     }
 

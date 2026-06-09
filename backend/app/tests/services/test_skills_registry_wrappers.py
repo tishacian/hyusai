@@ -111,6 +111,40 @@ def test_seed_rag_skills_expose_retrieval_policy_contract():
 
 
 @pytest.mark.asyncio
+async def test_translation_suite_skills_are_cataloged_and_stubbed():
+    translation_slugs = {
+        "translation_archive_ingest_v1",
+        "translation_memory_retrieve_v1",
+        "translation_label_index_resolve_v1",
+        "translation_pivot_normalize_v1",
+        "translation_fanout_v1",
+        "translation_j2450_qa_v1",
+        "translation_post_guard_v1",
+        "translation_cdt_gate_v1",
+        "translation_package_delivery_v1",
+    }
+    by_slug = {entry["slug"]: entry for entry in SEED_SKILLS}
+
+    assert translation_slugs <= set(by_slug)
+    assert by_slug["translation_j2450_qa_v1"]["certification_level"] == "enterprise"
+    assert by_slug["translation_archive_ingest_v1"]["input_schema"]["required"] == [
+        "archive_ref",
+        "manifest_sha256",
+    ]
+    assert {slug: wrappers.runtime_status(slug) for slug in translation_slugs} == {
+        slug: "stub" for slug in translation_slugs
+    }
+
+    result = await wrappers.resolve("translation_j2450_qa_v1")(
+        {"agent_identity": "agent.translation.qa_supervisor", "expected_verdict": "ACCEPT_4D"},
+        {"workspace_id": "ws-pmi", "skill_slug": "translation_j2450_qa_v1"},
+    )
+    assert result["status"] == "simulated"
+    assert result["agent_identity"] == "agent.translation.qa_supervisor"
+    assert result["sovereignty"]["external_llm_egress"] is False
+
+
+@pytest.mark.asyncio
 async def test_semantic_search_wrapper_defaults_to_fast_latency(monkeypatch):
     seen: dict = {}
 

@@ -45,7 +45,9 @@ PASS component health
 PASS review queue
 PASS canonical answers
 PASS audit
-Results: 9 passed / 0 failed
+PASS translation observability
+PASS document search
+Results: 11 passed / 0 failed
 ```
 
 ## Seeded Workspace
@@ -55,7 +57,7 @@ Results: 9 passed / 0 failed
 - Mode: `portfolio`
 - Owner membership: `thibaud.ishacian@datategy.net` when that user exists
 
-The script writes six synthetic documents and attempts to ingest them into
+The script writes ten synthetic documents and attempts to ingest them into
 the workspace `documents` collection:
 
 - `contract-risk-policy.md`
@@ -64,6 +66,10 @@ the workspace `documents` collection:
 - `security-review-checklist.md`
 - `tender-response-guidelines.md`
 - `sharepoint-ingestion-runbook.md`
+- `translation-suite-sovereign-runbook.md`
+- `translation-suite-dita-guardrails.md`
+- `translation-suite-j2450-qa.md`
+- `translation-suite-model-routing.md`
 
 ## Demo Personas
 
@@ -87,12 +93,14 @@ Seeded systems:
 - `Contract Risk Copilot`
 - `Compliance Review Loop`
 - `Tender Response Analyst`
+- `Translation Suite`
 
 What to show:
 
 - Each system has a business objective and active status.
 - Compliance uses a HITL flow.
 - Tender response uses a debug-friendly decision flow.
+- Translation Suite uses a DITA/F1/F2/J2450/CDT delivery DAG.
 - Systems have associated runs and versions.
 
 ### Business User / Operator
@@ -104,6 +112,7 @@ What to show:
 - Ask about the enterprise SLA or contract risk.
 - Open seeded runs with skill invocations and outcomes.
 - Show replay lineage and canonical-answer runs.
+- Open Translation Suite runs to inspect tool-call input, output, trace, agent identity and replay overrides.
 
 ### Quality Owner / Optimizer
 
@@ -115,6 +124,7 @@ What to show:
 - Review queue contains proposed, applied, and feedback-backed items.
 - Active suggestions can be applied to create replays.
 - Canonical answers demonstrate deterministic remediation.
+- Translation Suite jobs appear in workspace observability with batch, guardrail, replay and delivery stages.
 
 ### Admin / Compliance
 
@@ -123,21 +133,22 @@ Open `/governance/audit`, `/presets/evaluation`, and `/connectors/sharepoint`.
 What to show:
 
 - Evaluation preset is enabled by default.
-- Audit trail includes showcase seed, replay, canonical answer, proactive recommendation, and SharePoint sync events.
+- Audit trail includes showcase seed, replay, canonical answer, proactive recommendation, Translation Suite, and SharePoint sync events.
 - SharePoint sync history is simulated with a completed job.
 
 ## Seeded Functional Data
 
 The script creates:
 
-- 3 showcase capabilities.
-- 3 showcase systems.
-- 10 runs, including replay and canonical-answer run types.
-- 8 evaluation scores with question types and failed RAG components.
+- 4 showcase capabilities.
+- 4 showcase systems.
+- 14 runs, including replay, canonical-answer and Translation Suite run types.
+- 12 evaluation scores with question types, failed RAG components and translation quality gates.
 - Review decisions with active suggestions.
 - Evaluation feedback rows.
 - Canonical answers with `hit_count`.
 - E5 proactive recommendations via the real recommendation service.
+- Translation Suite workspace jobs, skill invocations, replay lineage and ACCEPT_4D delivery evidence.
 - SharePoint sync job history.
 - Audit events via `emit_audit_event`.
 
@@ -151,13 +162,14 @@ The script also uses unique showcase capability slugs:
 - `showcase_contract_risk`
 - `showcase_tender_response`
 - `showcase_compliance_loop`
+- `showcase_translation_suite`
 
 ## VM Validation Snapshot
 
 On the VM after `--reset`:
 
 ```text
-Showcase workspace ready: slug=agentium-showcase systems=3 runs=10 evals=8
-smoke_showcase_workspace.py: 9 passed / 0 failed
+Showcase workspace ready: slug=agentium-showcase systems=4 runs=14 evals=12
+smoke_showcase_workspace.py: 11 passed / 0 failed
 Playwright E2E: 7 passed
 ```

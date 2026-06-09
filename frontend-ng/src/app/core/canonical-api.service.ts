@@ -68,10 +68,15 @@ export interface SkillInvocation {
   id?: string;
   skill_slug?: string;
   skill_id?: string;
-  status?: 'completed' | 'failed' | 'pending' | 'running';
+  status?: 'completed' | 'failed' | 'pending' | 'running' | 'cancelled';
   latency_ms?: number;
   cost?: number;
+  input_ref?: Record<string, unknown>;
+  output_ref?: Record<string, unknown>;
+  metrics?: Record<string, unknown>;
+  trace?: Record<string, unknown>;
   started_at?: string;
+  completed_at?: string;
   ended_at?: string;
   error?: string | null;
 }
@@ -105,6 +110,7 @@ export interface Run {
     | 'hitl_pending'
     | 'debug_pending';
   started_at?: string;
+  completed_at?: string;
   ended_at?: string;
   duration_ms?: number;
   outcome?: Outcome;

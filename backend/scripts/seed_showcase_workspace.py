@@ -41,6 +41,7 @@ from app.models.system_version import SystemVersion
 from app.models.user import Session as ChatSession
 from app.models.user import Message, User
 from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace_job import WorkspaceJob
 from app.services.audit_logger import emit_audit_event
 from app.services.evaluation.canonical_answer_service import (
     create_canonical_answer,
@@ -50,6 +51,7 @@ from app.services.evaluation_preset_service import DEFAULT_EVAL_CONFIG
 from app.services.recommendations.proactive_service import (
     generate_proactive_recommendations,
 )
+from app.services.skills_registry import seed_skills_and_capabilities
 
 
 SHOWCASE_SOURCE = "showcase_seed"
@@ -92,7 +94,92 @@ Use OAuth when admin consent exists. Use guest-link session capture when
 only a shared folder is available. Completed sync jobs should report files
 downloaded, ingested chunk count, and any login-required state.
 """,
+    "translation-suite-sovereign-runbook.md": """# Translation Suite Sovereign Runbook
+
+The Translation Suite runs inside the sovereign runtime boundary. Source
+archives, DITA topics, translation memory, glossary libraries, model prompts
+and reviewer corrections remain tenant scoped. Batches pin model versions,
+record SHA256 manifests and expose replay/resubmission lineage for every
+delivery decision.
+""",
+    "translation-suite-dita-guardrails.md": """# Translation Suite DITA Guardrails
+
+DITA delivery requires byte-equal preservation of conkeyref placeholders,
+root attributes, xml:lang, xtrf, cite tags, INDEX entries and translate=no
+fragments. The guardrail gate blocks packaging when CDC E1 strict invariants
+fail, then creates a replay with targeted overrides.
+""",
+    "translation-suite-j2450-qa.md": """# Translation Suite J2450 QA
+
+The QA loop uses seven agent identities aligned with SAE J2450 categories:
+Wrong Term, Syntactic Error, Omission, Word Structure, Misspelling,
+Punctuation and Miscellaneous. Each agent emits severity, evidence, proposed
+fix and convergence state before the supervisor computes the release verdict.
+""",
+    "translation-suite-model-routing.md": """# Translation Suite Model Routing
+
+Default routing uses local vLLM for translation, local embeddings for BGE-M3
+retrieval and a sovereign evaluation model for QA. Token budgets, retry limits,
+parallel topic count, provider fallback policy and data-residency constraints
+are declared per run and frozen in the audit trail.
+""",
 }
+
+
+TRANSLATION_TARGET_LANGS = [
+    "ar-SA",
+    "bg-BG",
+    "ca-ES",
+    "cs-CZ",
+    "da-DK",
+    "de-DE",
+    "el-GR",
+    "en-GB",
+    "es-ES",
+    "es-XX",
+    "et-EE",
+    "fa-IR",
+    "fi-FI",
+    "he-IL",
+    "hi-IN",
+    "hr-HR",
+    "hu-HU",
+    "it-IT",
+    "ja-JP",
+    "ka-GE",
+    "kk-KZ",
+    "ko-KR",
+    "lt-LT",
+    "lv-LV",
+    "mn-MN",
+    "nl-NL",
+    "no-NO",
+    "pl-PL",
+    "pt-BR",
+    "pt-PT",
+    "ro-RO",
+    "ru-RU",
+    "sk-SK",
+    "sl-SI",
+    "sr-RS",
+    "sv-SE",
+    "tr-TR",
+    "uk-UA",
+    "zh-CN",
+]
+
+TRANSLATION_SKILL_SLUGS = [
+    "translation_archive_ingest_v1",
+    "translation_memory_retrieve_v1",
+    "translation_label_index_resolve_v1",
+    "translation_pivot_normalize_v1",
+    "translation_fanout_v1",
+    "translation_j2450_qa_v1",
+    "translation_post_guard_v1",
+    "translation_cdt_gate_v1",
+    "translation_package_delivery_v1",
+    "audit_log_v1",
+]
 
 
 CAPABILITIES = [
@@ -132,6 +219,30 @@ CAPABILITIES = [
         "pricing": {"unit": "per_review", "unit_price": 0.75, "currency": "EUR"},
         "value_per_outcome": 25.0,
     },
+    {
+        "slug": "showcase_translation_suite",
+        "name": "Translation Suite",
+        "description": "Run sovereign DITA translation batches with replay, agent QA, RBAC and audit-ready delivery gates.",
+        "tier": "client",
+        "industry": "regulated_translation",
+        "input_unit": "dita_batch",
+        "output_unit": "accepted_delivery",
+        "skill_slugs": TRANSLATION_SKILL_SLUGS,
+        "pricing": {"unit": "per_1000_source_words", "unit_price": 0.82, "currency": "EUR"},
+        "value_per_outcome": 4_800.0,
+        "confidence_threshold": 0.94,
+        "sla": {
+            "availability": "99.95%",
+            "batch_completion_target_hours": 36,
+            "max_replay_sla_hours": 4,
+            "data_residency": "EU sovereign boundary",
+        },
+        "roi_model": {
+            "seed": SHOWCASE_SOURCE,
+            "value_driver": "lsp_cost_avoidance_plus_cycle_time",
+            "baseline": "professional LSP delivery",
+        },
+    },
 ]
 
 
@@ -158,6 +269,7 @@ def main() -> int:
             reset_workspace(db, args.workspace_slug)
         workspace = ensure_workspace(db, args.workspace_slug, args.workspace_name)
         owner = ensure_owner(db, workspace, args.owner_email)
+        seed_skills_and_capabilities(db)
         ensure_eval_preset(db, workspace)
         controls = ensure_policies(db, workspace)
         capabilities = ensure_capabilities(db, workspace)
@@ -204,6 +316,7 @@ def reset_workspace(db: DBSession, slug: str) -> None:
     db.query(EvaluationScore).filter(EvaluationScore.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(AuditLog).filter(AuditLog.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(SharePointSyncJob).filter(SharePointSyncJob.workspace_id == workspace_id).delete(synchronize_session=False)
+    db.query(WorkspaceJob).filter(WorkspaceJob.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(SystemVersion).filter(SystemVersion.system_id.in_(system_ids)).delete(synchronize_session=False)
     db.query(Run).filter(Run.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(System).filter(System.workspace_id == workspace_id).delete(synchronize_session=False)
@@ -318,9 +431,9 @@ def ensure_capabilities(db: DBSession, workspace: Workspace) -> Dict[str, Capabi
             "skill_ids": skill_ids_for(db, entry["skill_slugs"]),
             "pricing": entry["pricing"],
             "value_per_outcome": entry["value_per_outcome"],
-            "confidence_threshold": 0.82,
-            "sla": {"target_latency_ms": 3500, "availability": "99.9%"},
-            "roi_model": {"seed": SHOWCASE_SOURCE, "value_driver": "time_saved"},
+            "confidence_threshold": entry.get("confidence_threshold", 0.82),
+            "sla": entry.get("sla", {"target_latency_ms": 3500, "availability": "99.9%"}),
+            "roi_model": entry.get("roi_model", {"seed": SHOWCASE_SOURCE, "value_driver": "time_saved"}),
             "is_seeded": "Y",
         }
         if cap:
@@ -367,8 +480,112 @@ def ensure_policies(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
             constraints={"showcase_seed": True},
         )
         db.add(adaptive)
+    translation_control = db.query(ControlPolicy).filter(
+        ControlPolicy.workspace_id == workspace.id,
+        ControlPolicy.name.in_(["Translation Suite sovereign guardrail", "PMI Translation sovereign guardrail"]),
+    ).first()
+    translation_extra = {
+        "showcase_seed": True,
+        "brand": "PMI Sovereign Stack",
+        "sovereignty": {
+            "data_residency": "EU sovereign boundary",
+            "external_llm_egress": False,
+            "model_versions_frozen_by_batch": True,
+            "artifact_hashing": "sha256_manifest",
+        },
+        "agent_identity": {
+            "batch_agent": "agent.translation.batch",
+            "qa_supervisor": "agent.translation.qa_supervisor",
+            "delivery_gate": "agent.translation.delivery_gate",
+        },
+        "rbac": {
+            "operator": ["create_batch", "replay_failed_topics"],
+            "reviewer": ["approve_cdt_gate", "reject_delivery"],
+            "auditor": ["read_audit", "export_manifest"],
+            "admin": ["manage_models", "manage_policies"],
+        },
+    }
+    if translation_control:
+        translation_control.name = "Translation Suite sovereign guardrail"
+        translation_control.max_cost_per_decision = 1_200.0
+        translation_control.max_latency_ms = 36 * 60 * 60 * 1000
+        translation_control.mandatory_hitl_if_confidence_below = 0.94
+        translation_control.allowed_models = [
+            "sovereign-vllm:unsloth/gpt-oss-20b-BF16",
+            "sovereign-qa:gpt-oss-120b",
+            "embedding:bge-m3",
+        ]
+        translation_control.allowed_skills = TRANSLATION_SKILL_SLUGS
+        translation_control.extra = translation_extra
+    else:
+        translation_control = ControlPolicy(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            name="Translation Suite sovereign guardrail",
+            scope="capability",
+            max_cost_per_decision=1_200.0,
+            max_latency_ms=36 * 60 * 60 * 1000,
+            mandatory_hitl_if_confidence_below=0.94,
+            allowed_models=[
+                "sovereign-vllm:unsloth/gpt-oss-20b-BF16",
+                "sovereign-qa:gpt-oss-120b",
+                "embedding:bge-m3",
+            ],
+            allowed_skills=TRANSLATION_SKILL_SLUGS,
+            extra=translation_extra,
+        )
+        db.add(translation_control)
+    translation_adaptive = db.query(AdaptivePolicy).filter(
+        AdaptivePolicy.workspace_id == workspace.id,
+        AdaptivePolicy.name.in_(["Translation Suite replay adaptation", "PMI Translation replay adaptation"]),
+    ).first()
+    translation_triggers = {
+        "cdc_e1_violation": "replay_topic_with_strict_placeholders",
+        "j2450_above": 1.0,
+        "qa_oscillation_after_loops": 5,
+        "token_budget_above_percent": 85,
+    }
+    translation_actions = [
+        "rerun_failed_topics",
+        "switch_to_pivot_repair",
+        "escalate_cdt_review",
+        "freeze_delivery",
+        "resubmit_manifest",
+    ]
+    translation_constraints = {
+        "showcase_seed": True,
+        "max_replays_per_topic": 3,
+        "preserve_original_archive_hash": True,
+        "human_approval_required_for_sftp_push": True,
+    }
+    if translation_adaptive:
+        translation_adaptive.name = "Translation Suite replay adaptation"
+        translation_adaptive.enabled = True
+        translation_adaptive.adaptation_level = "conservative"
+        translation_adaptive.scope = "capability"
+        translation_adaptive.triggers = translation_triggers
+        translation_adaptive.allowed_actions = translation_actions
+        translation_adaptive.constraints = translation_constraints
+    else:
+        translation_adaptive = AdaptivePolicy(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            name="Translation Suite replay adaptation",
+            enabled=True,
+            adaptation_level="conservative",
+            scope="capability",
+            triggers=translation_triggers,
+            allowed_actions=translation_actions,
+            constraints=translation_constraints,
+        )
+        db.add(translation_adaptive)
     db.commit()
-    return {"control": control, "adaptive": adaptive}
+    return {
+        "control": control,
+        "adaptive": adaptive,
+        "translation_control": translation_control,
+        "translation_adaptive": translation_adaptive,
+    }
 
 
 def flow_hitl() -> Dict[str, Any]:
@@ -410,6 +627,328 @@ def flow_debug() -> Dict[str, Any]:
     }
 
 
+def flow_translation_suite() -> Dict[str, Any]:
+    def task(
+        node_id: str,
+        label: str,
+        skill_slug: str,
+        description: str,
+        *,
+        agent_identity: str,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "id": node_id,
+            "kind": "task",
+            "label": label,
+            "config": {"skill_slug": skill_slug, **(config or {})},
+            "data": {
+                "description": description,
+                "agent_identity": agent_identity,
+                "runtime_ref": f"showcase.translation_suite.{skill_slug}",
+            },
+        }
+
+    nodes = [
+        {"id": "src", "kind": "source", "label": "4D archive"},
+        task(
+            "archive_ingest",
+            "Archive ingest",
+            "translation_archive_ingest_v1",
+            "Verify source archive hash, manifest, topic count and tenant scope.",
+            agent_identity="agent.translation.ingest",
+            config={"artifact_policy": "metadata_only_showcase"},
+        ),
+        task(
+            "memory_retrieve",
+            "Translation memory",
+            "translation_memory_retrieve_v1",
+            "Retrieve reviewed bilingual examples from sovereign translation memory.",
+            agent_identity="agent.translation.memory",
+            config={"embedding_model": "BAAI/bge-m3", "k_examples": 2},
+        ),
+        task(
+            "label_resolve",
+            "Label and index resolver",
+            "translation_label_index_resolve_v1",
+            "Resolve REFERENT, INDEX and TEXTES-LOCA-GAMA values in memory, then preserve placeholders in delivery.",
+            agent_identity="agent.translation.structure",
+            config={"preserve_conkeyref_byte_equal": True},
+        ),
+        task(
+            "pivot_normalize",
+            "F1 pivot normalization",
+            "translation_pivot_normalize_v1",
+            "Normalize fr-FR source into a clean en-GB pivot while preserving DITA structure.",
+            agent_identity="agent.translation.f1_pivot",
+            config={"source_lang": "fr-FR", "pivot_lang": "en-GB"},
+        ),
+        task(
+            "fanout",
+            "F2 multilingual fan-out",
+            "translation_fanout_v1",
+            "Translate the pivot into target locales with bounded parallelism and frozen model routing.",
+            agent_identity="agent.translation.f2_fanout",
+            config={"target_count": len(TRANSLATION_TARGET_LANGS), "num_parallel_topics": 5},
+        ),
+        task(
+            "qa_loop",
+            "J2450 QA loop",
+            "translation_j2450_qa_v1",
+            "Run seven SAE J2450 QA agents plus supervisor convergence.",
+            agent_identity="agent.translation.qa_supervisor",
+            config={"limit_qa_loop": 5, "severity_policy": "no_error"},
+        ),
+        task(
+            "post_guards",
+            "CDC E1 post-guards",
+            "translation_post_guard_v1",
+            "Apply deterministic XML, placeholder, RTL and LLM-artifact guards.",
+            agent_identity="agent.translation.guardrails",
+            config={"blocking_modes": ["cdc_e1_strict", "xml_integrity", "j2450_gate"]},
+        ),
+        {
+            "id": "release_gate",
+            "kind": "decision",
+            "label": "Release gate",
+            "config": {
+                "default_branch": "accept",
+                "branches": [
+                    {"label": "accept", "condition": "ctx.verdict in ['ACCEPT_4D', 'ACCEPT_4D_WITH_VARIANCES']"},
+                    {"label": "remediate", "condition": "ctx.verdict in ['NEEDS_REVIEW', 'BLOCK_RELEASE']"},
+                ],
+            },
+            "data": {
+                "description": "Deterministic verdict before any delivery action.",
+                "agent_identity": "agent.translation.delivery_gate",
+            },
+        },
+        {
+            "id": "cdt_gate",
+            "kind": "hitl",
+            "label": "CDT approval",
+            "config": {"prompt": "Approve Translation Suite delivery manifest?"},
+            "data": {
+                "description": "Human approval gate for governed deliveries and SFTP push.",
+                "agent_identity": "human.translation.reviewer",
+            },
+        },
+        task(
+            "package_delivery",
+            "Package and deliver",
+            "translation_package_delivery_v1",
+            "Package DITA output, manifest, SHA256 hashes and simulated SFTP delivery evidence.",
+            agent_identity="agent.translation.delivery",
+            config={"delivery_channel": "simulated_sftp", "push_requires_human_approval": True},
+        ),
+        task(
+            "remediation",
+            "Replay remediation",
+            "translation_cdt_gate_v1",
+            "Freeze the delivery and create a replay/resubmission plan for failed topics.",
+            agent_identity="agent.translation.replay",
+            config={"mode": "replay_plan", "max_replays_per_topic": 3},
+        ),
+        {"id": "sink", "kind": "sink", "label": "Delivery ledger"},
+    ]
+    return {
+        "schema_version": 2,
+        "variant": "translation_suite",
+        "runtime_contract": {
+            "brand": "PMI Sovereign Stack",
+            "execution": "stateful_batch_with_replay",
+            "white_label": True,
+            "source_system": "project-mt/OM/generic_code",
+        },
+        "nodes": nodes,
+        "edges": [
+            {"from": "src", "to": "archive_ingest"},
+            {"from": "archive_ingest", "to": "memory_retrieve"},
+            {"from": "memory_retrieve", "to": "label_resolve"},
+            {"from": "label_resolve", "to": "pivot_normalize"},
+            {"from": "pivot_normalize", "to": "fanout"},
+            {"from": "fanout", "to": "qa_loop"},
+            {"from": "qa_loop", "to": "post_guards"},
+            {"from": "post_guards", "to": "release_gate"},
+            {"from": "release_gate", "to": "cdt_gate", "kind": "branch", "branch_label": "accept"},
+            {"from": "cdt_gate", "to": "package_delivery"},
+            {"from": "package_delivery", "to": "sink"},
+            {"from": "release_gate", "to": "remediation", "kind": "branch", "branch_label": "remediate"},
+            {"from": "remediation", "to": "sink"},
+        ],
+    }
+
+
+def translation_agent_identities() -> Dict[str, Dict[str, Any]]:
+    return {
+        "agent.translation.ingest": {
+            "role": "archive_ingest",
+            "permissions": ["translation_batch.read", "translation_batch.create"],
+            "credential_scope": "tenant:pmi:source_archive",
+        },
+        "agent.translation.memory": {
+            "role": "memory_retrieval",
+            "permissions": ["translation_memory.read"],
+            "credential_scope": "tenant:pmi:faiss_bge_m3",
+        },
+        "agent.translation.structure": {
+            "role": "dita_structure_guard",
+            "permissions": ["translation_batch.read", "guardrail.execute"],
+            "credential_scope": "tenant:pmi:dita_library",
+        },
+        "agent.translation.f1_pivot": {
+            "role": "pivot_normalizer",
+            "permissions": ["model.invoke", "translation_batch.execute"],
+            "credential_scope": "model:sovereign-vllm:gpt-oss-20b",
+        },
+        "agent.translation.f2_fanout": {
+            "role": "language_fanout",
+            "permissions": ["model.invoke", "translation_batch.execute"],
+            "credential_scope": "model:sovereign-vllm:gpt-oss-20b",
+        },
+        "agent.translation.qa_supervisor": {
+            "role": "j2450_supervisor",
+            "permissions": ["qa_agent.execute", "guardrail.execute"],
+            "credential_scope": "model:sovereign-qa:gpt-oss-120b",
+        },
+        "agent.translation.guardrails": {
+            "role": "deterministic_post_guard",
+            "permissions": ["guardrail.execute", "delivery.freeze"],
+            "credential_scope": "tenant:pmi:guardrail_policy",
+        },
+        "agent.translation.delivery": {
+            "role": "delivery_packager",
+            "permissions": ["delivery.package", "delivery.sftp_simulate"],
+            "credential_scope": "tenant:pmi:delivery_manifest",
+        },
+        "human.translation.reviewer": {
+            "role": "cdt_reviewer",
+            "permissions": ["translation_batch.approve", "delivery.release"],
+            "credential_scope": "workspace_role:reviewer",
+        },
+    }
+
+
+def translation_rbac_matrix() -> Dict[str, List[str]]:
+    return {
+        "viewer": ["translation_batch.read", "audit_log.read"],
+        "operator": [
+            "translation_batch.create",
+            "translation_batch.execute",
+            "translation_batch.replay",
+            "delivery.package",
+        ],
+        "translation_reviewer": [
+            "translation_batch.read",
+            "translation_batch.approve",
+            "delivery.release",
+            "audit_log.read",
+        ],
+        "auditor": ["translation_batch.read", "audit_log.read", "audit_log.export"],
+        "admin": ["model_policy.manage", "agent_identity.manage", "policy.manage", "rbac.manage"],
+    }
+
+
+def translation_config_snapshot(batch_id: str = "PMI-KANGOO3-2026-06") -> Dict[str, Any]:
+    return {
+        "brand": "PMI Sovereign Stack",
+        "white_label": True,
+        "source_architecture": {
+            "repo": "/Users/thib/Developer/PAPAI/project-mt/OM/generic_code",
+            "pipeline": "DITA archive -> F1 pivot -> F2 fan-out -> J2450 QA -> CDC E1 guards -> CDT delivery",
+            "integration_mode": "showcase_simulation_only",
+        },
+        "batch": {
+            "batch_id": batch_id,
+            "source_lang": "fr-FR",
+            "pivot_lang": "en-GB",
+            "target_langs": TRANSLATION_TARGET_LANGS,
+            "source_archive_ref": "dita://pmi/kangoo3/owner_manual/source/fr-FR/archive.zip",
+            "manifest_sha256": "7b8d1a9a6c2f76c2f3d6f2d4e16e4b90b2ef9e74fbd0a2f2a6f9f1b8e8c2d01d",
+            "topic_count": 184,
+            "source_words": 128_420,
+        },
+        "translation_job": {
+            "gpu_ids": [0, 1],
+            "rag_enabled": True,
+            "translation_history_base": "history/renault_kangoo3_reviewed",
+            "library_ref_path": "library/referent_index_textes_loca_gama.xlsx",
+            "kb_dir": "kb/faiss_bge_m3_pmi_sovereign",
+            "llm_provider": "sovereign_vllm",
+            "safety_priority_threshold": 0.94,
+            "num_parallel_topics": 5,
+            "limit_qa_loop": 5,
+        },
+        "model_routing": {
+            "translation": {
+                "provider": "local_vllm",
+                "model": "unsloth/gpt-oss-20b-BF16",
+                "temperature": 0,
+                "seed": 2450,
+                "egress": "disabled",
+            },
+            "qa": {
+                "provider": "sovereign_qa",
+                "model": "gpt-oss-120b",
+                "temperature": 0,
+            },
+            "embedding": {"provider": "local", "model": "BAAI/bge-m3"},
+        },
+        "guardrails": {
+            "dita_preservation": [
+                "conkeyref",
+                "xml:lang",
+                "xtrf",
+                "cite",
+                "INDEX",
+                "translate=no",
+                "root_attributes",
+            ],
+            "cdc_e1_strict": True,
+            "j2450_categories": ["WT", "SE", "OM", "SA", "SP", "PE", "ME"],
+            "blocking_verdicts": ["BLOCK_RELEASE", "REJECT"],
+            "accepted_verdicts": ["ACCEPT_4D", "ACCEPT_4D_WITH_VARIANCES"],
+        },
+        "security": {
+            "sovereignty": {
+                "data_residency": "EU sovereign boundary",
+                "external_llm_egress": False,
+                "artifact_hashing": "sha256_manifest",
+                "tenant_scope": "workspace:pmi",
+            },
+            "agent_identities": translation_agent_identities(),
+            "rbac": translation_rbac_matrix(),
+        },
+        "observability": {
+            "audit_tool_calls": True,
+            "persist_checkpoints": True,
+            "replay_lineage": True,
+            "token_counters": ["prompt_tokens", "completion_tokens", "retrieval_tokens"],
+            "delivery_evidence": ["manifest", "j2450_report", "cdc_guard_report", "simulated_sftp_receipt"],
+        },
+        "scaling": {
+            "max_concurrent_language_jobs": 4,
+            "max_parallel_topics": 5,
+            "state_backend": "workspace_job_ledger",
+            "resubmission_sla_hours": 4,
+        },
+        "token_performance": {
+            "determinism": "temperature_0_seed_2450",
+            "budget_prompt_tokens": 18_500_000,
+            "budget_completion_tokens": 9_200_000,
+            "actual_prompt_tokens": 14_870_000,
+            "actual_completion_tokens": 6_240_000,
+            "cache_hit_rate": 0.71,
+        },
+        "delivery": {
+            "package_format": "dita_zip_plus_reports",
+            "delivery_channel": "simulated_sftp",
+            "cdt_gate_required": True,
+            "acceptance_verdict": "ACCEPT_4D",
+        },
+    }
+
+
 def ensure_systems(
     db: DBSession,
     workspace: Workspace,
@@ -444,6 +983,21 @@ def ensure_systems(
             "prompt": "comparative",
             "retrieval": "chah",
         },
+        {
+            "key": "translation",
+            "name": "Translation Suite",
+            "objective": (
+                "Operate sovereign DITA translation batches with stateful replay, "
+                "agent identity controls, deterministic guardrails and audit-ready delivery."
+            ),
+            "capability": "showcase_translation_suite",
+            "flow": flow_translation_suite(),
+            "prompt": "procedural",
+            "retrieval": "hybrid",
+            "execution_mode": "batch_processing",
+            "coordination_pattern": "multi_agent_dag",
+            "default_model": "sovereign-vllm:unsloth/gpt-oss-20b-BF16",
+        },
     ]
     out: Dict[str, System] = {}
     for spec in specs:
@@ -452,20 +1006,50 @@ def ensure_systems(
             System.name == spec["name"],
         ).first()
         cap = capabilities[spec["capability"]]
+        if spec["key"] == "translation":
+            policies["translation_control"].target_id = cap.id
+            policies["translation_adaptive"].target_id = cap.id
         payload = {
             "objective": spec["objective"],
             "capability_id": cap.id,
             "skill_ids": cap.skill_ids or [],
             "flow_definition": spec["flow"],
-            "execution_mode": "human_augmented" if spec["key"] == "compliance" else "real_time_decision",
-            "execution_profile": {"showcase_seed": True, "persona": spec["key"]},
-            "coordination_pattern": "graph" if spec["flow"] else "single_agent",
-            "control_policy_id": policies["control"].id if spec["key"] == "compliance" else None,
-            "adaptive_policy_id": policies["adaptive"].id,
+            "settings": {
+                "showcase_seed": True,
+                "surface": "system",
+                "system_type": "translation_suite" if spec["key"] == "translation" else spec["key"],
+                "brand": "PMI Sovereign Stack" if spec["key"] == "translation" else "Agentium Showcase",
+                **(
+                    {"translation_suite": translation_config_snapshot()}
+                    if spec["key"] == "translation"
+                    else {}
+                ),
+            },
+            "execution_mode": spec.get("execution_mode") or ("human_augmented" if spec["key"] == "compliance" else "real_time_decision"),
+            "execution_profile": (
+                {
+                    "showcase_seed": True,
+                    "persona": "translation_operator",
+                    "stateful_execution": True,
+                    "replay_supported": True,
+                    "resubmission_supported": True,
+                    "scaling": {"max_concurrent_language_jobs": 4, "gpu_pool": "sovereign-aigrid"},
+                    "token_budget": {"input_tokens": 18_500_000, "output_tokens": 9_200_000, "determinism": "temperature_0"},
+                }
+                if spec["key"] == "translation"
+                else {"showcase_seed": True, "persona": spec["key"]}
+            ),
+            "coordination_pattern": spec.get("coordination_pattern") or ("graph" if spec["flow"] else "single_agent"),
+            "control_policy_id": (
+                policies["translation_control"].id
+                if spec["key"] == "translation"
+                else policies["control"].id if spec["key"] == "compliance" else None
+            ),
+            "adaptive_policy_id": policies["translation_adaptive"].id if spec["key"] == "translation" else policies["adaptive"].id,
             "status": "active",
             "created_by": "showcase-seed",
             "default_prompt_type": spec["prompt"],
-            "default_model": "gpt-4o-mini",
+            "default_model": spec.get("default_model") or "gpt-4o-mini",
             "retrieval_mode_default": spec["retrieval"],
         }
         if system:
@@ -523,6 +1107,67 @@ def ensure_context(db: DBSession, workspace: Workspace, systems: Dict[str, Syste
     else:
         context = Context(id=str(uuid4()), workspace_id=workspace.id, name="Showcase Enterprise Context", **payload)
         db.add(context)
+    translation_context = db.query(Context).filter(
+        Context.workspace_id == workspace.id,
+        Context.name == "PMI Sovereign Translation Context",
+    ).first()
+    translation_payload = {
+        "system_id": systems["translation"].id,
+        "data_refs": [
+            "showcase/translation-suite-sovereign-runbook.md",
+            "showcase/translation-suite-dita-guardrails.md",
+            "showcase/translation-suite-j2450-qa.md",
+            "showcase/translation-suite-model-routing.md",
+            "dita://pmi/kangoo3/owner_manual/source/fr-FR/archive.zip",
+            "manifest://pmi/kangoo3/sha256/7b8d1a9a-simulated",
+        ],
+        "memory_refs": [
+            "translation_memory:renault_kangoo3_reviewed",
+            "faiss:bge-m3:pmi_sovereign_tm_v12",
+            "glossary:REFERENT_INDEX_TEXTES_LOCA_GAMA",
+            "j2450_registry:wt_se_om_sa_sp_pe_me",
+            "replay_lineage:cdc_e1_strict",
+        ],
+        "history_refs": [
+            "project-mt/OM/generic_code/translation_job.py",
+            "project-mt/OM/generic_code/ts_api/orchestrator.py",
+            "project-mt/OM/generic_code/ts/dod.py",
+            "batch_history:pmi_kangoo3_accept_4d",
+        ],
+        "environment_state": {
+            "industry": "regulated translation",
+            "region": "EU sovereign boundary",
+            "source_lang": "fr-FR",
+            "pivot_lang": "en-GB",
+            "target_lang_count": len(TRANSLATION_TARGET_LANGS),
+        },
+        "business_constraints": {
+            "external_llm_egress": False,
+            "conkeyref_byte_equal": True,
+            "human_approval_before_sftp": True,
+            "replay_resubmission_required": True,
+            "audit_every_tool_call": True,
+        },
+        "permissions": {
+            "personas": ["operator", "translation_reviewer", "auditor", "admin"],
+            "agent_identities": translation_agent_identities(),
+            "rbac": translation_rbac_matrix(),
+        },
+        "ephemeral": False,
+    }
+    if translation_context:
+        for key, value in translation_payload.items():
+            setattr(translation_context, key, value)
+    else:
+        translation_context = Context(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            name="PMI Sovereign Translation Context",
+            **translation_payload,
+        )
+        db.add(translation_context)
+    db.flush()
+    systems["translation"].context_id = translation_context.id
     db.commit()
     return context
 
@@ -559,7 +1204,7 @@ def seed_story(
     owner: User,
     systems: Dict[str, System],
     capabilities: Dict[str, Capability],
-    context: Context,
+    context: Optional[Context] = None,
 ) -> Dict[str, int]:
     runs: List[Run] = []
     evals: List[EvaluationScore] = []
@@ -663,6 +1308,9 @@ def seed_story(
     db.flush()
 
     seed_invocations(db, runs)
+    translation_seed = seed_translation_story(db, workspace, owner, systems["translation"])
+    runs.extend(translation_seed["runs"])
+    evals.extend(translation_seed["evals"])
     seed_review_decisions(db, workspace, runs, evals, replay, canonical)
     seed_chat_session(db, workspace, owner, runs[:3])
     seed_audit(db, workspace, owner, replay, canonical)
@@ -766,6 +1414,536 @@ def create_run_eval(
     db.add_all([run, score])
     db.flush()
     return run, score
+
+
+def translation_checkpoints(
+    *,
+    verdict: str,
+    started_at: datetime,
+    blocked_topic: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    stages = [
+        ("archive_ingest", "created", 6),
+        ("memory_retrieve", "retrieved", 11),
+        ("label_resolve", "resolved", 16),
+        ("pivot_normalize", "completed", 26),
+        ("fanout", "completed", 58),
+        ("qa_loop", "completed", 81),
+        ("post_guards", "completed", 88),
+        ("release_gate", verdict, 91),
+        ("cdt_gate", "approved" if verdict.startswith("ACCEPT") else "review_required", 94),
+        ("package_delivery", "completed" if verdict.startswith("ACCEPT") else "frozen", 100),
+    ]
+    checkpoints = []
+    for idx, (stage, status, progress) in enumerate(stages):
+        checkpoints.append(
+            {
+                "kind": "translation_stage",
+                "stage": stage,
+                "status": status,
+                "progress": progress,
+                "timestamp": (started_at + timedelta(minutes=idx * 3)).isoformat(),
+                "verdict": verdict if stage in {"release_gate", "package_delivery"} else None,
+                "blocked_topic": blocked_topic if blocked_topic and stage in {"post_guards", "release_gate"} else None,
+            }
+        )
+    return checkpoints
+
+
+def translation_output_summary(
+    *,
+    verdict: str,
+    replayed_topics: int = 0,
+    blocked_topic: Optional[str] = None,
+) -> Dict[str, Any]:
+    accepted = verdict.startswith("ACCEPT")
+    return {
+        "verdict": verdict,
+        "delivery_status": "ship_ready" if accepted else "frozen_for_replay",
+        "accepted_target_langs": len(TRANSLATION_TARGET_LANGS) if accepted else 0,
+        "topics_total": 184,
+        "topics_replayed": replayed_topics,
+        "blocked_topic": blocked_topic,
+        "quality": {
+            "j2450_weighted_score": 0.18 if accepted else 1.42,
+            "cdc_e1_violations": 0 if accepted else 1,
+            "xml_integrity": "pass" if accepted else "blocked",
+            "placeholder_preservation": "byte_equal" if accepted else "mismatch_detected",
+        },
+        "artifacts": {
+            "manifest": "manifest://pmi/kangoo3/accept_4d_manifest.json",
+            "j2450_report": "report://pmi/kangoo3/j2450_summary.pdf",
+            "cdc_guard_report": "report://pmi/kangoo3/cdc_e1_guardrails.json",
+            "delivery_package": "sftp://simulated/pmi/kangoo3/ACCEPT_4D/package.zip" if accepted else None,
+        },
+        "sovereignty": {
+            "external_llm_egress": False,
+            "model_versions_frozen": True,
+            "audit_export_ready": True,
+        },
+    }
+
+
+def create_translation_run(
+    db: DBSession,
+    workspace: Workspace,
+    system: System,
+    *,
+    title: str,
+    status: str,
+    verdict: str,
+    started_at: datetime,
+    duration_minutes: int,
+    confidence: float,
+    value: float,
+    cost: float,
+    trigger: str,
+    parent_run_id: Optional[str] = None,
+    replay_overrides: Optional[Dict[str, Any]] = None,
+    blocked_topic: Optional[str] = None,
+    replayed_topics: int = 0,
+) -> tuple[Run, EvaluationScore]:
+    completed_at = started_at + timedelta(minutes=duration_minutes)
+    score_id = str(uuid4())
+    failed_components = [] if verdict.startswith("ACCEPT") else ["guardrail", "post_processing", "delivery_gate"]
+    composite = 96.0 if verdict.startswith("ACCEPT") else 61.0
+    hallucination = 0.0 if verdict.startswith("ACCEPT") else 0.04
+    config = translation_config_snapshot()
+    run = Run(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        system_id=system.id,
+        capability_id=system.capability_id,
+        input_ref={
+            "title": title,
+            "suite": "Translation Suite",
+            "configuration": config,
+            "requested_verdict": verdict,
+            "replay_parent_run_id": parent_run_id,
+        },
+        output_ref=translation_output_summary(
+            verdict=verdict,
+            replayed_topics=replayed_topics,
+            blocked_topic=blocked_topic,
+        ),
+        status=status,
+        started_at=started_at,
+        completed_at=completed_at,
+        duration_ms=float(duration_minutes * 60 * 1000),
+        trigger=trigger,
+        parent_run_id=parent_run_id,
+        replay_overrides=replay_overrides,
+        decision=verdict,
+        confidence=confidence,
+        value_estimated=value,
+        cost_internal=cost,
+        efficiency=(value / cost) if cost else None,
+        value_source="auto",
+        checkpoints=translation_checkpoints(verdict=verdict, started_at=started_at, blocked_topic=blocked_topic),
+        flow_snapshot=system.flow_definition,
+    )
+    run.evaluation_scores = {
+        "composite_score": composite,
+        "hallucination_rate": hallucination,
+        "scores": {
+            "task_success": composite,
+            "dita_integrity": 100.0 if verdict.startswith("ACCEPT") else 62.0,
+            "j2450_quality": 98.0 if verdict.startswith("ACCEPT") else 71.0,
+            "sovereignty": 100.0,
+            "auditability": 100.0,
+        },
+        "threshold_breach": bool(failed_components),
+        "failed_components": failed_components,
+        "question_type": "translation_batch",
+        "topic": "PMI DITA translation delivery",
+        "evaluation_id": score_id,
+        "evaluated_at": completed_at.isoformat(),
+    }
+    score = EvaluationScore(
+        id=score_id,
+        workspace_id=workspace.id,
+        run_id=run.id,
+        session_id=run.id,
+        agent_id=system.id,
+        turn_number=1,
+        query=title,
+        scores=run.evaluation_scores["scores"],
+        composite_score=composite,
+        hallucination_rate=hallucination,
+        drift_rate=0.0,
+        question_type="translation_batch",
+        failed_components=failed_components,
+        topic="PMI DITA translation delivery",
+        claim_audit={
+            "supported": 6,
+            "unsupported": 0 if verdict.startswith("ACCEPT") else 1,
+            "claims": [
+                {"claim": "No external LLM egress", "supported": True, "source": "translation-suite-model-routing.md"},
+                {"claim": "CDC E1 conkeyref preservation passed", "supported": verdict.startswith("ACCEPT"), "source": "translation-suite-dita-guardrails.md"},
+                {"claim": "J2450 QA agents converged", "supported": verdict.startswith("ACCEPT"), "source": "translation-suite-j2450-qa.md"},
+                {"claim": "Delivery requires CDT approval", "supported": True, "source": "translation-suite-sovereign-runbook.md"},
+            ],
+        },
+        metadata_={
+            "showcase_seed": True,
+            "system": system.name,
+            "brand": "PMI Sovereign Stack",
+            "verdict": verdict,
+            "replay_parent_run_id": parent_run_id,
+        },
+        created_at=completed_at,
+    )
+    db.add_all([run, score])
+    db.flush()
+    seed_translation_invocations(
+        db,
+        run,
+        verdict=verdict,
+        blocked_topic=blocked_topic,
+        replayed_topics=replayed_topics,
+    )
+    return run, score
+
+
+def seed_translation_invocations(
+    db: DBSession,
+    run: Run,
+    *,
+    verdict: str,
+    blocked_topic: Optional[str] = None,
+    replayed_topics: int = 0,
+) -> None:
+    config = run.input_ref.get("configuration", {}) if isinstance(run.input_ref, dict) else {}
+    accepted = verdict.startswith("ACCEPT")
+    stages = [
+        ("translation_archive_ingest_v1", "agent.translation.ingest", 420_000, 0.48, {"topics": 184, "archive_hash": config.get("batch", {}).get("manifest_sha256")}),
+        ("translation_memory_retrieve_v1", "agent.translation.memory", 680_000, 0.92, {"examples": 368, "cache_hit_rate": 0.71}),
+        ("translation_label_index_resolve_v1", "agent.translation.structure", 540_000, 0.36, {"labels_resolved": 1_248, "protected_placeholders": 3_912}),
+        ("translation_pivot_normalize_v1", "agent.translation.f1_pivot", 2_940_000, 18.75, {"pivot_lang": "en-GB", "segments": 8_620}),
+        ("translation_fanout_v1", "agent.translation.f2_fanout", 8_820_000, 96.40, {"target_langs": len(TRANSLATION_TARGET_LANGS), "parallel_topics": 5}),
+        ("translation_j2450_qa_v1", "agent.translation.qa_supervisor", 2_160_000, 24.10, {"agents": ["WT", "SE", "OM", "SA", "SP", "PE", "ME"], "loop_count": 3 if accepted else 5}),
+        ("translation_post_guard_v1", "agent.translation.guardrails", 780_000, 2.20, {"cdc_e1_violations": 0 if accepted else 1, "blocked_topic": blocked_topic}),
+        ("translation_cdt_gate_v1", "human.translation.reviewer", 180_000, 0.0, {"approval": "approved" if accepted else "review_required", "replayed_topics": replayed_topics}),
+        ("translation_package_delivery_v1", "agent.translation.delivery", 520_000, 1.85, {"delivery_status": "simulated_sftp_receipt" if accepted else "frozen"}),
+        ("audit_log_v1", "agent.translation.delivery_gate", 40_000, 0.01, {"event_type": "translation_suite.run.completed", "verdict": verdict}),
+    ]
+    started = run.started_at or datetime.utcnow()
+    for idx, (slug, agent_identity, latency_ms, cost, output) in enumerate(stages):
+        stage_started = started + timedelta(minutes=idx * 3)
+        status = "completed"
+        if not accepted and slug == "translation_package_delivery_v1":
+            status = "cancelled"
+        db.add(SkillInvocation(
+            id=str(uuid4()),
+            run_id=run.id,
+            skill_slug=slug,
+            input_ref={
+                "batch_id": config.get("batch", {}).get("batch_id", "PMI-KANGOO3-2026-06"),
+                "target_langs": config.get("batch", {}).get("target_langs", TRANSLATION_TARGET_LANGS),
+                "agent_identity": agent_identity,
+                "rbac_scope": translation_agent_identities().get(agent_identity, {}).get("credential_scope"),
+                "policy": "Translation Suite sovereign guardrail",
+            },
+            output_ref={
+                "status": status,
+                "verdict": verdict,
+                "showcase_seed": True,
+                **output,
+            },
+            status=status,
+            started_at=stage_started,
+            completed_at=stage_started + timedelta(milliseconds=latency_ms),
+            latency_ms=float(latency_ms),
+            cost=cost,
+            metrics={
+                "prompt_tokens": 120_000 + idx * 18_000,
+                "completion_tokens": 54_000 + idx * 7_500,
+                "deterministic": True,
+                "external_egress": False,
+            },
+            trace={
+                "tool_call_id": f"pmi-ts-{run.id[:8]}-{idx + 1:02d}",
+                "agent_identity": agent_identity,
+                "rbac_scope": translation_agent_identities().get(agent_identity, {}).get("credential_scope"),
+                "checkpoint_index": idx,
+                "stateful_replay_key": f"{run.id}:{slug}",
+                "source_architecture_ref": "project-mt/OM/generic_code",
+            },
+        ))
+
+
+def seed_translation_jobs(
+    db: DBSession,
+    workspace: Workspace,
+    owner: User,
+    system: System,
+    runs: Dict[str, Run],
+) -> None:
+    actor_id = owner.id
+    job_specs = [
+        (
+            "translation_suite_batch",
+            "KANGOO3 39-locale fan-out",
+            runs["accepted"],
+            "completed",
+            "completed",
+            100,
+            {"verdict": "ACCEPT_4D", "target_langs": len(TRANSLATION_TARGET_LANGS), "topics": 184},
+        ),
+        (
+            "translation_suite_guardrail",
+            "CDC E1 strict guardrail block",
+            runs["blocked"],
+            "completed",
+            "reviewing",
+            91,
+            {"verdict": "BLOCK_RELEASE", "blocked_topic": "KANGOO3-OM-0423.dita"},
+        ),
+        (
+            "translation_suite_replay",
+            "Replay blocked CDC E1 topics",
+            runs["replay"],
+            "completed",
+            "completed",
+            100,
+            {"verdict": "ACCEPT_4D_WITH_VARIANCES", "replayed_topics": 3},
+        ),
+        (
+            "translation_suite_delivery",
+            "ACCEPT_4D package and simulated SFTP handoff",
+            runs["delivery"],
+            "completed",
+            "completed",
+            100,
+            {"verdict": "ACCEPT_4D", "receipt": "sftp://simulated/pmi/kangoo3/receipt.json"},
+        ),
+    ]
+    for kind, title, run, status, stage, progress, result in job_specs:
+        created_at = (run.started_at or datetime.utcnow()) - timedelta(minutes=5)
+        db.add(WorkspaceJob(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            system_id=system.id,
+            run_id=run.id,
+            kind=kind,
+            title=title,
+            status=status,
+            progress=progress,
+            stage=stage,
+            input_ref={
+                "configuration": translation_config_snapshot(),
+                "run_id": run.id,
+            },
+            result={
+                "showcase_seed": True,
+                "brand": "PMI Sovereign Stack",
+                "dod": [
+                    "archive_parsed",
+                    "translation_complete",
+                    "j2450_report",
+                    "dita_validated",
+                    "archive_packaged",
+                    "cdt_notified",
+                    "delivered_to_4d",
+                ],
+                **result,
+            },
+            events=[
+                {"status": "created", "at": created_at.isoformat(), "actor": "agent.translation.batch"},
+                {"status": "queued", "at": (created_at + timedelta(minutes=1)).isoformat(), "actor": "agent.translation.batch"},
+                {"status": "running", "at": (created_at + timedelta(minutes=2)).isoformat(), "actor": "agent.translation.f2_fanout"},
+                {"status": stage, "at": (run.completed_at or datetime.utcnow()).isoformat(), "actor": "agent.translation.delivery_gate"},
+            ],
+            created_by_user_id=actor_id,
+            created_at=created_at,
+            queued_at=created_at + timedelta(minutes=1),
+            started_at=created_at + timedelta(minutes=2),
+            completed_at=run.completed_at,
+            updated_at=run.completed_at or datetime.utcnow(),
+        ))
+
+
+def seed_translation_decisions(
+    db: DBSession,
+    workspace: Workspace,
+    owner: User,
+    runs: Dict[str, Run],
+) -> None:
+    actor = owner.email or owner.username or "showcase-seed"
+    db.add(Decision(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        scope="run",
+        target_id=runs["blocked"].id,
+        kind="guardrail_block",
+        status="applied",
+        title="CDC E1 guardrail blocked delivery and opened replay",
+        rationale={
+            "source": SHOWCASE_SOURCE,
+            "brand": "PMI Sovereign Stack",
+            "blocked_topic": "KANGOO3-OM-0423.dita",
+            "violation": "conkeyref placeholder mismatch",
+            "active_suggestion": {
+                "action_type": "rerun_failed_topics",
+                "overrides": {
+                    "mode": "pivot_repair",
+                    "preserve_conkeyref_byte_equal": True,
+                    "target_topics": ["KANGOO3-OM-0423.dita", "KANGOO3-OM-0440.dita", "KANGOO3-OM-0451.dita"],
+                },
+                "confidence": 0.92,
+            },
+        },
+        impact_estimate={"risk_avoided": "blocked defective 4D package", "resubmission_sla_hours": 4},
+        approved_by=actor,
+        approved_at=runs["blocked"].completed_at,
+        applied_by="agent.translation.delivery_gate",
+        applied_at=runs["blocked"].completed_at,
+        applied_patch={"new_run_id": runs["replay"].id, "parent_run_id": runs["blocked"].id},
+    ))
+    db.add(Decision(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        scope="run",
+        target_id=runs["delivery"].id,
+        kind="delivery_release",
+        status="applied",
+        title="CDT approved ACCEPT_4D delivery manifest",
+        rationale={
+            "source": SHOWCASE_SOURCE,
+            "brand": "PMI Sovereign Stack",
+            "verdict": "ACCEPT_4D",
+            "human_gate": "human.translation.reviewer",
+            "audit_export_ready": True,
+        },
+        impact_estimate={"value_estimated": runs["delivery"].value_estimated, "lsp_cycle_time_reduced_days": 11},
+        approved_by=actor,
+        approved_at=runs["delivery"].completed_at,
+        applied_by="agent.translation.delivery",
+        applied_at=runs["delivery"].completed_at,
+        applied_patch={"delivery_receipt": "sftp://simulated/pmi/kangoo3/receipt.json"},
+    ))
+
+
+def seed_translation_audit(
+    db: DBSession,
+    workspace: Workspace,
+    owner: User,
+    runs: Dict[str, Run],
+) -> None:
+    actor = owner.email or owner.username or "showcase-seed"
+    events = [
+        ("translation_suite.batch.configured", runs["accepted"], {"target_lang_count": len(TRANSLATION_TARGET_LANGS), "external_llm_egress": False}),
+        ("translation_suite.agent.tool_call_audited", runs["accepted"], {"skill_slug": "translation_j2450_qa_v1", "agent_identity": "agent.translation.qa_supervisor"}),
+        ("translation_suite.guardrail.blocked", runs["blocked"], {"blocked_topic": "KANGOO3-OM-0423.dita", "verdict": "BLOCK_RELEASE"}),
+        ("translation_suite.run.replayed", runs["replay"], {"parent_run_id": runs["blocked"].id, "new_run_id": runs["replay"].id}),
+        ("translation_suite.delivery.accepted", runs["delivery"], {"verdict": "ACCEPT_4D", "receipt": "sftp://simulated/pmi/kangoo3/receipt.json"}),
+    ]
+    for event_type, run, details in events:
+        emit_audit_event(
+            workspace_id=workspace.id,
+            event_type=event_type,
+            actor=actor,
+            details={**details, "run_id": run.id, "showcase_seed": True, "brand": "PMI Sovereign Stack"},
+            trace_id=run.id,
+            agent_id=details.get("agent_identity") or "agent.translation.delivery_gate",
+            db=db,
+        )
+
+
+def seed_translation_story(
+    db: DBSession,
+    workspace: Workspace,
+    owner: User,
+    system: System,
+) -> Dict[str, Any]:
+    runs: List[Run] = []
+    evals: List[EvaluationScore] = []
+
+    accepted, accepted_score = create_translation_run(
+        db,
+        workspace,
+        system,
+        title="KANGOO3 qualification batch - 39 locale fan-out",
+        status="completed",
+        verdict="ACCEPT_4D",
+        started_at=now_minus(days=4, hours=6),
+        duration_minutes=214,
+        confidence=0.972,
+        value=9_600.0,
+        cost=144.25,
+        trigger="scheduler",
+    )
+    runs.append(accepted)
+    evals.append(accepted_score)
+
+    blocked, blocked_score = create_translation_run(
+        db,
+        workspace,
+        system,
+        title="CDC E1 strict post-guard blocked conkeyref drift",
+        status="completed",
+        verdict="BLOCK_RELEASE",
+        started_at=now_minus(days=3, hours=9),
+        duration_minutes=93,
+        confidence=0.78,
+        value=0.0,
+        cost=42.80,
+        trigger="manual",
+        blocked_topic="KANGOO3-OM-0423.dita",
+    )
+    runs.append(blocked)
+    evals.append(blocked_score)
+
+    replay, replay_score = create_translation_run(
+        db,
+        workspace,
+        system,
+        title="Replay failed topics with pivot repair and placeholder lock",
+        status="completed",
+        verdict="ACCEPT_4D_WITH_VARIANCES",
+        started_at=now_minus(days=2, hours=13),
+        duration_minutes=48,
+        confidence=0.951,
+        value=4_800.0,
+        cost=21.60,
+        trigger="replay",
+        parent_run_id=blocked.id,
+        replay_overrides={
+            "mode": "pivot_repair",
+            "target_topics": ["KANGOO3-OM-0423.dita", "KANGOO3-OM-0440.dita", "KANGOO3-OM-0451.dita"],
+            "preserve_conkeyref_byte_equal": True,
+            "temperature": 0,
+        },
+        replayed_topics=3,
+    )
+    runs.append(replay)
+    evals.append(replay_score)
+
+    delivery, delivery_score = create_translation_run(
+        db,
+        workspace,
+        system,
+        title="CDT approved ACCEPT_4D package and simulated SFTP handoff",
+        status="completed",
+        verdict="ACCEPT_4D",
+        started_at=now_minus(days=1, hours=4),
+        duration_minutes=31,
+        confidence=0.989,
+        value=12_400.0,
+        cost=7.25,
+        trigger="hitl",
+        parent_run_id=replay.id,
+        replay_overrides={"resubmission_manifest": "manifest://pmi/kangoo3/replay_accept_4d.json"},
+        replayed_topics=3,
+    )
+    runs.append(delivery)
+    evals.append(delivery_score)
+
+    run_map = {"accepted": accepted, "blocked": blocked, "replay": replay, "delivery": delivery}
+    seed_translation_jobs(db, workspace, owner, system, run_map)
+    seed_translation_decisions(db, workspace, owner, run_map)
+    seed_translation_audit(db, workspace, owner, run_map)
+    return {"runs": runs, "evals": evals, "run_map": run_map}
 
 
 def seed_invocations(db: DBSession, runs: List[Run]) -> None:
