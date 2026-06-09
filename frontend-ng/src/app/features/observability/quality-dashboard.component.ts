@@ -177,7 +177,7 @@ const PALETTE = {
           </div>
           <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="2">
             Thresholds: composite ≥ {{ t.thresholds.composite_min }},
-            hallucination ≤ {{ (t.thresholds.hallucination_max * 100).toFixed(0) }}%
+            unsupported claims ≤ {{ (t.thresholds.hallucination_max * 100).toFixed(0) }}%
           </div>
         </div>
 
@@ -292,7 +292,7 @@ const PALETTE = {
                 </span>
               </div>
               <div [style.fontSize.px]="11" [style.color]="'var(--ck-fg-3)'" [style.marginTop.px]="4">
-                Avg {{ item.avg_composite.toFixed(1) }}/100 · hallucination {{ (item.avg_hallucination * 100).toFixed(1) }}%
+                Avg {{ item.avg_composite.toFixed(1) }}/100 · unsupported claims {{ (item.avg_hallucination * 100).toFixed(1) }}%
               </div>
             </a>
           }
@@ -320,14 +320,15 @@ const PALETTE = {
         sparklineTone="neutral"
       />
       <ck-stat-readout variant="tile"
-        label="Hallucination rate"
-        [value]="hallucinationDisplay()"
+        label="Unsupported claims"
+        [value]="unsupportedClaimsDisplay()"
         unit="%"
         icon="alert-triangle"
-        [trend]="hallucinationTrend()"
+        [trend]="unsupportedClaimsTrend()"
         trendSentiment="negative"
-        [sparkline]="hallucinationSeries()"
+        [sparkline]="unsupportedClaimsSeries()"
         sparklineTone="negative"
+        [hint]="unsupportedClaimsHint()"
       />
       <ck-stat-readout variant="tile"
         label="Drift rate"
@@ -502,6 +503,17 @@ export class QualityDashboardComponent implements OnInit {
     const total = buckets.reduce((acc, b) => acc + (b.count ?? 0), 0);
     return total > 0 ? (weighted / total).toFixed(1) : '—';
   });
+  readonly unsupportedClaimsAverage = computed<number | null>(() => {
+    const buckets = this.trend()?.series ?? [];
+    if (buckets.length) {
+      const weighted = buckets.reduce((acc, b) => acc + (b.avg_hallucination ?? 0) * (b.count ?? 0), 0);
+      const total = buckets.reduce((acc, b) => acc + (b.count ?? 0), 0);
+      if (total > 0) return weighted / total;
+    }
+    const rows = this.history().filter((row) => typeof row.hallucination_rate === 'number');
+    if (!rows.length) return null;
+    return rows.reduce((acc, row) => acc + (row.hallucination_rate ?? 0), 0) / rows.length;
+  });
   readonly trendHealthTone = computed<'pos' | 'warn' | 'neg'>(() => {
     const rate = this.trend()?.totals.breach_rate ?? 0;
     if (rate === 0) return 'pos';
@@ -517,14 +529,16 @@ export class QualityDashboardComponent implements OnInit {
    */
   readonly trendBars = computed(() => {
     const series = this.trend()?.series ?? [];
-    const threshold = this.trend()?.thresholds?.composite_min ?? 0;
+    const compositeThreshold = this.trend()?.thresholds?.composite_min ?? 0;
+    const unsupportedThreshold = this.trend()?.thresholds?.hallucination_max ?? 1;
     if (!series.length) return [];
     const maxCount = series.reduce((acc, b) => Math.max(acc, b.count ?? 0), 0);
     const safe = maxCount > 0 ? maxCount : 1;
     return series.map((b) => {
       const ratio = (b.count ?? 0) / safe;
       const isBreach =
-        typeof b.avg_composite === 'number' && b.avg_composite < threshold;
+        (typeof b.avg_composite === 'number' && b.avg_composite < compositeThreshold)
+        || (typeof b.avg_hallucination === 'number' && b.avg_hallucination > unsupportedThreshold);
       return {
         bucket: b.bucket,
         count: b.count ?? 0,
@@ -569,9 +583,15 @@ export class QualityDashboardComponent implements OnInit {
     return typeof v === 'number' ? v.toFixed(1) : '—';
   });
 
-  readonly hallucinationDisplay = computed(() => {
-    const v = this.latest()?.hallucination_rate;
+  readonly unsupportedClaimsDisplay = computed(() => {
+    const v = this.unsupportedClaimsAverage();
     return typeof v === 'number' ? (v * 100).toFixed(1) : '—';
+  });
+
+  readonly unsupportedClaimsHint = computed(() => {
+    const latest = this.latest()?.hallucination_rate;
+    if (typeof latest !== 'number') return '7d weighted average from claim audits';
+    return `7d weighted average · latest run ${(latest * 100).toFixed(1)}%`;
   });
 
   readonly driftDisplay = computed(() => {
@@ -596,12 +616,18 @@ export class QualityDashboardComponent implements OnInit {
     return `${d >= 0 ? '+' : ''}${d.toFixed(1)}`;
   });
 
-  readonly hallucinationTrend = computed<'up' | 'down' | null>(() => {
+  readonly unsupportedClaimsTrend = computed<'up' | 'down' | null>(() => {
+    const buckets = (this.trend()?.series ?? []).filter((b) => (b.count ?? 0) > 0);
+    if (buckets.length >= 2) {
+      const current = buckets[buckets.length - 1].avg_hallucination ?? 0;
+      const previous = buckets[buckets.length - 2].avg_hallucination ?? 0;
+      return current <= previous ? 'down' : 'up';
+    }
     const hist = this.history();
     if (hist.length < 2) return null;
-    const a = hist[0].hallucination_rate ?? 0;
-    const b = hist[1].hallucination_rate ?? 0;
-    return a <= b ? 'up' : 'down';
+    const current = hist[0].hallucination_rate ?? 0;
+    const previous = hist[1].hallucination_rate ?? 0;
+    return current <= previous ? 'down' : 'up';
   });
 
   readonly driftTrend = computed<'up' | 'down' | null>(() => {
@@ -619,7 +645,11 @@ export class QualityDashboardComponent implements OnInit {
     const reversed = [...this.history()].reverse();
     return reversed.map((e) => e.composite_score ?? 0).filter((v) => Number.isFinite(v));
   });
-  readonly hallucinationSeries = computed<number[]>(() => {
+  readonly unsupportedClaimsSeries = computed<number[]>(() => {
+    const trendSeries = this.trend()?.series ?? [];
+    if (trendSeries.length >= 2) {
+      return trendSeries.map((e) => (e.avg_hallucination ?? 0) * 100);
+    }
     const reversed = [...this.history()].reverse();
     return reversed.map((e) => (e.hallucination_rate ?? 0) * 100);
   });
@@ -686,7 +716,7 @@ export class QualityDashboardComponent implements OnInit {
           borderWidth: 2,
         },
         {
-          label: 'Hallucination (%)',
+          label: 'Unsupported claims (%)',
           data: reversed.map((e) => (e.hallucination_rate ?? 0) * 100),
           borderColor: '#ef4444',
           backgroundColor: 'rgba(239,68,68,0.08)',
@@ -730,7 +760,7 @@ export class QualityDashboardComponent implements OnInit {
       y1: {
         position: 'right',
         min: 0,
-        max: 50,
+        max: 100,
         grid: { display: false },
         ticks: { color: '#94a3b8' },
       },
