@@ -912,7 +912,7 @@ interface ProposalFact {
                     [disabled]="closureActionLoading()"
                     (click)="applySessionClosure(s, 'finish')"
                   >
-                    <app-icon name="arrow-right" [size]="14" /> Continuer
+                  <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.action.continue') }}
                   </button>
                   <button
                     type="button"
@@ -1431,7 +1431,7 @@ interface ProposalFact {
                         [disabled]="!answer.trim() || !canCaptureUpdate(s)"
                         (click)="sendAnswer(s)"
                       >
-                        <app-icon name="send" [size]="14" /> Évaluer la réponse
+                        <app-icon name="send" [size]="14" /> {{ i18n.t('capture.action.evaluate_answer') }}
                       </button>
                       <button
                         type="button"
@@ -1439,7 +1439,7 @@ interface ProposalFact {
                         [disabled]="!canProposalSubmit(s)"
                         (click)="createProposal(s)"
                       >
-                        <app-icon name="arrow-right" [size]="14" /> Continuer
+                        <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.action.continue') }}
                       </button>
                     }
                     @if (sessionHasStarted(s) && s.status === 'active') {
@@ -1447,10 +1447,10 @@ interface ProposalFact {
                         type="button"
                         class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50 sm:w-auto"
                         [disabled]="closureActionLoading() || recording() || transcribing() || !canCaptureExecute(s)"
-                        title="Continuer"
+                        [title]="i18n.t('capture.action.continue')"
                         (click)="applySessionClosure(s, 'finish')"
                       >
-                        <app-icon name="arrow-right" [size]="14" /> Continuer
+                        <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.action.continue') }}
                       </button>
                     }
                     <div class="min-w-0 w-full flex items-center gap-3 rounded bg-white/[0.03] px-3 py-2 sm:min-w-40 sm:flex-1">
@@ -1944,10 +1944,10 @@ interface ProposalFact {
             <aside class="t-card rounded-lg p-5 space-y-4 xl:sticky xl:top-4">
               <div>
                 <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
-                  Continuer
+                  {{ i18n.t('capture.action.continue') }}
                 </p>
                 <h3 class="text-sm font-semibold text-white mt-1">
-                  {{ isDemoMode() ? 'Prêt pour l’échange' : 'Prêt pour la capture' }}
+                  {{ isDemoMode() ? i18n.t('capture.plan.ready_exchange') : i18n.t('capture.plan.ready_capture') }}
                 </h3>
               </div>
               @if (isTopicOnlyPlan(s)) {
@@ -2031,14 +2031,14 @@ interface ProposalFact {
               </div>
               }
               @if (isDemoMode()) {
-                <p class="text-[10px] uppercase tracking-wider text-brand-300/80">Action principale</p>
+                <p class="text-[10px] uppercase tracking-wider text-brand-300/80">{{ i18n.t('capture.action.primary') }}</p>
               }
               <button
                 type="button"
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-3 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
                 [disabled]="loading() || !canCaptureExecute(s) || !canStartSessionPlan(s)"
                 [title]="planBlockingReason(s)
-                  || 'Continuer vers l’échange. La préparation des angles se poursuit en arrière-plan.'"
+                  || i18n.t('capture.plan.start_hint')"
                 (click)="startGuidedSession(s)"
               >
                 <app-icon [name]="planStartIcon(s)" [size]="14" /> {{ planStartLabel(s) }}
@@ -2080,7 +2080,7 @@ interface ProposalFact {
                   <div class="rounded border border-amber-300/30 bg-amber-500/10 p-4">
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div class="min-w-0">
-                        <p class="text-sm font-semibold text-amber-100">Ce fichier remplacera le plan courant. Continuer ?</p>
+                        <p class="text-sm font-semibold text-amber-100">{{ i18n.t('capture.plan.replace_prompt') }}</p>
                         <p class="mt-1 truncate text-xs text-amber-100/80">
                           {{ pending.filename }} · {{ pendingPlanSourceStats(pending) }}
                         </p>
@@ -2324,11 +2324,11 @@ interface ProposalFact {
                 <button
                   type="button"
                   class="px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
-                  title="Continue vers la capture avec le plan courant."
+                  [title]="i18n.t('capture.notice.plan_ready')"
                   [disabled]="(!planDialogueReady(s) && !planTopics(s).length) || planDialogueLoading()"
                   (click)="finalizePlanBuild(s)"
                 >
-                  Continuer
+                  {{ i18n.t('capture.action.continue') }}
                 </button>
               </div>
               @if (planDialogueLoading()) {
@@ -2352,12 +2352,12 @@ interface ProposalFact {
           <div class="t-card rounded-lg p-5 space-y-4">
             <div class="flex items-start justify-between gap-4">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Rapport</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.review.eyebrow') }}</p>
                 <h2 class="text-lg font-semibold text-white">
-                  {{ proposal()?.proposal?.title || session()?.title || 'Relire le rapport' }}
+                  {{ proposal()?.proposal?.title || session()?.title || i18n.t('capture.review.title') }}
                 </h2>
                 <p class="text-sm text-gray-500 mt-1 max-w-3xl">
-                  Relisez et corrigez le document qui sera publié.
+                  {{ i18n.t('capture.review.description') }}
                 </p>
               </div>
               @if (!isDemoMode()) {
@@ -2369,26 +2369,26 @@ interface ProposalFact {
 
             <div class="space-y-3">
               <div class="flex items-center justify-between gap-3">
-                <label class="block text-[10px] uppercase tracking-wider text-brand-300">Rapport final éditable</label>
+                <label class="block text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.review.final_report') }}</label>
                 @if (proposalReportDirty()) {
-                  <span class="text-[11px] text-amber-200">Modifications non enregistrées</span>
+                  <span class="text-[11px] text-amber-200">{{ i18n.t('capture.review.unsaved') }}</span>
                 }
               </div>
               <textarea
                 class="w-full min-h-[520px] rounded bg-black/30 border border-white/10 px-4 py-3 font-mono text-sm leading-relaxed text-gray-100 resize-y"
                 [ngModel]="proposalReportDraft"
                 (ngModelChange)="onProposalReportChange($event)"
-                placeholder="Le rapport structuré apparaîtra ici."
+                [placeholder]="i18n.t('capture.review.placeholder')"
               ></textarea>
               @if (!proposalReportText()) {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-5 text-sm text-gray-500">
-                  Aucun rapport exploitable pour l’instant. Reprenez la capture ou régénérez le rapport après avoir ajouté une information métier substantielle.
+                  {{ i18n.t('capture.review.empty_report') }}
                 </div>
               }
             </div>
             @if (closureSheetMarkdown()) {
               <details class="rounded border border-white/10 bg-black/20 p-3">
-                <summary class="cursor-pointer text-sm text-gray-300">Fiche fin de session</summary>
+                <summary class="cursor-pointer text-sm text-gray-300">{{ i18n.t('capture.review.end_sheet') }}</summary>
                 <pre class="mt-3 whitespace-pre-wrap text-xs text-gray-400 max-h-72 overflow-auto">{{ closureSheetMarkdown() }}</pre>
               </details>
             }
@@ -2396,8 +2396,8 @@ interface ProposalFact {
 
           <aside class="t-card rounded-lg p-5 space-y-4">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Relecture</p>
-              <h3 class="text-sm font-semibold text-white mt-1">Questions ouvertes</h3>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.review.review') }}</p>
+              <h3 class="text-sm font-semibold text-white mt-1">{{ i18n.t('capture.review.open_questions') }}</h3>
               @if (iamRoleBanner(); as banner) {
                 <p class="mt-2 text-xs text-brand-100/80">{{ banner }}</p>
               }
@@ -2405,19 +2405,19 @@ interface ProposalFact {
             @if (!isDemoMode() && showAdvancedSetup()) {
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Rapport</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.review.report') }}</div>
                 <div class="text-xl text-white font-semibold">{{ proposalReportWordCount() }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Preuves</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.review.evidence') }}</div>
                 <div class="text-xl text-white font-semibold">{{ proposalEvidenceCount() }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Relances</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.review.prompts') }}</div>
                 <div class="text-xl text-white font-semibold">{{ proposalOpenQuestions().length }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">État</div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.review.state') }}</div>
                 <div class="text-sm text-white font-semibold">{{ proposalReviewStateLabel() }}</div>
               </div>
             </div>
@@ -2425,16 +2425,16 @@ interface ProposalFact {
             @if (proposal(); as p) {
               <section class="rounded border border-brand-300/20 bg-brand-500/5 p-3 space-y-3">
                 <div>
-                  <label class="block text-[10px] uppercase tracking-wider text-brand-200">Modifier le rapport</label>
+                  <label class="block text-[10px] uppercase tracking-wider text-brand-200">{{ i18n.t('capture.review.edit_report') }}</label>
                   <p class="mt-1 text-xs leading-relaxed text-gray-400">
-                    Ajoutez une consigne courte pour corriger, compléter ou reformuler le rapport affiché.
+                    {{ i18n.t('capture.review.edit_report_hint') }}
                   </p>
                 </div>
                 <textarea
                   class="w-full min-h-24 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder:text-gray-600 resize-y disabled:opacity-60"
                   [(ngModel)]="proposalInstructionText"
                   [disabled]="proposalInstructionLoading()"
-                  placeholder="Ex. Ajoute une section sur les conditions de validation terrain..."
+                  [placeholder]="i18n.t('capture.review.instruction_placeholder')"
                 ></textarea>
                 <button
                   type="button"
@@ -2444,9 +2444,9 @@ interface ProposalFact {
                 >
                   @if (proposalInstructionLoading()) {
                     <span class="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 border-brand-200/40 border-t-brand-200 animate-spin"></span>
-                    Mise à jour…
+                    {{ i18n.t('capture.review.updating') }}
                   } @else {
-                    <app-icon name="sparkles" [size]="14" /> Appliquer la consigne
+                    <app-icon name="sparkles" [size]="14" /> {{ i18n.t('capture.review.apply_instruction') }}
                   }
                 </button>
               </section>
@@ -2454,8 +2454,8 @@ interface ProposalFact {
             @if (proposalReviewQuestions().length) {
               <div class="rounded bg-amber-500/10 border border-amber-400/20 p-3">
                 <div class="flex items-center justify-between gap-3">
-                  <div class="text-[10px] uppercase tracking-wider text-amber-200">Questions ouvertes</div>
-                  <span class="text-[10px] text-amber-100/70">{{ proposalReviewQuestions().length }} à traiter</span>
+                  <div class="text-[10px] uppercase tracking-wider text-amber-200">{{ i18n.t('capture.review.open_questions') }}</div>
+                  <span class="text-[10px] text-amber-100/70">{{ i18n.t('capture.review.to_process', { count: proposalReviewQuestions().length }) }}</span>
                 </div>
                 <div class="mt-3 space-y-2">
                 @for (row of proposalReviewQuestions(); track row.key) {
@@ -2469,7 +2469,7 @@ interface ProposalFact {
                       </span>
                       @if (row.status === 'deferred') {
                         <span class="rounded bg-white/5 px-2 py-0.5 text-[9px] uppercase tracking-wider text-gray-400">
-                          reportée
+                          {{ i18n.t('capture.review.deferred') }}
                         </span>
                       }
                     </div>
@@ -2483,21 +2483,21 @@ interface ProposalFact {
                         class="rounded bg-brand-500/15 px-2 py-1 text-[10px] font-medium text-brand-100 ring-1 ring-brand-300/20 hover:bg-brand-500/25"
                         (click)="useProposalQuestionAsInstruction(row.question)"
                       >
-                        Ajouter à la consigne
+                        {{ i18n.t('capture.review.add_to_instruction') }}
                       </button>
                       <button
                         type="button"
                         class="rounded bg-white/5 px-2 py-1 text-[10px] text-gray-300 ring-1 ring-white/10 hover:bg-white/10"
                         (click)="row.status === 'deferred' ? restoreProposalOpenQuestion(row.key) : deferProposalOpenQuestion(row.key)"
                       >
-                        {{ row.status === 'deferred' ? 'Remettre' : 'Reporter' }}
+                        {{ row.status === 'deferred' ? i18n.t('capture.review.restore') : i18n.t('capture.review.defer') }}
                       </button>
                       <button
                         type="button"
                         class="rounded bg-white/5 px-2 py-1 text-[10px] text-gray-400 ring-1 ring-white/10 hover:bg-white/10"
                         (click)="dismissProposalOpenQuestion(row.key)"
                       >
-                        Masquer
+                        {{ i18n.t('capture.review.hide') }}
                       </button>
                     </div>
                   </article>
@@ -2507,28 +2507,28 @@ interface ProposalFact {
             }
             @if (!proposalReviewQuestions().length) {
               <div class="rounded border border-white/10 bg-black/20 p-3 text-xs text-gray-400">
-                Aucune question ouverte détectée pour ce rapport.
+                {{ i18n.t('capture.review.no_open_questions') }}
               </div>
             }
             @if (!isDemoMode() && showAdvancedSetup()) {
-              <label class="block text-[10px] uppercase tracking-wider text-gray-500">Résumé exécutif</label>
+              <label class="block text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.review.executive_summary') }}</label>
               <textarea
                 class="w-full min-h-20 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
                 [(ngModel)]="executiveSummary"
-                placeholder="Synthèse éditable avant publication..."
+                [placeholder]="i18n.t('capture.review.summary_placeholder')"
               ></textarea>
             }
             @if (!isDemoMode() && showAdvancedSetup() && residualQualityCount() > 0) {
-              <p class="text-xs text-amber-200/90">{{ residualQualityCount() }} point(s) de qualité encore ouverts</p>
+              <p class="text-xs text-amber-200/90">{{ i18n.t('capture.review.quality_open', { count: residualQualityCount() }) }}</p>
             }
             @if (!isDemoMode() && showAdvancedSetup() && postSessionQualityItems().length) {
               <section class="rounded border border-amber-500/25 bg-amber-500/5 p-3 space-y-2">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">Points qualité</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-amber-200">{{ i18n.t('capture.review.quality_points') }}</p>
                 @for (item of postSessionQualityItems(); track item.id || item.label) {
                   <div class="text-xs text-gray-200 flex flex-wrap items-center justify-between gap-2">
                     <span>{{ item.label || item.follow_up }}</span>
                     @if (item.status === 'deferred') {
-                      <span class="text-amber-200/80">reporté</span>
+                      <span class="text-amber-200/80">{{ i18n.t('capture.review.deferred') }}</span>
                     }
                   </div>
                 }
@@ -2537,7 +2537,7 @@ interface ProposalFact {
                   class="w-full mt-1 px-3 py-2 rounded bg-brand-500/20 text-xs text-brand-100 ring-1 ring-brand-300/30"
                   (click)="startClarificationSession()"
                 >
-                  Clarifier en nouvelle session
+                  {{ i18n.t('capture.review.clarify_new_session') }}
                 </button>
               </section>
             }
@@ -2549,13 +2549,13 @@ interface ProposalFact {
                 [title]="proposalReviewHint(p)"
                 (click)="continueFromReview(p)"
               >
-                <app-icon name="arrow-right" [size]="14" /> Continuer
+                <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.action.continue') }}
               </button>
               @if (proposalReviewHint(p); as hint) {
                 <p class="text-[11px] leading-relaxed text-gray-500">{{ hint }}</p>
               }
               <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" (click)="exportProposalMd()">
-                Exporter en Markdown
+                {{ i18n.t('capture.review.export_markdown') }}
               </button>
               <button
                 type="button"
@@ -2563,11 +2563,11 @@ interface ProposalFact {
                 [disabled]="!proposalReportDirty() || proposalReportSaving() || !proposalReportText()"
                 (click)="saveProposalReport(p.id)"
               >
-                {{ proposalReportSaving() ? 'Enregistrement…' : 'Enregistrer le rapport' }}
+                {{ proposalReportSaving() ? i18n.t('capture.review.saving_report') : i18n.t('capture.review.save_report') }}
               </button>
               @if (!isDemoMode() && showAdvancedSetup()) {
                 <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" [disabled]="!session()" (click)="regenerateProposal()">
-                  Régénérer le rapport
+                  {{ i18n.t('capture.review.regenerate_report') }}
                 </button>
               }
               <button
@@ -2575,7 +2575,7 @@ interface ProposalFact {
                 class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
                 (click)="goSurface('session')"
               >
-                <app-icon name="message-square" [size]="14" /> Reprendre la capture
+                <app-icon name="message-square" [size]="14" /> {{ i18n.t('capture.review.resume_capture') }}
               </button>
             } @else if (session(); as s) {
               <button
@@ -2584,7 +2584,7 @@ interface ProposalFact {
                 [disabled]="!canProposalSubmit(s)"
                 (click)="createProposal(s)"
               >
-                <app-icon name="arrow-right" [size]="14" /> Continuer
+                <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.action.continue') }}
               </button>
             }
           </aside>
@@ -2596,17 +2596,17 @@ interface ProposalFact {
           <section class="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
             <div class="t-card rounded-lg p-5 space-y-5">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Publication</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.publish.eyebrow') }}</p>
                 <h2 class="text-lg font-semibold text-white mt-1">
-                  {{ p.proposal?.title || session()?.title || 'Publier le rapport' }}
+                  {{ p.proposal?.title || session()?.title || i18n.t('capture.publish.title') }}
                 </h2>
                 <p class="text-sm text-gray-500 mt-1 max-w-3xl">
-                  Confirmez la catégorie et la destination avant de publier le rapport.
+                  {{ i18n.t('capture.publish.description') }}
                 </p>
               </div>
 
               <div>
-                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Titre final</label>
+                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.publish.final_title') }}</label>
                 <input
                   class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
                   [(ngModel)]="publicationFinalTitle"
@@ -2616,7 +2616,7 @@ interface ProposalFact {
 
               <div class="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Catégorie suggérée</label>
+                  <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.publish.category') }}</label>
                   <select
                     class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
                     [(ngModel)]="publicationCategory"
@@ -2627,7 +2627,7 @@ interface ProposalFact {
                   </select>
                 </div>
                 <div>
-                  <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">Destination</label>
+                  <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.publish.destination') }}</label>
                   <input
                     class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
                     [(ngModel)]="publicationDestination"
@@ -2635,20 +2635,20 @@ interface ProposalFact {
                   />
                   @if (!effectivePublicationDestination()) {
                     <p class="mt-2 text-[11px] leading-relaxed text-amber-200/85">
-                      Renseignez une destination avant publication.
+                      {{ i18n.t('capture.publish.destination_required') }}
                     </p>
                   }
                 </div>
               </div>
 
               <div class="rounded border border-white/10 bg-black/20 p-4">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Ce qui sera publié</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.publish.summary') }}</p>
                 <p class="mt-2 text-sm text-gray-200 leading-relaxed">
-                  {{ proposalReportWordCount() }} mots dans le rapport final.
+                  {{ i18n.t('capture.publish.word_count', { count: proposalReportWordCount() }) }}
                   @if (proposalReviewQuestions().length) {
-                    {{ proposalReviewQuestions().length }} question(s) non résolue(s) seront conservées en fin de document.
+                    {{ i18n.t('capture.publish.unresolved_questions', { count: proposalReviewQuestions().length }) }}
                   } @else {
-                    Aucune question ouverte détectée.
+                    {{ i18n.t('capture.publish.no_open_questions') }}
                   }
                 </p>
               </div>
@@ -4637,29 +4637,34 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   voiceStateLabel(): string {
     const labels: Record<Voice2VoiceState, string> = {
-      idle: 'Prêt',
-      listening: 'Écoute en cours',
-      partial_transcribing: 'Transcription',
-      retrieving: 'Repères en préparation',
-      oracle_updating: 'Questions à jour',
-      thinking: 'Organisation des notes',
-      speaking: 'Lecture en cours',
-      interrupted: 'Interrompu',
+      idle: 'capture.voice.ready',
+      listening: 'capture.voice.listening',
+      partial_transcribing: 'capture.voice.transcription',
+      retrieving: 'capture.voice.retrieving',
+      oracle_updating: 'capture.voice.oracle_updating',
+      thinking: 'capture.voice.thinking',
+      speaking: 'capture.voice.speaking',
+      interrupted: 'capture.voice.interrupted',
     };
-    return labels[this.voiceState()];
+    return this.i18n.t(labels[this.voiceState()]);
   }
 
   retrievalLabel(): string {
     const rr = this.retrieval();
-    if (rr.chunks.length) return `${rr.chunks.length} repère(s) utile(s)`;
-    if (rr.status === 'searching') {
-      return 'Repères en préparation';
+    if (rr.chunks.length) {
+      return this.i18n.t(
+        rr.chunks.length === 1 ? 'capture.retrieval.useful_one' : 'capture.retrieval.useful_many',
+        { count: rr.chunks.length },
+      );
     }
-    if (rr.status === 'ready' || rr.status === 'completed') return 'Aucun repère utile';
-    if (rr.status === 'late') return 'Repères arrivés tard';
-    if (rr.status === 'timeout') return 'Timeout, on continue';
-    if (rr.status === 'error') return 'Repères indisponibles';
-    return 'En attente';
+    if (rr.status === 'searching') {
+      return this.i18n.t('capture.retrieval.searching');
+    }
+    if (rr.status === 'ready' || rr.status === 'completed') return this.i18n.t('capture.retrieval.none');
+    if (rr.status === 'late') return this.i18n.t('capture.retrieval.late');
+    if (rr.status === 'timeout') return this.i18n.t('capture.retrieval.timeout');
+    if (rr.status === 'error') return this.i18n.t('capture.retrieval.error');
+    return this.i18n.t('capture.retrieval.waiting');
   }
 
   onAnswerDraftChange(): void {
@@ -6062,16 +6067,20 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   conversationStateHeadline(session: CaptureSession): string {
-    if (!this.sessionHasStarted(session)) return 'Prêt à démarrer';
-    if (this.speaking()) return 'L’IA pose la question';
-    if (this.recording()) return 'Réponse expert en cours';
-    if (this.transcribing()) return 'Traitement du tour';
-    if (this.voiceState() === 'oracle_updating') return 'Questions IA mises à jour';
-    if (this.voiceState() === 'thinking') return 'Organisation des notes';
-    if (this.proposal()) return 'Rapport prêt';
+    if (!this.sessionHasStarted(session)) return this.i18n.t('capture.conversation.ready_start');
+    if (this.speaking()) return this.i18n.t('capture.conversation.ai_asking');
+    if (this.recording()) return this.i18n.t('capture.conversation.expert_answering');
+    if (this.transcribing()) return this.i18n.t('capture.conversation.processing');
+    if (this.voiceState() === 'oracle_updating') return this.i18n.t('capture.conversation.questions_updated');
+    if (this.voiceState() === 'thinking') return this.i18n.t('capture.conversation.organizing');
+    if (this.proposal()) return this.i18n.t('capture.conversation.report_ready');
     const step = this.lastConversationStep();
-    if (step?.action_taken === 'proposal_deferred_insufficient_facts') return 'Détail expert nécessaire';
-    return this.conversationMode() === 'conversation_only' ? 'Conversation prête' : 'Capture guidée prête';
+    if (step?.action_taken === 'proposal_deferred_insufficient_facts') {
+      return this.i18n.t('capture.conversation.detail_needed');
+    }
+    return this.conversationMode() === 'conversation_only'
+      ? this.i18n.t('capture.conversation.ready')
+      : this.i18n.t('capture.conversation.guided_ready');
   }
 
   conversationStageRows(session: CaptureSession): ConversationStageRow[] {
