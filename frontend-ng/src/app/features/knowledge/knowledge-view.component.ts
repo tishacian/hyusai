@@ -118,6 +118,7 @@ interface InventorySourcePayload {
 }
 
 interface InventoryPayload {
+  status?: string;
   source_count?: number;
   sources_total?: number;
   document_count?: number;
@@ -2140,7 +2141,7 @@ export class KnowledgeViewComponent implements OnInit {
       .get<InventoryPayload>(
         this.sourceInventoryUrl(safeOffset),
       )
-      .pipe(catchError(() => of<InventoryPayload>({ sources: [], source_count: 0 })))
+      .pipe(catchError(() => of<InventoryPayload>({ sources: [] })))
       .subscribe((payload) => this.applyInventoryPage(payload, safeOffset));
   }
 
@@ -2165,6 +2166,16 @@ export class KnowledgeViewComponent implements OnInit {
     this.sources.set(documents);
     this.sourceTotal.set(payload.sources_total ?? payload.source_count ?? payload.document_count ?? documents.length);
     this.sourceGlobalTotal.set(payload.source_count ?? payload.document_count ?? documents.length);
+    const inventoryDocCount = payload.document_count ?? payload.source_count;
+    if (inventoryDocCount !== undefined) {
+      this.docCount.set(inventoryDocCount);
+    }
+    if (payload.chunk_count !== undefined) {
+      this.chunkCount.set(payload.chunk_count);
+    }
+    if (payload.status) {
+      this.collectionStatus.set(payload.status);
+    }
     this.sourceOffset.set(payload.sources_offset ?? requestedOffset);
     this.sourcesHasMore.set(!!payload.sources_has_more);
     this.sourceKinds.set(payload.by_kind ?? {});
@@ -2201,37 +2212,34 @@ export class KnowledgeViewComponent implements OnInit {
     }
     const q = encodeURIComponent(this.kbId);
 
+    this.http
+      .get<CollectionsPayload>(`${this.base}/collections`)
+      .pipe(catchError(() => of<CollectionsPayload>({})))
+      .subscribe((meta) => {
+        const metaItem = (meta.items || []).find((item) => item.slug === this.kbId);
+        this.docCount.set(
+          metaItem?.document_count ??
+            metaItem?.source_count ??
+            this.sources().length,
+        );
+        this.chunkCount.set(metaItem?.chunk_count ?? this.chunkCount());
+        this.vectorDbType.set(meta.vector_db_type ?? '');
+        this.collectionStatus.set(metaItem?.status || '');
+        this.embeddingModel.set(metaItem?.embedding_model || '');
+        this.chunkingMethod.set(metaItem?.chunking_method || '');
+        this.loading.set(false);
+      });
+
+    this.loadSources(0);
+
     forkJoin({
-      inventory: this.http
-        .get<InventoryPayload>(
-          this.sourceInventoryUrl(0),
-        )
-        .pipe(catchError(() => of<InventoryPayload>({ sources: [], source_count: 0 }))),
-      meta: this.http
-        .get<CollectionsPayload>(`${this.base}/collections`)
-        .pipe(catchError(() => of<CollectionsPayload>({}))),
       guides: this.api
         .listKnowledgeGuides({ current_only: false })
         .pipe(catchError(() => of({ items: [] }))),
       scopes: this.api
         .get<{ scopes: KnowledgeScopeApi[] }>('/knowledge/scopes')
         .pipe(catchError(() => of({ scopes: [] }))),
-    }).subscribe(({ inventory, meta, guides, scopes }) => {
-      const metaItem = (meta.items || []).find((item) => item.slug === this.kbId);
-      this.applyInventoryPage(inventory, 0);
-      this.docCount.set(
-        inventory.document_count ??
-          inventory.source_count ??
-          metaItem?.document_count ??
-          metaItem?.source_count ??
-          this.sources().length,
-      );
-      this.chunkCount.set(inventory.chunk_count ?? metaItem?.chunk_count ?? 0);
-      this.vectorDbType.set(meta.vector_db_type ?? '');
-      this.collectionStatus.set(metaItem?.status || '');
-      this.embeddingModel.set(metaItem?.embedding_model || '');
-      this.chunkingMethod.set(metaItem?.chunking_method || '');
-      this.loading.set(false);
+    }).subscribe(({ guides, scopes }) => {
       this.knowledgeGuides.set(guides.items || []);
       this.knowledgeScopes.set(scopes.scopes || []);
       this.hydrateGuideEditor();
