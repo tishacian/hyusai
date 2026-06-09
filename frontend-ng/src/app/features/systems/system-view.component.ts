@@ -81,6 +81,22 @@ interface PipelineStage {
   tone: 'brand' | 'violet' | 'emerald';
 }
 
+interface EffectiveRetrievalContext {
+  knowledgeScope?: string;
+  assistantProfile?: string;
+  surface?: string;
+  systemType?: string;
+  collections: string[];
+  retrievalDefaults?: Record<string, unknown>;
+  grounding?: Record<string, unknown>;
+  sourcePolicy?: Record<string, unknown>;
+}
+
+interface ContextConfigRow {
+  key: string;
+  value: string;
+}
+
 @Component({
   selector: 'app-system-view',
   standalone: true,
@@ -482,6 +498,121 @@ interface PipelineStage {
             <div class="h-3 w-40 bg-white/5 rounded mb-2"></div>
             <div class="h-3 w-64 bg-white/5 rounded"></div>
           </div>
+        } @else if (!currentContext() && effectiveRetrievalContext(); as retrievalContext) {
+          <section class="t-card t-elevated rounded-md p-5">
+            <div class="flex items-start gap-3 mb-5">
+              <div class="w-9 h-9 rounded bg-brand-500/15 text-brand-300 ring-1 ring-brand-500/30 inline-flex items-center justify-center">
+                <app-icon name="database" [size]="16" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h3 class="text-sm font-semibold text-white">Effective retrieval context</h3>
+                  <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/25">
+                    Runtime scoped
+                  </span>
+                </div>
+                <p class="text-xs text-gray-400 mt-1 leading-relaxed">
+                  No dedicated Context row is attached. This System is scoped by its workspace chat retrieval profile.
+                </p>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <a
+                  routerLink="/knowledge"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+                >
+                  <app-icon name="database" [size]="12" /> Open Knowledge
+                </a>
+                <a
+                  [routerLink]="['/systems', systemId, 'flow']"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+                >
+                  <app-icon name="workflow" [size]="12" /> Open flow
+                </a>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Knowledge scope</div>
+                <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.knowledgeScope || '—' }}</div>
+              </div>
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Assistant profile</div>
+                <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.assistantProfile || '—' }}</div>
+              </div>
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Surface</div>
+                <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.surface || '—' }}</div>
+              </div>
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">System type</div>
+                <div class="font-mono text-xs text-gray-200 break-all">{{ retrievalContext.systemType || '—' }}</div>
+              </div>
+            </div>
+
+            <div class="rounded bg-black/20 ring-1 ring-white/10 p-3 mb-4">
+              <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">Collections</div>
+              @if (retrievalContext.collections.length === 0) {
+                <div class="text-sm text-gray-500">—</div>
+              } @else {
+                <div class="flex flex-wrap gap-2">
+                  @for (collection of retrievalContext.collections; track collection) {
+                    <span class="font-mono text-[11px] px-2 py-1 rounded bg-brand-500/10 text-brand-200 ring-1 ring-brand-500/25">
+                      {{ collection }}
+                    </span>
+                  }
+                </div>
+              }
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">Retrieval defaults</div>
+                @if (retrievalDefaultsRows().length === 0) {
+                  <div class="text-sm text-gray-500">—</div>
+                } @else {
+                  <dl class="space-y-1.5">
+                    @for (row of retrievalDefaultsRows(); track row.key) {
+                      <div class="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)] gap-2 text-xs">
+                        <dt class="text-gray-500 font-mono truncate">{{ row.key }}</dt>
+                        <dd class="text-gray-200 font-mono break-all">{{ row.value }}</dd>
+                      </div>
+                    }
+                  </dl>
+                }
+              </div>
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">Grounding</div>
+                @if (groundingRows().length === 0) {
+                  <div class="text-sm text-gray-500">—</div>
+                } @else {
+                  <dl class="space-y-1.5">
+                    @for (row of groundingRows(); track row.key) {
+                      <div class="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)] gap-2 text-xs">
+                        <dt class="text-gray-500 font-mono truncate">{{ row.key }}</dt>
+                        <dd class="text-gray-200 font-mono break-all">{{ row.value }}</dd>
+                      </div>
+                    }
+                  </dl>
+                }
+              </div>
+              <div class="rounded bg-black/20 ring-1 ring-white/10 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-2">Source policy</div>
+                @if (sourcePolicyRows().length === 0) {
+                  <div class="text-sm text-gray-500">—</div>
+                } @else {
+                  <dl class="space-y-1.5">
+                    @for (row of sourcePolicyRows(); track row.key) {
+                      <div class="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)] gap-2 text-xs">
+                        <dt class="text-gray-500 font-mono truncate">{{ row.key }}</dt>
+                        <dd class="text-gray-200 font-mono break-all">{{ row.value }}</dd>
+                      </div>
+                    }
+                  </dl>
+                }
+              </div>
+            </div>
+          </section>
         } @else if (!currentContext()) {
           <div class="t-card t-elevated rounded-md p-8 text-center text-gray-400 text-sm">
             No dedicated Context attached. This System runs on the workspace default.
@@ -747,8 +878,15 @@ export class SystemViewComponent implements OnInit {
     return slug ? ['/workspace', slug, 'access'] : '/governance/access';
   });
 
+  readonly systemSnapshot = signal<System | null>(null);
   readonly currentContext = signal<import('@app/core/canonical-api.service').Context | null>(null);
   readonly contextLoading = signal(false);
+  readonly effectiveRetrievalContext = computed(() => buildEffectiveRetrievalContext(this.systemSnapshot()));
+  readonly retrievalDefaultsRows = computed(() =>
+    contextRows(this.effectiveRetrievalContext()?.retrievalDefaults),
+  );
+  readonly groundingRows = computed(() => contextRows(this.effectiveRetrievalContext()?.grounding));
+  readonly sourcePolicyRows = computed(() => contextRows(this.effectiveRetrievalContext()?.sourcePolicy));
 
   readonly permissionsPreview = computed(() => {
     const p = this.currentContext()?.permissions ?? {};
@@ -1019,6 +1157,7 @@ export class SystemViewComponent implements OnInit {
     if (!this.systemId) return;
     this.canonical.getSystem(this.systemId).subscribe({
       next: (sys: System | null) => {
+        this.systemSnapshot.set(sys);
         const flow = (sys?.flow_definition ?? {}) as Record<string, unknown>;
         const variant = String(flow['variant'] ?? '').toLowerCase();
         if (variant === 'intelligence') {
@@ -1030,7 +1169,10 @@ export class SystemViewComponent implements OnInit {
         }
         this.applyRequestedFacet();
       },
-      error: () => this.applyRequestedFacet(),
+      error: () => {
+        this.systemSnapshot.set(null);
+        this.applyRequestedFacet();
+      },
     });
   }
 
@@ -1120,5 +1262,104 @@ export class SystemViewComponent implements OnInit {
       this.hasCollections.set((collections?.collections?.length ?? 0) > 0);
       this.kpisLoading.set(false);
     });
+  }
+}
+
+function buildEffectiveRetrievalContext(system: System | null): EffectiveRetrievalContext | null {
+  if (!system) return null;
+  const settings = asRecord(system.settings) ?? {};
+  const flow = asRecord(system.flow_definition) ?? {};
+  const chat = asRecord(flow['chat']) ?? {};
+
+  const retrievalDefaults =
+    asRecord(settings['retrieval_defaults']) ??
+    asRecord(settings['retrieval']) ??
+    asRecord(chat['retrieval_defaults']) ??
+    asRecord(chat['retrieval']);
+  const grounding = asRecord(settings['grounding']) ?? asRecord(chat['grounding']);
+  const sourcePolicy =
+    asRecord(settings['source_policy']) ??
+    asRecord(chat['source_policy']) ??
+    asRecord(flow['source_policy']);
+
+  const collections = uniqueStrings([
+    ...asStringArray(settings['collection_slugs']),
+    ...asStringArray(settings['collections']),
+    ...asStringArray(chat['collection_slugs']),
+    ...asStringArray(chat['collections']),
+    ...asStringArray(flow['collection_slugs']),
+    ...asStringArray(flow['collections']),
+  ]);
+
+  const context: EffectiveRetrievalContext = {
+    knowledgeScope: firstString(settings['knowledge_scope'], chat['knowledge_scope'], flow['knowledge_scope']),
+    assistantProfile: firstString(settings['assistant_profile'], chat['assistant_profile'], flow['assistant_profile']),
+    surface: firstString(settings['surface'], chat['surface'], flow['surface']),
+    systemType: firstString(
+      settings['system_type'],
+      flow['system_type'],
+      (system as unknown as { type?: unknown }).type,
+    ),
+    collections,
+    retrievalDefaults: retrievalDefaults ?? undefined,
+    grounding: grounding ?? undefined,
+    sourcePolicy: sourcePolicy ?? undefined,
+  };
+
+  const hasContext =
+    !!context.knowledgeScope ||
+    !!context.assistantProfile ||
+    !!context.surface ||
+    collections.length > 0 ||
+    !!retrievalDefaults ||
+    !!grounding ||
+    !!sourcePolicy;
+  return hasContext ? context : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return item;
+      const record = asRecord(item);
+      return firstString(record?.['slug'], record?.['collection_slug'], record?.['id'], record?.['name']);
+    })
+    .filter((item): item is string => !!item && !!item.trim())
+    .map((item) => item.trim());
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function contextRows(record?: Record<string, unknown>): ContextConfigRow[] {
+  if (!record) return [];
+  return Object.entries(record).map(([key, value]) => ({
+    key,
+    value: formatContextValue(value),
+  }));
+}
+
+function formatContextValue(value: unknown): string {
+  if (value == null) return '—';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
   }
 }
