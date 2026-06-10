@@ -121,14 +121,20 @@ def _conversation_history(request: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         role = str(item.get("role") or "").strip().lower()
         content = str(item.get("content") or "").strip()
-        if role in ("user", "assistant") and content:
+        # "system" turns are condensed-history summaries injected by the
+        # memory manager when older turns exceed the token budget.
+        if role in ("user", "assistant", "system") and content:
             turns.append({"role": role, "content": content})
     return turns
 
 
 def _trimmed_history_for_prompt(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep the last few turns, length-capping all but the latest answer."""
-    recent = history[-_HISTORY_MAX_TURNS:]
+    # A leading system turn is the condensed summary of older truncated turns;
+    # it must survive the turn-count cap or long sessions lose their context.
+    summary_prefix = [turn for turn in history[:1] if turn["role"] == "system"]
+    body = history[1:] if summary_prefix else history
+    recent = summary_prefix + body[-_HISTORY_MAX_TURNS:]
     trimmed: list[dict[str, Any]] = []
     last_assistant_index = max(
         (i for i, t in enumerate(recent) if t["role"] == "assistant"),

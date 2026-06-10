@@ -84,14 +84,20 @@ def test_conversation_history_ignores_malformed_entries():
         "context": {
             "conversation_history": [
                 {"role": "user", "content": "ok"},
-                {"role": "system", "content": "ignored"},
+                # "system" turns carry the condensed-history summary injected
+                # by the memory manager and are kept.
+                {"role": "system", "content": "résumé des échanges précédents"},
                 {"role": "assistant", "content": ""},
+                {"role": "tool", "content": "dropped"},
                 "not-a-dict",
             ]
         }
     }
     turns = _conversation_history(request)
-    assert turns == [{"role": "user", "content": "ok"}]
+    assert turns == [
+        {"role": "user", "content": "ok"},
+        {"role": "system", "content": "résumé des échanges précédents"},
+    ]
 
 
 def test_trimmed_history_keeps_latest_assistant_full_caps_older():
