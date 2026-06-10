@@ -19,6 +19,15 @@ RUN pip install --no-cache-dir \
     --index-url=${PIP_INDEX_URL} \
     -r /tmp/requirements/requirements.txt
 
+# Cross-encoder rerank stage (FlashReranker) needs torch + transformers only.
+# Install torch from the PyTorch CPU index (serves +cpu wheels exclusively),
+# avoiding the multi-GB CUDA build pulled by the default PyPI wheel.
+RUN pip install --no-cache-dir torch \
+        --index-url=https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir \
+        --index-url=${PIP_INDEX_URL} \
+        "transformers>=4.41.0"
+
 ARG USERNAME=agentium
 ARG USER_UID=1000
 ARG USER_GID=1000

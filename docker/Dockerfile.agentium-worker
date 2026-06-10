@@ -20,6 +20,15 @@ RUN pip install --no-cache-dir \
     --index-url=${PIP_INDEX_URL} \
     -r /tmp/requirements/requirements.txt
 
+# Deep-retrieval jobs (run_deep_retrieval) execute the cross-encoder rerank
+# stage in this worker, so it needs torch + transformers like the backend.
+# CPU-only torch index avoids the multi-GB CUDA build from PyPI.
+RUN pip install --no-cache-dir torch \
+        --index-url=https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir \
+        --index-url=${PIP_INDEX_URL} \
+        "transformers>=4.41.0"
+
 ARG USERNAME=agentium
 ARG USER_UID=1000
 ARG USER_GID=1000
