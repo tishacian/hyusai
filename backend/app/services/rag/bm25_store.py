@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pickle
+from datetime import datetime
 from io import BytesIO
 from typing import Any
 
@@ -9,6 +10,8 @@ from app.core.config import settings
 from app.models.knowledge_collection import KnowledgeCollection
 from app.services.object_store import ObjectStore, get_object_store
 from app.services.retrieval.bm25_retriever import BM25Retriever
+
+BM25_ARTIFACT_FORMAT_VERSION = 1
 
 
 async def rebuild_bm25_artifact(
@@ -68,7 +71,17 @@ async def rebuild_bm25_artifact(
     retriever = BM25Retriever()
     retriever.fit(texts, ids, clean_metas)
     buf = BytesIO()
-    pickle.dump(retriever, buf)
+    pickle.dump(
+        {
+            "format_version": BM25_ARTIFACT_FORMAT_VERSION,
+            "built_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "collection_id": collection.id,
+            "chunk_count": count,
+            "documents_indexed": len(texts),
+            "retriever": retriever,
+        },
+        buf,
+    )
 
     key = bm25_artifact_key(collection, store=store)
     store.write_bytes(key, buf.getvalue())
@@ -79,6 +92,49 @@ async def rebuild_bm25_artifact(
         "documents_indexed": len(texts),
         "forced": force,
     }
+
+
+def load_bm25_artifact(
+    collection: KnowledgeCollection,
+    *,
+    store: ObjectStore | None = None,
+    current_chunk_count: int | None = None,
+) -> tuple[BM25Retriever | None, dict]:
+    """Load the BM25 sidecar, tolerating the legacy bare-retriever format.
+
+    Returns ``(retriever, info)``; ``info["status"]`` is one of
+    missing | ready | legacy | stale | error. ``stale`` means the envelope's
+    chunk_count no longer matches the vector store (sparse results would be
+    incomplete) — callers should enqueue a ``bm25`` rebuild job.
+    """
+    store = store or get_object_store()
+    key = bm25_artifact_key(collection, store=store)
+    if not store.exists(key):
+        return None, {"status": "missing", "path": key}
+    try:
+        payload = pickle.loads(store.read_bytes(key))
+    except Exception as exc:  # noqa: BLE001
+        return None, {"status": "error", "path": key, "error": str(exc)}
+    if isinstance(payload, BM25Retriever):
+        return payload, {"status": "legacy", "path": key, "format_version": 0}
+    if not isinstance(payload, dict) or not isinstance(payload.get("retriever"), BM25Retriever):
+        return None, {"status": "error", "path": key, "error": "unrecognised_artifact_format"}
+    info = {
+        "status": "ready",
+        "path": key,
+        "format_version": payload.get("format_version"),
+        "built_at": payload.get("built_at"),
+        "chunk_count": payload.get("chunk_count"),
+        "documents_indexed": payload.get("documents_indexed"),
+    }
+    if (
+        current_chunk_count is not None
+        and isinstance(payload.get("chunk_count"), int)
+        and payload["chunk_count"] != current_chunk_count
+    ):
+        info["status"] = "stale"
+        info["current_chunk_count"] = current_chunk_count
+    return payload["retriever"], info
 
 
 def bm25_artifact_key(

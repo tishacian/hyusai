@@ -782,6 +782,7 @@ def execute_wave_plan(
                 job_document_names.append(document_name)
                 job_document_name_set.add(document_name)
             metadata = dict(document.get("metadata") or {})
+            metadata.setdefault("wave_id", plan.wave_id)
             if metadata:
                 document_manifest[document_name] = metadata
             item_documents.append(

@@ -23,7 +23,11 @@ from app.services.knowledge_collections import (
     update_job,
 )
 from app.services.object_store import get_object_store
-from app.services.rag.bm25_store import rebuild_bm25_artifact
+from app.services.rag.bm25_store import (
+    bm25_artifact_key,
+    load_bm25_artifact,
+    rebuild_bm25_artifact,
+)
 from app.services.worker_bm25 import run_bm25_rebuild
 from app.services.worker_ingest import run_document_ingest_index
 
@@ -215,6 +219,95 @@ def test_worker_ingest_indexes_collection_and_writes_ingested_text(
         )
         == b"hello world"
     )
+
+
+def test_worker_ingest_dedupes_identical_content(db_session, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+    monkeypatch.setattr(settings, "default_vector_db_type", "faiss")
+
+    ws = _workspace(db_session)
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    collection.document_names = ["manual.txt", "manual-copy.txt"]
+    job = create_worker_job(
+        db_session,
+        workspace_id=ws.id,
+        collection_id=collection.id,
+        kind="document_ingest_index",
+    )
+    get_object_store().write_bytes(original_key(collection, "manual.txt"), b"same bytes")
+    get_object_store().write_bytes(original_key(collection, "manual-copy.txt"), b"same bytes")
+    db_session.commit()
+
+    class FakeParser:
+        async def parse(self, _path):
+            return SimpleNamespace(chunks=[{"content": "same bytes"}], raw_content="same bytes")
+
+    ingested_batches: list[list[str]] = []
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            self.vector_db = object()
+
+        async def clear_all_documents(self):
+            return True
+
+        async def ingest_documents_batch(self, paths, **_kwargs):
+            ingested_batches.append(list(paths))
+            metadata = _kwargs["document_metadata_by_name"]
+            assert metadata["manual.txt"]["content_sha256"]
+            return {
+                "total": len(paths),
+                "successful": len(paths),
+                "failed": 0,
+                "results": [
+                    {"status": "success", "chunks_processed": 1, "document_id": "doc-1"}
+                ],
+            }
+
+        async def get_document_count(self):
+            return 1
+
+        async def list_documents(self):
+            return [{"document_id": "doc-1", "filename": "manual.txt"}]
+
+    async def fake_bm25(**_kwargs):
+        return {"status": "ready", "chunk_count": 1}
+
+    monkeypatch.setattr(
+        "app.services.worker_ingest.DocumentParserFactory.get_parser",
+        lambda _path: FakeParser(),
+    )
+    monkeypatch.setattr("app.services.worker_ingest.DocumentService", FakeDocumentService)
+    monkeypatch.setattr("app.services.worker_ingest.rebuild_bm25_artifact", fake_bm25)
+
+    run_document_ingest_index(job.id)
+
+    db_session.expire_all()
+    # Only the canonical file reached embedding.
+    assert len(ingested_batches) == 1
+    assert len(ingested_batches[0]) == 1
+    duplicate = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(
+            KnowledgeCollectionSource.collection_id == collection.id,
+            KnowledgeCollectionSource.filename == "manual-copy.txt",
+        )
+        .one()
+    )
+    assert duplicate.status == "deduplicated"
+    assert duplicate.source_metadata["duplicate_of"] == "manual.txt"
+    assert duplicate.source_metadata["content_sha256"]
+    canonical = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(
+            KnowledgeCollectionSource.collection_id == collection.id,
+            KnowledgeCollectionSource.filename == "manual.txt",
+        )
+        .one()
+    )
+    assert canonical.status == "ready"
+    assert canonical.source_metadata["content_sha256"] == duplicate.source_metadata["content_sha256"]
 
 
 def test_worker_ingest_materialize_error_becomes_document_error(
@@ -604,3 +697,59 @@ async def test_bm25_rebuild_skips_above_hard_chunk_limit(
         "max_chunks": 10,
         "forced": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_bm25_artifact_envelope_roundtrip_legacy_and_staleness(
+    db_session, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "store"))
+
+    ws = _workspace(db_session)
+    collection = create_collection(db_session, workspace=ws, name="Docs")
+    db_session.commit()
+
+    class FakeVectorDb:
+        async def get_count(self):
+            return 2
+
+        async def get_all_ids(self):
+            return ["c1", "c2"]
+
+        def get_metadatas_for_chunk_ids(self, ids):
+            return [{"content": "alpha"}, {"content": "beta"}]
+
+    result = await rebuild_bm25_artifact(collection=collection, vector_db=FakeVectorDb())
+    assert result["status"] == "ready"
+
+    retriever, info = load_bm25_artifact(collection, current_chunk_count=2)
+    assert retriever is not None
+    assert info["status"] == "ready"
+    assert info["format_version"] == 1
+    assert info["chunk_count"] == 2
+    assert info["built_at"]
+
+    # Vector store moved on without a rebuild → stale.
+    _, stale_info = load_bm25_artifact(collection, current_chunk_count=5)
+    assert stale_info["status"] == "stale"
+    assert stale_info["current_chunk_count"] == 5
+
+    # Legacy bare-retriever artifacts remain readable.
+    import pickle
+
+    from app.services.retrieval.bm25_retriever import BM25Retriever
+
+    legacy = BM25Retriever()
+    legacy.fit(["alpha"], ["c1"], [{"content": "alpha"}])
+    get_object_store().write_bytes(bm25_artifact_key(collection), pickle.dumps(legacy))
+    legacy_retriever, legacy_info = load_bm25_artifact(collection)
+    assert legacy_retriever is not None
+    assert legacy_info["status"] == "legacy"
+
+    # Missing artifact is reported, never raised.
+    missing_collection = create_collection(db_session, workspace=ws, name="Empty")
+    db_session.commit()
+    none_retriever, missing_info = load_bm25_artifact(missing_collection)
+    assert none_retriever is None
+    assert missing_info["status"] == "missing"

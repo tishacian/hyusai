@@ -70,6 +70,37 @@ def _source_result_status(item: dict) -> str:
     return "ready" if item.get("status") == "success" else "error"
 
 
+def _sha256_file(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _existing_content_hashes(
+    db, collection: KnowledgeCollection
+) -> dict[str, str]:
+    """Map content_sha256 -> filename for sources already indexed."""
+    hashes: dict[str, str] = {}
+    rows = (
+        db.query(KnowledgeCollectionSource)
+        .filter(
+            KnowledgeCollectionSource.collection_id == collection.id,
+            KnowledgeCollectionSource.status == "ready",
+        )
+        .all()
+    )
+    for row in rows:
+        metadata = row.source_metadata or {}
+        content_hash = str(metadata.get("content_sha256") or "")
+        if content_hash and content_hash not in hashes:
+            hashes[content_hash] = row.filename
+    return hashes
+
+
 def _verification_status(
     *, document_count: int, indexed_count: int, error_count: int, chunk_count: int
 ) -> str:
@@ -392,6 +423,68 @@ async def _run_document_ingest_index_async(job_id: str) -> dict:
                 dest,
             )
             local_paths.append(str(dest))
+
+        # Content-hash dedup: identical bytes under another name are not
+        # re-parsed/re-embedded. The hash also rides the manifest, so every
+        # chunk carries ``content_sha256`` for provenance.
+        db.flush()  # sessions run autoflush=False; make the rows above queryable
+        existing_hashes = (
+            _existing_content_hashes(db, collection)
+            if ingest_mode == "incremental"
+            else {}
+        )
+        batch_hashes: dict[str, str] = {}
+        kept_names: list[str] = []
+        kept_paths: list[str] = []
+        for name, path in zip(file_names, local_paths):
+            try:
+                content_hash = _sha256_file(Path(path))
+            except OSError:
+                kept_names.append(name)
+                kept_paths.append(path)
+                continue
+            manifest_entry = document_metadata_by_name.setdefault(name, {})
+            manifest_entry["content_sha256"] = content_hash
+            canonical = batch_hashes.get(content_hash) or existing_hashes.get(content_hash)
+            if canonical and canonical != name:
+                logger.info(
+                    "document ingest worker skipped duplicate content",
+                    filename=name,
+                    duplicate_of=canonical,
+                    collection_id=collection.id,
+                )
+                try:
+                    upsert_collection_source(
+                        db,
+                        collection=collection,
+                        filename=name,
+                        status="deduplicated",
+                        origin=manifest_entry.get("origin") or "upload",
+                        source_metadata={
+                            "content_sha256": content_hash,
+                            "duplicate_of": canonical,
+                        },
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Databases created before the 'deduplicated' status was
+                    # added still enforce the old CHECK constraint. The dedup
+                    # itself stands; only the ledger entry is skipped.
+                    db.rollback()
+                    logger.warning(
+                        "could not record deduplicated source",
+                        filename=name,
+                        error=str(exc),
+                    )
+                continue
+            batch_hashes[content_hash] = name
+            kept_names.append(name)
+            kept_paths.append(path)
+        file_names = kept_names
+        local_paths = kept_paths
+        if not local_paths:
+            raise ValueError(
+                f"All documents for collection {collection.id} were duplicates"
+            )
 
         update_job(db, job_id, progress=20, stage="parsing")
         db.commit()

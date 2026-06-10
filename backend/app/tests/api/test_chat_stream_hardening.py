@@ -486,7 +486,10 @@ def test_chat_stream_auto_queues_deep_job_for_degraded_retrieval(db_session, mon
     body = response.text
     assert '"phase": "deep_queued"' in body
     assert '"deep_job_id"' in body
-    assert "fast answer" in body
+    # Strict grounding + degraded retrieval: the post-retrieval guard streams
+    # the policy disclaimer instead of letting an ungrounded answer through.
+    assert "fast answer" not in body
+    assert "retrieval: retrieval_deadline_exceeded" in body
 
     job = db_session.query(WorkspaceJob).filter(WorkspaceJob.workspace_id == workspace.id).one()
     assert job.kind == "rag_deep_retrieval"
@@ -497,7 +500,7 @@ def test_chat_stream_auto_queues_deep_job_for_degraded_retrieval(db_session, mon
     assert job.input_ref["request"]["top_k"] == 8
     assert job.input_ref["request"]["candidate_pool_k"] == 80
     assert job.input_ref["request"]["synthesis_k"] == 24
-    assert job.input_ref["partial_result"]["answer_preview"] == "fast answer"
+    assert "retrieval: retrieval_deadline_exceeded" in job.input_ref["partial_result"]["answer_preview"]
     assert job.input_ref["request"]["retrieval_filters"] == {
         "collection_slug": "documents",
         "project_code": "ACJ100",
@@ -544,6 +547,42 @@ def test_auto_deep_filter_merge_preserves_explicit_system_filters():
     assert forwarded == ["project_code", "document_id"]
 
 
+def test_grounding_degraded_reply_fires_only_on_strict_and_empty_retrieval():
+    policy = {"mode": "strict", "fallback_disclaimer": "Pas de source fiable."}
+    empty_state = {"retrieval_metrics": {"chunks_retrieved": 0, "no_context": True}}
+
+    reply = chat._grounding_degraded_reply(empty_state, policy)
+    assert reply is not None
+    assert reply.startswith("Pas de source fiable.")
+    assert "no_grounded_context" in reply
+
+    # Evidence present → no guard.
+    grounded_state = {"retrieval_metrics": {"chunks_retrieved": 3}}
+    assert chat._grounding_degraded_reply(grounded_state, policy) is None
+
+    # Balanced mode → no hard guard (callers only annotate).
+    assert chat._grounding_degraded_reply(empty_state, {"mode": "balanced"}) is None
+
+    # Meta follow-ups legitimately answer without fresh retrieval.
+    assert chat._grounding_degraded_reply(empty_state, policy, is_meta_followup=True) is None
+
+    # No retrieval telemetry at all → never guess.
+    assert chat._grounding_degraded_reply({}, policy) is None
+    assert chat._grounding_degraded_reply({"retrieval_metrics": {}}, policy) is None
+
+
+def test_grounding_degraded_reply_reports_fallback_reason():
+    policy = {"mode": "strict", "fallback_disclaimer": "Pas de source fiable."}
+    state = {
+        "retrieval_metrics": {"chunks_retrieved": 0, "no_context": True},
+        "retrieval_fallback": "worker_timeout",
+    }
+
+    reply = chat._grounding_degraded_reply(state, policy)
+    assert reply is not None
+    assert "retrieval: worker_timeout" in reply
+
+
 def test_chat_completion_returns_degraded_retrieval_metadata(db_session, monkeypatch):
     workspace = Workspace(id="ws-completion-degraded", name="Completion Degraded", slug="completion-degraded")
     db_session.add(workspace)
@@ -564,7 +603,10 @@ def test_chat_completion_returns_degraded_retrieval_metadata(db_session, monkeyp
 
     assert response.status_code == 200
     body = response.json()
-    assert body["content"] == "fast answer"
+    # Strict grounding + degraded retrieval: the guard replaces the ungrounded
+    # answer with the policy disclaimer and the retrieval failure reason.
+    assert "retrieval: retrieval_deadline_exceeded" in body["content"]
+    assert "fast answer" not in body["content"]
     assert body["dense_policy"] == "fast_scoped_dense_auto"
     assert body["retrieval_fallback"] == "retrieval_deadline_exceeded"
     assert body["fallback_reason"] == "retrieval_deadline_exceeded"

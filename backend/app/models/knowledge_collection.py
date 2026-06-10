@@ -200,7 +200,7 @@ class KnowledgeCollectionSource(Base):
             name="uq_knowledge_collection_sources_collection_name",
         ),
         CheckConstraint(
-            "status IN ('queued', 'ingesting', 'indexed', 'ready', 'error', 'deleted')",
+            "status IN ('queued', 'ingesting', 'indexed', 'ready', 'error', 'deleted', 'deduplicated')",
             name="ck_knowledge_collection_sources_status",
         ),
         Index("ix_knowledge_collection_sources_workspace_collection", "workspace_id", "collection_id"),

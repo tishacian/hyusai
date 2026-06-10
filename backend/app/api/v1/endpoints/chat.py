@@ -103,6 +103,10 @@ class ChatRequest(BaseModel):
     # Product-facing assistant profile. It does not bypass backend policy; it
     # carries UI/prompt intent into the Run ledger for audit and replay.
     assistant_profile: Optional[str] = None
+    # Workspace chat source policy (reject_cross_project_sources, ...). Folded
+    # server-side from the always-on chat System; clients never need to set it
+    # and setting it only tightens retrieval filtering.
+    source_policy: Optional[Dict[str, Any]] = None
     # Answer grounding policy requested by chat-first surfaces. ``balanced`` is
     # intentionally scoped by backend policy and may be downgraded to ``strict``
     # for workspace facts, documents, actions, or sensitive/current claims.
@@ -286,6 +290,12 @@ def _apply_workspace_chat_flow_defaults(
         request.assistant_profile = str(chat["assistant_profile"])
     if not request.knowledge_scope and chat.get("knowledge_scope"):
         request.knowledge_scope = str(chat["knowledge_scope"])
+    if request.source_policy is None:
+        source_policy = _as_dict(_as_dict(system.settings).get("source_policy")) or _as_dict(
+            flow.get("source_policy")
+        )
+        if source_policy:
+            request.source_policy = source_policy
     if request.latency_profile is None and retrieval_defaults.get("latency_profile") in {"fast", "balanced", "deep"}:
         request.latency_profile = retrieval_defaults["latency_profile"]  # type: ignore[assignment]
     if request.retrieval_profile is None and retrieval_defaults.get("retrieval_profile"):
@@ -875,6 +885,62 @@ def _dense_fast_degraded_reply(state: Dict[str, Any]) -> Optional[str]:
     else:
         parts.append("Je lance un Deep Retrieval asynchrone pour raffiner la reponse sans bloquer le chat.")
     return " ".join(parts)
+
+
+def _retrieval_has_grounded_context(state: Dict[str, Any]) -> Optional[bool]:
+    """Tri-state evidence check from the retrieval chunk telemetry.
+
+    Returns None when the retrieval chunk carries no usable signal — the
+    grounding guard must not fire on guesswork.
+    """
+    metrics = _retrieval_metrics(state)
+    if not metrics:
+        return None
+    if bool(metrics.get("no_context")):
+        return False
+    if "chunks_retrieved" in metrics:
+        try:
+            return int(metrics.get("chunks_retrieved") or 0) > 0
+        except (TypeError, ValueError):
+            return None
+    if _retrieval_fallback_reason(state):
+        return False
+    return None
+
+
+def _grounding_degraded_reply(
+    state: Dict[str, Any],
+    grounding_policy: Optional[Dict[str, Any]],
+    *,
+    response_language: Optional[str] = None,
+    is_meta_followup: bool = False,
+) -> Optional[str]:
+    """Post-retrieval grounding guard.
+
+    The grounding policy is resolved before retrieval; when strict mode meets
+    an empty or failed retrieval the LLM would have to answer without
+    evidence. Return the policy's disclaimer instead so the turn ends with an
+    explicit "no usable sources" statement. Meta follow-ups ("résume",
+    "détaille") legitimately run without fresh retrieval and are exempt.
+    """
+    if is_meta_followup:
+        return None
+    policy = grounding_policy if isinstance(grounding_policy, dict) else {}
+    if str(policy.get("mode") or "").strip().lower() != "strict":
+        return None
+    if _retrieval_has_grounded_context(state) is not False:
+        return None
+    disclaimer = str(policy.get("fallback_disclaimer") or "").strip()
+    if not disclaimer:
+        disclaimer = (
+            "Je n'ai trouvé aucune source exploitable dans le périmètre sélectionné ; "
+            "je préfère ne pas répondre sans évidence documentaire."
+            if (response_language or "fr") == "fr"
+            else "I could not find usable sources in the selected scope; "
+            "I will not answer without documentary evidence."
+        )
+    reason = str(_retrieval_fallback_reason(state) or "no_grounded_context")
+    return f"{disclaimer} (retrieval: {reason})"
 
 
 _SYSTEM_RETRIEVAL_FILTER_KEYS = {
@@ -1761,7 +1827,23 @@ async def chat_completion(
             )
             if chunk.get("chunk_type") == "decision_step" and pipeline_start_time is None:
                 pipeline_start_time = time.time()
-            
+            if (
+                chunk.get("chunk_type") == "retrieval"
+                and chunk.get("phase") != "started"
+                and not full_content
+            ):
+                grounding_reply = _grounding_degraded_reply(
+                    chunk_state,
+                    grounding_policy,
+                    response_language=request.response_language,
+                )
+                if grounding_reply:
+                    chunk_state["grounding_state"] = "no_grounded_context"
+                    full_content.append(grounding_reply)
+                    break
+                if _retrieval_has_grounded_context(chunk_state) is False:
+                    chunk_state["grounding_state"] = "foundational_fallback"
+
             if chunk.get("is_final"):
                 break
         
@@ -2905,18 +2987,37 @@ async def chat_stream(
             
             # Load conversation history for context (long-term memory)
             conversation_history = []
+            previous_salient_entities = None
             if request.session_id:
                 # Get previous messages from this session for context
                 previous_messages = db.query(Message).filter(
                     Message.session_id == request.session_id
                 ).order_by(Message.timestamp.asc()).all()
-                
-                # Build conversation history (last 20 messages for context)
-                for msg in previous_messages[-20:]:
-                    conversation_history.append({
-                        "role": msg.role,
-                        "content": msg.content
-                    })
+
+                # Token-budgeted history: keep as many recent turns as fit the
+                # budget and condense the older ones into a summary prefix —
+                # a fixed message count silently lost long-session context.
+                from app.core.memory_manager import memory_manager
+
+                conversation_history = memory_manager.build_chat_context(
+                    [
+                        {"role": msg.role, "content": msg.content}
+                        for msg in previous_messages
+                    ],
+                    max_tokens=settings.chat_history_token_budget,
+                )
+
+                # Salient entities precomputed when the previous turn was
+                # persisted — lets follow-up retrieval anchor on the project/
+                # machine references without re-scanning the history.
+                for msg in reversed(previous_messages):
+                    if (
+                        msg.role == "assistant"
+                        and isinstance(msg.meta_data, dict)
+                        and msg.meta_data.get("salient_entities")
+                    ):
+                        previous_salient_entities = msg.meta_data["salient_entities"]
+                        break
                 
                 # Save user message
                 user_message = Message(
@@ -2942,6 +3043,17 @@ async def chat_stream(
                     request_dict["context"] = {}
                 request_dict["context"]["conversation_history"] = conversation_history
                 request_dict["context"]["memory_type"] = "long_term"  # Default to long-term memory
+                if previous_salient_entities:
+                    request_dict["context"]["salient_entities"] = previous_salient_entities
+            # Meta follow-ups ("résume", "détaille") legitimately answer from
+            # the previous turn without fresh retrieval — exempt them from the
+            # post-retrieval grounding guard.
+            try:
+                from app.agents.procurement_agent import _is_meta_followup
+
+                is_conversation_meta_followup = _is_meta_followup(validated_query, conversation_history)
+            except Exception:  # noqa: BLE001 - guard exemption must never break chat.
+                is_conversation_meta_followup = False
             if request.assistant_profile == "vigie_executive":
                 if not request_dict.get("context"):
                     request_dict["context"] = {}
@@ -2979,7 +3091,11 @@ async def chat_stream(
                         ):
                             pipeline_start_time = _time.time()
                         yield _sse_data(chunk)
-                        if chunk.get("chunk_type") == "retrieval" and not full_content:
+                        if (
+                            chunk.get("chunk_type") == "retrieval"
+                            and chunk.get("phase") != "started"
+                            and not full_content
+                        ):
                             degraded_reply = _dense_fast_degraded_reply(chunk_state)
                             if degraded_reply:
                                 full_content.append(degraded_reply)
@@ -2991,6 +3107,30 @@ async def chat_stream(
                                     }
                                 )
                                 break
+                            grounding_reply = _grounding_degraded_reply(
+                                chunk_state,
+                                grounding_policy,
+                                response_language=response_language,
+                                is_meta_followup=is_conversation_meta_followup,
+                            )
+                            if grounding_reply:
+                                chunk_state["grounding_state"] = "no_grounded_context"
+                                full_content.append(grounding_reply)
+                                yield _sse_data(
+                                    {
+                                        "chunk_type": "text",
+                                        "content": grounding_reply,
+                                        "is_final": False,
+                                    }
+                                )
+                                break
+                            if (
+                                _retrieval_has_grounded_context(chunk_state) is False
+                                and not is_conversation_meta_followup
+                            ):
+                                # Balanced mode keeps generating but the turn is
+                                # flagged so audit/UI can show it ran ungrounded.
+                                chunk_state["grounding_state"] = "foundational_fallback"
             except TimeoutError as exc:
                 metrics_collector.record_timeout("/api/v1/chat/stream", "chat_stream")
                 stream_status = "timeout"
@@ -3048,6 +3188,7 @@ async def chat_stream(
                     "knowledge_scope": request_dict.get("knowledge_scope") or chunk_state.get("knowledge_scope"),
                     "grounding_mode": grounding_policy["mode"],
                     "grounding_policy": grounding_policy,
+                    "grounding_state": chunk_state.get("grounding_state"),
                     "response_language": response_language,
                     "retrieval_scope": chunk_state.get("retrieval_scope"),
                     "retrieval_plan": chunk_state.get("retrieval_plan"),
@@ -3074,7 +3215,33 @@ async def chat_stream(
                     meta_data["decision_steps"] = decision_steps
                     if pipeline_total_time is not None:
                         meta_data["decision_pipeline_total_time"] = pipeline_total_time
-                
+
+                # Precompute salient entities for the next turn's retrieval
+                # anchoring — paid here, post-stream, never on the hot path.
+                try:
+                    from app.services.rag.conversation_anchors import extract_salient_entities
+
+                    source_titles = [
+                        str(item.get("title") or "")
+                        for item in (chunk_state.get("sources") or [])
+                        if isinstance(item, dict)
+                    ]
+                    turn_entities = extract_salient_entities(
+                        validated_query, "".join(full_content), *source_titles
+                    )
+                    if isinstance(previous_salient_entities, dict):
+                        for key in ("references", "documents"):
+                            carried = previous_salient_entities.get(key)
+                            if not isinstance(carried, list):
+                                continue
+                            for value in carried:
+                                if value not in turn_entities[key] and len(turn_entities[key]) < 6:
+                                    turn_entities[key].append(value)
+                    if turn_entities.get("references") or turn_entities.get("documents"):
+                        meta_data["salient_entities"] = turn_entities
+                except Exception:  # noqa: BLE001 - anchoring must never break persistence.
+                    pass
+
                 assistant_message = Message(
                     id=str(uuid.uuid4()),
                     session_id=request.session_id,

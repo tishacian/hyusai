@@ -104,6 +104,7 @@ interface ChatMessage {
   retrievalInfo?: {
     densePolicy?: string | null;
     fallbackReason?: string | null;
+    sparseStatus?: string | null;
     retrievalScope?: Record<string, unknown> | null;
     retrievalPlan?: Record<string, unknown> | null;
     scopeReason?: string | null;
@@ -1258,6 +1259,15 @@ const STEP_ICONS: Record<string, string> = {
                       >
                         <app-icon name="radar" [size]="10" />
                         {{ retrievalPolicyLabel(retrieval) }}
+                      </span>
+                    }
+                    @if (sparseDegraded(retrieval)) {
+                      <span
+                        class="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                        [title]="'Sparse layer ' + retrieval.sparseStatus + ' — hybrid retrieval degraded to dense-only for this turn.'"
+                      >
+                        <app-icon name="alert-triangle" [size]="10" />
+                        dense-only
                       </span>
                     }
                     @if (retrieval.deepJobId) {
@@ -4729,6 +4739,11 @@ export class ChatPanelComponent implements AfterViewInit {
     return !!(info.deepJobId || info.densePolicy || info.retrievalScope || info.latencyProfile === 'deep');
   }
 
+  sparseDegraded(info: NonNullable<ChatMessage['retrievalInfo']>): boolean {
+    const status = (info.sparseStatus || '').toLowerCase();
+    return status === 'timeout' || status === 'error';
+  }
+
   deepRetrievalLabel(info: NonNullable<ChatMessage['retrievalInfo']>): string {
     if (info.deepStatus === 'completed') {
       const count = info.deepSummary?.chunksRetrieved;
@@ -5334,6 +5349,7 @@ export class ChatPanelComponent implements AfterViewInit {
                 this.isRecord(details['retrieval_scope'])
                   ? (details['retrieval_scope'] as Record<string, unknown>)
                   : retrievalInfo?.retrievalScope ?? null,
+              sparseStatus: (details['sparse_status'] as string | undefined) ?? retrievalInfo?.sparseStatus ?? null,
               scopeReason: (details['scope_reason'] as string | undefined) ?? retrievalInfo?.scopeReason ?? null,
               scopeConfidence:
                 typeof details['scope_confidence'] === 'number'
