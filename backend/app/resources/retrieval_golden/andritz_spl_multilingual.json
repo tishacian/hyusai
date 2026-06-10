@@ -1,0 +1,71 @@
+{
+  "description": "Same SPL facts queried in FR/EN/DE — guards the multilingual retrieval axis (text-embedding-3-small + lexical variants).",
+  "cases": [
+    {
+      "id": "ml_001_fr_injector_cleaning",
+      "language": "fr",
+      "query": "Comment nettoyer les cartouches d'injecteurs EXH ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["IN 07 A- EXH injector cartridge cleaning.pdf"],
+      "expected_evidence_terms": ["injector", "cartridge", "clean"],
+      "expected_intent": "procedure",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "ml_002_en_injector_cleaning",
+      "language": "en",
+      "query": "How do I clean the EXH injector cartridges?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["IN 07 A- EXH injector cartridge cleaning.pdf"],
+      "expected_evidence_terms": ["injector", "cartridge", "clean"],
+      "expected_intent": "procedure",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "ml_003_de_injector_cleaning",
+      "language": "de",
+      "query": "Wie reinige ich die EXH Injektor-Kartuschen?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["IN 07 A- EXH injector cartridge cleaning.pdf"],
+      "expected_evidence_terms": ["injector", "cartridge"],
+      "expected_intent": "procedure",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "ml_004_fr_akk200_spl",
+      "language": "fr",
+      "query": "Donne-moi la liste de pièces de rechange du projet AKK200.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["Spare Parts List AKK200_Ind A.pdf"],
+      "expected_evidence_terms": ["AKK200", "spare"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "ml_005_en_akk200_spl",
+      "language": "en",
+      "query": "Find the spare parts list for project AKK200.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["Spare Parts List AKK200_Ind A.pdf"],
+      "expected_evidence_terms": ["AKK200", "spare", "part"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "ml_006_de_akk200_spl",
+      "language": "de",
+      "query": "Finde die Ersatzteilliste für das Projekt AKK200.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["Spare Parts List AKK200_Ind A.pdf"],
+      "expected_evidence_terms": ["AKK200"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced"
+    }
+  ]
+}

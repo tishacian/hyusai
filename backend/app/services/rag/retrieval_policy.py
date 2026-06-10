@@ -14,12 +14,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.logging import get_logger
 from app.services.rag.lexical_retrieval import (
     LexicalRetrievalConfig,
     lexical_match_details,
     merge_lexical_configs,
     parse_lexical_config,
 )
+
+logger = get_logger(__name__)
 
 _POLICY_FENCE_RE = re.compile(
     r"```(?:agentium[-_:]retrieval[-_]policy|retrieval[-_]policy)\s*(.*?)```",
@@ -152,6 +155,11 @@ class RetrievalPolicy:
     source_family_rules: tuple[SourceFamilyRule, ...] = ()
     lexical_config: LexicalRetrievalConfig = field(default_factory=LexicalRetrievalConfig)
     require_project_code_match: bool = False
+    # Rollout switch for workspace source policies: when True, the project-code
+    # filter runs in shadow mode — it reports what it would remove without
+    # touching the results (collections not yet backfilled with project_code
+    # payloads must not lose evidence).
+    cross_project_log_only: bool = False
     demote_navigation: bool = True
     navigation_terms: tuple[str, ...] = _DEFAULT_NAVIGATION_TERMS
     answer_instructions: tuple[str, ...] = ()
@@ -956,6 +964,25 @@ def filter_aligned_to_required_terms(
                 matched_all.append(term)
 
     missing = [term for term in required if term not in matched_all]
+    if policy.cross_project_log_only:
+        # Shadow mode: report what enforcement would remove, change nothing.
+        would_remove = len(chunks) - len(kept_chunks)
+        if would_remove:
+            logger.warning(
+                "cross-project filter (log-only) would remove chunks",
+                required_terms=list(required),
+                would_remove=would_remove,
+                kept=len(kept_chunks),
+            )
+        return chunks, scores, metadatas, {
+            "required_terms": list(required),
+            "matched_terms": matched_all,
+            "missing_terms": missing,
+            "filtered_chunks_removed": 0,
+            "would_remove": would_remove,
+            "enforced": False,
+            "log_only": True,
+        }
     if not kept_chunks:
         # For exact project questions, unrelated chunks are more harmful than
         # useful: they cause the assistant to answer from another project. Keep

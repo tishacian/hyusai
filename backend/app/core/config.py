@@ -131,6 +131,27 @@ class Settings(BaseSettings):
     rag_qdrant_quantized_search_enabled: bool = True
     rag_qdrant_hybrid_fusion: str = "rrf"
     rag_allow_runtime_bm25: bool = False
+    # Budgeted cross-encoder rerank applied after RRF/policy fusion. Off on
+    # the fast profile; bounded by a hard time budget on balanced so the first
+    # answer latency is protected; unbounded on the deep (async) path.
+    rag_cross_encoder_enabled: bool = True
+    rag_cross_encoder_model_balanced: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    rag_cross_encoder_model_deep: str = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+    rag_cross_encoder_budget_seconds: float = 0.5
+    rag_cross_encoder_threshold: float = 0.2
+    rag_cross_encoder_max_candidates: int = 24
+    rag_cross_encoder_max_length_balanced: int = 256
+    rag_cross_encoder_max_concurrency: int = 2
+    rag_cross_encoder_preload: bool = False
+    # Workspace source_policy.reject_cross_project_sources rollout: log-only by
+    # default (counts what would be dropped); flip to True once collections are
+    # backfilled with project_code payloads, otherwise untagged corpora would
+    # lose evidence.
+    rag_reject_cross_project_enforce: bool = False
+    # Conversation history sent to the LLM is token-budgeted (not a fixed
+    # message count); older turns beyond the budget are condensed into a
+    # one-line summary prefix.
+    chat_history_token_budget: int = 3500
     chat_stream_timeout_seconds: float = 180.0
     bm25_rebuild_inline_max_chunks: int = 50000
     bm25_rebuild_max_chunks: int = 600000

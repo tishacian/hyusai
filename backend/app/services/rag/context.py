@@ -32,6 +32,7 @@ from app.services.rag.corpus_planner import (
     normalize_latency_profile,
     plan_corpus,
 )
+from app.services.rag.cross_encoder_stage import rerank_with_cross_encoder
 from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_scope
 from app.services.rag.lexical_retrieval import analyze_query, lexical_match_details
 from app.services.rag.mode_selector import resolve_retrieval_mode
@@ -64,9 +65,12 @@ _SPREADSHEET_SHEET_PREFIX_RE = re.compile(
 _FOLLOW_UP_RE = re.compile(
     r"\b("
     r"diff[ée]rentes?|plusieurs|autres?|reste|documents?|valeurs?|"
-    r"ce|ces|celle|celui|cela|ça|m[êe]me|ailleurs|compare|compar[ée]r|"
+    r"ce|ces|cette|celle|celui|ceux|cela|ça|m[êe]me|ailleurs|compare|compar[ée]r|"
     r"globalement|partout|tous|toutes|ensemble|connais|connues?|"
-    r"different|multiple|other|same|those|these|it|them|compare|globally|all|known"
+    r"et\s+pour|et\s+sur|quid|idem|pareil|aussi|[ée]galement|"
+    r"different|multiple|other|same|those|these|this|it|them|compare|globally|all|known|"
+    r"what\s+about|and\s+for|likewise|"
+    r"und\s+f[üu]r|dieselbe[nr]?|derselbe|dasselbe|auch|ebenfalls|gleiche[nr]?"
     r")\b",
     re.IGNORECASE,
 )
@@ -248,11 +252,33 @@ def _apply_similarity_threshold(
         }
 
     if str(pipeline or "").strip().lower() != "naive":
-        return chunks, scores, metadatas, {
+        # Fused scores are rank weights, but the per-chunk dense cosine is
+        # preserved in metadata at the dense layer (``dense_score``). Gate on
+        # it where present; sparse-only chunks carry no dense_score and pass.
+        fused_chunks: list[str] = []
+        fused_scores: list[float] = []
+        fused_metadatas: list[dict[str, Any]] = []
+        fused_removed = 0
+        for index, chunk in enumerate(chunks):
+            score = float(scores[index]) if index < len(scores) else 0.0
+            metadata = dict(metadatas[index] if index < len(metadatas) else {})
+            try:
+                dense_value = (
+                    float(metadata["dense_score"]) if metadata.get("dense_score") is not None else None
+                )
+            except (TypeError, ValueError):
+                dense_value = None
+            if dense_value is None or dense_value >= threshold or _is_threshold_exempt_metadata(metadata):
+                fused_chunks.append(chunk)
+                fused_scores.append(score)
+                fused_metadatas.append(metadata)
+            else:
+                fused_removed += 1
+        return fused_chunks, fused_scores, fused_metadatas, {
             "score_threshold": threshold,
-            "score_threshold_applied": False,
-            "score_threshold_filtered": 0,
-            "score_threshold_skipped_reason": "non_vector_score_scale",
+            "score_threshold_applied": fused_removed > 0,
+            "score_threshold_filtered": fused_removed,
+            "score_threshold_skipped_reason": None if fused_removed else "non_vector_score_scale",
         }
 
     kept_chunks: list[str] = []
@@ -314,9 +340,79 @@ def _history_augmented_query(request: dict[str, Any]) -> str:
             break
 
     anchors = [msg for msg in recent_user_messages if _SPREADSHEET_SIGNAL_RE.search(msg)]
-    if not anchors:
+    if anchors:
+        return " | ".join([query, "Previous user context:", *reversed(anchors[:2])])
+
+    # No tabular anchor: fall back to domain anchors (project/machine codes,
+    # document names) so an anaphoric follow-up ("et pour cette machine ?")
+    # still searches with the entity established earlier in the conversation.
+    # Anchors are short verbatim terms, capped at 2, to avoid diluting the
+    # query. Skip when the follow-up already carries its own reference.
+    from app.services.rag.conversation_anchors import (
+        anchor_terms,
+        extract_salient_entities,
+        has_reference,
+    )
+
+    if has_reference(query):
         return query
-    return " | ".join([query, "Previous user context:", *reversed(anchors[:2])])
+    context = request.get("context") if isinstance(request.get("context"), Mapping) else {}
+    precomputed = context.get("salient_entities") if isinstance(context, Mapping) else None
+    terms = anchor_terms(precomputed)
+    if not terms:
+        terms = anchor_terms(extract_salient_entities(*recent_user_messages))
+    if not terms:
+        return query
+    return " | ".join([query, "Previous user context:", *terms])
+
+
+def _apply_source_policy_to_retrieval_policy(
+    request: Mapping[str, Any],
+    retrieval_policy: "RetrievalPolicy | None",
+) -> "RetrievalPolicy | None":
+    """Fold the workspace chat source_policy into the retrieval policy.
+
+    ``reject_cross_project_sources`` activates the existing project-code match
+    enforcement. Rollout is gated by ``rag_reject_cross_project_enforce``:
+    until collections carry project_code payloads (backfill), the filter runs
+    in shadow/log-only mode so untagged corpora keep their evidence.
+    """
+    source_policy = request.get("source_policy")
+    if not isinstance(source_policy, Mapping):
+        return retrieval_policy
+    if not bool(source_policy.get("reject_cross_project_sources")):
+        return retrieval_policy
+    from dataclasses import replace as dataclass_replace
+
+    log_only = not bool(settings.rag_reject_cross_project_enforce)
+    if retrieval_policy is None:
+        return RetrievalPolicy(
+            require_project_code_match=True,
+            cross_project_log_only=log_only,
+        )
+    if retrieval_policy.require_project_code_match and not log_only:
+        return retrieval_policy
+    return dataclass_replace(
+        retrieval_policy,
+        require_project_code_match=True,
+        cross_project_log_only=log_only and not retrieval_policy.require_project_code_match,
+    )
+
+
+def _deep_rewrite_variants(request: Mapping[str, Any], profile: Mapping[str, Any]) -> list[str] | None:
+    """LLM-rewritten query joins the retrieval fan-out on the deep path only.
+
+    The rewrite is injected as an EXTRA chah variant, never substituting the
+    raw query (an LLM rewrite can corrupt domain terms — "carde" -> "carte").
+    Fast/balanced paths never pay for or depend on it.
+    """
+    if str(profile.get("latency_profile") or "") != "deep":
+        return None
+    rewritten = str(request.get("rewritten_query") or "").strip()
+    raw = str(request.get("query") or "").strip()
+    if not rewritten or rewritten == raw:
+        return None
+    return [rewritten]
 
 
 def _jsonable(value: Any) -> Any:
@@ -429,6 +525,16 @@ def _finalize_retrieval_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     metrics["retrieval_ms"] = retrieval_ms
     metrics["stage_timings"] = stage_timings
     metrics["candidate_counts"] = candidate_counts
+    try:
+        from app.services.embedding.embedder import get_shared_embedder
+
+        embedder_info = get_shared_embedder().describe()
+        metrics.setdefault("embedding_provider", embedder_info["provider"])
+        metrics.setdefault("embedding_model", embedder_info["model_name"])
+        if embedder_info.get("degraded"):
+            metrics["embedding_degraded"] = True
+    except Exception:  # noqa: BLE001 - telemetry must never break retrieval
+        pass
     trace = metrics.get("retrieval_trace")
     if isinstance(trace, dict):
         trace["timings"] = stage_timings
@@ -1668,6 +1774,7 @@ async def retrieve_rag_context(
     guides = _effective_guides_for_profile(profile)
     guide_hint = guide_query_hint(guides)
     retrieval_policy = retrieval_policy_from_guides(guides)
+    retrieval_policy = _apply_source_policy_to_retrieval_policy(request, retrieval_policy)
     clarification = clarification_from_policy(query, retrieval_policy)
     table_analysis = _table_analysis_for_profile(request, profile)
     document_analysis = _document_analysis_for_profile(request, profile)
@@ -1925,6 +2032,7 @@ async def retrieve_rag_context(
                 allow_legacy_hybrid=allow_legacy_hybrid,
                 retrieval_profile=profile.get("retrieval_profile"),
                 latency_profile=profile.get("latency_profile"),
+                extra_variants=_deep_rewrite_variants(request, profile),
             ),
             timeout=deadline_seconds,
         )
@@ -2021,6 +2129,17 @@ async def retrieve_rag_context(
         query=retrieval_query,
         policy=retrieval_policy,
     )
+    chunks, scores, metadatas, cross_encoder_diag = await rerank_with_cross_encoder(
+        chunks,
+        scores,
+        metadatas,
+        query=retrieval_query,
+        latency_profile=profile.get("latency_profile"),
+        allow_cross_encoder=bool((profile.get("latency_budget") or {}).get("allow_cross_encoder")),
+        top_k=int(profile.get("top_k") or 0),
+        is_exempt_metadata=_is_threshold_exempt_metadata,
+    )
+    metrics.update(cross_encoder_diag)
     chunks, scores, metadatas, threshold_metrics = _apply_similarity_threshold(
         chunks,
         scores,
@@ -2331,6 +2450,7 @@ async def _retrieve_multi_collection_context(
                     max_candidates=max_candidates,
                     allow_legacy_hybrid=allow_legacy_hybrid,
                     retrieval_profile=profile.get("retrieval_profile"),
+                    extra_variants=_deep_rewrite_variants(request, profile),
                 ),
                 timeout=remaining_seconds,
             )
@@ -2402,6 +2522,17 @@ async def _retrieve_multi_collection_context(
         query=retrieval_query,
         policy=retrieval_policy,
     )
+    chunks, scores, metadatas, cross_encoder_diag = await rerank_with_cross_encoder(
+        chunks,
+        scores,
+        metadatas,
+        query=retrieval_query,
+        latency_profile=profile.get("latency_profile"),
+        allow_cross_encoder=bool((profile.get("latency_budget") or {}).get("allow_cross_encoder")),
+        top_k=int(profile.get("top_k") or 0),
+        is_exempt_metadata=_is_threshold_exempt_metadata,
+    )
+    metrics.update(cross_encoder_diag)
     chunks, scores, metadatas, threshold_metrics = _apply_similarity_threshold(
         chunks,
         scores,

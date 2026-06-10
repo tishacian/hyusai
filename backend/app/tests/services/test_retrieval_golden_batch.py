@@ -61,6 +61,88 @@ def test_golden_case_rejects_inventory_route_and_missing_evidence():
     assert result["missing_evidence_terms"]
 
 
+_EXTENDED_BATCHES = {
+    "andritz_spl_multilingual.json": {"min_cases": 6},
+    "andritz_spl_multiturn.json": {"min_cases": 3},
+    "andritz_spl_scope_filters.json": {"min_cases": 3},
+    "andritz_spl_sparse_only.json": {"min_cases": 3},
+    "andritz_spl_fallbacks.json": {"min_cases": 3},
+}
+
+
+def _batch_path(name: str) -> Path:
+    return Path(__file__).resolve().parents[2] / "resources" / "retrieval_golden" / name
+
+
+def test_extended_golden_batches_are_structurally_valid():
+    for name, expectations in _EXTENDED_BATCHES.items():
+        cases = load_retrieval_golden_cases(_batch_path(name))
+        assert len(cases) >= expectations["min_cases"], name
+        assert all(case.query for case in cases), name
+        assert all(case.expected_sources for case in cases), name
+        assert all(case.language in {"fr", "en", "de"} for case in cases), name
+
+
+def test_multilingual_batch_covers_same_fact_in_three_languages():
+    cases = load_retrieval_golden_cases(_batch_path("andritz_spl_multilingual.json"))
+    languages = {case.language for case in cases}
+    assert languages == {"fr", "en", "de"}
+    # The injector-cleaning fact is asked in all three languages against the
+    # same source — a per-language pass-rate gap flags a multilingual bias.
+    injector = [case for case in cases if "injector" in " ".join(case.expected_evidence_terms).lower()]
+    assert {case.language for case in injector} == {"fr", "en", "de"}
+    assert len({case.expected_sources for case in injector}) == 1
+
+
+def test_multiturn_batch_carries_conversation_history_into_request():
+    cases = load_retrieval_golden_cases(_batch_path("andritz_spl_multiturn.json"))
+    for case in cases:
+        assert case.conversation_history, case.id
+        request = case.to_request()
+        history = request["context"]["conversation_history"]
+        assert history and history[0]["role"] == "user"
+
+
+def test_scope_filter_batch_forwards_retrieval_filters():
+    cases = load_retrieval_golden_cases(_batch_path("andritz_spl_scope_filters.json"))
+    filtered = [case for case in cases if case.retrieval_filters]
+    assert filtered
+    request = filtered[0].to_request()
+    assert request["retrieval_filters"] == dict(filtered[0].retrieval_filters)
+
+
+def test_evaluator_enforces_forbidden_sources_and_diagnostics():
+    cases = load_retrieval_golden_cases(_batch_path("andritz_spl_multiturn.json"))
+    case = next(case for case in cases if case.id == "mt_002_followup_switch_project")
+
+    # Cross-project contamination: the forbidden source appears in the labels.
+    contaminated = {
+        "chunks": ["Spare Parts List ACO150 content"],
+        "metadatas": [
+            {"document_filename": "spare part list ACO150.pdf"},
+            {"document_filename": "Spare Parts List AKK200_Ind A.pdf"},
+        ],
+        "metrics": {},
+    }
+    result = evaluate_retrieval_golden_case(case, contaminated)
+    assert result["forbidden_source_hits"] == ["Spare Parts List AKK200_Ind A.pdf"]
+    assert result["passed"] is False
+
+    # Diagnostics contract: expected_diagnostics must match metrics.
+    sparse_cases = load_retrieval_golden_cases(_batch_path("andritz_spl_sparse_only.json"))
+    sparse_case = sparse_cases[0]
+    good = {
+        "chunks": ["URACA KD724 pump documentation"],
+        "metadatas": [{"document_filename": "URACA KD724"}],
+        "metrics": {"sparse_status": "ok"},
+    }
+    assert evaluate_retrieval_golden_case(sparse_case, good)["passed"] is True
+    degraded = dict(good, metrics={"sparse_status": "timeout"})
+    result = evaluate_retrieval_golden_case(sparse_case, degraded)
+    assert result["passed"] is False
+    assert result["diagnostic_mismatches"]["sparse_status"]["actual"] == "timeout"
+
+
 def test_source_facets_are_family_rules_not_answer_mappings():
     facets = active_source_family_facets("Peux-tu retrouver la Spare Parts List du projet ACO150 ?")
     assert {facet.key for facet in facets} >= {"spare_parts_list"}

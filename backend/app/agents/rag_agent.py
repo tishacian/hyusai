@@ -1,5 +1,4 @@
 """RAG (Retrieval-Augmented Generation) agent implementation"""
-import asyncio
 from typing import Dict, Any, AsyncGenerator
 from app.agents.base import BaseAgent
 from app.services.models import ModelService
@@ -84,8 +83,6 @@ class RAGAgent(BaseAgent):
             }
         }
         
-        # Simulate query analysis
-        await asyncio.sleep(0.1)
         analysis_duration = int((time.time() - analysis_start) * 1000)
         yield {
             "chunk_type": "decision_step",
@@ -101,24 +98,33 @@ class RAGAgent(BaseAgent):
             }
         }
         
-        # Decision Step 2: Embedding
+        # Decision Step 2: Embedding — real embedder telemetry. The query is
+        # embedded inside the retrieval call; this step reports the actual
+        # provider/model/dimension instead of a simulated placeholder.
         embedding_start = time.time()
         embedding_id = f"embedding-{id(query)}"
+        from app.services.embedding.embedder import get_shared_embedder
+
+        embedder_info = get_shared_embedder().describe()
+        embedding_description = (
+            f"Provider: {embedder_info['provider']}\n"
+            f"Model: {embedder_info['model_name']}\n"
+            f"Dimension: {embedder_info['dimension']}"
+        )
+        if embedder_info.get("degraded"):
+            embedding_description += "\nWARNING: degraded hash fallback — vectors are not semantic"
         yield {
             "chunk_type": "decision_step",
             "decision_step": {
                 "id": embedding_id,
                 "type": "embedding",
                 "component": "Embedder",
-                "model": "BGE-Large",
+                "model": embedder_info["model_name"],
                 "status": "active",
                 "title": "Generating query embeddings",
-                "description": f"Model: BGE-Large-EN\nDimension: 1024\nQuery embedding generated successfully\nComputing similarity scores...",
+                "description": embedding_description,
             }
         }
-        
-        # Simulate embedding generation
-        await asyncio.sleep(0.08)
         embedding_duration = int((time.time() - embedding_start) * 1000)
         yield {
             "chunk_type": "decision_step",
@@ -126,11 +132,13 @@ class RAGAgent(BaseAgent):
                 "id": embedding_id,
                 "type": "embedding",
                 "component": "Embedder",
-                "model": "BGE-Large",
+                "model": embedder_info["model_name"],
                 "duration": embedding_duration,
                 "status": "completed",
                 "title": "Generating query embeddings",
-                "description": f"Model: BGE-Large-EN\nDimension: 1024\nQuery embedding generated successfully",
+                "description": embedding_description,
+                "embedding_provider": embedder_info["provider"],
+                "embedding_degraded": bool(embedder_info.get("degraded")),
             }
         }
         
@@ -294,7 +302,6 @@ class RAGAgent(BaseAgent):
                 }
             }
             
-            await asyncio.sleep(0.15)
             thought_duration = int((time.time() - thought_start) * 1000)
             yield {
                 "chunk_type": "decision_step",

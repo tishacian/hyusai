@@ -88,3 +88,36 @@ async def test_openai_embed_fallback_is_limited_to_single_failed_input():
     assert [len(call) for call in fake_embeddings.calls] == [1]
     assert result.shape == (1, 3)
     assert np.isclose(np.linalg.norm(result[0]), 1.0)
+
+
+def test_describe_reports_real_provider_and_dimension():
+    embedder = make_embedder(FakeEmbeddings())
+    embedder.provider = "openai"
+
+    info = embedder.describe()
+
+    assert info == {
+        "provider": "openai",
+        "model_name": "text-embedding-3-small",
+        "dimension": 3,
+        "degraded": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_hash_fallback_marks_embedder_degraded():
+    embedder = make_embedder(FakeEmbeddings(always_fail=True))
+    embedder.provider = "openai"
+
+    assert not embedder.is_degraded()
+    await embedder.embed_batch(["alpha"])
+
+    assert embedder.is_degraded()
+    assert embedder.describe()["degraded"] is True
+
+
+def test_hash_provider_is_degraded_from_init():
+    embedder = make_embedder(FakeEmbeddings())
+    embedder.provider = "hash"
+
+    assert embedder.is_degraded()

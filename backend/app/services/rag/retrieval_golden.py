@@ -32,9 +32,25 @@ class RetrievalGoldenCase:
     forbidden_route: str | None = None
     latency_profile: str = "fast"
     min_expected_sources: int = 1
+    # Query language ("fr" | "en" | "de") — documents the multilingual axis
+    # and lets reporters slice pass-rates per language.
+    language: str = "fr"
+    # Extra retrieval filters forwarded verbatim (project_code, source_kind…)
+    # to exercise scope/metadata-filtered retrieval.
+    retrieval_filters: Mapping[str, Any] | None = None
+    # Prior turns for multi-turn cases: the follow-up query must retrieve with
+    # the conversation anchors, not the bare anaphora.
+    conversation_history: tuple[Mapping[str, Any], ...] = ()
+    # Diagnostics expected in context.metrics (e.g. {"sparse_status": "ok"},
+    # {"cross_encoder_status": "applied"}). Compared as string equality.
+    expected_diagnostics: Mapping[str, Any] | None = None
+    # Sources that must NOT appear in the selected sources (cross-project
+    # contamination guard).
+    forbidden_sources: tuple[str, ...] = ()
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "RetrievalGoldenCase":
+        history = payload.get("conversation_history")
         return cls(
             id=str(payload["id"]),
             query=str(payload["query"]),
@@ -45,14 +61,32 @@ class RetrievalGoldenCase:
             forbidden_route=str(payload.get("forbidden_route") or "") or None,
             latency_profile=str(payload.get("latency_profile") or "fast"),
             min_expected_sources=max(1, int(payload.get("min_expected_sources") or 1)),
+            language=str(payload.get("language") or "fr"),
+            retrieval_filters=dict(payload["retrieval_filters"])
+            if isinstance(payload.get("retrieval_filters"), Mapping)
+            else None,
+            conversation_history=tuple(
+                dict(item) for item in payload.get("conversation_history") or () if isinstance(item, Mapping)
+            ),
+            expected_diagnostics=dict(payload["expected_diagnostics"])
+            if isinstance(payload.get("expected_diagnostics"), Mapping)
+            else None,
+            forbidden_sources=tuple(str(item) for item in payload.get("forbidden_sources") or ()),
         )
 
     def to_request(self) -> dict[str, Any]:
-        return {
+        request: dict[str, Any] = {
             "query": self.query,
             "context_collection": self.collection,
             "latency_profile": self.latency_profile,
         }
+        if self.retrieval_filters:
+            request["retrieval_filters"] = dict(self.retrieval_filters)
+        if self.conversation_history:
+            request["context"] = {
+                "conversation_history": [dict(item) for item in self.conversation_history]
+            }
+        return request
 
 
 def load_retrieval_golden_cases(path: str | Path | None = None) -> list[RetrievalGoldenCase]:
@@ -133,18 +167,34 @@ def evaluate_retrieval_golden_case(
     metrics = context.get("metrics") if isinstance(context.get("metrics"), Mapping) else {}
     dense_policy = str(metrics.get("dense_policy") or context.get("dense_policy") or "")
     forbidden_route_hit = bool(case.forbidden_route and case.forbidden_route in dense_policy)
+    forbidden_source_hits = [
+        source
+        for source in case.forbidden_sources
+        if _normalise(source) and _normalise(source) in labels_text
+    ]
+    diagnostic_mismatches: dict[str, Any] = {}
+    if case.expected_diagnostics:
+        for key, expected_value in case.expected_diagnostics.items():
+            actual = metrics.get(key, context.get(key))
+            if str(actual) != str(expected_value):
+                diagnostic_mismatches[key] = {"expected": expected_value, "actual": actual}
     passed = (
         len(matched_sources) >= min(case.min_expected_sources, max(len(expected_sources), 1))
         and not missing_evidence_terms
         and not forbidden_route_hit
+        and not forbidden_source_hits
+        and not diagnostic_mismatches
     )
     return {
         "id": case.id,
+        "language": case.language,
         "passed": passed,
         "matched_sources": matched_sources,
         "selected_sources": labels,
         "missing_sources": [source for source in expected_sources if source not in matched_sources],
         "missing_evidence_terms": missing_evidence_terms,
         "forbidden_route_hit": forbidden_route_hit,
+        "forbidden_source_hits": forbidden_source_hits,
+        "diagnostic_mismatches": diagnostic_mismatches,
         "dense_policy": dense_policy or None,
     }

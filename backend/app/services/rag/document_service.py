@@ -1,5 +1,6 @@
 """Document ingestion and indexing service"""
 import asyncio
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -636,10 +637,21 @@ class DocumentService:
         try:
             # Step 1: Generate query embedding
             query_embedding_step = tracer.add_step(trace.id, TraceStepType.QUERY_EMBEDDING)
+            embed_started = time.time()
             query_embedding = await self.embedder.embed(query)
+            embed_duration_ms = int((time.time() - embed_started) * 1000)
             import numpy as np
             embedding_dim = len(query_embedding) if isinstance(query_embedding, np.ndarray) else query_embedding.shape[0] if hasattr(query_embedding, 'shape') else 0
-            query_embedding_step.complete({"embedding_dimension": embedding_dim})
+            embedder_info = (
+                self.embedder.describe() if hasattr(self.embedder, "describe") else {}
+            )
+            query_embedding_step.complete(
+                {
+                    "embedding_dimension": embedding_dim,
+                    "duration_ms": embed_duration_ms,
+                    **embedder_info,
+                }
+            )
 
             async def _vector_search(embedding: np.ndarray, k: int) -> List[Dict]:
                 try:

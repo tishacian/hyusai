@@ -184,6 +184,21 @@ class FlashReranker:
         
         return all_scores
     
+    def score(self, query: str, passages: List[str]) -> List[float]:
+        """Relevance scores aligned to the input passage order (no sorting).
+
+        Sigmoid scores in [0, 1]; callers that need to keep passages aligned
+        with external metadata should use this instead of ``rerank``.
+        """
+        if not passages:
+            return []
+        batch_size = (
+            self.config.batch_size
+            if self.device == "cuda"
+            else max(1, self.config.batch_size // 4)
+        )
+        return self._batch_process(query, passages, batch_size)
+
     def rerank(
         self, query: str, passages: List[str], return_scores: bool = False
     ) -> Union[List[str], Tuple[List[str], List[float]]]:

@@ -17,9 +17,11 @@ class Embedder:
 
     def __init__(self, model_name: str = None):
         self.model_name = model_name or settings.embedding_model
+        self.provider: str = "hash"
         self._client = None
         self._local_model = None
         self._dimension = None
+        self._hash_fallback_count = 0
         self._init_provider()
 
     def _init_provider(self):
@@ -29,6 +31,7 @@ class Embedder:
 
                 self._client = OpenAI(api_key=settings.openai_api_key)
                 self._dimension = 1536 if "small" in self.model_name else 3072
+                self.provider = "openai"
                 logger.info("Using OpenAI embeddings", model=self.model_name)
                 return
             except Exception as e:
@@ -41,13 +44,36 @@ class Embedder:
                 self.model_name or "all-MiniLM-L6-v2"
             )
             self._dimension = self._local_model.get_sentence_embedding_dimension()
+            self.provider = "local"
             logger.info("Using local embeddings", model=self.model_name)
             return
         except ImportError:
             pass
 
-        logger.warning("No embedding provider available, using hash fallback")
+        # Hash pseudo-embeddings keep the pipeline running but carry no
+        # semantics: retrieval silently degrades to noise. Make it loud.
+        logger.error(
+            "No embedding provider available, using hash fallback — "
+            "retrieval quality is degraded to lexical noise",
+            model=self.model_name,
+        )
+        self.provider = "hash"
         self._dimension = 1536
+
+    def describe(self) -> dict:
+        """Real embedder telemetry for decision steps and diagnostics."""
+        return {
+            "provider": getattr(self, "provider", "unknown"),
+            "model_name": self.model_name,
+            "dimension": self.get_dimension(),
+            "degraded": self.is_degraded(),
+        }
+
+    def is_degraded(self) -> bool:
+        return (
+            getattr(self, "provider", "hash") == "hash"
+            or getattr(self, "_hash_fallback_count", 0) > 0
+        )
 
     async def embed(self, text: str) -> np.ndarray:
         results = await self.embed_batch([text])
@@ -149,6 +175,14 @@ class Embedder:
     def _fallback_embed(self, text: str) -> np.ndarray:
         import hashlib
 
+        self._hash_fallback_count = getattr(self, "_hash_fallback_count", 0) + 1
+        if self._hash_fallback_count == 1 or self._hash_fallback_count % 100 == 0:
+            logger.error(
+                "Hash pseudo-embedding emitted — vectors are not semantic",
+                provider=getattr(self, "provider", "unknown"),
+                model=self.model_name,
+                count=self._hash_fallback_count,
+            )
         hash_bytes = hashlib.sha256(text.encode()).digest()
         embedding = np.frombuffer(hash_bytes * 48, dtype=np.uint8)[
             : self._dimension
@@ -160,3 +194,14 @@ class Embedder:
 
     def get_dimension(self) -> int:
         return self._dimension or 1536
+
+
+_shared_embedder: "Embedder | None" = None
+
+
+def get_shared_embedder() -> "Embedder":
+    """Process-wide default Embedder (stateless apart from provider init)."""
+    global _shared_embedder
+    if _shared_embedder is None:
+        _shared_embedder = Embedder()
+    return _shared_embedder

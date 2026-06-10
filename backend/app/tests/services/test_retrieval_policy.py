@@ -276,6 +276,73 @@ def test_policy_filters_other_projects_when_exact_project_reference_missing():
     assert constraints["filtered_chunks_removed"] == 2
 
 
+def test_cross_project_log_only_reports_without_filtering():
+    from dataclasses import replace
+
+    policy = replace(
+        retrieval_policy_from_guides([POLICY_GUIDE]),
+        cross_project_log_only=True,
+    )
+
+    chunks, scores, metadatas, constraints = filter_aligned_to_required_terms(
+        ["Spare Parts List AKK200", "Spare Parts List BBA120"],
+        [0.9, 0.8],
+        [{"project_code": "AKK200"}, {"project_code": "BBA120"}],
+        query="Liste de garniture du projet COL100",
+        policy=policy,
+    )
+
+    # Shadow mode: nothing dropped, but the would-be removal is reported.
+    assert len(chunks) == 2
+    assert constraints["log_only"] is True
+    assert constraints["enforced"] is False
+    assert constraints["would_remove"] == 2
+    assert constraints["filtered_chunks_removed"] == 0
+
+
+def test_source_policy_activates_project_code_match():
+    from app.core.config import settings as app_config
+    from app.services.rag.context import _apply_source_policy_to_retrieval_policy
+
+    request = {"source_policy": {"reject_cross_project_sources": True}}
+
+    # Default rollout: log-only.
+    policy = _apply_source_policy_to_retrieval_policy(request, None)
+    assert policy is not None
+    assert policy.require_project_code_match is True
+    assert policy.cross_project_log_only is True
+
+    # No source policy → untouched.
+    assert _apply_source_policy_to_retrieval_policy({}, None) is None
+
+    # Enforce flag flips to hard rejection.
+    original = app_config.rag_reject_cross_project_enforce
+    app_config.rag_reject_cross_project_enforce = True
+    try:
+        enforced = _apply_source_policy_to_retrieval_policy(request, None)
+        assert enforced.require_project_code_match is True
+        assert enforced.cross_project_log_only is False
+    finally:
+        app_config.rag_reject_cross_project_enforce = original
+
+    # A guide that already enforces project-code match is never downgraded.
+    guide_policy = retrieval_policy_from_guides([POLICY_GUIDE])
+    assert guide_policy.require_project_code_match is True
+    merged = _apply_source_policy_to_retrieval_policy(request, guide_policy)
+    assert merged.require_project_code_match is True
+    assert merged.cross_project_log_only is False
+
+
+def test_machine_reference_extraction_excludes_project_code():
+    from app.services.secure_deposit import _extract_machine_reference
+
+    assert _extract_machine_reference(
+        "NU1569/BBA120/manual.pdf", exclude="NU1569"
+    ) == {"machine": "BBA120"}
+    assert _extract_machine_reference("NU1569/manual.pdf", exclude="NU1569") == {}
+    assert _extract_machine_reference(None) == {}
+
+
 # --- Document-discovery intent detection -----------------------------------
 
 DISCOVERY_POLICY_GUIDE = SimpleNamespace(

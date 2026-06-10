@@ -1,0 +1,38 @@
+{
+  "description": "Exact-identifier queries where the lexical/sparse channel carries the signal: part references, pump models, file stems. A sparse outage (timeout/stale BM25) typically fails these first.",
+  "cases": [
+    {
+      "id": "sp_001_pump_model_exact",
+      "language": "fr",
+      "query": "URACA KD724",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["URACA KD724"],
+      "expected_evidence_terms": ["URACA", "KD724"],
+      "expected_intent": "source_lookup",
+      "expected_diagnostics": {"sparse_status": "ok"},
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "sp_002_doc_reference_exact",
+      "language": "en",
+      "query": "DCI 110 PERFO-TE-OM-10-5",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": ["DCI 110__PERFO-TE-OM-10-5 EN-C.pdf"],
+      "expected_evidence_terms": ["PERFO"],
+      "expected_intent": "source_lookup",
+      "expected_diagnostics": {"sparse_status": "ok"},
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "sp_003_excel_stem_exact",
+      "language": "fr",
+      "query": "GEOTEX SPL Y25.05.22",
+      "collection": "andritz-non-wovens-france-excel-pilot",
+      "expected_sources": ["GEOTEX-SPL-Y25.05.22-PIL.xlsx"],
+      "expected_evidence_terms": ["GEOTEX"],
+      "expected_intent": "source_lookup",
+      "expected_diagnostics": {"sparse_status": "ok"},
+      "latency_profile": "balanced"
+    }
+  ]
+}

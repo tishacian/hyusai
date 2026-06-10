@@ -69,6 +69,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Knowledge base seeding failed (non-blocking)", error=str(e))
 
+    # Warm the cross-encoder so the first balanced chat does not pay the
+    # model load inside its rerank budget (opt-in: weights must be available).
+    if settings.rag_cross_encoder_enabled and settings.rag_cross_encoder_preload:
+        try:
+            from app.services.rag.cross_encoder_stage import preload_cross_encoder
+
+            await asyncio.get_running_loop().run_in_executor(None, preload_cross_encoder)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Cross-encoder preload failed (non-blocking)", error=str(e))
+
     # Seed canonical Skills + Capabilities registry (idempotent)
     try:
         from app.db.base import SessionLocal

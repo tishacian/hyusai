@@ -39,6 +39,29 @@ CHAH_QUERY_TRUNC = 120
 CHAH_MAX_WORDS_HEAD = 12
 RRF_K = 60
 FAST_CHAT_SPARSE_WAIT_SECONDS = 1.5
+
+# Consecutive sparse timeouts per collection. A lost sparse layer silently
+# degrades hybrid retrieval to dense-only, which is exactly the channel that
+# carries exact references (part numbers, project codes) — make it loud.
+_SPARSE_TIMEOUT_STREAKS: dict[str, int] = {}
+_SPARSE_TIMEOUT_ALERT_THRESHOLD = 3
+
+
+def _record_sparse_timeout(collection: str, *, wait_timeout: float, backend: str) -> None:
+    streak = _SPARSE_TIMEOUT_STREAKS.get(collection, 0) + 1
+    _SPARSE_TIMEOUT_STREAKS[collection] = streak
+    log = logger.error if streak >= _SPARSE_TIMEOUT_ALERT_THRESHOLD else logger.warning
+    log(
+        "sparse retrieval timed out; hybrid degraded to dense-only",
+        collection=collection,
+        sparse_backend=backend,
+        wait_timeout_seconds=wait_timeout,
+        consecutive_timeouts=streak,
+    )
+
+
+def _record_sparse_recovery(collection: str) -> None:
+    _SPARSE_TIMEOUT_STREAKS.pop(collection, None)
 _SPREADSHEET_LABEL_TRIGGERS_RE = re.compile(
     r"\b("
     r"diam[eè]tre|diameter|label|labell?is[ée]e?|lettre|letter|strip|strips|"
@@ -641,6 +664,11 @@ async def _search_documents(
         if sparse_task is not None and sparse_task in pending:
             sparse_status = "timeout"
             sparse_fallback_reason = "sparse_timeout"
+            _record_sparse_timeout(
+                str(sparse_collection),
+                wait_timeout=wait_timeout,
+                backend=str(sparse_backend_name),
+            )
         dense_results: list[dict[str, Any]] = []
         sparse_results: list[dict[str, Any]] = []
         dense_elapsed_ms: int | None = None
@@ -650,12 +678,25 @@ async def _search_documents(
                 dense_results, dense_elapsed_ms = dense_task.result()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("dense retrieval layer failed", error=str(exc))
+        # Preserve the dense cosine on each chunk: RRF overwrites the aligned
+        # score with a rank weight, and downstream gates need a value with a
+        # known scale.
+        for item in dense_results:
+            if not isinstance(item, dict):
+                continue
+            meta = item.setdefault("metadata", {})
+            if isinstance(meta, dict) and "dense_score" not in meta:
+                try:
+                    meta["dense_score"] = float(item.get("score") or 0.0)
+                except (TypeError, ValueError):
+                    pass
         if sparse_task is not None and sparse_task in done:
             try:
                 sparse_results, sparse_elapsed_ms = sparse_task.result()
                 if sparse_results:
                     sparse_status = "ok"
                     sparse_fallback_reason = None
+                    _record_sparse_recovery(str(sparse_collection))
                 elif sparse_status != "disabled":
                     sparse_status = "empty"
                     sparse_fallback_reason = f"sparse_{sparse_backend_name}_empty_or_unavailable"
@@ -1523,11 +1564,16 @@ async def retrieve_chah_like(
     max_variants: int = 3,
     max_candidates: int = 80,
     search_params: dict[str, Any] | None = None,
+    extra_variants: list[str] | None = None,
 ) -> RetrievalPipelineResult:
     """Parallel retrieval over query variants + RRF merge (C-HAH-like).
 
     Inspired by composite / multi-strategy retrieval in ``customchainmixedhah`` (parallel
     plans + fusion), without importing ``src``.
+
+    ``extra_variants`` (e.g. an LLM-rewritten query on the deep path) join the
+    fan-out as additional variants — never substituting the raw query, which
+    always searches first with the user's exact domain terms.
     """
     q = (query or "").strip()
     if not q:
@@ -1563,9 +1609,11 @@ async def retrieve_chah_like(
         deadline_at=deadline_at,
     )
     exact_metadata_elapsed_ms = int((time.perf_counter() - exact_metadata_started) * 1000)
-    variants = _query_variants(q, query_hints=query_hints, retrieval_policy=retrieval_policy)[
-        : max(1, int(max_variants or 3))
-    ]
+    variants = _query_variants(q, query_hints=query_hints, retrieval_policy=retrieval_policy)
+    injected = [str(v).strip() for v in (extra_variants or []) if str(v or "").strip()]
+    for offset, injected_variant in enumerate(v for v in injected if v != q and v not in variants):
+        variants.insert(1 + offset, injected_variant)
+    variants = variants[: max(1, int(max_variants or 3) + min(len(injected), 1))]
     # Per-variant fan-out. A deliberately wide top_k (document-discovery widening
     # in context.py passes top_k≈40) digs deeper per variant so specific annex /
     # operating-manual docs reach the pool; for any normal top_k (< 30) this is the
@@ -1687,6 +1735,7 @@ async def retrieve_for_mode(
     allow_legacy_hybrid: bool = True,
     retrieval_profile: str | None = None,
     latency_profile: str | None = None,
+    extra_variants: list[str] | None = None,
 ) -> RetrievalPipelineResult:
     """
     Single entry for RAG retrieval by pipeline mode.
@@ -1733,6 +1782,7 @@ async def retrieve_for_mode(
             max_variants=max_variants,
             max_candidates=max_candidates,
             search_params=_search_params_for_profile(retrieval_profile, latency_profile=latency_profile),
+            extra_variants=extra_variants,
         )
 
     deadline_at = _deadline_at(deadline_seconds)

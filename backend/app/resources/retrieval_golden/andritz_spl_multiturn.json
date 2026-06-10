@@ -1,0 +1,51 @@
+{
+  "description": "Multi-turn follow-ups: the anaphoric query must retrieve with the conversation anchors (project/machine references), never with the bare pronoun.",
+  "cases": [
+    {
+      "id": "mt_001_followup_project_anchor",
+      "language": "fr",
+      "query": "et pour celle-ci, quelles pièces de rechange ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "conversation_history": [
+        {"role": "user", "content": "Parle-moi de la machine du projet AKK200"},
+        {"role": "assistant", "content": "Le projet AKK200 couvre une ligne SPL documentée dans Spare Parts List AKK200_Ind A.pdf."}
+      ],
+      "expected_sources": ["Spare Parts List AKK200_Ind A.pdf"],
+      "expected_evidence_terms": ["AKK200", "spare"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "mt_002_followup_switch_project",
+      "language": "fr",
+      "query": "même question pour ACO150",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "conversation_history": [
+        {"role": "user", "content": "Retrouve la Spare Parts List du projet AKK200"},
+        {"role": "assistant", "content": "Voici la Spare Parts List AKK200_Ind A.pdf."}
+      ],
+      "expected_sources": ["spare part list ACO150.pdf"],
+      "expected_evidence_terms": ["ACO150"],
+      "forbidden_sources": ["Spare Parts List AKK200_Ind A.pdf"],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced"
+    },
+    {
+      "id": "mt_003_followup_maintenance_anchor",
+      "language": "fr",
+      "query": "et la maintenance pour cette machine ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "conversation_history": [
+        {"role": "user", "content": "Quels documents pour la pompe Etachrom B ?"},
+        {"role": "assistant", "content": "La pompe est documentée dans Etachrom B.PDF."}
+      ],
+      "expected_sources": ["Etachrom B.PDF"],
+      "expected_evidence_terms": ["etachrom"],
+      "expected_intent": "content_search",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced"
+    }
+  ]
+}
