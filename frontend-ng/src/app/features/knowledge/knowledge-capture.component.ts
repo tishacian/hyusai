@@ -1,9 +1,10 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import { AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, effect, inject, signal, untracked } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom } from 'rxjs';
-import { ActivatedRoute, RouterLink } from '@angular/router';
-import { ApiService } from '@app/core/api.service';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ApiService, PublishedCaptureFiche } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { LiveKitConversationConnection, LiveKitConversationService } from '@app/core/livekit-conversation.service';
 import { PermissionsService } from '@app/core/permissions.service';
@@ -11,6 +12,7 @@ import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-play
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
+import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 
 type CaptureVoiceConnection = VoiceSessionConnection | LiveKitConversationConnection;
@@ -131,6 +133,7 @@ interface CaptureSession {
   summary_short?: string | null;
   open_questions_count?: number | null;
   last_activity?: string | null;
+  archived?: boolean;
   started_at?: string | null;
   completed_at?: string | null;
 }
@@ -200,6 +203,8 @@ interface RetrievalPrefetch {
   metadatas: Record<string, any>[];
   hints?: CaptureHint[];
   active_subtopic_id?: string;
+  active_topic_id?: string;
+  active_section_confidence?: number;
 }
 
 type ConversationMode = 'manual' | 'conversation_only';
@@ -220,6 +225,8 @@ interface WorkspaceVoiceLoopConfig {
   stop_phrases?: string[];
   silence_ms?: number;
   min_speech_ms?: number;
+  dictation_silence_ms?: number;
+  dictation_min_speech_ms?: number;
   max_turn_ms?: number;
   cooldown_ms?: number;
   rms_threshold?: number;
@@ -303,6 +310,84 @@ interface ConversationStepResponse {
   } | null;
 }
 
+/** Section-level KB source attached by the FINAL pass (chat-style display). */
+interface CaptureReportSource {
+  rank?: number;
+  document_id?: string | null;
+  source_id?: string | null;
+  source?: string | null;
+  title?: string | null;
+  filename?: string | null;
+  collection?: string | null;
+  preview?: string | null;
+}
+
+interface CaptureReportStructureNode {
+  topic_id?: string | null;
+  subtopic_id?: string | null;
+  title?: string | null;
+  synthesis?: string | null;
+  facts?: ProposalFact[];
+  sources?: CaptureReportSource[];
+  open_questions?: ProposalOpenQuestion[];
+  subtopics?: CaptureReportStructureNode[];
+}
+
+/** Nested bullet in a section synthesis list. */
+interface CaptureReportListItem {
+  text: string;
+  children: CaptureReportListItem[];
+}
+
+/** Parsed block of a section synthesis (markdown stored, structured render). */
+interface CaptureReportBlock {
+  kind: 'paragraph' | 'list' | 'heading';
+  text?: string;
+  items?: CaptureReportListItem[];
+}
+
+interface CaptureReportSubsectionCard {
+  key: string;
+  title: string;
+  blocks: CaptureReportBlock[];
+  facts: string[];
+  sources: CaptureReportSource[];
+  openQuestionLinks: CaptureReportOpenQuestionLink[];
+}
+
+/** Compact index entry in the fiche pointing to a sidebar management card. */
+interface CaptureReportOpenQuestionLink {
+  key: string;
+  label: string;
+  index: number;
+}
+
+interface CaptureReportSectionCard extends CaptureReportSubsectionCard {
+  index: number;
+  subsections: CaptureReportSubsectionCard[];
+}
+
+/** Honest FINAL-phase progress stage streamed by the gateway. */
+interface CaptureFinalizeStage {
+  stage: string;
+  label: string;
+  section_label?: string | null;
+  current?: number | null;
+  total?: number | null;
+}
+
+interface CapturePublicationResult {
+  proposal_id?: string;
+  collection?: string;
+  document_id?: string;
+  chunks_processed?: number;
+  status?: string;
+  category?: string;
+  destination?: string;
+  final_title?: string;
+  export_urls?: { download_url?: string; raw_url?: string };
+}
+
 interface CaptureProposal {
   id: string;
   status: string;
@@ -316,6 +401,7 @@ interface CaptureProposal {
     open_questions?: ProposalOpenQuestion[];
     recommended_ingestion?: { title?: string; content?: string; metadata?: Record<string, any> };
     report_markdown?: string;
+    plan_structure?: { topics?: CaptureReportStructureNode[]; unassigned?: ProposalFact[] };
     publication?: {
       category?: string | null;
       destination?: string | null;
@@ -323,6 +409,11 @@ interface CaptureProposal {
       final_title?: string | null;
       include_unresolved_questions?: boolean;
       suggested?: boolean;
+      document_id?: string | null;
+      collection_slug?: string | null;
+      chunks_processed?: number | null;
+      published_at?: string | null;
+      export_urls?: { download_url?: string; raw_url?: string };
     };
     audit?: { event_count?: number; amendment_count?: number };
   };
@@ -374,7 +465,7 @@ interface ProposalFact {
   selector: 'app-knowledge-capture',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, IconComponent],
+  imports: [FormsModule, RouterLink, NgTemplateOutlet, IconComponent, DocumentPreviewComponent],
   styles: [
     `
       @keyframes kc-timer-blink {
@@ -393,6 +484,63 @@ interface ProposalFact {
         position: sticky;
         bottom: 0.75rem;
         z-index: 5;
+      }
+      .ck-fiche-list,
+      .ck-fiche-nested-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .ck-fiche-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+      }
+      .ck-fiche-nested-list {
+        margin-top: 0.375rem;
+        margin-left: 0.5rem;
+        padding-left: 0.625rem;
+        border-left: 1px solid rgba(255, 255, 255, 0.06);
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+      .ck-fiche-heading + .ck-fiche-list-wrap {
+        margin-left: 0.75rem;
+        padding-left: 0.625rem;
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .ck-fiche-row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: flex-start;
+      }
+      .ck-fiche-bullet {
+        margin-top: 0.4375rem;
+        height: 0.375rem;
+        width: 0.375rem;
+        flex-shrink: 0;
+        border-radius: 9999px;
+        background: rgba(96, 165, 250, 0.7);
+      }
+      .ck-fiche-nested-list .ck-fiche-bullet {
+        margin-top: 0.5rem;
+        height: 0.25rem;
+        width: 0.25rem;
+        background: rgba(96, 165, 250, 0.55);
+      }
+      @keyframes kc-review-q-highlight {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+        }
+        25%,
+        75% {
+          box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.45);
+        }
+      }
+      .kc-review-q-highlight {
+        animation: kc-review-q-highlight 2s ease-in-out;
       }
     `,
   ],
@@ -707,6 +855,200 @@ interface ProposalFact {
       }
 
       @if (activeSurface() === 'dashboard') {
+        <section class="space-y-4">
+          @if (!isDemoMode()) {
+            <nav class="flex flex-wrap gap-2 border-b border-white/10 pb-3">
+              <button
+                type="button"
+                [class]="dashboardTab() === 'sessions'
+                  ? 'inline-flex items-center gap-2 px-3 py-2 rounded text-brand-100 border-b-2 border-brand-300'
+                  : 'inline-flex items-center gap-2 px-3 py-2 rounded text-gray-400 hover:text-white'"
+                (click)="setDashboardTab('sessions')"
+              >
+                <app-icon name="layout-dashboard" [size]="14" />
+                {{ i18n.t('capture.dashboard.tab_sessions') }}
+              </button>
+              <button
+                type="button"
+                [class]="dashboardTab() === 'fiches'
+                  ? 'inline-flex items-center gap-2 px-3 py-2 rounded text-brand-100 border-b-2 border-brand-300'
+                  : 'inline-flex items-center gap-2 px-3 py-2 rounded text-gray-400 hover:text-white'"
+                (click)="setDashboardTab('fiches')"
+              >
+                <app-icon name="book-open" [size]="14" />
+                {{ i18n.t('capture.dashboard.tab_fiches') }}
+              </button>
+            </nav>
+          }
+
+          @if (dashboardTab() === 'fiches') {
+            <section class="t-card rounded-lg p-5 space-y-4">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.fiches.eyebrow') }}</p>
+                  <h2 class="text-lg font-semibold text-white">{{ i18n.t('capture.fiches.title') }}</h2>
+                  <p class="mt-1 text-sm text-gray-400 max-w-3xl">{{ i18n.t('capture.fiches.description') }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200"
+                  [disabled]="publishedFichesLoading()"
+                  (click)="refreshPublishedFiches()"
+                >
+                  <app-icon name="refresh-cw" [size]="12" />
+                  {{ i18n.t('common.retry') }}
+                </button>
+              </div>
+
+              <div class="grid md:grid-cols-4 gap-3">
+                <div class="md:col-span-2">
+                  <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">{{ i18n.t('common.search') }}</label>
+                  <input
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
+                    [(ngModel)]="ficheSearchQuery"
+                    [placeholder]="i18n.t('capture.fiches.search_placeholder')"
+                    (keyup.enter)="refreshPublishedFiches()"
+                  />
+                </div>
+                <div>
+                  <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">{{ i18n.t('capture.fiches.filter_category') }}</label>
+                  <select
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
+                    [(ngModel)]="ficheCategoryFilter"
+                    (ngModelChange)="refreshPublishedFiches()"
+                  >
+                    <option value="">{{ i18n.t('capture.fiches.all_categories') }}</option>
+                    @for (value of publishedFicheCategories(); track value) {
+                      <option [value]="value">{{ value }}</option>
+                    }
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">{{ i18n.t('capture.fiches.filter_destination') }}</label>
+                  <select
+                    class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
+                    [(ngModel)]="ficheDestinationFilter"
+                    (ngModelChange)="refreshPublishedFiches()"
+                  >
+                    <option value="">{{ i18n.t('capture.fiches.all_destinations') }}</option>
+                    @for (value of publishedFicheDestinations(); track value) {
+                      <option [value]="value">{{ value }}</option>
+                    }
+                  </select>
+                </div>
+              </div>
+              <div class="max-w-sm">
+                <label class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">{{ i18n.t('capture.fiches.filter_author') }}</label>
+                <select
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white"
+                  [(ngModel)]="ficheAuthorFilter"
+                  (ngModelChange)="refreshPublishedFiches()"
+                >
+                  <option value="">{{ i18n.t('capture.fiches.all_authors') }}</option>
+                  @for (author of publishedFicheAuthors(); track author.id) {
+                    <option [value]="author.id">{{ author.label }}</option>
+                  }
+                </select>
+              </div>
+
+              @if (publishedFichesLoading()) {
+                <div class="rounded border border-white/10 bg-black/20 p-8 text-center text-gray-400">
+                  {{ i18n.t('common.loading') }}
+                </div>
+              } @else if (publishedFichesError()) {
+                <div class="rounded border border-red-400/30 bg-red-500/10 p-6 text-center text-red-200 space-y-3">
+                  <p>{{ i18n.t('capture.fiches.error') }}</p>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded bg-white/10 hover:bg-white/15 text-gray-100"
+                    (click)="refreshPublishedFiches()"
+                  >
+                    {{ i18n.t('common.retry') }}
+                  </button>
+                </div>
+              } @else {
+                <div class="overflow-x-auto rounded border border-white/10">
+                  <table class="min-w-full text-sm">
+                    <thead class="bg-white/[0.03] text-[10px] uppercase tracking-wider text-gray-500">
+                      <tr>
+                        <th class="px-3 py-2 text-left">{{ i18n.t('capture.fiches.column_title') }}</th>
+                        <th class="px-3 py-2 text-left">{{ i18n.t('capture.fiches.column_category') }}</th>
+                        <th class="px-3 py-2 text-left">{{ i18n.t('capture.fiches.column_collection') }}</th>
+                        <th class="px-3 py-2 text-left">{{ i18n.t('capture.fiches.column_author') }}</th>
+                        <th class="px-3 py-2 text-left">{{ i18n.t('capture.fiches.column_published') }}</th>
+                        <th class="px-3 py-2 text-left">{{ i18n.t('capture.fiches.column_metrics') }}</th>
+                        <th class="px-3 py-2 text-right">{{ i18n.t('common.open') }}</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-white/5">
+                      @for (row of publishedFiches(); track row.id) {
+                        <tr class="hover:bg-white/[0.03]">
+                          <td class="px-3 py-3 align-top">
+                            <div class="font-semibold text-white">{{ row.title }}</div>
+                            @if (row.session_title) {
+                              <div class="mt-1 text-xs text-gray-500">{{ row.session_title }}</div>
+                            }
+                          </td>
+                          <td class="px-3 py-3 align-top text-gray-300">{{ row.category || '—' }}</td>
+                          <td class="px-3 py-3 align-top text-gray-300">{{ row.destination || row.collection_slug || '—' }}</td>
+                          <td class="px-3 py-3 align-top text-gray-300">{{ row.author?.label || '—' }}</td>
+                          <td class="px-3 py-3 align-top text-gray-400 text-xs">
+                            <div>{{ publishedFicheDateLabel(row) }}</div>
+                            @if (row.published_by?.label) {
+                              <div class="mt-1 text-gray-500">{{ row.published_by?.label }}</div>
+                            }
+                          </td>
+                          <td class="px-3 py-3 align-top text-xs text-gray-400 space-y-1">
+                            <div>{{ publishedFicheWordLabel(row) }} · {{ publishedFicheChunkLabel(row) }}</div>
+                            @if ((row.open_questions_count || 0) > 0) {
+                              <div class="text-amber-200">{{ publishedFicheOpenQuestionsLabel(row) }}</div>
+                            }
+                          </td>
+                          <td class="px-3 py-3 align-top">
+                            <div class="flex flex-wrap justify-end gap-1.5">
+                              @if (row.preview_url || row.document_id) {
+                                <button
+                                  type="button"
+                                  class="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-xs text-brand-100 ring-1 ring-white/10"
+                                  (click)="openPublishedFichePreview(row)"
+                                >
+                                  {{ i18n.t('capture.fiches.open_preview') }}
+                                </button>
+                              }
+                              @if (row.collection_slug) {
+                                <button
+                                  type="button"
+                                  class="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-200 ring-1 ring-white/10"
+                                  (click)="openPublishedFicheCollection(row)"
+                                >
+                                  {{ i18n.t('capture.fiches.open_kb') }}
+                                </button>
+                              }
+                              @if (row.session_owned_by_current_user) {
+                                <button
+                                  type="button"
+                                  class="px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-200 ring-1 ring-white/10"
+                                  (click)="openPublishedFicheSession(row)"
+                                >
+                                  {{ i18n.t('capture.fiches.open_session') }}
+                                </button>
+                              }
+                            </div>
+                          </td>
+                        </tr>
+                      } @empty {
+                        <tr>
+                          <td colspan="7" class="px-3 py-8 text-center text-gray-500">
+                            {{ i18n.t('capture.fiches.empty') }}
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </section>
+          } @else {
         <section [class]="isDemoMode() ? 'grid gap-5 max-w-5xl mx-auto' : 'grid xl:grid-cols-[1.5fr_1fr] gap-5'">
           <div class="t-card rounded-lg p-5 space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
@@ -757,12 +1099,30 @@ interface ProposalFact {
               </div>
             </div>
             }
+            <div class="flex items-center justify-end">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded ring-1 transition-colors"
+                [class]="showArchivedSessions()
+                  ? 'bg-brand-500/15 text-brand-100 ring-brand-300/20'
+                  : 'bg-white/5 text-gray-400 ring-white/10 hover:text-gray-200'"
+                (click)="toggleArchivedSessions()"
+              >
+                <app-icon name="archive" [size]="12" />
+                {{ showArchivedSessions() ? 'Masquer les sessions archivées' : 'Afficher les sessions archivées' }}
+              </button>
+            </div>
             <div class="space-y-2">
-              @for (row of dashboardSessions(); track row.id) {
-                <button
-                  type="button"
-                  class="w-full text-left rounded border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] p-3"
+              @for (row of visibleDashboardSessions(); track row.id) {
+                <div
+                  role="button"
+                  tabindex="0"
+                  class="w-full cursor-pointer text-left rounded border p-3 transition-colors"
+                  [class]="row.archived
+                    ? 'border-white/5 bg-white/[0.015] opacity-70 hover:opacity-100 hover:bg-white/[0.04]'
+                    : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'"
                   (click)="openDashboardSession(row)"
+                  (keydown.enter)="openDashboardSession(row)"
                 >
                   <div class="flex items-start justify-between gap-3">
                     <div>
@@ -774,8 +1134,68 @@ interface ProposalFact {
                         </span>
                       }
                     </div>
-                    <span class="shrink-0 text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ captureSessionStatusLabel(row) }}</span>
+                    <div class="flex shrink-0 items-center gap-1.5">
+                      @if (row.archived) {
+                        <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-500 ring-1 ring-white/10">Archivée</span>
+                      } @else {
+                        <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">{{ captureSessionStatusLabel(row) }}</span>
+                      }
+                      @if (canCaptureUpdate(row)) {
+                        @if (row.archived) {
+                          <button
+                            type="button"
+                            class="p-1.5 rounded text-gray-500 hover:text-brand-200 hover:bg-white/5"
+                            title="Désarchiver la session"
+                            [disabled]="sessionActionLoading() === row.id"
+                            (click)="unarchiveSession(row, $event)"
+                          >
+                            <app-icon name="archive-restore" [size]="14" />
+                          </button>
+                        } @else {
+                          <button
+                            type="button"
+                            class="p-1.5 rounded text-gray-500 hover:text-gray-200 hover:bg-white/5"
+                            title="Archiver la session"
+                            [disabled]="sessionActionLoading() === row.id"
+                            (click)="archiveSession(row, $event)"
+                          >
+                            <app-icon name="archive" [size]="14" />
+                          </button>
+                        }
+                        <button
+                          type="button"
+                          class="p-1.5 rounded text-gray-500 hover:text-red-300 hover:bg-red-500/10"
+                          title="Supprimer la session"
+                          [disabled]="sessionActionLoading() === row.id"
+                          (click)="requestDeleteSession(row, $event)"
+                        >
+                          <app-icon name="trash-2" [size]="14" />
+                        </button>
+                      }
+                    </div>
                   </div>
+                  @if (confirmDeleteSessionId() === row.id) {
+                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs">
+                      <span class="text-red-200">Supprimer définitivement cette session (transcript et rapports inclus) ?</span>
+                      <span class="flex gap-2">
+                        <button
+                          type="button"
+                          class="px-2 py-1 rounded bg-red-500/80 hover:bg-red-500 text-white font-semibold"
+                          [disabled]="sessionActionLoading() === row.id"
+                          (click)="confirmDeleteSession(row, $event)"
+                        >
+                          Supprimer
+                        </button>
+                        <button
+                          type="button"
+                          class="px-2 py-1 rounded bg-white/10 hover:bg-white/15 text-gray-200"
+                          (click)="cancelDeleteSession($event)"
+                        >
+                          Annuler
+                        </button>
+                      </span>
+                    </div>
+                  }
                   <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
                     <div class="flex flex-wrap gap-2">
                       <span>{{ sessionLastActivityLabel(row) }}</span>
@@ -788,7 +1208,7 @@ interface ProposalFact {
                       <app-icon name="arrow-right" [size]="12" />
                     </span>
                   </div>
-                </button>
+                </div>
               } @empty {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-8 text-center text-gray-500">
                   {{ i18n.t('capture.dashboard.empty') }}
@@ -848,6 +1268,8 @@ interface ProposalFact {
           </div>
           }
         </section>
+          }
+        </section>
       }
 
       @if (activeSurface() === 'session') {
@@ -865,9 +1287,11 @@ interface ProposalFact {
                   }
                   @if (sessionTimerView(s); as timer) {
                     <span
-                      [class]="timer.blink
-                        ? 'px-2 py-1 rounded bg-amber-500/20 text-amber-100 ring-1 ring-amber-400/30 kc-timer-blink'
-                        : 'px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10'"
+                      [class]="timer.overtime
+                        ? 'px-2 py-1 rounded bg-red-500/15 text-red-200 ring-1 ring-red-400/30'
+                        : timer.blink
+                          ? 'px-2 py-1 rounded bg-amber-500/20 text-amber-100 ring-1 ring-amber-400/30 kc-timer-blink'
+                          : 'px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10'"
                     >
                       {{ timer.label }}
                     </span>
@@ -947,7 +1371,7 @@ interface ProposalFact {
                   ? 'grid xl:grid-cols-[300px_minmax(0,1fr)_360px] gap-4 items-start'
                   : 'grid xl:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start'"
             >
-              <aside class="t-card rounded-lg p-4 max-h-[calc(100vh-270px)] flex flex-col gap-4 overflow-y-auto">
+              <aside class="t-card rounded-lg p-4 max-h-[calc(100vh-270px)] flex flex-col gap-4 overflow-hidden">
                 <div class="shrink-0">
                   <div class="flex items-center justify-between gap-3">
                     <div>
@@ -980,51 +1404,8 @@ interface ProposalFact {
                 </div>
                 }
 
-                <div class="flex-1 min-h-0 overflow-y-auto pr-1">
-                @if (isFreeConversationSession(s)) {
-                  <div class="rounded border border-dashed border-white/10 bg-black/20 p-4 text-sm text-gray-400">
-                    {{ i18n.t('capture.session.free_guidance') }}
-                  </div>
-                } @else {
-                  <div class="space-y-3">
-                    @for (topic of planTopics(s); track topic.id) {
-                      <div class="rounded border border-white/10 bg-white/[0.03] p-3">
-                        <div class="flex items-start justify-between gap-3">
-                          <div class="min-w-0">
-                            <div class="text-xs font-semibold leading-snug text-gray-200">{{ topic.title }}</div>
-                            @if (outlineItemPrompt(topic) || topic.objective; as topicHint) {
-                              <p class="mt-1 text-[11px] text-gray-500 line-clamp-2">{{ topicHint }}</p>
-                            }
-                          </div>
-                          <span class="shrink-0 rounded bg-white/5 px-2 py-1 text-[10px] text-gray-400">
-                            {{ subtopicsLabel((topic.subtopics || []).length) }}
-                          </span>
-                        </div>
-                        @for (subtopic of topic.subtopics || []; track subtopic.id) {
-                          <button
-                            type="button"
-                            [class]="subtopicRailClass(s, subtopic)"
-                            (click)="selectCaptureSubtopic(subtopic.id)"
-                          >
-                            <span class="min-w-0">
-                              <span class="block leading-snug">{{ subtopic.title }}</span>
-                              @if (outlineItemPrompt(subtopic) || subtopic.objective; as subHint) {
-                                <span class="mt-0.5 block truncate text-[10px] opacity-70">{{ subHint }}</span>
-                              }
-                            </span>
-                            <span class="shrink-0 text-[10px] opacity-70">{{ subtopicProgressLabel(s, subtopic) }}</span>
-                          </button>
-                        }
-                      </div>
-                    } @empty {
-                      <div class="rounded border border-dashed border-white/10 bg-black/20 p-4 text-sm text-gray-400">
-                        Aucun sujet structuré. La pile de relances reste disponible dans la colonne centrale.
-                      </div>
-                    }
-                  </div>
-                }
-                </div>
-
+                <!-- QUESTIONS IA pinned above the plan list so it stays visible
+                     without scrolling; the plan list below is the scroll area. -->
                 <section class="rounded border border-white/10 bg-black/20 p-3 shrink-0">
                   <div class="flex items-center justify-between gap-2">
                     <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Questions IA</p>
@@ -1088,6 +1469,61 @@ interface ProposalFact {
                   </div>
                 </section>
 
+                <div class="flex-1 min-h-32 overflow-y-auto pr-1">
+                @if (isFreeConversationSession(s)) {
+                  <div class="rounded border border-dashed border-white/10 bg-black/20 p-4 text-sm text-gray-400">
+                    {{ i18n.t('capture.session.free_guidance') }}
+                  </div>
+                } @else {
+                  <div class="space-y-3">
+                    @for (topic of planTopics(s); track topic.id) {
+                      <!-- Plain outline titles only: the generated "Présentez..."
+                           interpretations were cropped mid-sentence and over-interpreted
+                           the expert's intent — they stay available on hover. -->
+                      <div class="rounded border border-white/10 bg-white/[0.03] p-3">
+                        <div class="flex items-start justify-between gap-3">
+                          @if ((topic.subtopics || []).length) {
+                            <div class="min-w-0" [title]="outlineItemPrompt(topic) || topic.objective || ''">
+                              <div class="text-xs font-semibold leading-snug text-gray-200">{{ topic.title }}</div>
+                            </div>
+                          } @else {
+                            <button
+                              type="button"
+                              class="min-w-0 flex-1 text-left"
+                              [class]="topicOnlyRailClass(s, topic)"
+                              [title]="outlineItemPrompt(topic) || topic.objective || ''"
+                              (click)="selectCaptureTopic(topic.id)"
+                            >
+                              <div class="text-xs font-semibold leading-snug">{{ topic.title }}</div>
+                            </button>
+                          }
+                          <span class="shrink-0 rounded bg-white/5 px-2 py-1 text-[10px] text-gray-400">
+                            {{ subtopicsLabel((topic.subtopics || []).length) }}
+                          </span>
+                        </div>
+                        @for (subtopic of topic.subtopics || []; track subtopic.id) {
+                          <button
+                            type="button"
+                            [class]="subtopicRailClass(s, subtopic)"
+                            [title]="outlineItemPrompt(subtopic) || subtopic.objective || ''"
+                            (click)="selectCaptureSubtopic(subtopic.id)"
+                          >
+                            <span class="min-w-0">
+                              <span class="block leading-snug">{{ subtopic.title }}</span>
+                            </span>
+                            <span class="shrink-0 text-[10px] opacity-70">{{ subtopicProgressLabel(s, subtopic) }}</span>
+                          </button>
+                        }
+                      </div>
+                    } @empty {
+                      <div class="rounded border border-dashed border-white/10 bg-black/20 p-4 text-sm text-gray-400">
+                        Aucun sujet structuré. La pile de relances reste disponible dans la colonne centrale.
+                      </div>
+                    }
+                  </div>
+                }
+                </div>
+
                 @if (!isDemoMode() && showAdvancedSetup()) {
                   <section class="rounded border border-white/10 bg-black/20 p-3 shrink-0">
                     <div class="flex items-center justify-between gap-2">
@@ -1128,72 +1564,48 @@ interface ProposalFact {
                 }
               </aside>
 
-              <main class="t-card rounded-lg p-4 min-h-[calc(100vh-270px)] flex flex-col">
+              <main class="t-card rounded-lg p-4 min-h-[calc(100vh-270px)] max-h-[calc(100vh-270px)] flex flex-col overflow-hidden">
+                @if (!isFreeConversationSession(s)) {
+                <!-- Compact current-position breadcrumb: the left rail already shows
+                     the full plan, so the transcript reclaims the vertical space the
+                     old full-plan block was taking. -->
                 <div
                   [class]="isDemoMode()
-                    ? 'sticky top-2 z-10 rounded bg-brand-500/10 border border-brand-400/20 p-3 backdrop-blur'
-                    : 'rounded bg-brand-500/10 border border-brand-400/20 p-3'"
+                    ? 'sticky top-2 z-10 rounded bg-brand-500/10 border border-brand-400/20 px-3 py-2 backdrop-blur'
+                    : 'rounded bg-brand-500/10 border border-brand-400/20 px-3 py-2'"
                 >
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                      <p class="ck-mono text-[9px] uppercase tracking-wider text-brand-200/80">
-                        Plan de capture · vous parlez librement
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0 flex items-center gap-2.5">
+                      <span class="ck-mono shrink-0 text-[9px] uppercase tracking-wider text-brand-200/80">
+                        Position
+                      </span>
+                      <p class="truncate text-sm text-gray-100" [title]="captureBreadcrumb(s) || ''">
+                        {{ captureBreadcrumb(s) || 'Parlez librement : le plan reste visible à gauche.' }}
                       </p>
-                      @if (planTopics(s).length) {
-                        <div class="mt-3 max-h-[42vh] overflow-y-auto pr-1">
-                          <div class="space-y-3">
-                            @for (topic of planTopics(s); track topic.id; let topicIndex = $index) {
-                              <article [class]="captureTopicCardClass(s, topic)">
-                                <div class="flex items-start gap-3">
-                                  <span class="mt-0.5 inline-flex h-6 min-w-6 items-center justify-center rounded bg-brand-500/20 text-xs font-semibold text-brand-100 ring-1 ring-brand-300/20">
-                                    {{ topicIndex + 1 }}
-                                  </span>
-                                  <div class="min-w-0 flex-1">
-                                    <h3 class="text-base font-semibold leading-snug text-white">{{ topic.title }}</h3>
-                                    @if (outlineItemPrompt(topic) || topic.objective; as topicHint) {
-                                      <p class="mt-1 text-xs leading-relaxed text-gray-400">{{ topicHint }}</p>
-                                    }
-                                    @if ((topic.subtopics || []).length) {
-                                      <div class="mt-3 space-y-2">
-                                        @for (subtopic of topic.subtopics || []; track subtopic.id; let subtopicIndex = $index) {
-                                          <button
-                                            type="button"
-                                            [class]="captureSubtopicCardClass(s, subtopic)"
-                                            (click)="selectCaptureSubtopic(subtopic.id)"
-                                          >
-                                            <span class="ck-mono mt-0.5 shrink-0 text-[10px] text-brand-200/80">
-                                              {{ topicIndex + 1 }}.{{ subtopicIndex + 1 }}
-                                            </span>
-                                            <span class="min-w-0">
-                                              <span class="block text-left text-sm leading-snug">{{ subtopic.title }}</span>
-                                              @if (outlineItemPrompt(subtopic) || subtopic.objective; as subHint) {
-                                                <span class="mt-0.5 block text-left text-[11px] leading-snug opacity-75">{{ subHint }}</span>
-                                              }
-                                            </span>
-                                          </button>
-                                        }
-                                      </div>
-                                    }
-                                  </div>
-                                </div>
-                              </article>
-                            }
-                          </div>
-                        </div>
-                      } @else {
-                        <p class="mt-1.5 text-sm text-gray-200 leading-relaxed">Parlez librement : ce repère est seulement là pour ne rien oublier.</p>
-                      }
                     </div>
-                    <button
-                      type="button"
-                      class="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-200 ring-1 ring-white/10"
-                      [disabled]="!currentPromptText()"
-                      (click)="readCurrentQuestion()"
-                    >
-                      <app-icon name="volume-2" [size]="14" /> Lire
-                    </button>
+                    <div class="flex shrink-0 items-center gap-2">
+                      @if (sessionHasStarted(s) && s.status === 'active') {
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-xs font-medium text-amber-100 ring-1 ring-amber-400/25"
+                          [title]="i18n.t('capture.action.finish_section_hint')"
+                          (click)="finishCurrentSection(s)"
+                        >
+                          <app-icon name="check" [size]="13" /> {{ i18n.t('capture.action.finish_section') }}
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        class="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-200 ring-1 ring-white/10"
+                        [disabled]="!currentPromptText()"
+                        (click)="readCurrentQuestion()"
+                      >
+                        <app-icon name="volume-2" [size]="14" /> Lire
+                      </button>
+                    </div>
                   </div>
                 </div>
+                }
 
                 @if (visibleSuggestions().length) {
                   <div class="mt-3 space-y-2">
@@ -1286,20 +1698,35 @@ interface ProposalFact {
                     }
                   </div>
                   @if (isDemoMode() || !showAdvancedSetup()) {
-                    <div #captureTranscriptScroll class="flex-1 min-h-80 rounded bg-black/20 border border-white/10 p-5 overflow-auto leading-relaxed">
-                      @for (row of captureTranscriptRows(); track row.key) {
-                        @if (row.kind === 'topic') {
-                          <p class="mt-6 first:mt-0 mb-2 ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ row.text }}</p>
-                        } @else if (row.kind === 'ia') {
-                          <p class="my-3 border-l-2 border-brand-400/40 pl-3 text-sm italic text-brand-200/90">{{ row.text }}</p>
-                        } @else {
-                          <p class="my-3 first:mt-0 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ row.text }}@if (row.liveText) {<span [class]="row.liveCommitted ? 'text-gray-100' : 'text-gray-400 italic'">{{ row.text ? ' ' : '' }}{{ row.liveText }}</span>}</p>
+                    <div class="relative flex-1 min-h-0 flex flex-col">
+                      <div
+                        #captureTranscriptScroll
+                        class="flex-1 min-h-0 rounded bg-black/20 border border-white/10 p-5 overflow-y-auto leading-relaxed"
+                        (scroll)="onTranscriptScroll()"
+                      >
+                        @for (row of captureTranscriptRows(); track row.key) {
+                          @if (row.kind === 'topic') {
+                            <p class="mt-6 first:mt-0 mb-2 ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ row.text }}</p>
+                          } @else if (row.kind === 'ia') {
+                            <p class="my-3 border-l-2 border-brand-400/40 pl-3 text-sm italic text-brand-200/90">{{ row.text }}</p>
+                          } @else {
+                            <p class="my-3 first:mt-0 text-sm text-gray-100 leading-relaxed whitespace-pre-wrap">{{ row.text }}@if (row.liveText) {<span [class]="row.liveCommitted ? 'text-gray-100' : 'text-gray-400 italic'">{{ row.text ? ' ' : '' }}{{ row.liveText }}</span>}</p>
+                          }
+                        } @empty {
+                          <div class="flex h-full flex-col items-center justify-center text-center">
+                            <p class="text-sm text-gray-400">La transcription de l’échange apparaîtra ici.</p>
+                            <p class="mt-1 text-xs text-gray-600">{{ emptyConversationHint() }}</p>
+                          </div>
                         }
-                      } @empty {
-                        <div class="flex h-full flex-col items-center justify-center text-center">
-                          <p class="text-sm text-gray-400">La transcription de l’échange apparaîtra ici.</p>
-                          <p class="mt-1 text-xs text-gray-600">{{ emptyConversationHint() }}</p>
-                        </div>
+                      </div>
+                      @if (!transcriptAtBottom()) {
+                        <button
+                          type="button"
+                          class="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-full bg-brand-500/90 hover:bg-brand-400 px-3 py-1.5 text-xs font-medium text-white shadow-lg"
+                          (click)="jumpToLatestTranscript()"
+                        >
+                          <app-icon name="arrow-down" [size]="12" /> Dernier échange
+                        </button>
                       }
                     </div>
                   }
@@ -1379,29 +1806,6 @@ interface ProposalFact {
                         <app-icon [name]="conversationPrimaryIcon()" [size]="15" />
                         {{ conversationPrimaryLabel() }}
                       </button>
-                      @if (sessionHasStarted(s) && !isFreeConversationSession(s) && captureSectionOptions(s).length) {
-                        <div class="inline-flex w-full items-center gap-2 sm:w-auto">
-                          <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 shrink-0">Section</span>
-                          <select
-                            class="w-full rounded bg-white/[0.04] border border-white/10 px-2 py-2 text-xs text-gray-100 sm:w-56"
-                            title="Sauter directement vers une section ou sous-section."
-                            [ngModel]="currentSectionValue()"
-                            (ngModelChange)="onCaptureSectionSelect($event)"
-                          >
-                            @for (opt of captureSectionOptions(s); track opt.value) {
-                              <option [value]="opt.value">{{ opt.label }}</option>
-                            }
-                          </select>
-                        </div>
-                        <button
-                          type="button"
-                          class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-sm font-semibold text-amber-100 ring-1 ring-amber-400/30 sm:w-auto"
-                          title="Clôt la section courante. C’est la seule action qui déclenche la relance « avez-vous terminé ? »."
-                          (click)="finishCurrentSection(s)"
-                        >
-                          <app-icon name="check" [size]="14" /> Terminer la section
-                        </button>
-                      }
                       @if (sessionHasStarted(s) && s.status === 'active') {
                         <button
                           type="button"
@@ -2255,20 +2659,6 @@ interface ProposalFact {
                       <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" aria-label="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_down')">
                         <app-icon name="arrow-down" [size]="15" />
                       </button>
-                      <label
-                        class="inline-flex h-9 cursor-pointer items-center gap-2 rounded bg-white/5 px-3 text-xs font-semibold text-gray-300 ring-1 ring-white/10 hover:bg-white/10 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
-                        title="Importer un fichier de plan"
-                      >
-                        <app-icon [name]="extractingPlanSource() ? 'loader-2' : 'upload'" [size]="14" [class]="extractingPlanSource() ? 'animate-spin' : ''" />
-                        Importer
-                        <input
-                          type="file"
-                          class="hidden"
-                          accept=".txt,.text,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.rtf,.html,.htm,.xml,.log,.pdf,.docx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                          [disabled]="extractingPlanSource()"
-                          (change)="onPlanOutlineImportFile($event, s)"
-                        />
-                      </label>
                     </div>
                   }
                 </div>
@@ -2288,27 +2678,62 @@ interface ProposalFact {
                 <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Modifier le plan</p>
                 <p class="mt-2 text-sm text-gray-300 leading-relaxed">Indiquez quoi ajouter, déplacer ou reformuler dans le plan à gauche.</p>
               </div>
-              <div class="flex items-start gap-2">
-                <textarea
-                  class="w-full min-h-24 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white disabled:opacity-60"
-                  [(ngModel)]="planDialogueAnswer"
-                  [disabled]="planDialogueLoading()"
-                  placeholder="Ajoutez un point, fusionnez deux sections, simplifiez les titres..."
-                ></textarea>
-                <button
-                  type="button"
-                  class="shrink-0 inline-flex h-11 w-11 items-center justify-center rounded-full bg-brand-500/20 text-brand-100 ring-1 ring-brand-300/30 hover:bg-brand-500/30"
-                  [attr.aria-label]="recording() ? 'Arrêter et transcrire la dictée' : 'Dicter la réponse'"
-                  [title]="recording() ? 'Arrêter et transcrire la dictée' : 'Dicter la réponse'"
-                  (click)="dictatePlanDialogue()"
-                >
-                  <app-icon [name]="recording() ? 'square' : 'mic'" [size]="16" />
-                </button>
+              <div class="space-y-2">
+                <div class="flex items-start gap-2">
+                  <textarea
+                    #planDialogueAnswerEditor
+                    class="w-full min-h-24 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white disabled:opacity-60 transition-colors"
+                    [class.border-brand-300/35]="planDictationActive()"
+                    [class.ring-1]="planDictationActive()"
+                    [class.ring-brand-300/15]="planDictationActive()"
+                    [ngModel]="planDialogueAnswer()"
+                    (ngModelChange)="planDialogueAnswer.set($event)"
+                    [disabled]="planDialogueLoading()"
+                    placeholder="Ajoutez un point, fusionnez deux sections, simplifiez les titres..."
+                  ></textarea>
+                  <button
+                    type="button"
+                    class="shrink-0 inline-flex h-11 w-11 items-center justify-center rounded-full ring-1 transition-colors"
+                    [class.bg-brand-500/20]="!planDictationActive()"
+                    [class.text-brand-100]="!planDictationActive()"
+                    [class.ring-brand-300/30]="!planDictationActive()"
+                    [class.hover:bg-brand-500/30]="!planDictationActive()"
+                    [class.bg-brand-500/35]="planDictationListening()"
+                    [class.text-brand-50]="planDictationListening()"
+                    [class.ring-brand-300/55]="planDictationListening()"
+                    [class.animate-pulse]="planDictationListening() && !dictationVoiceDetected()"
+                    [class.bg-brand-500/25]="planDictationTranscribing()"
+                    [class.text-brand-200]="planDictationTranscribing()"
+                    [class.ring-brand-300/40]="planDictationTranscribing()"
+                    [attr.aria-label]="recording() ? 'Arrêter et transcrire la dictée' : 'Dicter la réponse'"
+                    [title]="recording() ? 'Arrêter et transcrire la dictée' : 'Dicter la réponse'"
+                    (click)="dictatePlanDialogue()"
+                  >
+                    @if (planDictationTranscribing()) {
+                      <span class="inline-block h-4 w-4 rounded-full border-2 border-brand-200/40 border-t-brand-200 animate-spin"></span>
+                    } @else {
+                      <app-icon [name]="recording() ? 'square' : 'mic'" [size]="16" />
+                    }
+                  </button>
+                </div>
+                @if (planDictationActive()) {
+                  <div class="flex items-center gap-2 rounded bg-brand-500/10 border border-brand-300/15 px-3 py-2">
+                    <div class="flex h-5 items-center gap-0.5 shrink-0" aria-hidden="true">
+                      @for (bar of planDictationWaveBars; track $index) {
+                        <span
+                          class="w-0.5 rounded-full bg-brand-300/80 transition-all duration-75"
+                          [style.height.px]="planDictationWaveHeight(bar)"
+                        ></span>
+                      }
+                    </div>
+                    <p class="text-[11px] leading-relaxed text-brand-200/90">{{ planDictationStatusLabel() }}</p>
+                  </div>
+                }
               </div>
               <div class="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  class="inline-flex items-center gap-2 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white disabled:opacity-50"
+                  class="inline-flex items-center gap-2 px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
                   title="Applique votre instruction au plan courant."
                   [disabled]="planDialogueLoading()"
                   (click)="submitPlanDialogueTurn(s)"
@@ -2320,14 +2745,30 @@ interface ProposalFact {
                     Appliquer
                   }
                 </button>
+                <label
+                  class="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
+                  [title]="i18n.t('capture.plan.import_instruction_hint')"
+                >
+                  <app-icon [name]="extractingPlanSource() ? 'loader-2' : 'upload'" [size]="14" [class]="extractingPlanSource() ? 'animate-spin' : ''" />
+                  {{ i18n.t('capture.plan.import_instruction') }}
+                  <input
+                    type="file"
+                    class="hidden"
+                    accept=".txt,.text,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.rtf,.html,.htm,.xml,.log,.pdf,.docx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    [disabled]="extractingPlanSource() || planDialogueLoading() || !canEditPlan(s)"
+                    (change)="onPlanInstructionImportFile($event, s)"
+                  />
+                </label>
                 <button
                   type="button"
-                  class="px-4 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50"
+                  class="inline-flex items-center gap-2 px-5 py-2 rounded bg-emerald-500 hover:bg-emerald-400 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:shadow-none"
                   [title]="i18n.t('capture.notice.plan_ready')"
                   [disabled]="(!planDialogueReady(s) && !planTopics(s).length) || planDialogueLoading()"
                   (click)="finalizePlanBuild(s)"
                 >
-                  {{ i18n.t('capture.action.continue') }}
+                  <app-icon name="check" [size]="14" />
+                  {{ i18n.t('capture.action.validate_plan') }}
+                  <app-icon name="arrow-right" [size]="14" />
                 </button>
               </div>
               @if (planDialogueLoading()) {
@@ -2373,18 +2814,254 @@ interface ProposalFact {
                   <span class="text-[11px] text-amber-200">{{ i18n.t('capture.review.unsaved') }}</span>
                 }
               </div>
-              <textarea
-                class="w-full min-h-[520px] rounded bg-black/30 border border-white/10 px-4 py-3 font-mono text-sm leading-relaxed text-gray-100 resize-y"
-                [ngModel]="proposalReportDraft"
-                (ngModelChange)="onProposalReportChange($event)"
-                [placeholder]="i18n.t('capture.review.placeholder')"
-              ></textarea>
-              @if (!proposalReportText()) {
+              @if (reportFiche().length && !reportEditMode()) {
+                <ng-template #reportListTpl let-items let-nested="nested" let-compact="compact">
+                  <ul [class]="nested ? 'ck-fiche-nested-list' : 'ck-fiche-list'">
+                    @for (item of items; track $index) {
+                      <li class="ck-fiche-li">
+                        <div
+                          class="ck-fiche-row"
+                          [class]="compact ? 'text-[13px] leading-relaxed text-gray-300' : 'text-sm leading-relaxed text-gray-200'"
+                        >
+                          <span class="ck-fiche-bullet"></span>
+                          <span>{{ item.text }}</span>
+                        </div>
+                        @if (item.children?.length) {
+                          <ng-container
+                            *ngTemplateOutlet="reportListTpl; context: { $implicit: item.children, nested: true, compact: compact }"
+                          ></ng-container>
+                        }
+                      </li>
+                    }
+                  </ul>
+                </ng-template>
+                <!-- Structured fiche rendering: section cards following the plan /
+                     thematic blocks, with key facts, open questions and KB sources. -->
+                <div class="space-y-4">
+                  @for (card of reportFiche(); track card.key) {
+                    <article class="rounded-lg border border-white/10 bg-black/25 overflow-hidden">
+                      <header class="flex items-center gap-3 px-4 py-3 border-b border-white/5 bg-white/[0.03]">
+                        <span class="ck-mono inline-flex h-6 w-6 shrink-0 items-center justify-center rounded bg-brand-500/15 text-[11px] font-semibold text-brand-200 ring-1 ring-brand-300/25">
+                          {{ card.index }}
+                        </span>
+                        <h3 class="text-sm font-semibold text-white">{{ card.title }}</h3>
+                      </header>
+                      <div class="px-4 py-3.5 space-y-3">
+                        @for (block of card.blocks; track $index) {
+                          @if (block.kind === 'heading') {
+                            <h4 class="ck-fiche-heading text-[11px] uppercase tracking-wider text-brand-200 font-semibold">{{ block.text }}</h4>
+                          } @else if (block.kind === 'list' && block.items?.length) {
+                            <div class="ck-fiche-list-wrap">
+                              <ng-container
+                                *ngTemplateOutlet="reportListTpl; context: { $implicit: block.items, nested: false, compact: false }"
+                              ></ng-container>
+                            </div>
+                          } @else if (block.text) {
+                            <p class="ck-fiche-paragraph text-sm leading-relaxed text-gray-200">{{ block.text }}</p>
+                          }
+                        }
+                        @if (card.facts.length) {
+                          <ul class="space-y-1.5">
+                            @for (fact of card.facts; track $index) {
+                              <li class="flex gap-2 text-sm leading-relaxed text-gray-300">
+                                <span class="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-gray-500"></span>
+                                <span>{{ fact }}</span>
+                              </li>
+                            }
+                          </ul>
+                        }
+                        @for (sub of card.subsections; track sub.key) {
+                          <section class="rounded border border-white/5 bg-white/[0.02] p-3 space-y-2">
+                            <h4 class="text-xs font-semibold text-gray-200">{{ sub.title }}</h4>
+                            @for (block of sub.blocks; track $index) {
+                              @if (block.kind === 'heading') {
+                                <h5 class="ck-fiche-heading text-[10px] uppercase tracking-wider text-brand-200/90 font-semibold">{{ block.text }}</h5>
+                              } @else if (block.kind === 'list' && block.items?.length) {
+                                <div class="ck-fiche-list-wrap">
+                                  <ng-container
+                                    *ngTemplateOutlet="reportListTpl; context: { $implicit: block.items, nested: false, compact: true }"
+                                  ></ng-container>
+                                </div>
+                              } @else if (block.text) {
+                                <p class="ck-fiche-paragraph text-[13px] leading-relaxed text-gray-300">{{ block.text }}</p>
+                              }
+                            }
+                            @for (fact of sub.facts; track $index) {
+                              <p class="text-[13px] leading-relaxed text-gray-400">• {{ fact }}</p>
+                            }
+                            @if (sub.openQuestionLinks.length) {
+                              <div class="rounded bg-amber-500/5 ring-1 ring-amber-300/15 px-2.5 py-2 space-y-1">
+                                <p class="text-[10px] uppercase tracking-wider text-amber-200/80 font-semibold">Questions ouvertes</p>
+                                @for (link of sub.openQuestionLinks; track link.key) {
+                                  <button
+                                    type="button"
+                                    class="block w-full text-left text-[12px] leading-relaxed text-brand-200 hover:text-brand-100 underline decoration-brand-300/40 underline-offset-2"
+                                    (click)="scrollToReviewQuestion(link.key)"
+                                  >
+                                    {{ link.index }}. {{ link.label }}
+                                  </button>
+                                }
+                              </div>
+                            }
+                            @if (sub.sources.length) {
+                              <div class="flex flex-wrap gap-1.5 pt-1">
+                                @for (src of sub.sources; track $index) {
+                                  <button
+                                    type="button"
+                                    class="inline-flex items-center gap-1.5 max-w-full px-2 py-1 rounded bg-white/5 ring-1 ring-white/10 text-[11px] text-gray-300 hover:text-white hover:bg-white/10 disabled:cursor-default disabled:hover:bg-white/5"
+                                    [disabled]="!canPreviewReportSource(src)"
+                                    (click)="previewReportSource(src)"
+                                  >
+                                    <app-icon name="file-text" [size]="11" class="shrink-0 text-brand-300" />
+                                    <span class="truncate">{{ reportSourceLabel(src) }}</span>
+                                  </button>
+                                }
+                              </div>
+                            }
+                          </section>
+                        }
+                        @if (card.openQuestionLinks.length) {
+                          <div class="rounded bg-amber-500/5 ring-1 ring-amber-300/15 px-3 py-2.5 space-y-1.5">
+                            <p class="text-[10px] uppercase tracking-wider text-amber-200/80 font-semibold">Questions ouvertes</p>
+                            @for (link of card.openQuestionLinks; track link.key) {
+                              <button
+                                type="button"
+                                class="block w-full text-left text-xs leading-relaxed text-brand-200 hover:text-brand-100 underline decoration-brand-300/40 underline-offset-2"
+                                (click)="scrollToReviewQuestion(link.key)"
+                              >
+                                {{ link.index }}. {{ link.label }}
+                              </button>
+                            }
+                          </div>
+                        }
+                      </div>
+                      @if (card.sources.length) {
+                        <footer class="px-4 py-2.5 border-t border-white/5 bg-black/20">
+                          <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="text-[10px] uppercase tracking-wider text-gray-500 mr-1">Sources</span>
+                            @for (src of card.sources; track $index) {
+                              <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 max-w-full px-2 py-1 rounded bg-white/5 ring-1 ring-white/10 text-[11px] text-gray-300 hover:text-white hover:bg-white/10 disabled:cursor-default disabled:hover:bg-white/5"
+                                [disabled]="!canPreviewReportSource(src)"
+                                (click)="previewReportSource(src)"
+                              >
+                                <app-icon name="file-text" [size]="11" class="shrink-0 text-brand-300" />
+                                <span class="truncate">{{ reportSourceLabel(src) }}</span>
+                              </button>
+                            }
+                          </div>
+                        </footer>
+                      }
+                    </article>
+                  }
+                  @if (reportUnassignedFacts().length) {
+                    <article class="rounded-lg border border-dashed border-white/10 bg-black/20 px-4 py-3.5 space-y-2">
+                      <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Éléments hors plan</h3>
+                      @for (fact of reportUnassignedFacts(); track $index) {
+                        <p class="text-[13px] leading-relaxed text-gray-400">• {{ fact }}</p>
+                      }
+                    </article>
+                  }
+                </div>
+              } @else {
+                <textarea
+                  class="w-full min-h-[520px] rounded bg-black/30 border border-white/10 px-4 py-3 font-mono text-sm leading-relaxed text-gray-100 resize-y"
+                  [ngModel]="proposalReportDraft"
+                  (ngModelChange)="onProposalReportChange($event)"
+                  [placeholder]="i18n.t('capture.review.placeholder')"
+                ></textarea>
+              }
+              @if (!proposalReportText() && !reportFiche().length) {
                 <div class="rounded border border-dashed border-white/10 bg-black/20 p-5 text-sm text-gray-500">
                   {{ i18n.t('capture.review.empty_report') }}
                 </div>
               }
             </div>
+            @if (proposal(); as p) {
+              <footer class="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-white/10">
+                <div class="flex flex-wrap items-center gap-2">
+                  @if (reportFiche().length) {
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                      (click)="toggleReportEditMode()"
+                    >
+                      <app-icon [name]="reportEditMode() ? 'layout-grid' : 'pencil'" [size]="14" />
+                      {{ reportEditMode() ? i18n.t('capture.review.view_fiche') : i18n.t('capture.review.edit') }}
+                    </button>
+                  }
+                  <details class="relative">
+                    <summary class="inline-flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-300 ring-1 ring-white/10">
+                      <app-icon name="more-horizontal" [size]="14" />
+                      {{ i18n.t('capture.action.more_actions') }}
+                    </summary>
+                    <div class="absolute left-0 z-10 mt-1 min-w-[12rem] rounded-lg border border-white/10 bg-gray-950 p-1 shadow-xl">
+                      <button
+                        type="button"
+                        class="block w-full rounded px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/5 disabled:opacity-50"
+                        [disabled]="!proposalReportDirty() || proposalReportSaving() || !proposalReportText()"
+                        (click)="saveProposalReport(p.id)"
+                      >
+                        {{ proposalReportSaving() ? i18n.t('capture.review.saving_report') : i18n.t('capture.review.save_report') }}
+                      </button>
+                      <button type="button" class="block w-full rounded px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/5" (click)="exportProposalMd()">
+                        {{ i18n.t('capture.review.export_markdown') }}
+                      </button>
+                      <button type="button" class="block w-full rounded px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/5" (click)="goSurface('session')">
+                        {{ i18n.t('capture.review.resume_capture') }}
+                      </button>
+                      @if (!isDemoMode() && showAdvancedSetup()) {
+                        <button type="button" class="block w-full rounded px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/5" [disabled]="!session()" (click)="regenerateProposal()">
+                          {{ i18n.t('capture.review.regenerate_report') }}
+                        </button>
+                      }
+                    </div>
+                  </details>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                    [title]="i18n.t('capture.action.pass_later_hint')"
+                    (click)="passReviewLater()"
+                  >
+                    {{ i18n.t('capture.action.pass_later') }}
+                    <app-icon name="arrow-right" [size]="14" />
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+                    [disabled]="!proposalReportText() || proposalReportSaving() || !canContinueFromReview(p)"
+                    [title]="proposalReviewHint(p) || i18n.t('capture.review.footer_publish_hint')"
+                    (click)="continueFromReview(p)"
+                  >
+                    {{ i18n.t('capture.action.continue_to_publish') }}
+                    <app-icon name="arrow-right" [size]="14" />
+                  </button>
+                </div>
+              </footer>
+            } @else if (session(); as s) {
+              <footer class="flex flex-wrap items-center justify-end gap-2 pt-4 border-t border-white/10">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                  (click)="passReviewLater()"
+                >
+                  {{ i18n.t('capture.action.pass_later') }}
+                  <app-icon name="arrow-right" [size]="14" />
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-2 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+                  [disabled]="!canProposalSubmit(s)"
+                  (click)="createProposal(s)"
+                >
+                  {{ i18n.t('capture.action.continue') }}
+                  <app-icon name="arrow-right" [size]="14" />
+                </button>
+              </footer>
+            }
             @if (closureSheetMarkdown()) {
               <details class="rounded border border-white/10 bg-black/20 p-3">
                 <summary class="cursor-pointer text-sm text-gray-300">{{ i18n.t('capture.review.end_sheet') }}</summary>
@@ -2413,7 +3090,7 @@ interface ProposalFact {
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.review.prompts') }}</div>
-                <div class="text-xl text-white font-semibold">{{ proposalOpenQuestions().length }}</div>
+                <div class="text-xl text-white font-semibold">{{ proposalUnresolvedOpenQuestionCount() }}</div>
               </div>
               <div class="rounded bg-black/20 border border-white/10 p-3">
                 <div class="text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.review.state') }}</div>
@@ -2454,13 +3131,17 @@ interface ProposalFact {
               <div class="rounded bg-amber-500/10 border border-amber-400/20 p-3">
                 <div class="flex items-center justify-between gap-3">
                   <div class="text-[10px] uppercase tracking-wider text-amber-200">{{ i18n.t('capture.review.open_questions') }}</div>
-                  <span class="text-[10px] text-amber-100/70">{{ i18n.t('capture.review.to_process', { count: proposalReviewQuestions().length }) }}</span>
+                  @if (proposalUnresolvedOpenQuestionCount() > 0) {
+                    <span class="text-[10px] text-amber-100/70">{{ proposalOpenQuestionsLabel() }}</span>
+                  }
                 </div>
                 <div class="mt-3 space-y-2">
                 @for (row of proposalReviewQuestions(); track row.key; let i = $index) {
                   <article
+                    [attr.id]="reviewQuestionDomId(row.key)"
                     class="rounded border border-amber-300/15 bg-black/20 p-3"
                     [class.opacity-70]="row.status === 'deferred'"
+                    [class.kc-review-q-highlight]="highlightedReviewQuestionKey() === row.key"
                   >
                     <div class="flex flex-wrap items-center gap-2">
                       <span [class]="proposalQuestionPriorityClass(row.priority)">
@@ -2592,52 +3273,6 @@ interface ProposalFact {
                 </button>
               </section>
             }
-            @if (proposal(); as p) {
-              <button
-                type="button"
-                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50"
-                [disabled]="!proposalReportText() || proposalReportSaving() || !canContinueFromReview(p)"
-                [title]="proposalReviewHint(p)"
-                (click)="continueFromReview(p)"
-              >
-                <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.action.continue') }}
-              </button>
-              @if (proposalReviewHint(p); as hint) {
-                <p class="text-[11px] leading-relaxed text-gray-500">{{ hint }}</p>
-              }
-              <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" (click)="exportProposalMd()">
-                {{ i18n.t('capture.review.export_markdown') }}
-              </button>
-              <button
-                type="button"
-                class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200 disabled:opacity-50"
-                [disabled]="!proposalReportDirty() || proposalReportSaving() || !proposalReportText()"
-                (click)="saveProposalReport(p.id)"
-              >
-                {{ proposalReportSaving() ? i18n.t('capture.review.saving_report') : i18n.t('capture.review.save_report') }}
-              </button>
-              @if (!isDemoMode() && showAdvancedSetup()) {
-                <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" [disabled]="!session()" (click)="regenerateProposal()">
-                  {{ i18n.t('capture.review.regenerate_report') }}
-                </button>
-              }
-              <button
-                type="button"
-                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
-                (click)="goSurface('session')"
-              >
-                <app-icon name="message-square" [size]="14" /> {{ i18n.t('capture.review.resume_capture') }}
-              </button>
-            } @else if (session(); as s) {
-              <button
-                type="button"
-                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm text-white disabled:opacity-50"
-                [disabled]="!canProposalSubmit(s)"
-                (click)="createProposal(s)"
-              >
-                <app-icon name="arrow-right" [size]="14" /> {{ i18n.t('capture.action.continue') }}
-              </button>
-            }
           </aside>
         </section>
       }
@@ -2646,140 +3281,380 @@ interface ProposalFact {
         @if (proposal(); as p) {
           <section class="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
             <div class="t-card rounded-lg p-5 space-y-5">
-              <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.publish.eyebrow') }}</p>
-                <h2 class="text-lg font-semibold text-white mt-1">
-                  {{ p.proposal?.title || session()?.title || i18n.t('capture.publish.title') }}
-                </h2>
-                <p class="text-sm text-gray-500 mt-1 max-w-3xl">
-                  {{ i18n.t('capture.publish.description') }}
-                </p>
-              </div>
-
-              <div>
-                <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.publish.final_title') }}</label>
-                <input
-                  class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
-                  [(ngModel)]="publicationFinalTitle"
-                  [placeholder]="publicationFinalTitleLabel()"
-                />
-              </div>
-
-              <div class="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.publish.category') }}</label>
-                  <select
-                    class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
-                    [(ngModel)]="publicationCategory"
-                  >
-                    @for (option of publicationCategoryOptions; track option.id) {
-                      <option [value]="option.id">{{ option.label }}</option>
+              @if (p.status === 'published' || publicationResult()) {
+                <div class="rounded-lg border border-emerald-400/25 bg-emerald-500/10 p-5 space-y-4">
+                  <div class="flex items-start gap-3">
+                    <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 ring-1 ring-emerald-300/30">
+                      <app-icon name="check" [size]="18" class="text-emerald-200" />
+                    </span>
+                    <div class="min-w-0">
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-emerald-300">{{ i18n.t('capture.publish.eyebrow') }}</p>
+                      <h2 class="text-lg font-semibold text-white mt-1">{{ i18n.t('capture.publish.success_title') }}</h2>
+                      <p class="text-sm text-emerald-100/90 mt-2 leading-relaxed">
+                        {{ i18n.t('capture.publish.success_body', {
+                          title: publicationResult()?.final_title || effectivePublicationFinalTitle(),
+                          collection: publicationDestinationDisplay(
+                            publicationResult()?.collection || p.proposal?.publication?.collection_slug || effectivePublicationDestination()
+                          )
+                        }) }}
+                      </p>
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    @if (publicationDocumentUrl(publicationResult()); as docUrl) {
+                      <a
+                        class="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-emerald-500 hover:bg-emerald-400 text-sm font-semibold text-white"
+                        [href]="docUrl"
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        <app-icon name="external-link" [size]="14" /> {{ i18n.t('capture.publish.view_document') }}
+                      </a>
                     }
-                  </select>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                      (click)="goSurface('dashboard')"
+                    >
+                      {{ i18n.t('capture.publish.back_dashboard') }}
+                    </button>
+                  </div>
                 </div>
+              } @else {
                 <div>
-                  <label class="block text-[11px] uppercase tracking-wider text-gray-500 mb-2">{{ i18n.t('capture.publish.destination') }}</label>
-                  <input
-                    class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
-                    [(ngModel)]="publicationDestination"
-                    [placeholder]="publicationDestinationLabel()"
-                  />
-                  @if (!effectivePublicationDestination()) {
-                    <p class="mt-2 text-[11px] leading-relaxed text-amber-200/85">
-                      {{ i18n.t('capture.publish.destination_required') }}
-                    </p>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.publish.eyebrow') }}</p>
+                  <h2 class="text-lg font-semibold text-white mt-1">
+                    {{ effectivePublicationFinalTitle() }}
+                  </h2>
+                  <p class="text-sm text-gray-500 mt-1 max-w-3xl">
+                    {{ i18n.t('capture.publish.description') }}
+                  </p>
+                </div>
+
+                <div class="grid md:grid-cols-2 gap-4">
+                  <div class="md:col-span-2">
+                    <label class="block text-[11px] uppercase tracking-wider text-gray-400 mb-1">{{ i18n.t('capture.publish.final_title') }}</label>
+                    <p class="text-[11px] text-gray-500 mb-2">{{ i18n.t('capture.publish.final_title_hint') }}</p>
+                    <input
+                      class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
+                      [(ngModel)]="publicationFinalTitle"
+                      [placeholder]="publicationFinalTitleLabel()"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-[11px] uppercase tracking-wider text-gray-400 mb-1">{{ i18n.t('capture.publish.category') }}</label>
+                    <p class="text-[11px] text-gray-500 mb-2">{{ i18n.t('capture.publish.category_hint') }}</p>
+                    <select
+                      class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white"
+                      [(ngModel)]="publicationCategory"
+                    >
+                      @for (option of publicationCategoryOptions; track option.id) {
+                        <option [value]="option.id">{{ option.label }}</option>
+                      }
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-[11px] uppercase tracking-wider text-gray-400 mb-1">{{ i18n.t('capture.publish.destination') }}</label>
+                    <p class="text-[11px] text-gray-500 mb-2">{{ i18n.t('capture.publish.destination_hint') }}</p>
+                    <input
+                      class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white font-mono"
+                      [(ngModel)]="publicationDestination"
+                      [placeholder]="publicationDestinationLabel()"
+                    />
+                    @if (!effectivePublicationDestination()) {
+                      <p class="mt-2 text-[11px] leading-relaxed text-amber-200/85">
+                        {{ i18n.t('capture.publish.destination_required') }}
+                      </p>
+                    }
+                  </div>
+                </div>
+
+                <div>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 mb-3">{{ i18n.t('capture.publish.preview') }}</p>
+                  @if (reportFiche().length) {
+                    <div class="space-y-3 max-h-[28rem] overflow-auto pr-1">
+                      @for (card of reportFiche(); track card.key) {
+                        <article class="rounded-lg border border-white/10 bg-black/25 overflow-hidden">
+                          <header class="flex items-center gap-3 px-4 py-2.5 border-b border-white/5 bg-white/[0.03]">
+                            <span class="ck-mono inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-brand-500/15 text-[10px] font-semibold text-brand-200 ring-1 ring-brand-300/25">
+                              {{ card.index }}
+                            </span>
+                            <h3 class="text-sm font-semibold text-white">{{ card.title }}</h3>
+                          </header>
+                          <div class="px-4 py-3 space-y-2">
+                            @for (block of card.blocks; track $index) {
+                              @if (block.kind === 'heading') {
+                                <h4 class="text-[10px] uppercase tracking-wider text-brand-200/90 font-semibold">{{ block.text }}</h4>
+                              } @else if (block.text) {
+                                <p class="text-[13px] leading-relaxed text-gray-300">{{ block.text }}</p>
+                              }
+                            }
+                            @if (card.facts.length) {
+                              <ul class="space-y-1">
+                                @for (fact of card.facts; track $index) {
+                                  <li class="text-[13px] leading-relaxed text-gray-300 pl-3 border-l border-brand-300/20">{{ fact }}</li>
+                                }
+                              </ul>
+                            }
+                          </div>
+                        </article>
+                      }
+                    </div>
+                  } @else {
+                    <div class="rounded border border-white/10 bg-black/20 p-4 max-h-96 overflow-auto">
+                      <pre class="whitespace-pre-wrap text-sm leading-relaxed text-gray-200">{{ proposalReportText() }}</pre>
+                    </div>
                   }
                 </div>
-              </div>
 
-              <div class="rounded border border-white/10 bg-black/20 p-4">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ i18n.t('capture.publish.summary') }}</p>
-                <p class="mt-2 text-sm text-gray-200 leading-relaxed">
-                  {{ i18n.t('capture.publish.word_count', { count: proposalReportWordCount() }) }}
-                  @if (proposalReviewQuestions().length) {
-                    {{ i18n.t('capture.publish.unresolved_questions', { count: proposalReviewQuestions().length }) }}
-                  } @else {
-                    {{ i18n.t('capture.publish.no_open_questions') }}
-                  }
-                </p>
-              </div>
-
-              <div class="rounded border border-white/10 bg-black/20 p-4 max-h-96 overflow-auto">
-                <pre class="whitespace-pre-wrap text-sm leading-relaxed text-gray-200">{{ proposalReportText() }}</pre>
-              </div>
+                <footer class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/10">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                    (click)="goSurface('review')"
+                  >
+                    <app-icon name="arrow-left" [size]="14" /> {{ i18n.t('capture.review.edit') }}
+                  </button>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
+                      [title]="i18n.t('capture.action.pass_later_hint')"
+                      (click)="passReviewLater()"
+                    >
+                      {{ i18n.t('capture.action.pass_later') }}
+                      <app-icon name="arrow-right" [size]="14" />
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+                      [disabled]="!canPublishProposal(p) || publicationPublishing()"
+                      [title]="proposalPublishHint(p) || ''"
+                      (click)="publishToKnowledge(p.id)"
+                    >
+                      @if (publicationPublishing()) {
+                        <app-icon name="loader-2" [size]="14" class="animate-spin" />
+                        {{ i18n.t('capture.publish.publishing') }}
+                      } @else {
+                        <app-icon name="upload" [size]="14" /> {{ i18n.t('capture.publish.cta') }}
+                      }
+                    </button>
+                  </div>
+                </footer>
+              }
             </div>
 
             <aside class="t-card rounded-lg p-5 space-y-4 xl:sticky xl:top-4">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Validation finale</p>
-                <h3 class="text-sm font-semibold text-white mt-1">Prêt à publier</h3>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.publish.sidebar_title') }}</p>
+                <h3 class="text-sm font-semibold text-white mt-1">
+                  @if (p.status === 'published' || publicationResult()) {
+                    {{ i18n.t('capture.publish.success_title') }}
+                  } @else {
+                    {{ i18n.t('capture.publish.sidebar_ready') }}
+                  }
+                </h3>
               </div>
               <div class="rounded border border-white/10 bg-black/20 p-3 text-xs text-gray-300 space-y-2">
-                <p><span class="text-gray-500">Titre :</span> {{ effectivePublicationFinalTitle() }}</p>
-                <p><span class="text-gray-500">Catégorie :</span> {{ publicationCategoryLabel() }}</p>
-                <p><span class="text-gray-500">Destination :</span> {{ effectivePublicationDestination() }}</p>
-                <p><span class="text-gray-500">État :</span> {{ proposalReviewStateLabel() }}</p>
+                <p><span class="text-gray-500">{{ i18n.t('capture.publish.metadata_title') }} :</span> {{ effectivePublicationFinalTitle() }}</p>
+                <p><span class="text-gray-500">{{ i18n.t('capture.publish.metadata_category') }} :</span> {{ publicationCategoryLabel() }}</p>
+                <p><span class="text-gray-500">{{ i18n.t('capture.publish.metadata_destination') }} :</span> {{ publicationDestinationDisplay(effectivePublicationDestination()) }}</p>
+                <p><span class="text-gray-500">{{ i18n.t('capture.publish.metadata_state') }} :</span> {{ proposalReviewStateLabel() }}</p>
               </div>
-              @if (proposalPublishHint(p); as hint) {
-                <p class="text-[11px] leading-relaxed text-amber-200/85">{{ hint }}</p>
+              @if (p.status !== 'published' && !publicationResult()) {
+                <div class="rounded border border-brand-300/20 bg-brand-500/5 p-3 space-y-2 text-xs text-gray-300">
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">{{ i18n.t('capture.publish.sidebar_what_happens') }}</p>
+                  <p>{{ i18n.t('capture.publish.word_count', { count: proposalReportWordCount() }) }}</p>
+                  @if (proposalPublishableUnresolvedCount() > 0) {
+                    <p>{{ i18n.t('capture.publish.unresolved_questions', { count: proposalPublishableUnresolvedCount() }) }}</p>
+                  } @else {
+                    <p>{{ i18n.t('capture.publish.no_open_questions') }}</p>
+                  }
+                  @if (effectivePublicationDestination(); as destination) {
+                    <p class="leading-relaxed text-gray-400">
+                      {{ i18n.t('capture.publish.indexing_note', { collection: publicationDestinationDisplay(destination) }) }}
+                    </p>
+                  }
+                </div>
+                @if (proposalPublishHint(p); as hint) {
+                  <p class="text-[11px] leading-relaxed text-amber-200/85">{{ hint }}</p>
+                }
+              } @else {
+                <p class="text-[11px] leading-relaxed text-emerald-200/90">{{ i18n.t('capture.publish.already_published') }}</p>
               }
-              <button
-                type="button"
-                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10"
-                (click)="goSurface('review')"
-              >
-                <app-icon name="arrow-left" [size]="14" /> Retour au rapport
-              </button>
-              <button type="button" class="w-full px-3 py-2 rounded bg-white/5 text-sm text-gray-200" (click)="exportProposalMd()">
-                Télécharger
-              </button>
-              <button
-                type="button"
-                class="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
-                [disabled]="!canPublishProposal(p)"
-                [title]="proposalPublishHint(p) || ''"
-                (click)="publishToKnowledge(p.id)"
-              >
-                <app-icon name="upload" [size]="14" /> Publier
-              </button>
             </aside>
           </section>
         }
       }
     </section>
+
+    <!-- FINAL-phase loader: the report screen only opens once the heavy
+         restructuring pass has persisted the report. -->
+    @if (captureFinalizing()) {
+      <div class="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <section class="w-full max-w-md rounded-lg bg-gray-950 ring-1 ring-white/10 shadow-2xl p-6 space-y-5">
+          <div class="flex items-center gap-3">
+            <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-500/15 ring-1 ring-brand-300/30">
+              <app-icon name="loader-2" [size]="18" class="animate-spin text-brand-200" />
+            </span>
+            <div class="min-w-0">
+              <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-300">Synthèse finale</p>
+              <h2 class="mt-0.5 text-sm font-semibold text-white">Restructuration de la capture en cours</h2>
+            </div>
+          </div>
+          <div>
+            <p class="text-sm text-gray-200 leading-relaxed">{{ captureFinalizeStageLabel() }}</p>
+            @if (captureFinalizeSectionProgress(); as sectionProgress) {
+              <p class="mt-1 text-[11px] font-mono text-gray-500">{{ sectionProgress }}</p>
+            }
+            @if (captureFinalizeProgressPct(); as pct) {
+              <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/5 ring-1 ring-white/10">
+                <div class="h-full rounded-full bg-brand-400 transition-all duration-700" [style.width.%]="pct"></div>
+              </div>
+            }
+          </div>
+          <ul class="space-y-2">
+            @for (step of captureFinalizeSteps(); track step.label) {
+              <li class="flex items-center gap-2.5 text-xs">
+                @if (step.state === 'done') {
+                  <span class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-200">
+                    <app-icon name="check" [size]="10" />
+                  </span>
+                  <span class="text-gray-400">{{ step.label }}</span>
+                } @else if (step.state === 'active') {
+                  <span class="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+                    <app-icon name="loader-2" [size]="12" class="animate-spin text-brand-300" />
+                  </span>
+                  <span class="text-white">{{ step.label }}</span>
+                } @else {
+                  <span class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/5 ring-1 ring-white/10"></span>
+                  <span class="text-gray-600">{{ step.label }}</span>
+                }
+              </li>
+            }
+          </ul>
+          <p class="text-[11px] leading-relaxed text-gray-500">
+            L'expression captée est restructurée selon le plan, nettoyée de ses doublons et alignée sur le
+            vocabulaire métier. Le rapport s'ouvrira automatiquement.
+          </p>
+        </section>
+      </div>
+    }
+
+    <app-document-preview
+      [open]="sourcePreviewOpen()"
+      [previewUrl]="sourcePreviewUrl()"
+      [title]="sourcePreviewTitle()"
+      subtitle="Source documentaire"
+      (closed)="closeSourcePreview()"
+    />
   `,
 })
-export class KnowledgeCaptureComponent implements OnInit {
+export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   @ViewChild('planOutlineEditor') private planOutlineEditor?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('planBuildOutlineEditor') private planBuildOutlineEditor?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('planDialogueAnswerEditor') private planDialogueAnswerEditor?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('captureTranscriptScroll') private captureTranscriptScroll?: ElementRef<HTMLElement>;
 
-  // Keep the transcript pinned to the latest text while the expert is speaking.
-  // We measure stickiness BEFORE the new content renders so a manual scroll-up
-  // to read history is never yanked back, but active speech always sticks.
+  // Stick-to-bottom state for the transcript panel. Driven by REAL scroll
+  // events (not pre-render measurements, which drifted and silently disabled
+  // autoscroll): the user stays pinned while at/near the bottom, and a manual
+  // scroll-up is never yanked back — a "jump to latest" affordance shows instead.
+  readonly transcriptAtBottom = signal(true);
+
+  private transcriptAutoscrollFrame: number | null = null;
+
+  private readonly transcriptAutoscrollSignature = computed(() => {
+    const rows = this.captureTranscriptRows();
+    const live = this.liveTranscript();
+    const pending = this.pendingLiveCommits();
+    const lastRow = rows[rows.length - 1];
+    return [
+      rows.length,
+      lastRow?.key ?? '',
+      lastRow?.liveText?.length ?? 0,
+      lastRow?.text?.length ?? 0,
+      live?.id ?? '',
+      live?.text?.length ?? 0,
+      live?.status ?? '',
+      pending.length,
+      pending[pending.length - 1]?.text?.length ?? 0,
+    ].join('|');
+  });
+
+  // Keep the transcript pinned to the latest text as partial/committed rows
+  // stream in. Scrolling happens AFTER render so the new content height is
+  // taken into account.
   private readonly autoScrollTranscript = effect(() => {
-    // Track the signals that change as transcript text streams in.
-    this.captureTranscriptRows();
-    this.liveTranscript();
-    const speaking = this.recording();
+    void this.transcriptAutoscrollSignature();
+    const followLive =
+      this.recording() ||
+      this.transcribing() ||
+      this.conversationSessionActive();
+    const stick = followLive || untracked(() => this.transcriptAtBottom());
+    if (!stick) return;
+    this.scheduleTranscriptAutoscroll();
+  });
+
+  private planDialogueAutoscrollFrame: number | null = null;
+
+  // Single-purpose dictation field: always pin to the latest dictated text.
+  private readonly autoScrollPlanDialogue = effect(() => {
+    void this.planDialogueAnswer();
+    this.schedulePlanDialogueAutoscroll();
+  });
+
+  ngAfterViewInit(): void {
+    this.scheduleTranscriptAutoscroll();
+    this.schedulePlanDialogueAutoscroll();
+  }
+
+  private schedulePlanDialogueAutoscroll(): void {
+    if (this.planDialogueAutoscrollFrame !== null) return;
+    this.planDialogueAutoscrollFrame = window.requestAnimationFrame(() => {
+      this.planDialogueAutoscrollFrame = null;
+      this.scrollPlanDialogueToBottom();
+      window.setTimeout(() => this.scrollPlanDialogueToBottom(), 0);
+    });
+  }
+
+  private scrollPlanDialogueToBottom(): void {
+    const node = this.planDialogueAnswerEditor?.nativeElement;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }
+
+  private scheduleTranscriptAutoscroll(): void {
+    if (this.transcriptAutoscrollFrame !== null) return;
+    this.transcriptAutoscrollFrame = window.requestAnimationFrame(() => {
+      this.transcriptAutoscrollFrame = null;
+      this.scrollTranscriptToBottom();
+      window.setTimeout(() => this.scrollTranscriptToBottom(), 0);
+    });
+  }
+
+  private scrollTranscriptToBottom(): void {
+    const node = this.captureTranscriptScroll?.nativeElement;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }
+
+  onTranscriptScroll(): void {
     const el = this.captureTranscriptScroll?.nativeElement;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const stick = speaking || distanceFromBottom < 120;
-    if (!stick) return;
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(() => {
-        const node = this.captureTranscriptScroll?.nativeElement;
-        if (node) node.scrollTop = node.scrollHeight;
-      });
-    } else {
-      el.scrollTop = el.scrollHeight;
-    }
-  });
+    this.transcriptAtBottom.set(distanceFromBottom < 80);
+  }
+
+  jumpToLatestTranscript(): void {
+    this.transcriptAtBottom.set(true);
+    this.scheduleTranscriptAutoscroll();
+  }
 
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly zoom = inject(ZoomContextService);
   private readonly voiceSession = inject(VoiceSessionService);
   private readonly livekitConversation = inject(LiveKitConversationService);
@@ -2832,7 +3707,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   providedPlanFileName = '';
   providedPlanSourceKind: CapturePlanSourceKind = 'pasted_text';
   providedPlanReplacesExisting = false;
-  planDialogueAnswer = '';
+  readonly planDialogueAnswer = signal('');
   executiveSummary = '';
   publicationCategory = 'technical';
   publicationDestination = '';
@@ -2856,6 +3731,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly planDialogueNotice = signal<{ tone: 'success' | 'error' | 'info'; text: string } | null>(null);
   readonly hintStack = signal<CaptureHint[]>([]);
   readonly activeSubtopicId = signal<string | null>(null);
+  /** Manual left-rail / breadcrumb section picks block auto-detection for 60s. */
+  private manualSectionSelectedAt = 0;
+  private readonly liveSectionDetectMinConfidence = 0.42;
+  private readonly manualSectionOverrideCooldownMs = 60_000;
   readonly questionBankStatus = signal<string>('idle');
   readonly qualityTabs = [
     { id: 'imprecisions' as QualityTab, label: 'Imprécisions' },
@@ -2943,10 +3822,47 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly activeSurface = signal<CaptureSurfaceView>('dashboard');
   readonly dashboardSessions = signal<CaptureSession[]>([]);
   readonly dashboardProposals = signal<CaptureProposal[]>([]);
+  readonly showArchivedSessions = signal(false);
+  readonly confirmDeleteSessionId = signal<string | null>(null);
+  readonly sessionActionLoading = signal<string | null>(null);
+  readonly visibleDashboardSessions = computed(() =>
+    this.showArchivedSessions()
+      ? this.dashboardSessions()
+      : this.dashboardSessions().filter((row) => !row.archived),
+  );
   readonly dashboardQualityRows = signal<
     Array<{ sessionId: string; sessionTitle: string; item: QualityBacklogItem }>
   >([]);
   readonly dashboardQualityBacklog = computed(() => this.dashboardQualityRows());
+  readonly dashboardTab = signal<'sessions' | 'fiches'>('sessions');
+  readonly publishedFiches = signal<PublishedCaptureFiche[]>([]);
+  readonly publishedFichesLoading = signal(false);
+  readonly publishedFichesError = signal(false);
+  readonly publishedFicheCategories = computed(() =>
+    [...new Set(this.publishedFiches().map((row) => row.category).filter((value): value is string => Boolean(value)))].sort(),
+  );
+  readonly publishedFicheDestinations = computed(() =>
+    [...new Set(
+      this.publishedFiches()
+        .map((row) => row.destination || row.collection_slug)
+        .filter((value): value is string => Boolean(value)),
+    )].sort(),
+  );
+  readonly publishedFicheAuthors = computed(() => {
+    const seen = new Set<string>();
+    const rows: Array<{ id: string; label: string }> = [];
+    for (const fiche of this.publishedFiches()) {
+      const author = fiche.author;
+      if (!author?.id || seen.has(author.id)) continue;
+      seen.add(author.id);
+      rows.push(author);
+    }
+    return rows.sort((a, b) => a.label.localeCompare(b.label));
+  });
+  ficheSearchQuery = '';
+  ficheCategoryFilter = '';
+  ficheDestinationFilter = '';
+  ficheAuthorFilter = '';
   readonly postSessionQualityItems = computed(() => {
     const backlog = this.qualityBacklog();
     const items = [
@@ -2962,6 +3878,16 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly lastConversationStep = signal<ConversationStepResponse | null>(null);
   readonly recording = signal(false);
   readonly transcribing = signal(false);
+  readonly dictationSurface = signal<'plan' | 'proposal_question' | 'prep' | null>(null);
+  readonly dictationVoiceDetected = signal(false);
+  readonly dictationSilenceEnding = signal(false);
+  readonly dictationAudioLevel = signal(0);
+  readonly planDictationWaveBars = [8, 14, 20, 12, 18, 16, 10];
+  readonly planDictationActive = computed(
+    () => this.dictationSurface() === 'plan' && (this.recording() || this.transcribing()),
+  );
+  readonly planDictationListening = computed(() => this.dictationSurface() === 'plan' && this.recording());
+  readonly planDictationTranscribing = computed(() => this.dictationSurface() === 'plan' && this.transcribing());
   readonly speaking = signal(false);
   readonly conversationSessionActive = signal(false);
   readonly textFallbackActive = signal(false);
@@ -2980,6 +3906,8 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly proposalQuestionStatuses = signal<Record<string, ProposalQuestionStatus>>({});
   readonly answeringQuestionKey = signal<string | null>(null);
   readonly questionAnswerLoading = signal(false);
+  readonly highlightedReviewQuestionKey = signal<string | null>(null);
+  private reviewQuestionHighlightTimer: ReturnType<typeof setTimeout> | null = null;
   questionAnswerDraft = '';
   readonly editingProposalFactKey = signal<string | null>(null);
   readonly proposalReportDirty = signal(false);
@@ -2990,6 +3918,19 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly closureActionLoading = signal(false);
   readonly sessionClockTick = signal(0);
   private sessionClockTimer: ReturnType<typeof setInterval> | null = null;
+  // Countdown anchor: latest server-provided remaining_seconds + reception
+  // time. The per-second tick interpolates from it (see sessionTimerView).
+  private timerAnchor: { sessionId: string; remainingSeconds: number; atMs: number } | null = null;
+  private lastFiveMinutesNoticeSessionId: string | null = null;
+  private readonly captureTimerAnchor = effect(() => {
+    const session = this.session();
+    const remaining = Number(session?.metrics?.['remaining_seconds'] ?? NaN);
+    if (session && Number.isFinite(remaining)) {
+      this.timerAnchor = { sessionId: session.id, remainingSeconds: remaining, atMs: Date.now() };
+    } else if (!session || this.timerAnchor?.sessionId !== session.id) {
+      this.timerAnchor = null;
+    }
+  });
   readonly events = signal<CaptureEvent[]>([]);
   readonly retrieval = signal<RetrievalPrefetch>({
     status: 'idle',
@@ -3005,9 +3946,26 @@ export class KnowledgeCaptureComponent implements OnInit {
   readonly sourcePreviewOpen = signal(false);
   readonly sourcePreviewUrl = signal<string | null>(null);
   readonly sourcePreviewTitle = signal('');
+  // FINAL-phase gating: true between capture.finish and the proposal-ready
+  // conversation.step. While true the report screen stays locked behind the
+  // finalization loader, whose stage label follows the gateway's honest
+  // capture.finalize.progress events.
+  readonly captureFinalizing = signal(false);
+  readonly captureFinalizeStage = signal<CaptureFinalizeStage | null>(null);
+  private captureFinalizeTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Report screen: structured fiche by default, raw markdown on demand.
+  readonly reportEditMode = signal(false);
+  readonly reportFiche = computed(() => this.buildReportFiche(this.proposal()));
+  readonly publicationPublishing = signal(false);
+  readonly publicationResult = signal<CapturePublicationResult | null>(null);
   readonly liveTranscript = signal<{ id: string; text: string; status: CaptureTranscriptStatus; reframed?: boolean } | null>(
     null,
   );
+  // Finished live turns whose persisted expert event has not landed yet. When a
+  // NEW turn starts, the previous live paragraph is promoted here instead of
+  // being dropped, so committed text never disappears/reappears (flicker) while
+  // waiting for the event refresh.
+  private readonly pendingLiveCommits = signal<Array<{ id: string; text: string }>>([]);
   readonly relanceAnnotations = signal<Array<{ id: string; order: number; text: string; kind: RelanceKind }>>([]);
   // New non-blocking model: oracle's own working questions, passive suggestions.
   readonly oracleOpenQuestions = signal<OracleOpenQuestion[]>([]);
@@ -3058,6 +4016,12 @@ export class KnowledgeCaptureComponent implements OnInit {
   private captureEndpointRaf: number | null = null;
   private captureEndpointAudioContext: AudioContext | null = null;
   private captureEndpointSource: MediaStreamAudioSourceNode | null = null;
+  private dictationAudioRaf: number | null = null;
+  private dictationAudioContext: AudioContext | null = null;
+  private dictationAudioSource: MediaStreamAudioSourceNode | null = null;
+  private dictationSpeechDetected = false;
+  private dictationLastVoiceAt = 0;
+  private dictationTurnStartedAt = 0;
   private captureSpeechDetected = false;
   private captureLastVoiceAt = 0;
   private captureTurnStartedAt = 0;
@@ -3066,6 +4030,10 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   ngOnInit(): void {
     this.destroyRef.onDestroy(() => {
+      if (this.transcriptAutoscrollFrame !== null) {
+        window.cancelAnimationFrame(this.transcriptAutoscrollFrame);
+        this.transcriptAutoscrollFrame = null;
+      }
       this.stopCaptureEndpointMonitor();
       this.closeVoiceConnection();
       this.ttsPlayback.destroy();
@@ -3077,6 +4045,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       const session = this.session();
       if (session?.status === 'active' && !this.isSessionTimerUnlimited(session)) {
         this.sessionClockTick.update((value) => value + 1);
+        this.maybeNotifyLastFiveMinutes(session);
         this.maybeOpenClosurePanel(session);
       }
     }, 1000);
@@ -3149,7 +4118,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.providedPlanSourceKind = 'pasted_text';
     this.providedPlanReplacesExisting = false;
     this.pendingPlanSourceReplacement.set(null);
-    this.planDialogueAnswer = '';
+    this.planDialogueAnswer.set('');
     this.executiveSummary = '';
     this.publicationCategory = 'technical';
     this.publicationDestination = '';
@@ -3211,6 +4180,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.textFallbackActive.set(false);
     this.retrieval.set({ status: 'idle', chunks: [], scores: [], metadatas: [] });
     this.liveTranscript.set(null);
+    this.pendingLiveCommits.set([]);
     this.relanceAnnotations.set([]);
     this.oracleOpenQuestions.set([]);
     this.captureSuggestions.set([]);
@@ -3218,6 +4188,16 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.currentClientTurnId = null;
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
+  }
+
+  /** Drop in-memory capture transcript rows when leaving plan co-construction. */
+  private clearCaptureTranscriptState(): void {
+    this.liveTranscript.set(null);
+    this.pendingLiveCommits.set([]);
+    this.relanceAnnotations.set([]);
+    this.answer = '';
+    this.currentClientTurnId = null;
+    this.transcriptAtBottom.set(true);
   }
 
   createPlan(): void {
@@ -3462,15 +4442,26 @@ export class KnowledgeCaptureComponent implements OnInit {
       return current.status === 'active' || current.status === 'paused' || this.stepIsComplete('plan');
     }
     if (view === 'review') {
+      // The report screen stays locked while the heavy FINAL pass runs.
+      if (this.captureFinalizing()) return false;
       return Boolean(this.proposal()) || current?.status === 'completed';
     }
     if (view === 'publish') {
-      return Boolean(this.proposal()) && Boolean(this.proposalReportText());
+      return Boolean(this.proposal()) && Boolean(this.proposalReportText()) && this.proposal()?.status !== 'published';
     }
     return false;
   }
 
   goSurface(view: CaptureSurfaceView): void {
+    if (view === 'publish') {
+      const proposal = this.proposal();
+      if (proposal && proposal.status !== 'accepted' && proposal.status !== 'published') {
+        if (this.canContinueFromReview(proposal)) {
+          this.continueFromReview(proposal);
+          return;
+        }
+      }
+    }
     if (!this.canNavigateTo(view)) return;
     if (view === 'prep' || view === 'dashboard') {
       this.planSourceStep.set(false);
@@ -3478,6 +4469,9 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.activeSurface.set(view);
     if (view === 'dashboard') {
       this.refreshDashboard();
+      if (this.dashboardTab() === 'fiches') {
+        this.refreshPublishedFiches();
+      }
     }
     if (view === 'session' && this.session()) {
       this.refreshQualityBacklog(this.session()!.id);
@@ -3510,6 +4504,7 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   async startGuidedSession(session: CaptureSession): Promise<void> {
     if (this.loading()) return;
+    this.clearCaptureTranscriptState();
     if (!this.canCaptureExecute(session)) {
       this.setVoiceNotice('Votre rôle ne permet pas de démarrer cette session de capture.', 'error');
       return;
@@ -3559,6 +4554,7 @@ export class KnowledgeCaptureComponent implements OnInit {
         next: (payload) => {
           const typed = payload as CaptureSession;
           this.session.set(typed);
+          this.ensureDefaultPlanSection(typed);
           const questions = this.planQuestions(typed);
           const selected = this.selectedQuestionId();
           this.selectedQuestionId.set(
@@ -3573,7 +4569,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.loading.set(false);
           if (conversationOnly && armed) {
             void this.ensureVoiceConnection(typed).then(() => {
-              const firstPrompt = this.currentPromptText();
+              const firstPrompt = this.spokenSectionPrompt();
               if (firstPrompt && !this.isFreeConversationSession(typed) && !this.isTopicOnlyPlan(typed)) {
                 this.speak(firstPrompt);
               } else {
@@ -3642,24 +4638,151 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.session.set(row);
     this.refreshQualityBacklog(row.id);
     if (row.status === 'completed') {
+      if (!this.proposal() || this.proposal()?.session_id !== row.id) {
+        this.setProposal(null);
+        this.loadLatestSessionProposal(row.id);
+      }
       this.activeSurface.set('review');
       return;
     }
     this.openDashboardSession(row);
   }
 
+  setDashboardTab(tab: 'sessions' | 'fiches'): void {
+    this.dashboardTab.set(tab);
+    if (tab === 'fiches') {
+      this.refreshPublishedFiches();
+    }
+  }
+
+  refreshPublishedFiches(): void {
+    this.publishedFichesLoading.set(true);
+    this.publishedFichesError.set(false);
+    this.api
+      .listPublishedCaptureFiches({
+        q: this.ficheSearchQuery.trim() || undefined,
+        category: this.ficheCategoryFilter || undefined,
+        destination: this.ficheDestinationFilter || undefined,
+        author_user_id: this.ficheAuthorFilter || undefined,
+        limit: 100,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          this.publishedFiches.set(payload.fiches || []);
+          this.publishedFichesLoading.set(false);
+        },
+        error: () => {
+          this.publishedFiches.set([]);
+          this.publishedFichesLoading.set(false);
+          this.publishedFichesError.set(true);
+        },
+      });
+  }
+
+  publishedFicheDateLabel(row: PublishedCaptureFiche): string {
+    const raw = row.published_at;
+    if (!raw) return '—';
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return raw;
+    return date.toLocaleString();
+  }
+
+  publishedFicheWordLabel(row: PublishedCaptureFiche): string {
+    const count = row.word_count || 0;
+    return count === 1
+      ? this.i18n.t('capture.fiches.words_one')
+      : this.i18n.t('capture.fiches.words_many', { count });
+  }
+
+  publishedFicheChunkLabel(row: PublishedCaptureFiche): string {
+    const count = row.chunks_processed || 0;
+    return count === 1
+      ? this.i18n.t('capture.fiches.chunks_one')
+      : this.i18n.t('capture.fiches.chunks_many', { count });
+  }
+
+  publishedFicheOpenQuestionsLabel(row: PublishedCaptureFiche): string {
+    const count = row.open_questions_count || 0;
+    return count === 1
+      ? this.i18n.t('capture.fiches.open_questions_one')
+      : this.i18n.t('capture.fiches.open_questions_many', { count });
+  }
+
+  openPublishedFichePreview(row: PublishedCaptureFiche): void {
+    const previewPath = row.preview_url;
+    if (previewPath) {
+      this.sourcePreviewTitle.set(row.title);
+      this.sourcePreviewUrl.set(`${this.api.base}/${previewPath}`);
+      this.sourcePreviewOpen.set(true);
+      return;
+    }
+    const documentId = row.document_id;
+    const collection = row.collection_slug;
+    if (!documentId || !collection) return;
+    this.sourcePreviewTitle.set(row.title);
+    this.sourcePreviewUrl.set(
+      `${this.api.base}/documents/${encodeURIComponent(documentId)}/rich-preview` +
+        `?collection_name=${encodeURIComponent(collection)}`,
+    );
+    this.sourcePreviewOpen.set(true);
+  }
+
+  openPublishedFicheCollection(row: PublishedCaptureFiche): void {
+    const slug = row.collection_slug || row.destination;
+    if (!slug) return;
+    const workspaceSlug = this.workspace.current()?.slug || this.workspace.currentSlug();
+    if (!workspaceSlug) return;
+    void this.router.navigate(['/workspace', workspaceSlug, 'knowledge', slug]);
+  }
+
+  openPublishedFicheSession(row: PublishedCaptureFiche): void {
+    const existing = this.dashboardSessions().find((session) => session.id === row.capture_session_id);
+    if (existing) {
+      this.dashboardTab.set('sessions');
+      this.openDashboardSession(existing);
+      return;
+    }
+    this.loading.set(true);
+    this.api
+      .listCaptureSessions(undefined, undefined, this.systemId || undefined, true)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          const sessions = (payload as { sessions?: CaptureSession[] }).sessions || [];
+          const match = sessions.find((session) => session.id === row.capture_session_id);
+          this.loading.set(false);
+          if (!match) {
+            this.setVoiceNotice('Session source introuvable ou non accessible.', 'warning');
+            return;
+          }
+          this.dashboardTab.set('sessions');
+          this.openDashboardSession(match);
+        },
+        error: () => {
+          this.loading.set(false);
+          this.setVoiceNotice('Impossible d’ouvrir la session source.', 'error');
+        },
+      });
+  }
+
   refreshDashboard(): void {
     this.api
-      .listCaptureSessions(undefined, this.dashboardDomainFilter || undefined, this.systemId || undefined)
+      .listCaptureSessions(
+        undefined,
+        this.dashboardDomainFilter || undefined,
+        this.systemId || undefined,
+        this.showArchivedSessions(),
+      )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
         const sessions = (payload as { sessions?: CaptureSession[] }).sessions || [];
         const scoped = this.systemId
           ? sessions.filter((row) => !row.system_id || row.system_id === this.systemId)
           : sessions;
-        const rows = scoped.slice(0, 8);
+        const rows = scoped.slice(0, this.showArchivedSessions() ? 16 : 8);
         this.dashboardSessions.set(rows);
-        this.refreshDashboardQualityRows(rows);
+        this.refreshDashboardQualityRows(rows.filter((row) => !row.archived));
       });
     this.api
       .listCaptureProposals(undefined, this.systemId || undefined)
@@ -3686,8 +4809,12 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.proposalReportDraft = this.proposalReportContent(proposal);
       this.proposalReportDirty.set(false);
       this.syncPublicationDraftFromProposal(proposal);
+      this.publicationResult.set(null);
     } else if (!this.proposalReportDirty()) {
       this.proposalReportDraft = this.proposalReportContent(proposal);
+    }
+    if (proposal) {
+      this.syncLocalSessionOpenQuestionCount();
     }
   }
 
@@ -3723,12 +4850,122 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   openDashboardSession(row: CaptureSession): void {
     this.session.set(row);
+    this.ensureDefaultPlanSection(row);
     this.closurePanelDismissed.set(false);
     this.syncClosureSheetFromSession(row);
     this.setProposal(null);
-    this.selectedQuestionId.set(this.planQuestions(row)[0]?.id || null);
+    this.loadLatestSessionProposal(row.id);
+    const selected = this.selectedQuestionId();
+    const questions = this.planQuestions(row);
+    this.selectedQuestionId.set(
+      selected && questions.some((question) => question.id === selected)
+        ? selected
+        : questions[0]?.id || null,
+    );
     this.refreshEvents(row.id);
     this.activeSurface.set(row.status === 'completed' ? 'review' : 'session');
+  }
+
+  /**
+   * Re-entering an existing session must restore the last generated report:
+   * the proposal is persisted server-side but was previously only populated
+   * via live WS events, so reopening a session showed an empty report tab.
+   */
+  private loadLatestSessionProposal(sessionId: string): void {
+    this.api
+      .listCaptureProposals(undefined, undefined, sessionId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((payload) => {
+        const proposals = (payload as { proposals?: CaptureProposal[] }).proposals || [];
+        const latest = proposals[0] || null;
+        // Don't clobber a proposal that arrived in the meantime (e.g. WS event).
+        if (latest && this.session()?.id === sessionId && !this.proposal()) {
+          this.setProposal(latest);
+        }
+      });
+  }
+
+  toggleArchivedSessions(): void {
+    this.showArchivedSessions.update((value) => !value);
+    this.refreshDashboard();
+  }
+
+  archiveSession(row: CaptureSession, event?: Event): void {
+    event?.stopPropagation();
+    if (this.sessionActionLoading()) return;
+    this.sessionActionLoading.set(row.id);
+    this.api
+      .archiveCaptureSession(row.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.sessionActionLoading.set(null);
+          if (this.session()?.id === row.id) {
+            this.session.set(null);
+          }
+          this.setVoiceNotice(`Session « ${row.title} » archivée.`, 'info');
+          this.refreshDashboard();
+        },
+        error: () => {
+          this.sessionActionLoading.set(null);
+          this.setVoiceNotice('Archivage impossible pour le moment.', 'error');
+        },
+      });
+  }
+
+  unarchiveSession(row: CaptureSession, event?: Event): void {
+    event?.stopPropagation();
+    if (this.sessionActionLoading()) return;
+    this.sessionActionLoading.set(row.id);
+    this.api
+      .unarchiveCaptureSession(row.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.sessionActionLoading.set(null);
+          this.setVoiceNotice(`Session « ${row.title} » restaurée.`, 'info');
+          this.refreshDashboard();
+        },
+        error: () => {
+          this.sessionActionLoading.set(null);
+          this.setVoiceNotice('Restauration impossible pour le moment.', 'error');
+        },
+      });
+  }
+
+  requestDeleteSession(row: CaptureSession, event?: Event): void {
+    event?.stopPropagation();
+    this.confirmDeleteSessionId.set(this.confirmDeleteSessionId() === row.id ? null : row.id);
+  }
+
+  cancelDeleteSession(event?: Event): void {
+    event?.stopPropagation();
+    this.confirmDeleteSessionId.set(null);
+  }
+
+  confirmDeleteSession(row: CaptureSession, event?: Event): void {
+    event?.stopPropagation();
+    if (this.sessionActionLoading()) return;
+    this.sessionActionLoading.set(row.id);
+    this.api
+      .deleteCaptureSession(row.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.sessionActionLoading.set(null);
+          this.confirmDeleteSessionId.set(null);
+          if (this.session()?.id === row.id) {
+            this.session.set(null);
+            this.setProposal(null);
+          }
+          this.setVoiceNotice(`Session « ${row.title} » supprimée.`, 'info');
+          this.refreshDashboard();
+        },
+        error: () => {
+          this.sessionActionLoading.set(null);
+          this.setVoiceNotice('Suppression impossible pour le moment.', 'error');
+        },
+      });
   }
 
   openDashboardProposal(row: CaptureProposal): void {
@@ -3762,13 +4999,14 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   sessionOpenQuestionCount(session: CaptureSession): number {
+    if (this.proposal()?.session_id === session.id) {
+      return this.proposalUnresolvedOpenQuestionCount();
+    }
     const topLevel = Number(session.open_questions_count);
-    if (Number.isFinite(topLevel) && topLevel > 0) return topLevel;
+    if (Number.isFinite(topLevel) && topLevel >= 0) return topLevel;
     const fromMetrics = Number(session.metrics?.['open_questions_count']);
-    if (Number.isFinite(fromMetrics) && fromMetrics > 0) return fromMetrics;
-    return this.proposalOpenQuestions().length && this.proposal()?.session_id === session.id
-      ? this.proposalOpenQuestions().length
-      : 0;
+    if (Number.isFinite(fromMetrics) && fromMetrics >= 0) return fromMetrics;
+    return 0;
   }
 
   sessionCardActionLabel(session: CaptureSession): string {
@@ -3922,9 +5160,12 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   proposalPublishHint(proposal?: CaptureProposal | null): string | null {
-    if (proposal?.status !== 'accepted') return 'Validez d’abord le rapport avant publication.';
-    if (!this.canProposalPublish(proposal)) return 'La publication requiert le droit d’ingestion.';
-    if (!this.effectivePublicationDestination()) return 'Renseignez une destination avant publication.';
+    if (proposal?.status === 'published') return null;
+    if (proposal?.status !== 'accepted') {
+      return this.i18n.t('capture.publish.validate_first');
+    }
+    if (!this.canProposalPublish(proposal)) return this.i18n.t('capture.publish.no_ingest_permission');
+    if (!this.effectivePublicationDestination()) return this.i18n.t('capture.publish.destination_required');
     return null;
   }
 
@@ -3963,6 +5204,33 @@ export class KnowledgeCaptureComponent implements OnInit {
 
   effectivePublicationFinalTitle(): string {
     return this.publicationFinalTitle.trim() || this.publicationFinalTitleLabel();
+  }
+
+  publicationDestinationDisplay(slug?: string | null): string {
+    const value = String(slug || this.effectivePublicationDestination() || '').trim();
+    if (!value) return this.i18n.t('capture.publish.destination_required');
+    const context = this.selectedContext();
+    const environment = (context?.environment_state || {}) as Record<string, unknown>;
+    const candidates = [
+      context?.name,
+      environment['collection_label'],
+      environment['collection_name'],
+    ];
+    for (const candidate of candidates) {
+      const label = typeof candidate === 'string' ? candidate.trim() : '';
+      if (!label) continue;
+      const normalized = label.toLowerCase().replace(/[\s_]+/g, '-');
+      if (normalized === value.toLowerCase() || label.toLowerCase() === value.toLowerCase()) {
+        return label;
+      }
+    }
+    return value.replace(/-/g, ' ');
+  }
+
+  publicationDocumentUrl(result?: CapturePublicationResult | null): string | null {
+    const urls = result?.export_urls || this.proposal()?.proposal?.publication?.export_urls;
+    const raw = urls?.raw_url || urls?.download_url;
+    return raw ? raw : null;
   }
 
   isAuthor(session?: CaptureSession | null): boolean {
@@ -4285,6 +5553,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     };
     const byKey = new Map<string, CaptureEvent>();
     this.events()
+      .filter((event) => !this.isPlanPhaseTranscriptEvent(event))
       .filter((event) => priorities[event.event_type] && (
         Boolean(this.eventDisplayText(event)) ||
         event.event_type === 'proposal_generated' ||
@@ -4421,17 +5690,38 @@ export class KnowledgeCaptureComponent implements OnInit {
       }
     }
 
+    flushBuffer();
+
+    // Finished turns whose persisted event has not landed yet: keep them
+    // rendered as committed paragraphs (stable `live-` keys reuse the DOM node
+    // of the live row they come from) so a new turn NEVER makes the previous
+    // paragraph vanish while waiting for the event refresh.
+    const committedKeys = new Set(expert.map((item) => this.transcriptTextKey(item.text)));
+    for (const pending of this.pendingLiveCommits()) {
+      const key = this.transcriptTextKey(pending.text);
+      if (committedKeys.has(key) || key === lastExpertTextKey) continue;
+      rows.push({
+        key: `live-${pending.id}`,
+        kind: 'flow',
+        text: '',
+        liveText: pending.text,
+        liveCommitted: true,
+      });
+      lastExpertTextKey = key;
+    }
+
     const live = this.liveTranscript();
     const liveText = live ? live.text.trim() : '';
     if (liveText && !this.isTrivialTranscriptSegment(liveText)) {
-      const isDuplicate = live!.status !== 'live' && this.transcriptTextKey(liveText) === lastExpertTextKey;
+      const liveKey = this.transcriptTextKey(liveText);
+      const isDuplicate =
+        live!.status !== 'live' && (liveKey === lastExpertTextKey || committedKeys.has(liveKey));
       if (!isDuplicate) {
         // The in-progress round is its own paragraph, so it always starts on a
         // new line below the previously committed rounds. Once the tail is
         // finalised (status 'refined'/'amended') it is styled as committed text
         // (upright, high-contrast) even before the persisted event arrives, so
         // the UI no longer looks like the analysis never finished.
-        flushBuffer();
         rows.push({
           key: `live-${live!.id}`,
           kind: 'flow',
@@ -4439,10 +5729,8 @@ export class KnowledgeCaptureComponent implements OnInit {
           liveText,
           liveCommitted: live!.status !== 'live',
         });
-        return rows;
       }
     }
-    flushBuffer();
     return rows;
   }
 
@@ -4458,15 +5746,54 @@ export class KnowledgeCaptureComponent implements OnInit {
     return text.replace(/\s+/g, ' ').trim().toLowerCase();
   }
 
+  /**
+   * When a NEW live turn starts (different id), the previous live paragraph is
+   * promoted to the pending-commit list instead of vanishing: its persisted
+   * expert event arrives asynchronously, and dropping the text in between
+   * caused the "previous paragraph disappears then comes back" flicker.
+   */
+  private promoteLiveToPending(nextId: string): void {
+    const live = this.liveTranscript();
+    if (!live || live.id === nextId) return;
+    const text = live.text.trim();
+    if (!text || this.isTrivialTranscriptSegment(text)) return;
+    this.pendingLiveCommits.update((rows) =>
+      [...rows.filter((row) => row.id !== live.id), { id: live.id, text }].slice(-4),
+    );
+  }
+
+  /** Drop pending commits whose persisted expert event has landed. */
+  private prunePendingLiveCommits(events: CaptureEvent[]): void {
+    if (!this.pendingLiveCommits().length) return;
+    const committedKeys = new Set(
+      events
+        .filter((event) => (event.speaker || '').toLowerCase() === 'expert')
+        .map((event) => this.transcriptTextKey(this.eventDisplayText(event))),
+    );
+    this.pendingLiveCommits.update((rows) =>
+      rows.filter((row) => !committedKeys.has(this.transcriptTextKey(row.text))),
+    );
+  }
+
+  /** A turn that becomes live again must leave the pending-commit list. */
+  private reclaimPendingLiveCommit(id: string): void {
+    if (!this.pendingLiveCommits().length) return;
+    this.pendingLiveCommits.update((rows) => rows.filter((row) => row.id !== id));
+  }
+
   private setLivePartial(id: string, text: string): void {
     const clean = text.trim();
     if (!clean) return;
+    this.promoteLiveToPending(id);
+    this.reclaimPendingLiveCommit(id);
     this.liveTranscript.set({ id, text: clean, status: 'live' });
   }
 
   private setLiveImproved(id: string, text: string, reframed = false): void {
     const clean = text.trim();
     if (!clean) return;
+    this.promoteLiveToPending(id);
+    this.reclaimPendingLiveCommit(id);
     this.liveTranscript.set({ id, text: clean, status: 'refined', reframed });
   }
 
@@ -4760,6 +6087,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       .subscribe((payload) => {
         const events = (payload as { events?: CaptureEvent[] }).events || [];
         this.events.set(events);
+        this.prunePendingLiveCommits(events);
       });
   }
 
@@ -4808,7 +6136,20 @@ export class KnowledgeCaptureComponent implements OnInit {
       const questions: CaptureQuestion[] = [];
       for (const topic of plan.topics) {
         const subtopics = topic.subtopics || [];
-        const topicIsOutline = subtopics.length > 0 && !subtopics.some((subtopic) => (subtopic.questions || []).length);
+        if (!subtopics.length) {
+          const prompt = this.outlineItemPrompt(topic) || `Présentez ce que vous savez sur ${topic.title}.`;
+          questions.push({
+            id: `${topic.id}-present`,
+            question: prompt,
+            title: topic.title,
+            topic_id: topic.id,
+            subtopic_id: undefined,
+            path_label: topic.title,
+            estimated_minutes: topic.estimated_minutes || 3,
+          });
+          continue;
+        }
+        const topicIsOutline = !subtopics.some((subtopic) => (subtopic.questions || []).length);
         if (topicIsOutline) {
           const prompt = this.outlineItemPrompt(topic) || `Présentez ce que vous savez sur ${topic.title}.`;
           questions.push({
@@ -5210,18 +6551,6 @@ export class KnowledgeCaptureComponent implements OnInit {
       else addSubtopic(line);
     }
 
-    topics.forEach((topic) => {
-      if (!topic.subtopics?.length) {
-        topic.subtopics = [
-          {
-            id: `${topic.id}-sub-01`,
-            title: topic.title,
-            objective: '',
-            status: 'pending',
-          },
-        ];
-      }
-    });
     return topics;
   }
 
@@ -5335,9 +6664,35 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   topicHasActiveSubtopic(session: CaptureSession, topic: CaptureTopic): boolean {
+    if (!(topic.subtopics || []).length) {
+      return this.topicOnlySectionActive(session, topic);
+    }
     return (topic.subtopics || []).some((subtopic) =>
       this.activeSubtopicId() === subtopic.id || this.subtopicHasCurrentQuestion(session, subtopic),
     );
+  }
+
+  topicOnlySectionActive(session: CaptureSession, topic: CaptureTopic): boolean {
+    if ((topic.subtopics || []).length) return false;
+    const selected = this.selectedQuestionId();
+    if (selected) {
+      return this.planQuestions(session).some(
+        (question) => question.id === selected && question.topic_id === topic.id && !question.subtopic_id,
+      );
+    }
+    const ref = this.activeSectionRef(session);
+    return ref.topic_id === topic.id && !ref.subtopic_id;
+  }
+
+  topicOnlyRailClass(session: CaptureSession, topic: CaptureTopic): string {
+    const active = this.topicOnlySectionActive(session, topic);
+    return active
+      ? 'rounded border border-brand-300/40 bg-brand-500/15 px-2 py-1 text-brand-100'
+      : 'rounded border border-transparent px-2 py-1 text-gray-200 hover:border-white/10 hover:bg-white/[0.04] hover:text-white';
+  }
+
+  selectCaptureTopic(topicId: string): void {
+    this.navigateCaptureSection(topicId, { manual: true, topicId });
   }
 
   captureTopicCardClass(session: CaptureSession, topic: CaptureTopic): string {
@@ -5380,17 +6735,68 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   selectCaptureSubtopic(subtopicId: string): void {
-    this.activeSubtopicId.set(subtopicId);
+    this.navigateCaptureSection(subtopicId, { manual: true });
+  }
+
+  /** Jump to a plan subtopic; optional WS sync for manual left-rail navigation. */
+  private navigateCaptureSection(
+    sectionId: string,
+    options: { manual?: boolean; topicId?: string | null; syncVoice?: boolean } = {},
+  ): void {
+    if (options.manual) {
+      this.manualSectionSelectedAt = Date.now();
+    }
     const session = this.session();
     if (!session) return;
-    const subtopic = this.planTopics(session)
-      .flatMap((topic) => topic.subtopics || [])
-      .find((item) => item.id === subtopicId);
+    const topics = this.planTopics(session);
+    const topicOnly = topics.find((item) => item.id === sectionId && !(item.subtopics || []).length);
+    if (topicOnly) {
+      this.activeSubtopicId.set(null);
+      const question = this.planQuestions(session).find(
+        (item) => item.topic_id === sectionId && !item.subtopic_id,
+      );
+      if (question) {
+        this.selectedQuestionId.set(question.id);
+      }
+      this.refreshHintQueue(session.id, undefined);
+      if (options.syncVoice !== false) {
+        this.voiceConnection?.sectionSelect({
+          topic_id: sectionId,
+          subtopic_id: null,
+          manual: options.manual === true,
+        });
+      }
+      return;
+    }
+    this.activeSubtopicId.set(sectionId);
+    const topic =
+      topics.find((item) => (item.subtopics || []).some((st) => st.id === sectionId)) || null;
+    const subtopic = topic?.subtopics?.find((item) => item.id === sectionId);
     const firstQuestion = subtopic?.questions?.[0];
     if (firstQuestion) {
       this.selectedQuestionId.set(firstQuestion.id);
     }
-    this.refreshHintQueue(session.id, subtopicId);
+    this.refreshHintQueue(session.id, sectionId);
+    if (options.syncVoice !== false) {
+      this.voiceConnection?.sectionSelect({
+        topic_id: options.topicId ?? topic?.id ?? null,
+        subtopic_id: sectionId,
+        manual: options.manual === true,
+      });
+    }
+  }
+
+  /** Apply a lightweight live section suggestion when confidence and cooldown allow. */
+  private applyLiveSectionDetection(
+    subtopicId: string | null | undefined,
+    topicId: string | null | undefined,
+    confidence: number,
+    source: string,
+  ): void {
+    if (!subtopicId || confidence < this.liveSectionDetectMinConfidence) return;
+    if (subtopicId === this.activeSubtopicId()) return;
+    if (Date.now() - this.manualSectionSelectedAt < this.manualSectionOverrideCooldownMs) return;
+    this.navigateCaptureSection(subtopicId, { manual: false, topicId, syncVoice: true });
   }
 
   planDialogueTurns(session: CaptureSession): Array<{ id: string; text: string }> {
@@ -5511,7 +6917,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   submitPlanDialogueTurn(session: CaptureSession): void {
-    const text = this.planDialogueAnswer.trim();
+    const text = this.planDialogueAnswer().trim();
     if (!text) {
       this.planDialogueNotice.set({
         tone: 'info',
@@ -5519,40 +6925,49 @@ export class KnowledgeCaptureComponent implements OnInit {
       });
       return;
     }
+    void this.persistPlanTopicsAndSubmitDialogue(session, text);
+  }
+
+  private async persistPlanTopicsAndSubmitDialogue(session: CaptureSession, text: string): Promise<void> {
     this.planDialogueNotice.set(null);
     this.planDialogueLoading.set(true);
-    this.api
-      .planDialogueTurn(session.id, { text })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (payload) => {
-          const body = payload as {
-            session: CaptureSession;
-            next_prompt?: string | null;
-            ready_to_finalize?: boolean;
-          };
-          this.session.set(body.session);
-          this.resetPlanOutlineDraft(body.session);
-          this.planDialogueAnswer = '';
-          this.planDialogueNextPrompt.set(body.next_prompt || this.planDialoguePromptFor(body.session));
-          this.planDialogueReadyFlag.set(Boolean(body.ready_to_finalize));
-          this.planDialogueLoading.set(false);
-          this.planDialogueNotice.set(null);
-          this.touchPlanDraft();
-        },
-        error: (err) => {
-          this.planDialogueLoading.set(false);
-          this.planDialogueNotice.set({
-            tone: 'error',
-            text: this.apiErrorMessage(err, 'Impossible d’envoyer ce tour de cadrage. Réessayez.'),
-          });
-        },
+    try {
+      const topics = this.planTopics(session);
+      if (topics.length) {
+        await firstValueFrom(
+          this.api
+            .updateCapturePlanTopics(session.id, topics as unknown as Record<string, unknown>[])
+            .pipe(takeUntilDestroyed(this.destroyRef)),
+        );
+      }
+      const payload = await firstValueFrom(
+        this.api.planDialogueTurn(session.id, { text }).pipe(takeUntilDestroyed(this.destroyRef)),
+      );
+      const body = payload as {
+        session: CaptureSession;
+        next_prompt?: string | null;
+        ready_to_finalize?: boolean;
+      };
+      this.session.set(body.session);
+      this.resetPlanOutlineDraft(body.session);
+      this.planDialogueAnswer.set('');
+      this.planDialogueNextPrompt.set(body.next_prompt || this.planDialoguePromptFor(body.session));
+      this.planDialogueReadyFlag.set(Boolean(body.ready_to_finalize));
+      this.planDialogueLoading.set(false);
+      this.planDialogueNotice.set(null);
+      this.touchPlanDraft();
+    } catch (err) {
+      this.planDialogueLoading.set(false);
+      this.planDialogueNotice.set({
+        tone: 'error',
+        text: this.apiErrorMessage(err, 'Impossible d’envoyer ce tour de cadrage. Réessayez.'),
       });
+    }
   }
 
   planDialogueReadyHint(session: CaptureSession): string | null {
     if (this.planDialogueReady(session)) return null;
-    return 'Ajoutez une instruction ou complétez le plan : « Continuer » s’active dès qu’un sujet existe.';
+    return 'Ajoutez une instruction ou complétez le plan : « Valider le plan » s’active dès qu’un sujet existe.';
   }
 
   private apiErrorMessage(err: unknown, fallback: string): string {
@@ -5584,10 +6999,12 @@ export class KnowledgeCaptureComponent implements OnInit {
               next: (updated) => {
                 const typed = updated as CaptureSession;
                 this.session.set(typed);
+                this.ensureDefaultPlanSection(typed);
                 this.resetPlanOutlineDraft(typed);
                 this.questionBankStatus.set(String(typed.plan.question_bank_status || 'generating'));
                 this.planDialogueLoading.set(false);
                 this.planNotice.set(null);
+                this.clearCaptureTranscriptState();
                 this.activeSurface.set('session');
                 this.pollQuestionBankStatus(session.id);
               },
@@ -5679,6 +7096,62 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     this.extractProvidedPlanFile(file);
+  }
+
+  /**
+   * « Importer » in the plan-modification flow: the extracted file content is
+   * treated as an INSTRUCTION applied to the current plan (same pipeline as the
+   * dictated/typed instruction + « Appliquer »), never pasted as the plan itself.
+   * The plan oracle merges it into the existing plan, whether the file contains
+   * an actual plan, free-form notes or a transcript.
+   */
+  onPlanInstructionImportFile(event: Event, session: CaptureSession): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file || !this.canEditPlan(session)) return;
+    input.value = '';
+    this.extractingPlanSource.set(true);
+    this.planDialogueNotice.set({ tone: 'info', text: this.i18n.t('capture.plan.import_extracting') });
+    this.api
+      .extractCapturePlanSource(file)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          this.extractingPlanSource.set(false);
+          this.applyImportedPlanInstruction(session, String(payload.text || ''), file.name);
+        },
+        error: () => this.readPlanInstructionImportFileLocally(file, session),
+      });
+  }
+
+  private readPlanInstructionImportFileLocally(file: File, session: CaptureSession): void {
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.extractingPlanSource.set(false);
+      this.applyImportedPlanInstruction(session, String(reader.result || ''), file.name);
+    };
+    reader.onerror = () => {
+      this.extractingPlanSource.set(false);
+      this.planDialogueNotice.set({ tone: 'error', text: this.i18n.t('capture.plan.import_failed') });
+    };
+    reader.readAsText(file);
+  }
+
+  /** Feed the imported content through the same plan-iteration path as the
+   * instruction textarea (`latest_instruction` + current plan on the backend). */
+  private applyImportedPlanInstruction(session: CaptureSession, rawText: string, filename: string): void {
+    // Same hard limit as the backend plan-source extraction (20k chars).
+    const text = rawText.replace(/\r\n?/g, '\n').trim().slice(0, 20000);
+    if (!text) {
+      this.planDialogueNotice.set({ tone: 'error', text: this.i18n.t('capture.plan.import_empty') });
+      return;
+    }
+    const instruction =
+      `Contenu importé depuis « ${filename} ». Intègre ces éléments dans le plan actuel : ` +
+      `fusionne avec les sujets existants sans les perdre, ajoute les nouveaux sujets/sous-sujets pertinents, ` +
+      `et restructure si nécessaire. Le contenu peut être un plan, des notes libres ou une transcription.\n\n${text}`;
+    this.planDialogueNotice.set({ tone: 'info', text: this.i18n.t('capture.plan.import_applying', { filename }) });
+    void this.persistPlanTopicsAndSubmitDialogue(session, instruction);
   }
 
   onPlanOutlineImportFile(event: Event, session: CaptureSession): void {
@@ -5777,8 +7250,8 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     await this.beginDictation((text) => {
-      this.planDialogueAnswer = text;
-    });
+      this.planDialogueAnswer.set(text);
+    }, 'plan');
   }
 
   /**
@@ -5788,10 +7261,17 @@ export class KnowledgeCaptureComponent implements OnInit {
    * routes through the standard recorder `onstop` → `transcribeRecording` path,
    * never the discard-style hard stop.
    */
-  private async beginDictation(write: (text: string) => void): Promise<void> {
+  private async beginDictation(
+    write: (text: string) => void,
+    surface: 'plan' | 'proposal_question' | 'prep' | null = null,
+  ): Promise<void> {
     if (this.speaking()) this.interruptSpeech();
     const armed = await this.ensureAudioStream();
     if (!armed) return;
+    this.dictationSurface.set(surface);
+    this.dictationVoiceDetected.set(false);
+    this.dictationSilenceEnding.set(false);
+    this.dictationAudioLevel.set(0);
     this.chunks = [];
     this.currentClientTurnId = this.newTurnId();
     this.lastPrefetchText = '';
@@ -5809,6 +7289,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (!this.startAudioRecorder('Dictée en cours. Appuyez sur le carré pour arrêter et finaliser.')) {
       this.recordingPartialCallback = null;
       this.recordingStopCallback = null;
+      this.clearDictationSurface();
+      return;
+    }
+    if (surface) {
+      this.startDictationAudioMonitor();
     }
   }
 
@@ -5853,6 +7338,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.setVoiceNotice(publishHint, 'warning');
       return;
     }
+    this.publicationPublishing.set(true);
     this.persistProposalReport(proposalId, () => {
       this.api
         .publishCaptureProposal(proposalId, {
@@ -5864,8 +7350,44 @@ export class KnowledgeCaptureComponent implements OnInit {
         })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => this.setVoiceNotice('Publication lancée.', 'info'),
-          error: () => this.setVoiceNotice('Publication impossible pour le moment.', 'error'),
+          next: (payload) => {
+            const result = payload as CapturePublicationResult;
+            this.publicationResult.set(result);
+            const current = this.proposal();
+            if (current) {
+              this.setProposal({
+                ...current,
+                status: 'published',
+                proposal: {
+                  ...(current.proposal || {}),
+                  publication: {
+                    ...(current.proposal?.publication || {}),
+                    category: result.category || this.publicationCategory,
+                    destination: result.destination || this.effectivePublicationDestination(),
+                    destination_scope: result.destination || this.effectivePublicationDestination(),
+                    final_title: result.final_title || this.effectivePublicationFinalTitle(),
+                    document_id: result.document_id || null,
+                    collection_slug: result.collection || null,
+                    chunks_processed: result.chunks_processed ?? null,
+                    published_at: new Date().toISOString(),
+                    export_urls: result.export_urls,
+                  },
+                },
+              });
+            }
+            this.refreshDashboard();
+            if (this.dashboardTab() === 'fiches') {
+              this.refreshPublishedFiches();
+            }
+            this.setVoiceNotice(this.i18n.t('capture.publish.success_title'), 'info');
+            // #region agent log
+            fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'PUB1',location:'knowledge-capture.component.ts:publishToKnowledge',message:'capture proposal published',data:{proposalId,collection:result.collection,documentId:result.document_id,chunks:result.chunks_processed},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion
+          },
+          error: () => {
+            this.setVoiceNotice('Publication impossible pour le moment.', 'error');
+          },
+          complete: () => this.publicationPublishing.set(false),
         });
     });
   }
@@ -6047,7 +7569,14 @@ export class KnowledgeCaptureComponent implements OnInit {
     return Boolean(session.metrics?.['unlimited_duration']) || Number(session.duration_minutes || 0) <= 0;
   }
 
-  sessionTimerView(session: CaptureSession): { label: string; blink: boolean; ended: boolean } | null {
+  /**
+   * Live countdown chip. The server `remaining_seconds` is used as an ANCHOR
+   * (value + reception time) and the per-second clock tick interpolates from
+   * it, so the chip really counts down between server payloads instead of
+   * displaying a static snapshot. Past zero it keeps counting into overtime
+   * ("+m:ss") without ever blocking the capture.
+   */
+  sessionTimerView(session: CaptureSession): { label: string; blink: boolean; ended: boolean; overtime: boolean } | null {
     this.sessionClockTick();
     if (this.isSessionTimerUnlimited(session)) {
       return null;
@@ -6058,34 +7587,49 @@ export class KnowledgeCaptureComponent implements OnInit {
       return null;
     }
     if (!session.started_at) {
-      return { label: `${limitMinutes} min`, blink: false, ended: false };
+      return { label: `${limitMinutes} min`, blink: false, ended: false, overtime: false };
     }
-    const serverRemaining = Number(session.metrics?.['remaining_seconds'] ?? NaN);
-    let remainingSeconds = Number.isFinite(serverRemaining) && serverRemaining >= 0 ? serverRemaining : NaN;
+    const anchor = this.timerAnchor && this.timerAnchor.sessionId === session.id ? this.timerAnchor : null;
+    let remainingSeconds: number;
     if (session.status === 'active') {
-      const startedAt = new Date(session.started_at).getTime();
-      if (Number.isFinite(startedAt)) {
-        const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-        const computedRemaining = Math.max(0, limitMinutes * 60 - elapsedSeconds);
-        const clearlyStaleStart = elapsedSeconds > limitMinutes * 60 + 30 && !session.metrics?.['session_end_pending'];
-        if (!Number.isFinite(remainingSeconds) || (remainingSeconds <= 0 && !session.metrics?.['session_end_pending'])) {
-          remainingSeconds = clearlyStaleStart ? limitMinutes * 60 : computedRemaining;
-        }
-      } else if (!Number.isFinite(remainingSeconds)) {
-        remainingSeconds = limitMinutes * 60;
+      if (anchor) {
+        remainingSeconds = Math.round(anchor.remainingSeconds - (Date.now() - anchor.atMs) / 1000);
+      } else {
+        const startedAt = new Date(session.started_at).getTime();
+        remainingSeconds = Number.isFinite(startedAt)
+          ? Math.round(limitMinutes * 60 - (Date.now() - startedAt) / 1000)
+          : limitMinutes * 60;
       }
-    } else if (!Number.isFinite(remainingSeconds)) {
-      remainingSeconds = limitMinutes * 60;
+    } else {
+      const serverRemaining = Number(session.metrics?.['remaining_seconds'] ?? NaN);
+      remainingSeconds = anchor
+        ? anchor.remainingSeconds
+        : Number.isFinite(serverRemaining)
+          ? serverRemaining
+          : limitMinutes * 60;
     }
-    const minutes = Math.floor(remainingSeconds / 60);
-    const seconds = remainingSeconds % 60;
     const ended = remainingSeconds <= 0;
-    const blink = !ended && remainingSeconds <= 5 * 60;
+    const overtime = ended && session.status === 'active';
+    const display = Math.abs(remainingSeconds);
+    const minutes = Math.floor(display / 60);
+    const seconds = Math.floor(display % 60);
+    const clock = `${minutes}:${String(seconds).padStart(2, '0')}`;
     return {
-      label: ended ? '0:00 · fin' : `${minutes}:${String(seconds).padStart(2, '0')} restantes`,
-      blink,
+      label: overtime ? `+${clock} dépassées` : ended ? '0:00 · fin' : `${clock} restantes`,
+      blink: !ended && remainingSeconds <= 5 * 60,
       ended,
+      overtime,
     };
+  }
+
+  /** Discreet, one-shot reminder when entering the last 5 minutes. */
+  private maybeNotifyLastFiveMinutes(session: CaptureSession): void {
+    if (session.status !== 'active') return;
+    const timer = this.sessionTimerView(session);
+    if (!timer || timer.ended || !timer.blink) return;
+    if (this.lastFiveMinutesNoticeSessionId === session.id) return;
+    this.lastFiveMinutesNoticeSessionId = session.id;
+    this.setVoiceNotice('Il reste moins de 5 minutes planifiées — la capture continue sans interruption.', 'info');
   }
 
   showClosurePanel(session: CaptureSession): boolean {
@@ -6155,8 +7699,13 @@ export class KnowledgeCaptureComponent implements OnInit {
             this.closurePanelDismissed.set(true);
             if (body.proposal) {
               this.setProposal(body.proposal);
-              this.activeSurface.set('review');
-            } else {
+              // While the heavy FINAL pass is still running (capture.finish over
+              // WS), stay on the loader: the report screen only opens when the
+              // restructured report is persisted (proposal-ready step).
+              if (!this.captureFinalizing()) {
+                this.activeSurface.set('review');
+              }
+            } else if (!this.captureFinalizing()) {
               this.activeSurface.set('dashboard');
             }
           }
@@ -6381,6 +7930,12 @@ export class KnowledgeCaptureComponent implements OnInit {
     return (event.text_amended || event.text || event.text_raw || '').trim();
   }
 
+  private isPlanPhaseTranscriptEvent(event: CaptureEvent): boolean {
+    if (event.event_type === 'plan_dialogue_turn') return true;
+    const phase = String((event.metadata || {})['capture_phase'] || '').trim();
+    return phase === 'plan_build';
+  }
+
   private isConversationBusinessDecision(event: CaptureEvent): boolean {
     if (event.event_type !== 'conversation_intent_detected') return false;
     const intent = String((event.metadata || {})['intent'] || '');
@@ -6584,7 +8139,7 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     if (normalized.proposal) {
       this.setProposal(normalized.proposal as CaptureProposal);
-      if (normalized.intent === 'proposal_requested') {
+      if (normalized.intent === 'proposal_requested' && !this.captureFinalizing()) {
         this.activeSurface.set('review');
       }
     }
@@ -6640,10 +8195,24 @@ export class KnowledgeCaptureComponent implements OnInit {
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe((updated) => {
           this.setProposal(updated as CaptureProposal);
+          this.syncLocalSessionOpenQuestionCount();
           this.refreshDashboard();
           this.activeSurface.set('publish');
         });
     });
+  }
+
+  passReviewLater(): void {
+    const proposal = this.proposal();
+    const returnToDashboard = () => {
+      this.syncLocalSessionOpenQuestionCount();
+      this.goSurface('dashboard');
+    };
+    if (proposal && this.proposalReportDirty()) {
+      this.persistProposalReport(proposal.id, returnToDashboard);
+      return;
+    }
+    returnToDashboard();
   }
 
   saveProposalReport(proposalId: string): void {
@@ -6756,6 +8325,48 @@ export class KnowledgeCaptureComponent implements OnInit {
       });
   }
 
+  proposalUnresolvedOpenQuestionCount(): number {
+    return this.proposalReviewQuestions().filter((row) => row.status === 'open').length;
+  }
+
+  proposalPublishableUnresolvedCount(): number {
+    return this.proposalReviewQuestions().filter((row) => row.status === 'open' || row.status === 'deferred').length;
+  }
+
+  proposalOpenQuestionsLabel(): string {
+    const count = this.proposalUnresolvedOpenQuestionCount();
+    return this.i18n.t(
+      count === 1 ? 'capture.review.open_count_one' : 'capture.review.open_count_many',
+      { count },
+    );
+  }
+
+  private syncLocalSessionOpenQuestionCount(): void {
+    const sessionId = this.session()?.id;
+    if (!sessionId) return;
+    const count = this.proposalUnresolvedOpenQuestionCount();
+    this.session.update((current) =>
+      current && current.id === sessionId
+        ? {
+            ...current,
+            open_questions_count: count,
+            metrics: { ...(current.metrics || {}), open_questions_count: count },
+          }
+        : current,
+    );
+    this.dashboardSessions.update((rows) =>
+      rows.map((row) =>
+        row.id === sessionId
+          ? {
+              ...row,
+              open_questions_count: count,
+              metrics: { ...(row.metrics || {}), open_questions_count: count },
+            }
+          : row,
+      ),
+    );
+  }
+
   proposalQuestionAnswer(question: ProposalOpenQuestion): string {
     return String(question.answer || question.answered_text || '').trim();
   }
@@ -6841,7 +8452,10 @@ export class KnowledgeCaptureComponent implements OnInit {
     const text = this.questionAnswerDraft.trim();
     if (!proposal || !text || this.questionAnswerLoading()) return;
     if (this.recording()) this.finishDictation();
-    const questionId = this.proposalQuestionId(row.question, index);
+    // The review list is sorted/filtered: the positional `question-{i}` fallback
+    // must be computed against the RAW open_questions order the backend sees.
+    const rawIndex = this.proposalOpenQuestions().findIndex((candidate) => candidate === row.question);
+    const questionId = this.proposalQuestionId(row.question, rawIndex >= 0 ? rawIndex : index);
     this.questionAnswerLoading.set(true);
     this.api
       .answerCaptureProposalOpenQuestion(proposal.id, questionId, { text })
@@ -6853,6 +8467,7 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.questionAnswerDraft = '';
           this.proposalQuestionStatuses.update((current) => ({ ...current, [row.key]: 'answered' }));
           this.setProposal(updated as CaptureProposal);
+          this.syncLocalSessionOpenQuestionCount();
           this.setVoiceNotice('Réponse enregistrée. La section concernée a été re-synthétisée.', 'info');
         },
         error: () => {
@@ -6882,7 +8497,10 @@ export class KnowledgeCaptureComponent implements OnInit {
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (updated) => this.setProposal(updated as CaptureProposal),
+        next: (updated) => {
+          this.setProposal(updated as CaptureProposal);
+          this.syncLocalSessionOpenQuestionCount();
+        },
         error: () => {
           this.proposalQuestionStatuses.update((current) => ({ ...current, [key]: previousStatus }));
           this.setVoiceNotice('Statut de question non enregistré pour le moment.', 'error');
@@ -7173,11 +8791,28 @@ export class KnowledgeCaptureComponent implements OnInit {
     // Passive assist contract: any event may carry the oracle snapshot
     // (open questions + live retrieval) and non-blocking suggestions.
     this.ingestOraclePayload(payload);
+    if (event.type === 'oracle.questions') {
+      // Live grounded questions pushed by the gateway's background task; the
+      // ingest above already updated the QUESTIONS IA panel. Nothing else to do.
+      return;
+    }
     if (event.type === 'session.ready') {
       this.setVoiceNotice('Session vocale streaming prête.', 'info');
       return;
     }
     if (event.type === 'text.partial' || event.type === 'transcript.partial') {
+      // Live partials are only meaningful while the mic is actively recording.
+      // After a pause/stop/VAD endpoint the tail was already committed locally
+      // (upright); a late in-flight partial (e.g. the backend transcribing the
+      // recorder's final flush frame ~1s after audio.pause) must not flip it
+      // back to the live/italic state — the authoritative text lands with
+      // `text.final` (or stays as the local commit while paused).
+      if (this.closeVoiceAfterStreamingTurn || !this.recording()) {
+        // #region agent log
+        fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'P1',location:'knowledge-capture.component.ts:partial-guard',message:'late partial dropped (not recording)',data:{type:event.type,closeAfter:this.closeVoiceAfterStreamingTurn,transcribing:this.transcribing(),textLen:String(payload['text']||'').length,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        return;
+      }
       // Server-side incremental STT is the single source of truth for live
       // partials: the gateway emits these mid-utterance. Render the live
       // (grey/italic) transcript row and flag the "Transcription live" state.
@@ -7213,10 +8848,22 @@ export class KnowledgeCaptureComponent implements OnInit {
         return;
       }
       const command = this.detectCaptureVoiceCommand(text);
-      if (command && this.handleCaptureVoiceCommand(command, text)) {
-        this.clearTranscriptionWatchdog();
-        this.transcribing.set(false);
-        return;
+      if (command) {
+        // Commit the final transcript BEFORE handling the command: the spoken
+        // tail is part of the capture and the live row must leave the
+        // italic/in-flight state even when the turn ends on a voice command
+        // (previously the tail stayed italic and a pending deferred stop never
+        // ran, leaving the UI stuck on "Finalisation du dernier tour…").
+        this.answer = text;
+        this.setLiveImproved(this.voiceSegmentId(payload), text);
+        if (this.handleCaptureVoiceCommand(command, text)) {
+          this.clearTranscriptionWatchdog();
+          this.transcribing.set(false);
+          if (this.closeVoiceAfterStreamingTurn) {
+            this.finalizeDeferredStreamingStop();
+          }
+          return;
+        }
       }
       if (text) {
         this.answer = text;
@@ -7224,6 +8871,9 @@ export class KnowledgeCaptureComponent implements OnInit {
       }
       this.clearTranscriptionWatchdog();
       this.transcribing.set(false);
+      // #region agent log
+      fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F1,F2,F3',location:'knowledge-capture.component.ts:text.final',message:'text.final received',data:{textLen:text.length,closeAfter:this.closeVoiceAfterStreamingTurn,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       // Continuous capture path: the redesigned backend no longer emits a
       // per-turn `conversation.step`, so entering `thinking` + arming the 60s
       // `armConversationProcessingWatchdog()` here left every turn stuck in the
@@ -7242,16 +8892,62 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.scheduleConversationResume(this.voiceLoopCooldownMs());
       return;
     }
+    if (event.type === 'capture.finalize.progress') {
+      // Honest stage events from the heavy FINAL pass: drive the loader.
+      this.captureFinalizeStage.set({
+        stage: String(payload['stage'] || 'start'),
+        label: String(payload['label'] || 'Synthèse finale en cours…'),
+        section_label: payload['section_label'] ? String(payload['section_label']) : null,
+        current: typeof payload['current'] === 'number' ? payload['current'] : null,
+        total: typeof payload['total'] === 'number' ? payload['total'] : null,
+      });
+      return;
+    }
     if (event.type === 'conversation.step') {
       this.clearConversationProcessingWatchdog();
+      const captureFinished = payload['capture_finished'] === true;
       this.applyConversationStepEvent(payload as Partial<ConversationStepResponse>);
+      if (captureFinished) {
+        // The restructured report is persisted: release the gate and land on
+        // the report screen only now.
+        this.endCaptureFinalizing(true);
+      }
       this.finalizeDeferredStreamingStop();
+      return;
+    }
+    if (event.type === 'section.active') {
+      const suggestion = payload as {
+        subtopic_id?: string;
+        topic_id?: string;
+        confidence?: number;
+        manual_locked?: boolean;
+      };
+      if (!suggestion.manual_locked) {
+        this.applyLiveSectionDetection(
+          suggestion.subtopic_id,
+          suggestion.topic_id,
+          Number(suggestion.confidence || 0),
+          'section.active',
+        );
+      }
       return;
     }
     if (event.type === 'evaluation.delta') {
       // Live assist panels (oracle open questions + retrieved passages + suggestions)
       // ride at the top level of this event; ingest them regardless of plan mode.
       this.ingestOraclePayload(payload);
+      const sectionSuggestion = payload['section_suggestion'] as
+        | { subtopic_id?: string; topic_id?: string; confidence?: number }
+        | null
+        | undefined;
+      if (sectionSuggestion?.subtopic_id) {
+        this.applyLiveSectionDetection(
+          sectionSuggestion.subtopic_id,
+          sectionSuggestion.topic_id,
+          Number(sectionSuggestion.confidence || 0),
+          'evaluation.delta',
+        );
+      }
       const nextQuestionId = payload['next_question_id'];
       if (typeof nextQuestionId === 'string' && nextQuestionId) {
         this.selectedQuestionId.set(nextQuestionId);
@@ -7284,14 +8980,14 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.setVoiceNotice('Prochaine relance préparée par l’orchestrateur de capture.', 'info');
       return;
     }
-    if (event.type === 'oracle.delta') {
-      this.voiceState.set('oracle_updating');
-      this.setVoiceNotice('L’IA prépare une action depuis la dernière transcription.', 'info');
-      return;
-    }
-    if (event.type === 'oracle.superseded') {
-      this.voiceState.set('oracle_updating');
-      this.setVoiceNotice('Ancien signal remplacé par la dernière transcription.', 'info');
+    if (event.type === 'oracle.delta' || event.type === 'oracle.superseded') {
+      // Silent oracle during capture: these inner-monologue ticks fire on every
+      // partial and never carry user-facing questions (open_questions stays 0
+      // mid-capture). Flipping `voiceState` to `oracle_updating` + a notice on
+      // each one produced a misleading "L'IA prépare une action…" status and
+      // churned the UI on every partial. The oracle's grounded questions are
+      // surfaced at section.finish / capture.finish instead. The snapshot was
+      // already ingested at the top of this handler, so nothing else to do.
       return;
     }
     if (event.type === 'oracle.action') {
@@ -7306,7 +9002,6 @@ export class KnowledgeCaptureComponent implements OnInit {
           priority: 100,
         };
         this.hintStack.update((current) => [hint, ...current.filter((item) => item.id !== hint.id)]);
-        if (hint.subtopic_id) this.activeSubtopicId.set(hint.subtopic_id);
         this.voiceState.set('listening');
         return;
       }
@@ -7324,7 +9019,6 @@ export class KnowledgeCaptureComponent implements OnInit {
         priority: 100,
       };
       this.hintStack.update((current) => [hint, ...current.filter((item) => item.id !== hint.id)]);
-      if (hint.subtopic_id) this.activeSubtopicId.set(hint.subtopic_id);
       return;
     }
     if (event.type === 'oracle.commit') {
@@ -7369,6 +9063,12 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.clearConversationProcessingWatchdog();
       this.transcribing.set(false);
       this.voiceState.set('idle');
+      if (this.captureFinalizing()) {
+        // The finalization transport failed: release the gate instead of
+        // trapping the user on the loader (the REST closure proposal, if any,
+        // is still shown).
+        this.endCaptureFinalizing(true);
+      }
       this.setVoiceNotice(String(payload['message'] || 'Session vocale streaming indisponible.'), 'error');
       this.finalizeDeferredStreamingStop();
       if (!deferredStop && code === 'synthesize_failed' && this.nextPrompt()) {
@@ -7495,7 +9195,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       return;
     }
     this.textFallbackActive.set(false);
-    const firstPrompt = this.currentPromptText();
+    const firstPrompt = this.spokenSectionPrompt();
     if (firstPrompt && !(session && (this.isFreeConversationSession(session) || this.isTopicOnlyPlan(session)))) {
       this.speak(firstPrompt);
       return;
@@ -7513,7 +9213,7 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   readCurrentQuestion(): void {
-    const prompt = this.currentPromptText();
+    const prompt = this.spokenSectionPrompt();
     if (prompt) {
       this.speak(prompt);
     }
@@ -7585,6 +9285,25 @@ export class KnowledgeCaptureComponent implements OnInit {
     return 6;
   }
 
+  planDictationWaveHeight(base: number): number {
+    if (!this.planDictationListening()) {
+      return Math.max(6, Math.round(base * 0.45));
+    }
+    const level = this.dictationAudioLevel();
+    const boost = 0.35 + level * 0.65;
+    return Math.max(6, Math.round(base * boost));
+  }
+
+  planDictationStatusLabel(): string {
+    if (this.planDictationTranscribing()) return this.i18n.t('capture.plan.dictation.transcribing');
+    if (this.dictationSilenceEnding()) return this.i18n.t('capture.plan.dictation.silence_stop');
+    if (this.voiceState() === 'partial_transcribing' && this.recording()) {
+      return this.i18n.t('capture.plan.dictation.partial');
+    }
+    if (this.dictationVoiceDetected()) return this.i18n.t('capture.plan.dictation.voice_detected');
+    return this.i18n.t('capture.plan.dictation.listening');
+  }
+
   voiceInputStatusLabel(): string {
     if (this.recording()) return 'Écoute de la réponse expert';
     if (this.transcribing()) return 'Finalisation de la transcription';
@@ -7629,6 +9348,15 @@ export class KnowledgeCaptureComponent implements OnInit {
     // Continuous capture: a turn should only auto-close on a very long silence,
     // never on the short conversational pauses an expert makes while thinking.
     return this.voiceLoopSettingNumber('silence_ms', 8000, 300, 30000);
+  }
+
+  private dictationEndpointSilenceMs(): number {
+    // Plan/prep dictation: stop soon after the user finishes speaking (unlike capture turns).
+    return this.voiceLoopSettingNumber('dictation_silence_ms', 2000, 1200, 4000);
+  }
+
+  private dictationEndpointMinSpeechMs(): number {
+    return this.voiceLoopSettingNumber('dictation_min_speech_ms', 300, 100, 2000);
   }
 
   private voiceEndpointMinSpeechMs(): number {
@@ -7716,12 +9444,34 @@ export class KnowledgeCaptureComponent implements OnInit {
   stopConversation(): void {
     this.clearAutoResumeTimer();
     this.conversationSessionActive.set(false);
-    this.deferredLoopStopAfterStreamingTurn = null;
-    this.closeVoiceAfterStreamingTurn = false;
+    // #region agent log
+    fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F1',location:'knowledge-capture.component.ts:stopConversation:entry',message:'stop entry',data:{recording:this.recording(),transcribing:this.transcribing(),closeAfter:this.closeVoiceAfterStreamingTurn,hasConn:!!this.voiceConnection,recState:this.recorder?.state||null,recId:(this.recorder as any)?.__dbgId??null,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    // Re-entrancy guard: a stop is already finalising (e.g. voice-command stop
+    // followed by a manual click, or a click while a VAD endpoint's text.final
+    // is in flight). Tearing the connection down here would kill the pending
+    // endpoint/final and leave `transcribing` stuck on "Finalisation de la
+    // transcription" until the 45s watchdog. Defer to the in-flight completion.
+    if (this.closeVoiceAfterStreamingTurn || (this.transcribing() && this.voiceConnection)) {
+      this.closeVoiceAfterStreamingTurn = true;
+      if (!this.deferredLoopStopAfterStreamingTurn) {
+        this.deferredLoopStopAfterStreamingTurn = { surface: 'knowledge_capture', reason: 'user_stop' };
+      }
+      // #region agent log
+      fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F1',location:'knowledge-capture.component.ts:stopConversation:guard',message:'guard branch: deferred to in-flight finalisation',data:{recState:this.recorder?.state||null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      this.setVoiceNotice('Conversation arrêtée. Finalisation du dernier tour…', 'info');
+      return;
+    }
     this.captureEndpointReason = 'stop';
     this.stopCaptureEndpointMonitor();
-    this.voiceConnection?.loopStop({ surface: 'knowledge_capture', reason: 'user_stop' });
     this.stopSpeech(false);
+    // Capture the recording state BEFORE tearing the recorder down: it decides
+    // whether a turn is still in flight and must be flushed to the backend.
+    const wasRecording = this.recording();
+    // Stop the local recorder WITHOUT its own onstop endpoint; we submit the
+    // buffered turn explicitly below so the last round is committed (upright)
+    // and persisted instead of being silently dropped while still "live".
     if (this.recorder) {
       try {
         this.recorder.onstop = null;
@@ -7735,7 +9485,32 @@ export class KnowledgeCaptureComponent implements OnInit {
       }
       this.recorder = null;
     }
+    // If a turn was being recorded, its buffered audio may not yet have produced
+    // a `text.final` (the partial-STT cadence can lag the stop click by seconds,
+    // and the final partial often lands in the same tick as the click). Gating on
+    // `wasRecording` — NOT on the live-slot status — flushes a final endpoint so
+    // the backend transcribes + persists the last round and emits `text.final`
+    // (which commits the tail upright). Teardown is deferred until it lands.
+    if (wasRecording && this.voiceConnection) {
+      const live = this.liveTranscript();
+      if (live && live.status === 'live' && !this.isTrivialTranscriptSegment(live.text)) {
+        this.setLiveImproved(live.id, live.text);
+      }
+      this.recording.set(false);
+      this.closeVoiceAfterStreamingTurn = true;
+      this.deferredLoopStopAfterStreamingTurn = { surface: 'knowledge_capture', reason: 'user_stop' };
+      this.releaseAudioStream();
+      // #region agent log
+      fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F2',location:'knowledge-capture.component.ts:stopConversation:flush',message:'flush branch: endpoint scheduled',data:{pendingSends:this.pendingVoiceFrameSends.length,wsReady:(this.voiceConnection as any)?.['socket']?.readyState??'n/a'},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      void this.finishStreamingVoiceTurn('stop');
+      this.setVoiceNotice('Conversation arrêtée. Finalisation du dernier tour…', 'info');
+      return;
+    }
     this.recording.set(false);
+    this.deferredLoopStopAfterStreamingTurn = null;
+    this.closeVoiceAfterStreamingTurn = false;
+    this.voiceConnection?.loopStop({ surface: 'knowledge_capture', reason: 'user_stop' });
     this.releaseAudioStream();
     this.closeVoiceConnection();
     this.voiceState.set('idle');
@@ -7767,27 +9542,80 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.closeVoiceAfterStreamingTurn = false;
     this.captureEndpointReason = 'stop';
     this.stopCaptureEndpointMonitor();
-    this.voiceConnection?.audioPause({ surface: 'knowledge_capture' });
     this.stopSpeech(false);
-    if (this.recorder) {
+    // Deterministic pause ordering (fix 24a345): stop the recorder FIRST so its
+    // final ondataavailable flush is sent as a normal audio.frame, and only THEN
+    // send audio.pause. The stop event fires AFTER the last dataavailable, so by
+    // the time onstop runs the tail frame's send promise is already in
+    // pendingVoiceFrameSends; draining those sends before audioPause guarantees
+    // the backend flushes a segment that includes the tail and that no frame
+    // arrives after the flush (a late headerless frame used to poison the next
+    // buffer and 400 every STT call for the rest of the session).
+    const recorder = this.recorder;
+    this.recorder = null;
+    const sendPauseAfterTail = () => {
+      void Promise.allSettled(this.pendingVoiceFrameSends).then(() => {
+        this.voiceConnection?.audioPause({ surface: 'knowledge_capture' });
+      });
+    };
+    if (recorder && recorder.state !== 'inactive') {
       try {
-        this.recorder.onstop = null;
+        recorder.onstop = () => {
+          // The final flush frame was already handed to ondataavailable; make
+          // sure nothing else from this recorder is ever sent.
+          try {
+            recorder.ondataavailable = null;
+          } catch {
+            /* browser cleanup only */
+          }
+          sendPauseAfterTail();
+        };
+        recorder.stop();
       } catch {
-        /* browser cleanup only */
+        /* browser cleanup only — still notify the backend of the pause */
+        sendPauseAfterTail();
       }
-      try {
-        if (this.recorder.state !== 'inactive') this.recorder.stop();
-      } catch {
-        /* browser cleanup only */
-      }
-      this.recorder = null;
+    } else {
+      sendPauseAfterTail();
     }
     this.recording.set(false);
+    // Commit the in-flight tail (italic -> upright). The backend keeps the audio
+    // buffer open across a pause, so resuming continues the same turn — no data
+    // loss — but the visible transcript must not stay stuck in the "live" italic
+    // state once the mic is paused.
+    const live = this.liveTranscript();
+    if (live && live.status === 'live' && !this.isTrivialTranscriptSegment(live.text)) {
+      this.setLiveImproved(live.id, live.text);
+    }
     // Keep the streaming connection open so the user can resume the same section.
     this.conversationSessionActive.set(false);
     this.releaseAudioStream();
     this.voiceState.set('idle');
     this.setVoiceNotice('Micro en pause. Aucune relance déclenchée — reprenez quand vous voulez.', 'info');
+  }
+
+  /** When no subtopic is selected yet, default to the first subtopic of the first topic. */
+  private ensureDefaultPlanSection(session: CaptureSession): void {
+    if (this.isFreeConversationSession(session)) return;
+    if (this.activeSubtopicId()) return;
+    const topics = this.planTopics(session);
+    const firstTopic = topics[0];
+    if (!firstTopic) return;
+    if (!(firstTopic.subtopics || []).length) {
+      this.navigateCaptureSection(firstTopic.id, {
+        manual: false,
+        topicId: firstTopic.id,
+        syncVoice: false,
+      });
+      return;
+    }
+    const firstSubtopic = (firstTopic.subtopics || [])[0];
+    if (!firstSubtopic) return;
+    this.navigateCaptureSection(firstSubtopic.id, {
+      manual: false,
+      topicId: firstTopic.id,
+      syncVoice: false,
+    });
   }
 
   /** Resolve the active section (topic/subtopic) for section.select / section.finish. */
@@ -7805,9 +9633,23 @@ export class KnowledgeCaptureComponent implements OnInit {
         topics.find((t) => t.id === question.topic_id);
       return { topic_id: topic?.id || question.topic_id, subtopic_id: question.subtopic_id };
     }
-    if (question?.topic_id) return { topic_id: question.topic_id };
+    if (question?.topic_id) {
+      const topic = topics.find((t) => t.id === question.topic_id);
+      const firstSubtopic = topic?.subtopics?.[0];
+      if (firstSubtopic) {
+        return { topic_id: question.topic_id, subtopic_id: firstSubtopic.id };
+      }
+      return { topic_id: question.topic_id };
+    }
     const firstTopic = topics[0];
-    return firstTopic ? { topic_id: firstTopic.id } : {};
+    if (firstTopic) {
+      const firstSubtopic = (firstTopic.subtopics || [])[0];
+      if (firstSubtopic) {
+        return { topic_id: firstTopic.id, subtopic_id: firstSubtopic.id };
+      }
+      return { topic_id: firstTopic.id };
+    }
+    return {};
   }
 
   /** Flat list of plan sections (topics + subtopics) for the jump selector. */
@@ -7833,20 +9675,94 @@ export class KnowledgeCaptureComponent implements OnInit {
     return ref.topic_id || '';
   }
 
+  /** Resolve the current plan position (topic + subtopic with their indexes). */
+  private currentPlanPosition(session: CaptureSession): {
+    topic: CaptureTopic | null;
+    topicIndex: number;
+    subtopic: { id: string; title?: string } | null;
+    subtopicIndex: number;
+  } {
+    const topics = this.planTopics(session);
+    if (!topics.length) return { topic: null, topicIndex: -1, subtopic: null, subtopicIndex: -1 };
+    const ref = this.activeSectionRef(session);
+    let topicIndex = topics.findIndex((topic) => topic.id === ref.topic_id);
+    if (topicIndex < 0) topicIndex = 0;
+    const topic = topics[topicIndex];
+    const subtopics = topic.subtopics || [];
+    const subtopicIndex = ref.subtopic_id
+      ? subtopics.findIndex((subtopic) => subtopic.id === ref.subtopic_id)
+      : -1;
+    return {
+      topic,
+      topicIndex,
+      subtopic: subtopicIndex >= 0 ? subtopics[subtopicIndex] : null,
+      subtopicIndex,
+    };
+  }
+
+  /** One-line breadcrumb of the CURRENT plan position, e.g.
+   *  "1. Maintenance des rouleaux › 1.1 Inspection et alignement". */
+  captureBreadcrumb(session: CaptureSession): string | null {
+    const { topic, topicIndex, subtopic, subtopicIndex } = this.currentPlanPosition(session);
+    if (!topic) return null;
+    let label = `${topicIndex + 1}. ${(topic.title || 'Sujet').trim()}`;
+    if (subtopic) {
+      label += ` › ${topicIndex + 1}.${subtopicIndex + 1} ${(subtopic.title || 'Sous-sujet').trim()}`;
+    }
+    return label;
+  }
+
+  /** Fixed spoken position label for Lire / loop-start (no question text appended). */
+  private spokenSectionPrompt(): string | null {
+    const session = this.session();
+    if (!session || this.isFreeConversationSession(session)) {
+      return this.currentPromptText();
+    }
+    const { topic, subtopic } = this.currentPlanPosition(session);
+    const topicTitle = (topic?.title || '').trim();
+    const subtopicTitle = (subtopic?.title || '').trim();
+    if (subtopicTitle && !this.sectionTitlesAreRedundant(topicTitle, subtopicTitle)) {
+      return this.i18n.t('capture.spoken.subsection', { title: subtopicTitle });
+    }
+    if (topicTitle) {
+      return this.i18n.t('capture.spoken.section', { title: topicTitle });
+    }
+    return null;
+  }
+
+  private sectionTitlesAreRedundant(parentTitle: string, childTitle: string): boolean {
+    const normalize = (value: string) =>
+      value
+        .toLowerCase()
+        .trim()
+        .replace(/^\d+(\.\d+)*\s*/, '');
+    const parent = normalize(parentTitle);
+    const child = normalize(childTitle);
+    if (!child) return true;
+    if (!parent) return false;
+    if (parent === child) return true;
+    if (child.includes(parent) || parent.includes(child)) return true;
+    return false;
+  }
+
   /** Jump directly to any topic/subtopic. Sends section.select; keeps the mic open. */
   onCaptureSectionSelect(value: string): void {
     if (!value) return;
     const [topicId, subtopicId] = value.split('|');
     if (subtopicId) {
-      this.selectCaptureSubtopic(subtopicId);
+      this.navigateCaptureSection(subtopicId, { manual: true, topicId: topicId || null });
     } else {
-      this.activeSubtopicId.set(null);
       const session = this.session();
       const topic = session ? this.planTopics(session).find((t) => t.id === topicId) : null;
+      if (topic && !(topic.subtopics || []).length) {
+        this.navigateCaptureSection(topic.id, { manual: true, topicId: topic.id });
+        return;
+      }
       const firstSubtopic = topic?.subtopics?.[0];
-      if (firstSubtopic) this.activeSubtopicId.set(firstSubtopic.id);
+      if (firstSubtopic) {
+        this.navigateCaptureSection(firstSubtopic.id, { manual: true, topicId: topicId || null });
+      }
     }
-    this.voiceConnection?.sectionSelect({ topic_id: topicId || null, subtopic_id: subtopicId || null });
     this.setVoiceNotice('Section sélectionnée. Le micro reste ouvert sur cette section.', 'info');
   }
 
@@ -7883,6 +9799,11 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.closeVoiceAfterStreamingTurn = false;
     this.captureEndpointReason = 'stop';
     this.stopCaptureEndpointMonitor();
+    if (this.voiceConnection) {
+      // The heavy FINAL pass runs behind capture.finish: gate the report screen
+      // behind the finalization loader until the proposal-ready step lands.
+      this.beginCaptureFinalizing();
+    }
     this.voiceConnection?.captureFinish({ surface: 'knowledge_capture' });
     this.stopSpeech(false);
     if (this.recorder) {
@@ -7944,6 +9865,7 @@ export class KnowledgeCaptureComponent implements OnInit {
             this.recordingStopCallback = null;
             this.recordingPartialCallback = null;
             finalize(text);
+            this.clearDictationSurface();
             this.setVoiceNotice('Transcription enregistrée.', 'info');
             return;
           }
@@ -7967,6 +9889,11 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.clearTranscriptionWatchdog();
           this.transcribing.set(false);
           this.voiceState.set('idle');
+          if (this.recordingStopCallback) {
+            this.recordingStopCallback = null;
+            this.recordingPartialCallback = null;
+            this.clearDictationSurface();
+          }
           this.setVoiceNotice('Transcription impossible. Réessayez un tour vocal ou utilisez la saisie guidée.', 'error');
         },
       });
@@ -8007,7 +9934,11 @@ export class KnowledgeCaptureComponent implements OnInit {
           this.partialTranscriptionInFlight = false;
           const text = (res.text || '').trim();
           if (text) {
-            this.setLivePartial(this.currentClientTurnId || 'live-turn', text);
+            // Plan/prep dictation must only update its target field — never the
+            // capture transcript panel (which shares liveTranscript state).
+            if (!dictation) {
+              this.setLivePartial(this.currentClientTurnId || 'live-turn', text);
+            }
             if (dictation) {
               this.recordingPartialCallback?.(text);
             } else if (session) {
@@ -8029,6 +9960,10 @@ export class KnowledgeCaptureComponent implements OnInit {
   }
 
   private async finishStreamingVoiceTurn(reason: CaptureEndpointReason = this.captureEndpointReason): Promise<void> {
+    // Snapshot the connection BEFORE awaiting pending frame sends: a concurrent
+    // stop/teardown can null `this.voiceConnection` during the await, which
+    // silently dropped the endpoint and left the turn unfinalised.
+    const connection = this.voiceConnection;
     this.transcribing.set(true);
     this.voiceState.set('partial_transcribing');
     this.setVoiceNotice(
@@ -8042,7 +9977,13 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (pending.length) {
       await Promise.allSettled(pending);
     }
-    this.voiceConnection?.endpoint(this.voiceFrameMeta(reason));
+    // #region agent log
+    fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F2,F3',location:'knowledge-capture.component.ts:finishStreamingVoiceTurn:pre-endpoint',message:'about to send endpoint',data:{reason,pendingAwaited:pending.length,connNull:!connection,wsReady:(connection as any)?.['socket']?.readyState??'n/a',turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    connection?.endpoint(this.voiceFrameMeta(reason));
+    // #region agent log
+    fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F3',location:'knowledge-capture.component.ts:finishStreamingVoiceTurn:post-endpoint',message:'endpoint() returned',data:{reason,wsReady:(connection as any)?.['socket']?.readyState??'n/a'},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (reason === 'no_speech') {
       this.transcribing.set(false);
       this.voiceState.set('idle');
@@ -8093,7 +10034,12 @@ export class KnowledgeCaptureComponent implements OnInit {
           if (typed.hints?.length) {
             this.hintStack.update((current) => [...typed.hints!, ...current.filter((item) => !typed.hints!.some((h) => h.id === item.id))]);
           }
-          if (typed.active_subtopic_id) this.activeSubtopicId.set(typed.active_subtopic_id);
+          this.applyLiveSectionDetection(
+            typed.active_subtopic_id,
+            typed.active_topic_id,
+            Number(typed.active_section_confidence || 0),
+            'prefetch',
+          );
           this.prefetchInFlight = false;
           this.refreshEvents(session.id);
           if (this.isTopicOnlyPlan(session)) this.refreshHintQueue(session.id, typed.active_subtopic_id || this.activeSubtopicId());
@@ -8168,6 +10114,310 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.sourcePreviewUrl.set(null);
   }
 
+  // --- FINAL-phase loader (capture.finish gating) ---------------------------
+
+  /** Lock the report screen behind the finalization loader until the heavy
+   * end-of-capture pass persists the restructured report. */
+  private beginCaptureFinalizing(): void {
+    this.captureFinalizing.set(true);
+    this.captureFinalizeStage.set({ stage: 'start', label: 'Préparation de la synthèse finale…' });
+    if (this.captureFinalizeTimeout) clearTimeout(this.captureFinalizeTimeout);
+    // Safety valve: if the proposal-ready step never lands (connection lost),
+    // release the gate after 4 minutes instead of trapping the user.
+    this.captureFinalizeTimeout = setTimeout(() => {
+      if (!this.captureFinalizing()) return;
+      this.setVoiceNotice(
+        'La synthèse finale prend plus de temps que prévu. Le rapport affiché peut être incomplet.',
+        'warning',
+      );
+      this.endCaptureFinalizing(true);
+    }, 240000);
+  }
+
+  private endCaptureFinalizing(navigateToReview: boolean): void {
+    if (this.captureFinalizeTimeout) {
+      clearTimeout(this.captureFinalizeTimeout);
+      this.captureFinalizeTimeout = null;
+    }
+    const wasFinalizing = this.captureFinalizing();
+    this.captureFinalizing.set(false);
+    this.captureFinalizeStage.set(null);
+    if (!wasFinalizing || !navigateToReview) return;
+    if (this.proposal()) {
+      this.reportEditMode.set(false);
+      this.activeSurface.set('review');
+    } else {
+      this.activeSurface.set('dashboard');
+    }
+  }
+
+  captureFinalizeStageLabel(): string {
+    return this.captureFinalizeStage()?.label || 'Préparation de la synthèse finale…';
+  }
+
+  captureFinalizeSectionProgress(): string | null {
+    const stage = this.captureFinalizeStage();
+    if (!stage?.current || !stage?.total) return null;
+    return `Section ${stage.current} / ${stage.total}`;
+  }
+
+  captureFinalizeProgressPct(): number | null {
+    const stage = this.captureFinalizeStage();
+    if (!stage?.current || !stage?.total) return null;
+    return Math.min(100, Math.round(((stage.current - 0.5) / stage.total) * 100));
+  }
+
+  /** Pipeline checklist shown in the loader; states follow the real stages. */
+  captureFinalizeSteps(): Array<{ label: string; state: 'done' | 'active' | 'pending' }> {
+    const order = ['start', 'restructure', 'dedupe', 'vocabulary', 'reformulate', 'questions', 'section', 'report', 'done'];
+    const grouping: Array<{ label: string; stages: string[] }> = [
+      { label: 'Restructuration selon le plan', stages: ['start', 'restructure'] },
+      { label: 'Nettoyage des doublons', stages: ['dedupe'] },
+      { label: 'Alignement vocabulaire Andritz', stages: ['vocabulary'] },
+      { label: 'Reformulation des sections', stages: ['reformulate', 'questions', 'section'] },
+      { label: 'Assemblage du rapport', stages: ['report', 'done'] },
+    ];
+    const current = this.captureFinalizeStage()?.stage || 'start';
+    const currentRank = Math.max(0, order.indexOf(current));
+    return grouping.map((group) => {
+      const ranks = group.stages.map((stage) => order.indexOf(stage));
+      if (ranks.some((rank) => rank === currentRank)) return { label: group.label, state: 'active' as const };
+      return { label: group.label, state: Math.max(...ranks) < currentRank ? ('done' as const) : ('pending' as const) };
+    });
+  }
+
+  // --- Report fiche (structured rendering of the FINAL report) --------------
+
+  private buildReportFiche(proposal: CaptureProposal | null): CaptureReportSectionCard[] {
+    const topics = proposal?.proposal?.plan_structure?.topics || [];
+    const cards: CaptureReportSectionCard[] = [];
+    for (const topic of topics) {
+      const subsections: CaptureReportSubsectionCard[] = [];
+      for (const subtopic of topic.subtopics || []) {
+        const sub = this.buildReportNode(
+          `${topic.topic_id || cards.length}:${subtopic.subtopic_id || subsections.length}`,
+          subtopic,
+        );
+        if (sub.blocks.length || sub.facts.length || sub.sources.length || sub.openQuestionLinks.length) {
+          subsections.push(sub);
+        }
+      }
+      const node = this.buildReportNode(String(topic.topic_id || cards.length), topic);
+      if (!node.blocks.length && !node.facts.length && !subsections.length) continue;
+      cards.push({ ...node, index: cards.length + 1, subsections });
+    }
+    return cards;
+  }
+
+  private buildReportNode(key: string, node: CaptureReportStructureNode): CaptureReportSubsectionCard {
+    const synthesis = String(node.synthesis || '').trim();
+    const facts = synthesis
+      ? []
+      : (node.facts || [])
+          .map((fact) => String(fact.text || fact.statement || '').trim())
+          .filter((text) => Boolean(text));
+    return {
+      key,
+      title: String(node.title || 'Section').trim(),
+      blocks: this.parseReportBlocks(synthesis),
+      facts,
+      sources: (node.sources || []).filter((src) => Boolean(src)),
+      openQuestionLinks: this.buildReportOpenQuestionLinks(node.open_questions || []),
+    };
+  }
+
+  private buildReportOpenQuestionLinks(rawQuestions: Array<Record<string, unknown> | ProposalOpenQuestion>): CaptureReportOpenQuestionLink[] {
+    const texts = rawQuestions
+      .filter((q) => !['answered', 'invalid', 'dismissed'].includes(String((q as ProposalOpenQuestion).status || 'open').toLowerCase()))
+      .map((q) =>
+        String(
+          (q as Record<string, unknown>)['text'] ||
+            (q as ProposalOpenQuestion).follow_up ||
+            (q as ProposalOpenQuestion).reason ||
+            '',
+        ).trim(),
+      )
+      .filter((text) => Boolean(text));
+    const links: CaptureReportOpenQuestionLink[] = [];
+    const seen = new Set<string>();
+    for (const label of texts) {
+      const key = this.resolveReviewQuestionKey(label);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const sidebarIndex = this.proposalReviewQuestions().findIndex((row) => row.key === key);
+      links.push({
+        key,
+        label,
+        index: sidebarIndex >= 0 ? sidebarIndex + 1 : links.length + 1,
+      });
+    }
+    return links;
+  }
+
+  reviewQuestionDomId(key: string): string {
+    return `kc-review-q-${this.encodeReviewQuestionDomKey(key)}`;
+  }
+
+  private encodeReviewQuestionDomKey(key: string): string {
+    return encodeURIComponent(key).replace(/%/g, '_');
+  }
+
+  resolveReviewQuestionKey(text: string): string | null {
+    const normalized = text.trim().toLowerCase();
+    if (!normalized) return null;
+    for (const [index, question] of this.proposalOpenQuestions().entries()) {
+      const candidate = this.proposalQuestionText(question).trim().toLowerCase();
+      if (!candidate) continue;
+      if (candidate === normalized || candidate.includes(normalized) || normalized.includes(candidate)) {
+        return this.proposalQuestionKey(question, index);
+      }
+    }
+    return null;
+  }
+
+  scrollToReviewQuestion(key: string): void {
+    const target = document.getElementById(this.reviewQuestionDomId(key));
+    if (!target) {
+      this.setVoiceNotice('Question introuvable dans le panneau de revue.', 'warning');
+      return;
+    }
+    target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (this.reviewQuestionHighlightTimer) clearTimeout(this.reviewQuestionHighlightTimer);
+    this.highlightedReviewQuestionKey.set(key);
+    this.reviewQuestionHighlightTimer = setTimeout(() => {
+      this.highlightedReviewQuestionKey.set(null);
+      this.reviewQuestionHighlightTimer = null;
+    }, 2200);
+  }
+
+  /** Minimal, safe markdown-to-blocks parser for the section syntheses
+   * (markdown stays the storage format; rendering is structured). */
+  private parseReportBlocks(markdown: string): CaptureReportBlock[] {
+    const blocks: CaptureReportBlock[] = [];
+    if (!markdown) return blocks;
+    let bulletBuffer: Array<{ level: number; text: string }> = [];
+    let paragraph: string[] = [];
+    const flushParagraph = () => {
+      if (paragraph.length) {
+        blocks.push({ kind: 'paragraph', text: this.stripInlineMarkdown(paragraph.join(' ')) });
+        paragraph = [];
+      }
+    };
+    const flushList = () => {
+      if (bulletBuffer.length) {
+        blocks.push({ kind: 'list', items: this.buildReportListTree(bulletBuffer) });
+        bulletBuffer = [];
+      }
+    };
+    for (const rawLine of markdown.split('\n')) {
+      if (!rawLine.trim()) {
+        flushList();
+        flushParagraph();
+        continue;
+      }
+      const bullet = this.parseReportBulletLine(rawLine);
+      if (bullet) {
+        flushParagraph();
+        bulletBuffer.push(bullet);
+        continue;
+      }
+      flushList();
+      const trimmed = rawLine.trim();
+      const heading = trimmed.match(/^#{1,6}\s+(.*)$/);
+      if (heading) {
+        flushParagraph();
+        blocks.push({ kind: 'heading', text: this.stripInlineMarkdown(heading[1]) });
+        continue;
+      }
+      if (this.isReportSubheading(trimmed)) {
+        flushParagraph();
+        blocks.push({ kind: 'heading', text: this.stripInlineMarkdown(this.normalizeReportSubheading(trimmed)) });
+        continue;
+      }
+      paragraph.push(trimmed);
+    }
+    flushList();
+    flushParagraph();
+    return blocks;
+  }
+
+  private parseReportBulletLine(rawLine: string): { level: number; text: string } | null {
+    const match = rawLine.match(/^([\t ]*)([-*•]|\d+[.)])\s+(.*)$/);
+    if (!match) return null;
+    const indent = match[1].replace(/\t/g, '  ').length;
+    return { level: Math.floor(indent / 2), text: this.stripInlineMarkdown(match[3]) };
+  }
+
+  private buildReportListTree(flat: Array<{ level: number; text: string }>): CaptureReportListItem[] {
+    const root: CaptureReportListItem[] = [];
+    const stack: Array<{ level: number; item: CaptureReportListItem }> = [];
+    for (const entry of flat) {
+      const node: CaptureReportListItem = { text: entry.text, children: [] };
+      while (stack.length && stack[stack.length - 1].level >= entry.level) {
+        stack.pop();
+      }
+      if (!stack.length) {
+        root.push(node);
+      } else {
+        stack[stack.length - 1].item.children.push(node);
+      }
+      stack.push({ level: entry.level, item: node });
+    }
+    return root;
+  }
+
+  private isReportSubheading(line: string): boolean {
+    if (/^\*\*.+\*\*:?\s*$/.test(line)) return true;
+    return line.length <= 100 && /:\s*$/.test(line) && !/^https?:\/\//i.test(line);
+  }
+
+  private normalizeReportSubheading(line: string): string {
+    const bold = line.match(/^\*\*(.+)\*\*:?\s*$/);
+    if (bold) return bold[1].trim();
+    return line.replace(/:\s*$/, '').trim();
+  }
+
+  private stripInlineMarkdown(text: string): string {
+    return text
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .trim();
+  }
+
+  reportUnassignedFacts(): string[] {
+    return (this.proposal()?.proposal?.plan_structure?.unassigned || [])
+      .map((fact) => String(fact.text || fact.statement || '').trim())
+      .filter((text) => Boolean(text));
+  }
+
+  reportSourceLabel(src: CaptureReportSource): string {
+    return String(src.title || src.filename || src.source || src.document_id || 'Source').trim();
+  }
+
+  canPreviewReportSource(src: CaptureReportSource): boolean {
+    return Boolean(src.document_id) && Boolean(src.collection);
+  }
+
+  /** Chat-style source preview (same rich-preview endpoint as the chat chips). */
+  previewReportSource(src: CaptureReportSource): void {
+    const documentId = String(src.document_id || '');
+    const collection = String(src.collection || '');
+    if (!documentId || !collection) return;
+    let url =
+      `${this.api.base}/documents/${encodeURIComponent(documentId)}/rich-preview` +
+      `?collection_name=${encodeURIComponent(collection)}`;
+    const filename = String(src.filename || '').trim();
+    if (filename) url += `&filename=${encodeURIComponent(filename)}`;
+    this.sourcePreviewTitle.set(this.reportSourceLabel(src));
+    this.sourcePreviewUrl.set(url);
+    this.sourcePreviewOpen.set(true);
+  }
+
+  toggleReportEditMode(): void {
+    this.reportEditMode.update((value) => !value);
+  }
+
   private stopSpeech(markInterrupted: boolean): void {
     this.ttsPlayback.stop(markInterrupted ? 'barge_in' : 'reset', markInterrupted);
     if (this.activeAudio) {
@@ -8202,7 +10452,9 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (!this.recorder || this.recorder.state === 'inactive') return;
     this.captureEndpointReason = reason;
     this.stopCaptureEndpointMonitor();
-    this.setVoiceNotice(this.captureEndpointNotice(reason), reason === 'no_speech' ? 'warning' : 'info');
+    const isDictation = !!this.recordingPartialCallback;
+    const notice = isDictation ? this.dictationEndpointNotice(reason) : this.captureEndpointNotice(reason);
+    this.setVoiceNotice(notice, reason === 'no_speech' ? 'warning' : 'info');
     try {
       this.recorder.stop();
     } catch {
@@ -8210,6 +10462,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.setVoiceNotice('Fermeture du tour vocal impossible. Relancez le micro.', 'error');
     }
     this.recording.set(false);
+    this.stopDictationAudioMonitor();
   }
 
   private captureEndpointNotice(reason: CaptureEndpointReason): string {
@@ -8219,6 +10472,104 @@ export class KnowledgeCaptureComponent implements OnInit {
     if (reason === 'stop') return 'Conversation arrêtée.';
     if (reason === 'error') return 'Erreur pendant la capture vocale.';
     return 'Finalisation du tour vocal.';
+  }
+
+  private dictationEndpointNotice(reason: CaptureEndpointReason): string {
+    if (reason === 'silence') return this.i18n.t('capture.plan.dictation.silence_stop');
+    if (reason === 'no_speech') return 'Aucune parole détectée : dictée annulée.';
+    if (reason === 'error') return 'Erreur pendant la dictée.';
+    return 'Finalisation de la dictée…';
+  }
+
+  private clearDictationSurface(): void {
+    this.dictationSurface.set(null);
+    this.stopDictationAudioMonitor();
+  }
+
+  private startDictationAudioMonitor(): void {
+    this.stopDictationAudioMonitor();
+    if (!this.stream) return;
+    const AudioContextCtor =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+    try {
+      const context = new AudioContextCtor();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.18;
+      const source = context.createMediaStreamSource(this.stream);
+      source.connect(analyser);
+      this.dictationAudioContext = context;
+      this.dictationAudioSource = source;
+      this.dictationSpeechDetected = false;
+      this.dictationTurnStartedAt = performance.now();
+      this.dictationLastVoiceAt = this.dictationTurnStartedAt;
+      this.dictationSilenceEnding.set(false);
+      const data = new Uint8Array(analyser.fftSize);
+      const threshold = this.voiceEndpointRmsThreshold();
+      const silenceMs = this.dictationEndpointSilenceMs();
+      const minSpeechMs = this.dictationEndpointMinSpeechMs();
+      const tick = () => {
+        if (!this.recording() || !this.recordingPartialCallback) {
+          this.stopDictationAudioMonitor();
+          return;
+        }
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (const sample of data) {
+          const normalized = (sample - 128) / 128;
+          sum += normalized * normalized;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        const now = performance.now();
+        const elapsed = now - this.dictationTurnStartedAt;
+        this.dictationAudioLevel.set(Math.min(1, rms / 0.12));
+        if (rms >= threshold) {
+          this.dictationSpeechDetected = true;
+          this.dictationLastVoiceAt = now;
+          this.dictationVoiceDetected.set(true);
+        }
+        const reachedSilence =
+          this.dictationSpeechDetected &&
+          elapsed >= minSpeechMs &&
+          now - this.dictationLastVoiceAt >= silenceMs;
+        if (reachedSilence) {
+          this.dictationSilenceEnding.set(true);
+          this.setVoiceNotice(this.dictationEndpointNotice('silence'), 'info');
+          // #region agent log
+          fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F5',location:'knowledge-capture.component.ts:startDictationAudioMonitor',message:'dictation silence endpoint',data:{surface:this.dictationSurface(),silenceMs,minSpeechMs,threshold,rms:Number(rms.toFixed(4)),elapsedMs:Math.round(elapsed),sinceVoiceMs:Math.round(now-this.dictationLastVoiceAt),turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
+          this.endpointRecordingTurn('silence');
+          return;
+        }
+        this.dictationAudioRaf = requestAnimationFrame(tick);
+      };
+      this.dictationAudioRaf = requestAnimationFrame(tick);
+    } catch {
+      this.stopDictationAudioMonitor();
+    }
+  }
+
+  private stopDictationAudioMonitor(): void {
+    if (this.dictationAudioRaf !== null) {
+      cancelAnimationFrame(this.dictationAudioRaf);
+      this.dictationAudioRaf = null;
+    }
+    try {
+      this.dictationAudioSource?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    this.dictationAudioSource = null;
+    void this.dictationAudioContext?.close();
+    this.dictationAudioContext = null;
+    this.dictationSpeechDetected = false;
+    this.dictationLastVoiceAt = 0;
+    this.dictationTurnStartedAt = 0;
+    this.dictationVoiceDetected.set(false);
+    this.dictationSilenceEnding.set(false);
+    this.dictationAudioLevel.set(0);
   }
 
   private startCaptureEndpointMonitor(): void {
@@ -8385,9 +10736,18 @@ export class KnowledgeCaptureComponent implements OnInit {
     }
     try {
       this.recorder = new MediaRecorder(this.stream!);
+      // #region agent log
+      const dbgRec = this.recorder as any; dbgRec.__dbgId = `rec-${Date.now().toString(36)}-${Math.floor(Math.random()*1e4)}`; let dbgAnomalous = 0;
+      fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F4',location:'knowledge-capture.component.ts:startAudioRecorder',message:'recorder created',data:{recId:dbgRec.__dbgId,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       this.captureEndpointReason = 'manual';
       this.recorder.ondataavailable = (event) => {
         if (event.data.size <= 0) return;
+        // #region agent log
+        if ((this.closeVoiceAfterStreamingTurn || !this.recording() || this.recorder !== dbgRec) && dbgAnomalous < 6) { dbgAnomalous++;
+          fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F4',location:'knowledge-capture.component.ts:ondataavailable',message:'anomalous frame after stop/teardown',data:{recId:dbgRec.__dbgId,recState:dbgRec.state,isCurrentRecorder:this.recorder===dbgRec,closeAfter:this.closeVoiceAfterStreamingTurn,recording:this.recording(),bytes:event.data.size,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
+        }
+        // #endregion
         this.chunks.push(event.data);
         if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
           const send = this.voiceConnection
@@ -8416,6 +10776,7 @@ export class KnowledgeCaptureComponent implements OnInit {
       this.setVoiceNotice('Démarrage de l’enregistrement impossible. Vérifiez le micro puis réessayez.', 'error');
       return false;
     }
+    this.transcriptAtBottom.set(true);
     this.recording.set(true);
     this.voiceState.set('listening');
     this.setVoiceNotice(openMessage, 'info');
@@ -8565,6 +10926,9 @@ export class KnowledgeCaptureComponent implements OnInit {
     this.clearTranscriptionWatchdog();
     this.transcriptionWatchdog = window.setTimeout(() => {
       if (!this.transcribing()) return;
+      // #region agent log
+      fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F2,F3',location:'knowledge-capture.component.ts:transcriptionWatchdog',message:'45s watchdog fired (no text.final received)',data:{turn:this.currentClientTurnId,closeAfter:this.closeVoiceAfterStreamingTurn,wsReady:(this.voiceConnection as any)?.['socket']?.readyState??'n/a'},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       this.transcribing.set(false);
       this.voiceState.set('idle');
       this.releaseAudioStream();

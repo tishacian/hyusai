@@ -141,6 +141,9 @@ class CaptureSessionContext:
     dialogue_turns: list[dict]
     active_subtopic_id: str | None
     recent_transcript: list[dict]
+    current_plan: list[dict] | None = None
+    latest_instruction: str | None = None
+    provided_seed: str | None = None
 
 
 def _words(text: str) -> List[str]:
@@ -258,16 +261,48 @@ def broad_presentation_prompt(title: Optional[str]) -> str:
     return f"Présentez globalement ce que vous savez de « {label} »."
 
 
+def _current_plan_for_llm(topics: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Compact outline sent to the plan oracle for iteration mode."""
+    outline: List[Dict[str, Any]] = []
+    for topic in topics or []:
+        if not isinstance(topic, dict):
+            continue
+        entry: Dict[str, Any] = {
+            "id": topic.get("id"),
+            "title": topic.get("title"),
+            "subtopics": [],
+        }
+        for sub in topic.get("subtopics") or []:
+            if not isinstance(sub, dict):
+                continue
+            entry["subtopics"].append(
+                {
+                    "id": sub.get("id"),
+                    "title": sub.get("title"),
+                    "questions": [
+                        {"id": point.get("id"), "title": point.get("title")}
+                        for point in (sub.get("questions") or [])
+                        if isinstance(point, dict) and (point.get("title") or point.get("prompt"))
+                    ],
+                }
+            )
+        outline.append(entry)
+    return outline
+
+
 def session_context_from_capture(
     *,
     session: Any,
     plan: Dict[str, Any],
     active_subtopic_id: Optional[str] = None,
     recent_transcript: Optional[List[Dict[str, Any]]] = None,
+    current_plan: Optional[List[Dict[str, Any]]] = None,
+    latest_instruction: Optional[str] = None,
 ) -> CaptureSessionContext:
     metrics = session.metrics or {}
     dialogue = plan.get("dialogue") or {}
     unlimited = bool(metrics.get("unlimited_duration") or plan.get("unlimited_duration"))
+    seed = str(dialogue.get("provided_seed") or "").strip() or None
     return CaptureSessionContext(
         title=str(session.title or ""),
         objective=str(session.objective or plan.get("objective") or ""),
@@ -281,6 +316,9 @@ def session_context_from_capture(
         dialogue_turns=list(dialogue.get("turns") or []),
         active_subtopic_id=active_subtopic_id or metrics.get("active_subtopic_id"),
         recent_transcript=list(recent_transcript or []),
+        current_plan=current_plan if current_plan is not None else _current_plan_for_llm(plan.get("topics") or []),
+        latest_instruction=(latest_instruction or "").strip() or None,
+        provided_seed=seed,
     )
 
 
@@ -635,43 +673,66 @@ def analyze_plan_oracle(
     }
 
 
-async def analyze_plan_oracle_async(
+def _resolve_plan_oracle_model(default_model: str) -> str:
+    """Plan structuring uses a dedicated (faster) model when configured."""
+    from app.core.config import settings as cfg
+
+    override = str(getattr(cfg, "capture_plan_oracle_model", "") or "").strip()
+    return override or default_model
+
+
+async def plan_structure_llm_async(
     context: CaptureSessionContext,
     *,
     rag_chunks: Optional[List[str]] = None,
     rag_metadatas: Optional[List[Dict[str, Any]]] = None,
-    base_gaps: Optional[List[Dict[str, Any]]] = None,
-) -> Dict[str, Any]:
-    """Try one structured LLM call; fall back to deterministic oracle."""
-    fallback = analyze_plan_oracle(
-        context,
-        rag_chunks=rag_chunks,
-        rag_metadatas=rag_metadatas,
-        base_gaps=base_gaps,
-    )
+) -> Optional[Dict[str, Any]]:
+    """One structured LLM call that organises the expert's statements into a plan.
+
+    Returns the parsed JSON payload, or ``None`` when no LLM is configured /
+    the call fails / the payload has no topic proposals. ``rag_chunks`` are
+    optional: they only inform ``kb_refs`` in the prompt (never the scope), so
+    callers may invoke this concurrently with retrieval and omit them.
+    """
     api_key, model = _resolve_llm_config(context.workspace_id)
     if not api_key:
-        return fallback
+        return None
+    model = _resolve_plan_oracle_model(model)
     try:
         from openai import AsyncOpenAI
 
         client = AsyncOpenAI(api_key=api_key)
+        current_plan = list(context.current_plan or [])
+        latest_instruction = str(context.latest_instruction or "").strip()
+        iteration_mode = bool(current_plan)
         prompt = {
             "title": context.title,
             "objective": context.objective,
             "domain": context.domain,
             "expert_profile": context.expert_profile,
             "duration_minutes": context.duration_minutes,
+            "provided_seed": context.provided_seed,
             "expert_statements": context.dialogue_turns,
+            "current_plan": current_plan,
+            "latest_instruction": latest_instruction or None,
             "rag_chunks": (rag_chunks or [])[:4],
             "rag_metadatas": (rag_metadatas or [])[:4],
             "instruction": (
                 "Tu es l'oracle de co-construction d'un plan de capture de savoir expert. "
-                "À partir de ce que l'expert a exprimé dans 'expert_statements' (éclairé par "
-                "'objective' et 'domain'), ORGANISE ce contenu en un PLAN HIÉRARCHIQUE de type "
-                "document — comme le sommaire d'un rapport technique : plusieurs SECTIONS de "
-                "premier niveau (topic_proposals), chacune découpée en SOUS-SECTIONS (subtopics), "
+                "À partir de ce que l'expert a exprimé dans 'expert_statements' et 'provided_seed' "
+                "(éclairé par 'objective' et 'domain'), ORGANISE ce contenu en un PLAN HIÉRARCHIQUE "
+                "de type document — comme le sommaire d'un rapport technique : plusieurs SECTIONS "
+                "de premier niveau (topic_proposals), chacune découpée en SOUS-SECTIONS (subtopics), "
                 "et chaque sous-section portant quelques POINTS DE PRÉSENTATION (questions). "
+                "MODE ITÉRATION : si 'current_plan' contient des rubriques, traite ce plan comme "
+                "source de vérité pour les sections existantes. Applique UNIQUEMENT 'latest_instruction' "
+                "comme modification ciblée ; ne régénère pas tout le plan sauf demande explicite "
+                "(recommencer, tout refaire, nouveau plan, etc.). "
+                "PLACEMENT : les nouveaux points vont sous la section EXISTANTE la plus spécifique "
+                "sémantiquement ; pour les thèmes transverses (ex. sécurité), préfère la section "
+                "dédiée (ex. « Directives de sécurité ») plutôt qu'une mention incidente ailleurs. "
+                "Préserve les ids des rubriques inchangées ; ne déplace ni supprime de sections "
+                "existantes sauf instruction explicite. "
                 "STRUCTURE : colle strictement aux rubriques, à l'ordre et au périmètre exprimés par l'utilisateur. "
                 "Si l'utilisateur donne une liste ou un plan, reprends cette structure sans inventer de sections. "
                 "N'ajoute PAS de rubriques génériques comme introduction, contexte, importance, enjeux, conclusion "
@@ -689,6 +750,21 @@ async def analyze_plan_oracle_async(
                 "dialogue_probe (string, une relance de cadrage qui invite à décrire, pas à interroger)."
             ),
         }
+        system_content = (
+            "Oracle capture JSON only. No interview questions. "
+            "Mirror the user's requested outline, labels and order. "
+            "Do not add generic sections such as introduction, context, importance or conclusion."
+        )
+        if iteration_mode:
+            system_content += (
+                " ITERATION MODE: when current_plan has topics, treat it as the source of truth "
+                "for existing rubrics. Apply ONLY latest_instruction as a targeted delta; do not "
+                "regenerate the full plan unless explicitly asked. PLACEMENT: new items belong "
+                "under the most specific matching existing section; for cross-cutting themes "
+                "(e.g. security), prefer the dedicated section over incidental mentions elsewhere. "
+                "Preserve existing ids when rubrics are unchanged; do not move or delete existing "
+                "sections unless explicitly instructed."
+            )
         response = await client.chat.completions.create(
             model=model,
             **_model_chat_kwargs(model, temperature=0.2),
@@ -696,39 +772,78 @@ async def analyze_plan_oracle_async(
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "Oracle capture JSON only. No interview questions. "
-                        "Mirror the user's requested outline, labels and order. "
-                        "Do not add generic sections such as introduction, context, importance or conclusion."
-                    ),
+                    "content": system_content,
                 },
                 {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
             ],
         )
         content = response.choices[0].message.content if response.choices else None
         if not content:
-            return fallback
+            return None
         parsed = json.loads(content)
         if not isinstance(parsed, dict) or not parsed.get("topic_proposals"):
-            return fallback
-        deterministic_contradictions = fallback.get("contradiction_candidates") or []
-        llm_contradictions = parsed.get("contradiction_candidates") or []
-        merged_contradictions = list(deterministic_contradictions)
-        seen = {_contradiction_signature(item) for item in merged_contradictions if isinstance(item, dict)}
-        for candidate in llm_contradictions:
-            if not isinstance(candidate, dict):
-                continue
-            signature = _contradiction_signature(candidate)
-            if signature in seen:
-                continue
-            seen.add(signature)
-            merged_contradictions.append(candidate)
-        parsed["contradiction_candidates"] = merged_contradictions or deterministic_contradictions
-        parsed.setdefault("dialogue_probe", fallback.get("dialogue_probe"))
-        parsed.setdefault("coverage_gaps", fallback.get("coverage_gaps"))
+            return None
         return parsed
     except Exception:
+        return None
+
+
+def compose_plan_oracle(
+    context: CaptureSessionContext,
+    parsed: Optional[Dict[str, Any]],
+    *,
+    rag_chunks: Optional[List[str]] = None,
+    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
+    base_gaps: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Combine the (optional) LLM structuring with the deterministic oracle."""
+    fallback = analyze_plan_oracle(
+        context,
+        rag_chunks=rag_chunks,
+        rag_metadatas=rag_metadatas,
+        base_gaps=base_gaps,
+    )
+    if not isinstance(parsed, dict) or not parsed.get("topic_proposals"):
         return fallback
+    deterministic_contradictions = fallback.get("contradiction_candidates") or []
+    llm_contradictions = parsed.get("contradiction_candidates") or []
+    merged_contradictions = list(deterministic_contradictions)
+    seen = {_contradiction_signature(item) for item in merged_contradictions if isinstance(item, dict)}
+    for candidate in llm_contradictions:
+        if not isinstance(candidate, dict):
+            continue
+        signature = _contradiction_signature(candidate)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        merged_contradictions.append(candidate)
+    parsed["contradiction_candidates"] = merged_contradictions or deterministic_contradictions
+    parsed.setdefault("dialogue_probe", fallback.get("dialogue_probe"))
+    parsed.setdefault("coverage_gaps", fallback.get("coverage_gaps"))
+    parsed.setdefault("oracle_exact_matches", fallback.get("oracle_exact_matches"))
+    return parsed
+
+
+async def analyze_plan_oracle_async(
+    context: CaptureSessionContext,
+    *,
+    rag_chunks: Optional[List[str]] = None,
+    rag_metadatas: Optional[List[Dict[str, Any]]] = None,
+    base_gaps: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Try one structured LLM call; fall back to deterministic oracle."""
+    parsed = await plan_structure_llm_async(
+        context,
+        rag_chunks=rag_chunks,
+        rag_metadatas=rag_metadatas,
+    )
+    return compose_plan_oracle(
+        context,
+        parsed,
+        rag_chunks=rag_chunks,
+        rag_metadatas=rag_metadatas,
+        base_gaps=base_gaps,
+    )
 
 
 def plan_dialogue_probe(oracle_result: Dict[str, Any], *, ready_to_finalize: bool = False) -> Optional[str]:
@@ -784,22 +899,85 @@ def normalize_outline_points(
     return normalized
 
 
+_TITLE_SIMILARITY_MIN = 0.8
+
+
+def _title_key(title: Any) -> str:
+    return " ".join(_words(str(title or ""))).strip().lower()
+
+
+def _titles_similar(a: Any, b: Any) -> bool:
+    """Near-duplicate outline titles ("Maintenance des rouleaux" vs "Maintenance
+    et entretien des rouleaux"). Token containment on content tokens, with an
+    exact normalized comparison as fallback for very short titles."""
+    key_a, key_b = _title_key(a), _title_key(b)
+    if not key_a or not key_b:
+        return False
+    if key_a == key_b:
+        return True
+    tokens_a, tokens_b = _content_tokens(key_a), _content_tokens(key_b)
+    if not tokens_a or not tokens_b:
+        return False
+    containment = len(tokens_a & tokens_b) / min(len(tokens_a), len(tokens_b))
+    return containment >= _TITLE_SIMILARITY_MIN
+
+
 def merge_topic_proposals(plan: Dict[str, Any], proposals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Merge oracle topic proposals into plan topics, preserving user edits."""
-    existing = {topic.get("id"): dict(topic) for topic in (plan.get("topics") or []) if isinstance(topic, dict)}
+    """Merge oracle topic proposals into plan topics, preserving user edits.
+
+    Iteration semantics are REPLACE, not append: the oracle regenerates the whole
+    plan on each instruction (often with fresh ids and slightly reworded titles),
+    so existing topics are matched by id OR by title similarity and folded into
+    the regenerated outline. Leftover existing topics are only re-appended when
+    no merged topic already covers the same title — this is the dedupe safety
+    net against the "duplicate sections when iterating" bug.
+    """
+    existing_topics = [dict(topic) for topic in (plan.get("topics") or []) if isinstance(topic, dict)]
+    existing_by_id = {str(topic.get("id")): topic for topic in existing_topics if topic.get("id")}
+    consumed_existing: set[int] = set()
+
+    def _match_existing(topic_id: str, title: Any) -> Dict[str, Any]:
+        match = existing_by_id.get(topic_id)
+        if match is not None:
+            for index, topic in enumerate(existing_topics):
+                if topic is match:
+                    consumed_existing.add(index)
+            return match
+        for index, topic in enumerate(existing_topics):
+            if index in consumed_existing:
+                continue
+            if _titles_similar(topic.get("title"), title):
+                consumed_existing.add(index)
+                return topic
+        return {}
+
     merged: List[Dict[str, Any]] = []
     for proposal in proposals:
         if not isinstance(proposal, dict):
             continue
+        # The LLM occasionally emits the same section twice in one response.
+        if any(_titles_similar(item.get("title"), proposal.get("title")) for item in merged):
+            continue
         topic_id = str(proposal.get("id") or f"t-{len(merged) + 1:02d}")
-        current = existing.get(topic_id, {})
+        current = _match_existing(topic_id, proposal.get("title"))
+        topic_id = str(current.get("id") or topic_id)
         subtopics = []
         existing_sub = {st.get("id"): st for st in (current.get("subtopics") or []) if isinstance(st, dict)}
+        existing_sub_list = [st for st in (current.get("subtopics") or []) if isinstance(st, dict)]
         for raw_sub in proposal.get("subtopics") or []:
             if not isinstance(raw_sub, dict):
                 continue
+            if any(_titles_similar(item.get("title"), raw_sub.get("title")) for item in subtopics):
+                continue
             sub_id = str(raw_sub.get("id") or f"{topic_id}-sub-{len(subtopics) + 1:02d}")
-            prior = existing_sub.get(sub_id, {})
+            prior = existing_sub.get(sub_id)
+            if prior is None:
+                prior = next(
+                    (st for st in existing_sub_list if _titles_similar(st.get("title"), raw_sub.get("title"))),
+                    {},
+                )
+            if prior:
+                sub_id = str(prior.get("id") or sub_id)
             sub_title = prior.get("title") or raw_sub.get("title")
             points = normalize_outline_points(
                 sub_id,
@@ -833,10 +1011,102 @@ def merge_topic_proposals(plan: Dict[str, Any], proposals: List[Dict[str, Any]])
                 "oracle_confidence": proposal.get("confidence"),
             }
         )
-    for topic_id, topic in existing.items():
-        if topic_id not in {item.get("id") for item in merged}:
-            merged.append(topic)
+    merged_ids = {str(item.get("id")) for item in merged}
+    for index, topic in enumerate(existing_topics):
+        if index in consumed_existing or str(topic.get("id")) in merged_ids:
+            continue
+        # Safety net: never re-append an existing topic the regenerated plan
+        # already covers under a slightly different title (duplicate sections).
+        if any(_titles_similar(item.get("title"), topic.get("title")) for item in merged):
+            continue
+        merged.append(topic)
     return merged
+
+
+# Minimum lexical overlap score before a live section suggestion is emitted.
+LIVE_SECTION_DETECT_MIN_CONFIDENCE = 0.42
+
+
+def detect_active_section_from_text(
+    plan_topics: List[Dict[str, Any]],
+    partial_text: str,
+    *,
+    fallback_subtopic_id: Optional[str] = None,
+    window_words: int = 40,
+) -> Dict[str, Any]:
+    """Lightweight plan-section detector for live capture (no LLM, no retrieval).
+
+    Scores subtopic/topic titles against the tail of the recent transcript using
+    token overlap and full-title substring matches. Returns a confidence in [0, 1].
+    """
+    words = _words(partial_text or "")
+    if len(words) < 6:
+        fallback_topic_id = _topic_id_for_subtopic(plan_topics, fallback_subtopic_id)
+        return {
+            "subtopic_id": fallback_subtopic_id,
+            "topic_id": fallback_topic_id,
+            "confidence": 0.0,
+        }
+    window = " ".join(words[-window_words:]).lower()
+    window_tokens = _content_tokens(window)
+
+    best_subtopic_id: Optional[str] = None
+    best_topic_id: Optional[str] = None
+    best_confidence = 0.0
+
+    for topic in plan_topics:
+        topic_id = str(topic.get("id") or "")
+        topic_tokens = _content_tokens(str(topic.get("title") or ""))
+        for subtopic in topic.get("subtopics") or []:
+            subtopic_id = str(subtopic.get("id") or "")
+            title = str(subtopic.get("title") or "").strip()
+            if not subtopic_id or not title:
+                continue
+            title_lower = title.lower()
+            title_tokens = _content_tokens(title_lower)
+            if not title_tokens and len(title_lower) < 5:
+                continue
+            if len(title_lower) >= 5 and title_lower in window:
+                confidence = 0.92
+            else:
+                overlap = title_tokens & window_tokens
+                if not overlap and topic_tokens:
+                    overlap = (title_tokens | topic_tokens) & window_tokens
+                if not overlap:
+                    continue
+                confidence = len(overlap) / max(1, len(title_tokens))
+                if len(overlap) < 2 and confidence < 0.55:
+                    continue
+            if confidence > best_confidence:
+                best_confidence = confidence
+                best_subtopic_id = subtopic_id
+                best_topic_id = topic_id
+
+    if best_confidence < LIVE_SECTION_DETECT_MIN_CONFIDENCE:
+        fallback_topic_id = _topic_id_for_subtopic(plan_topics, fallback_subtopic_id)
+        return {
+            "subtopic_id": fallback_subtopic_id,
+            "topic_id": fallback_topic_id,
+            "confidence": 0.0,
+        }
+    return {
+        "subtopic_id": best_subtopic_id,
+        "topic_id": best_topic_id,
+        "confidence": round(best_confidence, 3),
+    }
+
+
+def _topic_id_for_subtopic(
+    plan_topics: List[Dict[str, Any]],
+    subtopic_id: Optional[str],
+) -> Optional[str]:
+    if not subtopic_id:
+        return None
+    for topic in plan_topics:
+        for subtopic in topic.get("subtopics") or []:
+            if str(subtopic.get("id")) == subtopic_id:
+                return str(topic.get("id") or "") or None
+    return None
 
 
 def infer_active_subtopic_id(
@@ -845,17 +1115,13 @@ def infer_active_subtopic_id(
     *,
     fallback: Optional[str] = None,
 ) -> Optional[str]:
-    lowered = (partial_text or "").lower()
-    for topic in plan_topics:
-        for subtopic in topic.get("subtopics") or []:
-            title = str(subtopic.get("title") or "").lower()
-            if title and title in lowered:
-                return str(subtopic.get("id"))
-    if any(token in lowered for token in ("vitesse", "rouleau", "180", "120", "min")):
-        for topic in plan_topics:
-            for subtopic in topic.get("subtopics") or []:
-                if "vitesse" in str(subtopic.get("title") or "").lower():
-                    return str(subtopic.get("id"))
+    detected = detect_active_section_from_text(
+        plan_topics,
+        partial_text,
+        fallback_subtopic_id=fallback,
+    )
+    if detected.get("confidence", 0.0) >= LIVE_SECTION_DETECT_MIN_CONFIDENCE:
+        return detected.get("subtopic_id")
     return fallback
 
 
@@ -877,6 +1143,8 @@ def evaluate_capture_partial(
             "hints": [],
             "contradiction_candidates": [],
             "active_subtopic_id": context.active_subtopic_id,
+            "active_section_confidence": 0.0,
+            "active_topic_id": _topic_id_for_subtopic(plan_topics or [], context.active_subtopic_id),
             "retrieval": retrieval,
             "oracle_exact_matches": exact_matches,
         }
@@ -906,11 +1174,13 @@ def evaluate_capture_partial(
                 "oracle_id": str(uuid.uuid4()),
             }
         )
-    active_subtopic_id = infer_active_subtopic_id(
+    section_detected = detect_active_section_from_text(
         plan_topics or [],
         text,
-        fallback=context.active_subtopic_id,
+        fallback_subtopic_id=context.active_subtopic_id,
     )
+    active_subtopic_id = section_detected.get("subtopic_id")
+    active_section_confidence = float(section_detected.get("confidence") or 0.0)
     for hint in hints:
         if not hint.get("subtopic_id"):
             hint["subtopic_id"] = active_subtopic_id
@@ -918,6 +1188,8 @@ def evaluate_capture_partial(
         "hints": hints,
         "contradiction_candidates": contradictions,
         "active_subtopic_id": active_subtopic_id,
+        "active_section_confidence": active_section_confidence,
+        "active_topic_id": section_detected.get("topic_id"),
         "retrieval": retrieval,
         "oracle_exact_matches": exact_matches,
     }
@@ -1011,6 +1283,167 @@ async def generate_question_bank_entry_async(
 # --- FINAL phase (end-of-section / end-of-capture) helpers ------------------
 
 
+# Near-duplicate detection thresholds for the FINAL dedupe pass: two expert
+# statements are considered the same content when the smaller statement's
+# content tokens are almost fully contained in the other one.
+_DEDUPE_CONTAINMENT_MIN = 0.85
+
+
+def dedupe_statements(statements: List[str]) -> tuple[List[str], int]:
+    """FINAL deterministic dedupe of repeated/rephrased expert statements.
+
+    The expert often repeats or rephrases the same point across turns; the
+    FINAL pass must not feed those duplicates to the reformulation (nor count
+    them as distinct facts). A statement is dropped when its content tokens
+    are (near-)fully contained in an already kept statement — the LONGEST
+    variant wins so no substance is lost. Order of first occurrence is kept.
+
+    Returns ``(deduped_statements, removed_count)``.
+    """
+    kept: List[str] = []
+    # Every variant's token set per kept cluster: a new statement matching ANY
+    # variant of a cluster (not just the richest one, whose extra filler tokens
+    # would dilute the containment) is folded into that cluster.
+    kept_variant_tokens: List[List[set[str]]] = []
+    removed = 0
+    for raw in statements or []:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        tokens = _content_tokens(text)
+        duplicate_index: Optional[int] = None
+        for index, variants in enumerate(kept_variant_tokens):
+            for other_tokens in variants:
+                if not tokens or not other_tokens:
+                    if text.strip().lower() == kept[index].strip().lower():
+                        duplicate_index = index
+                        break
+                    continue
+                smaller, larger = (
+                    (tokens, other_tokens) if len(tokens) <= len(other_tokens) else (other_tokens, tokens)
+                )
+                containment = len(smaller & larger) / max(1, len(smaller))
+                if containment >= _DEDUPE_CONTAINMENT_MIN:
+                    duplicate_index = index
+                    break
+            if duplicate_index is not None:
+                break
+        if duplicate_index is None:
+            kept.append(text)
+            kept_variant_tokens.append([tokens])
+            continue
+        removed += 1
+        kept_variant_tokens[duplicate_index].append(tokens)
+        # Keep the richest variant of the duplicated content.
+        if len(text) > len(kept[duplicate_index]):
+            kept[duplicate_index] = text
+    return kept, removed
+
+
+def fallback_thematic_blocks(statements: List[str], *, max_themes: int = 6) -> List[Dict[str, Any]]:
+    """Deterministic thematic fallback when no LLM is configured.
+
+    One block holding everything, titled from the first statement's leading
+    words — honest (no invented structure) and keeps the FINAL pipeline alive.
+    """
+    clean = [str(s).strip() for s in (statements or []) if str(s).strip()]
+    if not clean:
+        return []
+    lead_words = _words(clean[0])[:6]
+    title = " ".join(lead_words) or "Synthèse de la conversation"
+    return [
+        {
+            "id": "theme-01",
+            "title": title[0].upper() + title[1:],
+            "statement_indexes": list(range(len(clean))),
+        }
+    ]
+
+
+async def derive_thematic_blocks_async(
+    *,
+    workspace_id: Optional[str],
+    statements: List[str],
+    max_themes: int = 6,
+) -> List[Dict[str, Any]]:
+    """FINAL thematic structuring for free conversations (no capture plan).
+
+    Groups the expert's statements into thematic blocks with short titles so the
+    report can be structured even without a plan. Returns a list of
+    ``{id, title, statement_indexes}``. Falls back to a single deterministic
+    block when no LLM is configured or the call fails.
+    """
+    clean = [str(s).strip() for s in (statements or []) if str(s).strip()]
+    fallback = fallback_thematic_blocks(clean, max_themes=max_themes)
+    if not clean:
+        return []
+    api_key, model = _resolve_llm_config(workspace_id)
+    if not api_key:
+        return fallback
+    try:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key=api_key)
+        payload = {
+            "statements": [{"index": i, "text": s[:600]} for i, s in enumerate(clean)],
+            "max_themes": max(1, int(max_themes)),
+            "instruction": (
+                "L'expert a parlé librement, sans plan. Regroupe ses déclarations en "
+                "BLOCS THÉMATIQUES cohérents (entre 1 et max_themes), dans l'ordre "
+                "naturel du discours. Chaque bloc a un TITRE court et factuel (pas de "
+                "titre générique type 'Introduction'/'Conclusion') et la liste des "
+                "indices de déclarations qui lui appartiennent. Chaque indice apparaît "
+                "dans EXACTEMENT un bloc. Retourne un JSON "
+                "{themes: [{title, statement_indexes}]}."
+            ),
+        }
+        response = await client.chat.completions.create(
+            model=model,
+            **_model_chat_kwargs(model, temperature=0.2),
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "Thematic grouping JSON only. Every statement index assigned once."},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+        )
+        content = response.choices[0].message.content if response.choices else None
+        if not content:
+            return fallback
+        parsed = json.loads(content)
+        raw_themes = parsed.get("themes") if isinstance(parsed, dict) else None
+        if not isinstance(raw_themes, list):
+            return fallback
+        themes: List[Dict[str, Any]] = []
+        assigned: set[int] = set()
+        for index, raw in enumerate(raw_themes, start=1):
+            if not isinstance(raw, dict):
+                continue
+            title = str(raw.get("title") or "").strip()
+            indexes = [
+                int(i)
+                for i in (raw.get("statement_indexes") or [])
+                if isinstance(i, (int, float)) and 0 <= int(i) < len(clean) and int(i) not in assigned
+            ]
+            if not title or not indexes:
+                continue
+            assigned.update(indexes)
+            themes.append(
+                {
+                    "id": f"theme-{index:02d}",
+                    "title": title,
+                    "statement_indexes": sorted(indexes),
+                }
+            )
+            if len(themes) >= max(1, int(max_themes)):
+                break
+        leftovers = [i for i in range(len(clean)) if i not in assigned]
+        if leftovers and themes:
+            themes[-1]["statement_indexes"] = sorted(set(themes[-1]["statement_indexes"]) | set(leftovers))
+        return themes or fallback
+    except Exception:
+        return fallback
+
+
 def _section_label(plan_section: Optional[Dict[str, Any]]) -> str:
     if not isinstance(plan_section, dict):
         return ""
@@ -1028,13 +1461,17 @@ async def reformulate_section_async(
     statements: List[str],
     kb_chunks: Optional[List[str]] = None,
     static_context: Optional[str] = None,
+    glossary_terms: Optional[List[str]] = None,
 ) -> str:
     """FINAL exhaustive LLM reformulation of one captured section.
 
-    Produces a clean, exhaustive synthesis of what the expert said, stripped of
-    oral artifacts (hesitations, repetitions, false starts) while staying faithful
-    to the substance — it never invents facts. ``static_context`` (e.g. the Andritz
-    framing) and ``kb_chunks`` only inform phrasing/terminology, never new content.
+    The heavy end-of-capture pass: restructures the expert's expression for the
+    section, removes oral artifacts AND content repeated/rephrased across turns
+    (dedupe), and aligns the vocabulary on the domain glossary
+    (``glossary_terms`` — the Tier-2 Andritz alignment, e.g. "carte" -> "card")
+    while staying faithful to the substance — it never invents facts.
+    ``static_context`` (e.g. the Andritz framing) and ``kb_chunks`` only inform
+    phrasing/terminology, never new content.
 
     Falls back to a deterministic bullet join of the statements when no LLM is
     configured, so the final phase always returns usable text.
@@ -1055,13 +1492,23 @@ async def reformulate_section_async(
             "static_context": (static_context or "").strip(),
             "expert_statements": clean_statements,
             "kb_chunks": [str(c)[:600] for c in (kb_chunks or [])[:4]],
+            "domain_glossary": [str(t) for t in (glossary_terms or [])[:80]],
             "instruction": (
-                "Reformule de façon EXHAUSTIVE et fidèle ce que l'expert a dit sur cette "
-                "section. Nettoie les artefacts oraux (hésitations, répétitions, faux départs, "
-                "mots de remplissage) et structure le propos en prose claire ou en puces. "
+                "Phase FINALE de la capture : restructure et reformule de façon EXHAUSTIVE "
+                "et fidèle ce que l'expert a dit sur cette section. "
+                "1) RESTRUCTURATION : organise le propos en prose claire ou en puces, dans "
+                "un ordre logique aligné sur l'intitulé de la section. "
+                "2) DOUBLONS : l'expert se répète et reformule d'un tour à l'autre — fusionne "
+                "les redites en UNE seule formulation (la plus complète), sans perdre aucun "
+                "détail propre à une variante. "
+                "3) VOCABULAIRE : aligne les termes sur le 'domain_glossary' (terminologie "
+                "métier Andritz) : remplace les mots mal transcrits ou approximatifs par le "
+                "terme canonique du glossaire quand le contexte le confirme (ex: 'carte' -> "
+                "'carde'), respecte la casse des acronymes. N'applique JAMAIS un terme du "
+                "glossaire si le propos ne le concerne pas. "
                 "N'invente AUCUNE information, ne supprime AUCUN fait substantiel, ne change "
                 "aucune valeur numérique. Le 'static_context' et les 'kb_chunks' servent "
-                "uniquement à caler la terminologie métier, jamais à ajouter du contenu. "
+                "uniquement à caler la terminologie, jamais à ajouter du contenu. "
                 "Réponds en Markdown, sans titre de section ni méta-commentaire."
             ),
         }
@@ -1072,8 +1519,9 @@ async def reformulate_section_async(
                 {
                     "role": "system",
                     "content": (
-                        "Tu es un rédacteur technique. Synthèse exhaustive et fidèle, "
-                        "nettoyée des artefacts oraux. N'invente rien."
+                        "Tu es un rédacteur technique. Synthèse exhaustive et fidèle : "
+                        "restructurée, dédupliquée, vocabulaire aligné sur le glossaire "
+                        "métier fourni. N'invente rien."
                     ),
                 },
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},

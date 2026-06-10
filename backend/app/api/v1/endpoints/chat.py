@@ -292,11 +292,14 @@ def _apply_workspace_chat_flow_defaults(
         request.retrieval_profile = str(retrieval_defaults["retrieval_profile"])
     if request.rag_pipeline_mode is None and request.rag_mode_override is None and retrieval_defaults.get("mode"):
         request.rag_pipeline_mode = str(retrieval_defaults["mode"])
-    if request.top_k is None and retrieval_defaults.get("top_k") is not None:
-        try:
-            request.top_k = int(retrieval_defaults["top_k"])
-        except (TypeError, ValueError):
-            pass
+    # Fold the whole funnel together: a lone folded top_k reads as an explicit
+    # user pin downstream and collapses synthesis/candidate defaults to top_k.
+    for budget_key in ("top_k", "source_display_k", "synthesis_k", "candidate_pool_k"):
+        if getattr(request, budget_key) is None and retrieval_defaults.get(budget_key) is not None:
+            try:
+                setattr(request, budget_key, int(retrieval_defaults[budget_key]))
+            except (TypeError, ValueError):
+                pass
     if request.prompt_type is None and prompt_contract.get("default_prompt_type"):
         request.prompt_type = str(prompt_contract["default_prompt_type"])
 

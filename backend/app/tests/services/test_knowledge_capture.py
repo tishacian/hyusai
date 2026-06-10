@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import pytest
@@ -27,6 +28,7 @@ from app.services.knowledge_capture import (
     set_active_capture_section,
     get_session,
     list_capture_events,
+    list_published_fiches,
     prefetch_capture_retrieval,
     process_conversation_step,
     publish_proposal_to_knowledge,
@@ -37,6 +39,7 @@ from app.services.knowledge_capture import (
     update_oracle_question_statuses,
     update_proposal_open_question_statuses,
     update_capture_session_flags,
+    _filter_retrieval_by_min_score,
 )
 from app.services.capture_report_templates import (
     ANDRITZ_TEMPLATE_ID,
@@ -498,6 +501,9 @@ def test_proposal_open_question_statuses_are_persisted(db_session):
     )
     assert deferred.proposal["open_questions"][0]["status"] == "deferred"
     assert deferred.proposal["open_questions"][0]["status_updated_by_user_id"] == user.id
+    deferred_session = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert deferred_session.metrics["open_questions_count"] == 0
+    assert deferred_session.metrics["proposal_open_questions_count"] == 0
 
     restored = update_proposal_open_question_statuses(
         db_session,
@@ -514,6 +520,8 @@ def test_proposal_open_question_statuses_are_persisted(db_session):
         actor_label=user.email,
     )
     assert restored.proposal["open_questions"][0]["status"] == "open"
+    restored_session = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert restored_session.metrics["open_questions_count"] == 1
     events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
     assert any(event.event_type == "proposal_open_question_status_updated" for event in events)
 
@@ -526,6 +534,8 @@ def test_proposal_open_question_statuses_are_persisted(db_session):
         actor_user_id=user.id,
     )
     assert invalidated.proposal["open_questions"][0]["status"] == "invalid"
+    invalidated_session = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert invalidated_session.metrics["open_questions_count"] == 0
 
     # Legacy "dismissed" is still accepted and normalized to "invalid".
     legacy = update_proposal_open_question_statuses(
@@ -546,6 +556,149 @@ def test_proposal_open_question_statuses_are_persisted(db_session):
         actor_user_id=user.id,
     )
     assert answered.proposal["open_questions"][0]["status"] == "answered"
+
+
+def test_proposal_open_question_invalidate_rebuilds_report(db_session):
+    workspace = Workspace(id="ws-proposal-q-report", name="Proposal Q Report", slug="proposal-q-report")
+    user = User(id="user-proposal-q-report", username="qr@datategy.local", email="qr@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Report rebuild capture",
+        objective="Verify open-question lifecycle updates the persisted report.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        created_by_user_id=user.id,
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    proposal = create_update_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        created_by_user_id=user.id,
+    )
+    question_text = "Qui valide la procédure terrain ?"
+    payload = dict(proposal.proposal or {})
+    payload["open_questions"] = [
+        {
+            "gap_id": "validation-owner",
+            "follow_up": question_text,
+            "reason": "Le responsable de validation n'est pas précisé.",
+            "status": "open",
+        }
+    ]
+    payload["plan_structure"] = {
+        "topics": [
+            {
+                "topic_id": "topic-1",
+                "title": "Validation",
+                "synthesis": "La procédure terrain est contrôlée avant validation.",
+                "open_questions": [
+                    {
+                        "id": "validation-owner",
+                        "text": question_text,
+                        "status": "open",
+                    }
+                ],
+                "subtopics": [],
+            }
+        ],
+        "unassigned": [],
+    }
+    payload["report_markdown"] = (
+        "# Report rebuild capture\n\n## Validation\nContenu.\n\n## Questions ouvertes\n- "
+        f"{question_text}\n"
+    )
+    payload["recommended_ingestion"] = {"content": payload["report_markdown"]}
+    proposal.proposal = payload
+    db_session.commit()
+
+    invalidated = update_proposal_open_question_statuses(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        items=[{"question_key": "validation-owner", "status": "invalid"}],
+        actor_user_id=user.id,
+    )
+    report = invalidated.proposal["report_markdown"]
+    assert question_text not in report
+    assert "## Questions ouvertes" not in report
+    node_questions = invalidated.proposal["plan_structure"]["topics"][0]["open_questions"]
+    assert node_questions[0]["status"] == "invalid"
+
+
+def test_filter_retrieval_by_min_score_drops_weak_hits():
+    chunks = ["strong hit", "weak hit", "medium hit"]
+    metadatas = [
+        {"document_id": "doc-a", "title": "Doc A"},
+        {"document_id": "doc-b", "title": "Doc B"},
+        {"document_id": "doc-c", "title": "Doc C"},
+    ]
+    scores = [0.82, 0.31, 0.58]
+    filtered_chunks, filtered_meta, filtered_scores = _filter_retrieval_by_min_score(
+        chunks,
+        metadatas,
+        scores,
+        0.55,
+    )
+    assert filtered_chunks == ["strong hit", "medium hit"]
+    assert [meta["document_id"] for meta in filtered_meta] == ["doc-a", "doc-c"]
+    assert filtered_scores == [0.82, 0.58]
+
+
+@pytest.mark.asyncio
+async def test_finalize_capture_section_filters_low_score_sources(db_session, monkeypatch):
+    import app.services.knowledge_capture as kc
+
+    async def _scored_retrieval(*_a, **_k):
+        return (
+            ["Andritz unrelated doc", "Relevant section note"],
+            [
+                {"document_id": "andritz-1", "title": "Andritz KB"},
+                {"document_id": "relevant-1", "title": "Process manual"},
+            ],
+            [0.42, 0.71],
+        )
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _scored_retrieval)
+    monkeypatch.setattr(kc, "_resolve_capture_report_source_min_score", lambda: 0.55)
+
+    workspace = Workspace(id="ws-src-filter", name="Src Filter", slug="src-filter")
+    user = User(id="user-src-filter", username="sf@datategy.local", email="sf@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="La pression hydraulique est réglée à 12 bar avant démarrage.",
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        actor_user_id=user.id,
+    )
+
+    entry = await finalize_capture_section(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        workspace_slug=workspace.slug,
+    )
+
+    source_titles = [src.get("title") for src in entry.get("sources") or []]
+    assert "Andritz KB" not in source_titles
+    assert "Process manual" in source_titles
 
 
 @pytest.mark.asyncio
@@ -808,9 +961,87 @@ async def test_publish_persists_export_urls(db_session, monkeypatch):
     assert result["export_urls"] == {"download_url": expected_url, "raw_url": expected_url}
     assert result["destination"] == "capture-export-knowledge"
     assert result["destination_scope"] == "capture-export-knowledge"
+    assert result["collection"] == "capture-export-knowledge"
     db_session.refresh(reviewed)
+    assert reviewed.status == "published"
     assert reviewed.proposal["publication"]["export_urls"] == result["export_urls"]
     assert reviewed.proposal["publication"]["destination_scope"] == "capture-export-knowledge"
+    assert reviewed.proposal["publication"]["published_at"]
+    assert reviewed.proposal["recommended_ingestion"]["metadata"]["proposal_id"] == reviewed.id
+    assert reviewed.proposal["recommended_ingestion"]["metadata"]["capture_session_id"] == session.id
+
+
+@pytest.mark.asyncio
+async def test_list_published_fiches_reads_proposal_publication_metadata(db_session, monkeypatch):
+    workspace = Workspace(id="ws-capture-fiches-list", name="Capture Fiches List", slug="capture-fiches-list")
+    context = Context(
+        id="ctx-capture-fiches-list",
+        workspace_id=workspace.id,
+        name="Capture fiches",
+        environment_state={"collection": "capture-fiches-knowledge"},
+    )
+    db_session.add_all([workspace, context])
+    seed_skills_and_capabilities(db_session)
+
+    class FakeDocumentService:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        async def ingest_document(self, *_: object, **__: object) -> dict:
+            return {"document_id": "doc-fiche-list", "chunks_processed": 3, "status": "success"}
+
+    monkeypatch.setattr("app.services.rag.document_service.DocumentService", FakeDocumentService)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Fiche list session",
+        objective="Lister les fiches publiées.",
+        expert_profile="Expert",
+        duration_minutes=20,
+        context_id=context.id,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=session.plan["questions"][0]["id"],
+        text="La procédure est validée pour la ligne pilote.",
+    )
+    proposal = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session.id)
+    reviewed = review_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        status="accepted",
+        reviewer="reviewer@datategy.local",
+        review_notes="Validé.",
+    )
+
+    await publish_proposal_to_knowledge(
+        db_session,
+        workspace=workspace,
+        proposal_id=reviewed.id,
+        actor_label="reviewer@datategy.local",
+        category="maintenance",
+        destination="capture-fiches-knowledge",
+        final_title="Fiche maintenance validée",
+    )
+
+    payload = list_published_fiches(db_session, workspace_id=workspace.id, q="maintenance")
+    assert payload["total"] == 1
+    fiche = payload["fiches"][0]
+    assert fiche["title"] == "Fiche maintenance validée"
+    assert fiche["category"] == "maintenance"
+    assert fiche["destination"] == "capture-fiches-knowledge"
+    assert fiche["document_id"] == "doc-fiche-list"
+    assert fiche["chunks_processed"] == 3
+    assert fiche["capture_session_id"] == session.id
 
 
 def test_conversation_only_step_flow_requires_voice_confirmation(db_session):
@@ -1585,6 +1816,9 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
             state=state,
             event={"type": "audio.frame", "payload": frame_payload},
         )
+        # The incremental STT is offloaded (fire-and-forget) so the receive loop
+        # never blocks on it; drain it here to keep the per-frame assertions.
+        await asyncio.gather(*list(state.partial_stt_tasks))
 
     types_before = [t for t, _ in sent]
     # Live partial transcription + oracle analysis happened mid-utterance.
@@ -1635,6 +1869,239 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
     assert state.audio_chunks == []
     assert state.partial_stt_in_flight is False
     assert state.last_partial_text == ""
+
+
+@pytest.mark.asyncio
+async def test_gateway_pause_flushes_segment_like_endpoint(db_session, monkeypatch):
+    """audio.pause = segment flush: a pause with buffered audio finalizes the
+    in-flight segment exactly like an endpoint (text.final emitted, turn
+    persisted, buffer cleared, partial state reset) but with no relance /
+    conversation.step / TTS. A pause with an empty buffer stays silent (ack
+    only, never an empty_audio error) so a resume starts a genuinely fresh
+    turn under the frontend's new turn id."""
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-pause", name="GW Pause", slug="gw-pause")
+    user = User(id="user-gw-pause", username="gwp@datategy.local", email="gwp@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Pause flush",
+        objective="Capturer les réglages de vitesse sur la ligne.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+
+    class FakeProvider:
+        def __init__(self) -> None:
+            self.transcribe_calls = 0
+
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None, language=None):
+            self.transcribe_calls += 1
+            return {
+                "text": "le segment se termine quand l'expert met la capture en pause",
+                "provider": "fake",
+                "model": "fake-stt",
+            }
+
+    fake_provider = FakeProvider()
+    monkeypatch.setattr(gw, "get_voice_runtime_provider", lambda *a, **k: fake_provider)
+    monkeypatch.setattr(gw, "_retrieve_context_chunks", lambda *a, **k: ([], [], []))
+    monkeypatch.setattr(gw, "_PARTIAL_STT_MIN_INTERVAL_MS", 0)
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id=session.id, mode="guided", tandem_oracle_enabled=True)
+    state.oracle = gw.VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
+
+    frame_payload = {
+        "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+        "turn_id": "seg-pause-1",
+        "content_type": "audio/webm",
+    }
+    for _ in range(2):
+        await gateway._handle_event(
+            websocket,
+            db_session,
+            user=user,
+            workspace=workspace,
+            state=state,
+            event={"type": "audio.frame", "payload": frame_payload},
+        )
+        await asyncio.gather(*list(state.partial_stt_tasks))
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "audio.pause", "payload": {"turn_id": "seg-pause-1"}},
+    )
+
+    types = [t for t, _ in sent]
+    # The pause is always acked AND flushes the segment like an endpoint.
+    assert "audio.pause" in types
+    assert "text.final" in types
+    final = next(p for t, p in sent if t == "text.final")
+    assert final.get("turn_id") == "seg-pause-1"
+    assert final.get("empty") is False
+    # No relance / conversation step / TTS on the pause path.
+    assert "conversation.step" not in types
+    assert "prompt.next" not in types
+    assert "audio.out" not in types
+    # The turn is persisted via the same append_turn path as the endpoint.
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert [turn for turn in (reloaded.transcript or []) if turn.get("speaker") == "expert"]
+    # Buffer flushed + partial state reset: the next resume starts a fresh turn.
+    assert state.audio_chunks == []
+    assert state.client_turn_id is None
+    assert state.partial_stt_in_flight is False
+    assert state.last_partial_text == ""
+
+    # Second pause with an EMPTY buffer: ack only — no empty_audio error, no
+    # extra text.final (silent pause is normal and must stay observable).
+    sent.clear()
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "audio.pause", "payload": {}},
+    )
+    types_empty = [t for t, _ in sent]
+    assert types_empty.count("audio.pause") == 1
+    assert "session.error" not in types_empty
+    assert "text.final" not in types_empty
+
+
+@pytest.mark.asyncio
+async def test_gateway_drops_orphan_webm_frames_on_empty_buffer(db_session, monkeypatch):
+    """Header-validated buffer start (fix 24a345): when the negotiated input
+    codec is webm, a frame WITHOUT the EBML magic arriving on an EMPTY buffer is
+    a late MediaRecorder continuation frame (its header chunk was already
+    flushed) and must be DROPPED — otherwise every subsequent buffer join is an
+    unparseable container and STT 400s for the rest of the session. A frame
+    WITH the header is accepted as chunk 0, continuation frames are accepted on
+    a non-empty buffer, and after a pause flush + late orphan frame the resumed
+    recorder's header frame self-heals the buffer."""
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-orphan", name="GW Orphan", slug="gw-orphan")
+    user = User(id="user-gw-orphan", username="gwo@datategy.local", email="gwo@datategy.local")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+
+    class FakeProvider:
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None, language=None):
+            return {"text": "segment valide", "provider": "fake", "model": "fake-stt"}
+
+    monkeypatch.setattr(gw, "get_voice_runtime_provider", lambda *a, **k: FakeProvider())
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id="capture-orphan", tandem_oracle_enabled=False)
+    state.codec = {"input": "webm", "channels": 1}
+
+    header_chunk = b"\x1a\x45\xdf\xa3" + b"\x00" * 8
+    continuation_chunk = b"\xa3\x42\x10\x05" + b"\x01" * 8
+
+    async def send_frame(chunk: bytes, turn_id: str) -> None:
+        await gateway._handle_event(
+            websocket,
+            db_session,
+            user=user,
+            workspace=workspace,
+            state=state,
+            event={
+                "type": "audio.frame",
+                "payload": {
+                    "bytes_b64": base64.b64encode(chunk).decode(),
+                    "turn_id": turn_id,
+                    "content_type": "audio/webm",
+                    "incremental_transcription": False,
+                },
+            },
+        )
+
+    # 1) Orphan continuation frame on an EMPTY buffer: dropped, no error, no turn started.
+    await send_frame(continuation_chunk, "seg-orphan-1")
+    assert state.audio_chunks == []
+    assert state.client_turn_id is None
+    assert "session.error" not in [t for t, _ in sent]
+
+    # 2) Header frame: accepted as chunk 0; continuation frames then accepted.
+    await send_frame(header_chunk, "seg-orphan-1")
+    await send_frame(continuation_chunk, "seg-orphan-1")
+    assert len(state.audio_chunks) == 2
+    assert state.audio_chunks[0][:4] == b"\x1a\x45\xdf\xa3"
+
+    # 3) Pause flush: segment finalized, buffer cleared.
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "audio.pause", "payload": {"turn_id": "seg-orphan-1"}},
+    )
+    assert "text.final" in [t for t, _ in sent]
+    assert state.audio_chunks == []
+    assert state.last_partial_text == ""
+
+    # 4) Late in-flight continuation frame AFTER the flush: dropped, buffer stays empty.
+    await send_frame(continuation_chunk, "seg-orphan-1")
+    assert state.audio_chunks == []
+
+    # 5) Resume: the new recorder's header frame becomes chunk 0 — valid buffer again.
+    await send_frame(header_chunk, "seg-orphan-2")
+    await send_frame(continuation_chunk, "seg-orphan-2")
+    assert len(state.audio_chunks) == 2
+    assert state.audio_chunks[0][:4] == b"\x1a\x45\xdf\xa3"
+    assert state.client_turn_id == "seg-orphan-2"
+
+    # Non-webm sessions (e.g. LiveKit wav/opus path) skip the magic check entirely.
+    state_other = gw.VoiceSessionState(session_id="capture-orphan-wav", tandem_oracle_enabled=False)
+    state_other.codec = {"input": "wav"}
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state_other,
+        event={
+            "type": "audio.frame",
+            "payload": {
+                "bytes_b64": base64.b64encode(continuation_chunk).decode(),
+                "turn_id": "seg-wav-1",
+                "content_type": "audio/wav",
+                "incremental_transcription": False,
+            },
+        },
+    )
+    assert len(state_other.audio_chunks) == 1
 
 
 @pytest.mark.asyncio
@@ -2011,6 +2478,8 @@ async def test_gateway_forwards_open_questions_and_retrieval_in_free_conversatio
             state=state,
             event={"type": "audio.frame", "payload": frame_payload},
         )
+        # Drain the offloaded incremental STT task before the next frame.
+        await asyncio.gather(*list(state.partial_stt_tasks))
 
     # The partial path stored live retrieval for the upcoming endpoint emit.
     assert state.last_retrieval_chunks
@@ -2106,6 +2575,299 @@ async def test_analyze_plan_oracle_async_uses_llm_when_available(monkeypatch):
     oracle = await analyze_plan_oracle_async(context, rag_chunks=["Chunk KB"], base_gaps=[])
     assert oracle["topic_proposals"][0]["title"] == "Sujet LLM"
     assert oracle["dialogue_probe"].startswith("Quels cas")
+
+
+@pytest.mark.asyncio
+async def test_plan_structure_llm_async_includes_current_plan_and_instruction(monkeypatch):
+    from app.services.capture_knowledge_oracle import CaptureSessionContext, plan_structure_llm_async
+
+    monkeypatch.setattr(
+        "app.services.capture_knowledge_oracle._resolve_llm_config",
+        lambda workspace_id=None: ("test-key", "gpt-test"),
+    )
+
+    captured: dict = {}
+
+    class FakeMessage:
+        content = json.dumps(
+            {
+                "topic_proposals": [
+                    {
+                        "id": "t-sec",
+                        "title": "Directives de sécurité",
+                        "subtopics": [
+                            {
+                                "id": "st-sec",
+                                "title": "Consignes",
+                                "questions": [{"id": "pt-sec", "title": "Point sécurité ajouté"}],
+                            }
+                        ],
+                    }
+                ],
+                "coverage_gaps": [],
+                "contradiction_candidates": [],
+                "dialogue_probe": "Autre point à couvrir ?",
+            }
+        )
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeResponse:
+        choices = [FakeChoice()]
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured["kwargs"] = kwargs
+            return FakeResponse()
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda api_key=None: FakeClient())
+
+    current_plan = [
+        {
+            "id": "t-01",
+            "title": "Contexte projet",
+            "subtopics": [{"id": "st-01", "title": "Périmètre", "questions": []}],
+        },
+        {
+            "id": "t-04",
+            "title": "Directives de sécurité",
+            "subtopics": [{"id": "st-04", "title": "Consignes", "questions": []}],
+        },
+    ]
+    context = CaptureSessionContext(
+        title="Capture sécurité",
+        objective="Capturer le savoir terrain",
+        domain="technical",
+        expert_profile="Expert",
+        duration_minutes=20,
+        unlimited_duration=False,
+        elapsed_minutes=None,
+        workspace_id="ws-oracle-iter",
+        context_snapshot={},
+        dialogue_turns=[{"text": "ajouter un point sécurité"}],
+        active_subtopic_id=None,
+        recent_transcript=[],
+        current_plan=current_plan,
+        latest_instruction="ajouter un point sécurité",
+        provided_seed="1. Contexte\n4. Directives de sécurité",
+    )
+    parsed = await plan_structure_llm_async(context)
+    assert parsed is not None
+    payload = json.loads(captured["kwargs"]["messages"][1]["content"])
+    assert payload["current_plan"] == current_plan
+    assert payload["latest_instruction"] == "ajouter un point sécurité"
+    assert payload["provided_seed"] == "1. Contexte\n4. Directives de sécurité"
+    assert "MODE ITÉRATION" in payload["instruction"]
+    system = captured["kwargs"]["messages"][0]["content"]
+    assert "ITERATION MODE" in system
+
+
+def test_plan_dialogue_turn_passes_iteration_context_to_llm(db_session, monkeypatch):
+    """Existing plan + targeted instruction must reach the LLM as current_plan."""
+    from app.services.knowledge_capture import (
+        PLAN_BUILD_V2_SCHEMA_VERSION,
+        create_capture_plan,
+        get_session,
+        process_plan_dialogue_turn,
+    )
+
+    workspace = Workspace(id="ws-plan-iter", name="Plan Iter", slug="plan-iter")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    captured: dict = {}
+
+    async def fake_retrieve_for_mode(doc_svc, query, mode, **kwargs):
+        class Result:
+            chunks = []
+            scores = []
+            metadatas = []
+            pipeline = "chah_backend"
+            label = "C-HAH (backend)"
+            reason = "fake retrieval"
+            detail = query
+
+        return Result()
+
+    async def fake_plan_structure_llm_async(context, **kwargs):
+        captured["current_plan"] = context.current_plan
+        captured["latest_instruction"] = context.latest_instruction
+        captured["provided_seed"] = context.provided_seed
+        return {
+            "topic_proposals": [
+                {
+                    "id": "t-04-new",
+                    "title": "Directives de sécurité",
+                    "subtopics": [
+                        {
+                            "id": "st-04-new",
+                            "title": "Consignes",
+                            "questions": [{"id": "pt-new", "title": "Point sécurité"}],
+                        }
+                    ],
+                }
+            ],
+            "coverage_gaps": [],
+            "contradiction_candidates": [],
+            "dialogue_probe": "Autre point ?",
+        }
+
+    monkeypatch.setattr("app.services.rag.pipeline_retrieval.retrieve_for_mode", fake_retrieve_for_mode)
+    monkeypatch.setattr("app.services.rag.context.retrieve_for_mode", fake_retrieve_for_mode)
+    monkeypatch.setattr("app.services.rag.document_service.DocumentService", lambda **kwargs: object())
+    monkeypatch.setattr("app.services.knowledge_capture.plan_structure_llm_async", fake_plan_structure_llm_async)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Co-construction sécurité",
+        objective="Capturer le savoir terrain.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="plan_build",
+        provided_plan_text="1. Contexte\n4. Directives de sécurité",
+    )
+    session = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    plan = dict(session.plan or {})
+    plan["topics"] = [
+        {
+            "id": "t-01",
+            "title": "Contexte projet",
+            "subtopics": [{"id": "st-01", "title": "Périmètre", "questions": []}],
+        },
+        {
+            "id": "t-04",
+            "title": "Directives de sécurité",
+            "subtopics": [{"id": "st-04", "title": "Consignes", "questions": []}],
+        },
+    ]
+    session.plan = plan
+    db_session.add(session)
+    db_session.commit()
+
+    turn = process_plan_dialogue_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        text="ajouter un point sécurité",
+        workspace_slug=workspace.slug,
+    )
+    assert turn["session"]["plan"]["schema_version"] == PLAN_BUILD_V2_SCHEMA_VERSION
+    assert captured["latest_instruction"] == "ajouter un point sécurité"
+    assert captured["provided_seed"] == "1. Contexte\n4. Directives de sécurité"
+    plan_titles = [topic["title"] for topic in captured["current_plan"]]
+    assert "Directives de sécurité" in plan_titles
+    merged_titles = [topic["title"] for topic in turn["session"]["plan"]["topics"]]
+    assert "Directives de sécurité" in merged_titles
+    persisted = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    security_topic = next(
+        topic for topic in persisted.plan["topics"] if topic["title"] == "Directives de sécurité"
+    )
+    assert security_topic["id"] == "t-04"
+    assert security_topic["subtopics"][0]["questions"][0]["title"] == "Point sécurité"
+
+
+def test_detect_active_section_from_text_title_overlap():
+    from app.services.capture_knowledge_oracle import (
+        LIVE_SECTION_DETECT_MIN_CONFIDENCE,
+        detect_active_section_from_text,
+    )
+
+    plan_topics = [
+        {
+            "id": "t-01",
+            "title": "Maintenance rouleaux",
+            "subtopics": [
+                {"id": "st-speed", "title": "Vitesse rouleaux"},
+                {"id": "st-align", "title": "Inspection et alignement"},
+            ],
+        }
+    ]
+    detected = detect_active_section_from_text(
+        plan_topics,
+        "En cas exceptionnel on monte la vitesse rouleaux à 180 par minute sur la ligne",
+    )
+    assert detected["subtopic_id"] == "st-speed"
+    assert detected["topic_id"] == "t-01"
+    assert detected["confidence"] >= LIVE_SECTION_DETECT_MIN_CONFIDENCE
+
+    low_signal = detect_active_section_from_text(
+        plan_topics,
+        "oui d'accord je comprends bien merci",
+        fallback_subtopic_id="st-align",
+    )
+    assert low_signal["confidence"] == 0.0
+    assert low_signal["subtopic_id"] == "st-align"
+
+
+@pytest.mark.asyncio
+async def test_gateway_emits_section_active_on_partial(db_session, monkeypatch):
+    from app.services import voice_session_gateway as gw
+    import app.services.knowledge_capture as kc
+
+    async def _no_retrieval(*_a, **_k):
+        return ([], [], [])
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _no_retrieval)
+
+    workspace = Workspace(id="ws-sec-active", name="Sec Active", slug="sec-active")
+    user = User(id="user-sec-active", username="sa@datategy.local", email="sa@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id=session.id, mode="guided", tandem_oracle_enabled=True)
+    state.active_topic_id = topic_id
+    state.active_subtopic_id = subtopic_id
+
+    capture_session = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    other_subtopic = None
+    other_title = None
+    for topic in (capture_session.plan or {}).get("topics") or []:
+        for st in topic.get("subtopics") or []:
+            if st.get("id") != subtopic_id:
+                other_subtopic = st["id"]
+                other_title = st.get("title") or "autre section"
+                break
+        if other_subtopic:
+            break
+    assert other_subtopic and other_title
+    partial = (
+        f"Pour la sous-section {other_title} on vérifie les points clés "
+        f"chaque semaine avec un gabarit sur la ligne"
+    )
+    await gateway._maybe_detect_and_emit_active_section(
+        websocket,
+        db_session,
+        workspace=workspace,
+        state=state,
+        capture_session=capture_session,
+        partial_text=partial,
+        source="turn_commit",
+    )
+
+    active_events = [p for t, p in sent if t == "section.active"]
+    assert len(active_events) == 1
+    assert active_events[0]["subtopic_id"] == other_subtopic
+    assert active_events[0]["confidence"] >= 0.42
 
 
 @pytest.mark.asyncio
@@ -2261,6 +3023,79 @@ def test_plan_build_oracle_dialogue_and_topic_validation(db_session, monkeypatch
 
     started = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
     assert started.status == "active"
+
+
+def test_plan_dialogue_turns_do_not_pollute_capture_transcript(db_session, monkeypatch):
+    """Plan co-construction dialogue must stay in plan metadata, not capture turns."""
+    from app.services.knowledge_capture import (
+        create_capture_plan,
+        get_session,
+        list_capture_events,
+        process_plan_dialogue_turn,
+    )
+
+    workspace = Workspace(id="ws-plan-tx-leak", name="Plan Tx Leak", slug="plan-tx-leak")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    async def fake_retrieve_for_mode(doc_svc, query, mode, **kwargs):
+        class Result:
+            chunks = []
+            scores = []
+            metadatas = []
+            pipeline = "chah_backend"
+            label = "C-HAH (backend)"
+            reason = "fake retrieval"
+            detail = query
+
+        return Result()
+
+    monkeypatch.setattr("app.services.rag.pipeline_retrieval.retrieve_for_mode", fake_retrieve_for_mode)
+    monkeypatch.setattr("app.services.rag.context.retrieve_for_mode", fake_retrieve_for_mode)
+    monkeypatch.setattr("app.services.rag.document_service.DocumentService", lambda **kwargs: object())
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Cadrage client",
+        objective="Présenter le client et les consignes de sécurité.",
+        expert_profile="Expert métier",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="plan_build",
+    )
+
+    for text in (
+        "Alors, ce document va d'abord présenter le client machin chose.",
+        "Rajoute la consigne de sécurité dans le plan.",
+    ):
+        process_plan_dialogue_turn(
+            db_session,
+            workspace_id=workspace.id,
+            session_id=session.id,
+            text=text,
+            workspace_slug=workspace.slug,
+        )
+
+    all_events = list_capture_events(
+        db_session, workspace_id=workspace.id, session_id=session.id, business_only=False
+    )
+    business_events = list_capture_events(
+        db_session, workspace_id=workspace.id, session_id=session.id, business_only=True
+    )
+    plan_events = [event for event in all_events if event.event_type == "plan_dialogue_turn"]
+    assert len(plan_events) == 2
+    for event in plan_events:
+        assert event.speaker != "expert"
+        assert (event.meta_data or {}).get("capture_phase") == "plan_build"
+
+    capture_turn_types = {"expert_turn_finalized", "stt_final", "transcript_turn_recorded"}
+    assert not any(event.event_type in capture_turn_types for event in all_events)
+    assert not any(event.event_type in capture_turn_types for event in business_events)
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert not (reloaded.transcript or [])
 
 
 def test_plan_build_subtopics_are_grounded_not_gap_taxonomy(db_session):
@@ -2442,8 +3277,70 @@ def test_parse_provided_plan_text_plain_multisection_does_not_collapse():
     topics = parse_provided_plan_text("\n".join(sections))
     assert [t["title"] for t in topics] == sections
     assert len(topics) == len(sections)
-    # Every topic still satisfies the downstream "at least one subtopic" invariant.
-    assert all(t["subtopics"] for t in topics)
+    # Plain sections stay topic-only; no forced mirror subtopics.
+    assert all(not t["subtopics"] for t in topics)
+
+
+def test_normalize_plan_build_topics_allows_topic_without_subtopics():
+    from app.services.knowledge_capture import (
+        _flatten_plan_questions,
+        _normalize_plan_build_topics,
+        validate_plan_topics,
+        create_capture_plan,
+    )
+
+    topics = [{"id": "t-01", "title": "Attentes du client", "subtopics": []}]
+    normalized = _normalize_plan_build_topics({"topics": topics})
+    assert len(normalized) == 1
+    assert normalized[0]["title"] == "Attentes du client"
+    assert normalized[0]["subtopics"] == []
+
+    questions = _flatten_plan_questions({"topics": normalized})
+    assert len(questions) == 1
+    assert questions[0]["topic_id"] == "t-01"
+    assert questions[0]["subtopic_id"] is None
+    assert "Attentes du client" in questions[0]["question"]
+
+
+def test_validate_plan_topics_accepts_topic_only_outline(db_session):
+    from app.services.knowledge_capture import (
+        PLAN_BUILD_V2_SCHEMA_VERSION,
+        create_capture_plan,
+        update_plan_topics,
+        validate_plan_topics,
+    )
+
+    workspace = Workspace(id="ws-topic-only", name="Topic Only", slug="topic-only")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture topic-only",
+        objective="Capturer les attentes client.",
+        expert_profile="Expert",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="plan_build",
+    )
+    assert session.plan["schema_version"] == PLAN_BUILD_V2_SCHEMA_VERSION
+
+    update_plan_topics(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        topics=[{"id": "t-01", "title": "Attentes du client", "subtopics": []}],
+    )
+    validated = validate_plan_topics(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+    )
+    assert validated.plan["review"]["status"] == "topics_validated"
+    assert validated.plan["topics"][0]["subtopics"] == []
 
 
 def test_parse_provided_plan_text_tree_passes_normalization():
@@ -2505,6 +3402,87 @@ def test_merge_topic_proposals_preserves_three_level_points():
     # Re-merging preserves the prior points (idempotent, no duplication).
     remerged = merge_topic_proposals({"topics": merged}, proposals)
     assert len(remerged[0]["subtopics"][0]["questions"]) == 2
+
+
+def test_merge_topic_proposals_iteration_replaces_instead_of_appending():
+    """QA 'ajout section jets d'eau': applying an instruction regenerates the whole
+    plan with fresh ids and slightly reworded titles. The merge must REPLACE the
+    plan (matching existing sections by title) instead of re-appending the old
+    sections after the regenerated ones — no duplicate sections."""
+    from app.services.capture_knowledge_oracle import merge_topic_proposals
+
+    existing_plan = {
+        "topics": [
+            {
+                "id": "t-01",
+                "title": "Maintenance des rouleaux",
+                "subtopics": [{"id": "st-01", "title": "Inspection et alignement", "status": "pending"}],
+            },
+            {
+                "id": "t-02",
+                "title": "Lubrification de la ligne",
+                "subtopics": [{"id": "st-02", "title": "Points de graissage", "status": "pending"}],
+            },
+            {
+                "id": "t-03",
+                "title": "Contrôles qualité",
+                "subtopics": [{"id": "st-03", "title": "Contrôles visuels", "status": "pending"}],
+            },
+        ]
+    }
+    # LLM regenerated the plan: new ids, reworded titles, plus the requested new section.
+    proposals = [
+        {
+            "id": "n-01",
+            "title": "Maintenance et entretien des rouleaux",
+            "subtopics": [{"id": "n-01-sub-01", "title": "Inspection et alignement des rouleaux"}],
+        },
+        {
+            "id": "n-02",
+            "title": "Lubrification de la ligne",
+            "subtopics": [{"id": "n-02-sub-01", "title": "Points de graissage"}],
+        },
+        {
+            "id": "n-03",
+            "title": "Contrôles qualité",
+            "subtopics": [{"id": "n-03-sub-01", "title": "Contrôles visuels"}],
+        },
+        {
+            "id": "n-04",
+            "title": "Jets d'eau",
+            "subtopics": [{"id": "n-04-sub-01", "title": "Réglage des jets d'eau"}],
+        },
+    ]
+    merged = merge_topic_proposals(existing_plan, proposals)
+    titles = [topic["title"] for topic in merged]
+    # One coherent plan: 3 original sections (user-seen titles preserved) + 1 new.
+    assert len(merged) == 4
+    assert titles == [
+        "Maintenance des rouleaux",
+        "Lubrification de la ligne",
+        "Contrôles qualité",
+        "Jets d'eau",
+    ]
+    # Existing ids/subtopic state survive the title-based match.
+    assert [topic["id"] for topic in merged[:3]] == ["t-01", "t-02", "t-03"]
+    assert merged[0]["subtopics"][0]["id"] == "st-01"
+    # Idempotent: re-applying the same proposals never duplicates sections.
+    remerged = merge_topic_proposals({"topics": merged}, proposals)
+    assert [topic["title"] for topic in remerged] == titles
+
+
+def test_merge_topic_proposals_dedupes_duplicate_llm_sections():
+    """A single LLM response sometimes emits near-duplicate sections; only the
+    first occurrence is kept."""
+    from app.services.capture_knowledge_oracle import merge_topic_proposals
+
+    proposals = [
+        {"id": "a-01", "title": "Maintenance des rouleaux", "subtopics": [{"title": "Inspection"}]},
+        {"id": "a-02", "title": "Maintenance et entretien des rouleaux", "subtopics": [{"title": "Inspection"}]},
+        {"id": "a-03", "title": "Jets d'eau", "subtopics": [{"title": "Réglage"}]},
+    ]
+    merged = merge_topic_proposals({"topics": []}, proposals)
+    assert [topic["title"] for topic in merged] == ["Maintenance des rouleaux", "Jets d'eau"]
 
 
 def test_provided_plan_mode_seeds_topics_on_create(db_session):
@@ -3107,6 +4085,9 @@ async def test_gateway_section_finish_emits_single_timeline_relance(db_session, 
         state=state,
         event={"type": "section.finish", "payload": {"topic_id": topic_id, "subtopic_id": subtopic_id}},
     )
+    # The FINAL-phase finalization is offloaded (fire-and-forget) so the receive
+    # loop never blocks behind its multi-LLM work; drain it before asserting.
+    await asyncio.gather(*list(state.finalize_tasks))
 
     steps = [p for t, p in sent if t == "conversation.step"]
     assert len(steps) == 1
@@ -3167,9 +4148,505 @@ async def test_gateway_capture_finish_emits_proposal(db_session, monkeypatch):
         state=state,
         event={"type": "capture.finish", "payload": {}},
     )
+    # Same offload as section.finish: drain the background finalization task.
+    await asyncio.gather(*list(state.finalize_tasks))
 
     step = next((p for t, p in sent if t == "conversation.step"), None)
     assert step is not None
     assert step["capture_finished"] is True
     assert step["proposal"] and step["proposal"].get("id")
     assert step["open_questions"] == []
+    # The heavy FINAL pass streams honest stage events for the loader, and the
+    # proposal-ready step always arrives AFTER the progress stream.
+    progress = [p for t, p in sent if t == "capture.finalize.progress"]
+    assert progress, "capture.finish must stream capture.finalize.progress events"
+    stages = [p.get("stage") for p in progress]
+    assert "start" in stages
+    assert "section" in stages
+    assert "report" in stages
+    assert sent.index(("conversation.step", step)) > max(
+        i for i, (t, _p) in enumerate(sent) if t == "capture.finalize.progress"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# FINAL pipeline rework: dedupe, Tier-2 glossary alignment, thematic blocks,   #
+# synthesis-based report and progress stages                                   #
+# --------------------------------------------------------------------------- #
+
+
+def test_dedupe_statements_removes_repeated_and_rephrased_content():
+    from app.services.capture_knowledge_oracle import dedupe_statements
+
+    statements = [
+        "La vitesse nominale des rouleaux est de 120 par minute.",
+        "Donc la vitesse nominale des rouleaux est bien de 120 par minute.",
+        "En cas d'exception terrain on monte à 180 par minute.",
+        "La vitesse nominale des rouleaux est de 120 par minute selon le manuel constructeur.",
+    ]
+    deduped, removed = dedupe_statements(statements)
+    assert removed == 2
+    assert len(deduped) == 2
+    # The richest variant of the duplicated content wins.
+    assert any("manuel constructeur" in s for s in deduped)
+    assert any("180 par minute" in s for s in deduped)
+
+
+@pytest.mark.asyncio
+async def test_finalize_capture_section_dedupes_and_wires_tier2_glossary(db_session, monkeypatch):
+    """The FINAL per-section pass must (a) dedupe repeated turns before the
+    reformulation, (b) hand the resolved Andritz Tier-2 glossary terms to the
+    reformulation prompt, and (c) store displayable KB sources on the entry."""
+    import app.services.knowledge_capture as kc
+    import app.services.capture_knowledge_oracle as oracle
+
+    async def _retrieval(*_a, **_k):
+        return (
+            ["La carde KD724 tourne à 120 par minute en vitesse nominale."],
+            [
+                {
+                    "document_id": "doc-carde-1",
+                    "title": "Manuel carde KD724",
+                    "collection": "andritz-notices",
+                    "source": "manuel_carde.pdf",
+                }
+            ],
+            [0.92],
+        )
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _retrieval)
+
+    recorded: dict = {}
+
+    async def _fake_reformulate(**kwargs):
+        recorded.update(kwargs)
+        return "Synthèse restructurée de la section."
+
+    monkeypatch.setattr(oracle, "reformulate_section_async", _fake_reformulate)
+
+    workspace = Workspace(
+        id="ws-final-glossary",
+        name="Final Glossary",
+        slug="final-glossary",
+        settings={"voice": {"transcript_glossary": ["carde", "KD724"]}},
+    )
+    user = User(id="user-final-glossary", username="fg@datategy.local", email="fg@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    for text in (
+        "La vitesse nominale des rouleaux est de 120 par minute.",
+        "Donc la vitesse nominale des rouleaux est de 120 par minute.",
+    ):
+        append_turn(
+            db_session,
+            workspace_id=workspace.id,
+            session_id=session.id,
+            speaker="expert",
+            text=text,
+            topic_id=topic_id,
+            subtopic_id=subtopic_id,
+            actor_user_id=user.id,
+        )
+
+    entry = await finalize_capture_section(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        workspace_slug=workspace.slug,
+    )
+
+    # (a) dedupe before the reformulation
+    assert entry["raw_statement_count"] == 2
+    assert entry["statement_count"] == 1
+    assert entry["dedup_removed"] == 1
+    assert len(recorded["statements"]) == 1
+    # (b) Tier-2 glossary wired into the FINAL reformulation
+    assert "carde" in recorded["glossary_terms"]
+    assert "KD724" in recorded["glossary_terms"]
+    assert entry["glossary_term_count"] >= 2
+    # (c) displayable sources (title + document identity), not raw ids only
+    assert entry["sources"]
+    assert entry["sources"][0]["title"] == "Manuel carde KD724"
+    assert entry["sources"][0]["document_id"] == "doc-carde-1"
+    assert entry["sources"][0]["collection"] == "andritz-notices"
+
+
+@pytest.mark.asyncio
+async def test_finalize_capture_free_conversation_structures_thematic_blocks(db_session, monkeypatch):
+    """capture.finish on a planless (free conversation) session must still
+    structure the expression: thematic blocks become plan topics, expert turns
+    are tagged, and the report is assembled from the per-theme syntheses."""
+    import app.services.knowledge_capture as kc
+
+    async def _no_retrieval(*_a, **_k):
+        return ([], [], [])
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _no_retrieval)
+
+    async def _fake_themes(*, workspace_id, statements, max_themes=6):
+        assert len(statements) == 2
+        return [
+            {"id": "theme-01", "title": "Réglage des rouleaux", "statement_indexes": [0]},
+            {"id": "theme-02", "title": "Pression hydraulique", "statement_indexes": [1]},
+        ]
+
+    monkeypatch.setattr(kc, "derive_thematic_blocks_async", _fake_themes)
+
+    workspace = Workspace(id="ws-final-themes", name="Final Themes", slug="final-themes")
+    user = User(id="user-final-themes", username="ft@datategy.local", email="ft@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Conversation libre maintenance",
+        objective="Capturer les savoirs maintenance sans plan.",
+        expert_profile="Senior field engineer",
+        duration_minutes=0,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        created_by_user_id=user.id,
+        plan_mode="free_conversation",
+    )
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    for text in (
+        "Les rouleaux se règlent à 7 millimètres d'entrefer.",
+        "La pression hydraulique doit atteindre 12 bar avant démarrage.",
+    ):
+        append_turn(
+            db_session,
+            workspace_id=workspace.id,
+            session_id=session.id,
+            speaker="expert",
+            text=text,
+            actor_user_id=user.id,
+        )
+
+    proposal = await finalize_capture(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        workspace_slug=workspace.slug,
+        created_by_user_id=user.id,
+    )
+
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    topics = (reloaded.plan or {}).get("topics") or []
+    assert [t["title"] for t in topics] == ["Réglage des rouleaux", "Pression hydraulique"]
+    assert all(t.get("generated_by") == "final_thematic" for t in topics)
+    expert_turns = [t for t in reloaded.transcript if t.get("speaker") == "expert"]
+    assert [t.get("topic_id") for t in expert_turns] == ["theme-01", "theme-02"]
+    # The report follows the thematic structure with the per-theme synthesis.
+    content = proposal.proposal["recommended_ingestion"]["content"]
+    assert "## Réglage des rouleaux" in content
+    assert "## Pression hydraulique" in content
+    assert "7 millimètres" in content
+    assert "12 bar" in content
+
+
+@pytest.mark.asyncio
+async def test_finalize_capture_reports_progress_stages_and_synthesis_report(db_session, monkeypatch):
+    """finalize_capture must stream honest stage events (restructure, per-section
+    dedupe/vocabulary/reformulate, report, done) and the proposal report must be
+    assembled from the restructured syntheses (with their sources), not the raw
+    fact template."""
+    import app.services.knowledge_capture as kc
+
+    async def _retrieval(*_a, **_k):
+        return (
+            ["Extrait notice pression hydraulique 12 bar."],
+            [{"document_id": "doc-press-1", "title": "Notice hydraulique", "collection": "andritz-notices"}],
+            [0.9],
+        )
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _retrieval)
+
+    workspace = Workspace(id="ws-final-progress", name="Final Progress", slug="final-progress")
+    user = User(id="user-final-progress", username="fp@datategy.local", email="fp@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="On contrôle la pression hydraulique à 12 bar avant le démarrage.",
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        actor_user_id=user.id,
+    )
+
+    events: list[dict] = []
+
+    async def _progress(payload):
+        events.append(payload)
+
+    proposal = await finalize_capture(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        workspace_slug=workspace.slug,
+        created_by_user_id=user.id,
+        progress=_progress,
+    )
+
+    stages = [event["stage"] for event in events]
+    for expected in ("restructure", "section", "dedupe", "vocabulary", "reformulate", "report", "done"):
+        assert expected in stages, f"missing stage {expected} in {stages}"
+    assert stages.index("restructure") < stages.index("section") < stages.index("report") < stages.index("done")
+    assert all(event.get("label") for event in events)
+
+    # Report assembled from the synthesis path (sources footer with titles).
+    content = proposal.proposal["recommended_ingestion"]["content"]
+    assert "12 bar" in content
+    assert "Sources : Notice hydraulique" in content
+    # plan_structure carries the section sources for the fiche UI.
+    structure = proposal.proposal["plan_structure"]
+    nodes = []
+    for topic in structure["topics"]:
+        nodes.append(topic)
+        nodes.extend(topic.get("subtopics") or [])
+    assert any((node.get("sources") or [{}])[0].get("title") == "Notice hydraulique" for node in nodes)
+
+
+def test_backfill_turn_plan_tags_assigns_default_section(db_session):
+    """Untagged expert turns must be mappable to the active/default plan section."""
+    import app.services.knowledge_capture as kc
+
+    workspace = Workspace(id="ws-backfill", name="Backfill", slug="backfill")
+    user = User(id="user-backfill", username="bf@datategy.local", email="bf@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="Procédure machine ABC avant démarrage.",
+        actor_user_id=user.id,
+    )
+    loaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    transcript = [dict(turn) for turn in (loaded.transcript or [])]
+    for turn in transcript:
+        if turn.get("speaker") == "expert":
+            turn.pop("topic_id", None)
+            turn.pop("subtopic_id", None)
+    loaded.transcript = transcript
+    from sqlalchemy.orm.attributes import flag_modified
+
+    flag_modified(loaded, "transcript")
+    db_session.commit()
+
+    updated = kc._backfill_turn_plan_tags(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+    )
+    expert = next(t for t in updated.transcript if t.get("speaker") == "expert")
+    assert expert.get("topic_id") == topic_id
+    assert expert.get("subtopic_id") == subtopic_id
+
+
+@pytest.mark.asyncio
+async def test_finalize_capture_plan_mode_reformulates_untagged_turns(db_session, monkeypatch):
+    """Plan-mode capture.finish must run the same FINAL reformulation pipeline even
+    when turns were committed without explicit topic/subtopic tags (frontend
+    syncVoice=false on first section)."""
+    import app.services.knowledge_capture as kc
+
+    async def _no_retrieval(*_a, **_k):
+        return ([], [], [])
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _no_retrieval)
+
+    workspace = Workspace(id="ws-plan-untagged", name="Plan Untagged", slug="plan-untagged")
+    user = User(id="user-plan-untagged", username="pu@datategy.local", email="pu@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="Donc nous voilà partis, la machine ABC demande un contrôle des procédures avant démarrage.",
+        actor_user_id=user.id,
+    )
+    # Simulate the regression: turns committed before section.select / voice sync.
+    loaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    transcript = [dict(turn) for turn in (loaded.transcript or [])]
+    for turn in transcript:
+        if turn.get("speaker") == "expert":
+            turn.pop("topic_id", None)
+            turn.pop("subtopic_id", None)
+    loaded.transcript = transcript
+    from sqlalchemy.orm.attributes import flag_modified
+
+    flag_modified(loaded, "transcript")
+    db_session.commit()
+
+    proposal = await finalize_capture(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        workspace_slug=workspace.slug,
+        created_by_user_id=user.id,
+    )
+
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    stored = (reloaded.plan or {}).get("section_synthesis") or {}
+    assert subtopic_id in stored
+    assert stored[subtopic_id].get("synthesis")
+    content = proposal.proposal["recommended_ingestion"]["content"]
+    structure = proposal.proposal["plan_structure"]
+    subtopic_nodes = [
+        subtopic
+        for topic in structure.get("topics") or []
+        for subtopic in (topic.get("subtopics") or [])
+        if subtopic.get("subtopic_id") == subtopic_id
+    ]
+    assert subtopic_nodes
+    assert subtopic_nodes[0].get("synthesis")
+    assert "machine ABC" in content or "procédures" in content
+    assert "## Contexte" not in content
+
+
+def test_build_proposal_open_questions_prefers_live_and_dedupes_generic(db_session):
+    """Report open questions must reuse LIVE/grounded oracle questions and drop
+    duplicate generic contradiction placeholders from evaluations."""
+    import app.services.knowledge_capture as kc
+
+    workspace = Workspace(id="ws-oq-dedupe", name="OQ Dedupe", slug="oq-dedupe")
+    user = User(id="user-oq-dedupe", username="oq@datategy.local", email="oq@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Procédures machine",
+        objective="Capturer les procédures machine ABC.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        created_by_user_id=user.id,
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    topic = (session.plan.get("topics") or [])[0]
+    subtopic = (topic.get("subtopics") or [])[0]
+
+    plan = dict(session.plan or {})
+    plan["live_open_questions"] = [
+        {
+            "id": "live-abc-01",
+            "text": "Quelle est la procédure exacte de contrôle sur la machine ABC avant démarrage ?",
+            "topic_id": topic["id"],
+            "subtopic_id": subtopic["id"],
+            "source": "oracle_live",
+            "status": "open",
+        }
+    ]
+    plan["section_synthesis"] = {
+        subtopic["id"]: {
+            "open_questions": [
+                {
+                    "id": "grounded-abc-01",
+                    "text": "Quelle est la procédure exacte de contrôle sur la machine ABC avant démarrage ?",
+                    "topic_id": topic["id"],
+                    "subtopic_id": subtopic["id"],
+                    "source": "oracle_grounded",
+                    "status": "open",
+                }
+            ]
+        }
+    }
+    session.plan = plan
+    session.evaluations = [
+        {
+            "verdict": "contradiction_or_update",
+            "follow_up": kc._GENERIC_CONTRADICTION_FOLLOWUP,
+            "gap_id": "contradiction_or_update",
+        },
+        {
+            "verdict": "contradiction_or_update",
+            "follow_up": kc._GENERIC_CONTRADICTION_FOLLOWUP,
+            "gap_id": "contradiction_or_update-2",
+        },
+    ]
+    db_session.commit()
+    db_session.refresh(session)
+
+    open_questions = kc._build_proposal_open_questions(session, plan, session.evaluations)
+    texts = [item["text"] for item in open_questions]
+    assert len(texts) == 1
+    assert "machine ABC" in texts[0]
+    assert kc._GENERIC_CONTRADICTION_FOLLOWUP not in texts
+
+    payload = structure_capture_payload(session, [])
+    proposal_texts = [item.get("text") or item.get("follow_up") for item in payload["open_questions"]]
+    assert len(proposal_texts) == 1
+    assert "machine ABC" in proposal_texts[0]
+
+
+def test_attach_section_synthesis_surfaces_unscoped_session_entry():
+    """No-plan resilience: when the FINAL pass stored its synthesis under the
+    unscoped "session" key (thematic structuring yielded no topics), the
+    structured report must still surface the reformulated text, its KB sources
+    and grounded questions as a single pseudo-section instead of regressing to
+    the verbatim transcript."""
+    import app.services.knowledge_capture as kc
+
+    plan = {
+        "section_synthesis": {
+            "session": {
+                "section_key": "session",
+                "section_label": "Maintenance des cardes",
+                "synthesis": "Synthèse reformulée de la capture libre.",
+                "sources": [{"title": "Doc A", "document_id": "doc-a", "preview": "extrait"}],
+                "open_questions": [{"id": "grounded-sec-01", "text": "Quelle périodicité exacte ?", "status": "open"}],
+            }
+        }
+    }
+    structure = kc._structure_facts_by_plan({}, [{"text": "fait brut hors plan"}])
+    assert structure["topics"] == []
+    result = kc._attach_section_synthesis(structure, plan)
+    topics = result["topics"]
+    assert len(topics) == 1
+    assert topics[0]["title"] == "Maintenance des cardes"
+    assert topics[0]["synthesis"] == "Synthèse reformulée de la capture libre."
+    assert topics[0]["sources"][0]["title"] == "Doc A"
+    assert topics[0]["open_questions"][0]["text"] == "Quelle périodicité exacte ?"
+    # The previously-unassigned facts move under the pseudo-section.
+    assert result["unassigned"] == []
+    assert topics[0]["facts"][0]["text"] == "fait brut hors plan"
+
+
+def test_attach_section_synthesis_session_entry_ignored_when_topics_exist():
+    import app.services.knowledge_capture as kc
+
+    plan = {
+        "topics": [{"id": "t1", "title": "Sujet 1", "subtopics": []}],
+        "section_synthesis": {
+            "t1": {"synthesis": "Synthèse du sujet 1.", "sources": []},
+            "session": {"synthesis": "Ne doit pas écraser.", "sources": []},
+        },
+    }
+    structure = kc._structure_facts_by_plan(plan, [])
+    result = kc._attach_section_synthesis(structure, plan)
+    assert len(result["topics"]) == 1
+    assert result["topics"][0]["synthesis"] == "Synthèse du sujet 1."

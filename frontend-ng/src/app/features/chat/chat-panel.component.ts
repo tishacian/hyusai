@@ -5219,6 +5219,11 @@ export class ChatPanelComponent implements AfterViewInit {
     const ragOverride = this.ragModeOverride();
     const promptTypeSel = this.promptType();
     const responseLanguage = this.responseLanguageFor(text);
+    // Demo-safe surfaces keep the chat chrome light and defer the whole
+    // retrieval budget to the workspace chat flow defaults (scope top_k,
+    // mode, latency profile). Null fields let the backend folds apply, so
+    // the values shown in workspace settings are the ones actually used.
+    const deferToWorkspace = this.isDemoMode();
     this.sse
       .stream('/api/v1/chat/stream', {
         query: text,
@@ -5233,14 +5238,19 @@ export class ChatPanelComponent implements AfterViewInit {
         include_sources: true,
         temperature: s.temperature,
         max_tokens: s.maxTokens,
-        top_k: s.ragTopK,
-        candidate_pool_k: Math.min(s.ragCandidatePoolK ?? Math.max((s.ragSynthesisK ?? 12) * 4, 40), 20),
-        synthesis_k: s.ragSynthesisK ?? Math.max(s.ragTopK ?? 5, 12),
-        source_display_k: s.ragSourceDisplayK ?? Math.min(Math.max(s.ragTopK ?? 5, 5), 8),
-        latency_profile: 'fast',
-        similarity_threshold: s.ragSimilarityThreshold,
+        top_k: deferToWorkspace ? null : s.ragTopK,
+        candidate_pool_k: deferToWorkspace
+          ? null
+          : Math.min(s.ragCandidatePoolK ?? Math.max((s.ragSynthesisK ?? 12) * 4, 40), 20),
+        synthesis_k: deferToWorkspace ? null : (s.ragSynthesisK ?? Math.max(s.ragTopK ?? 5, 12)),
+        source_display_k: deferToWorkspace
+          ? null
+          : (s.ragSourceDisplayK ?? Math.min(Math.max(s.ragTopK ?? 5, 5), 8)),
+        latency_profile: deferToWorkspace ? null : 'fast',
+        similarity_threshold: deferToWorkspace ? null : s.ragSimilarityThreshold,
         // Per-query retrieval override wins over workspace default.
-        rag_pipeline_mode: ragOverride !== 'auto' ? ragOverride : s.ragPipelineMode,
+        rag_pipeline_mode:
+          ragOverride !== 'auto' ? ragOverride : deferToWorkspace ? null : s.ragPipelineMode,
         rag_mode_override: ragOverride !== 'auto' ? ragOverride : null,
         // Per-query reasoning template; "auto" lets the mode_selector decide.
         prompt_type: promptTypeSel !== 'auto' ? promptTypeSel : null,

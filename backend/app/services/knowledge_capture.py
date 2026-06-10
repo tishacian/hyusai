@@ -30,6 +30,10 @@ from app.services.audit_logger import emit_audit_event
 from app.services.capture_knowledge_oracle import (
     CaptureSessionContext,
     analyze_plan_oracle_async,
+    compose_plan_oracle,
+    plan_structure_llm_async,
+    dedupe_statements,
+    derive_thematic_blocks_async,
     evaluate_capture_partial,
     generate_question_bank_entry_async,
     broad_presentation_prompt,
@@ -43,6 +47,11 @@ from app.services.capture_knowledge_oracle import (
     _model_chat_kwargs,
     _resolve_llm_config,
 )
+
+# Async callback receiving FINAL-phase progress payloads
+# ({stage, label, current?, total?, section_label?}) so transports (WS gateway)
+# can stream honest progress to the loader while the heavy pass runs.
+FinalizeProgressCallback = Callable[[Dict[str, Any]], Any]
 
 CAPABILITY_SLUG = "expert_knowledge_capture"
 TOPIC_PLAN_SCHEMA_VERSION = "topic_plan_v1"
@@ -72,6 +81,15 @@ PROPOSAL_OPEN_QUESTION_STATUSES = frozenset({"open", "answered", "invalid", "def
 _PROPOSAL_OPEN_QUESTION_STATUS_ALIASES = {"dismissed": "invalid", "addressed": "answered"}
 # Statuses excluded from the publishable knowledge sheet.
 PROPOSAL_OPEN_QUESTION_EXCLUDED_STATUSES = frozenset({"invalid", "answered"})
+# Generic evaluation relance copied into session.evaluations — must not replace
+# grounded/live oracle questions in the proposal report.
+_GENERIC_CONTRADICTION_FOLLOWUP = "Clarifier ce qui contredit ou met à jour la source existante."
+_GENERIC_EVALUATION_OPEN_QUESTIONS = frozenset(
+    {
+        _GENERIC_CONTRADICTION_FOLLOWUP.lower(),
+        "contradiction ou mise à jour à clarifier",
+    }
+)
 
 _logger = logging.getLogger(__name__)
 _CAPTURE_RETRIEVAL_WARM_CACHE: OrderedDict[str, tuple[float, Dict[str, Any]]] = OrderedDict()
@@ -872,19 +890,6 @@ def parse_provided_plan_text(text: str) -> List[Dict[str, Any]]:
             else:
                 _add_point(title)
 
-    # Every topic needs at least one subtopic for downstream normalization.
-    for topic in topics:
-        if not topic["subtopics"]:
-            topic["subtopics"].append(
-                {
-                    "id": f"{topic['id']}-sub-01",
-                    "title": topic["title"],
-                    "objective": "",
-                    "status": "pending",
-                    "questions": [],
-                }
-            )
-
     if not topics and len(_words(seed)) >= 6:
         topics.append(
             {
@@ -1321,6 +1326,53 @@ def update_capture_session_flags(
     return session
 
 
+def session_is_archived(session: ExpertCaptureSession) -> bool:
+    return bool((session.metrics or {}).get("archived"))
+
+
+def archive_capture_session(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    archived: bool = True,
+    actor_user_id: Optional[str] = None,
+) -> ExpertCaptureSession:
+    """Soft-archive (or restore) a capture session via a metrics flag.
+
+    Archived sessions stay fully readable (transcript, proposals, audit trail)
+    but are hidden from the default sessions listing.
+    """
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    metrics = dict(session.metrics or {})
+    if archived:
+        metrics["archived"] = True
+        metrics["archived_at"] = datetime.utcnow().isoformat()
+        if actor_user_id:
+            metrics["archived_by_user_id"] = actor_user_id
+    else:
+        metrics.pop("archived", None)
+        metrics.pop("archived_at", None)
+        metrics.pop("archived_by_user_id", None)
+    session.metrics = metrics
+    flag_modified(session, "metrics")
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def delete_capture_session(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+) -> None:
+    """Permanently delete a capture session (events and proposals cascade)."""
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    db.delete(session)
+    db.commit()
+
+
 def _is_plan_build_schema(plan: Dict[str, Any]) -> bool:
     return plan.get("schema_version") in PLAN_BUILD_SCHEMA_VERSIONS or plan.get("mode") in {
         "plan_build",
@@ -1437,6 +1489,66 @@ def _invoke_plan_oracle(
     )
 
 
+async def _plan_dialogue_oracle_parallel_async(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    workspace_slug: Optional[str],
+    session: ExpertCaptureSession,
+    plan: Dict[str, Any],
+    query: str,
+    latest_instruction: str = "",
+) -> Tuple[List[str], List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any], Dict[str, float]]:
+    """Plan dialogue turn: run RAG retrieval and the LLM structuring concurrently.
+
+    The structuring prompt only ever uses RAG chunks as kb_ref evidence (never to
+    widen scope), so the LLM call can start immediately instead of waiting ~1-3s
+    for retrieval. Deterministic post-processing (gaps scoring, contradiction
+    detection, kb_refs) still runs on the retrieved chunks once both complete.
+    """
+    started = time.monotonic()
+    context = session_context_from_capture(
+        session=session,
+        plan=plan,
+        latest_instruction=latest_instruction,
+    )
+    retrieval_task = asyncio.create_task(
+        _retrieve_context_chunks_async(
+            db,
+            workspace_id=workspace_id,
+            workspace_slug=workspace_slug,
+            session=session,
+            query=query,
+        )
+    )
+    llm_task = asyncio.create_task(plan_structure_llm_async(context))
+    rag_chunks, rag_metadatas, _scores = await retrieval_task
+    retrieval_ms = (time.monotonic() - started) * 1000.0
+    gaps = build_knowledge_gaps(
+        objective=query,
+        expert_profile=session.expert_profile,
+        context_snapshot=plan.get("context") or {},
+        knowledge_refs=list(plan.get("knowledge_refs") or []),
+        rag_chunks=rag_chunks,
+        rag_metadatas=rag_metadatas,
+    )
+    parsed = await llm_task
+    llm_ms = (time.monotonic() - started) * 1000.0
+    oracle = compose_plan_oracle(
+        context,
+        parsed,
+        rag_chunks=rag_chunks,
+        rag_metadatas=rag_metadatas,
+        base_gaps=gaps,
+    )
+    timings = {
+        "retrieval_ms": round(retrieval_ms, 1),
+        "llm_ms": round(llm_ms, 1),
+        "total_ms": round((time.monotonic() - started) * 1000.0, 1),
+    }
+    return rag_chunks, rag_metadatas, gaps, oracle, timings
+
+
 def process_plan_dialogue_turn(
     db: DBSession,
     *,
@@ -1469,27 +1581,16 @@ def process_plan_dialogue_turn(
     plan["schema_version"] = PLAN_BUILD_V2_SCHEMA_VERSION
 
     subject = _dialogue_subject_text(plan)
-    rag_chunks, rag_metadatas = _sync_plan_rag_chunks(
-        db,
-        workspace_id=workspace_id,
-        workspace_slug=workspace_slug,
-        session=session,
-        query=f"{session.objective} {subject}".strip(),
-    )
-    gaps = build_knowledge_gaps(
-        objective=f"{session.objective} {subject}".strip(),
-        expert_profile=session.expert_profile,
-        context_snapshot=plan.get("context") or {},
-        knowledge_refs=list(plan.get("knowledge_refs") or []),
-        rag_chunks=rag_chunks,
-        rag_metadatas=rag_metadatas,
-    )
-    context = session_context_from_capture(session=session, plan=plan)
-    oracle = _invoke_plan_oracle(
-        context,
-        rag_chunks=rag_chunks,
-        rag_metadatas=rag_metadatas,
-        base_gaps=gaps,
+    rag_chunks, rag_metadatas, gaps, oracle, oracle_timings = asyncio.run(
+        _plan_dialogue_oracle_parallel_async(
+            db,
+            workspace_id=workspace_id,
+            workspace_slug=workspace_slug,
+            session=session,
+            plan=plan,
+            query=f"{session.objective} {subject}".strip(),
+            latest_instruction=clean,
+        )
     )
     plan["topics"] = merge_topic_proposals(plan, oracle.get("topic_proposals") or [])
     plan["oracle"] = {
@@ -1508,12 +1609,15 @@ def process_plan_dialogue_turn(
         db,
         session=session,
         event_type="plan_dialogue_turn",
-        speaker="expert",
         text_raw=clean or None,
         source="capture_engine",
         status="accepted",
         created_by=actor_user_id,
-        meta_data={"turn_count": len(turns), "ready_to_finalize": dialogue["ready_to_finalize"]},
+        meta_data={
+            "turn_count": len(turns),
+            "ready_to_finalize": dialogue["ready_to_finalize"],
+            "capture_phase": "plan_build",
+        },
     )
     _record_capture_event(
         db,
@@ -1527,6 +1631,8 @@ def process_plan_dialogue_turn(
             "kb_chunk_count": len(rag_chunks),
             "contradiction_count": len(oracle.get("contradiction_candidates") or []),
             "oracle_exact_match_count": len(oracle.get("oracle_exact_matches") or []),
+            # Latency profile of the parallel retrieval + LLM structuring pass.
+            "oracle_timings_ms": oracle_timings,
         },
     )
     db.commit()
@@ -1657,8 +1763,8 @@ def _normalize_plan_build_topics(
             raise ValueError("Topic ids must be unique")
         topic_ids.add(topic_id)
         raw_subtopics = raw_topic.get("subtopics") or []
-        if not isinstance(raw_subtopics, list) or not raw_subtopics:
-            raise ValueError(f"Topic '{topic_title}' must contain at least one subtopic")
+        if not isinstance(raw_subtopics, list):
+            raw_subtopics = []
         normalized_subtopics: List[Dict[str, Any]] = []
         for subtopic_index, raw_subtopic in enumerate(raw_subtopics, start=1):
             if not isinstance(raw_subtopic, dict):
@@ -1790,10 +1896,12 @@ def generate_question_bank(
     bank: List[Dict[str, Any]] = []
     priority = 80
     for topic in topics:
-        for subtopic in topic.get("subtopics") or []:
-            subtopic_id = str(subtopic.get("id") or "")
-            title = str(subtopic.get("title") or "Sujet")
-            objective = str(subtopic.get("objective") or session.objective or "")
+        subtopics = [node for node in (topic.get("subtopics") or []) if isinstance(node, dict)]
+        capture_units = subtopics or ([topic] if isinstance(topic, dict) else [])
+        for unit in capture_units:
+            unit_id = str(unit.get("id") or "")
+            title = str(unit.get("title") or "Sujet")
+            objective = str(unit.get("objective") or session.objective or "")
             query = f"{title} {objective}".strip()
             chunks, metadatas, _scores = _retrieve_context_chunks(
                 db,
@@ -1829,7 +1937,7 @@ def generate_question_bank(
             bank.append(
                 {
                     "id": f"qb-{uuid.uuid4()}",
-                    "subtopic_id": subtopic_id,
+                    "subtopic_id": unit_id,
                     "full_question": full_question,
                     "prompt": presentation,
                     "hint": hint[:80],
@@ -2077,7 +2185,14 @@ def process_capture_partial_hints(
     )
     pushed: List[Dict[str, Any]] = []
     active_subtopic_id = evaluation.get("active_subtopic_id")
-    if active_subtopic_id and active_subtopic_id != metrics.get("active_subtopic_id"):
+    active_section_confidence = float(evaluation.get("active_section_confidence") or 0.0)
+    from app.services.capture_knowledge_oracle import LIVE_SECTION_DETECT_MIN_CONFIDENCE
+
+    if (
+        active_subtopic_id
+        and active_section_confidence >= LIVE_SECTION_DETECT_MIN_CONFIDENCE
+        and active_subtopic_id != metrics.get("active_subtopic_id")
+    ):
         metrics["active_subtopic_id"] = active_subtopic_id
         session.metrics = metrics
         flag_modified(session, "metrics")
@@ -2087,7 +2202,11 @@ def process_capture_partial_hints(
             event_type="subtopic_focus_changed",
             source="capture_engine",
             status="accepted",
-            meta_data={"active_subtopic_id": active_subtopic_id, "client_turn_id": client_turn_id},
+            meta_data={
+                "active_subtopic_id": active_subtopic_id,
+                "active_section_confidence": active_section_confidence,
+                "client_turn_id": client_turn_id,
+            },
         )
     for hint in evaluation.get("hints") or []:
         subtopic_id = hint.get("subtopic_id") or active_subtopic_id
@@ -2125,6 +2244,8 @@ def process_capture_partial_hints(
     return {
         "hints": pushed,
         "active_subtopic_id": active_subtopic_id,
+        "active_topic_id": evaluation.get("active_topic_id"),
+        "active_section_confidence": active_section_confidence,
         "session": session,
         "contradiction_candidates": evaluation.get("contradiction_candidates") or [],
         "oracle_exact_matches": evaluation.get("oracle_exact_matches") or [],
@@ -2745,6 +2866,14 @@ async def publish_proposal_to_knowledge(
         publication_meta.setdefault("include_unresolved_questions", True)
     else:
         publication_meta["include_unresolved_questions"] = bool(include_unresolved_questions)
+    metadata["proposal_id"] = proposal.id
+    metadata["capture_session_id"] = session.id
+    if publication_category:
+        metadata["publication_category"] = publication_category
+    if publication_destination:
+        metadata["publication_destination"] = publication_destination
+    if publication_title:
+        metadata["publication_final_title"] = publication_title
     recommended["metadata"] = metadata
     proposal_payload["recommended_ingestion"] = recommended
     proposal_payload["publication"] = publication_meta
@@ -2771,12 +2900,12 @@ async def publish_proposal_to_knowledge(
     from app.services.rag.vector_store_config import resolve_vector_db_type
     from app.services.rag.document_service import DocumentService
 
-    slug = collection_name.replace("_", "-")[:80] or "expert-capture"
+    slug = (publication_destination or collection_name).replace("_", "-")[:80] or "expert-capture"
     collection = create_or_get_collection(
         db,
         workspace=workspace,
         slug=slug,
-        name=collection_name,
+        name=publication_destination or collection_name,
         description="Expert capture publications",
     )
     db.flush()
@@ -2793,7 +2922,25 @@ async def publish_proposal_to_knowledge(
             vector_db_type=resolve_vector_db_type(app_settings),
             workspace_slug=workspace.slug,
         )
-        result = await doc_service.ingest_document(str(path), collection_name=collection.slug)
+        ingest_metadata = {
+            key: value
+            for key, value in {
+                "source": "expert_capture_session",
+                "capture_session_id": session.id,
+                "proposal_id": proposal.id,
+                "publication_category": publication_category,
+                "publication_destination": publication_destination,
+                "publication_final_title": publication_title,
+                "collection_slug": collection.slug,
+            }.items()
+            if value
+        }
+        result = await doc_service.ingest_document(
+            str(path),
+            collection_name=collection.slug,
+            collection_slug=collection.slug,
+            document_metadata=ingest_metadata,
+        )
     document_id = result.get("document_id")
     export_urls: Dict[str, str] = {}
     if document_id:
@@ -2803,10 +2950,18 @@ async def publish_proposal_to_knowledge(
             "raw_url": raw_url,
         }
         publication_meta["export_urls"] = export_urls
+        publication_meta["document_id"] = document_id
+        publication_meta["collection_slug"] = collection.slug
+        publication_meta["chunks_processed"] = result.get("chunks_processed", 0)
         proposal_payload["publication"] = publication_meta
         proposal.proposal = proposal_payload
         flag_modified(proposal, "proposal")
         db.flush()
+    proposal.status = "published"
+    publication_meta["published_at"] = datetime.utcnow().isoformat()
+    proposal_payload["publication"] = publication_meta
+    proposal.proposal = proposal_payload
+    flag_modified(proposal, "proposal")
     emit_audit_event(
         db=db,
         workspace_id=workspace.id,
@@ -3487,6 +3642,8 @@ def format_retrieval_chunks(
 def structure_capture_payload(
     session: ExpertCaptureSession,
     transcript_events: Optional[List[ExpertCaptureEvent]] = None,
+    *,
+    plan_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     transcript = session.transcript or []
     evaluations = session.evaluations or []
@@ -3502,21 +3659,8 @@ def structure_capture_payload(
         if event.event_type == "transcript_amended" or event.text_amended
     ]
 
-    plan = session.plan or {}
-    open_questions = [
-        {
-            "gap_id": ev.get("gap_id"),
-            "reason": ev.get("verdict"),
-            "follow_up": ev.get("follow_up"),
-            "status": "open",
-        }
-        for ev in evaluations
-        if ev.get("verdict") != "sufficient"
-    ]
-    # Merge the oracle's FINAL grounded open questions (computed per section at
-    # section.finish / capture.finish and stored on the plan) into the proposal's
-    # unified open_questions list with the lifecycle status carried through.
-    open_questions = _merge_grounded_open_questions(open_questions, plan)
+    plan = dict(plan_snapshot if plan_snapshot is not None else (session.plan or {}))
+    open_questions = _build_proposal_open_questions(session, plan, evaluations)
     # Plan-hierarchy aligned structuring of the captured facts, enriched with the
     # per-section FINAL synthesis when available (cabled _structure_facts_by_plan).
     plan_structure = _structure_facts_by_plan(plan, captured)
@@ -3527,13 +3671,23 @@ def structure_capture_payload(
     )
 
     template_id = resolve_knowledge_sheet_template(session)
-    markdown = build_knowledge_sheet_content(
-        template_id,
-        session,
-        captured,
-        open_questions,
-        transcript=transcript,
+    stored_synthesis = plan.get("section_synthesis") if isinstance(plan.get("section_synthesis"), dict) else {}
+    has_final_synthesis = any(
+        isinstance(entry, dict) and str(entry.get("synthesis") or "").strip()
+        for entry in stored_synthesis.values()
     )
+    if has_final_synthesis:
+        # The FINAL pass ran: the report is assembled from the per-section
+        # restructured syntheses (deduped, glossary-aligned), not the raw facts.
+        markdown = _assemble_report_from_sections(session, plan_structure, open_questions)
+    else:
+        markdown = build_knowledge_sheet_content(
+            template_id,
+            session,
+            captured,
+            open_questions,
+            transcript=transcript,
+        )
     transcript_segments = _build_transcript_segments(transcript, event_rows)
     return {
         "session_id": session.id,
@@ -3931,67 +4085,264 @@ def _section_key(topic_id: Optional[str], subtopic_id: Optional[str]) -> str:
     return str(subtopic_id or topic_id or "session")
 
 
+def _resolve_default_plan_section(plan: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """First plan section (topic, subtopic) used when capture turns lack tags."""
+    topics = [topic for topic in (plan.get("topics") or []) if isinstance(topic, dict)]
+    if not topics:
+        return None, None
+    topic = topics[0]
+    topic_id = topic.get("id")
+    subtopics = [node for node in (topic.get("subtopics") or []) if isinstance(node, dict)]
+    if subtopics:
+        return topic_id, subtopics[0].get("id")
+    return topic_id, None
+
+
+def _resolve_session_active_section(session: ExpertCaptureSession) -> Tuple[Optional[str], Optional[str]]:
+    """Active plan section from session metrics, or the default first section."""
+    metrics = session.metrics or {}
+    topic_id = metrics.get("active_topic_id")
+    subtopic_id = metrics.get("active_subtopic_id")
+    if topic_id or subtopic_id:
+        return topic_id, subtopic_id
+    return _resolve_default_plan_section(session.plan or {})
+
+
+def _open_question_text(question: Dict[str, Any]) -> str:
+    return str(
+        question.get("follow_up") or question.get("text") or question.get("reason") or ""
+    ).strip()
+
+
+def _open_question_dedupe_key(question: Dict[str, Any]) -> str:
+    text = _open_question_text(question).lower()
+    if text:
+        return text
+    for field in ("gap_id", "id", "question_id"):
+        value = _clean_optional_string(question.get(field))
+        if value:
+            return value.lower()
+    return ""
+
+
+def _is_generic_evaluation_open_question(question: Dict[str, Any]) -> bool:
+    text = _open_question_text(question).lower()
+    if text in _GENERIC_EVALUATION_OPEN_QUESTIONS:
+        return True
+    reason = str(question.get("reason") or question.get("verdict") or "").strip().lower()
+    return reason == "contradiction_or_update" and (not text or text in _GENERIC_EVALUATION_OPEN_QUESTIONS)
+
+
+def _proposal_open_question_from_raw(
+    raw: Dict[str, Any],
+    *,
+    default_source: str,
+) -> Dict[str, Any]:
+    text = _open_question_text(raw)
+    return {
+        "gap_id": raw.get("id") or raw.get("gap_id"),
+        "reason": raw.get("source") or raw.get("reason") or default_source,
+        "follow_up": text,
+        "text": text,
+        "topic_id": raw.get("topic_id"),
+        "subtopic_id": raw.get("subtopic_id"),
+        "priority": raw.get("priority"),
+        "status": _normalize_proposal_open_question_status(raw.get("status")),
+        "source": raw.get("source") or default_source,
+    }
+
+
+def _build_proposal_open_questions(
+    session: ExpertCaptureSession,
+    plan: Dict[str, Any],
+    evaluations: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Unified proposal open questions: live oracle (capture) + FINAL grounded
+    (section synthesis), deduped. Generic evaluation placeholders are dropped
+    whenever grounded/live questions exist."""
+    merged: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _append(raw: Dict[str, Any], *, default_source: str) -> None:
+        if not isinstance(raw, dict):
+            return
+        key = _open_question_dedupe_key(raw)
+        if not key or key in seen:
+            return
+        seen.add(key)
+        merged.append(_proposal_open_question_from_raw(raw, default_source=default_source))
+
+    for question in (plan or {}).get("live_open_questions") or []:
+        _append(question, default_source="oracle_live")
+
+    stored = (plan or {}).get("section_synthesis") or {}
+    if isinstance(stored, dict):
+        for entry in stored.values():
+            if not isinstance(entry, dict):
+                continue
+            for question in entry.get("open_questions") or []:
+                _append(question, default_source="oracle_grounded")
+
+    has_grounded = bool(merged)
+    for evaluation in evaluations if evaluations is not None else (session.evaluations or []):
+        if not isinstance(evaluation, dict) or evaluation.get("verdict") == "sufficient":
+            continue
+        candidate = {
+            "gap_id": evaluation.get("gap_id"),
+            "reason": evaluation.get("verdict"),
+            "follow_up": evaluation.get("follow_up"),
+            "text": evaluation.get("follow_up"),
+            "topic_id": evaluation.get("topic_id"),
+            "subtopic_id": evaluation.get("subtopic_id"),
+            "status": "open",
+        }
+        if has_grounded and _is_generic_evaluation_open_question(candidate):
+            continue
+        _append(candidate, default_source="evaluation")
+
+    return merged
+
+
+def merge_live_open_questions_into_plan(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    questions: List[Dict[str, Any]],
+) -> None:
+    """Persist LIVE grounded questions on the plan so capture.finish reuses them."""
+    if not questions:
+        return
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    plan = dict(session.plan or {})
+    existing = [
+        dict(question)
+        for question in (plan.get("live_open_questions") or [])
+        if isinstance(question, dict)
+    ]
+    seen = {_open_question_dedupe_key(question) for question in existing if _open_question_dedupe_key(question)}
+    for raw in questions:
+        if not isinstance(raw, dict):
+            continue
+        key = _open_question_dedupe_key(raw)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        existing.append(dict(raw))
+    plan["live_open_questions"] = existing
+    session.plan = plan
+    flag_modified(session, "plan")
+    db.commit()
+
+
+def _backfill_turn_plan_tags(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+) -> ExpertCaptureSession:
+    """Tag untagged expert turns with the active/default plan section so the FINAL
+    per-section reformulation can map statements to the plan hierarchy."""
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    plan = session.plan or {}
+    topics = [topic for topic in (plan.get("topics") or []) if isinstance(topic, dict)]
+    if not topics:
+        return session
+
+    default_topic_id, default_subtopic_id = _resolve_session_active_section(session)
+    transcript = list(session.transcript or [])
+    changed = False
+    carry_topic_id = default_topic_id
+    carry_subtopic_id = default_subtopic_id
+
+    for index, turn in enumerate(transcript):
+        if not isinstance(turn, dict) or turn.get("speaker") != "expert":
+            continue
+        text = str(turn.get("text") or turn.get("text_raw") or "").strip()
+        if not text:
+            continue
+        topic_id = turn.get("topic_id")
+        subtopic_id = turn.get("subtopic_id")
+        if topic_id or subtopic_id:
+            carry_topic_id = topic_id or carry_topic_id
+            carry_subtopic_id = subtopic_id if subtopic_id is not None else carry_subtopic_id
+            continue
+        updated = dict(turn)
+        updated["topic_id"] = carry_topic_id or default_topic_id
+        updated["subtopic_id"] = carry_subtopic_id if carry_subtopic_id is not None else default_subtopic_id
+        transcript[index] = updated
+        changed = True
+        carry_topic_id = updated.get("topic_id") or carry_topic_id
+        carry_subtopic_id = updated.get("subtopic_id")
+
+    if not changed:
+        return session
+
+    session.transcript = transcript
+    flag_modified(session, "transcript")
+    captured = list(session.captured_facts or [])
+    for fact in captured:
+        if fact.get("topic_id") or fact.get("subtopic_id"):
+            continue
+        turn_id = fact.get("turn_id")
+        for turn in transcript:
+            if turn.get("id") == turn_id:
+                fact["topic_id"] = turn.get("topic_id")
+                fact["subtopic_id"] = turn.get("subtopic_id")
+                break
+    session.captured_facts = captured
+    flag_modified(session, "captured_facts")
+    db.commit()
+    db.refresh(session)
+    return session
+
+
 def _attach_section_synthesis(plan_structure: Dict[str, Any], plan: Dict[str, Any]) -> Dict[str, Any]:
-    """Attach the stored per-section FINAL synthesis text onto the structured plan."""
+    """Attach the stored per-section FINAL synthesis (text + KB sources + grounded
+    open questions) onto the structured plan so the report UI can render section
+    cards with chat-style sources."""
     stored = (plan or {}).get("section_synthesis") or {}
     if not isinstance(stored, dict) or not stored:
         return plan_structure
-    for topic in plan_structure.get("topics") or []:
-        topic_key = _section_key(topic.get("topic_id"), None)
-        entry = stored.get(topic_key)
-        if isinstance(entry, dict) and entry.get("synthesis"):
-            topic["synthesis"] = entry.get("synthesis")
-        for subtopic in topic.get("subtopics") or []:
-            sub_key = _section_key(topic.get("topic_id"), subtopic.get("subtopic_id"))
-            sub_entry = stored.get(sub_key)
-            if isinstance(sub_entry, dict) and sub_entry.get("synthesis"):
-                subtopic["synthesis"] = sub_entry.get("synthesis")
-    return plan_structure
 
-
-def _merge_grounded_open_questions(
-    open_questions: List[Dict[str, Any]],
-    plan: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-    """Append the oracle's stored grounded open questions to the proposal list.
-
-    Grounded questions (from generate_grounded_open_questions_async, computed in
-    the FINAL phase) replace the generic ``_BASE_GAPS`` fallback. Existing
-    evaluation-derived questions are kept; duplicates by text are skipped.
-    """
-    merged = list(open_questions or [])
-    seen = {
-        str(q.get("follow_up") or q.get("text") or q.get("reason") or "").strip().lower()
-        for q in merged
-        if isinstance(q, dict)
-    }
-    stored = (plan or {}).get("section_synthesis") or {}
-    if not isinstance(stored, dict):
-        return merged
-    for entry in stored.values():
+    def _apply(node: Dict[str, Any], entry: Any) -> None:
         if not isinstance(entry, dict):
-            continue
-        for question in entry.get("open_questions") or []:
-            if not isinstance(question, dict):
-                continue
-            text = str(question.get("text") or question.get("follow_up") or "").strip()
-            if not text or text.lower() in seen:
-                continue
-            seen.add(text.lower())
-            merged.append(
+            return
+        if entry.get("synthesis"):
+            node["synthesis"] = entry.get("synthesis")
+        if entry.get("sources"):
+            node["sources"] = entry.get("sources")
+        if entry.get("open_questions"):
+            node["open_questions"] = entry.get("open_questions")
+
+    for topic in plan_structure.get("topics") or []:
+        _apply(topic, stored.get(_section_key(topic.get("topic_id"), None)))
+        for subtopic in topic.get("subtopics") or []:
+            _apply(subtopic, stored.get(_section_key(topic.get("topic_id"), subtopic.get("subtopic_id"))))
+
+    # No-plan resilience: when the FINAL pass ran without any plan topics (e.g.
+    # the thematic structuring yielded nothing), the synthesis is stored under
+    # the unscoped "session" key. Surface it as a single pseudo-section so the
+    # report keeps the reformulated text, its KB sources and grounded questions
+    # instead of silently falling back to the verbatim transcript.
+    if not plan_structure.get("topics"):
+        session_entry = stored.get("session")
+        if isinstance(session_entry, dict) and str(session_entry.get("synthesis") or "").strip():
+            unassigned = plan_structure.get("unassigned") or []
+            plan_structure["topics"] = [
                 {
-                    "gap_id": question.get("id") or question.get("gap_id"),
-                    "reason": question.get("source") or "oracle_grounded",
-                    "follow_up": text,
-                    "text": text,
-                    "topic_id": question.get("topic_id"),
-                    "subtopic_id": question.get("subtopic_id"),
-                    "priority": question.get("priority"),
-                    "status": _normalize_proposal_open_question_status(question.get("status")),
-                    "source": question.get("source") or "oracle_grounded",
+                    "topic_id": "session",
+                    "title": str(session_entry.get("section_label") or "").strip() or "Synthèse de la capture",
+                    "prompt": None,
+                    "facts": list(unassigned),
+                    "subtopics": [],
+                    "synthesis": session_entry.get("synthesis"),
+                    "sources": session_entry.get("sources") or [],
+                    "open_questions": session_entry.get("open_questions") or [],
                 }
-            )
-    return merged
+            ]
+            plan_structure["unassigned"] = []
+    return plan_structure
 
 
 def _structure_facts_by_plan(
@@ -4395,6 +4746,14 @@ def start_session(db: DBSession, *, workspace_id: str, session_id: str) -> Exper
             flag_modified(session, "plan")
         session.status = "active"
         session.started_at = datetime.utcnow()
+        default_topic_id, default_subtopic_id = _resolve_default_plan_section(plan)
+        if default_topic_id:
+            metrics = dict(session.metrics or {})
+            metrics.setdefault("active_topic_id", default_topic_id)
+            if default_subtopic_id:
+                metrics.setdefault("active_subtopic_id", default_subtopic_id)
+            session.metrics = metrics
+            flag_modified(session, "metrics")
         _record_capture_event(
             db,
             session=session,
@@ -4434,6 +4793,11 @@ def append_turn(
     if session.status == "planned":
         session.status = "active"
         session.started_at = session.started_at or datetime.utcnow()
+
+    if speaker == "expert" and not (topic_id or subtopic_id):
+        active_topic_id, active_subtopic_id = _resolve_session_active_section(session)
+        topic_id = topic_id or active_topic_id
+        subtopic_id = subtopic_id if subtopic_id is not None else active_subtopic_id
 
     question_meta = _question_trace_metadata(session.plan or {}, question_id)
     retrieval_refs = _retrieval_refs_for_event(
@@ -4616,10 +4980,16 @@ def create_update_proposal(
     session_id: str,
     complete_session: bool = True,
     created_by_user_id: Optional[str] = None,
+    plan_snapshot: Optional[Dict[str, Any]] = None,
 ) -> KnowledgeUpdateProposal:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    db.refresh(session)
     events = list_capture_events(db, workspace_id=workspace_id, session_id=session_id)
-    payload = structure_capture_payload(session, events)
+    payload = structure_capture_payload(
+        session,
+        events,
+        plan_snapshot=plan_snapshot or dict(session.plan or {}),
+    )
     proposal = _latest_pending_proposal_for_session(db, workspace_id=workspace_id, session_id=session_id)
     previous_publication = (
         dict((proposal.proposal or {}).get("publication") or {})
@@ -4657,6 +5027,7 @@ def create_update_proposal(
         metrics["session_end_pending"] = False
         metrics.update(_compute_timer_metrics(session))
         session.metrics = metrics
+        _sync_session_proposal_open_questions_count(session, payload.get("open_questions"))
         flag_modified(session, "metrics")
     db.flush()
     _record_capture_event(
@@ -4832,8 +5203,6 @@ def update_proposal_open_question_statuses(
         return proposal
 
     payload["open_questions"] = questions
-    proposal.proposal = payload
-    flag_modified(proposal, "proposal")
 
     session = (
         db.query(ExpertCaptureSession)
@@ -4844,6 +5213,8 @@ def update_proposal_open_question_statuses(
         .first()
     )
     if session:
+        payload = _rebuild_proposal_report_payload(session, payload, questions)
+        _sync_session_proposal_open_questions_count(session, questions)
         _record_capture_event(
             db,
             session=session,
@@ -4858,6 +5229,8 @@ def update_proposal_open_question_statuses(
             },
         )
 
+    proposal.proposal = payload
+    flag_modified(proposal, "proposal")
     db.commit()
     db.refresh(proposal)
     return proposal
@@ -4931,12 +5304,125 @@ def _section_statements(
         if subtopic_id:
             if turn.get("subtopic_id") == subtopic_id:
                 statements.append(text)
+            elif (
+                turn.get("topic_id") == topic_id
+                and not turn.get("subtopic_id")
+                and topic_id
+            ):
+                # Expert spoke on the topic before a subtopic was selected.
+                statements.append(text)
         elif topic_id:
             if turn.get("topic_id") == topic_id:
                 statements.append(text)
         else:
             statements.append(text)
     return statements
+
+
+def _resolve_capture_report_source_min_score() -> float:
+    from app.core.config import settings as cfg
+
+    try:
+        return float(getattr(cfg, "capture_report_source_min_score", 0.55) or 0.55)
+    except (TypeError, ValueError):
+        return 0.55
+
+
+def _filter_retrieval_by_min_score(
+    chunks: List[str],
+    metadatas: List[Dict[str, Any]],
+    scores: List[float],
+    min_score: float,
+) -> Tuple[List[str], List[Dict[str, Any]], List[float]]:
+    """Drop retrieval hits below ``min_score`` before attaching them to reports."""
+    if min_score <= 0:
+        return list(chunks or []), list(metadatas or []), list(scores or [])
+    kept_chunks: List[str] = []
+    kept_meta: List[Dict[str, Any]] = []
+    kept_scores: List[float] = []
+    for index, chunk in enumerate(chunks or []):
+        score = scores[index] if index < len(scores) else None
+        if score is not None and float(score) < min_score:
+            continue
+        kept_chunks.append(str(chunk))
+        kept_meta.append(
+            metadatas[index]
+            if index < len(metadatas) and isinstance(metadatas[index], dict)
+            else {}
+        )
+        if score is not None:
+            kept_scores.append(float(score))
+    return kept_chunks, kept_meta, kept_scores
+
+
+def _apply_open_question_statuses_to_plan_structure(
+    plan_structure: Dict[str, Any],
+    open_questions: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Propagate proposal open-question lifecycle statuses onto plan_structure nodes."""
+    if not isinstance(plan_structure, dict):
+        return plan_structure
+    status_by_text: Dict[str, str] = {}
+    status_by_id: Dict[str, str] = {}
+    for question in open_questions or []:
+        if not isinstance(question, dict):
+            continue
+        status = _normalize_proposal_open_question_status(question.get("status"))
+        text = str(
+            question.get("follow_up") or question.get("text") or question.get("reason") or ""
+        ).strip().lower()
+        if text:
+            status_by_text[text] = status
+        for field in ("gap_id", "id", "question_id"):
+            qid = _clean_optional_string(question.get(field))
+            if qid:
+                status_by_id[qid.lower()] = status
+
+    def _sync_node(node: Dict[str, Any]) -> None:
+        synced: List[Dict[str, Any]] = []
+        for raw in node.get("open_questions") or []:
+            if not isinstance(raw, dict):
+                continue
+            question = dict(raw)
+            text = str(question.get("text") or question.get("follow_up") or "").strip().lower()
+            qid = _clean_optional_string(question.get("id") or question.get("gap_id"))
+            if qid and qid.lower() in status_by_id:
+                question["status"] = status_by_id[qid.lower()]
+            elif text and text in status_by_text:
+                question["status"] = status_by_text[text]
+            synced.append(question)
+        if synced:
+            node["open_questions"] = synced
+
+    for topic in plan_structure.get("topics") or []:
+        if not isinstance(topic, dict):
+            continue
+        _sync_node(topic)
+        for subtopic in topic.get("subtopics") or []:
+            if isinstance(subtopic, dict):
+                _sync_node(subtopic)
+    return plan_structure
+
+
+def _rebuild_proposal_report_payload(
+    session: ExpertCaptureSession,
+    payload: Dict[str, Any],
+    open_questions: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Refresh plan_structure question statuses and re-assemble report markdown."""
+    plan_structure = payload.get("plan_structure")
+    if not isinstance(plan_structure, dict):
+        return payload
+    updated = dict(payload)
+    synced_structure = _apply_open_question_statuses_to_plan_structure(plan_structure, open_questions)
+    report = _assemble_report_from_sections(session, synced_structure, open_questions)
+    updated["plan_structure"] = synced_structure
+    updated["open_questions"] = open_questions
+    updated["report_markdown"] = report
+    recommended = dict(updated.get("recommended_ingestion") or {})
+    recommended["content"] = report
+    updated["recommended_ingestion"] = recommended
+    return updated
 
 
 def _assemble_report_from_sections(
@@ -4956,18 +5442,32 @@ def _assemble_report_from_sections(
             if statement:
                 lines.append(f"- {statement}")
 
+    def _emit_sources(node: Dict[str, Any]) -> None:
+        labels: List[str] = []
+        for source in node.get("sources") or []:
+            if not isinstance(source, dict):
+                continue
+            label = str(source.get("title") or source.get("source") or "").strip()
+            if label and label not in labels:
+                labels.append(label)
+        if labels:
+            lines.append("")
+            lines.append("Sources : " + " · ".join(labels))
+
     for topic in plan_structure.get("topics") or []:
         lines.append(f"## {topic.get('title') or 'Sujet'}")
         if topic.get("synthesis"):
             lines.append(str(topic["synthesis"]).strip())
         else:
             _emit_facts(topic.get("facts") or [])
+        _emit_sources(topic)
         for subtopic in topic.get("subtopics") or []:
             lines.append(f"### {subtopic.get('title') or 'Sous-sujet'}")
             if subtopic.get("synthesis"):
                 lines.append(str(subtopic["synthesis"]).strip())
             else:
                 _emit_facts(subtopic.get("facts") or [])
+            _emit_sources(subtopic)
         lines.append("")
     unassigned = plan_structure.get("unassigned") or []
     if unassigned:
@@ -5013,6 +5513,79 @@ def set_active_capture_section(
     return session
 
 
+def _section_sources(
+    chunks: List[str],
+    metadatas: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Shape the retrieved KB passages backing a section into displayable sources.
+
+    Carries the document identity (title + document_id/collection) so the
+    frontend can render chat-style source chips with the document preview,
+    instead of raw ids. Deduped by document."""
+    metadatas = metadatas or []
+    sources: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, chunk in enumerate(chunks or []):
+        text = str(chunk or "").strip()
+        md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
+        document_id = md.get("document_id") or md.get("doc_id") or md.get("id")
+        title = md.get("title") or md.get("filename") or md.get("source")
+        key = str(document_id or title or text[:80]).strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        sources.append(
+            {
+                "rank": index + 1,
+                "document_id": document_id,
+                "source_id": md.get("source_id") or md.get("source"),
+                "source": md.get("source") or md.get("filename") or document_id,
+                "title": title,
+                "filename": md.get("filename"),
+                "collection": md.get("collection") or md.get("collection_name"),
+                "preview": text[:360],
+            }
+        )
+    return sources
+
+
+def _resolve_final_glossary(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session: ExpertCaptureSession,
+    chunks: Optional[List[str]] = None,
+):
+    """Tier-2 glossary for the FINAL pass: workspace glossary + plan labels +
+    distinctive terms from the section's retrieved KB passages."""
+    from app.models.workspace import Workspace as WorkspaceModel
+    from app.services.voice_transcript_glossary import resolve_glossary
+
+    try:
+        workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
+    except Exception:
+        workspace = None
+    try:
+        return resolve_glossary(workspace, session, chunks or [])
+    except Exception:
+        return None
+
+
+async def _notify_finalize_progress(
+    progress: Optional[FinalizeProgressCallback],
+    payload: Dict[str, Any],
+) -> None:
+    """Best-effort progress notification (await coroutines, ignore failures)."""
+    if progress is None:
+        return
+    try:
+        result = progress(payload)
+        if asyncio.iscoroutine(result):
+            await result
+    except Exception:  # noqa: BLE001 - progress must never break finalization.
+        pass
+
+
 async def finalize_capture_section(
     db: DBSession,
     *,
@@ -5022,26 +5595,30 @@ async def finalize_capture_section(
     subtopic_id: Optional[str] = None,
     workspace_slug: Optional[str] = None,
     static_context: Optional[str] = None,
+    progress: Optional[FinalizeProgressCallback] = None,
 ) -> Dict[str, Any]:
     """FINAL phase for ONE section (section.finish).
 
-    Runs the chat-grade retrieval, the exhaustive LLM reformulation and the
-    grounded open-question generation for the section, then stores the result on
-    the plan under ``section_synthesis``. Non-fatal: returns an empty entry when
-    the section has no captured statements.
+    The heavy end-of-capture pass for a section: chat-grade retrieval, dedupe of
+    repeated/rephrased expert turns, Tier-2 domain-glossary vocabulary alignment,
+    the exhaustive LLM reformulation and the grounded open-question generation,
+    then stores the result (with its KB sources) on the plan under
+    ``section_synthesis``. Non-fatal: returns an empty entry when the section has
+    no captured statements.
     """
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     plan = dict(session.plan or {})
     meta = _resolve_plan_section_meta(plan, topic_id, subtopic_id)
     section_key = _section_key(meta.get("topic_id"), meta.get("subtopic_id"))
-    statements = _section_statements(session, meta.get("topic_id"), meta.get("subtopic_id"))
-    if not statements:
+    raw_statements = _section_statements(session, meta.get("topic_id"), meta.get("subtopic_id"))
+    if not raw_statements:
         return {
             "section_key": section_key,
             "topic_id": meta.get("topic_id"),
             "subtopic_id": meta.get("subtopic_id"),
             "synthesis": "",
             "open_questions": [],
+            "sources": [],
             "statement_count": 0,
             "skipped": True,
         }
@@ -5052,9 +5629,18 @@ async def finalize_capture_section(
     )
     if static_context is None:
         static_context = _resolve_rewrite_context(None)
+
+    # 1) Dedupe: the expert repeats/rephrases across turns — clean before the
+    # reformulation so duplicates never reach the report.
+    await _notify_finalize_progress(
+        progress,
+        {"stage": "dedupe", "label": "Nettoyage des doublons…", "section_label": label},
+    )
+    statements, dedup_removed = dedupe_statements(raw_statements)
+
     query = f"{label} {' '.join(statements)}".strip()[:1200]
     try:
-        chunks, metadatas, _scores = await _retrieve_context_chunks_async(
+        chunks, metadatas, raw_scores = await _retrieve_context_chunks_async(
             db,
             workspace_id=workspace_id,
             workspace_slug=workspace_slug,
@@ -5064,19 +5650,49 @@ async def finalize_capture_section(
             retrieval_profile="chat",
         )
     except Exception:
-        chunks, metadatas = [], []
+        chunks, metadatas, raw_scores = [], [], []
+    min_source_score = _resolve_capture_report_source_min_score()
+    chunks, metadatas, _scores = _filter_retrieval_by_min_score(
+        chunks,
+        metadatas,
+        raw_scores,
+        min_source_score,
+    )
 
     from app.services.capture_knowledge_oracle import (
         generate_grounded_open_questions_async,
         reformulate_section_async,
     )
+    from app.services.voice_transcript_glossary import correct_transcript_segment_tier1
 
+    # 2) Tier-2 vocabulary alignment: the Andritz domain glossary is wired into
+    # the FINAL pass (deterministic Tier-1 repair on the inputs + glossary terms
+    # handed to the reformulation prompt), not the live path.
+    await _notify_finalize_progress(
+        progress,
+        {"stage": "vocabulary", "label": "Alignement vocabulaire Andritz…", "section_label": label},
+    )
+    glossary = _resolve_final_glossary(db, workspace_id=workspace_id, session=session, chunks=chunks)
+    glossary_terms: List[str] = list(glossary.terms) if glossary is not None else []
+    if glossary is not None and not glossary.is_empty:
+        statements = [correct_transcript_segment_tier1(s, glossary) for s in statements]
+
+    # 3) Restructuring + exhaustive reformulation against the section.
+    await _notify_finalize_progress(
+        progress,
+        {"stage": "reformulate", "label": "Restructuration de l'expression…", "section_label": label},
+    )
     synthesis = await reformulate_section_async(
         workspace_id=workspace_id,
         section_label=label,
         statements=statements,
         kb_chunks=chunks,
         static_context=static_context,
+        glossary_terms=glossary_terms,
+    )
+    await _notify_finalize_progress(
+        progress,
+        {"stage": "questions", "label": "Génération des questions ouvertes…", "section_label": label},
     )
     grounded = await generate_grounded_open_questions_async(
         "\n".join(statements),
@@ -5097,7 +5713,11 @@ async def finalize_capture_section(
         "section_label": label,
         "synthesis": synthesis,
         "open_questions": grounded,
+        "sources": _section_sources(chunks, metadatas),
         "statement_count": len(statements),
+        "raw_statement_count": len(raw_statements),
+        "dedup_removed": dedup_removed,
+        "glossary_term_count": len(glossary_terms),
         "updated_at": datetime.utcnow().isoformat(),
     }
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
@@ -5126,6 +5746,85 @@ async def finalize_capture_section(
     return entry
 
 
+async def _ensure_final_thematic_plan(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+) -> ExpertCaptureSession:
+    """When the capture ran WITHOUT a plan (free conversation), structure the
+    expression into LLM-derived thematic blocks at the FINAL phase.
+
+    Materializes the themes as plan topics (``generated_by: final_thematic``)
+    and tags each expert turn with its theme's topic_id, so the whole
+    per-section FINAL machinery (dedupe, reformulation, grounded questions,
+    report assembly) applies unchanged."""
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    plan = dict(session.plan or {})
+    if [t for t in (plan.get("topics") or []) if isinstance(t, dict)]:
+        return session
+    transcript = list(session.transcript or [])
+    expert_indexes = [
+        index
+        for index, turn in enumerate(transcript)
+        if isinstance(turn, dict)
+        and turn.get("speaker") == "expert"
+        and str(turn.get("text") or turn.get("text_raw") or "").strip()
+    ]
+    if not expert_indexes:
+        return session
+    statements = [
+        str(transcript[index].get("text") or transcript[index].get("text_raw") or "").strip()
+        for index in expert_indexes
+    ]
+    try:
+        themes = await derive_thematic_blocks_async(workspace_id=workspace_id, statements=statements)
+    except Exception as exc:  # noqa: BLE001 - thematic structuring must not abort the proposal.
+        _logger.warning("knowledge_capture_thematic_structuring_failed: %s", exc)
+        themes = []
+    if not themes:
+        return session
+    topics: List[Dict[str, Any]] = []
+    for theme in themes:
+        theme_id = str(theme.get("id") or f"theme-{len(topics) + 1:02d}")
+        title = str(theme.get("title") or "").strip() or f"Thème {len(topics) + 1}"
+        topics.append(
+            {
+                "id": theme_id,
+                "title": title,
+                "status": "completed",
+                "generated_by": "final_thematic",
+                "subtopics": [],
+            }
+        )
+        for statement_index in theme.get("statement_indexes") or []:
+            try:
+                transcript_index = expert_indexes[int(statement_index)]
+            except (TypeError, ValueError, IndexError):
+                continue
+            turn = dict(transcript[transcript_index])
+            turn["topic_id"] = theme_id
+            turn.setdefault("topic_path", title)
+            transcript[transcript_index] = turn
+    plan["topics"] = topics
+    plan["final_thematic"] = True
+    session.plan = plan
+    session.transcript = transcript
+    flag_modified(session, "plan")
+    flag_modified(session, "transcript")
+    _record_capture_event(
+        db,
+        session=session,
+        event_type="capture_thematic_structure_built",
+        source="capture_engine",
+        status="accepted",
+        meta_data={"theme_count": len(topics), "statement_count": len(statements)},
+    )
+    db.commit()
+    db.refresh(session)
+    return session
+
+
 async def finalize_capture(
     db: DBSession,
     *,
@@ -5134,14 +5833,32 @@ async def finalize_capture(
     workspace_slug: Optional[str] = None,
     static_context: Optional[str] = None,
     created_by_user_id: Optional[str] = None,
+    progress: Optional[FinalizeProgressCallback] = None,
 ) -> KnowledgeUpdateProposal:
     """FINAL phase for the whole capture (capture.finish).
 
-    Closes every remaining section (per-section FINAL reformulation + grounded
-    questions) then builds/refreshes the proposal from the stored syntheses.
-    """
+    The heavy end-of-capture pass: restructures the expression against the plan
+    hierarchy (or LLM-derived thematic blocks when the conversation was free),
+    closes every remaining section (dedupe + Tier-2 glossary alignment +
+    exhaustive reformulation + grounded questions) and then builds/refreshes the
+    proposal from the stored syntheses. ``progress`` (optional async callback)
+    receives honest stage events for the frontend loader."""
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     plan = dict(session.plan or {})
+    has_plan = bool([t for t in (plan.get("topics") or []) if isinstance(t, dict)])
+    await _notify_finalize_progress(
+        progress,
+        {
+            "stage": "restructure",
+            "label": "Restructuration selon le plan…" if has_plan else "Structuration en blocs thématiques…",
+        },
+    )
+    if not has_plan:
+        session = await _ensure_final_thematic_plan(db, workspace_id=workspace_id, session_id=session_id)
+        plan = dict(session.plan or {})
+    else:
+        session = _backfill_turn_plan_tags(db, workspace_id=workspace_id, session_id=session_id)
+        plan = dict(session.plan or {})
     sections: List[Tuple[Optional[str], Optional[str]]] = []
     for topic in plan.get("topics") or []:
         if not isinstance(topic, dict):
@@ -5154,9 +5871,23 @@ async def finalize_capture(
             sections.append((topic.get("id"), None))
     if not sections:
         sections = [(None, None)]
-    for topic_id, subtopic_id in sections:
+    total = len(sections)
+    finalized_sections: Dict[str, Dict[str, Any]] = {}
+    for index, (topic_id, subtopic_id) in enumerate(sections, start=1):
+        meta = _resolve_plan_section_meta(plan, topic_id, subtopic_id)
+        section_label = meta.get("topic_path") or meta.get("topic_title") or (session.title or "")
+        await _notify_finalize_progress(
+            progress,
+            {
+                "stage": "section",
+                "label": f"Synthèse « {section_label} »…" if section_label else "Synthèse de la capture…",
+                "section_label": section_label,
+                "current": index,
+                "total": total,
+            },
+        )
         try:
-            await finalize_capture_section(
+            entry = await finalize_capture_section(
                 db,
                 workspace_id=workspace_id,
                 session_id=session_id,
@@ -5164,15 +5895,30 @@ async def finalize_capture(
                 subtopic_id=subtopic_id,
                 workspace_slug=workspace_slug,
                 static_context=static_context,
+                progress=progress,
             )
+            if isinstance(entry, dict) and entry.get("section_key") and not entry.get("skipped"):
+                finalized_sections[str(entry["section_key"])] = entry
         except Exception as exc:  # noqa: BLE001 - one bad section must not abort the proposal.
             _logger.warning("knowledge_capture_finalize_section_failed: %s", exc)
-    return create_update_proposal(
+    await _notify_finalize_progress(progress, {"stage": "report", "label": "Assemblage du rapport…"})
+    db.expire_all()
+    fresh_session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    db.refresh(fresh_session)
+    plan_snapshot = dict(fresh_session.plan or {})
+    if finalized_sections:
+        merged_synthesis = dict(plan_snapshot.get("section_synthesis") or {})
+        merged_synthesis.update(finalized_sections)
+        plan_snapshot["section_synthesis"] = merged_synthesis
+    proposal = create_update_proposal(
         db,
         workspace_id=workspace_id,
         session_id=session_id,
         created_by_user_id=created_by_user_id,
+        plan_snapshot=plan_snapshot,
     )
+    await _notify_finalize_progress(progress, {"stage": "done", "label": "Rapport prêt."})
+    return proposal
 
 
 def _match_proposal_open_question(
@@ -5292,6 +6038,7 @@ async def answer_proposal_open_question(
     payload["recommended_ingestion"] = recommended
     proposal.proposal = payload
     flag_modified(proposal, "proposal")
+    _sync_session_proposal_open_questions_count(session, questions)
     _record_capture_event(
         db,
         session=session,
@@ -5735,6 +6482,8 @@ async def prefetch_capture_retrieval(
         "collection_name": collection_name,
         "hints": hint_payload.get("hints") or [],
         "active_subtopic_id": hint_payload.get("active_subtopic_id"),
+        "active_topic_id": hint_payload.get("active_topic_id"),
+        "active_section_confidence": hint_payload.get("active_section_confidence") or 0.0,
         "contradiction_candidates": hint_payload.get("contradiction_candidates") or [],
         **question_meta,
     }
@@ -5869,7 +6618,38 @@ def _session_summary_short(session: ExpertCaptureSession) -> str:
     return "Session de capture."
 
 
+def _count_proposal_open_questions(questions: Optional[List[Dict[str, Any]]]) -> int:
+    """Count proposal questions still awaiting a decision (status ``open`` only)."""
+    return len(
+        [
+            question
+            for question in (questions or [])
+            if isinstance(question, dict)
+            and _normalize_proposal_open_question_status(question.get("status")) == "open"
+        ]
+    )
+
+
+def _sync_session_proposal_open_questions_count(
+    session: ExpertCaptureSession,
+    questions: Optional[List[Dict[str, Any]]],
+) -> None:
+    count = _count_proposal_open_questions(questions)
+    metrics = dict(session.metrics or {})
+    metrics["open_questions_count"] = count
+    metrics["proposal_open_questions_count"] = count
+    session.metrics = metrics
+    flag_modified(session, "metrics")
+
+
 def _session_open_questions_count(session: ExpertCaptureSession) -> int:
+    metrics = session.metrics or {}
+    proposal_count = metrics.get("proposal_open_questions_count")
+    if proposal_count is not None:
+        try:
+            return max(0, int(proposal_count))
+        except (TypeError, ValueError):
+            pass
     try:
         open_questions = build_open_questions(session)
     except Exception:
@@ -5878,7 +6658,7 @@ def _session_open_questions_count(session: ExpertCaptureSession) -> int:
         [
             item
             for item in open_questions
-            if item.get("status") not in {"addressed", "answered", "dismissed", "deferred"}
+            if item.get("status") not in {"addressed", "answered", "dismissed", "deferred", "invalid"}
         ]
     )
 
@@ -5920,6 +6700,7 @@ def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] =
         "summary_short": summary_short,
         "open_questions_count": open_questions_count,
         "last_activity": last_activity.isoformat() if last_activity else None,
+        "archived": session_is_archived(session),
         "started_at": session.started_at.isoformat() if session.started_at else None,
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
         "created_at": session.created_at.isoformat() if session.created_at else None,
@@ -5962,6 +6743,231 @@ def serialize_proposal(proposal: KnowledgeUpdateProposal) -> Dict[str, Any]:
         "reviewer_user_id": proposal.reviewer_user_id,
         "created_at": proposal.created_at.isoformat() if proposal.created_at else None,
         "reviewed_at": proposal.reviewed_at.isoformat() if proposal.reviewed_at else None,
+    }
+
+
+def _count_open_questions(payload: Dict[str, Any]) -> int:
+    count = 0
+    for question in payload.get("open_questions") or []:
+        if not isinstance(question, dict):
+            continue
+        status = str(question.get("status") or "open").lower()
+        if status in {"open", "deferred", "active"}:
+            count += 1
+    return count
+
+
+def _fiche_word_count(payload: Dict[str, Any]) -> int:
+    recommended = dict(payload.get("recommended_ingestion") or {})
+    content = recommended.get("content") or ""
+    if not content:
+        return 0
+    return len(re.findall(r"\S+", str(content)))
+
+
+def _published_at_sort_key(proposal: KnowledgeUpdateProposal) -> str:
+    publication = dict((proposal.proposal or {}).get("publication") or {})
+    reviewed_at = proposal.reviewed_at.isoformat() if proposal.reviewed_at else ""
+    created_at = proposal.created_at.isoformat() if proposal.created_at else ""
+    return str(publication.get("published_at") or reviewed_at or created_at or "")
+
+
+def _user_display(users_by_id: Dict[str, Any], user_id: Optional[str]) -> Optional[Dict[str, str]]:
+    if not user_id:
+        return None
+    user = users_by_id.get(user_id)
+    if not user:
+        return {"id": user_id, "label": user_id[:8]}
+    label = getattr(user, "email", None) or getattr(user, "username", None) or user_id
+    return {"id": user_id, "label": str(label)}
+
+
+def _serialize_published_fiche(
+    proposal: KnowledgeUpdateProposal,
+    session: Optional[ExpertCaptureSession],
+    *,
+    users_by_id: Dict[str, Any],
+    current_user_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    payload = dict(proposal.proposal or {})
+    publication = dict(payload.get("publication") or {})
+    recommended = dict(payload.get("recommended_ingestion") or {})
+    metadata = dict(recommended.get("metadata") or {})
+
+    title = (
+        _clean_optional_string(publication.get("final_title"))
+        or _clean_optional_string(recommended.get("title"))
+        or _clean_optional_string(payload.get("title"))
+        or (session.title if session else None)
+        or "Capture publication"
+    )
+    category = _clean_optional_string(publication.get("category")) or _clean_optional_string(
+        metadata.get("publication_category")
+    )
+    destination = (
+        _clean_optional_string(publication.get("destination"))
+        or _clean_optional_string(publication.get("destination_scope"))
+        or _clean_optional_string(publication.get("collection_slug"))
+        or _clean_optional_string(metadata.get("publication_destination"))
+    )
+    collection_slug = (
+        _clean_optional_string(publication.get("collection_slug"))
+        or _clean_optional_string(metadata.get("collection_slug"))
+        or destination
+    )
+    document_id = _clean_optional_string(publication.get("document_id")) or _clean_optional_string(
+        metadata.get("document_id")
+    )
+    published_at = publication.get("published_at")
+    chunks_processed = publication.get("chunks_processed") or metadata.get("chunks_processed") or 0
+
+    author_user_id = (session.created_by_user_id if session else None) or proposal.created_by_user_id
+    published_by_user_id = proposal.reviewer_user_id or author_user_id
+
+    export_urls = dict(publication.get("export_urls") or {})
+    raw_url = export_urls.get("raw_url") or export_urls.get("download_url")
+    if not raw_url and document_id:
+        raw_url = f"/api/v1/documents/{quote(str(document_id), safe='')}/raw"
+
+    preview_url = None
+    if document_id and collection_slug:
+        filename = f"capture-{(session.id[:8] if session else proposal.session_id[:8])}.md"
+        preview_url = (
+            f"documents/{quote(str(document_id), safe='')}/rich-preview"
+            f"?collection_name={quote(str(collection_slug), safe='')}"
+            f"&filename={quote(filename, safe='')}"
+        )
+
+    session_owner_user_id = session.created_by_user_id if session else None
+
+    return {
+        "id": proposal.id,
+        "proposal_id": proposal.id,
+        "title": title,
+        "category": category,
+        "destination": destination,
+        "collection_slug": collection_slug,
+        "published_at": published_at,
+        "published_by": _user_display(users_by_id, published_by_user_id),
+        "author": _user_display(users_by_id, author_user_id),
+        "capture_session_id": proposal.session_id,
+        "session_title": session.title if session else None,
+        "document_id": document_id,
+        "word_count": _fiche_word_count(payload),
+        "chunks_processed": int(chunks_processed or 0),
+        "open_questions_count": _count_open_questions(payload),
+        "export_urls": export_urls,
+        "preview_url": preview_url,
+        "raw_url": raw_url,
+        "session_owned_by_current_user": bool(
+            current_user_id and session_owner_user_id and current_user_id == session_owner_user_id
+        ),
+    }
+
+
+def list_published_fiches(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    current_user_id: Optional[str] = None,
+    category: Optional[str] = None,
+    destination: Optional[str] = None,
+    author_user_id: Optional[str] = None,
+    published_after: Optional[str] = None,
+    published_before: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    rows = (
+        db.query(KnowledgeUpdateProposal, ExpertCaptureSession)
+        .join(ExpertCaptureSession, ExpertCaptureSession.id == KnowledgeUpdateProposal.session_id)
+        .filter(
+            KnowledgeUpdateProposal.workspace_id == workspace_id,
+            KnowledgeUpdateProposal.status == "published",
+        )
+        .all()
+    )
+    rows.sort(key=lambda item: _published_at_sort_key(item[0]), reverse=True)
+
+    category_key = (category or "").strip().lower()
+    destination_key = (destination or "").strip().lower()
+    author_key = (author_user_id or "").strip()
+    needle = (q or "").strip().lower()
+
+    filtered: List[Tuple[KnowledgeUpdateProposal, ExpertCaptureSession]] = []
+    for proposal, session in rows:
+        payload = dict(proposal.proposal or {})
+        publication = dict(payload.get("publication") or {})
+        recommended = dict(payload.get("recommended_ingestion") or {})
+        metadata = dict(recommended.get("metadata") or {})
+        title = (
+            _clean_optional_string(publication.get("final_title"))
+            or _clean_optional_string(recommended.get("title"))
+            or _clean_optional_string(payload.get("title"))
+            or session.title
+            or ""
+        )
+        row_category = (
+            _clean_optional_string(publication.get("category"))
+            or _clean_optional_string(metadata.get("publication_category"))
+            or ""
+        ).lower()
+        row_destination = (
+            _clean_optional_string(publication.get("destination"))
+            or _clean_optional_string(publication.get("destination_scope"))
+            or _clean_optional_string(publication.get("collection_slug"))
+            or _clean_optional_string(metadata.get("publication_destination"))
+            or ""
+        ).lower()
+        row_author_id = session.created_by_user_id or proposal.created_by_user_id or ""
+        published_at = str(publication.get("published_at") or "")
+
+        if category_key and row_category != category_key:
+            continue
+        if destination_key and destination_key not in row_destination:
+            continue
+        if author_key and row_author_id != author_key:
+            continue
+        if published_after and published_at and published_at < published_after:
+            continue
+        if published_before and published_at and published_at > published_before:
+            continue
+        if needle:
+            haystack = " ".join([title, row_category, row_destination, session.title or ""]).lower()
+            if needle not in haystack:
+                continue
+        filtered.append((proposal, session))
+
+    total = len(filtered)
+    page = filtered[offset : offset + limit]
+
+    user_ids = set()
+    for proposal, session in page:
+        if session.created_by_user_id:
+            user_ids.add(session.created_by_user_id)
+        if proposal.created_by_user_id:
+            user_ids.add(proposal.created_by_user_id)
+        if proposal.reviewer_user_id:
+            user_ids.add(proposal.reviewer_user_id)
+
+    users_by_id: Dict[str, Any] = {}
+    if user_ids:
+        from app.models.user import User
+
+        for user in db.query(User).filter(User.id.in_(user_ids)).all():
+            users_by_id[user.id] = user
+
+    fiches = [
+        _serialize_published_fiche(proposal, session, users_by_id=users_by_id, current_user_id=current_user_id)
+        for proposal, session in page
+    ]
+    return {
+        "fiches": fiches,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(fiches) < total,
     }
 
 
@@ -6253,7 +7259,22 @@ def _flatten_plan_questions(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
         # presentation prompt before descending into the narrower subtopic prompts.
         # Legacy guided plans (subtopics carry authored questions) keep their order.
         topic_is_outline = not any((subtopic.get("questions") or []) for subtopic in subtopics)
-        if subtopics and topic_is_outline:
+        if not subtopics:
+            topic_prompt = str(topic.get("prompt") or "").strip() or broad_presentation_prompt(topic_title)
+            questions.append(
+                {
+                    "id": f"{topic_id}-present" if topic_id else None,
+                    "topic_id": topic_id,
+                    "subtopic_id": None,
+                    "path_label": topic_title,
+                    "title": topic_title,
+                    "prompt": topic_prompt,
+                    "question": topic_prompt,
+                    "level": "topic",
+                    "visibility": "outline",
+                }
+            )
+        elif subtopics and topic_is_outline:
             topic_prompt = str(topic.get("prompt") or "").strip() or broad_presentation_prompt(topic_title)
             questions.append(
                 {

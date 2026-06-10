@@ -164,10 +164,17 @@ def _upsert_scope(db, workspace: Workspace, *, scope_key: str, collection_slug: 
         "description": "Combines BBA120 project notices, SPL technical notices and optional SPL Excel trials.",
         "collection_slugs": collection_slugs,
         "default_mode": "chah",
-        "top_k": 6,
-        "is_default": False,
+        # chah fans out query variants; 8 final chunks keeps multi-document
+        # coverage (notices + Excel trials) without flooding the synthesis.
+        "top_k": 8,
+        # The SPL advisor profile already targets this scope; marking it the
+        # workspace default keeps the UI "default" badge and the backend
+        # fallback resolution pointing at the same scope.
+        "is_default": True,
     }
     scopes = [scope for scope in scopes if scope["key"] != scope_key]
+    for scope in scopes:
+        scope["is_default"] = False
     scopes.append(next_scope)
     settings["knowledge_scopes"] = scopes
     workspace.settings = settings

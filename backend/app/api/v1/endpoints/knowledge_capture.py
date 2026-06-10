@@ -31,6 +31,9 @@ from app.services.knowledge_capture import (
     amend_capture_plan,
     answer_proposal_open_question,
     append_turn,
+    archive_capture_session,
+    delete_capture_session,
+    session_is_archived,
     apply_proposal_report_instruction,
     apply_session_closure_action,
     approve_capture_plan,
@@ -49,6 +52,7 @@ from app.services.knowledge_capture import (
     get_plan_topics,
     get_session,
     list_capture_events,
+    list_published_fiches,
     pause_capture_session,
     prefetch_capture_retrieval,
     process_conversation_step,
@@ -508,6 +512,7 @@ async def list_capture_sessions(
     status: Optional[str] = None,
     domain: Optional[str] = None,
     system_id: Optional[str] = None,
+    include_archived: bool = False,
     limit: int = Query(default=50, ge=1, le=200),
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
@@ -529,17 +534,102 @@ async def list_capture_sessions(
         q = q.filter(ExpertCaptureSession.system_id == system_id)
     if _contributors_see_only_own(db, user=user, workspace=workspace):
         q = q.filter(or_(ExpertCaptureSession.created_by_user_id == user.id, ExpertCaptureSession.created_by_user_id.is_(None)))
+    rows = q.order_by(ExpertCaptureSession.updated_at.desc()).all()
+    if not include_archived:
+        rows = [row for row in rows if not session_is_archived(row)]
     if domain:
         domain_key = domain.strip().lower()
-        rows = q.order_by(ExpertCaptureSession.updated_at.desc()).all()
         rows = [
             row
             for row in rows
             if ((row.metrics or {}).get("capture_domain") or "").lower() == domain_key
-        ][:limit]
-    else:
-        rows = q.order_by(ExpertCaptureSession.updated_at.desc()).limit(limit).all()
+        ]
+    rows = rows[:limit]
     return {"sessions": [serialize_session(row) for row in rows]}
+
+
+@router.post("/sessions/{session_id}/archive")
+async def archive_capture_session_endpoint(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        existing = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="update",
+            resource_attrs=_session_attrs(existing),
+            audit_prefix="kc",
+        )
+        session = archive_capture_session(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            archived=True,
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    return serialize_session(session)
+
+
+@router.post("/sessions/{session_id}/unarchive")
+async def unarchive_capture_session_endpoint(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        existing = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="update",
+            resource_attrs=_session_attrs(existing),
+            audit_prefix="kc",
+        )
+        session = archive_capture_session(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            archived=False,
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    return serialize_session(session)
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_capture_session_endpoint(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        existing = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="update",
+            resource_attrs=_session_attrs(existing),
+            audit_prefix="kc",
+        )
+        delete_capture_session(db, workspace_id=workspace.id, session_id=session_id)
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    return {"deleted": True, "session_id": session_id}
 
 
 @router.get("/sessions/{session_id}")
@@ -907,10 +997,54 @@ async def create_capture_proposal(
     return serialize_proposal(proposal)
 
 
+@router.get("/fiches")
+async def list_published_capture_fiches(
+    category: Optional[str] = None,
+    destination: Optional[str] = None,
+    author_user_id: Optional[str] = None,
+    published_after: Optional[str] = None,
+    published_before: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """List published knowledge capture outputs for the workspace.
+
+    Published fiches are workspace-wide: unlike capture sessions, they are
+    visible to every member who can read the capture capability.
+    """
+    enforce_permission(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="capture_session",
+        action="read",
+        resource_attrs={"capability": CAPTURE_CAPABILITY, "owner_user_id": user.id},
+        audit_prefix="kc",
+    )
+    return list_published_fiches(
+        db,
+        workspace_id=workspace.id,
+        current_user_id=user.id,
+        category=category,
+        destination=destination,
+        author_user_id=author_user_id,
+        published_after=published_after,
+        published_before=published_before,
+        q=q,
+        limit=limit,
+        offset=offset,
+    )
+
+
 @router.get("/proposals")
 async def list_capture_proposals(
     status: Optional[str] = None,
     system_id: Optional[str] = None,
+    session_id: Optional[str] = None,
     limit: int = Query(default=50, ge=1, le=200),
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
@@ -928,6 +1062,8 @@ async def list_capture_proposals(
     q = db.query(KnowledgeUpdateProposal).filter(KnowledgeUpdateProposal.workspace_id == workspace.id)
     if status:
         q = q.filter(KnowledgeUpdateProposal.status == status)
+    if session_id:
+        q = q.filter(KnowledgeUpdateProposal.session_id == session_id)
     joined_session = False
     if _contributors_see_only_own(db, user=user, workspace=workspace):
         q = q.join(ExpertCaptureSession, ExpertCaptureSession.id == KnowledgeUpdateProposal.session_id)

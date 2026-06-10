@@ -56,6 +56,13 @@ _ORIGINAL_RETRIEVE_CONTEXT_CHUNKS = _retrieve_context_chunks
 # section.finish. No content questions, no oracle relances.
 SECTION_FINISH_RELANCE = "Avez-vous terminé cette section ? Souhaitez-vous continuer ?"
 
+# User-facing message when the endpoint/pause STT fails on a segment. The raw
+# provider error (e.g. OpenAI "Audio file might be corrupted") is logged
+# server-side but never forwarded to the UI.
+_STT_SEGMENT_FAILED_MESSAGE = (
+    "La transcription a échoué sur ce segment audio. Reprenez la parole, la capture continue."
+)
+
 
 def _resolve_rewrite_context(workspace: Workspace) -> str:
     """Static FINAL-reformulation framing, workspace-overridable."""
@@ -79,6 +86,17 @@ def _provider_accepts_language(provider: Any) -> bool:
         param.kind == inspect.Parameter.VAR_KEYWORD
         for param in parameters.values()
     )
+
+
+# EBML magic at offset 0 of a WebM container ("\x1a\x45\xdf\xa3"). Only the
+# FIRST blob produced by a MediaRecorder carries the EBML/Segment header; any
+# later chunk is a continuation cluster that is unparseable on its own.
+_EBML_MAGIC = b"\x1a\x45\xdf\xa3"
+
+
+def _is_webm_header(chunk: bytes) -> bool:
+    """True when the chunk starts a valid WebM stream (EBML magic at offset 0)."""
+    return chunk[:4] == _EBML_MAGIC
 
 
 async def _transcribe_audio(
@@ -129,6 +147,21 @@ class VoiceSessionState:
     last_retrieval_scores: list[float] = field(default_factory=list)
     last_partial_stt_at: Optional[float] = None
     partial_stt_in_flight: bool = False
+    # Monotonic generation for the offloaded incremental STT: bumped on every
+    # _reset_partial_stt_state (endpoint, pause, barge-in, new utterance) so a
+    # background STT task that completes AFTER the turn ended can detect it is
+    # stale and drop its result instead of corrupting the next turn's state.
+    partial_stt_generation: int = 0
+    # Strong references to in-flight incremental STT tasks (fire-and-forget
+    # asyncio tasks may otherwise be garbage-collected mid-run).
+    partial_stt_tasks: set[asyncio.Task] = field(default_factory=set)
+    # Strong references to offloaded FINAL-phase tasks (section.finish /
+    # capture.finish). These run multi-LLM finalization and must never execute
+    # inline on the receive loop (see _handle_event).
+    finalize_tasks: set[asyncio.Task] = field(default_factory=set)
+    # Serializes shared per-connection DB session use between the receive loop
+    # (audio.endpoint persistence) and the offloaded incremental STT task.
+    db_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_partial_text: str = ""
     last_partial_chunk_count: int = 0
     # Number of buffered audio chunks that produced the currently committed
@@ -140,6 +173,25 @@ class VoiceSessionState:
     # the FINAL per-section reformulation maps them to the plan hierarchy.
     active_topic_id: Optional[str] = None
     active_subtopic_id: Optional[str] = None
+    # Live oracle open questions (QUESTIONS IA panel during capture): expert
+    # turn texts committed in the CURRENT section (reset when the active section
+    # changes), the section key those texts belong to, plus throttle/in-flight
+    # bookkeeping for the fire-and-forget question generation task. The latest
+    # generated questions are kept so per-turn evaluation.delta re-sends them
+    # instead of wiping the panel with an empty list.
+    committed_turn_texts: list[str] = field(default_factory=list)
+    committed_turns_section: Optional[str] = None
+    live_questions_in_flight: bool = False
+    last_live_questions_at: Optional[float] = None
+    live_open_questions: list[Dict[str, Any]] = field(default_factory=list)
+    # Manual section.select locks auto-detection on the gateway for N seconds so
+    # a left-rail click is not immediately overridden by speech overlap.
+    manual_section_until: Optional[float] = None
+    last_live_section_detect_at: Optional[float] = None
+    last_live_section_emit_at: Optional[float] = None
+    # Throttle for the orphan-frame-dropped debug print (at most one per second
+    # per session) — late MediaRecorder continuation frames can arrive in bursts.
+    last_orphan_drop_log_at: Optional[float] = None
 
 
 # Cadence of the server-side incremental transcription. The live preview
@@ -152,6 +204,25 @@ class VoiceSessionState:
 _PARTIAL_STT_MIN_INTERVAL_MS = int(
     getattr(settings, "voice_partial_stt_min_interval_ms", 4000) or 4000
 )
+
+# Hard ceiling on ONE incremental (partial) STT round-trip. The live preview is
+# advisory only: when the provider degrades (observed: 79.4 s on an 800 KB
+# buffer, trace 24a345) the partial is dropped silently instead of pinning the
+# per-session in-flight slot — the endpoint's authoritative STT still produces
+# text.final. The endpoint STT deliberately has NO timeout.
+_PARTIAL_STT_TIMEOUT_S = 15.0
+
+# Minimum interval between two live grounded-question generations for a session.
+# The generation is an LLM round-trip fired in the background after a committed
+# capture turn; throttling keeps it to at most one call every N seconds.
+_LIVE_QUESTIONS_MIN_INTERVAL_S = 20.0
+# How many of the most recent committed turn texts feed the question context.
+_LIVE_QUESTIONS_CONTEXT_TURNS = 10
+
+# Live plan-section detection: lightweight title overlap only (no LLM). Partial
+# emits are throttled; turn commits always run detection once.
+_LIVE_SECTION_DETECT_PARTIAL_INTERVAL_S = 30.0
+_MANUAL_SECTION_OVERRIDE_COOLDOWN_S = 60.0
 
 _TRANSCRIPT_FILLERS = (
     "euh",
@@ -273,6 +344,7 @@ class VoiceSessionGateway:
                 await self._send_error(websocket, "forbidden", str(exc.detail), state=state)
                 await websocket.close(code=4403)
                 return
+            self._sync_voice_state_from_capture_session(state, capture_session)
 
         await self._send(
             websocket,
@@ -380,16 +452,32 @@ class VoiceSessionGateway:
             await self._handle_audio_endpoint(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
             return
         if event_type == "audio.pause":
-            await self._handle_audio_pause(websocket, state=state, payload=payload)
+            await self._handle_audio_pause(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
             return
         if event_type == "section.select":
             await self._handle_section_select(websocket, db, workspace=workspace, state=state, payload=payload)
             return
         if event_type == "section.finish":
-            await self._handle_section_finish(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
+            # FINAL-phase work (chat-grade retrieval + LLM reformulation + grounded
+            # questions) must NEVER run inline on the receive loop: the loop awaits
+            # one handler at a time, so every queued WS message — audio.endpoint
+            # included — would stall behind the finalization for its whole
+            # multi-LLM duration (root cause of the 31 s endpoint entry delay in
+            # trace 24a345). Offload it; conversation.step is emitted by the task
+            # when the finalization completes.
+            task = asyncio.create_task(
+                self._handle_section_finish(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
+            )
+            state.finalize_tasks.add(task)
+            task.add_done_callback(state.finalize_tasks.discard)
             return
         if event_type == "capture.finish":
-            await self._handle_capture_finish(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
+            # Same offload rationale as section.finish above.
+            task = asyncio.create_task(
+                self._handle_capture_finish(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
+            )
+            state.finalize_tasks.add(task)
+            task.add_done_callback(state.finalize_tasks.discard)
             return
         if event_type == "barge_in":
             self._reset_partial_stt_state(state)
@@ -465,6 +553,24 @@ class VoiceSessionGateway:
         state.last_partial_text = ""
         state.last_partial_chunk_count = 0
         state.last_partial_text_chunk_count = 0
+        # Invalidate any offloaded incremental STT still in flight: when it
+        # completes it compares its captured generation against this counter and
+        # drops its (now stale) result.
+        state.partial_stt_generation += 1
+
+    def _reset_turn_after_stt_failure(self, state: VoiceSessionState) -> None:
+        """Leave the session clean after a failed endpoint/pause STT.
+
+        The buffer was already drained before the STT call; reset the turn and
+        partial bookkeeping too so the NEXT utterance starts from scratch (no
+        dead buffer, no stale reuse-partial text, no stale turn id) instead of
+        accumulating failures for the rest of the session (trace 24a345)."""
+        state.audio_chunks = []
+        state.turn_started_at = None
+        state.endpoint_at = None
+        state.text_partials = []
+        state.client_turn_id = None
+        self._reset_partial_stt_state(state)
 
     async def _handle_audio_frame(
         self,
@@ -485,6 +591,49 @@ class VoiceSessionGateway:
         except Exception:
             await self._send_error(websocket, "invalid_audio", "audio.frame bytes_b64 is invalid", state=state)
             return
+        # Header-validated buffer start (fix 24a345): a WebM buffer is only
+        # decodable when chunk 0 carries the EBML/Segment header. MediaRecorder
+        # keeps delivering in-flight continuation frames after a pause-flush
+        # cleared the buffer; if such a headerless frame became the new chunk 0,
+        # EVERY subsequent join would be an unparseable container (STT 400 for
+        # the rest of the session). Drop headerless frames while the buffer is
+        # empty — the next valid header chunk (from the resumed recorder)
+        # becomes chunk 0 automatically, so the session self-heals. Gated on the
+        # negotiated input codec being webm (the LiveKit path may negotiate
+        # opus/wav where this magic check does not apply).
+        negotiated_input_codec = str((state.codec or {}).get("input") or "").lower()
+        if (
+            not state.audio_chunks
+            and negotiated_input_codec == "webm"
+            and not _is_webm_header(chunk)
+        ):
+            now = time.perf_counter()
+            if (
+                state.last_orphan_drop_log_at is None
+                or (now - state.last_orphan_drop_log_at) >= 1.0
+            ):
+                state.last_orphan_drop_log_at = now
+                # #region agent log (debug-24a345)
+                try:
+                    import json as _kcdbg_json
+
+                    print(
+                        "KCDBG24a345 "
+                        + _kcdbg_json.dumps(
+                            {
+                                "location": "voice_session_gateway.py:orphan_frame_dropped",
+                                "turn": payload.get("turn_id") or payload.get("client_turn_id") or state.client_turn_id,
+                                "bytes": len(chunk),
+                                "ts": int(time.time() * 1000),
+                            },
+                            ensure_ascii=False,
+                        ),
+                        flush=True,
+                    )
+                except Exception:
+                    pass
+                # #endregion
+            return
         if not state.audio_chunks:
             state.turn_started_at = time.perf_counter()
             state.client_turn_id = str(payload.get("turn_id") or payload.get("client_turn_id") or uuid.uuid4())
@@ -497,12 +646,31 @@ class VoiceSessionGateway:
             # New utterance: clear any leftover incremental-partial bookkeeping.
             self._reset_partial_stt_state(state)
             await self._send(websocket, state, "runtime.metric", {"metric": "audio_started", "value_ms": 0})
+        else:
+            # Safety net: if the frontend rotated its turn id while the buffer is
+            # still open (residual mismatch path; pause now flushes the segment so
+            # this should not happen in normal flows), adopt the new id so
+            # text.final is never emitted under a stale turn id the frontend
+            # cannot match (trace 24a345: 524e65aa kept owning later turns).
+            frame_turn_id = payload.get("turn_id") or payload.get("client_turn_id")
+            if frame_turn_id and str(frame_turn_id) != state.client_turn_id:
+                state.client_turn_id = str(frame_turn_id)
         state.audio_chunks.append(chunk)
         if payload.get("incremental_transcription") is False:
             return
-        await self._maybe_run_incremental_transcription(
-            websocket, db, user=user, workspace=workspace, state=state
+        # Fire-and-forget: the incremental STT (0.5-3 s, grows with the buffer)
+        # must NEVER run inline on the receive loop, otherwise audio.endpoint
+        # control messages queue behind unread audio.frame messages for the whole
+        # STT duration. The partial_stt_in_flight guard (checked synchronously at
+        # the start of the task, before its first await) keeps at most one
+        # incremental STT in flight per session.
+        task = asyncio.create_task(
+            self._maybe_run_incremental_transcription(
+                websocket, db, user=user, workspace=workspace, state=state
+            )
         )
+        state.partial_stt_tasks.add(task)
+        task.add_done_callback(state.partial_stt_tasks.discard)
 
     async def _maybe_run_incremental_transcription(
         self,
@@ -542,22 +710,119 @@ class VoiceSessionGateway:
         turn_id = state.client_turn_id or str(uuid.uuid4())
         state.client_turn_id = turn_id
         # In-flight guard: only one incremental STT runs at a time; new frames keep
-        # buffering and a later tick picks them up.
+        # buffering and a later tick picks them up. The generation snapshot lets us
+        # detect, after the STT await, that the turn was endpointed/reset meanwhile.
         state.partial_stt_in_flight = True
+        my_generation = state.partial_stt_generation
+        # #region agent log (debug-24a345)
+        _kcdbg_gap_ms = (
+            int((now - state.last_partial_stt_at) * 1000.0) if state.last_partial_stt_at is not None else None
+        )
+        _kcdbg_stt_t0 = time.perf_counter()
+        # #endregion
         state.last_partial_stt_at = now
         state.last_partial_chunk_count = chunk_count
         try:
-            transcript = await _transcribe_audio(
-                provider,
-                audio_bytes,
-                filename=f"{turn_id}.webm",
-                content_type=state.content_type,
-                language=state.language or "fr",
+            transcript = await asyncio.wait_for(
+                _transcribe_audio(
+                    provider,
+                    audio_bytes,
+                    filename=f"{turn_id}.webm",
+                    content_type=state.content_type,
+                    language=state.language or "fr",
+                ),
+                timeout=_PARTIAL_STT_TIMEOUT_S,
             )
+        except asyncio.TimeoutError:
+            # Degraded provider: drop this advisory partial silently; the
+            # in-flight flag is cleared (generation-guarded) in the finally below
+            # so the next frame can schedule a fresh partial.
+            # #region agent log (debug-24a345)
+            try:
+                import json as _kcdbg_json
+
+                print(
+                    "KCDBG24a345 "
+                    + _kcdbg_json.dumps(
+                        {
+                            "location": "voice_session_gateway.py:partial_stt_timeout",
+                            "turn": turn_id,
+                            "chunks": chunk_count,
+                            "ts": int(time.time() * 1000),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+            except Exception:
+                pass
+            # #endregion
+            return
         except Exception:
             return
         finally:
-            state.partial_stt_in_flight = False
+            # Only clear the flag if no reset happened while we were transcribing:
+            # after a reset, a NEW task may already own partial_stt_in_flight and
+            # clearing it here would allow two concurrent incremental STTs.
+            if state.partial_stt_generation == my_generation:
+                state.partial_stt_in_flight = False
+        # #region agent log (debug-24a345)
+        try:
+            import json as _kcdbg_json
+
+            print(
+                "KCDBG24a345 "
+                + _kcdbg_json.dumps(
+                    {
+                        "hypothesisId": "L1,L2,L3",
+                        "location": "voice_session_gateway.py:_maybe_run_incremental_transcription",
+                        "phase": "partial_stt",
+                        "turn": turn_id,
+                        "chunks": chunk_count,
+                        "audio_bytes": len(audio_bytes),
+                        "stt_ms": int((time.perf_counter() - _kcdbg_stt_t0) * 1000),
+                        "interval_floor_ms": _PARTIAL_STT_MIN_INTERVAL_MS,
+                        "gap_since_prev_ms": _kcdbg_gap_ms,
+                        "offloaded": True,
+                        "ts": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+        except Exception:
+            pass
+        # #endregion
+
+        # Staleness guard: the offloaded STT may complete AFTER the turn ended
+        # (audio.endpoint / pause / barge-in reset the partial state and bumped the
+        # generation, or a new turn replaced client_turn_id). Drop the result
+        # silently — committing text/chunk counts here would emit a transcript for
+        # a finished turn and corrupt the next turn's partial-reuse logic in
+        # _handle_audio_endpoint.
+        if state.partial_stt_generation != my_generation or state.client_turn_id != turn_id:
+            # #region agent log (debug-24a345)
+            try:
+                import json as _kcdbg_json
+
+                print(
+                    "KCDBG24a345 "
+                    + _kcdbg_json.dumps(
+                        {
+                            "hypothesisId": "B1",
+                            "location": "voice_session_gateway.py:partial_stt_stale_drop",
+                            "turn": turn_id,
+                            "chunks": chunk_count,
+                            "ts": int(time.time() * 1000),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+            except Exception:
+                pass
+            # #endregion
+            return
 
         text = str(transcript.get("text") or transcript.get("transcript") or "").strip()
         if is_capture_text_noise(text):
@@ -573,35 +838,50 @@ class VoiceSessionGateway:
         # endpoint can safely reuse it for text.final (identical bytes -> identical STT).
         state.last_partial_text_chunk_count = chunk_count
         state.text_partials.append(text)
-        await self._send(
-            websocket,
-            state,
-            "transcript.partial",
-            {"segment_id": turn_id, "turn_id": turn_id, "text": text},
-        )
-        events = state.oracle.observe_partial(
-            text,
-            turn_id=turn_id,
-            input_state={
-                "transcript_state": "partial",
-                "provider": transcript.get("provider") or state.runtime,
-                "transport": state.transport,
-            },
-            output_state={"oracle_state": "thinking"},
-            duration_ms=0,
-        )
-        await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
-        capture_session = self._capture_session(db, workspace.id, state.session_id)
-        if capture_session:
-            await self._maybe_push_capture_hints(
+        try:
+            await self._send(
                 websocket,
-                db,
-                user=user,
-                workspace=workspace,
-                state=state,
-                capture_session=capture_session,
-                partial_text=text,
+                state,
+                "transcript.partial",
+                {"segment_id": turn_id, "turn_id": turn_id, "text": text},
             )
+            events = state.oracle.observe_partial(
+                text,
+                turn_id=turn_id,
+                input_state={
+                    "transcript_state": "partial",
+                    "provider": transcript.get("provider") or state.runtime,
+                    "transport": state.transport,
+                },
+                output_state={"oracle_state": "thinking"},
+                duration_ms=0,
+            )
+            await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
+            # Shared per-connection DB session: hold db_lock only around the
+            # short synchronous DB phases, NEVER across the hint pass'
+            # retrieval/network round-trip — otherwise an audio.endpoint waits
+            # on db_lock for the whole call (endpoint-vs-partial serialization,
+            # trace 24a345). The hint pass re-acquires the lock internally for
+            # its own DB mutation phase.
+            async with state.db_lock:
+                if state.partial_stt_generation != my_generation:
+                    return
+                capture_session = self._capture_session(db, workspace.id, state.session_id)
+            if capture_session:
+                await self._maybe_push_capture_hints(
+                    websocket,
+                    db,
+                    user=user,
+                    workspace=workspace,
+                    state=state,
+                    capture_session=capture_session,
+                    partial_text=text,
+                    generation=my_generation,
+                )
+        except Exception:
+            # Fire-and-forget task: the websocket may have closed (or the hint
+            # pass failed) while the STT ran; never let the task crash.
+            logger.debug("incremental transcription post-processing failed", exc_info=True)
 
     async def _handle_text_partial(
         self,
@@ -650,6 +930,22 @@ class VoiceSessionGateway:
                 capture_session=capture_session,
                 partial_text=text,
             )
+            try:
+                await self._maybe_detect_and_emit_active_section(
+                    websocket,
+                    db,
+                    workspace=workspace,
+                    state=state,
+                    capture_session=capture_session,
+                    partial_text=text,
+                    source="partial",
+                )
+            except Exception as exc:  # noqa: BLE001 - live detection must never break the capture loop.
+                logger.warning(
+                    "voice_live_section_detect_failed",
+                    error=str(exc),
+                    session_id=state.session_id,
+                )
 
     async def _maybe_push_capture_hints(
         self,
@@ -661,6 +957,7 @@ class VoiceSessionGateway:
         state: VoiceSessionState,
         capture_session: ExpertCaptureSession,
         partial_text: str,
+        generation: Optional[int] = None,
     ) -> None:
         if len(partial_text.split()) < 6:
             return
@@ -690,16 +987,24 @@ class VoiceSessionGateway:
         state.last_retrieval_chunks = list(chunks)
         state.last_retrieval_metadatas = list(metadatas or [])
         state.last_retrieval_scores = list(scores or [])
-        result = process_capture_partial_hints(
-            db,
-            workspace_id=workspace.id,
-            session_id=capture_session.id,
-            partial_text=partial_text,
-            retrieval_chunks=chunks,
-            retrieval_metadatas=metadatas,
-            client_turn_id=state.client_turn_id,
-            actor_user_id=user.id,
-        )
+        # Only the synchronous DB mutation phase is gated by db_lock (the
+        # retrieval network call above runs unlocked), so the endpoint handler
+        # waits at most ONE short lock-critical-section behind a partial task.
+        async with state.db_lock:
+            if generation is not None and state.partial_stt_generation != generation:
+                # The turn was endpointed/paused/reset while retrieval ran: its
+                # hint mutation would target a finished turn — drop it.
+                return
+            result = process_capture_partial_hints(
+                db,
+                workspace_id=workspace.id,
+                session_id=capture_session.id,
+                partial_text=partial_text,
+                retrieval_chunks=chunks,
+                retrieval_metadatas=metadatas,
+                client_turn_id=state.client_turn_id,
+                actor_user_id=user.id,
+            )
         candidates = result.get("contradiction_candidates") or []
         if candidates:
             state.last_contradiction_candidates = candidates
@@ -708,6 +1013,89 @@ class VoiceSessionGateway:
         # state, but it never pushes content hints/relances. The only AI utterance
         # during capture is the section.finish timeline relance. The passive
         # "contexte retrouvé" panel is still fed via state.last_retrieval_* above.
+
+    async def _maybe_detect_and_emit_active_section(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        capture_session: ExpertCaptureSession,
+        partial_text: str,
+        source: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Lightweight live section detector (title overlap, no LLM).
+
+        Emits ``section.active`` when confidence is high enough and the suggested
+        section differs from the gateway's active section. Partial-path emits are
+        throttled; turn commits always evaluate once.
+        """
+        from app.services.capture_knowledge_oracle import (
+            LIVE_SECTION_DETECT_MIN_CONFIDENCE,
+            detect_active_section_from_text,
+        )
+
+        text = (partial_text or "").strip()
+        if len(text.split()) < 6:
+            return None
+        now = time.monotonic()
+        if source == "partial":
+            if (
+                state.last_live_section_detect_at is not None
+                and (now - state.last_live_section_detect_at) < _LIVE_SECTION_DETECT_PARTIAL_INTERVAL_S
+            ):
+                return None
+        state.last_live_section_detect_at = now
+
+        plan = dict(capture_session.plan or {})
+        detected = detect_active_section_from_text(
+            plan.get("topics") or [],
+            text,
+            fallback_subtopic_id=state.active_subtopic_id,
+        )
+        confidence = float(detected.get("confidence") or 0.0)
+        subtopic_id = detected.get("subtopic_id")
+        topic_id = detected.get("topic_id")
+        if not subtopic_id or confidence < LIVE_SECTION_DETECT_MIN_CONFIDENCE:
+            return None
+        if str(subtopic_id) == str(state.active_subtopic_id or ""):
+            return None
+        if source == "partial":
+            if (
+                state.last_live_section_emit_at is not None
+                and (now - state.last_live_section_emit_at) < _LIVE_SECTION_DETECT_PARTIAL_INTERVAL_S
+            ):
+                return None
+        state.last_live_section_emit_at = now
+
+        manual_locked = (
+            state.manual_section_until is not None and now < state.manual_section_until
+        )
+        if not manual_locked:
+            state.active_subtopic_id = str(subtopic_id)
+            state.active_topic_id = str(topic_id) if topic_id else None
+            try:
+                set_active_capture_section(
+                    db,
+                    workspace_id=workspace.id,
+                    session_id=capture_session.id,
+                    topic_id=state.active_topic_id,
+                    subtopic_id=state.active_subtopic_id,
+                )
+            except Exception:
+                db.rollback()
+
+        payload = {
+            "status": "suggested",
+            "topic_id": topic_id,
+            "subtopic_id": subtopic_id,
+            "confidence": confidence,
+            "source": source,
+            "manual_locked": manual_locked,
+        }
+        await self._send(websocket, state, "section.active", payload)
+        return payload
 
     async def _handle_text_final(
         self,
@@ -742,6 +1130,34 @@ class VoiceSessionGateway:
         state: VoiceSessionState,
         payload: Dict[str, Any],
     ) -> None:
+        # #region agent log (debug-24a345)
+        try:
+            import json as _kcdbg_json
+
+            print(
+                "KCDBG24a345 "
+                + _kcdbg_json.dumps(
+                    {
+                        "location": "voice_session_gateway.py:endpoint_entry",
+                        "turn": state.client_turn_id,
+                        "chunks": len(state.audio_chunks),
+                        "ts": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+        except Exception:
+            pass
+        # #endregion
+        # Any in-flight incremental STT is superseded by this endpoint's
+        # authoritative full-buffer transcription: cancel it so the endpoint
+        # never queues behind a slow partial round-trip or behind db_lock held
+        # by its post-STT hint pass. Committed partial text/chunk bookkeeping is
+        # left intact so the reuse-partial fast path below still works.
+        for task in list(state.partial_stt_tasks):
+            if not task.done():
+                task.cancel()
         if payload.get("question_id"):
             state.question_id = str(payload.get("question_id"))
         if not state.audio_chunks:
@@ -776,7 +1192,7 @@ class VoiceSessionGateway:
                 provider = get_voice_runtime_provider(state.runtime, workspace_settings=workspace.settings)
             except VoiceProviderError as exc:
                 await self._send_error(websocket, exc.code, str(exc), state=state)
-                state.turn_started_at = None
+                self._reset_turn_after_stt_failure(state)
                 return
             try:
                 transcript = await _transcribe_audio(
@@ -787,12 +1203,28 @@ class VoiceSessionGateway:
                     language=state.language or "fr",
                 )
             except VoiceProviderError as exc:
-                await self._send_error(websocket, exc.code, str(exc), state=state)
-                state.turn_started_at = None
+                # Full provider error stays server-side; the UI gets a clean,
+                # actionable French message (raw OpenAI/fallback strings used to
+                # be forwarded verbatim via session.error — trace 24a345).
+                logger.warning(
+                    "voice_endpoint_stt_failed",
+                    error=str(exc),
+                    code=exc.code,
+                    session_id=state.session_id,
+                    turn_id=state.client_turn_id,
+                )
+                await self._send_error(websocket, exc.code, _STT_SEGMENT_FAILED_MESSAGE, state=state)
+                self._reset_turn_after_stt_failure(state)
                 return
             except Exception as exc:
-                await self._send_error(websocket, "transcribe_failed", str(exc), state=state)
-                state.turn_started_at = None
+                logger.warning(
+                    "voice_endpoint_stt_failed",
+                    error=str(exc),
+                    session_id=state.session_id,
+                    turn_id=state.client_turn_id,
+                )
+                await self._send_error(websocket, "transcribe_failed", _STT_SEGMENT_FAILED_MESSAGE, state=state)
+                self._reset_turn_after_stt_failure(state)
                 return
 
         text = str(transcript.get("text") or transcript.get("transcript") or "").strip()
@@ -809,6 +1241,34 @@ class VoiceSessionGateway:
             "runtime_model": transcript.get("model") or state.model,
             "fallback_used": bool(transcript.get("fallback")),
         }
+        # #region agent log (debug-24a345)
+        try:
+            import json as _kcdbg_json
+
+            print(
+                "KCDBG24a345 "
+                + _kcdbg_json.dumps(
+                    {
+                        "hypothesisId": "L1,L2,L3",
+                        "location": "voice_session_gateway.py:_handle_audio_endpoint",
+                        "phase": "endpoint_stt",
+                        "turn": state.client_turn_id,
+                        "chunks": chunk_count,
+                        "audio_bytes": len(audio_bytes),
+                        "reused_partial": bool(transcript.get("reused_partial")),
+                        "endpoint_stt_ms": int((time.perf_counter() - state.endpoint_at) * 1000)
+                        if state.endpoint_at
+                        else None,
+                        "first_text_ms": first_text_ms,
+                        "ts": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+        except Exception:
+            pass
+        # #endregion
         if text:
             state.text_partials.append(text)
             oracle_events: list[Dict[str, Any]] = []
@@ -847,7 +1307,10 @@ class VoiceSessionGateway:
         # finalize_capture), so the live transcript is direct and never rewritten by
         # a correction pass mid-capture.
         segment_id = state.client_turn_id or str(uuid.uuid4())
-        capture_session = self._capture_session(db, workspace.id, state.session_id)
+        # Shared DB session: wait for any offloaded incremental-STT hint pass
+        # still holding the lock before touching the session here.
+        async with state.db_lock:
+            capture_session = self._capture_session(db, workspace.id, state.session_id)
         corrected_text = text
         if text:
             # The raw STT text is both the live partial and the committed final. No
@@ -902,26 +1365,36 @@ class VoiceSessionGateway:
             # proposal synthesis) is deferred to section.finish / capture.finish. The
             # turn is tagged with the active plan section so the FINAL per-section
             # reformulation can map it to the plan hierarchy.
-            append_turn(
-                db,
-                workspace_id=workspace.id,
-                session_id=capture_session.id,
-                speaker="expert",
-                text=corrected_text,
-                question_id=state.question_id,
-                client_turn_id=state.client_turn_id,
-                retrieval_event_id=state.retrieval_event_id,
-                interruption_of_event_id=state.interruption_of_event_id,
-                turn_kind="correction" if state.interruption_of_event_id else "answer",
-                actor_user_id=user.id,
-                text_partials=state.text_partials[-5:],
-                latency_ms=latency,
-                contradiction_candidates=state.last_contradiction_candidates,
-                topic_id=state.active_topic_id,
-                subtopic_id=state.active_subtopic_id,
-            )
-            turn_to_prompt_ms = int((time.perf_counter() - turn_started) * 1000)
-            self._merge_capture_metrics(db, workspace.id, capture_session.id, {**latency, "turn_end_to_prompt": turn_to_prompt_ms})
+            async with state.db_lock:
+                append_turn(
+                    db,
+                    workspace_id=workspace.id,
+                    session_id=capture_session.id,
+                    speaker="expert",
+                    text=corrected_text,
+                    question_id=state.question_id,
+                    client_turn_id=state.client_turn_id,
+                    retrieval_event_id=state.retrieval_event_id,
+                    interruption_of_event_id=state.interruption_of_event_id,
+                    turn_kind="correction" if state.interruption_of_event_id else "answer",
+                    actor_user_id=user.id,
+                    text_partials=state.text_partials[-5:],
+                    latency_ms=latency,
+                    contradiction_candidates=state.last_contradiction_candidates,
+                    topic_id=state.active_topic_id,
+                    subtopic_id=state.active_subtopic_id,
+                )
+                turn_to_prompt_ms = int((time.perf_counter() - turn_started) * 1000)
+                self._merge_capture_metrics(db, workspace.id, capture_session.id, {**latency, "turn_end_to_prompt": turn_to_prompt_ms})
+            # Accumulate the committed expert text for the live grounded-question
+            # context, scoped to the active plan section: switching sections
+            # resets the buffer (and the questions, which belong to the old one).
+            section_key = f"{state.active_topic_id or ''}:{state.active_subtopic_id or ''}"
+            if state.committed_turns_section != section_key:
+                state.committed_turns_section = section_key
+                state.committed_turn_texts = []
+                state.live_open_questions = []
+            state.committed_turn_texts.append(corrected_text)
             # Passive "contexte retrouvé" panel only — no content questions/relances.
             oracle_retrieval = {
                 "chunks": format_retrieval_chunks(
@@ -930,6 +1403,20 @@ class VoiceSessionGateway:
                     state.last_retrieval_scores,
                 )
             }
+            section_suggestion: Optional[Dict[str, Any]] = None
+            try:
+                section_suggestion = await self._maybe_detect_and_emit_active_section(
+                    websocket,
+                    db,
+                    workspace=workspace,
+                    state=state,
+                    capture_session=capture_session,
+                    partial_text=corrected_text,
+                    source="turn_commit",
+                )
+            except Exception:
+                logger.debug("live_section_detect_on_turn_commit_failed", exc_info=True)
+
             await self._send(
                 websocket,
                 state,
@@ -938,9 +1425,21 @@ class VoiceSessionGateway:
                     "turn_id": state.client_turn_id,
                     "relance": {"kind": None, "text": None},
                     "suggestions": [],
-                    "open_questions": [],
+                    # Re-send the latest LIVE questions: the frontend ingests any
+                    # top-level open_questions array, so an empty list here would
+                    # wipe the QUESTIONS IA panel on every committed turn.
+                    "open_questions": list(state.live_open_questions),
                     "retrieval": oracle_retrieval,
+                    "section_suggestion": section_suggestion or None,
                 },
+            )
+            # Fire-and-forget: live grounded open questions for the QUESTIONS IA
+            # panel. Never awaited on this path — adds zero latency to text.final.
+            self._schedule_live_open_questions(
+                websocket,
+                state,
+                workspace_id=str(workspace.id),
+                capture_session_id=capture_session.id if capture_session else None,
             )
             if state.tandem_oracle_enabled:
                 # Inner-monologue track only (oracle "thinking"); no pushed prompt.
@@ -977,17 +1476,173 @@ class VoiceSessionGateway:
         state.last_retrieval_scores = []
         self._reset_partial_stt_state(state)
 
+    def _schedule_live_open_questions(
+        self,
+        websocket: WebSocket,
+        state: VoiceSessionState,
+        *,
+        workspace_id: str,
+        capture_session_id: Optional[str] = None,
+    ) -> None:
+        """Fire-and-forget generation of LIVE grounded open questions.
+
+        Called right after a capture turn is committed. Guards: tandem oracle
+        enabled, some accumulated expert text, at most ONE generation in flight
+        per session, and at most one generation per
+        ``_LIVE_QUESTIONS_MIN_INTERVAL_S`` seconds. All inputs are snapshotted
+        here because ``_handle_audio_endpoint`` clears ``last_retrieval_*`` and
+        ``client_turn_id`` right after scheduling.
+        """
+        if not state.tandem_oracle_enabled:
+            return
+        if not state.committed_turn_texts:
+            return
+        if state.live_questions_in_flight:
+            return
+        now = time.monotonic()
+        if (
+            state.last_live_questions_at is not None
+            and (now - state.last_live_questions_at) < _LIVE_QUESTIONS_MIN_INTERVAL_S
+        ):
+            return
+        state.live_questions_in_flight = True
+        state.last_live_questions_at = now
+        context = "\n".join(state.committed_turn_texts[-_LIVE_QUESTIONS_CONTEXT_TURNS:])
+        chunks = list(state.last_retrieval_chunks)
+        metadatas = [dict(m) for m in state.last_retrieval_metadatas if isinstance(m, dict)]
+        plan_section = {
+            "topic_id": state.active_topic_id,
+            "subtopic_id": state.active_subtopic_id,
+        }
+        section_key = state.committed_turns_section
+        turn_id = state.client_turn_id
+
+        async def _run() -> None:
+            try:
+                from app.services.capture_knowledge_oracle import (
+                    generate_grounded_open_questions_async,
+                )
+
+                raw_questions = await generate_grounded_open_questions_async(
+                    context,
+                    chunks,
+                    metadatas,
+                    plan_section,
+                    workspace_id=workspace_id,
+                    max_questions=4,
+                )
+                questions: list[Dict[str, Any]] = []
+                for index, raw in enumerate(raw_questions or [], start=1):
+                    if not isinstance(raw, dict):
+                        continue
+                    text_value = str(raw.get("text") or "").strip()
+                    if not text_value:
+                        continue
+                    questions.append(
+                        {
+                            "id": raw.get("id") or f"live-{turn_id or 'turn'}-{index:02d}",
+                            "text": text_value,
+                            "topic_id": raw.get("topic_id") or plan_section["topic_id"],
+                            "subtopic_id": raw.get("subtopic_id") or plan_section["subtopic_id"],
+                            "priority": raw.get("priority", 0.7),
+                            "status": raw.get("status") or "open",
+                            "source": "oracle_live",
+                        }
+                    )
+                if not questions:
+                    return
+                # Drop stale results if the expert moved to another section while
+                # the generation was running.
+                if state.committed_turns_section != section_key:
+                    return
+                state.live_open_questions = questions
+                if capture_session_id:
+                    try:
+                        from app.db.base import SessionLocal
+                        from app.services.knowledge_capture import merge_live_open_questions_into_plan
+
+                        with SessionLocal() as persist_db:
+                            merge_live_open_questions_into_plan(
+                                persist_db,
+                                workspace_id=workspace_id,
+                                session_id=capture_session_id,
+                                questions=questions,
+                            )
+                    except Exception:
+                        logger.warning("live open questions persist failed", exc_info=True)
+                try:
+                    await self._send(
+                        websocket,
+                        state,
+                        "oracle.questions",
+                        {"turn_id": turn_id, "open_questions": questions},
+                    )
+                except Exception:
+                    # The websocket may have closed while the LLM call ran.
+                    logger.debug("live open questions: websocket send failed", exc_info=True)
+            except Exception:
+                logger.warning("live open questions generation failed", exc_info=True)
+            finally:
+                state.live_questions_in_flight = False
+
+        asyncio.create_task(_run())
+
     async def _handle_audio_pause(
         self,
         websocket: WebSocket,
+        db: DBSession,
         *,
+        user: User,
+        workspace: Workspace,
         state: VoiceSessionState,
         payload: Dict[str, Any],
     ) -> None:
-        """Pause mic (B1): NEVER run process_conversation_step / append_turn /
-        final phase. No relance, no content — just stop listening and ack."""
-        self._reset_partial_stt_state(state)
+        """Pause mic = segment flush (B1): finalize the in-flight segment exactly
+        like an endpoint — transcribe the buffered audio (reusing the latest
+        full-buffer partial when valid), persist the turn via the same
+        append_turn path and emit text.final — but with NO relance /
+        conversation step / TTS (the continuous-capture endpoint path already
+        does none of that, so we delegate to it with reason="pause"). After the
+        flush the buffer is empty and partial state reset, so a resume genuinely
+        starts a fresh turn under the frontend's new turn id (trace 24a345:
+        keeping the buffer open across pauses emitted text.final under the
+        stale turn id 524e65aa). A pause with an empty/silent buffer is normal:
+        reset silently, never emit an ``empty_audio`` error. The KCDBG entry
+        print and the ack below are emitted unconditionally so a pause is
+        ALWAYS observable in traces, even with an empty buffer."""
+        # #region agent log (debug-24a345)
+        try:
+            import json as _kcdbg_json
+
+            print(
+                "KCDBG24a345 "
+                + _kcdbg_json.dumps(
+                    {
+                        "location": "voice_session_gateway.py:pause_entry",
+                        "turn": state.client_turn_id,
+                        "chunks": len(state.audio_chunks),
+                        "ts": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+        except Exception:
+            pass
+        # #endregion
         await self._send(websocket, state, "audio.pause", {"status": "ok", **payload})
+        if not state.audio_chunks:
+            # No buffered speech: nothing to flush, just clear partial bookkeeping.
+            self._reset_partial_stt_state(state)
+            return
+        await self._handle_audio_endpoint(
+            websocket,
+            db,
+            user=user,
+            workspace=workspace,
+            state=state,
+            payload={**payload, "reason": "pause"},
+        )
 
     async def _handle_section_select(
         self,
@@ -1004,6 +1659,8 @@ class VoiceSessionGateway:
         subtopic_id = payload.get("subtopic_id") if payload.get("subtopic_id") else None
         state.active_topic_id = str(topic_id) if topic_id else None
         state.active_subtopic_id = str(subtopic_id) if subtopic_id else None
+        if payload.get("manual"):
+            state.manual_section_until = time.monotonic() + _MANUAL_SECTION_OVERRIDE_COOLDOWN_S
         capture_session = self._capture_session(db, workspace.id, state.session_id)
         if capture_session:
             try:
@@ -1084,10 +1741,30 @@ class VoiceSessionGateway:
         payload: Dict[str, Any],
     ) -> None:
         """Finish the whole capture (B1/C*): close all remaining sections and
-        build/refresh the proposal, then emit proposal-ready via conversation.step."""
+        build/refresh the proposal, then emit proposal-ready via conversation.step.
+
+        While the heavy FINAL pass runs, honest stage events are streamed as
+        ``capture.finalize.progress`` so the frontend loader can show the real
+        work (plan restructuring / thematic blocks, dedupe, Andritz vocabulary
+        alignment, per-section synthesis, report assembly)."""
         capture_session = self._capture_session(db, workspace.id, state.session_id)
         proposal_payload: Optional[Dict[str, Any]] = None
         session_payload: Optional[Dict[str, Any]] = None
+
+        async def _emit_finalize_progress(progress_payload: Dict[str, Any]) -> None:
+            try:
+                await self._send(
+                    websocket,
+                    state,
+                    "capture.finalize.progress",
+                    {"turn_id": state.client_turn_id, **progress_payload},
+                )
+            except Exception:  # noqa: BLE001 - progress must never break finalization.
+                pass
+
+        await _emit_finalize_progress(
+            {"stage": "start", "label": "Préparation de la synthèse finale…"}
+        )
         if capture_session:
             try:
                 proposal = await finalize_capture(
@@ -1097,6 +1774,7 @@ class VoiceSessionGateway:
                     workspace_slug=workspace.slug,
                     static_context=_resolve_rewrite_context(workspace),
                     created_by_user_id=user.id,
+                    progress=_emit_finalize_progress,
                 )
                 proposal_payload = serialize_proposal(proposal)
                 if proposal_payload and proposal_payload.get("id"):
@@ -1107,6 +1785,9 @@ class VoiceSessionGateway:
             except Exception as exc:
                 logger.warning("voice_capture_finish_failed", error=str(exc), session_id=state.session_id)
                 db.rollback()
+                await _emit_finalize_progress(
+                    {"stage": "error", "label": "La synthèse finale a rencontré une erreur."}
+                )
         await self._send(
             websocket,
             state,
@@ -1337,6 +2018,23 @@ class VoiceSessionGateway:
         return user, workspace
 
     @staticmethod
+    def _sync_voice_state_from_capture_session(
+        state: VoiceSessionState,
+        capture_session: ExpertCaptureSession,
+    ) -> None:
+        """Align WS state with persisted capture session (active section, live Q)."""
+        from app.services.knowledge_capture import _resolve_session_active_section
+
+        metrics = capture_session.metrics or {}
+        topic_id, subtopic_id = _resolve_session_active_section(capture_session)
+        state.active_topic_id = str(topic_id) if topic_id else metrics.get("active_topic_id")
+        state.active_subtopic_id = str(subtopic_id) if subtopic_id else metrics.get("active_subtopic_id")
+        plan = capture_session.plan or {}
+        live_questions = plan.get("live_open_questions") if isinstance(plan.get("live_open_questions"), list) else []
+        if live_questions:
+            state.live_open_questions = [dict(item) for item in live_questions if isinstance(item, dict)]
+
+    @staticmethod
     def _active_plan_topic_label(capture_session: Optional[ExpertCaptureSession]) -> Optional[str]:
         if not capture_session:
             return None
@@ -1415,6 +2113,36 @@ class VoiceSessionGateway:
     ) -> None:
         async with state.send_lock:
             state.sequence += 1
+            # #region agent log (debug-24a345)
+            try:
+                import json as _kcdbg_json
+
+                _kcdbg_p = payload if isinstance(payload, dict) else {}
+                _kcdbg_oq = _kcdbg_p.get("open_questions")
+                print(
+                    "KCDBG24a345 "
+                    + _kcdbg_json.dumps(
+                        {
+                            "hypothesisId": "A,B,C",
+                            "location": "voice_session_gateway.py:_send",
+                            "ev": event_type,
+                            "seq": state.sequence,
+                            "turn": _kcdbg_p.get("turn_id"),
+                            "seg": _kcdbg_p.get("segment_id"),
+                            "text_len": len(str(_kcdbg_p.get("text") or "")),
+                            "empty": _kcdbg_p.get("empty"),
+                            "reframed": _kcdbg_p.get("reframed"),
+                            "oq": (len(_kcdbg_oq) if isinstance(_kcdbg_oq, list) else None),
+                            "tandem": getattr(state, "tandem_oracle_enabled", None),
+                            "ts": int(time.time() * 1000),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+            except Exception:
+                pass
+            # #endregion
             await websocket.send_json(
                 {
                     "id": str(uuid.uuid4()),

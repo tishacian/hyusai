@@ -17,6 +17,7 @@ export type VoiceSessionEventType =
   | 'audio.endpoint.auto'
   | 'audio.out'
   | 'section.select'
+  | 'section.active'
   | 'section.finish'
   | 'capture.finish'
   | 'tts.started'

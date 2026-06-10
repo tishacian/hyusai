@@ -23,6 +23,7 @@ from app.services.rag.knowledge_scopes import (
     normalize_knowledge_scopes,
     sanitize_scope,
 )
+from app.services.systems.bootstrap import ensure_workspace_chat_system_default
 from app.services.table_intelligence import TableQueryEngine
 from app.services.document_intelligence import DocumentQueryEngine
 
@@ -246,6 +247,10 @@ def patch_knowledge_scopes(
     db.add(workspace)
     db.commit()
     db.refresh(workspace)
+    # The always-on chat System folds its manifest's retrieval_defaults on
+    # every turn; refresh it here so a scope edit (top_k, mode) is the budget
+    # actually used instead of a stale snapshot from the last seed run.
+    ensure_workspace_chat_system_default(db, workspace.id)
     return _serialize_scopes(workspace=workspace, db=db)
 
 

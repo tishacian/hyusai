@@ -68,6 +68,32 @@ export interface ConversationStepRequest {
   last_proposal_id?: string | null;
 }
 
+export interface PublishedCaptureFicheUser {
+  id: string;
+  label: string;
+}
+
+export interface PublishedCaptureFiche {
+  id: string;
+  proposal_id: string;
+  title: string;
+  category?: string | null;
+  destination?: string | null;
+  collection_slug?: string | null;
+  published_at?: string | null;
+  published_by?: PublishedCaptureFicheUser | null;
+  author?: PublishedCaptureFicheUser | null;
+  capture_session_id: string;
+  session_title?: string | null;
+  document_id?: string | null;
+  word_count?: number;
+  chunks_processed?: number;
+  open_questions_count?: number;
+  preview_url?: string | null;
+  raw_url?: string | null;
+  session_owned_by_current_user?: boolean;
+}
+
 export interface ProposalReviewRequest {
   status: 'accepted' | 'rejected' | 'changes_requested';
   reviewer?: string | null;
@@ -395,12 +421,52 @@ export class ApiService {
     return this.http.post<CapturePlanSourceExtractResponse>(`${this.base}/knowledge-capture/plan-source/extract`, form);
   }
 
-  listCaptureSessions(status?: string, domain?: string, systemId?: string | null): Observable<unknown> {
+  listCaptureSessions(
+    status?: string,
+    domain?: string,
+    systemId?: string | null,
+    includeArchived = false,
+  ): Observable<unknown> {
     const params: Record<string, string> = {};
     if (status) params['status'] = status;
     if (domain) params['domain'] = domain;
     if (systemId) params['system_id'] = systemId;
+    if (includeArchived) params['include_archived'] = 'true';
     return this.get('/knowledge-capture/sessions', Object.keys(params).length ? params : undefined);
+  }
+
+  listPublishedCaptureFiches(params?: {
+    category?: string;
+    destination?: string;
+    author_user_id?: string;
+    published_after?: string;
+    published_before?: string;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  }): Observable<{ fiches: PublishedCaptureFiche[]; total: number; limit: number; offset: number; has_more: boolean }> {
+    const query: Record<string, string> = {};
+    if (params?.category) query['category'] = params.category;
+    if (params?.destination) query['destination'] = params.destination;
+    if (params?.author_user_id) query['author_user_id'] = params.author_user_id;
+    if (params?.published_after) query['published_after'] = params.published_after;
+    if (params?.published_before) query['published_before'] = params.published_before;
+    if (params?.q) query['q'] = params.q;
+    if (params?.limit != null) query['limit'] = String(params.limit);
+    if (params?.offset != null) query['offset'] = String(params.offset);
+    return this.get('/knowledge-capture/fiches', Object.keys(query).length ? query : undefined);
+  }
+
+  archiveCaptureSession(sessionId: string): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/archive`);
+  }
+
+  unarchiveCaptureSession(sessionId: string): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/unarchive`);
+  }
+
+  deleteCaptureSession(sessionId: string): Observable<unknown> {
+    return this.delete(`/knowledge-capture/sessions/${sessionId}`);
   }
 
   getCaptureQualityBacklog(sessionId: string): Observable<CaptureQualityBacklog> {
@@ -569,10 +635,11 @@ export class ApiService {
     return this.post(`/knowledge-capture/sessions/${sessionId}/proposal`);
   }
 
-  listCaptureProposals(status?: string, systemId?: string | null): Observable<unknown> {
+  listCaptureProposals(status?: string, systemId?: string | null, sessionId?: string | null): Observable<unknown> {
     const params: Record<string, string> = {};
     if (status) params['status'] = status;
     if (systemId) params['system_id'] = systemId;
+    if (sessionId) params['session_id'] = sessionId;
     return this.get('/knowledge-capture/proposals', Object.keys(params).length ? params : undefined);
   }
 

@@ -148,6 +148,13 @@ class Settings(BaseSettings):
     # to let the model use its own default. Valid: minimal|low|medium|high.
     openai_reasoning_effort: str = "minimal"
 
+    # Model used for the plan co-construction oracle (Knowledge Capture "Modifier
+    # le plan" / Appliquer flow). Structuring the expert's own words into a JSON
+    # outline is a low-difficulty task where a small model matches the default
+    # gpt-5 quality at a fraction of the latency. Set empty to fall back to the
+    # workspace default model.
+    capture_plan_oracle_model: str = "gpt-4o-mini"
+
     # Voice2Voice runtime provider plane. OpenAI Realtime is an optional lane;
     # cascade_openai remains the production-safe default and local providers are
     # integrated through HTTP/WebSocket contracts rather than heavy in-process
@@ -210,12 +217,24 @@ class Settings(BaseSettings):
     # delta/windowed STT is unsafe), so a larger interval directly reduces how
     # many times the live transcript is rewritten for a long answer (fewer,
     # more stable refreshes instead of 10+).
-    voice_partial_stt_min_interval_ms: int = 4000
+    # Tuned from runtime traces: actual STT runs ~0.5-1.0s on short/medium
+    # buffers (gpt-4o-mini-transcribe) and an in-flight guard already prevents
+    # overlapping calls, so the flat floor was the dominant latency term (4000ms
+    # -> ~5s refresh; 2000ms -> ~3.2s). 1200ms keeps one call at a time while
+    # letting short turns refresh at ~1.2-1.7s; long turns self-regulate at
+    # their full-buffer STT cost.
+    voice_partial_stt_min_interval_ms: int = 1200
 
     # Static domain framing injected into the FINAL (end-of-section / end-of-capture)
     # LLM reformulation only — never the live capture path. Overridable per
     # workspace via ``workspace.settings.voice.transcript_rewrite_context``.
     voice_transcript_rewrite_context: str = "Nous sommes dans le contexte industriel Andritz."
+
+    # Minimum retrieval score for KB sources attached to capture FINAL reports.
+    # Chunks below this threshold are excluded from section sources and from the
+    # grounded-question / reformulation context. Cross-encoder scores are
+    # typically in [0, 1]; 0.55 filters weakly related documents.
+    capture_report_source_min_score: float = 0.55
 
     # Cascade TTS voice + steering. The steerable gpt-4o-mini-tts model accepts
     # an `instructions` field to control accent / persona / prosody; tts-1 and

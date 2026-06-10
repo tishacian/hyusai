@@ -156,6 +156,31 @@ def _workspace_chat_objective(workspace: Workspace, family: str) -> str:
     )
 
 
+def _retrieval_defaults_for_scope(scope: Dict[str, Any]) -> Dict[str, Any]:
+    """Derive the full retrieval funnel from the scope, not just a bare top_k.
+
+    The chat endpoint folds these values whenever the client leaves the budget
+    unset (demo-safe surfaces do), so the funnel must stay coherent on its own:
+    a lone explicit top_k collapses synthesis/candidate defaults to top_k.
+    Multi-pass pipelines (hah/chah) fan out query variants and need candidate
+    headroom plus the balanced deadline; the fast profile clamps the pool to 20
+    and strangles the RRF merge.
+    """
+    top_k = int(scope.get("top_k") or 6)
+    mode = str(scope.get("default_mode") or "auto")
+    synthesis_k = max(12, top_k * 2)
+    return {
+        "latency_profile": "balanced" if mode in {"hah", "chah"} else "fast",
+        "retrieval_profile": "chat",
+        "deep_search_enabled": True,
+        "top_k": top_k,
+        "source_display_k": min(max(top_k, 5), 8),
+        "synthesis_k": synthesis_k,
+        "candidate_pool_k": max(40, synthesis_k * 3),
+        "mode": mode,
+    }
+
+
 def _workspace_chat_profile(workspace: Workspace) -> Dict[str, Any]:
     settings = _as_dict(workspace.settings)
     family = _workspace_family(workspace)
@@ -216,13 +241,7 @@ def _workspace_chat_profile(workspace: Workspace) -> Dict[str, Any]:
         "grounding": grounding,
         "actions": actions,
         "source_policy": source_policy,
-        "retrieval_defaults": {
-            "latency_profile": "fast",
-            "retrieval_profile": "chat",
-            "deep_search_enabled": True,
-            "top_k": scope.get("top_k") or 6,
-            "mode": scope.get("default_mode") or "auto",
-        },
+        "retrieval_defaults": _retrieval_defaults_for_scope(scope),
     }
 
 
