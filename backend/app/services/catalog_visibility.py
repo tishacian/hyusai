@@ -143,11 +143,12 @@ def _inferred_industries(workspace: Workspace) -> set[str]:
     if declared:
         return declared
 
-    slug = (workspace.slug or "").lower()
-    name = (workspace.name or "").lower()
-    if slug == "sentinel-ci" or "sentinel" in slug or "sentinel" in name:
+    from app.services.workspace_features import workspace_family
+
+    family = workspace_family(workspace)
+    if family == "sentinel_ci":
         return {"government"}
-    if slug == "andritz" or "andritz" in slug or "andritz" in name:
+    if family == "andritz":
         return {"manufacturing", "industrial", "process_industry", "pulp_paper"}
     return set()
 

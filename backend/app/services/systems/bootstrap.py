@@ -76,13 +76,9 @@ def _as_list(value: Any) -> List[Any]:
 
 
 def _workspace_family(workspace: Workspace) -> str:
-    slug = (workspace.slug or "").lower()
-    name = (workspace.name or "").lower()
-    if "andritz" in slug or "andritz" in name:
-        return "andritz"
-    if slug == "sentinel-ci" or "sentinel" in slug:
-        return "sentinel_ci"
-    return "generic"
+    from app.services.workspace_features import workspace_family
+
+    return workspace_family(workspace)
 
 
 def _profile_by_key(settings: Dict[str, Any], key: Optional[str]) -> Dict[str, Any]:

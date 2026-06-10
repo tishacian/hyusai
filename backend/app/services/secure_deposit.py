@@ -106,7 +106,13 @@ def enabled_workspace_slugs() -> set[str]:
 
 
 def is_workspace_enabled(workspace: Workspace) -> bool:
-    return workspace.slug.lower() in enabled_workspace_slugs()
+    from app.services.workspace_features import feature_enabled
+
+    return feature_enabled(
+        workspace,
+        "secure_deposit",
+        csv_fallback=settings.secure_deposit_enabled_workspace_slugs,
+    )
 
 
 def default_allowed_extensions() -> list[str]:
@@ -727,6 +733,22 @@ def _extract_andritz_project_reference(*values: str | None) -> dict[str, str]:
     return {}
 
 
+def _extract_machine_reference(*values: str | None, exclude: str | None = None) -> dict[str, str]:
+    """First series reference (e.g. BBA120) distinct from the project code.
+
+    Conservative on purpose: archive paths usually carry the machine/series as
+    a second alphanum reference next to the project code; anything fuzzier
+    belongs in a knowledge guide, not in payload metadata.
+    """
+    for value in values:
+        for match in _ANDRITZ_PROJECT_RE.finditer(str(value or "")):
+            reference = f"{match.group(1).upper()}{match.group(2)}"
+            if exclude and reference == exclude:
+                continue
+            return {"machine": reference}
+    return {}
+
+
 def _classify_archive_source_family(path: str, extension: str | None = None) -> str:
     haystack = path.replace("_", " ").replace("-", " ").lower()
     ext = (extension or PurePosixPath(path).suffix.lstrip(".")).lower()
@@ -764,6 +786,13 @@ def _archive_document_metadata(
     }
     if archive_path:
         metadata.update(_extract_andritz_project_reference(deposit_filename, archive_path, document_name))
+        metadata.update(
+            _extract_machine_reference(
+                archive_path,
+                document_name,
+                exclude=str(metadata.get("project_code") or "") or None,
+            )
+        )
     return {key: value for key, value in metadata.items() if value is not None}
 
 

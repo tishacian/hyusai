@@ -23,7 +23,16 @@ def enforced_workspace_slugs() -> set[str]:
 
 
 def is_iam_enforced_for_workspace(workspace: Workspace) -> bool:
-    return bool(settings.iam_generic_engine or workspace.slug in enforced_workspace_slugs())
+    from app.services.workspace_features import feature_enabled
+
+    return bool(
+        settings.iam_generic_engine
+        or feature_enabled(
+            workspace,
+            "iam_enforced",
+            csv_fallback=settings.iam_enforced_workspace_slugs,
+        )
+    )
 
 
 def effective_role_flags(config: Optional[WorkspaceIAMConfig]) -> Dict[str, Any]:
