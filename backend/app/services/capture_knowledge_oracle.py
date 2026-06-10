@@ -681,6 +681,21 @@ def _resolve_plan_oracle_model(default_model: str) -> str:
     return override or default_model
 
 
+def _resolve_finalize_llm_config(workspace_id: Optional[str] = None) -> tuple[str, str]:
+    """FINAL-phase LLM config: same API key, dedicated (faster) model when configured.
+
+    The end-of-capture pass (reformulation, grounded questions, thematic
+    structuring) must not pay the workspace default model's thinking latency;
+    ``capture_finalize_model`` overrides it, falling back to the default model
+    when unset/empty. Live-path calls keep using ``_resolve_llm_config``.
+    """
+    from app.core.config import settings as cfg
+
+    api_key, model = _resolve_llm_config(workspace_id)
+    override = str(getattr(cfg, "capture_finalize_model", "") or "").strip()
+    return api_key, (override or model)
+
+
 async def plan_structure_llm_async(
     context: CaptureSessionContext,
     *,
@@ -1377,7 +1392,7 @@ async def derive_thematic_blocks_async(
     fallback = fallback_thematic_blocks(clean, max_themes=max_themes)
     if not clean:
         return []
-    api_key, model = _resolve_llm_config(workspace_id)
+    api_key, model = _resolve_finalize_llm_config(workspace_id)
     if not api_key:
         return fallback
     try:
@@ -1480,7 +1495,7 @@ async def reformulate_section_async(
     fallback = "\n".join(f"- {s}" for s in clean_statements)
     if not clean_statements:
         return ""
-    api_key, model = _resolve_llm_config(workspace_id)
+    api_key, model = _resolve_finalize_llm_config(workspace_id)
     if not api_key:
         return fallback
     try:
@@ -1555,7 +1570,7 @@ async def generate_grounded_open_questions_async(
     statements = (context or "").strip()
     if not statements:
         return []
-    api_key, model = _resolve_llm_config(workspace_id)
+    api_key, model = _resolve_finalize_llm_config(workspace_id)
     if not api_key:
         return []
     topic_id = (plan_section or {}).get("topic_id") if isinstance(plan_section, dict) else None

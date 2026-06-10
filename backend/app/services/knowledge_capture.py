@@ -1381,20 +1381,25 @@ def _is_plan_build_schema(plan: Dict[str, Any]) -> bool:
 
 
 async def _retrieve_context_chunks_async(
-    db: DBSession,
+    db: Optional[DBSession],
     *,
     workspace_id: str,
     workspace_slug: Optional[str],
-    session: ExpertCaptureSession,
+    session: Any,
     query: str,
     top_k: int = 4,
     retrieval_profile: str = "oracle_fast",
+    collection_name: Optional[str] = None,
 ) -> Tuple[List[str], List[Dict[str, Any]], List[float]]:
     """Retrieve context chunks for the capture session.
 
     ``retrieval_profile`` selects the RAG lane: ``oracle_fast`` (default) for the
     live capture path (low latency), or ``chat`` for the FINAL phase
     (corpus_planner + hybrid + cross-encoder, chat-grade quality).
+
+    ``collection_name`` may be pre-resolved by the caller (FINAL concurrent
+    path), in which case ``db`` is never touched — the retrieval itself never
+    uses the SQLAlchemy session, so the call is safe to run concurrently.
     """
     text = (query or "").strip()
     if not text:
@@ -1402,8 +1407,9 @@ async def _retrieve_context_chunks_async(
     profile = (retrieval_profile or "oracle_fast").strip() or "oracle_fast"
     latency_profile = "balanced" if profile == "chat" else "fast"
     try:
-        ctx = _load_context(db, workspace_id, session.context_id)
-        collection_name = _resolve_collection_name(ctx)
+        if collection_name is None:
+            ctx = _load_context(db, workspace_id, session.context_id)
+            collection_name = _resolve_collection_name(ctx)
         from app.services.rag.context import retrieve_rag_context
 
         result = await retrieve_rag_context(
@@ -1917,7 +1923,7 @@ def generate_question_bank(
                 kb_refs.append(
                     {
                         "ref": md.get("source") or md.get("document_id") or f"chunk-{index + 1}",
-                        "title": md.get("title") or md.get("filename"),
+                        "title": _source_display_title(md),
                         "preview": str(chunk)[:160],
                     }
                 )
@@ -2826,6 +2832,8 @@ async def publish_proposal_to_knowledge(
     session = get_session(db, workspace_id=workspace.id, session_id=proposal.session_id)
     ctx = _load_context(db, workspace.id, session.context_id)
     collection_name = _resolve_collection_name(ctx)
+    expert_user_id = session.created_by_user_id or proposal.created_by_user_id
+    expert_name = _resolve_user_label(db, expert_user_id) or (actor_label if not expert_user_id else None)
     proposal_payload = dict(proposal.proposal or {})
     recommended = dict(proposal_payload.get("recommended_ingestion") or {})
     metadata = dict(recommended.get("metadata") or {})
@@ -2866,6 +2874,14 @@ async def publish_proposal_to_knowledge(
         publication_meta.setdefault("include_unresolved_questions", True)
     else:
         publication_meta["include_unresolved_questions"] = bool(include_unresolved_questions)
+    if expert_name:
+        publication_meta["expert_name"] = expert_name
+        metadata["expert_name"] = expert_name
+    if expert_user_id:
+        publication_meta["expert_user_id"] = expert_user_id
+        metadata["captured_by_user_id"] = expert_user_id
+    unresolved_count = _count_open_questions(proposal_payload)
+    publication_meta["open_questions_count"] = unresolved_count
     metadata["proposal_id"] = proposal.id
     metadata["capture_session_id"] = session.id
     if publication_category:
@@ -2932,6 +2948,9 @@ async def publish_proposal_to_knowledge(
                 "publication_destination": publication_destination,
                 "publication_final_title": publication_title,
                 "collection_slug": collection.slug,
+                "expert_name": expert_name,
+                "captured_by_user_id": expert_user_id,
+                "open_questions_count": unresolved_count,
             }.items()
             if value
         }
@@ -2975,12 +2994,16 @@ async def publish_proposal_to_knowledge(
             "destination": publication_destination,
             "destination_scope": publication_destination,
             "final_title": publication_title,
+            "expert_name": expert_name,
+            "open_questions_count": unresolved_count,
             "export_urls": export_urls,
         },
     )
     db.commit()
     return {
         "proposal_id": proposal.id,
+        "expert_name": expert_name,
+        "open_questions_count": unresolved_count,
         "collection": collection.slug,
         "document_id": document_id,
         "chunks_processed": result.get("chunks_processed", 0),
@@ -3630,8 +3653,8 @@ def format_retrieval_chunks(
                 "score": scores[index] if index < len(scores) else None,
                 "document_id": md.get("document_id") or md.get("doc_id") or md.get("id"),
                 "source_id": md.get("source_id") or md.get("source"),
-                "source": md.get("source") or md.get("filename") or md.get("document_id"),
-                "title": md.get("title") or md.get("filename") or md.get("source"),
+                "source": md.get("source") or _source_display_filename(md) or md.get("document_id"),
+                "title": _source_display_title(md),
                 "collection": md.get("collection") or md.get("collection_name"),
                 "metadata": md,
             }
@@ -4071,8 +4094,8 @@ def _retrieval_refs_from_event(event: Optional[ExpertCaptureEvent]) -> List[Dict
                 "event_id": event.id,
                 "rank": index + 1,
                 "score": scores[index] if index < len(scores) else None,
-                "title": md.get("title") or md.get("filename") or md.get("source"),
-                "source": md.get("source") or md.get("document_id") or md.get("filename"),
+                "title": _source_display_title(md),
+                "source": md.get("source") or _source_display_filename(md) or md.get("document_id"),
                 "preview": str(chunk)[:360],
                 "metadata": md,
             }
@@ -4426,7 +4449,8 @@ def _plan_framed_markdown(
                 lines.append(f"- {statement}")
         lines.append("")
     if open_questions:
-        lines.append("## Questions ouvertes")
+        lines.append("## Questions ouvertes pour reprise")
+        lines.append("_Points restés sans réponse à la publication ; à compléter par un expert._")
         for item in open_questions:
             label = item.get("follow_up") or item.get("reason") or item.get("gap_id")
             if label:
@@ -5481,7 +5505,8 @@ def _assemble_report_from_sections(
         and _normalize_proposal_open_question_status(q.get("status")) in {"open", "deferred"}
     ]
     if visible_questions:
-        lines.append("## Questions ouvertes")
+        lines.append("## Questions ouvertes pour reprise")
+        lines.append("_Points restés sans réponse à la publication ; à compléter par un expert._")
         for item in visible_questions:
             label = item.get("follow_up") or item.get("text") or item.get("reason") or item.get("gap_id")
             if label:
@@ -5513,6 +5538,23 @@ def set_active_capture_section(
     return session
 
 
+def _source_display_filename(md: Dict[str, Any]) -> Optional[str]:
+    return md.get("filename") or md.get("document_filename") or md.get("legacy_document_name")
+
+
+def _source_display_title(md: Dict[str, Any]) -> Optional[str]:
+    """Human document name for source chips — same metadata keys the chat chips
+    resolve (``document_title``/``document_filename`` come from the Qdrant
+    payload), so the report never shows raw document ids."""
+    return (
+        md.get("title")
+        or md.get("document_title")
+        or _source_display_filename(md)
+        or md.get("archive_name")
+        or md.get("source")
+    )
+
+
 def _section_sources(
     chunks: List[str],
     metadatas: Optional[List[Dict[str, Any]]] = None,
@@ -5529,7 +5571,8 @@ def _section_sources(
         text = str(chunk or "").strip()
         md = metadatas[index] if index < len(metadatas) and isinstance(metadatas[index], dict) else {}
         document_id = md.get("document_id") or md.get("doc_id") or md.get("id")
-        title = md.get("title") or md.get("filename") or md.get("source")
+        filename = _source_display_filename(md)
+        title = _source_display_title(md)
         key = str(document_id or title or text[:80]).strip().lower()
         if not key or key in seen:
             continue
@@ -5539,9 +5582,9 @@ def _section_sources(
                 "rank": index + 1,
                 "document_id": document_id,
                 "source_id": md.get("source_id") or md.get("source"),
-                "source": md.get("source") or md.get("filename") or document_id,
+                "source": md.get("source") or filename or title or document_id,
                 "title": title,
-                "filename": md.get("filename"),
+                "filename": filename,
                 "collection": md.get("collection") or md.get("collection_name"),
                 "preview": text[:360],
             }
@@ -5550,21 +5593,18 @@ def _section_sources(
 
 
 def _resolve_final_glossary(
-    db: DBSession,
-    *,
-    workspace_id: str,
-    session: ExpertCaptureSession,
+    workspace: Any,
+    session: Any,
     chunks: Optional[List[str]] = None,
 ):
     """Tier-2 glossary for the FINAL pass: workspace glossary + plan labels +
-    distinctive terms from the section's retrieved KB passages."""
-    from app.models.workspace import Workspace as WorkspaceModel
+    distinctive terms from the section's retrieved KB passages.
+
+    ``workspace``/``session`` only need ``.settings`` / ``.plan`` attributes —
+    callers pass plain snapshots so this stays DB-free (safe under concurrency).
+    """
     from app.services.voice_transcript_glossary import resolve_glossary
 
-    try:
-        workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
-    except Exception:
-        workspace = None
     try:
         return resolve_glossary(workspace, session, chunks or [])
     except Exception:
@@ -5586,42 +5626,34 @@ async def _notify_finalize_progress(
         pass
 
 
-async def finalize_capture_section(
+# Bounded fan-out for the FINAL per-section pass: enough to hide the LLM
+# latency across sections without hammering the retrieval/OpenAI lanes.
+_FINALIZE_SECTION_CONCURRENCY = 3
+
+
+def _prepare_section_finalize(
     db: DBSession,
     *,
     workspace_id: str,
-    session_id: str,
-    topic_id: Optional[str] = None,
-    subtopic_id: Optional[str] = None,
-    workspace_slug: Optional[str] = None,
-    static_context: Optional[str] = None,
-    progress: Optional[FinalizeProgressCallback] = None,
+    session: ExpertCaptureSession,
+    topic_id: Optional[str],
+    subtopic_id: Optional[str],
+    static_context: Optional[str],
 ) -> Dict[str, Any]:
-    """FINAL phase for ONE section (section.finish).
+    """All DB reads for one section's FINAL pass, done up-front.
 
-    The heavy end-of-capture pass for a section: chat-grade retrieval, dedupe of
-    repeated/rephrased expert turns, Tier-2 domain-glossary vocabulary alignment,
-    the exhaustive LLM reformulation and the grounded open-question generation,
-    then stores the result (with its KB sources) on the plan under
-    ``section_synthesis``. Non-fatal: returns an empty entry when the section has
-    no captured statements.
+    Returns a plain-data snapshot (statements, meta, collection name, glossary
+    inputs) so the heavy compute phase can run concurrently across sections
+    without ever touching the shared SQLAlchemy session.
     """
-    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    from types import SimpleNamespace
+
+    from app.models.workspace import Workspace as WorkspaceModel
+
     plan = dict(session.plan or {})
     meta = _resolve_plan_section_meta(plan, topic_id, subtopic_id)
     section_key = _section_key(meta.get("topic_id"), meta.get("subtopic_id"))
     raw_statements = _section_statements(session, meta.get("topic_id"), meta.get("subtopic_id"))
-    if not raw_statements:
-        return {
-            "section_key": section_key,
-            "topic_id": meta.get("topic_id"),
-            "subtopic_id": meta.get("subtopic_id"),
-            "synthesis": "",
-            "open_questions": [],
-            "sources": [],
-            "statement_count": 0,
-            "skipped": True,
-        }
     label = (
         meta.get("topic_path")
         or " / ".join(part for part in [meta.get("topic_title"), meta.get("subtopic_title")] if part)
@@ -5629,6 +5661,50 @@ async def finalize_capture_section(
     )
     if static_context is None:
         static_context = _resolve_rewrite_context(None)
+    try:
+        ctx = _load_context(db, workspace_id, session.context_id)
+    except Exception:
+        ctx = None
+    try:
+        workspace = db.query(WorkspaceModel).filter(WorkspaceModel.id == workspace_id).first()
+    except Exception:
+        workspace = None
+    workspace_settings = dict(getattr(workspace, "settings", None) or {}) if workspace is not None else {}
+    return {
+        "meta": meta,
+        "section_key": section_key,
+        "label": label,
+        "raw_statements": raw_statements,
+        "static_context": static_context,
+        "collection_name": _resolve_collection_name(ctx),
+        "session_ref": SimpleNamespace(
+            context_id=session.context_id,
+            capability_id=session.capability_id,
+            system_id=session.system_id,
+        ),
+        "glossary_workspace": SimpleNamespace(settings=workspace_settings),
+        "glossary_session": SimpleNamespace(plan=plan),
+    }
+
+
+async def _compute_section_finalize_async(
+    *,
+    workspace_id: str,
+    workspace_slug: Optional[str],
+    prep: Dict[str, Any],
+    progress: Optional[FinalizeProgressCallback] = None,
+) -> Dict[str, Any]:
+    """Compute phase of one section's FINAL pass — NO DB access.
+
+    Chat-grade retrieval, dedupe of repeated/rephrased expert turns, Tier-2
+    domain-glossary vocabulary alignment, then the exhaustive LLM reformulation
+    and the grounded open-question generation run CONCURRENTLY (the questions
+    only need statements + chunks, never the synthesis). Safe to run for several
+    sections at once (everything works on the plain-data ``prep`` snapshot).
+    """
+    meta = prep["meta"]
+    label = prep["label"]
+    raw_statements = list(prep["raw_statements"])
 
     # 1) Dedupe: the expert repeats/rephrases across turns — clean before the
     # reformulation so duplicates never reach the report.
@@ -5641,13 +5717,14 @@ async def finalize_capture_section(
     query = f"{label} {' '.join(statements)}".strip()[:1200]
     try:
         chunks, metadatas, raw_scores = await _retrieve_context_chunks_async(
-            db,
+            None,
             workspace_id=workspace_id,
             workspace_slug=workspace_slug,
-            session=session,
+            session=prep["session_ref"],
             query=query,
             top_k=4,
             retrieval_profile="chat",
+            collection_name=prep["collection_name"],
         )
     except Exception:
         chunks, metadatas, raw_scores = [], [], []
@@ -5672,42 +5749,41 @@ async def finalize_capture_section(
         progress,
         {"stage": "vocabulary", "label": "Alignement vocabulaire Andritz…", "section_label": label},
     )
-    glossary = _resolve_final_glossary(db, workspace_id=workspace_id, session=session, chunks=chunks)
+    glossary = _resolve_final_glossary(prep["glossary_workspace"], prep["glossary_session"], chunks)
     glossary_terms: List[str] = list(glossary.terms) if glossary is not None else []
     if glossary is not None and not glossary.is_empty:
         statements = [correct_transcript_segment_tier1(s, glossary) for s in statements]
 
-    # 3) Restructuring + exhaustive reformulation against the section.
+    # 3) Restructuring + exhaustive reformulation, CONCURRENT with the grounded
+    # open-question generation (which only needs statements + chunks).
     await _notify_finalize_progress(
         progress,
-        {"stage": "reformulate", "label": "Restructuration de l'expression…", "section_label": label},
+        {"stage": "reformulate", "label": "Reformulation et questions ouvertes…", "section_label": label},
     )
-    synthesis = await reformulate_section_async(
-        workspace_id=workspace_id,
-        section_label=label,
-        statements=statements,
-        kb_chunks=chunks,
-        static_context=static_context,
-        glossary_terms=glossary_terms,
+    synthesis, grounded = await asyncio.gather(
+        reformulate_section_async(
+            workspace_id=workspace_id,
+            section_label=label,
+            statements=statements,
+            kb_chunks=chunks,
+            static_context=prep["static_context"],
+            glossary_terms=glossary_terms,
+        ),
+        generate_grounded_open_questions_async(
+            "\n".join(statements),
+            chunks,
+            metadatas,
+            {
+                "topic_id": meta.get("topic_id"),
+                "subtopic_id": meta.get("subtopic_id"),
+                "topic_title": meta.get("topic_title"),
+                "subtopic_title": meta.get("subtopic_title"),
+            },
+            workspace_id=workspace_id,
+        ),
     )
-    await _notify_finalize_progress(
-        progress,
-        {"stage": "questions", "label": "Génération des questions ouvertes…", "section_label": label},
-    )
-    grounded = await generate_grounded_open_questions_async(
-        "\n".join(statements),
-        chunks,
-        metadatas,
-        {
-            "topic_id": meta.get("topic_id"),
-            "subtopic_id": meta.get("subtopic_id"),
-            "topic_title": meta.get("topic_title"),
-            "subtopic_title": meta.get("subtopic_title"),
-        },
-        workspace_id=workspace_id,
-    )
-    entry = {
-        "section_key": section_key,
+    return {
+        "section_key": prep["section_key"],
         "topic_id": meta.get("topic_id"),
         "subtopic_id": meta.get("subtopic_id"),
         "section_label": label,
@@ -5720,29 +5796,102 @@ async def finalize_capture_section(
         "glossary_term_count": len(glossary_terms),
         "updated_at": datetime.utcnow().isoformat(),
     }
+
+
+def _skipped_section_entry(prep: Dict[str, Any]) -> Dict[str, Any]:
+    meta = prep["meta"]
+    return {
+        "section_key": prep["section_key"],
+        "topic_id": meta.get("topic_id"),
+        "subtopic_id": meta.get("subtopic_id"),
+        "synthesis": "",
+        "open_questions": [],
+        "sources": [],
+        "statement_count": 0,
+        "skipped": True,
+    }
+
+
+def _store_section_synthesis_entries(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    entries: List[Dict[str, Any]],
+) -> ExpertCaptureSession:
+    """Sequential DB write phase: store computed section syntheses + events and
+    commit ONCE (the single sync session is never used concurrently)."""
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
     plan = dict(session.plan or {})
     section_synthesis = dict(plan.get("section_synthesis") or {})
-    section_synthesis[section_key] = entry
+    for entry in entries:
+        section_synthesis[entry["section_key"]] = entry
     plan["section_synthesis"] = section_synthesis
     session.plan = plan
     flag_modified(session, "plan")
-    _record_capture_event(
-        db,
-        session=session,
-        event_type="capture_section_finalized",
-        source="capture_engine",
-        status="accepted",
-        meta_data={
-            "section_key": section_key,
-            "topic_id": meta.get("topic_id"),
-            "subtopic_id": meta.get("subtopic_id"),
-            "statement_count": len(statements),
-            "grounded_question_count": len(grounded),
-        },
-    )
+    for entry in entries:
+        _record_capture_event(
+            db,
+            session=session,
+            event_type="capture_section_finalized",
+            source="capture_engine",
+            status="accepted",
+            meta_data={
+                "section_key": entry["section_key"],
+                "topic_id": entry.get("topic_id"),
+                "subtopic_id": entry.get("subtopic_id"),
+                "statement_count": entry.get("statement_count", 0),
+                "grounded_question_count": len(entry.get("open_questions") or []),
+            },
+        )
     db.commit()
     db.refresh(session)
+    return session
+
+
+async def finalize_capture_section(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    topic_id: Optional[str] = None,
+    subtopic_id: Optional[str] = None,
+    workspace_slug: Optional[str] = None,
+    static_context: Optional[str] = None,
+    progress: Optional[FinalizeProgressCallback] = None,
+) -> Dict[str, Any]:
+    """FINAL phase for ONE section (section.finish).
+
+    The heavy end-of-capture pass for a section: chat-grade retrieval, dedupe of
+    repeated/rephrased expert turns, Tier-2 domain-glossary vocabulary alignment,
+    the exhaustive LLM reformulation and the grounded open-question generation
+    (run concurrently), then stores the result (with its KB sources) on the plan
+    under ``section_synthesis``. Non-fatal: returns an empty entry when the
+    section has no captured statements.
+    """
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    prep = _prepare_section_finalize(
+        db,
+        workspace_id=workspace_id,
+        session=session,
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        static_context=static_context,
+    )
+    if not prep["raw_statements"]:
+        return _skipped_section_entry(prep)
+    entry = await _compute_section_finalize_async(
+        workspace_id=workspace_id,
+        workspace_slug=workspace_slug,
+        prep=prep,
+        progress=progress,
+    )
+    _store_section_synthesis_entries(
+        db,
+        workspace_id=workspace_id,
+        session_id=session_id,
+        entries=[entry],
+    )
     return entry
 
 
@@ -5872,35 +6021,72 @@ async def finalize_capture(
     if not sections:
         sections = [(None, None)]
     total = len(sections)
-    finalized_sections: Dict[str, Dict[str, Any]] = {}
-    for index, (topic_id, subtopic_id) in enumerate(sections, start=1):
-        meta = _resolve_plan_section_meta(plan, topic_id, subtopic_id)
-        section_label = meta.get("topic_path") or meta.get("topic_title") or (session.title or "")
-        await _notify_finalize_progress(
-            progress,
-            {
-                "stage": "section",
-                "label": f"Synthèse « {section_label} »…" if section_label else "Synthèse de la capture…",
-                "section_label": section_label,
-                "current": index,
-                "total": total,
-            },
+
+    # Up-front sequential DB reads: snapshot everything each section's compute
+    # phase needs, so the concurrent phase below never touches the shared
+    # SQLAlchemy session.
+    preps: List[Dict[str, Any]] = [
+        _prepare_section_finalize(
+            db,
+            workspace_id=workspace_id,
+            session=session,
+            topic_id=topic_id,
+            subtopic_id=subtopic_id,
+            static_context=static_context,
         )
+        for topic_id, subtopic_id in sections
+    ]
+
+    semaphore = asyncio.Semaphore(_FINALIZE_SECTION_CONCURRENCY)
+    started_count = 0
+
+    async def _run_section(prep: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        nonlocal started_count
+        async with semaphore:
+            started_count += 1
+            section_label = prep["label"]
+            await _notify_finalize_progress(
+                progress,
+                {
+                    "stage": "section",
+                    "label": f"Synthèse « {section_label} »…" if section_label else "Synthèse de la capture…",
+                    "section_label": section_label,
+                    "current": min(started_count, total),
+                    "total": total,
+                },
+            )
+            if not prep["raw_statements"]:
+                return None
+            try:
+                return await _compute_section_finalize_async(
+                    workspace_id=workspace_id,
+                    workspace_slug=workspace_slug,
+                    prep=prep,
+                    progress=progress,
+                )
+            except Exception as exc:  # noqa: BLE001 - one bad section must not abort the proposal.
+                _logger.warning("knowledge_capture_finalize_section_failed: %s", exc)
+                return None
+
+    # Concurrent compute phase (LLM + retrieval), bounded fan-out.
+    results = await asyncio.gather(*(_run_section(prep) for prep in preps))
+    finalized_sections: Dict[str, Dict[str, Any]] = {
+        str(entry["section_key"]): entry
+        for entry in results
+        if isinstance(entry, dict) and entry.get("section_key") and not entry.get("skipped")
+    }
+    # Sequential DB write phase: single-session writes + ONE commit.
+    if finalized_sections:
         try:
-            entry = await finalize_capture_section(
+            _store_section_synthesis_entries(
                 db,
                 workspace_id=workspace_id,
                 session_id=session_id,
-                topic_id=topic_id,
-                subtopic_id=subtopic_id,
-                workspace_slug=workspace_slug,
-                static_context=static_context,
-                progress=progress,
+                entries=list(finalized_sections.values()),
             )
-            if isinstance(entry, dict) and entry.get("section_key") and not entry.get("skipped"):
-                finalized_sections[str(entry["section_key"])] = entry
-        except Exception as exc:  # noqa: BLE001 - one bad section must not abort the proposal.
-            _logger.warning("knowledge_capture_finalize_section_failed: %s", exc)
+        except Exception as exc:  # noqa: BLE001 - the proposal is still built from the computed entries.
+            _logger.warning("knowledge_capture_finalize_store_failed: %s", exc)
+            db.rollback()
     await _notify_finalize_progress(progress, {"stage": "report", "label": "Assemblage du rapport…"})
     db.expire_all()
     fresh_session = get_session(db, workspace_id=workspace_id, session_id=session_id)
@@ -6663,6 +6849,34 @@ def _session_open_questions_count(session: ExpertCaptureSession) -> int:
     )
 
 
+def _resolve_user_label(db: Optional[DBSession], user_id: Optional[str]) -> Optional[str]:
+    """Best-effort display label (email/username) for a user id."""
+    if not db or not user_id:
+        return None
+    try:
+        from app.models.user import User
+
+        user = db.query(User).filter(User.id == user_id).first()
+    except Exception:
+        return None
+    if not user:
+        return None
+    return str(getattr(user, "email", None) or getattr(user, "username", None) or user_id)
+
+
+def _session_created_by_label(session: ExpertCaptureSession) -> Optional[str]:
+    user_id = getattr(session, "created_by_user_id", None)
+    if not user_id:
+        return None
+    try:
+        from sqlalchemy.orm import object_session
+
+        db = object_session(session)
+    except Exception:
+        return None
+    return _resolve_user_label(db, user_id)
+
+
 def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] = None) -> Dict[str, Any]:
     plan = dict(session.plan or {})
     if surface in {"plan_build", "plan"} or _is_plan_build_schema(plan):
@@ -6679,6 +6893,7 @@ def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] =
         "system_id": session.system_id,
         "run_id": session.run_id,
         "created_by_user_id": session.created_by_user_id,
+        "created_by_label": _session_created_by_label(session),
         "title": session.title,
         "objective": session.objective,
         "expert_profile": session.expert_profile,
@@ -7236,8 +7451,8 @@ def _retrieval_refs_for_event(
                 "event_id": event.id,
                 "rank": index + 1,
                 "score": scores[index] if index < len(scores) else None,
-                "title": md.get("title") or md.get("filename") or md.get("source"),
-                "source": md.get("source") or md.get("document_id") or md.get("filename"),
+                "title": _source_display_title(md),
+                "source": md.get("source") or _source_display_filename(md) or md.get("document_id"),
                 "preview": str(chunk)[:360],
                 "metadata": md,
             }

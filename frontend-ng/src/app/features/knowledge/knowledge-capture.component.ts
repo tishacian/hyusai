@@ -121,6 +121,7 @@ interface CaptureSession {
   context_id?: string | null;
   system_id?: string | null;
   created_by_user_id?: string | null;
+  created_by_label?: string | null;
   voice_runtime?: string | null;
   title: string;
   objective: string;
@@ -3356,11 +3357,26 @@ interface ProposalFact {
                   <div>
                     <label class="block text-[11px] uppercase tracking-wider text-gray-400 mb-1">{{ i18n.t('capture.publish.destination') }}</label>
                     <p class="text-[11px] text-gray-500 mb-2">{{ i18n.t('capture.publish.destination_hint') }}</p>
-                    <input
+                    <select
                       class="w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white font-mono"
-                      [(ngModel)]="publicationDestination"
-                      [placeholder]="publicationDestinationLabel()"
-                    />
+                      [ngModel]="publicationDestinationChoice()"
+                      (ngModelChange)="onPublicationDestinationChoice($event)"
+                    >
+                      @if (!publicationDestinationChoice()) {
+                        <option value="" disabled>{{ i18n.t('capture.publish.destination_required') }}</option>
+                      }
+                      @for (slug of publicationDestinationOptions(); track slug) {
+                        <option [value]="slug">{{ slug }}</option>
+                      }
+                      <option value="__custom__">{{ i18n.t('capture.publish.destination_custom') }}</option>
+                    </select>
+                    @if (publicationDestinationCustom()) {
+                      <input
+                        class="mt-2 w-full rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white font-mono"
+                        [(ngModel)]="publicationDestination"
+                        [placeholder]="i18n.t('capture.publish.destination_custom_placeholder')"
+                      />
+                    }
                     @if (!effectivePublicationDestination()) {
                       <p class="mt-2 text-[11px] leading-relaxed text-amber-200/85">
                         {{ i18n.t('capture.publish.destination_required') }}
@@ -3371,6 +3387,24 @@ interface ProposalFact {
 
                 <div>
                   <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 mb-3">{{ i18n.t('capture.publish.preview') }}</p>
+                  @if (publicationSectionTitles().length) {
+                    <!-- Digest: every section of the report at a glance. -->
+                    <div class="mb-3 rounded border border-white/10 bg-white/[0.02] px-3 py-2.5">
+                      <p class="text-[10px] uppercase tracking-wider text-gray-500 mb-2">
+                        {{ i18n.t('capture.publish.preview_sections', { count: publicationSectionTitles().length }) }}
+                      </p>
+                      <div class="flex flex-wrap gap-1.5">
+                        @for (title of publicationSectionTitles(); track $index) {
+                          <span class="inline-flex items-center gap-1.5 max-w-full px-2 py-1 rounded bg-white/5 ring-1 ring-white/10 text-[11px] text-gray-300">
+                            <span class="ck-mono inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-brand-500/15 text-[9px] font-semibold text-brand-200 ring-1 ring-brand-300/25">
+                              {{ $index + 1 }}
+                            </span>
+                            <span class="truncate">{{ title }}</span>
+                          </span>
+                        }
+                      </div>
+                    </div>
+                  }
                   @if (reportFiche().length) {
                     <div class="space-y-3 max-h-[28rem] overflow-auto pr-1">
                       @for (card of reportFiche(); track card.key) {
@@ -3395,6 +3429,21 @@ interface ProposalFact {
                                   <li class="text-[13px] leading-relaxed text-gray-300 pl-3 border-l border-brand-300/20">{{ fact }}</li>
                                 }
                               </ul>
+                            }
+                            @for (sub of card.subsections; track sub.key) {
+                              <section class="rounded border border-white/5 bg-white/[0.02] p-3 space-y-1.5">
+                                <h4 class="text-xs font-semibold text-gray-200">{{ sub.title }}</h4>
+                                @for (block of sub.blocks; track $index) {
+                                  @if (block.kind === 'heading') {
+                                    <h5 class="text-[10px] uppercase tracking-wider text-brand-200/90 font-semibold">{{ block.text }}</h5>
+                                  } @else if (block.text) {
+                                    <p class="text-[13px] leading-relaxed text-gray-300">{{ block.text }}</p>
+                                  }
+                                }
+                                @for (fact of sub.facts; track $index) {
+                                  <p class="text-[13px] leading-relaxed text-gray-400">• {{ fact }}</p>
+                                }
+                              </section>
                             }
                           </div>
                         </article>
@@ -3457,6 +3506,7 @@ interface ProposalFact {
               </div>
               <div class="rounded border border-white/10 bg-black/20 p-3 text-xs text-gray-300 space-y-2">
                 <p><span class="text-gray-500">{{ i18n.t('capture.publish.metadata_title') }} :</span> {{ effectivePublicationFinalTitle() }}</p>
+                <p><span class="text-gray-500">{{ i18n.t('capture.publish.metadata_expert') }} :</span> {{ captureExpertLabel() }}</p>
                 <p><span class="text-gray-500">{{ i18n.t('capture.publish.metadata_category') }} :</span> {{ publicationCategoryLabel() }}</p>
                 <p><span class="text-gray-500">{{ i18n.t('capture.publish.metadata_destination') }} :</span> {{ publicationDestinationDisplay(effectivePublicationDestination()) }}</p>
                 <p><span class="text-gray-500">{{ i18n.t('capture.publish.metadata_state') }} :</span> {{ proposalReviewStateLabel() }}</p>
@@ -3467,6 +3517,7 @@ interface ProposalFact {
                   <p>{{ i18n.t('capture.publish.word_count', { count: proposalReportWordCount() }) }}</p>
                   @if (proposalPublishableUnresolvedCount() > 0) {
                     <p>{{ i18n.t('capture.publish.unresolved_questions', { count: proposalPublishableUnresolvedCount() }) }}</p>
+                    <p class="leading-relaxed text-gray-400">{{ i18n.t('capture.publish.handoff_note') }}</p>
                   } @else {
                     <p>{{ i18n.t('capture.publish.no_open_questions') }}</p>
                   }
@@ -3711,6 +3762,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   executiveSummary = '';
   publicationCategory = 'technical';
   publicationDestination = '';
+  readonly publicationDestinationCustom = signal(false);
   publicationFinalTitle = '';
   dashboardDomainFilter = '';
   readonly durationUnlimited = signal(false);
@@ -4122,6 +4174,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.executiveSummary = '';
     this.publicationCategory = 'technical';
     this.publicationDestination = '';
+    this.publicationDestinationCustom.set(false);
     this.publicationFinalTitle = '';
     this.planSourceStep.set(false);
     this.extractingPlanSource.set(false);
@@ -4839,6 +4892,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       metadata['publication_destination_suggested'] ||
       '',
     );
+    this.publicationDestinationCustom.set(false);
     this.publicationFinalTitle = String(
       publication.final_title ||
       metadata['publication_final_title'] ||
@@ -5182,7 +5236,51 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   effectivePublicationDestination(): string {
+    if (this.publicationDestinationCustom()) return this.publicationDestination.trim();
     return this.publicationDestination.trim() || this.publicationDestinationSuggestion() || '';
+  }
+
+  /** Options for the destination dropdown: workspace KB collections plus the
+   *  currently suggested/selected value when it is not part of the list. */
+  publicationDestinationOptions(): string[] {
+    const options = new Set<string>(this.knowledgeCollections());
+    const suggestion = this.publicationDestinationSuggestion();
+    if (suggestion) options.add(suggestion);
+    const current = this.publicationDestination.trim();
+    if (current && !this.publicationDestinationCustom()) options.add(current);
+    return [...options].sort((a, b) => a.localeCompare(b));
+  }
+
+  publicationDestinationChoice(): string {
+    if (this.publicationDestinationCustom()) return '__custom__';
+    return this.effectivePublicationDestination();
+  }
+
+  onPublicationDestinationChoice(value: string): void {
+    if (value === '__custom__') {
+      this.publicationDestinationCustom.set(true);
+      this.publicationDestination = '';
+      return;
+    }
+    this.publicationDestinationCustom.set(false);
+    this.publicationDestination = String(value || '').trim();
+  }
+
+  /** Digest of the fiche: every top-level section title of the report. */
+  publicationSectionTitles(): string[] {
+    const cards = this.reportFiche();
+    if (cards.length) return cards.map((card) => card.title);
+    const titles: string[] = [];
+    for (const line of this.proposalReportText().split('\n')) {
+      const match = /^##\s+(.+)$/.exec(line.trim());
+      if (match) titles.push(match[1].trim());
+    }
+    return titles;
+  }
+
+  captureExpertLabel(): string {
+    const session = this.session();
+    return session?.created_by_label || session?.created_by_user_id?.slice(0, 8) || '—';
   }
 
   private publicationDestinationSuggestion(): string | null {

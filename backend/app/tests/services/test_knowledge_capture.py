@@ -3969,6 +3969,142 @@ async def test_finalize_capture_builds_proposal_with_plan_structure(db_session, 
     assert "12 bar" in content
 
 
+def _multi_section_session(db_session, workspace, user, texts_by_topic: dict):
+    """A started session whose plan carries one flat topic per key of
+    ``texts_by_topic``, each with one tagged expert turn — the substrate for
+    the concurrent FINAL-phase tests."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    session, _topic_id, _subtopic_id = _final_phase_session(db_session, workspace, user)
+    loaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    plan = dict(loaded.plan or {})
+    plan["topics"] = [
+        {"id": topic_id, "title": f"Sujet {topic_id}", "subtopics": []}
+        for topic_id in texts_by_topic
+    ]
+    loaded.plan = plan
+    flag_modified(loaded, "plan")
+    db_session.commit()
+    for topic_id, text in texts_by_topic.items():
+        append_turn(
+            db_session,
+            workspace_id=workspace.id,
+            session_id=session.id,
+            speaker="expert",
+            text=text,
+            topic_id=topic_id,
+            actor_user_id=user.id,
+        )
+    return session
+
+
+@pytest.mark.asyncio
+async def test_finalize_capture_concurrent_sections_all_synthesized(db_session, monkeypatch):
+    """capture.finish processes sections with bounded concurrency: every section
+    still gets its ``section_synthesis`` entry, the per-section reformulations
+    actually overlap, and all DB writes land after the concurrent phase."""
+    import asyncio as aio
+
+    import app.services.capture_knowledge_oracle as oracle
+    import app.services.knowledge_capture as kc
+
+    async def _no_retrieval(*_a, **_k):
+        return ([], [], [])
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _no_retrieval)
+
+    active = {"now": 0, "max": 0}
+
+    async def _slow_reformulate(**kwargs):
+        active["now"] += 1
+        active["max"] = max(active["max"], active["now"])
+        await aio.sleep(0.05)
+        active["now"] -= 1
+        return f"Synthèse: {' '.join(kwargs['statements'])}"
+
+    monkeypatch.setattr(oracle, "reformulate_section_async", _slow_reformulate)
+
+    workspace = Workspace(id="ws-final-conc", name="Final Conc", slug="final-conc")
+    user = User(id="user-final-conc", username="fcc@datategy.local", email="fcc@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    texts = {
+        "t-conc-1": "Les rouleaux se règlent à 7 millimètres d'entrefer.",
+        "t-conc-2": "La pression hydraulique doit atteindre 12 bar.",
+        "t-conc-3": "La vitesse nominale est de 120 par minute.",
+    }
+    session = _multi_section_session(db_session, workspace, user, texts)
+
+    proposal = await finalize_capture(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        workspace_slug=workspace.slug,
+        created_by_user_id=user.id,
+    )
+
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    stored = (reloaded.plan or {}).get("section_synthesis") or {}
+    for topic_id, text in texts.items():
+        assert topic_id in stored, f"missing synthesis for {topic_id} in {sorted(stored)}"
+        assert text in stored[topic_id]["synthesis"]
+    # The per-section LLM work genuinely overlapped (bounded concurrency).
+    assert active["max"] > 1
+    content = proposal.proposal["recommended_ingestion"]["content"]
+    assert "12 bar" in content and "120 par minute" in content
+
+
+@pytest.mark.asyncio
+async def test_finalize_capture_section_failure_does_not_abort_others(db_session, monkeypatch):
+    """One failing section must not abort the FINAL pass: the other sections
+    keep their synthesis and the proposal is still built."""
+    import app.services.capture_knowledge_oracle as oracle
+    import app.services.knowledge_capture as kc
+
+    async def _no_retrieval(*_a, **_k):
+        return ([], [], [])
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _no_retrieval)
+
+    async def _flaky_reformulate(**kwargs):
+        if "12 bar" in " ".join(kwargs["statements"]):
+            raise RuntimeError("boom: section reformulation failed")
+        return f"Synthèse: {' '.join(kwargs['statements'])}"
+
+    monkeypatch.setattr(oracle, "reformulate_section_async", _flaky_reformulate)
+
+    workspace = Workspace(id="ws-final-fail", name="Final Fail", slug="final-fail")
+    user = User(id="user-final-fail", username="ffl@datategy.local", email="ffl@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    texts = {
+        "t-fail-1": "Les rouleaux se règlent à 7 millimètres d'entrefer.",
+        "t-fail-2": "La pression hydraulique doit atteindre 12 bar.",
+        "t-fail-3": "La vitesse nominale est de 120 par minute.",
+    }
+    session = _multi_section_session(db_session, workspace, user, texts)
+
+    proposal = await finalize_capture(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        workspace_slug=workspace.slug,
+        created_by_user_id=user.id,
+    )
+
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    stored = (reloaded.plan or {}).get("section_synthesis") or {}
+    assert "t-fail-2" not in stored
+    assert "t-fail-1" in stored and "t-fail-3" in stored
+    assert "7 millimètres" in stored["t-fail-1"]["synthesis"]
+    assert "120 par minute" in stored["t-fail-3"]["synthesis"]
+    # The proposal is still produced from the surviving sections.
+    content = proposal.proposal["recommended_ingestion"]["content"]
+    assert "120 par minute" in content
+
+
 @pytest.mark.asyncio
 async def test_answer_proposal_open_question_resynthesizes_only_that_section(db_session, monkeypatch):
     """POST .../open-questions/{id}/answer (c3): injects the answer into the right

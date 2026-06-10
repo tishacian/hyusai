@@ -155,6 +155,14 @@ class Settings(BaseSettings):
     # workspace default model.
     capture_plan_oracle_model: str = "gpt-4o-mini"
 
+    # Model used for the FINAL end-of-capture pass (per-section exhaustive
+    # reformulation, grounded open questions, thematic structuring). Faithful
+    # restructuring of the expert's own statements is well within a small
+    # model's reach, and the default workspace model may be a thinking model
+    # (gpt-5: ~70s per section) — the dedicated model cuts the finalize wall
+    # time dramatically. Set empty to fall back to the workspace default model.
+    capture_finalize_model: str = "gpt-4o-mini"
+
     # Voice2Voice runtime provider plane. OpenAI Realtime is an optional lane;
     # cascade_openai remains the production-safe default and local providers are
     # integrated through HTTP/WebSocket contracts rather than heavy in-process
