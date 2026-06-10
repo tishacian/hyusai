@@ -54,6 +54,38 @@ query_validator = QueryValidator()
 response_validator = ResponseValidator()
 
 
+_RETRIEVAL_OBSERVABILITY_KEYS = (
+    "retrieval_scope",
+    "retrieval_plan",
+    "scope_confidence",
+    "scope_reason",
+    "dense_policy",
+    "dense_only",
+    "sparse_status",
+    "sparse_backend",
+    "sparse_fallback_reason",
+    "retrieval_profile",
+    "latency_profile",
+    "latency_budget",
+    "stage_timings",
+    "duration_ms",
+    "retrieval_elapsed_ms",
+    "cross_encoder_status",
+    "cross_encoder_model",
+    "cross_encoder_ms",
+    "cross_encoder_scored",
+    "cross_encoder_filtered",
+    "cross_encoder_threshold",
+    "cross_encoder_budget_seconds",
+    "cross_encoder_error",
+    "score_threshold_applied",
+    "deep_retrieval_recommended",
+    "deep_job_id",
+    "deep_poll_url",
+    "deep_status",
+)
+
+
 class ChatRequest(BaseModel):
     """Chat completion request"""
     query: str
@@ -811,24 +843,7 @@ def _collect_chat_chunk(
             state["knowledge_scope"] = details.get("scope")
         if details.get("collections_touched"):
             state["collections_touched"] = details.get("collections_touched")
-        for key in (
-            "retrieval_scope",
-            "retrieval_plan",
-            "scope_confidence",
-            "scope_reason",
-            "dense_policy",
-            "dense_only",
-            "sparse_status",
-            "sparse_backend",
-            "sparse_fallback_reason",
-            "retrieval_profile",
-            "latency_budget",
-            "score_threshold_applied",
-            "deep_retrieval_recommended",
-            "deep_job_id",
-            "deep_poll_url",
-            "deep_status",
-        ):
+        for key in _RETRIEVAL_OBSERVABILITY_KEYS:
             if details.get(key) is not None:
                 state[key] = details.get(key)
     if chunk.get("chunk_type") == "decision_step" and chunk.get("decision_step"):
@@ -846,6 +861,42 @@ def _collect_chat_chunk(
 def _retrieval_metrics(state: Dict[str, Any]) -> Dict[str, Any]:
     metrics = state.get("retrieval_metrics")
     return metrics if isinstance(metrics, dict) else {}
+
+
+def _retrieval_latency_profile(state: Dict[str, Any]) -> Optional[str]:
+    metrics = _retrieval_metrics(state)
+    for source in (state, metrics):
+        value = source.get("latency_profile") if isinstance(source, dict) else None
+        if value:
+            return str(value)
+        budget = source.get("latency_budget") if isinstance(source, dict) else None
+        if isinstance(budget, dict) and budget.get("profile"):
+            return str(budget["profile"])
+    return None
+
+
+def _retrieval_observability(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten key RAG diagnostics onto message/run payloads.
+
+    ``retrieval_metrics`` remains the full raw trace. This compact snapshot is
+    intentionally duplicated at the top level so SQL dashboards and run cards
+    can filter on operational signals without knowing the nested shape.
+    """
+    metrics = _retrieval_metrics(state)
+    snapshot: Dict[str, Any] = {}
+    for key in _RETRIEVAL_OBSERVABILITY_KEYS:
+        value = state.get(key)
+        if value is None:
+            value = metrics.get(key)
+        if value is not None:
+            snapshot[key] = value
+    latency_profile = _retrieval_latency_profile(state)
+    if latency_profile:
+        snapshot["latency_profile"] = latency_profile
+        snapshot["retrieval_latency_profile"] = latency_profile
+    if snapshot:
+        snapshot.setdefault("retrieval_latency_scope", "direct_chat")
+    return snapshot
 
 
 def _retrieval_fallback_reason(state: Dict[str, Any]) -> Optional[Any]:
@@ -1918,6 +1969,7 @@ async def chat_completion(
                 "deep_job_id": chunk_state.get("deep_job_id"),
                 "deep_poll_url": chunk_state.get("deep_poll_url"),
                 "deep_status": chunk_state.get("deep_status"),
+                **_retrieval_observability(chunk_state),
             }
             
             # Add decision steps if any were collected
@@ -1982,6 +2034,7 @@ async def chat_completion(
                 "deep_status": chunk_state.get("deep_status"),
                 "grounding_mode": grounding_policy["mode"],
                 "grounding_policy": grounding_policy,
+                **_retrieval_observability(chunk_state),
             },
         )
 
@@ -2010,6 +2063,7 @@ async def chat_completion(
             "deep_poll_url": chunk_state.get("deep_poll_url"),
             "deep_status": chunk_state.get("deep_status"),
             "deep_job": deep_job_payload,
+            **_retrieval_observability(chunk_state),
             "status": "completed",
         }
     except HTTPException:
@@ -3208,6 +3262,7 @@ async def chat_stream(
                     "deep_job_id": chunk_state.get("deep_job_id"),
                     "deep_poll_url": chunk_state.get("deep_poll_url"),
                     "deep_status": chunk_state.get("deep_status"),
+                    **_retrieval_observability(chunk_state),
                 }
                 
                 # Add decision steps if any were collected
@@ -3304,6 +3359,7 @@ async def chat_stream(
                             "scope_confidence": chunk_state.get("scope_confidence"),
                             "scope_reason": chunk_state.get("scope_reason"),
                             "latency_budget": chunk_state.get("latency_budget"),
+                            "parent_retrieval_observability": _retrieval_observability(chunk_state),
                         },
                         "is_final": False,
                     }
@@ -3357,6 +3413,7 @@ async def chat_stream(
                         "deep_status": chunk_state.get("deep_status"),
                         "grounding_mode": grounding_policy["mode"],
                         "grounding_policy": grounding_policy,
+                        **_retrieval_observability(chunk_state),
                     },
                 )
                 if run_id and assistant_message_id:

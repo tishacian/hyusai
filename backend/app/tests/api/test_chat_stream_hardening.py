@@ -9,7 +9,7 @@ from app.api.v1.endpoints import chat
 from app.core.config import settings
 from app.models.context import Context
 from app.models.knowledge_collection import WorkerJob
-from app.models.run import Run
+from app.models.run import Run, SkillInvocation
 from app.models.workspace_job import WorkspaceJob
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import create_collection
@@ -96,6 +96,13 @@ class HappyOrchestrator:
                     "total_ms": 46,
                 },
                 "llm_ms": 34,
+                "latency_budget": {"profile": "fast", "retrieval_profile": "chat", "candidate_pool_k": 20},
+                "cross_encoder_status": "skipped_fast",
+                "cross_encoder_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+                "cross_encoder_scored": 0,
+                "cross_encoder_filtered": 0,
+                "sparse_status": "ok",
+                "sparse_backend": "qdrant_sparse",
                 "retrieval_plan": {
                     "profile": "fast",
                     "layers": {
@@ -266,8 +273,22 @@ def test_chat_stream_emits_stable_retrieval_eval_and_persists_run(db_session, mo
     assert run.output_ref["retrieval_metrics"]["chunks_retrieved"] == 1
     assert run.output_ref["retrieval_metrics"]["llm_ms"] == 34
     assert run.output_ref["retrieval_metrics"]["stage_timings"]["llm_ms"] == 34
+    assert run.output_ref["cross_encoder_status"] == "skipped_fast"
+    assert run.output_ref["cross_encoder_model"] == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    assert run.output_ref["sparse_status"] == "ok"
+    assert run.output_ref["sparse_backend"] == "qdrant_sparse"
+    assert run.output_ref["retrieval_latency_profile"] == "fast"
+    assert run.output_ref["retrieval_latency_scope"] == "direct_chat"
+    assert run.output_ref["stage_timings"]["total_ms"] == 46
     assert run.output_ref["retrieval_plan"]["guardrails"]["user_scope_required"] is False
     assert run.output_ref["rag_context"]["chunks"] == ["context"]
+    retrieval_invocation = (
+        db_session.query(SkillInvocation)
+        .filter(SkillInvocation.run_id == run.id, SkillInvocation.skill_slug == "semantic_search_v1")
+        .one()
+    )
+    assert retrieval_invocation.metrics["cross_encoder_status"] == "skipped_fast"
+    assert retrieval_invocation.metrics["retrieval_latency_profile"] == "fast"
 
 
 def test_chat_stream_uses_selected_context_collection(db_session, monkeypatch):

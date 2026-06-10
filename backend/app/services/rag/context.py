@@ -1815,8 +1815,16 @@ async def retrieve_rag_context(
         profile["latency_profile"] = corpus_plan.latency_profile
         profile["retrieval_filters"] = corpus_plan.filters
         profile["deadline_seconds"] = corpus_plan.deadline_seconds
+        profile_contract = profile.get("retrieval_profile_contract")
+        allow_cross_encoder = bool(
+            profile_contract.get("allow_cross_encoder")
+            if isinstance(profile_contract, Mapping)
+            else (profile.get("latency_budget") or {}).get("allow_cross_encoder")
+        )
         profile["latency_budget"] = {
             "profile": corpus_plan.latency_profile,
+            "retrieval_profile": profile.get("retrieval_profile"),
+            "allow_cross_encoder": allow_cross_encoder,
             "deadline_seconds": corpus_plan.deadline_seconds,
             "top_k": corpus_plan.top_k,
             "candidate_pool_k": corpus_plan.candidate_pool_k,
@@ -1856,6 +1864,7 @@ async def retrieve_rag_context(
         "latency_budget": {
             "profile": profile.get("latency_profile"),
             "retrieval_profile": profile.get("retrieval_profile"),
+            "allow_cross_encoder": bool((profile.get("latency_budget") or {}).get("allow_cross_encoder")),
             "deadline_seconds": profile.get("deadline_seconds")
             or _deadline_seconds_for_profile(str(profile.get("latency_profile") or "fast")),
             "top_k": profile["top_k"],

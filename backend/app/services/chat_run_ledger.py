@@ -15,6 +15,30 @@ from app.services.outcome.derive import derive_outcome
 
 WORKSPACE_ASSISTANT_CAPABILITY_SLUG = "workspace_assistant"
 
+_RETRIEVAL_TELEMETRY_KEYS = (
+    "retrieval_profile",
+    "latency_profile",
+    "retrieval_latency_profile",
+    "retrieval_latency_scope",
+    "dense_policy",
+    "dense_only",
+    "sparse_status",
+    "sparse_backend",
+    "sparse_fallback_reason",
+    "cross_encoder_status",
+    "cross_encoder_model",
+    "cross_encoder_ms",
+    "cross_encoder_scored",
+    "cross_encoder_filtered",
+    "cross_encoder_threshold",
+    "cross_encoder_budget_seconds",
+    "cross_encoder_error",
+    "stage_timings",
+    "duration_ms",
+    "retrieval_elapsed_ms",
+    "fallback_reason",
+)
+
 
 def enrich_chat_run_ledger(
     db: DBSession,
@@ -121,6 +145,7 @@ def _create_chat_invocations(
     duration_ms = float(run.duration_ms or 0.0)
     completed_at = run.completed_at or started_at + timedelta(milliseconds=max(duration_ms, 1.0))
     confidence = _estimate_chat_confidence(sources, reasoning_trace, extra_output)
+    retrieval_telemetry = _retrieval_telemetry(extra_output)
 
     specs: list[dict[str, Any]] = []
     if _is_trivial(extra_output):
@@ -140,7 +165,9 @@ def _create_chat_invocations(
                     "output_ref": {
                         "confidence": confidence,
                         "source_count": len(sources) if isinstance(sources, list) else None,
+                        "retrieval_observability": retrieval_telemetry or None,
                     },
+                    "metrics": retrieval_telemetry,
                 }
             )
         specs.append(
@@ -184,7 +211,7 @@ def _create_chat_invocations(
             cost=_skill_unit_price(db, str(spec["slug"])),
             input_ref={"run_trigger": run.trigger or "chat"},
             output_ref={k: v for k, v in dict(spec["output_ref"]).items() if v is not None},
-            metrics={},
+            metrics=dict(spec.get("metrics") or {}),
             trace={},
         )
         db.add(invocation)
@@ -192,6 +219,27 @@ def _create_chat_invocations(
         cursor = end
     db.flush()
     return invocations
+
+
+def _retrieval_telemetry(extra_output: dict[str, Any]) -> dict[str, Any]:
+    metrics = extra_output.get("retrieval_metrics")
+    metrics = metrics if isinstance(metrics, dict) else {}
+    out: dict[str, Any] = {}
+    for key in _RETRIEVAL_TELEMETRY_KEYS:
+        value = extra_output.get(key)
+        if value is None:
+            value = metrics.get(key)
+        if value is not None:
+            out[key] = value
+    if not out.get("latency_profile"):
+        budget = extra_output.get("latency_budget") or metrics.get("latency_budget")
+        if isinstance(budget, dict) and budget.get("profile"):
+            out["latency_profile"] = str(budget["profile"])
+    if out.get("latency_profile") and not out.get("retrieval_latency_profile"):
+        out["retrieval_latency_profile"] = out["latency_profile"]
+    if out:
+        out.setdefault("retrieval_latency_scope", "direct_chat")
+    return out
 
 
 def _skill_unit_price(db: DBSession, slug: str) -> float:
