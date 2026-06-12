@@ -67,6 +67,8 @@ _EXTENDED_BATCHES = {
     "andritz_spl_scope_filters.json": {"min_cases": 3},
     "andritz_spl_sparse_only.json": {"min_cases": 3},
     "andritz_spl_fallbacks.json": {"min_cases": 3},
+    "andritz_spl_diversity.json": {"min_cases": 8},
+    "andritz_spl_hard_intents.json": {"min_cases": 8},
 }
 
 
@@ -141,6 +143,59 @@ def test_evaluator_enforces_forbidden_sources_and_diagnostics():
     result = evaluate_retrieval_golden_case(sparse_case, degraded)
     assert result["passed"] is False
     assert result["diagnostic_mismatches"]["sparse_status"]["actual"] == "timeout"
+
+
+def test_diversity_batch_requires_distinct_documents():
+    cases = load_retrieval_golden_cases(_batch_path("andritz_spl_diversity.json"))
+    assert all(case.expected_distinct_documents >= 2 for case in cases)
+    assert any(case.expected_distinct_documents >= 3 for case in cases)
+
+
+def test_hard_intents_batch_mixes_languages_and_hard_shapes():
+    cases = load_retrieval_golden_cases(_batch_path("andritz_spl_hard_intents.json"))
+    assert {case.language for case in cases} == {"fr", "en", "de"}
+    # Comparative cases require evidence from 2+ documents.
+    assert any(case.min_expected_sources >= 2 and len(case.expected_sources) >= 2 for case in cases)
+    # At least one exclusion case exercises forbidden_sources.
+    assert any(case.forbidden_sources for case in cases)
+
+
+def test_evaluator_enforces_expected_distinct_documents():
+    case = next(
+        case
+        for case in load_retrieval_golden_cases(_batch_path("andritz_spl_diversity.json"))
+        if case.id == "div_001_g150_operating_instructions_multiproject"
+    )
+    assert case.expected_distinct_documents == 3
+
+    def _context(filenames):
+        return {
+            "chunks": ["G150 operating instructions content"] * len(filenames),
+            "metadatas": [{"document_filename": name} for name in filenames],
+            "metrics": {},
+        }
+
+    # All top-k chunks from one document: source matches but diversity fails.
+    redundant = _context(
+        ["A__ACJ100__V.5.Vacuum set__CBI-GVC1C2C3__g150-operating-instructions-0312-en.pdf"] * 8
+    )
+    result = evaluate_retrieval_golden_case(case, redundant)
+    assert result["distinct_documents"] == 1
+    assert result["diversity_shortfall"] is True
+    assert result["passed"] is False
+
+    # Chunks spread over three documents: diversity satisfied.
+    diverse = _context(
+        [
+            "A__ACJ100__V.5.Vacuum set__CBI-GVC1C2C3__g150-operating-instructions-0312-en.pdf",
+            "A__AKI300__V.5.Vacuum set__POLLRICH - GVJ1__g150-operating-instructions-0312-en.pdf",
+            "B__BFG100__V.7.High pressure set__g150-operating-instructions-0312-en.pdf",
+        ]
+    )
+    result = evaluate_retrieval_golden_case(case, diverse)
+    assert result["distinct_documents"] == 3
+    assert result["diversity_shortfall"] is False
+    assert result["passed"] is True
 
 
 def test_source_facets_are_family_rules_not_answer_mappings():

@@ -47,6 +47,11 @@ class RetrievalGoldenCase:
     # Sources that must NOT appear in the selected sources (cross-project
     # contamination guard).
     forbidden_sources: tuple[str, ...] = ()
+    # Minimum number of DISTINCT documents required among the top-k retrieved
+    # chunks (0 disables the check). Encodes diversity expectations for
+    # redundancy-heavy queries: surfacing k chunks of one manual fails even if
+    # the expected source matched (MMR/diversity stages are what satisfy it).
+    expected_distinct_documents: int = 0
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "RetrievalGoldenCase":
@@ -72,6 +77,7 @@ class RetrievalGoldenCase:
             if isinstance(payload.get("expected_diagnostics"), Mapping)
             else None,
             forbidden_sources=tuple(str(item) for item in payload.get("forbidden_sources") or ()),
+            expected_distinct_documents=max(0, int(payload.get("expected_distinct_documents") or 0)),
         )
 
     def to_request(self) -> dict[str, Any]:
@@ -144,6 +150,22 @@ def _context_text(context: Mapping[str, Any], *, top_n: int = 24) -> str:
     return _normalise(" ".join(parts))
 
 
+def _distinct_document_count(context: Mapping[str, Any], *, top_n: int) -> int:
+    """Distinct documents among the raw top-k chunk metadatas.
+
+    Intentionally NOT based on retrieval_trace.selected_sources (already
+    deduplicated per document): diversity must be measured on the chunks the
+    generator actually receives.
+    """
+    documents: set[str] = set()
+    for meta in (context.get("metadatas") or [])[:top_n]:
+        if isinstance(meta, Mapping):
+            label = _normalise(_source_label(meta))
+            if label:
+                documents.add(label)
+    return len(documents)
+
+
 def evaluate_retrieval_golden_case(
     case: RetrievalGoldenCase,
     context: Mapping[str, Any],
@@ -178,12 +200,18 @@ def evaluate_retrieval_golden_case(
             actual = metrics.get(key, context.get(key))
             if str(actual) != str(expected_value):
                 diagnostic_mismatches[key] = {"expected": expected_value, "actual": actual}
+    distinct_documents = _distinct_document_count(context, top_n=max(top_n, 8))
+    diversity_shortfall = (
+        case.expected_distinct_documents > 0
+        and distinct_documents < case.expected_distinct_documents
+    )
     passed = (
         len(matched_sources) >= min(case.min_expected_sources, max(len(expected_sources), 1))
         and not missing_evidence_terms
         and not forbidden_route_hit
         and not forbidden_source_hits
         and not diagnostic_mismatches
+        and not diversity_shortfall
     )
     return {
         "id": case.id,
@@ -196,5 +224,7 @@ def evaluate_retrieval_golden_case(
         "forbidden_route_hit": forbidden_route_hit,
         "forbidden_source_hits": forbidden_source_hits,
         "diagnostic_mismatches": diagnostic_mismatches,
+        "distinct_documents": distinct_documents,
+        "diversity_shortfall": diversity_shortfall,
         "dense_policy": dense_policy or None,
     }

@@ -59,6 +59,10 @@ def _parse_flags(raw: str | None) -> dict[str, Any]:
 
 
 async def _run_batch(cases, overrides: dict[str, Any], workspace: Workspace) -> dict[str, dict[str, Any]]:
+    # The retrieval-context cache key does not include feature flags, so a
+    # variant run would silently reuse the baseline's cached contexts and the
+    # comparison would be vacuous. Disable it unless explicitly overridden.
+    overrides = {"rag_context_cache_enabled": False, **overrides}
     saved = {key: getattr(settings, key) for key in overrides}
     for key, value in overrides.items():
         setattr(settings, key, value)
@@ -118,7 +122,8 @@ def main() -> None:
             improvements += 1
         print(
             f"{case.id:48s} baseline={'PASS' if b.get('passed') else 'fail':4s} "
-            f"variant={'PASS' if v.get('passed') else 'fail':4s} {marker}"
+            f"variant={'PASS' if v.get('passed') else 'fail':4s} "
+            f"distinct_docs={b.get('distinct_documents')}->{v.get('distinct_documents')} {marker}"
         )
         if marker == "REGRESSION":
             print(f"    missing_sources={v.get('missing_sources')} missing_terms={v.get('missing_evidence_terms')}")

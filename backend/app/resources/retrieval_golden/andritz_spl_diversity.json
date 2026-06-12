@@ -1,0 +1,169 @@
+{
+  "id": "andritz_spl_diversity_v1",
+  "description": "Redundancy-heavy queries where the corpus contains the same (or near-identical) manual indexed under many projects/sections. Passing requires surfacing chunks from DISTINCT documents in the top-k (expected_distinct_documents), which is what the MMR diversity stage provides. Built from verified Qdrant clusters: g150-operating-instructions (13 docs), printable parts manuals (12 docs), LH2 vacuum-set manuals (12 docs), Excelle S5PP6TT carding docs (89 docs), high pressure set (978 docs), operator manual 5186004875 (33 docs), Qualiscan QMS-12 (32 docs), URACA KD724 chapters (378 docs).",
+  "cases": [
+    {
+      "id": "div_001_g150_operating_instructions_multiproject",
+      "query": "Where can I find the G150 speed controller operating instructions?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "g150 operating instructions"
+      ],
+      "expected_evidence_terms": [
+        "G150",
+        "operating instructions"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 3
+    },
+    {
+      "id": "div_002_printable_parts_manual_multiproject",
+      "query": "Montre-moi les parts manuals disponibles en version imprimable.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "printable version parts manual"
+      ],
+      "expected_evidence_terms": [
+        "parts manual"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_distinct_documents": 3
+    },
+    {
+      "id": "div_003_vacuum_set_blower_manuals",
+      "query": "Which manuals cover the vacuum set blowers of the hydroentanglement unit?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "Vacuum set"
+      ],
+      "expected_evidence_terms": [
+        "vacuum"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 3
+    },
+    {
+      "id": "div_004_excelle_s5pp6tt_card_operator_manuals",
+      "query": "I need the Excelle S5PP6TT card operator manual.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "Excelle S5PP6TT"
+      ],
+      "expected_evidence_terms": [
+        "Excelle",
+        "S5PP6TT"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 3
+    },
+    {
+      "id": "div_005_high_pressure_set_inverter_docs",
+      "query": "Comment regler le variateur du groupe haute pression PHP de l'unite d'hydroentanglement ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "high pressure set"
+      ],
+      "expected_evidence_terms": [
+        "PHP"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_distinct_documents": 3
+    },
+    {
+      "id": "div_006_cu250s2_vector_control_units",
+      "query": "Where is the CU250S-2 vector control unit manual referenced?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "CU250S 2"
+      ],
+      "expected_evidence_terms": [
+        "CU250S"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 3
+    },
+    {
+      "id": "div_007_qualiscan_qms12_betriebsanleitungen",
+      "query": "Wo sind die Betriebsanleitungen fuer den Qualiscan QMS-12?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "QMS 12 Qualiscan"
+      ],
+      "expected_evidence_terms": [
+        "Qualiscan"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "de",
+      "expected_distinct_documents": 2
+    },
+    {
+      "id": "div_008_sinamics_s120_s150_list_manuals",
+      "query": "Find the SINAMICS S120 S150 list manual for the carding unit.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "S120 S150 List Manual"
+      ],
+      "expected_evidence_terms": [
+        "S120",
+        "S150"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 2
+    },
+    {
+      "id": "div_009_uraca_kd724_chapters_multiproject",
+      "query": "Sur quels projets retrouve-t-on la documentation des pompes URACA KD724-G ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "KD724"
+      ],
+      "expected_evidence_terms": [
+        "KD724"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_distinct_documents": 3
+    },
+    {
+      "id": "div_010_lh2_list_manual_vacuum_drive",
+      "query": "Which sections reference the LH2 0113 list manual?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "LH2 0113"
+      ],
+      "expected_evidence_terms": [
+        "LH2"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 3
+    }
+  ]
+}

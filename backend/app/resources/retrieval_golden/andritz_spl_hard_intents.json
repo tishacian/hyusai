@@ -1,0 +1,196 @@
+{
+  "id": "andritz_spl_hard_intents_v1",
+  "description": "Hard-intent cases: ambiguous partial identifiers matching several projects, comparative questions spanning 2+ documents, analytical multi-hop questions, and exclusion cases (forbidden_sources). Mixed FR/EN/DE. All sources verified against the live andritz__andritz-notices-techniques-spl-pilot Qdrant collection.",
+  "cases": [
+    {
+      "id": "hi_001_ambiguous_parts_manual",
+      "query": "Ou se trouve le parts manual ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "LAV400",
+        "ESW200",
+        "PAX100",
+        "BAN400",
+        "GRA100",
+        "LEN100",
+        "MET100",
+        "MAX100"
+      ],
+      "expected_evidence_terms": [
+        "parts manual"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "min_expected_sources": 2
+    },
+    {
+      "id": "hi_002_ambiguous_kd724_partial_ref",
+      "query": "Quels projets utilisent la pompe KD724 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "KD724"
+      ],
+      "expected_evidence_terms": [
+        "KD724"
+      ],
+      "expected_intent": "content_search",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_distinct_documents": 2
+    },
+    {
+      "id": "hi_003_compare_continental_pollrich_aki300",
+      "query": "What is the difference between the CONTINENTAL GVJS and POLLRICH GVJ1 vacuum set blowers on AKI300?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "CONTINENTAL GVJS",
+        "POLLRICH GVJ1"
+      ],
+      "expected_evidence_terms": [
+        "AKI300",
+        "vacuum"
+      ],
+      "expected_intent": "comparative",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "min_expected_sources": 2
+    },
+    {
+      "id": "hi_004_compare_g150_s120_drives",
+      "query": "Quelles differences de parametres de mise en service entre les variateurs SINAMICS G150 et SINAMICS S120 ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "G150",
+        "S120"
+      ],
+      "expected_evidence_terms": [
+        "SINAMICS"
+      ],
+      "expected_intent": "comparative",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "min_expected_sources": 2
+    },
+    {
+      "id": "hi_005_analytical_php_pressure_drop",
+      "query": "Pourquoi la pression chute-t-elle sur le groupe haute pression PHP et quel document consulter ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "high pressure set"
+      ],
+      "expected_evidence_terms": [
+        "PHP"
+      ],
+      "expected_intent": "analytical",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr"
+    },
+    {
+      "id": "hi_006_german_simotics_akk200",
+      "query": "Wo finde ich die SIMOTICS Betriebsanleitung auf Deutsch fuer das Projekt AKK200?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "Operating Instructions SIMOTICS de"
+      ],
+      "expected_evidence_terms": [
+        "SIMOTICS",
+        "AKK200"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "de"
+    },
+    {
+      "id": "hi_007_exclusion_excelle_not_dutch",
+      "query": "Excelle S5PP6TT card operator manual in English please, not the Dutch Gebruikershandleiding.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "TTN22073J"
+      ],
+      "expected_evidence_terms": [
+        "Excelle",
+        "S5PP6TT"
+      ],
+      "expected_intent": "source_lookup",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "forbidden_sources": [
+        "TTN22074J"
+      ]
+    },
+    {
+      "id": "hi_008_compare_wilo_drain_nolh_bex200",
+      "query": "Compare the Wilo Drain SP and the Wilo NOLH pump manuals available for BEX200.",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "Wilo Drain SP",
+        "Wilo NOLH"
+      ],
+      "expected_evidence_terms": [
+        "Wilo",
+        "BEX200"
+      ],
+      "expected_intent": "comparative",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "min_expected_sources": 2
+    },
+    {
+      "id": "hi_009_ambiguous_lh2_identifier",
+      "query": "What does document LH2 0113 cover and which machines reference it?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "LH2 0113"
+      ],
+      "expected_evidence_terms": [
+        "LH2"
+      ],
+      "expected_intent": "content_search",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "en",
+      "expected_distinct_documents": 2
+    },
+    {
+      "id": "hi_010_analytical_wilo_rexa_vacuum_lot100",
+      "query": "Sur LOT100, quelle pompe BP WILO equipe le vacuum set et ou est sa notice d'exploitation ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "pompe BP WILO"
+      ],
+      "expected_evidence_terms": [
+        "LOT100",
+        "WILO"
+      ],
+      "expected_intent": "analytical",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr"
+    },
+    {
+      "id": "hi_011_ambiguous_etachrom_bc_multiproject",
+      "query": "Ou trouver la notice etachrom bc du circuit HP ?",
+      "collection": "andritz-notices-techniques-spl-pilot",
+      "expected_sources": [
+        "etachrom bc"
+      ],
+      "expected_evidence_terms": [
+        "etachrom"
+      ],
+      "expected_intent": "content_search",
+      "forbidden_route": "catalogue_inventory",
+      "latency_profile": "balanced",
+      "language": "fr",
+      "expected_distinct_documents": 2
+    }
+  ]
+}
