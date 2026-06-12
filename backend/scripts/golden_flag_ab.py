@@ -20,11 +20,24 @@ import asyncio
 from typing import Any
 
 from app.core.config import settings
+from app.db.base import SessionLocal
+from app.models.workspace import Workspace
 from app.services.rag.context import retrieve_rag_context
 from app.services.rag.retrieval_golden import (
     evaluate_retrieval_golden_case,
     load_retrieval_golden_cases,
 )
+
+
+def _workspace(slug: str) -> Workspace:
+    db = SessionLocal()
+    try:
+        workspace = db.query(Workspace).filter(Workspace.slug == slug).first()
+        if not workspace:
+            raise SystemExit(f"Workspace not found: {slug}")
+        return workspace
+    finally:
+        db.close()
 
 
 def _parse_flags(raw: str | None) -> dict[str, Any]:
@@ -45,7 +58,7 @@ def _parse_flags(raw: str | None) -> dict[str, Any]:
     return overrides
 
 
-async def _run_batch(cases, overrides: dict[str, Any]) -> dict[str, dict[str, Any]]:
+async def _run_batch(cases, overrides: dict[str, Any], workspace: Workspace) -> dict[str, dict[str, Any]]:
     saved = {key: getattr(settings, key) for key in overrides}
     for key, value in overrides.items():
         setattr(settings, key, value)
@@ -53,7 +66,15 @@ async def _run_batch(cases, overrides: dict[str, Any]) -> dict[str, dict[str, An
     try:
         for case in cases:
             try:
-                context = await retrieve_rag_context(case.to_request())
+                request = case.to_request()
+                request.update(
+                    {
+                        "workspace_id": workspace.id,
+                        "workspace_slug": workspace.slug,
+                        "retrieval_profile": request.get("retrieval_profile") or "chat",
+                    }
+                )
+                context = await retrieve_rag_context(request)
                 results[case.id] = evaluate_retrieval_golden_case(case, context)
             except Exception as exc:  # noqa: BLE001 - report, keep evaluating
                 results[case.id] = {"id": case.id, "passed": False, "error": str(exc)}
@@ -68,15 +89,17 @@ def main() -> None:
     parser.add_argument("--batch", default=None, help="Golden batch JSON (default: andritz_spl_dense)")
     parser.add_argument("--flags", required=True, help="Variant overrides, e.g. rag_mmr_enabled=true,rag_mmr_lambda=0.6")
     parser.add_argument("--baseline-flags", default="", help="Optional baseline overrides")
+    parser.add_argument("--workspace", default="andritz", help="Workspace slug owning the golden collections")
     args = parser.parse_args()
 
     cases = load_retrieval_golden_cases(args.batch)
+    workspace = _workspace(args.workspace)
     baseline_overrides = _parse_flags(args.baseline_flags)
     variant_overrides = _parse_flags(args.flags)
 
     async def _run() -> tuple[dict, dict]:
-        baseline = await _run_batch(cases, baseline_overrides)
-        variant = await _run_batch(cases, variant_overrides)
+        baseline = await _run_batch(cases, baseline_overrides, workspace)
+        variant = await _run_batch(cases, variant_overrides, workspace)
         return baseline, variant
 
     baseline, variant = asyncio.run(_run())
