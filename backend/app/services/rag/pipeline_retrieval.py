@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, List, Literal, Optional
 
 from app.core.logging import get_logger
 from app.core.config import settings
-from app.services.rag.fusion_weights import resolve_fusion_weights
+from app.services.rag.fusion_weights import FusionWeights, resolve_fusion_weights
 from app.services.rag.lexical_retrieval import analyze_query, identifier_variants
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
@@ -367,6 +367,15 @@ def _sparse_diagnostics_from_metas(metas: list[dict[str, Any]]) -> dict[str, Any
             for key in ("dense_elapsed_ms", "sparse_elapsed_ms", "retrieval_elapsed_ms", "retrieval_deadline_seconds"):
                 if meta.get(key) is not None:
                     payload[key] = meta.get(key)
+            for key in (
+                "fusion_path",
+                "fusion_method",
+                "fusion_dense_weight",
+                "fusion_sparse_weight",
+                "fusion_reason",
+            ):
+                if meta.get(key) is not None:
+                    payload[key] = meta.get(key)
             return payload
     return {}
 
@@ -616,7 +625,27 @@ async def _search_documents(
             if sparse_backend_name == "disabled"
             else ("sparse_unavailable" if not sparse_configured else None)
         )
-        if sparse_backend_name == "qdrant_sparse" and sparse_configured and not fast_chat_direct:
+        # Qdrant's server-side hybrid RRF is strictly unweighted, so adaptive
+        # fusion weights can only apply on the client merge. Neutrality is
+        # defined as resolved weights == (0.5, 0.5): only then does the server
+        # fusion produce the same ranking as our weighted RRF. Tenant base
+        # weights (ragVectorWeight/ragBM25Weight, e.g. 0.7/0.3) therefore also
+        # route client-side — that is intentional: those settings were
+        # previously silently ignored on this path.
+        resolved_fusion: FusionWeights | None = None
+        if settings.rag_adaptive_fusion_enabled:
+            resolved_fusion = resolve_fusion_weights(query)
+        adaptive_client_route = resolved_fusion is not None and (
+            round(resolved_fusion.dense, 3),
+            round(resolved_fusion.sparse, 3),
+        ) != (0.5, 0.5)
+        server_hybrid_failed = False
+        if (
+            sparse_backend_name == "qdrant_sparse"
+            and sparse_configured
+            and not fast_chat_direct
+            and not adaptive_client_route
+        ):
             server_rows, server_elapsed_ms = await _timed_qdrant_server_hybrid_search(
                 doc_svc,
                 query,
@@ -628,7 +657,7 @@ async def _search_documents(
                 retrieval_elapsed_ms = int((time.perf_counter() - retrieval_started) * 1000)
                 server_status = "ok" if server_rows else "empty"
                 server_fallback = None if server_rows else "qdrant_sparse_hybrid_empty"
-                return _with_sparse_metadata(
+                rows = _with_sparse_metadata(
                     list(server_rows or [])[:top_k],
                     backend=sparse_backend_name,
                     status=server_status,
@@ -639,6 +668,12 @@ async def _search_documents(
                     retrieval_elapsed_ms=retrieval_elapsed_ms,
                     deadline_seconds=deadline_seconds,
                 )
+                for row in rows:
+                    meta = row.get("metadata")
+                    if isinstance(meta, dict):
+                        meta["fusion_path"] = "server_rrf"
+                return rows
+            server_hybrid_failed = True
         dense_task = asyncio.create_task(
             _timed_doc_search(
                 doc_svc,
@@ -724,10 +759,15 @@ async def _search_documents(
         if sparse_results:
             fusion_weights = None
             fusion_diag: dict[str, Any] = {"fusion_method": "rrf"}
-            if settings.rag_adaptive_fusion_enabled:
-                resolved = resolve_fusion_weights(query)
-                fusion_weights = [resolved.dense, resolved.sparse]
-                fusion_diag = resolved.as_diagnostics()
+            if resolved_fusion is not None:
+                fusion_weights = [resolved_fusion.dense, resolved_fusion.sparse]
+                fusion_diag = resolved_fusion.as_diagnostics()
+            if server_hybrid_failed:
+                fusion_diag["fusion_path"] = "client_fallback"
+            elif adaptive_client_route:
+                fusion_diag["fusion_path"] = "client_weighted"
+            else:
+                fusion_diag["fusion_path"] = "client_rrf"
             merged = _merge_rrf(
                 [
                     _with_sparse_metadata(

@@ -941,11 +941,34 @@ async def test_dense_guardrail_hybrid_marks_unconfigured_opensearch_sparse(monke
     assert sparse.calls == 0
 
 
+def _neutral_fusion_weights(monkeypatch):
+    from app.services.rag.fusion_weights import FusionWeights
+
+    monkeypatch.setattr(
+        pipeline_retrieval,
+        "resolve_fusion_weights",
+        lambda query, **kwargs: FusionWeights(dense=0.5, sparse=0.5, method="rrf", reason="base_weights"),
+    )
+
+
+def _sparse_heavy_fusion_weights(monkeypatch):
+    from app.services.rag.fusion_weights import FusionWeights
+
+    monkeypatch.setattr(
+        pipeline_retrieval,
+        "resolve_fusion_weights",
+        lambda query, **kwargs: FusionWeights(
+            dense=0.375, sparse=0.625, method="weighted_rrf", reason="exact_identifiers"
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_dense_guardrail_qdrant_sparse_uses_server_prefetch_fusion(monkeypatch):
     sparse = QdrantSparseBackendFake()
     doc = QdrantServerHybridDocService()
     monkeypatch.setattr(pipeline_retrieval, "get_sparse_backend", lambda: sparse)
+    _neutral_fusion_weights(monkeypatch)
 
     out = await retrieve_for_mode(
         doc,
@@ -962,6 +985,7 @@ async def test_dense_guardrail_qdrant_sparse_uses_server_prefetch_fusion(monkeyp
     assert out.diagnostics["sparse_backend"] == "qdrant_sparse"
     assert out.diagnostics["sparse_status"] == "ok"
     assert out.diagnostics["sparse_fusion"] == "server_rrf"
+    assert out.diagnostics["fusion_path"] == "server_rrf"
     assert out.metadatas[0]["sparse_fusion"] == "server_rrf"
     assert doc.vector_db.calls[0][4] == {
         "retrieval_profile": "chat",
@@ -970,6 +994,102 @@ async def test_dense_guardrail_qdrant_sparse_uses_server_prefetch_fusion(monkeyp
     }
     doc.search.assert_not_awaited()
     assert sparse.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_non_neutral_adaptive_weights_bypass_server_hybrid(monkeypatch):
+    sparse = FastChatSparseBackendFake()
+    doc = QdrantServerHybridDocService()
+    doc.search = AsyncMock(
+        return_value=[_mk_result("dense client evidence long enough for rrf merge", 0.7, 0)]
+    )
+    monkeypatch.setattr(pipeline_retrieval, "get_sparse_backend", lambda: sparse)
+    _sparse_heavy_fusion_weights(monkeypatch)
+
+    out = await retrieve_for_mode(
+        doc,
+        "KD724 pump",
+        "hybrid",
+        top_k=4,
+        use_hybrid=True,
+        allow_legacy_hybrid=False,
+        retrieval_profile="chat",
+        deadline_seconds=3,
+    )
+
+    assert out.pipeline == "hybrid"
+    # Server-side hybrid must not run: weighted fusion happens client-side.
+    assert doc.vector_db.calls == []
+    assert sparse.calls == 1
+    doc.search.assert_awaited()
+    assert out.diagnostics["fusion_path"] == "client_weighted"
+    assert out.diagnostics["fusion_method"] == "weighted_rrf"
+    assert out.diagnostics["fusion_dense_weight"] == 0.375
+    assert out.diagnostics["fusion_sparse_weight"] == 0.625
+    assert out.diagnostics["fusion_reason"] == "exact_identifiers"
+    assert set(out.chunks) == {
+        "dense client evidence long enough for rrf merge",
+        "fast sparse direct evidence long enough",
+    }
+
+
+@pytest.mark.asyncio
+async def test_adaptive_fusion_disabled_keeps_server_hybrid(monkeypatch):
+    sparse = QdrantSparseBackendFake()
+    doc = QdrantServerHybridDocService()
+    monkeypatch.setattr(pipeline_retrieval, "get_sparse_backend", lambda: sparse)
+    monkeypatch.setattr(pipeline_retrieval.settings, "rag_adaptive_fusion_enabled", False)
+
+    def _boom(query, **kwargs):  # noqa: ARG001
+        raise AssertionError("resolve_fusion_weights must not be called when flag is off")
+
+    monkeypatch.setattr(pipeline_retrieval, "resolve_fusion_weights", _boom)
+
+    out = await retrieve_for_mode(
+        doc,
+        "KD724 pump",
+        "hybrid",
+        top_k=2,
+        use_hybrid=True,
+        allow_legacy_hybrid=False,
+        retrieval_profile="chat",
+    )
+
+    assert out.chunks == ["qdrant server fused evidence long enough"]
+    assert out.diagnostics["fusion_path"] == "server_rrf"
+    doc.search.assert_not_awaited()
+    assert sparse.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_server_hybrid_failure_falls_back_to_client_merge(monkeypatch):
+    sparse = FastChatSparseBackendFake()
+    doc = QdrantServerHybridDocService()
+    doc.search = AsyncMock(
+        return_value=[_mk_result("dense client evidence long enough for rrf merge", 0.7, 0)]
+    )
+
+    async def _failing_hybrid(*args, **kwargs):  # noqa: ARG001
+        raise RuntimeError("qdrant down")
+
+    doc.vector_db.search_hybrid = _failing_hybrid
+    monkeypatch.setattr(pipeline_retrieval, "get_sparse_backend", lambda: sparse)
+    _neutral_fusion_weights(monkeypatch)
+
+    out = await retrieve_for_mode(
+        doc,
+        "KD724 pump",
+        "hybrid",
+        top_k=4,
+        use_hybrid=True,
+        allow_legacy_hybrid=False,
+        retrieval_profile="chat",
+        deadline_seconds=3,
+    )
+
+    assert out.pipeline == "hybrid"
+    assert out.diagnostics["fusion_path"] == "client_fallback"
+    assert sparse.calls == 1
 
 
 @pytest.mark.asyncio
