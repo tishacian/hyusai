@@ -1,0 +1,105 @@
+---
+config:
+  layout: elk
+  elk:
+    nodePlacementStrategy: NETWORK_SIMPLEX
+---
+flowchart LR
+
+    %% ════════════ 1. INGESTION ════════════
+    subgraph INGEST ["📦 1 · INGESTION — services managés Azure"]
+        direction LR
+        BLOB["Azure Blob Storage<br/>zone d'atterrissage<br/><i>SFTP natif · uploads · connecteurs</i>"]
+        EVT["Event Grid + Functions<br/>déclenchement à l'arrivée d'un fichier<br/>validation · hash SHA-256 ➜ dédup"]
+        DI["🔍 Azure AI Document Intelligence<br/>OCR · layout · <b>tableaux structurés</b><br/><i>remplace parsing + OCR custom</i>"]
+        SKILL["Azure AI Search — Skillset<br/><b>vectorisation intégrée</b> :<br/>Text Split skill chunks ~1000c<br/>+ Azure OpenAI Embedding skill"]
+        BLOB --> EVT --> DI --> SKILL
+    end
+
+    %% ════════════ 2. STORAGE ════════════
+    subgraph STORE ["🗄️ 2 · STORAGE managé"]
+        direction LR
+        AIS[("Azure AI Search — index<br/><b>Paramétrages clés :</b><br/>· champs vectoriels HNSW m / efConstruction / efSearch<br/>· champs filterable/facetable — métadonnées métier<br/>· analyseurs par langue FR/EN/DE<br/>· semantic configuration · scoring profiles")]
+        COSMOS[("Azure Cosmos DB<br/>conversations · sessions<br/>faits structurés extraits des tableaux<br/>ledger des runs — audit")]
+        BLOB2[("Blob Storage<br/>brut/ · extrait/ · dérivé/<br/>conservation des originaux")]
+    end
+
+    %% ════════════ 3. QUESTION ════════════
+    subgraph QUERY ["💬 3 · QUESTION utilisateur"]
+        direction TB
+        APP["🤖 Orchestrateur<br/>Azure AI Foundry Agent Service<br/><i>ou Container Apps pour code custom</i>"]
+        TRIV{"question<br/>conversationnelle ?"}
+        BYP["réponse directe<br/>sans recherche ⚡"]
+        MEM["📚 Mémoire — Cosmos DB<br/>historique à budget de tokens<br/>+ entités du fil de discussion<br/><i>« celle-ci » ➜ la référence citée avant</i>"]
+        PROF{"profil de latence"}
+        FAST["interactif rapide<br/>vocal · top réduit"]
+        DEEP["analyse approfondie<br/>asynchrone · sans contrainte"]
+        APP --> TRIV
+        TRIV -- "oui" --> BYP
+        TRIV -- "non" --> MEM --> PROF
+        PROF -- "fast" --> FAST
+        PROF -- "deep" --> DEEP
+    end
+
+    %% ════════════ 4. RETRIEVAL ════════════
+    subgraph RETR ["🔁 4 · RETRIEVAL — un seul appel Azure AI Search remplace le fan-out custom"]
+        direction TB
+        HYB["Requête <b>hybride native</b><br/>vectorielle + BM25 en parallèle<br/><i>le sens ET les mots exacts</i>"]
+        FILT["Filtres OData sur le payload<br/><i>$filter: domaine, version, périmètre</i><br/>➜ jamais de fuite entre périmètres"]
+        RRF{"Fusion <b>RRF intégrée</b><br/>+ poids vectoriel ajustable<br/>par requête"}
+        SEM["⭐ <b>Semantic Ranker</b> managé<br/>re-classement par modèle de langage<br/><i>remplace notre cross-encoder custom</i>"]
+        HYB --> RRF
+        FILT --> RRF
+        RRF --> SEM
+    end
+
+    %% ════════════ 5. RAFFINAGE custom ════════════
+    subgraph REFINE ["🧹 5 · RAFFINAGE résiduel — ce qui reste applicatif"]
+        direction TB
+        C1["sélection diversité MMR<br/>+ compression du contexte<br/><i>moins de bruit ➜ prompt plus court</i>"]
+        C2["🛡️ garde-fou grounding<br/>zéro source ➜ le dire,<br/>pas inventer"]
+        C1 --> C2
+    end
+
+    %% ════════════ 6. GÉNÉRATION ════════════
+    subgraph GEN ["✍️ 6 · GÉNÉRATION — Azure AI Foundry"]
+        direction TB
+        LLM["Azure OpenAI · GPT-4o/GPT-5<br/>budget de tokens adaptatif<br/>selon la taille du contexte"]
+        SAFE["Azure AI Content Safety<br/><b>groundedness detection</b> :<br/>la réponse est-elle fidèle aux sources ?"]
+        ANS["💬 Réponse en streaming<br/>+ citations cliquables"]
+        SAVE["💾 Cosmos DB : message,<br/>audit, entités ➜ tour suivant"]
+        LLM --> SAFE --> ANS --> SAVE
+    end
+
+    %% ════════════ Transverse (encarts) ════════════
+    subgraph XCUT ["🧰 Transverse — sur toute la chaîne"]
+        direction TB
+        MON["📊 Azure Monitor + App Insights<br/>latence par étage · taux de fallback<br/>qualité du retrieval"]
+        ID["🔐 Microsoft Entra ID + Private Endpoints<br/>identités managées · RBAC · réseau privé"]
+    end
+
+    %% ════════════ Flux inter-blocs ════════════
+    SKILL --> AIS
+    DI --> COSMOS
+    EVT --> BLOB2
+    SKILL -. "indexer planifié ou<br/>push API" .-> AIS
+
+    PROF -- "balanced · chat" --> HYB
+    FAST --> HYB
+    DEEP --> HYB
+    AIS -.-> HYB
+    AIS -.-> FILT
+    COSMOS -.-> MEM
+
+    SEM --> C1
+    C2 --> LLM
+    SAVE -.-> COSMOS
+
+    style INGEST fill:#3a3a3a,color:#fff
+    style STORE fill:#0b3d5c,color:#fff
+    style QUERY fill:#4a3a1a,color:#fff
+    style RETR fill:#1a3a5c,color:#fff
+    style REFINE fill:#3d2b56,color:#fff
+    style GEN fill:#1f4a2e,color:#fff
+    style BYP fill:#555,color:#fff
+    style XCUT fill:#5c4a0b,color:#fff
