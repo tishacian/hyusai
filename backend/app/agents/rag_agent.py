@@ -326,6 +326,26 @@ class RAGAgent(BaseAgent):
         # The selector can be "auto" (or None) — in which case we fall
         # back to the legacy markdown-first prompt used historically.
         prompt_type = request.get("prompt_type") or request.get("default_prompt_type")
+        if (not prompt_type or prompt_type == "auto") and settings.rag_prompt_classifier_enabled:
+            # Bayesian reasoning classifier (paper Eq. 7-8). Fast profile only
+            # runs the pattern signals; a low-confidence fast result keeps the
+            # historical no-template behaviour instead of forcing a fallback.
+            from app.services.system_prompts.classifier import classify_prompt_type
+
+            try:
+                latency = profile.get("latency_profile")
+                decision = await classify_prompt_type(query, latency_profile=latency)
+                if not (decision.fallback_applied and str(latency or "").lower() not in {"balanced", "deep"}):
+                    prompt_type = decision.prompt_type.value
+                logger.info(
+                    "Prompt type classified",
+                    prompt_type=decision.prompt_type.value,
+                    confidence=decision.confidence,
+                    fallback=decision.fallback_applied,
+                    method=decision.method,
+                )
+            except Exception as exc:  # noqa: BLE001 - classifier must never break chat.
+                logger.warning("Prompt classifier failed", error=str(exc))
         if workspace_context:
             context = (context + "\n\n" if context else "") + f"[Agenda institutionnel]\n{workspace_context}"
         template_text = self._render_reasoning_template(prompt_type, query, context, conversation_history)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import math
 import re
 import time
 from collections import OrderedDict
@@ -1599,6 +1600,114 @@ def _document_diversity_key(metadata: Mapping[str, Any], index: int) -> str:
     return f"_chunk_{index}"
 
 
+def _compress_final_context(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    *,
+    synthesis_k: int,
+    cross_encoder_status: str | None,
+) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
+    """Quality-conditional trim to the synthesis budget (RAGGER Eq. 13).
+
+    The paper keeps the top ``ratio`` of the reranked pool. Transposed here as
+    compression-only (never expansion — the pool is larger than synthesis_k):
+    when the cross-encoder ran, the low-quality tail below
+    ``rag_compression_score_floor`` is cut, bounded between
+    ``ceil(synthesis_k * ratio)`` and ``synthesis_k``. Without CE scores the
+    historical fixed trim applies. Exempt evidence never counts nor gets cut.
+    """
+    synthesis_k = max(1, int(synthesis_k or 1))
+
+    def _fixed_trim() -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
+        kept = min(len(chunks), synthesis_k)
+        return (
+            chunks[:synthesis_k],
+            scores[:synthesis_k],
+            metadatas[:synthesis_k],
+            {
+                "compression_status": "fixed_trim",
+                "compression_kept": kept,
+                "compression_dropped": max(0, len(chunks) - kept),
+            },
+        )
+
+    if not settings.rag_compression_enabled or cross_encoder_status != "applied":
+        return _fixed_trim()
+
+    ratio = max(0.1, min(1.0, float(settings.rag_compression_ratio)))
+    score_floor = max(0.0, min(1.0, float(settings.rag_compression_score_floor)))
+    min_keep = max(1, math.ceil(synthesis_k * ratio))
+
+    qualified = 0
+    for metadata in metadatas:
+        if _is_threshold_exempt_metadata(metadata or {}):
+            continue
+        raw = (metadata or {}).get("cross_encoder_score")
+        try:
+            if raw is not None and float(raw) >= score_floor:
+                qualified += 1
+        except (TypeError, ValueError):
+            continue
+    target = min(synthesis_k, max(min_keep, qualified))
+
+    kept_chunks: list[str] = []
+    kept_scores: list[float] = []
+    kept_metadatas: list[dict[str, Any]] = []
+    kept_scored = 0
+    for index, chunk in enumerate(chunks):
+        metadata = metadatas[index] if index < len(metadatas) else {}
+        if _is_threshold_exempt_metadata(metadata or {}):
+            kept_chunks.append(chunk)
+            kept_scores.append(scores[index] if index < len(scores) else 0.0)
+            kept_metadatas.append(metadata)
+            continue
+        if kept_scored < target:
+            kept_chunks.append(chunk)
+            kept_scores.append(scores[index] if index < len(scores) else 0.0)
+            kept_metadatas.append(metadata)
+            kept_scored += 1
+    return kept_chunks, kept_scores, kept_metadatas, {
+        "compression_status": "proportional",
+        "compression_kept": len(kept_chunks),
+        "compression_dropped": len(chunks) - len(kept_chunks),
+        "compression_ratio_effective": round(len(kept_chunks) / max(1, len(chunks)), 3),
+        "compression_score_floor": score_floor,
+    }
+
+
+async def _diversify_final_context(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    *,
+    query: str,
+    latency_profile: str | None,
+    limit: int,
+) -> tuple[list[str], list[float], list[dict[str, Any]], dict[str, Any]]:
+    """Embedding-aware MMR when enabled/applicable, round-robin otherwise."""
+    from app.services.rag.mmr_stage import diversify_with_mmr
+
+    chunks, scores, metadatas, mmr_diag = await diversify_with_mmr(
+        chunks,
+        scores,
+        metadatas,
+        query=query,
+        latency_profile=latency_profile,
+        limit=limit,
+        is_exempt_metadata=_is_threshold_exempt_metadata,
+    )
+    if mmr_diag.get("mmr_status") == "applied":
+        return chunks, scores, metadatas, mmr_diag
+    chunks, scores, metadatas, diversity_diag = _diversify_aligned_by_document(
+        chunks,
+        scores,
+        metadatas,
+        limit=limit,
+    )
+    return chunks, scores, metadatas, {**diversity_diag, **mmr_diag}
+
+
 def _diversify_aligned_by_document(
     chunks: list[str],
     scores: list[float],
@@ -2155,18 +2264,25 @@ async def retrieve_rag_context(
         metadatas,
         pipeline=result.pipeline,
     )
-    chunks, scores, metadatas, diversity_metrics = _diversify_aligned_by_document(
+    chunks, scores, metadatas, diversity_metrics = await _diversify_final_context(
         chunks,
         scores,
         metadatas,
+        query=retrieval_query,
+        latency_profile=profile.get("latency_profile"),
         limit=synthesis_k,
     )
-    if len(chunks) > synthesis_k:
-        # The wide candidate pool exists to improve recall before policy rerank /
-        # dedupe. Only the synthesis budget is sent to the LLM.
-        chunks = chunks[:synthesis_k]
-        scores = scores[:synthesis_k]
-        metadatas = metadatas[:synthesis_k]
+    # The wide candidate pool exists to improve recall before policy rerank /
+    # dedupe. Only the synthesis budget is sent to the LLM; with cross-encoder
+    # scores available, the low-quality tail is cut below synthesis_k.
+    chunks, scores, metadatas, compression_diag = _compress_final_context(
+        chunks,
+        scores,
+        metadatas,
+        synthesis_k=synthesis_k,
+        cross_encoder_status=cross_encoder_diag.get("cross_encoder_status"),
+    )
+    metrics.update(compression_diag)
     rerank_ms = int((time.perf_counter() - rerank_started_perf) * 1000)
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, parent_context_count = await _append_parent_context(
@@ -2548,18 +2664,25 @@ async def _retrieve_multi_collection_context(
         metadatas,
         pipeline="multi",
     )
-    chunks, scores, metadatas, diversity_metrics = _diversify_aligned_by_document(
+    chunks, scores, metadatas, diversity_metrics = await _diversify_final_context(
         chunks,
         scores,
         metadatas,
+        query=retrieval_query,
+        latency_profile=profile.get("latency_profile"),
         limit=synthesis_k,
     )
-    if len(chunks) > synthesis_k:
-        # The wide fused pool only existed to feed policy rerank / dedupe; trim
-        # to the synthesis budget before prompt assembly.
-        chunks = chunks[:synthesis_k]
-        scores = scores[:synthesis_k]
-        metadatas = metadatas[:synthesis_k]
+    # The wide fused pool only existed to feed policy rerank / dedupe; trim
+    # to the synthesis budget before prompt assembly, cutting the low-quality
+    # tail when cross-encoder scores are available.
+    chunks, scores, metadatas, compression_diag = _compress_final_context(
+        chunks,
+        scores,
+        metadatas,
+        synthesis_k=synthesis_k,
+        cross_encoder_status=cross_encoder_diag.get("cross_encoder_status"),
+    )
+    metrics.update(compression_diag)
     rerank_ms = int((time.perf_counter() - rerank_started_perf) * 1000)
     document_chunk_count = len(chunks)
     exact_metadata_attempted = any(

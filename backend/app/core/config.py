@@ -143,6 +143,25 @@ class Settings(BaseSettings):
     rag_cross_encoder_max_length_balanced: int = 256
     rag_cross_encoder_max_concurrency: int = 2
     rag_cross_encoder_preload: bool = False
+    # RAGGER/HAH-RAG paper refinements. Fusion/compression/generation are
+    # near-zero-cost and ship enabled; MMR and the prompt classifier stay off
+    # until the golden A/B comparison clears them (see offline_eval harness).
+    rag_adaptive_fusion_enabled: bool = True
+    rag_compression_enabled: bool = True
+    rag_compression_ratio: float = 0.7
+    rag_compression_score_floor: float = 0.35
+    rag_generation_adaptive_enabled: bool = True
+    rag_generation_frequency_penalty_enabled: bool = False
+    rag_generation_max_output_cap_fast: int = 2048
+    rag_generation_max_output_cap_balanced: int = 4096
+    rag_generation_max_output_cap_deep: int = 8192
+    rag_mmr_enabled: bool = False
+    rag_mmr_lambda: float = 0.7
+    rag_mmr_budget_seconds: float = 0.5
+    rag_mmr_max_candidates: int = 24
+    rag_prompt_classifier_enabled: bool = False
+    rag_prompt_classifier_min_confidence: float = 0.15
+    rag_prompt_classifier_budget_seconds: float = 0.15
     # Workspace source_policy.reject_cross_project_sources rollout: log-only by
     # default (counts what would be dropped); flip to True once collections are
     # backfilled with project_code payloads, otherwise untagged corpora would

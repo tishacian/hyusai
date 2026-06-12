@@ -1402,7 +1402,30 @@ class OmniRAGAgent(BaseAgent):
         # conversational turns or when retrieval was irrelevant.
         # Explicit "make it longer/detailed" turns get a larger output budget
         # so the model can genuinely expand instead of being clipped.
-        max_output_tokens = 4000 if wants_more_detail else 2000
+        generation_kwargs: dict[str, Any] = {}
+        if settings.rag_generation_adaptive_enabled:
+            from app.services.rag.generation_budget import resolve_generation_budget
+
+            budget = resolve_generation_budget(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                history=prompt_history,
+                model=model_name,
+                latency_profile=profile.get("latency_profile"),
+                wants_more_detail=wants_more_detail,
+            )
+            max_output_tokens = budget.max_output_tokens
+            if settings.rag_generation_frequency_penalty_enabled:
+                generation_kwargs["frequency_penalty"] = budget.frequency_penalty
+            logger.info(
+                "Adaptive generation budget",
+                rho=budget.rho,
+                input_tokens=budget.input_tokens,
+                max_output_tokens=budget.max_output_tokens,
+                model_window=budget.model_window,
+            )
+        else:
+            max_output_tokens = 4000 if wants_more_detail else 2000
         sequence = 0
         accumulated = ""
         stream_filter = _AndritzContactBoilerplateStreamFilter(
@@ -1417,6 +1440,7 @@ class OmniRAGAgent(BaseAgent):
                 temperature=temperature,
                 max_tokens=max_output_tokens,
                 history=prompt_history,
+                **generation_kwargs,
             ):
                 filtered_text = stream_filter.feed(chunk_text)
                 if filtered_text:

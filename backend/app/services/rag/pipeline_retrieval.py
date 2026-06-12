@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, List, Literal, Optional
 
 from app.core.logging import get_logger
+from app.core.config import settings
+from app.services.rag.fusion_weights import resolve_fusion_weights
 from app.services.rag.lexical_retrieval import analyze_query, identifier_variants
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
@@ -476,17 +478,31 @@ def _prepend_exact_metadata_candidates(
     return out
 
 
-def _merge_rrf(result_lists: List[List[dict[str, Any]]], top_k: int) -> List[dict[str, Any]]:
-    """Simple RRF merge across multiple ranked lists (same idea as hybrid fusion)."""
+def _merge_rrf(
+    result_lists: List[List[dict[str, Any]]],
+    top_k: int,
+    weights: List[float] | None = None,
+) -> List[dict[str, Any]]:
+    """Simple RRF merge across multiple ranked lists (same idea as hybrid fusion).
+
+    ``weights`` (one per list, e.g. ``[dense, sparse]``) scales each list's
+    rank contribution; ``None`` keeps the historical unweighted behaviour
+    bit-for-bit.
+    """
     agg: dict[str, float] = {}
     best_row: dict[str, dict[str, Any]] = {}
-    for results in result_lists:
+    for list_idx, results in enumerate(result_lists):
+        weight = (
+            float(weights[list_idx])
+            if weights is not None and list_idx < len(weights)
+            else 1.0
+        )
         for rank, r in enumerate(results):
             content, _ = _result_content_score(r)
             if not content or len(content) < 10:
                 continue
             key = _content_key(content)
-            contrib = 1.0 / (RRF_K + rank + 1)
+            contrib = weight / (RRF_K + rank + 1)
             agg[key] = agg.get(key, 0.0) + contrib
             if key not in best_row:
                 best_row[key] = {
@@ -706,6 +722,12 @@ async def _search_documents(
                 logger.warning("sparse retrieval layer failed", error=str(exc))
         retrieval_elapsed_ms = int((time.perf_counter() - retrieval_started) * 1000)
         if sparse_results:
+            fusion_weights = None
+            fusion_diag: dict[str, Any] = {"fusion_method": "rrf"}
+            if settings.rag_adaptive_fusion_enabled:
+                resolved = resolve_fusion_weights(query)
+                fusion_weights = [resolved.dense, resolved.sparse]
+                fusion_diag = resolved.as_diagnostics()
             merged = _merge_rrf(
                 [
                     _with_sparse_metadata(
@@ -732,7 +754,12 @@ async def _search_documents(
                     ),
                 ],
                 top_k=top_k,
+                weights=fusion_weights,
             )
+            for row in merged:
+                meta = row.get("metadata")
+                if isinstance(meta, dict):
+                    meta.update(fusion_diag)
             return merged
         return _with_sparse_metadata(
             dense_results[:top_k],
