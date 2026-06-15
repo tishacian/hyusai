@@ -885,10 +885,14 @@ def _infer_filters(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, 
 
 
 def _query_terms(query: str) -> list[str]:
+    # >=5 mirrors the strong filename/source signal used elsewhere (project codes
+    # and _source_lookup_terms both require len >= 5). It also bounds the
+    # fact-table ILIKE in _infer_fact_document_scope (the only caller): shorter
+    # tokens match too much and turn the content-column scan into noise.
     terms: list[str] = []
     for raw in _TERM_RE.findall(str(query or "").lower()):
         token = raw.strip("_-")
-        if len(token) < 4 or token in _QUERY_STOPWORDS:
+        if len(token) < 5 or token in _QUERY_STOPWORDS:
             continue
         if token not in terms:
             terms.append(token)
@@ -1404,15 +1408,24 @@ def plan_corpus(
         confidence = max(confidence, ledger_confidence)
         reason = ledger_reason
     filters = {**inferred_filters, **explicit_filters}
+    # Fact-scope inference ILIKEs the document-fact table (content column), which
+    # is a sequential scan on large corpora (~tens of seconds, 42d8226). Deep
+    # (async, backgrounded) can always afford it; balanced (interactive) only on
+    # collections small enough that the bounded scan stays cheap. Large
+    # ledger-backed corpora stay deep-only on fact-scope and fall through to the
+    # bounded summary-artifact scope, exactly as fast does.
+    large_collection_scope = any(
+        int(getattr(c, "document_count", 0) or 0) > _LEDGER_TARGETING_MIN_SOURCES
+        or int(getattr(c, "chunk_count", 0) or 0) > _LEDGER_TARGETING_MIN_CHUNKS
+        for c in collection_rows
+    )
+    run_fact_scope = latency_profile == "deep" or (
+        latency_profile == "balanced" and not large_collection_scope
+    )
     if explicit_filters:
         confidence = max(confidence, 0.95)
         reason = f"System/agent retrieval filters supplied: {', '.join(sorted(explicit_filters))}."
-    elif dense and not filters and intent != "catalogue" and latency_profile == "deep":
-        # Fact-scope inference ILIKEs the document-fact table (content column),
-        # which is an unbounded sequential scan on large corpora (~tens of
-        # seconds). Only deep (async, backgrounded) can afford it. Interactive
-        # profiles (fast + balanced) fall through to the bounded summary-artifact
-        # scope below, exactly as fast already did.
+    elif dense and not filters and intent != "catalogue" and run_fact_scope:
         fact_filters, fact_confidence, fact_reason = _infer_fact_document_scope(
             db,
             collection_rows=collection_rows,
@@ -1423,11 +1436,11 @@ def plan_corpus(
             filters = fact_filters
             confidence = max(confidence, fact_confidence)
             reason = fact_reason
-        elif latency_profile == "deep":
+        else:
             summary_filters, summary_confidence, summary_reason = _infer_summary_document_scope(
                 collection_rows=collection_rows,
                 query=query,
-                limit=80,
+                limit=80 if latency_profile == "deep" else 20,
             )
             if summary_filters:
                 filters = summary_filters

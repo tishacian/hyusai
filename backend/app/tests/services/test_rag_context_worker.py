@@ -982,6 +982,85 @@ def test_large_collection_balanced_scopes_project_code_from_document_names(db_se
     assert "R__RCZ100__RCZ100__fichiers__users manual__conveyor.pdf" not in scoped
 
 
+def test_balanced_fact_scope_bounded_to_non_large_collections(db_session, monkeypatch):
+    """Contract for the bounded balanced fact-scope restoration (follow-up to 42d8226).
+
+    Balanced (interactive) chats regained fact-table scope inference, but only on
+    NON-LARGE collections. Large ledger-backed corpora keep fact-scope deep-only:
+    the sequential fact-table ILIKE there cost ~tens of seconds on the chat hot
+    path. Deep always runs it regardless of collection size.
+    """
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-fact-scope-bound", name="Fact Scope Bound", slug="fact-scope-bound")
+    db_session.add(workspace)
+    db_session.commit()
+
+    # Distinctive fact content that does NOT appear in any filename, so the only
+    # way to scope this query is the fact-table inference (never the ledger /
+    # source-name targeting). Filenames stay deliberately generic.
+    fact_query = "Explique la calibration thermique du palier"
+    fact_filename = "A__ACJ100__manuel_chapitre_0.html"
+
+    def _seed(name: str, *, document_count: int, chunk_count: int):
+        collection = create_collection(db_session, workspace=workspace, name=name)
+        for index in range(3):
+            upsert_collection_source(
+                db_session,
+                collection=collection,
+                filename=f"A__ACJ100__manuel_chapitre_{index}.html",
+                status="ready",
+                chunk_count=120,
+            )
+        collection.document_count = document_count
+        collection.chunk_count = chunk_count
+        db_session.add(
+            KnowledgeDocumentFact(
+                workspace_id=workspace.id,
+                collection_id=collection.id,
+                collection_slug=collection.slug,
+                document_id="doc-calibration",
+                document_filename=fact_filename,
+                semantic_type="document_procedure_step",
+                subject="calibration thermique",
+                predicate="procedure_step",
+                content="Procédure de calibration thermique du palier: vérifier la sonde.",
+                confidence=0.9,
+            )
+        )
+        db_session.commit()
+        return collection
+
+    small = _seed("Fact Scope Small", document_count=3, chunk_count=360)
+    # Genuinely large: > _LEDGER_TARGETING_MIN_SOURCES and > _LEDGER_TARGETING_MIN_CHUNKS.
+    large = _seed("Fact Scope Large", document_count=99481, chunk_count=1489764)
+
+    def _plan(collection, latency_profile: str):
+        return plan_corpus(
+            db=db_session,
+            profile={
+                "collection": collection.slug,
+                "collections": [collection.slug],
+                "workspace_id": workspace.id,
+                "latency_profile": latency_profile,
+                "rag_mode": "chah",
+            },
+            query=fact_query,
+        )
+
+    # Small collection: balanced regains the fact-table scope.
+    small_balanced = _plan(small, "balanced")
+    assert small_balanced.filters.get("document_filename") == [fact_filename]
+
+    # Large collection: balanced must NOT run the fact-table scan — deep-only.
+    large_balanced = _plan(large, "balanced")
+    assert "document_filename" not in large_balanced.filters
+
+    # Deep runs the fact-table scope regardless of collection size.
+    large_deep = _plan(large, "deep")
+    assert large_deep.filters.get("document_filename") == [fact_filename]
+
+
 async def test_dense_collection_quick_ask_uses_bounded_fast_sparse_direct(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
