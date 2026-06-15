@@ -263,15 +263,26 @@ _LEDGER_TARGETING_MIN_SOURCES = 5000
 _LEDGER_TARGETING_MIN_CHUNKS = 50000
 
 
-def _targeted_collection_source_rows(
-    db: DBSession,
-    *,
-    collection: KnowledgeCollection,
-    project_codes: list[str],
-    source_lookup_query: str | None = None,
-    limit: int = 200,
-) -> list[Any]:
-    clauses = []
+_SOURCE_LOOKUP_GENERIC_TERMS = {
+    "carrier",
+    "comment",
+    "document",
+    "fichier",
+    "manual",
+    "manuel",
+    "parts",
+    "projet",
+    "retrouver",
+    "source",
+    "spare",
+}
+
+
+def _source_lookup_terms(project_codes: list[str], source_lookup_query: str | None) -> set[str]:
+    """Bounded ILIKE/substring lookup terms shared by the SQL source targeting
+    and the document_names targeting. Keeping them identical guarantees the two
+    candidate paths surface the same docs regardless of which ledger holds them.
+    """
     lookup_terms: set[str] = set()
     for code in project_codes[:4]:
         compact = _compact_text(code).upper()
@@ -281,27 +292,27 @@ def _targeted_collection_source_rows(
             prefix, suffix = split.groups()
             variants.update({f"{prefix} {suffix}", f"{prefix}-{suffix}", f"{prefix}_{suffix}"})
         lookup_terms.update(variant for variant in variants if variant)
-    generic_terms = {
-        "carrier",
-        "comment",
-        "document",
-        "fichier",
-        "manual",
-        "manuel",
-        "parts",
-        "projet",
-        "retrouver",
-        "source",
-        "spare",
-    }
     for term in _expanded_query_terms(source_lookup_query or "")[:20]:
         compact_term = _compact_text(term)
         # >=5 mirrors the strong filename signal in _infer_ledger_document_scope
         # (len(compact_term) >= 5 in source_only_compact). This keeps the DB
         # candidate set aligned with what the Python scorer would have matched.
-        if len(compact_term) >= 5 and compact_term not in generic_terms:
+        if len(compact_term) >= 5 and compact_term not in _SOURCE_LOOKUP_GENERIC_TERMS:
             lookup_terms.add(term)
             lookup_terms.add(compact_term)
+    return lookup_terms
+
+
+def _targeted_collection_source_rows(
+    db: DBSession,
+    *,
+    collection: KnowledgeCollection,
+    project_codes: list[str],
+    source_lookup_query: str | None = None,
+    limit: int = 200,
+) -> list[Any]:
+    clauses = []
+    lookup_terms = _source_lookup_terms(project_codes, source_lookup_query)
     for lookup_term in lookup_terms:
         like = f"%{lookup_term}%"
         clauses.extend(
@@ -318,6 +329,73 @@ def _targeted_collection_source_rows(
         or_(*clauses),
     )
     return query.order_by(KnowledgeCollectionSource.filename.asc()).limit(max(1, int(limit))).all()
+
+
+def _targeted_document_name_rows(
+    collection: KnowledgeCollection,
+    *,
+    project_codes: list[str],
+    source_lookup_query: str | None,
+    existing_rows: list[Any],
+    limit: int = 200,
+) -> list[Any]:
+    """Bounded, term/code-targeted slice of collection.document_names.
+
+    Large/ledger-backed collections hold documents that exist only in
+    collection.document_names (and Qdrant) but never landed in
+    knowledge_collection_sources — e.g. the Manual_BBA120 archive on the
+    andritz SPL pilot. The bounded SQL targeting in
+    _targeted_collection_source_rows cannot see those rows, so a project-scoped
+    question ("resume le projet BBA120") would infer no scope and bail to the
+    "trop dense" degraded reply. We restore that recall here without the full
+    ~100k-row Python scan that caused the original latency bug: plain lowercased
+    substring matching against the same lookup terms, capped at ``limit``.
+    """
+    names = [str(name or "").strip() for name in (collection.document_names or []) if str(name or "").strip()]
+    if not names:
+        return []
+    lookup_terms = _source_lookup_terms(project_codes, source_lookup_query)
+    lowered_terms = {term.lower() for term in lookup_terms if term}
+    if not lowered_terms:
+        return []
+    existing = {
+        _search_text(getattr(row, "filename", "") or getattr(row, "normalized_name", "") or "")
+        for row in existing_rows
+    }
+    out: list[Any] = []
+    cap = max(1, int(limit))
+    for index, filename in enumerate(names):
+        normalized = " ".join(filename.split())
+        name_lower = normalized.lower()
+        if not any(term in name_lower for term in lowered_terms):
+            continue
+        key = _search_text(normalized)
+        if key in existing:
+            continue
+        existing.add(key)
+        ext = Path(normalized).suffix.lower().lstrip(".")
+        out.append(
+            SimpleNamespace(
+                id=f"document-name-{collection.id}-{index}",
+                workspace_id=collection.workspace_id,
+                collection_id=collection.id,
+                filename=normalized,
+                normalized_name=normalized,
+                source_kind=_source_kind_from_name(normalized),
+                extension=ext,
+                mime_type="",
+                origin="legacy_document_names",
+                size_bytes=None,
+                chunk_count=0,
+                status=collection.status or "ready",
+                source_metadata={"fallback": True},
+                updated_at=collection.updated_at,
+                collection=collection,
+            )
+        )
+        if len(out) >= cap:
+            break
+    return out
 
 
 def _rows_for_collections(
@@ -350,10 +428,10 @@ def _rows_for_collections(
             or int(getattr(collection, "chunk_count", 0) or 0) > _LEDGER_TARGETING_MIN_CHUNKS
         )
         if source_lookup_query and (project_codes or large_collection):
-            # Bounded DB-side targeting. We deliberately skip the legacy
-            # document_names fallback here — on ledger-backed collections that
-            # array can hold ~100k entries and rebuilding it in Python would
-            # re-introduce the full-corpus scan we are avoiding.
+            # Bounded DB-side targeting. We deliberately skip the *full* legacy
+            # document_names rebuild here — on ledger-backed collections that
+            # array can hold ~100k entries and rebuilding it wholesale in Python
+            # would re-introduce the full-corpus scan we are avoiding.
             source_rows = _targeted_collection_source_rows(
                 db,
                 collection=collection,
@@ -366,6 +444,19 @@ def _rows_for_collections(
                 except Exception:
                     pass
             rows.extend(source_rows)
+            # But we MUST still consult document_names in a bounded, targeted
+            # way: docs that exist only there (and in Qdrant) — never in
+            # knowledge_collection_sources — would otherwise be invisible to the
+            # interactive planner, making project-scoped questions bail to the
+            # "trop dense" degraded reply (regression introduced when the legacy
+            # rebuild was dropped here). This adds only term/code-matching names.
+            name_rows = _targeted_document_name_rows(
+                collection,
+                project_codes=project_codes,
+                source_lookup_query=source_lookup_query,
+                existing_rows=source_rows,
+            )
+            rows.extend(name_rows)
         else:
             source_rows = collection_source_rows(db, collection=collection)
             for row in source_rows:

@@ -933,6 +933,55 @@ def test_dense_planner_scopes_golden_source_lookup_from_ledger(db_session, monke
     assert "Legacy Spare Parts List ACO999.pdf" in legacy_plan.filters["document_filename"]
 
 
+def test_large_collection_balanced_scopes_project_code_from_document_names(db_session, monkeypatch):
+    """Regression for the BBA120 "trop dense" bail.
+
+    On a large/ledger-backed collection a project's documents can live only in
+    collection.document_names (and Qdrant), never in knowledge_collection_sources.
+    The bounded interactive targeting must still consult document_names so a
+    project-scoped question infers a document scope instead of bailing to the
+    dense_unscoped_fast_policy degraded reply.
+    """
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-planner-large-docnames", name="Planner Large DocNames", slug="planner-large-docnames")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Dense SPL DocNames")
+    # A genuinely large collection (> _LEDGER_TARGETING_MIN_CHUNKS) so the
+    # planner takes the bounded targeting path, with BBA120 present only in
+    # document_names — exactly the production shape on andritz-notices-spl-pilot.
+    collection.document_names = [
+        "Manual_BBA120__PHP _URACA___KD724-G - PHP11__Chapter 01.pdf",
+        "Manual_BBA120__Spare part list__Spare Parts List_BBA120.pdf",
+        "R__RCZ100__RCZ100__fichiers__users manual__conveyor.pdf",
+    ]
+    collection.document_count = 99481
+    collection.chunk_count = 1489764
+    db_session.commit()
+
+    plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "balanced",
+            "rag_mode": "chah",
+        },
+        query="resume le projet BBA120",
+    )
+
+    assert plan.dense_policy == "fast_scoped_dense"
+    assert plan.fallback_reason is None
+    assert "document_filename" in plan.filters
+    scoped = plan.filters["document_filename"]
+    assert "Manual_BBA120__PHP _URACA___KD724-G - PHP11__Chapter 01.pdf" in scoped
+    assert "Manual_BBA120__Spare part list__Spare Parts List_BBA120.pdf" in scoped
+    # An unrelated project must not be pulled into a BBA120-scoped question.
+    assert "R__RCZ100__RCZ100__fichiers__users manual__conveyor.pdf" not in scoped
+
+
 async def test_dense_collection_quick_ask_uses_bounded_fast_sparse_direct(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
