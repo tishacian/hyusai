@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import time
 from typing import Any
 
 from app.core.config import settings
@@ -86,9 +87,13 @@ async def _run_batch(
                         "retrieval_profile": request.get("retrieval_profile") or "chat",
                     }
                 )
+                _t0 = time.perf_counter()
                 context = await retrieve_rag_context(request)
+                wall_ms = int((time.perf_counter() - _t0) * 1000)
                 res = evaluate_retrieval_golden_case(case, context)
                 ctx_metrics = context.get("metrics") if isinstance(context.get("metrics"), dict) else {}
+                res["wall_ms"] = wall_ms
+                res["retrieval_elapsed_ms"] = ctx_metrics.get("retrieval_elapsed_ms")
                 res["comparative_decompose"] = ctx_metrics.get("comparative_decompose")
                 res["comparative_entities"] = ctx_metrics.get("comparative_entities")
                 res["comparative_subquery_hits"] = ctx_metrics.get("comparative_subquery_hits")
@@ -150,6 +155,14 @@ def main() -> None:
                   f"promoted={v.get('comparative_entities_promoted')}")
         if marker == "REGRESSION":
             print(f"    missing_sources={v.get('missing_sources')} missing_terms={v.get('missing_evidence_terms')}")
+
+    def _avg_ms(results: dict) -> float:
+        vals = [r.get("wall_ms") for r in results.values() if isinstance(r.get("wall_ms"), int)]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    base_avg, var_avg = _avg_ms(baseline), _avg_ms(variant)
+    print(f"\nlatency avg wall_ms: baseline={base_avg:.0f}  variant={var_avg:.0f}  "
+          f"delta={var_avg - base_avg:+.0f}")
 
     base_rate = sum(1 for r in baseline.values() if r.get("passed"))
     var_rate = sum(1 for r in variant.values() if r.get("passed"))
