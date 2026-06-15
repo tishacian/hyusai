@@ -256,16 +256,21 @@ def _request_filters(request: Mapping[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+# Above these per-collection sizes, loading and Python-scanning the full source
+# ledger on the interactive chat path costs tens of seconds. Such collections
+# use bounded DB-side candidate targeting instead (see _rows_for_collections).
+_LEDGER_TARGETING_MIN_SOURCES = 5000
+_LEDGER_TARGETING_MIN_CHUNKS = 50000
+
+
 def _targeted_collection_source_rows(
     db: DBSession,
     *,
     collection: KnowledgeCollection,
     project_codes: list[str],
     source_lookup_query: str | None = None,
-    limit: int = 50,
+    limit: int = 200,
 ) -> list[Any]:
-    if not project_codes:
-        return collection_source_rows(db, collection=collection)
     clauses = []
     lookup_terms: set[str] = set()
     for code in project_codes[:4]:
@@ -291,7 +296,10 @@ def _targeted_collection_source_rows(
     }
     for term in _expanded_query_terms(source_lookup_query or "")[:20]:
         compact_term = _compact_text(term)
-        if len(compact_term) >= 6 and compact_term not in generic_terms:
+        # >=5 mirrors the strong filename signal in _infer_ledger_document_scope
+        # (len(compact_term) >= 5 in source_only_compact). This keeps the DB
+        # candidate set aligned with what the Python scorer would have matched.
+        if len(compact_term) >= 5 and compact_term not in generic_terms:
             lookup_terms.add(term)
             lookup_terms.add(compact_term)
     for lookup_term in lookup_terms:
@@ -332,23 +340,41 @@ def _rows_for_collections(
         if not collection:
             continue
         collection_rows.append(collection)
-        source_rows = (
-            _targeted_collection_source_rows(
+        # Only large collections take the bounded DB-targeting path. Small
+        # collections keep the exact original behaviour (full row load + legacy
+        # document_names fallback): scanning a few thousand rows in Python is
+        # cheap, and preserving it avoids any retrieval-scope change where there
+        # is no latency to win. project-code lookups always target (unchanged).
+        large_collection = (
+            int(getattr(collection, "document_count", 0) or 0) > _LEDGER_TARGETING_MIN_SOURCES
+            or int(getattr(collection, "chunk_count", 0) or 0) > _LEDGER_TARGETING_MIN_CHUNKS
+        )
+        if source_lookup_query and (project_codes or large_collection):
+            # Bounded DB-side targeting. We deliberately skip the legacy
+            # document_names fallback here — on ledger-backed collections that
+            # array can hold ~100k entries and rebuilding it in Python would
+            # re-introduce the full-corpus scan we are avoiding.
+            source_rows = _targeted_collection_source_rows(
                 db,
                 collection=collection,
                 project_codes=project_codes,
                 source_lookup_query=source_lookup_query,
             )
-            if project_codes
-            else collection_source_rows(db, collection=collection)
-        )
-        for row in source_rows:
-            try:
-                row.collection = collection
-            except Exception:
-                pass
-        rows.extend(source_rows)
-        rows.extend(_missing_document_name_rows(collection, source_rows))
+            for row in source_rows:
+                try:
+                    row.collection = collection
+                except Exception:
+                    pass
+            rows.extend(source_rows)
+        else:
+            source_rows = collection_source_rows(db, collection=collection)
+            for row in source_rows:
+                try:
+                    row.collection = collection
+                except Exception:
+                    pass
+            rows.extend(source_rows)
+            rows.extend(_missing_document_name_rows(collection, source_rows))
     return rows, collection_rows
 
 
@@ -1173,12 +1199,15 @@ def plan_corpus(
     )
     collections = [str(item) for item in (profile.get("collections") or [profile.get("collection") or "documents"]) if item]
     workspace_id = str(profile.get("workspace_id") or "") or None
-    # Fast chat must not spend its latency budget on fuzzy SQL source lookup.
-    # Source-ledger scoring below can still infer project/document filters from
-    # the selected collection rows, while sparse/exact retrieval handles the
-    # content search quickly. Balanced/deep keep the targeted lookup because
-    # they are allowed to spend more time narrowing a dense corpus up front.
-    source_lookup_query = query if latency_profile != "fast" and _query_project_codes(query) else None
+    # Interactive profiles (fast + balanced) must never load and scan the full
+    # source ledger in Python: on large industrial corpora (e.g. ~100k sources
+    # in one collection) that costs ~45-90s on the chat hot path. They pass the
+    # query so _rows_for_collections performs a bounded DB-side ILIKE targeting
+    # of candidate sources (filename/normalized_name) instead of loading every
+    # row. The Python ledger/filter scoring then runs over that bounded set,
+    # preserving the inferred scope. Only deep (async, backgrounded) keeps the
+    # exhaustive full-ledger load.
+    source_lookup_query = query if latency_profile != "deep" else None
     rows, collection_rows = _rows_for_collections(
         db,
         collections,
@@ -1287,7 +1316,12 @@ def plan_corpus(
     if explicit_filters:
         confidence = max(confidence, 0.95)
         reason = f"System/agent retrieval filters supplied: {', '.join(sorted(explicit_filters))}."
-    elif dense and not filters and intent != "catalogue" and latency_profile != "fast":
+    elif dense and not filters and intent != "catalogue" and latency_profile == "deep":
+        # Fact-scope inference ILIKEs the document-fact table (content column),
+        # which is an unbounded sequential scan on large corpora (~tens of
+        # seconds). Only deep (async, backgrounded) can afford it. Interactive
+        # profiles (fast + balanced) fall through to the bounded summary-artifact
+        # scope below, exactly as fast already did.
         fact_filters, fact_confidence, fact_reason = _infer_fact_document_scope(
             db,
             collection_rows=collection_rows,

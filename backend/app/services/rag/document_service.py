@@ -216,7 +216,14 @@ class DocumentService:
         # Initialize reranker if enabled
         if use_reranker and FlashReranker is not None and RerankerConfig is not None:
             try:
-                self.reranker = FlashReranker(RerankerConfig())
+                # Pin the legacy ensemble reranker to the balanced (L-6) model:
+                # the RerankerConfig default is L-12, which otherwise loads a
+                # second, heavier cross-encoder into the backend process even
+                # though the native sparse-hybrid path never uses it. The deep
+                # profile selects L-12 explicitly via cross_encoder_stage.
+                self.reranker = FlashReranker(
+                    RerankerConfig(model_name=settings.rag_cross_encoder_model_balanced)
+                )
             except Exception as e:
                 logger.warning(f"Could not initialize reranker: {e}. Continuing without reranking.")
                 self.reranker = None
