@@ -309,12 +309,41 @@ ssh omnirag-demo 'curl -fsSI http://localhost:8081/ | head -1'
 
 ---
 
-## 6. Récapitulatif express (copier-coller)
+## 6. Script de déploiement unique (recommandé)
+
+`scripts/deploy-vm.sh` codifie tout le §3 + §4 en une commande et **remplace** les
+hotfix manuels (`docker cp` / `scp` / édition in-container). Il arrive sur la VM
+**par git** (jamais par scp), donc on le lance depuis le checkout :
 
 ```bash
 # --- LOCAL : livrer ---
 git add -u && git commit -m "feat(scope): intention" && git push origin demo/agentic
 
+# --- VM : déployer le commit poussé (fetch+reset -> build 3 images -> health -> audit dérive) ---
+ssh omnirag-demo 'cd /home/ubuntu/omnirag && git fetch origin demo/agentic && git reset --hard origin/demo/agentic && bash scripts/deploy-vm.sh'
+```
+
+Le script :
+- refuse de tourner si l'arbre VM a des modifs suivies non commitées (sauf `--force`) — anti-dérive ;
+- aligne le checkout sur `origin/demo/agentic` (`git reset --hard`) ;
+- rebuild `agentium-backend` + `agentium-frontend` + `agentium-worker-cpu` avec `--env-file` et `AGENTIUM_POSTGRES_PASSWORD` exporté ;
+- attend la santé backend (`/api/v1/health` = 200, retries) et vérifie le frontend ;
+- lance un **audit de dérive** : compare le manifeste md5 de tout `backend/app/*.py`
+  entre le conteneur et l'arbre git, et vérifie `HEAD == origin` — il échoue
+  bruyamment si un `docker cp` a divergé ou si une image a été buildée depuis un
+  arbre périmé.
+
+Options : `--check-only` (audit seul, lecture seule), `--no-frontend`,
+`--services "…"`, `--branch <name>`, `--force`.
+
+> Audit de dérive à la demande (sans déployer) :
+> ```bash
+> ssh omnirag-demo 'cd /home/ubuntu/omnirag && bash scripts/deploy-vm.sh --check-only'
+> ```
+
+### Procédure manuelle équivalente (si besoin de débrayer le script)
+
+```bash
 # --- VM : déployer le commit poussé ---
 ssh omnirag-demo '
   set -e
