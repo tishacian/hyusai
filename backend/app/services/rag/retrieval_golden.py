@@ -51,7 +51,22 @@ class RetrievalGoldenCase:
     # chunks (0 disables the check). Encodes diversity expectations for
     # redundancy-heavy queries: surfacing k chunks of one manual fails even if
     # the expected source matched (MMR/diversity stages are what satisfy it).
+    #
+    # WARNING: this counts distinct *document_filename* labels, and the Andritz
+    # corpus prefixes filenames with the project/archive that owns the copy
+    # (``A__ACJ200__…__g150-operating-instructions-0312-en.pdf``). So three
+    # copies of the SAME manual indexed under three projects count as three
+    # "distinct documents" here — vacuously satisfied by the round-robin, which
+    # diversifies by ``document_id``. Use ``expected_distinct_content`` to gate
+    # on real content diversity (see ``_content_key``).
     expected_distinct_documents: int = 0
+    # Minimum number of DISTINCT CONTENT documents required among the top-k
+    # chunks (0 disables). Grouping strips the project/archive prefix from the
+    # filename so copies of one manual collapse to a single content key
+    # (``_content_key``). This is the diversity signal the embedding MMR stage
+    # can actually move — round-robin (which keys on ``document_id``) treats
+    # per-project copies as diverse and cannot raise it.
+    expected_distinct_content: int = 0
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "RetrievalGoldenCase":
@@ -78,6 +93,7 @@ class RetrievalGoldenCase:
             else None,
             forbidden_sources=tuple(str(item) for item in payload.get("forbidden_sources") or ()),
             expected_distinct_documents=max(0, int(payload.get("expected_distinct_documents") or 0)),
+            expected_distinct_content=max(0, int(payload.get("expected_distinct_content") or 0)),
         )
 
     def to_request(self) -> dict[str, Any]:
@@ -166,6 +182,54 @@ def _distinct_document_count(context: Mapping[str, Any], *, top_n: int) -> int:
     return len(documents)
 
 
+def _content_key(meta: Mapping[str, Any]) -> str:
+    """Content identity of a chunk, independent of which project owns the copy.
+
+    The Andritz corpus indexes the same manual under many projects, prefixing
+    the filename with the project/archive path that owns the copy:
+
+        A__ACJ200__V.5.Vacuum set__CBI-GVC1C2C3__g150-operating-instructions-0312-en.pdf
+        H__HYD100__HYD100__fichiers__…__MasterDrive_motioncontrole de.pdf
+
+    The basename after the last ``__`` / ``/`` separator is stable across all
+    copies (verified on the live collection: ``g150-operating-instructions-0312
+    -en.pdf`` is identical across its 13 project copies). Grouping on it makes
+    per-project duplicates collapse to one content document, so the count moves
+    only when retrieval surfaces genuinely different manuals.
+
+    ``content_sha256`` was evaluated as the key but is populated on only a
+    fraction of chunks in the live payloads, so it is used as a last-resort
+    tiebreaker rather than the primary signal. ``legacy_document_name`` carries
+    the same basename and backs up a missing ``document_filename``.
+    """
+    for key in ("document_filename", "filename", "legacy_document_name", "inner_document_path", "source_path"):
+        raw = meta.get(key)
+        if raw:
+            basename = str(raw).split("__")[-1].split("/")[-1]
+            normalised = _normalise(basename)
+            if normalised:
+                return normalised
+    sha = meta.get("content_sha256")
+    if sha:
+        return f"sha:{sha}"
+    return _normalise(_source_label(meta))
+
+
+def _distinct_content_count(context: Mapping[str, Any], *, top_n: int) -> int:
+    """Distinct CONTENT documents among the raw top-k chunk metadatas.
+
+    Same contract as ``_distinct_document_count`` but keyed on ``_content_key``
+    so per-project copies of one manual collapse to a single content document.
+    """
+    contents: set[str] = set()
+    for meta in (context.get("metadatas") or [])[:top_n]:
+        if isinstance(meta, Mapping):
+            key = _content_key(meta)
+            if key:
+                contents.add(key)
+    return len(contents)
+
+
 def evaluate_retrieval_golden_case(
     case: RetrievalGoldenCase,
     context: Mapping[str, Any],
@@ -205,6 +269,11 @@ def evaluate_retrieval_golden_case(
         case.expected_distinct_documents > 0
         and distinct_documents < case.expected_distinct_documents
     )
+    distinct_content = _distinct_content_count(context, top_n=max(top_n, 8))
+    content_diversity_shortfall = (
+        case.expected_distinct_content > 0
+        and distinct_content < case.expected_distinct_content
+    )
     passed = (
         len(matched_sources) >= min(case.min_expected_sources, max(len(expected_sources), 1))
         and not missing_evidence_terms
@@ -212,6 +281,7 @@ def evaluate_retrieval_golden_case(
         and not forbidden_source_hits
         and not diagnostic_mismatches
         and not diversity_shortfall
+        and not content_diversity_shortfall
     )
     return {
         "id": case.id,
@@ -226,5 +296,7 @@ def evaluate_retrieval_golden_case(
         "diagnostic_mismatches": diagnostic_mismatches,
         "distinct_documents": distinct_documents,
         "diversity_shortfall": diversity_shortfall,
+        "distinct_content": distinct_content,
+        "content_diversity_shortfall": content_diversity_shortfall,
         "dense_policy": dense_policy or None,
     }

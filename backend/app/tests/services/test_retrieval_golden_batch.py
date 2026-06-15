@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.services.rag.retrieval_golden import (
+    RetrievalGoldenCase,
+    _content_key,
+    _distinct_content_count,
     evaluate_retrieval_golden_case,
     load_retrieval_golden_cases,
 )
@@ -145,10 +148,14 @@ def test_evaluator_enforces_forbidden_sources_and_diagnostics():
     assert result["diagnostic_mismatches"]["sparse_status"]["actual"] == "timeout"
 
 
-def test_diversity_batch_requires_distinct_documents():
+def test_diversity_batch_gates_on_distinct_content():
     cases = load_retrieval_golden_cases(_batch_path("andritz_spl_diversity.json"))
-    assert all(case.expected_distinct_documents >= 2 for case in cases)
-    assert any(case.expected_distinct_documents >= 3 for case in cases)
+    # Diversity is gated on CONTENT, not on the project-prefixed filename: the
+    # vacuous document-level gate is disabled (0) and every case sets a content
+    # expectation, several demanding 3+ genuinely distinct manuals.
+    assert all(case.expected_distinct_documents == 0 for case in cases)
+    assert all(case.expected_distinct_content >= 1 for case in cases)
+    assert any(case.expected_distinct_content >= 3 for case in cases)
 
 
 def test_hard_intents_batch_mixes_languages_and_hard_shapes():
@@ -160,23 +167,36 @@ def test_hard_intents_batch_mixes_languages_and_hard_shapes():
     assert any(case.forbidden_sources for case in cases)
 
 
+def _diversity_case(**overrides):
+    payload = {
+        "id": "synthetic_diversity",
+        "query": "Where can I find the G150 speed controller operating instructions?",
+        "collection": "andritz-notices-techniques-spl-pilot",
+        "expected_sources": ["g150 operating instructions"],
+        "expected_evidence_terms": ["G150", "operating instructions"],
+        "expected_intent": "source_lookup",
+        "forbidden_route": "catalogue_inventory",
+    }
+    payload.update(overrides)
+    return RetrievalGoldenCase.from_mapping(payload)
+
+
+def _diversity_context(filenames):
+    return {
+        "chunks": ["G150 operating instructions content"] * len(filenames),
+        "metadatas": [{"document_filename": name} for name in filenames],
+        "metrics": {},
+    }
+
+
 def test_evaluator_enforces_expected_distinct_documents():
-    case = next(
-        case
-        for case in load_retrieval_golden_cases(_batch_path("andritz_spl_diversity.json"))
-        if case.id == "div_001_g150_operating_instructions_multiproject"
-    )
-    assert case.expected_distinct_documents == 3
+    # The document-level gate (kept for diagnostics, disabled in the live batch)
+    # still works when a case opts in. It counts the project-prefixed filename,
+    # so three copies of one manual clear it — which is exactly why the live
+    # batch gates on content instead.
+    case = _diversity_case(expected_distinct_documents=3)
 
-    def _context(filenames):
-        return {
-            "chunks": ["G150 operating instructions content"] * len(filenames),
-            "metadatas": [{"document_filename": name} for name in filenames],
-            "metrics": {},
-        }
-
-    # All top-k chunks from one document: source matches but diversity fails.
-    redundant = _context(
+    redundant = _diversity_context(
         ["A__ACJ100__V.5.Vacuum set__CBI-GVC1C2C3__g150-operating-instructions-0312-en.pdf"] * 8
     )
     result = evaluate_retrieval_golden_case(case, redundant)
@@ -184,17 +204,96 @@ def test_evaluator_enforces_expected_distinct_documents():
     assert result["diversity_shortfall"] is True
     assert result["passed"] is False
 
-    # Chunks spread over three documents: diversity satisfied.
-    diverse = _context(
+    same_manual_copies = _diversity_context(
         [
             "A__ACJ100__V.5.Vacuum set__CBI-GVC1C2C3__g150-operating-instructions-0312-en.pdf",
             "A__AKI300__V.5.Vacuum set__POLLRICH - GVJ1__g150-operating-instructions-0312-en.pdf",
             "B__BFG100__V.7.High pressure set__g150-operating-instructions-0312-en.pdf",
         ]
     )
-    result = evaluate_retrieval_golden_case(case, diverse)
+    result = evaluate_retrieval_golden_case(case, same_manual_copies)
     assert result["distinct_documents"] == 3
     assert result["diversity_shortfall"] is False
+    # Vacuous: three copies of one manual are a single content document.
+    assert result["distinct_content"] == 1
+    assert result["passed"] is True
+
+
+def test_content_key_collapses_per_project_copies_of_one_manual():
+    # Three project copies of the SAME manual: distinct filenames (project
+    # prefix differs) but one content identity.
+    copies = [
+        "A__ACJ100__V.5.Vacuum set__CBI-GVC1C2C3__g150-operating-instructions-0312-en.pdf",
+        "A__AKI300__V.5.Vacuum set__POLLRICH - GVJ1__g150-operating-instructions-0312-en.pdf",
+        "B__BFG100__V.7.High pressure set__g150-operating-instructions-0312-en.pdf",
+    ]
+    keys = {_content_key({"document_filename": fn}) for fn in copies}
+    assert len(keys) == 1, keys
+
+    # A genuinely different manual yields a different content key.
+    other = _content_key(
+        {"document_filename": "H__HYD100__HYD100__fichiers__MasterDrive_motioncontrole de.pdf"}
+    )
+    assert other not in keys
+
+    # Inner archive paths (slash separators) reduce to the same basename.
+    assert _content_key({"inner_document_path": "ACJ100/.../g150-operating-instructions-0312-en.pdf"}) in keys
+
+    # Graceful fallbacks: legacy_document_name, then content_sha256, then label.
+    assert _content_key({"legacy_document_name": "ACJ100__lh2_0113_eng.pdf"}) == _content_key(
+        {"document_filename": "B__BFG100__lh2_0113_eng.pdf"}
+    )
+    assert _content_key({"content_sha256": "abc123"}) == "sha:abc123"
+    assert _content_key({"document_id": "doc-42"}) == "doc 42"
+
+
+def test_distinct_content_count_vs_distinct_document_count():
+    # All chunks are copies of one manual under three projects: round-robin by
+    # document_id sees three "documents", but the content count is one.
+    context = {
+        "metadatas": [
+            {"document_filename": "A__ACJ100__g150-operating-instructions-0312-en.pdf"},
+            {"document_filename": "A__AKI300__g150-operating-instructions-0312-en.pdf"},
+            {"document_filename": "B__BFG100__g150-operating-instructions-0312-en.pdf"},
+        ]
+    }
+    assert _distinct_content_count(context, top_n=8) == 1
+
+    # Two genuinely different manuals -> two distinct content documents.
+    context = {
+        "metadatas": [
+            {"document_filename": "A__ACJ100__g150-operating-instructions-0312-en.pdf"},
+            {"document_filename": "A__ACJ100__lh2_0113_eng.pdf"},
+        ]
+    }
+    assert _distinct_content_count(context, top_n=8) == 2
+
+
+def test_evaluator_enforces_expected_distinct_content():
+    case = _diversity_case(expected_distinct_content=3)
+
+    # 8 copies of one manual under 8 projects: distinct_documents looks high
+    # (the bug the old metric fell for), distinct_content collapses to 1.
+    redundant = _diversity_context(
+        [f"A__PROJ{i}__g150-operating-instructions-0312-en.pdf" for i in range(8)]
+    )
+    result = evaluate_retrieval_golden_case(case, redundant)
+    assert result["distinct_documents"] == 8
+    assert result["distinct_content"] == 1
+    assert result["content_diversity_shortfall"] is True
+    assert result["passed"] is False
+
+    # Three genuinely distinct manuals: content diversity satisfied.
+    diverse = _diversity_context(
+        [
+            "A__PROJ0__g150-operating-instructions-0312-en.pdf",
+            "A__PROJ1__lh2_0113_eng.pdf",
+            "B__PROJ2__kd724.pdf",
+        ]
+    )
+    result = evaluate_retrieval_golden_case(case, diverse)
+    assert result["distinct_content"] == 3
+    assert result["content_diversity_shortfall"] is False
     assert result["passed"] is True
 
 

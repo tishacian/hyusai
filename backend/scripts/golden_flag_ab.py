@@ -123,7 +123,8 @@ def main() -> None:
         print(
             f"{case.id:48s} baseline={'PASS' if b.get('passed') else 'fail':4s} "
             f"variant={'PASS' if v.get('passed') else 'fail':4s} "
-            f"distinct_docs={b.get('distinct_documents')}->{v.get('distinct_documents')} {marker}"
+            f"distinct_docs={b.get('distinct_documents')}->{v.get('distinct_documents')} "
+            f"distinct_content={b.get('distinct_content')}->{v.get('distinct_content')} {marker}"
         )
         if marker == "REGRESSION":
             print(f"    missing_sources={v.get('missing_sources')} missing_terms={v.get('missing_evidence_terms')}")

@@ -1,6 +1,6 @@
 {
-  "id": "andritz_spl_diversity_v1",
-  "description": "Redundancy-heavy queries where the corpus contains the same (or near-identical) manual indexed under many projects/sections. Passing requires surfacing chunks from DISTINCT documents in the top-k (expected_distinct_documents), which is what the MMR diversity stage provides. Built from verified Qdrant clusters: g150-operating-instructions (13 docs), printable parts manuals (12 docs), LH2 vacuum-set manuals (12 docs), Excelle S5PP6TT carding docs (89 docs), high pressure set (978 docs), operator manual 5186004875 (33 docs), Qualiscan QMS-12 (32 docs), URACA KD724 chapters (378 docs).",
+  "id": "andritz_spl_diversity_v2",
+  "description": "Redundancy-heavy queries where the corpus indexes the same manual under many projects. Diversity is gated by expected_distinct_content (distinct CONTENT documents after stripping the project/archive filename prefix, via _content_key), NOT expected_distinct_documents — the latter counts per-project copies of one manual as distinct and is therefore vacuous on this corpus (kept at 0 here; distinct_documents is still reported for diagnostics). Thresholds calibrated on live measurements (2026-06-15, balanced profile): single-manual queries (g150 operating instructions, LH2 0113) expect 1; queries where the corpus genuinely offers 3+ distinct relevant manuals expect 3. Baseline (MMR on) passes 7/10: div_002 and div_006 surface only 2 distinct contents (real diversity shortfall), div_008 misses its expected source. An A/B MMR on/off shows no pass-rate gap and near-identical per-case distinct_content (round-robin keys on document_id, MMR on embeddings — neither separates per-project copies meaningfully here).",
   "cases": [
     {
       "id": "div_001_g150_operating_instructions_multiproject",
@@ -17,7 +17,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "expected_distinct_documents": 3
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 1
     },
     {
       "id": "div_002_printable_parts_manual_multiproject",
@@ -33,7 +34,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "fr",
-      "expected_distinct_documents": 3
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
     },
     {
       "id": "div_003_vacuum_set_blower_manuals",
@@ -49,7 +51,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "expected_distinct_documents": 3
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
     },
     {
       "id": "div_004_excelle_s5pp6tt_card_operator_manuals",
@@ -66,7 +69,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "expected_distinct_documents": 3
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
     },
     {
       "id": "div_005_high_pressure_set_inverter_docs",
@@ -82,7 +86,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "fr",
-      "expected_distinct_documents": 3
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
     },
     {
       "id": "div_006_cu250s2_vector_control_units",
@@ -98,7 +103,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "expected_distinct_documents": 3
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
     },
     {
       "id": "div_007_qualiscan_qms12_betriebsanleitungen",
@@ -114,7 +120,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "de",
-      "expected_distinct_documents": 2
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
     },
     {
       "id": "div_008_sinamics_s120_s150_list_manuals",
@@ -131,7 +138,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "expected_distinct_documents": 2
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 2
     },
     {
       "id": "div_009_uraca_kd724_chapters_multiproject",
@@ -147,7 +155,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "fr",
-      "expected_distinct_documents": 3
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 3
     },
     {
       "id": "div_010_lh2_list_manual_vacuum_drive",
@@ -163,7 +172,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "expected_distinct_documents": 3
+      "expected_distinct_documents": 0,
+      "expected_distinct_content": 1
     }
   ]
 }
