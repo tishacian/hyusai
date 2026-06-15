@@ -154,4 +154,32 @@ g150 comme 13 documents et peut en renvoyer 8.
 
 ## 7. Traçabilité
 
-<!-- TRACE_PLACEHOLDER -->
+- **Commit** : `ccf449ff` sur `demo/agentic` (poussé sur Bitbucket
+  `datategy-root/omnirag`). Parent `a11294e6`.
+- **Fichiers** : `retrieval_golden.py`, `andritz_spl_diversity.json`,
+  `golden_flag_ab.py`, `test_retrieval_golden_batch.py`, ce rapport.
+- **Tests** : `poetry run pytest app/tests/ -q -k "golden or retrieval_golden
+  or mmr"` (hors `api/test_auth_signup.py` email-validator et
+  `services/test_hybrid_retrieval.py` Qdrant local) → **24 passed**.
+- **Déploiement** : **aucun redéploiement nécessaire.** `retrieval_golden` n'est
+  importé que par lui-même, les tests et `golden_flag_ab.py` — il n'est **pas**
+  dans le chemin de service RAG live (`context.py`, `mmr_stage.py` inchangés).
+  Le batch JSON et le harness ne servent qu'à l'évaluation. La VM
+  (`omnirag-demo`) tourne, conteneurs `agentium-backend`/`-worker-cpu`/`qdrant`
+  up ; mesures faites in-container par exécution directe sur le code à jour.
+- **Reproduire l'A/B sur la VM** (après `docker cp` du code à jour dans
+  `agentium-backend`, ou rebuild) :
+
+  ```text
+  docker exec -w /app/backend agentium-backend python -m scripts.golden_flag_ab \
+    --workspace andritz \
+    --batch app/resources/retrieval_golden/andritz_spl_diversity.json \
+    --flags rag_mmr_enabled=false
+  ```
+
+- **Méthode de mesure** : deux passes propres mono-flag (`rag_mmr_enabled` true
+  puis false), même `evaluate_retrieval_golden_case`, `rag_context_cache` et
+  cache de recherche désactivés/contrôlés. Le cache de résultats de recherche
+  porte sur la récupération brute (avant diversification) : il rend les entrées
+  des deux bras identiques, donc l'écart observé tient à la seule étape de
+  diversification.
