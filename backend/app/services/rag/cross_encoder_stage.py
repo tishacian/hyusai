@@ -10,7 +10,10 @@ under a strict latency contract:
 - ``balanced`` (the chat path): top candidates only, short passages, hard
   time budget (``rag_cross_encoder_budget_seconds``); on timeout the policy
   order is kept untouched and a diagnostic is emitted.
-- ``deep`` (async): full pool, full passage length, no budget.
+- ``deep`` (async): a capped pool (``rag_cross_encoder_max_candidates_deep``),
+  full passage length, under a generous budget
+  (``rag_cross_encoder_budget_seconds_deep``, a fraction of the deep deadline);
+  on timeout the policy order is kept untouched, same as balanced.
 
 The model loads lazily in a worker thread; the first balanced request that
 hits a cold model simply times out to the policy order while the load
@@ -105,9 +108,9 @@ async def rerank_with_cross_encoder(
 
     if profile == "deep":
         model_name = settings.rag_cross_encoder_model_deep
-        max_length = 512
-        budget_seconds: float | None = None
-        pool = len(chunks)
+        max_length = max(64, int(settings.rag_cross_encoder_max_length_deep))
+        budget_seconds: float | None = max(0.05, float(settings.rag_cross_encoder_budget_seconds_deep))
+        pool = min(len(chunks), max(1, int(settings.rag_cross_encoder_max_candidates_deep)))
     else:
         model_name = settings.rag_cross_encoder_model_balanced
         max_length = max(64, int(settings.rag_cross_encoder_max_length_balanced))

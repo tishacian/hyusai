@@ -143,3 +143,90 @@ async def test_deep_profile_runs_without_budget(monkeypatch):
     assert diag["cross_encoder_status"] == "applied"
     assert captured["max_length"] == 512
     assert captured["count"] == len(chunks)  # full pool, no exempt fn given
+
+
+def _big_pool(n):
+    chunks = [f"chunk {i}" for i in range(n)]
+    scores = [1.0 - i * 0.001 for i in range(n)]
+    metadatas = [{"document_filename": f"doc{i}.pdf"} for i in range(n)]
+    return chunks, scores, metadatas
+
+
+@pytest.mark.asyncio
+async def test_deep_budget_timeout_keeps_policy_order(monkeypatch):
+    monkeypatch.setattr(cross_encoder_stage, "_reranker_unavailable_reason", None)
+    monkeypatch.setattr(cross_encoder_stage.settings, "rag_cross_encoder_budget_seconds_deep", 0.05)
+
+    def slow_score(query, passages, *, model_name, max_length):
+        time.sleep(0.5)
+        return [0.9] * len(passages)
+
+    monkeypatch.setattr(cross_encoder_stage, "_score_passages", slow_score)
+    chunks, scores, metadatas = _pool()
+    out_chunks, out_scores, out_metadatas, diag = await rerank_with_cross_encoder(
+        chunks, scores, metadatas,
+        query="q", latency_profile="deep", allow_cross_encoder=True, top_k=5,
+    )
+    # Deep is now bounded: a slow score exceeds the budget and degrades to the
+    # untouched policy order with a timeout diagnostic.
+    assert out_chunks == chunks
+    assert out_scores == scores
+    assert out_metadatas == metadatas
+    assert diag["cross_encoder_status"] == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_deep_pool_is_capped(monkeypatch):
+    monkeypatch.setattr(cross_encoder_stage, "_reranker_unavailable_reason", None)
+    monkeypatch.setattr(cross_encoder_stage.settings, "rag_cross_encoder_max_candidates_deep", 3)
+    monkeypatch.setattr(cross_encoder_stage.settings, "rag_cross_encoder_budget_seconds_deep", 25.0)
+    captured: dict = {}
+
+    def capture(query, passages, *, model_name, max_length):
+        captured["count"] = len(passages)
+        # Reverse the head pool so reordering is observable.
+        return [float(i) for i in range(len(passages))]
+
+    monkeypatch.setattr(cross_encoder_stage, "_score_passages", capture)
+    chunks, scores, metadatas = _big_pool(6)
+    out_chunks, _, _, diag = await rerank_with_cross_encoder(
+        chunks, scores, metadatas,
+        query="q", latency_profile="deep", allow_cross_encoder=True, top_k=10,
+    )
+    assert diag["cross_encoder_status"] == "applied"
+    # Only the first 3 candidates are scored; the tail beyond the pool keeps order.
+    assert captured["count"] == 3
+    assert diag["cross_encoder_scored"] == 3
+    # Tail (indices 3,4,5) is appended untouched after the reordered pool.
+    assert out_chunks[-3:] == ["chunk 3", "chunk 4", "chunk 5"]
+    # Pool of 3 reordered by descending CE score (scores were 0,1,2 -> idx 2,1,0).
+    assert out_chunks[:3] == ["chunk 2", "chunk 1", "chunk 0"]
+
+
+@pytest.mark.asyncio
+async def test_balanced_unaffected_by_deep_settings(monkeypatch):
+    monkeypatch.setattr(cross_encoder_stage, "_reranker_unavailable_reason", None)
+    # Extreme deep settings must not leak into the balanced branch.
+    monkeypatch.setattr(cross_encoder_stage.settings, "rag_cross_encoder_max_candidates_deep", 1)
+    monkeypatch.setattr(cross_encoder_stage.settings, "rag_cross_encoder_budget_seconds_deep", 0.05)
+    monkeypatch.setattr(cross_encoder_stage.settings, "rag_cross_encoder_max_length_deep", 8)
+    captured: dict = {}
+
+    def capture(query, passages, *, model_name, max_length):
+        captured["model"] = model_name
+        captured["max_length"] = max_length
+        captured["count"] = len(passages)
+        return [0.5] * len(passages)
+
+    monkeypatch.setattr(cross_encoder_stage, "_score_passages", capture)
+    chunks, scores, metadatas = _pool()
+    _, _, _, diag = await rerank_with_cross_encoder(
+        chunks, scores, metadatas,
+        query="q", latency_profile="balanced", allow_cross_encoder=True, top_k=5,
+    )
+    assert diag["cross_encoder_status"] == "applied"
+    # Balanced uses its own settings, not the (extreme) deep ones.
+    assert captured["model"] == cross_encoder_stage.settings.rag_cross_encoder_model_balanced
+    assert captured["max_length"] == max(64, int(cross_encoder_stage.settings.rag_cross_encoder_max_length_balanced))
+    # All 4 chunks scored (balanced max_candidates default 24 >= 4), not capped to 1.
+    assert captured["count"] == 4

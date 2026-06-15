@@ -141,6 +141,13 @@ class Settings(BaseSettings):
     rag_cross_encoder_threshold: float = 0.2
     rag_cross_encoder_max_candidates: int = 24
     rag_cross_encoder_max_length_balanced: int = 256
+    # Deep profile was previously unbounded (budget_seconds=None, pool=len(chunks),
+    # max_length=512), so a large fused pool could blow the deep deadline. These
+    # bound it: budget is a fraction of rag_deep_retrieval_deadline_seconds (120s),
+    # the pool is capped, and on timeout the stage degrades to the policy order.
+    rag_cross_encoder_budget_seconds_deep: float = 25.0
+    rag_cross_encoder_max_candidates_deep: int = 64
+    rag_cross_encoder_max_length_deep: int = 512
     rag_cross_encoder_max_concurrency: int = 2
     rag_cross_encoder_preload: bool = False
     # RAGGER/HAH-RAG paper refinements. Fusion/compression/generation are
