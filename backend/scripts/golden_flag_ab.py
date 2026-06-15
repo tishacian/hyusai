@@ -58,7 +58,13 @@ def _parse_flags(raw: str | None) -> dict[str, Any]:
     return overrides
 
 
-async def _run_batch(cases, overrides: dict[str, Any], workspace: Workspace) -> dict[str, dict[str, Any]]:
+async def _run_batch(
+    cases,
+    overrides: dict[str, Any],
+    workspace: Workspace,
+    *,
+    latency_profile: str | None = None,
+) -> dict[str, dict[str, Any]]:
     # The retrieval-context cache key does not include feature flags, so a
     # variant run would silently reuse the baseline's cached contexts and the
     # comparison would be vacuous. Disable it unless explicitly overridden.
@@ -71,6 +77,8 @@ async def _run_batch(cases, overrides: dict[str, Any], workspace: Workspace) -> 
         for case in cases:
             try:
                 request = case.to_request()
+                if latency_profile:
+                    request["latency_profile"] = latency_profile
                 request.update(
                     {
                         "workspace_id": workspace.id,
@@ -79,7 +87,13 @@ async def _run_batch(cases, overrides: dict[str, Any], workspace: Workspace) -> 
                     }
                 )
                 context = await retrieve_rag_context(request)
-                results[case.id] = evaluate_retrieval_golden_case(case, context)
+                res = evaluate_retrieval_golden_case(case, context)
+                ctx_metrics = context.get("metrics") if isinstance(context.get("metrics"), dict) else {}
+                res["comparative_decompose"] = ctx_metrics.get("comparative_decompose")
+                res["comparative_entities"] = ctx_metrics.get("comparative_entities")
+                res["comparative_subquery_hits"] = ctx_metrics.get("comparative_subquery_hits")
+                res["comparative_entities_promoted"] = ctx_metrics.get("comparative_entities_promoted")
+                results[case.id] = res
             except Exception as exc:  # noqa: BLE001 - report, keep evaluating
                 results[case.id] = {"id": case.id, "passed": False, "error": str(exc)}
     finally:
@@ -94,16 +108,20 @@ def main() -> None:
     parser.add_argument("--flags", required=True, help="Variant overrides, e.g. rag_mmr_enabled=true,rag_mmr_lambda=0.6")
     parser.add_argument("--baseline-flags", default="", help="Optional baseline overrides")
     parser.add_argument("--workspace", default="andritz", help="Workspace slug owning the golden collections")
+    parser.add_argument("--latency-profile", default=None, help="Override each case's latency_profile (fast|balanced|deep)")
+    parser.add_argument("--only-comparative", action="store_true", help="Restrict to cases with expected_prompt_type==comparative")
     args = parser.parse_args()
 
     cases = load_retrieval_golden_cases(args.batch)
+    if args.only_comparative:
+        cases = [c for c in cases if c.expected_prompt_type == "comparative"]
     workspace = _workspace(args.workspace)
     baseline_overrides = _parse_flags(args.baseline_flags)
     variant_overrides = _parse_flags(args.flags)
 
     async def _run() -> tuple[dict, dict]:
-        baseline = await _run_batch(cases, baseline_overrides, workspace)
-        variant = await _run_batch(cases, variant_overrides, workspace)
+        baseline = await _run_batch(cases, baseline_overrides, workspace, latency_profile=args.latency_profile)
+        variant = await _run_batch(cases, variant_overrides, workspace, latency_profile=args.latency_profile)
         return baseline, variant
 
     baseline, variant = asyncio.run(_run())
@@ -126,6 +144,10 @@ def main() -> None:
             f"distinct_docs={b.get('distinct_documents')}->{v.get('distinct_documents')} "
             f"distinct_content={b.get('distinct_content')}->{v.get('distinct_content')} {marker}"
         )
+        if v.get("comparative_decompose") or b.get("comparative_decompose"):
+            print(f"    comparative B/V decompose={b.get('comparative_decompose')}/{v.get('comparative_decompose')} "
+                  f"entities={v.get('comparative_entities')} subhits={v.get('comparative_subquery_hits')} "
+                  f"promoted={v.get('comparative_entities_promoted')}")
         if marker == "REGRESSION":
             print(f"    missing_sources={v.get('missing_sources')} missing_terms={v.get('missing_evidence_terms')}")
 

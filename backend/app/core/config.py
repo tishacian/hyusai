@@ -162,6 +162,15 @@ class Settings(BaseSettings):
     rag_prompt_classifier_enabled: bool = False
     rag_prompt_classifier_min_confidence: float = 0.15
     rag_prompt_classifier_budget_seconds: float = 0.15
+    # Comparative query decomposition: an "A vs B" query is dominated by the
+    # corpus-frequent entity, so the second entity under-recalls. When enabled
+    # and two entities parse out, two entity-focused sub-queries run in parallel
+    # and merge with the original, guaranteeing ≥1 chunk per entity in the
+    # top-k. Master flag (deep): ON. Balanced is gated separately because the
+    # extra sub-queries add latency — measured before flipping ON.
+    rag_comparative_decompose_enabled: bool = True
+    rag_comparative_decompose_balanced: bool = False
+    rag_comparative_decompose_max_subqueries: int = 2
     # Workspace source_policy.reject_cross_project_sources rollout: log-only by
     # default (counts what would be dropped); flip to True once collections are
     # backfilled with project_code payloads, otherwise untagged corpora would

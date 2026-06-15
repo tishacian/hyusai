@@ -37,6 +37,11 @@ from app.services.rag.cross_encoder_stage import rerank_with_cross_encoder
 from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_scope
 from app.services.rag.lexical_retrieval import analyze_query, lexical_match_details
 from app.services.rag.mode_selector import resolve_retrieval_mode
+from app.services.rag.comparative_retrieval import (
+    augment_with_comparative_subqueries,
+    build_comparative_plan,
+    ensure_entity_coverage,
+)
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
@@ -2132,10 +2137,10 @@ async def retrieve_rag_context(
     )
     synthesis_k = profile["synthesis_k"]
 
-    def _retrieve_coro(call_filters: dict[str, Any] | None, call_deadline: float):
+    def _retrieve_coro(call_filters: dict[str, Any] | None, call_deadline: float, query_override: str | None = None):
         return retrieve_for_mode(
             doc_svc,
-            retrieval_query,
+            query_override or retrieval_query,
             effective_mode,
             top_k=pool_top_k,
             use_hybrid=use_hybrid,
@@ -2267,6 +2272,49 @@ async def retrieve_rag_context(
     raw_chunk_count = len(result.chunks)
     if scope_miss_recovery:
         metrics.update(scope_miss_recovery)
+
+    # Comparative decomposition: an "A vs B" query under-recalls the second
+    # entity. When enabled (deep by default; balanced behind a flag) and two
+    # entities parse out, run entity-focused sub-queries through this same
+    # bounded pipeline and merge so each entity reaches the candidate pool;
+    # ensure_entity_coverage later guarantees ≥1 chunk per entity in the top-k.
+    comparative_plan = build_comparative_plan(
+        retrieval_query, latency_profile=profile.get("latency_profile")
+    )
+    comparative_sub_results = None
+    if comparative_plan is not None and result.chunks:
+        comparative_remaining = deadline_seconds - (time.perf_counter() - retrieval_started_perf)
+        if comparative_remaining >= 0.5:
+            async def _comparative_subretrieve(subquery: str, sub_deadline: float):
+                return await _retrieve_coro(
+                    retrieval_filters,
+                    min(sub_deadline, comparative_remaining),
+                    query_override=subquery,
+                )
+
+            (
+                merged_chunks,
+                merged_scores,
+                merged_metas,
+                comparative_diag,
+            ) = await augment_with_comparative_subqueries(
+                plan=comparative_plan,
+                primary=(result.chunks, result.scores, result.metadatas),
+                retrieve=_comparative_subretrieve,
+                deadline_seconds=comparative_remaining,
+                pool_limit=pool_top_k,
+            )
+            comparative_sub_results = comparative_diag.pop("_sub_results", None)
+            result.chunks, result.scores, result.metadatas = (
+                merged_chunks,
+                merged_scores,
+                merged_metas,
+            )
+            metrics.update(comparative_diag)
+        else:
+            metrics.update({"comparative_decompose": False, "comparative_skipped_reason": "deadline"})
+    elif comparative_plan is not None:
+        metrics.update({"comparative_decompose": False, "comparative_skipped_reason": "no_primary_hits"})
     retrieval_diagnostics = {
         key: value for key, value in (getattr(result, "diagnostics", {}) or {}).items() if value is not None
     }
@@ -2340,6 +2388,17 @@ async def retrieve_rag_context(
         cross_encoder_status=cross_encoder_diag.get("cross_encoder_status"),
     )
     metrics.update(compression_diag)
+    if comparative_plan is not None and comparative_sub_results:
+        chunks, scores, metadatas, coverage_diag = ensure_entity_coverage(
+            chunks,
+            scores,
+            metadatas,
+            plan=comparative_plan,
+            sub_results=comparative_sub_results,
+            limit=synthesis_k,
+            is_exempt=_is_threshold_exempt_metadata,
+        )
+        metrics.update(coverage_diag)
     rerank_ms = int((time.perf_counter() - rerank_started_perf) * 1000)
     document_chunk_count = len(chunks)
     chunks, scores, metadatas, parent_context_count = await _append_parent_context(
