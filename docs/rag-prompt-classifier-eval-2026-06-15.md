@@ -115,7 +115,7 @@ de localisation » et n'affectent aucun cas existant. Suite complète :
 
 ## 6. Traçabilité
 
-- **Commit** : `<HASH>` sur `demo/agentic`.
+- **Commit** : `08a10ff7` sur `demo/agentic`.
 - **Fichiers** : `retrieval_golden.py` (schéma + `evaluate_prompt_type_case`),
   `classifier.py` (3 marqueurs FACTUAL FR), `andritz_spl_hard_intents.json`
   (annotations), `scripts/golden_classifier_eval.py` (runner),
