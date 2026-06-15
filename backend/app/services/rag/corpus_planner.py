@@ -531,6 +531,34 @@ def _workspace_collections(db: DBSession, workspace_id: str | None) -> list[Know
     )
 
 
+def _deep_ledger_is_large(db: DBSession, collections: list[str], workspace_id: str | None) -> bool:
+    """Cheap size probe used to bound the deep planner on large corpora.
+
+    Deep historically loaded and Python-scanned the *full* source ledger to
+    infer scope. On large ledger-backed collections (e.g. ~99k sources /
+    ~1.49M chunks on andritz-notices-spl-pilot) that scan was measured at
+    ~55-120s and dominates the deep deadline — broad/unscoped deep jobs then
+    time out with 0 passages while the actual Qdrant retrieval is sub-second.
+    When any targeted collection is large we route deep through the same
+    bounded DB-side ILIKE targeting fast/balanced already use. Reads only the
+    indexed size columns, never the source rows.
+    """
+    for ref in collections:
+        query = db.query(KnowledgeCollection.document_count, KnowledgeCollection.chunk_count).filter(
+            (KnowledgeCollection.slug == ref) | (KnowledgeCollection.id == ref)
+        )
+        if workspace_id:
+            query = query.filter(KnowledgeCollection.workspace_id == workspace_id)
+        row = query.first()
+        if not row:
+            continue
+        document_count = int(row[0] or 0)
+        chunk_count = int(row[1] or 0)
+        if document_count > _LEDGER_TARGETING_MIN_SOURCES or chunk_count > _LEDGER_TARGETING_MIN_CHUNKS:
+            return True
+    return False
+
+
 def _collection_source_count(db: DBSession, collection: KnowledgeCollection) -> int:
     try:
         return int(
@@ -1300,9 +1328,19 @@ def plan_corpus(
     # query so _rows_for_collections performs a bounded DB-side ILIKE targeting
     # of candidate sources (filename/normalized_name) instead of loading every
     # row. The Python ledger/filter scoring then runs over that bounded set,
-    # preserving the inferred scope. Only deep (async, backgrounded) keeps the
-    # exhaustive full-ledger load.
-    source_lookup_query = query if latency_profile != "deep" else None
+    # preserving the inferred scope.
+    #
+    # Deep (async, backgrounded) historically kept the exhaustive full-ledger
+    # load. That is safe on small corpora but on large ledger-backed corpora the
+    # full Python scan was measured at ~55-120s and dominates the deep deadline,
+    # so broad/unscoped deep jobs time out with 0 passages even though the Qdrant
+    # retrieval itself is sub-second. Deep therefore takes the same bounded
+    # targeting as fast/balanced *on large collections only*; small-corpus deep
+    # keeps its exhaustive scan unchanged.
+    if latency_profile == "deep":
+        source_lookup_query = query if _deep_ledger_is_large(db, collections, workspace_id) else None
+    else:
+        source_lookup_query = query
     rows, collection_rows = _rows_for_collections(
         db,
         collections,

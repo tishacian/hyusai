@@ -10,6 +10,7 @@ from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.workspace import Workspace
 from app.services.knowledge_collections import create_collection, upsert_collection_source
 from app.services.rag import context as rag_context
+from app.services.rag import corpus_planner as rag_corpus_planner
 from app.services.rag.context import get_retrieval_profile, retrieve_rag_context
 from app.services.rag.corpus_planner import classify_intent, is_catalogue_query, plan_corpus
 from app.services.rag.retrieval_policy import RetrievalPolicy
@@ -1061,6 +1062,77 @@ def test_balanced_fact_scope_bounded_to_non_large_collections(db_session, monkey
     assert large_deep.filters.get("document_filename") == [fact_filename]
 
 
+def test_deep_planner_bounds_large_collection_ledger_load(db_session, monkeypatch):
+    """Regression: deep must not Python-scan the full source ledger on large corpora.
+
+    The full-ledger load + scoring was measured at ~55-120s on the andritz SPL
+    pilot (~99k sources / ~1.49M chunks) and dominated the 120s deep deadline, so
+    broad/unscoped deep jobs timed out with 0 passages while Qdrant retrieval was
+    sub-second. Deep now takes the same bounded DB-side targeting as fast/balanced
+    on large collections, while small-corpus deep keeps its exhaustive scan.
+    """
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-deep-bound", name="Deep Bound", slug="deep-bound")
+    db_session.add(workspace)
+    db_session.commit()
+
+    full_load_calls: list[str] = []
+    original_full_load = rag_corpus_planner.collection_source_rows
+
+    def _tracking_full_load(db, *, collection):
+        full_load_calls.append(collection.slug)
+        return original_full_load(db, collection=collection)
+
+    monkeypatch.setattr(rag_corpus_planner, "collection_source_rows", _tracking_full_load)
+
+    def _seed(name: str, *, document_count: int, chunk_count: int):
+        collection = create_collection(db_session, workspace=workspace, name=name)
+        for index in range(3):
+            upsert_collection_source(
+                db_session,
+                collection=collection,
+                filename=f"A__AKK200__manuel_chapitre_{index}.html",
+                status="ready",
+                chunk_count=120,
+            )
+        collection.document_count = document_count
+        collection.chunk_count = chunk_count
+        db_session.commit()
+        return collection
+
+    small = _seed("Deep Bound Small", document_count=3, chunk_count=360)
+    large = _seed("Deep Bound Large", document_count=99481, chunk_count=1489764)
+
+    assert rag_corpus_planner._deep_ledger_is_large(db_session, [large.slug], workspace.id) is True
+    assert rag_corpus_planner._deep_ledger_is_large(db_session, [small.slug], workspace.id) is False
+
+    def _plan(collection):
+        return plan_corpus(
+            db=db_session,
+            profile={
+                "collection": collection.slug,
+                "collections": [collection.slug],
+                "workspace_id": workspace.id,
+                "latency_profile": "deep",
+                "rag_mode": "chah",
+            },
+            query="resume le projet AKK200",
+        )
+
+    # Large collection: deep must take the bounded path — the full-ledger loader
+    # is never invoked, yet the project scope is still inferred.
+    full_load_calls.clear()
+    large_plan = _plan(large)
+    assert large.slug not in full_load_calls
+    assert large_plan.filters.get("document_filename")
+
+    # Small collection: deep keeps the exhaustive full-ledger scan unchanged.
+    full_load_calls.clear()
+    _plan(small)
+    assert small.slug in full_load_calls
+
+
 async def test_dense_collection_quick_ask_uses_bounded_fast_sparse_direct(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
@@ -1491,6 +1563,77 @@ async def test_dense_deep_without_system_scope_returns_coarse_inventory_not_glob
     assert result["retrieval_plan"]["guardrails"]["global_chunk_search_allowed"] is False
     assert result["metrics"]["dense_global_search_skipped"] is True
     assert not svc.calls
+
+
+async def test_deep_scope_miss_recovery_retries_without_doc_filters(db_session, monkeypatch):
+    """Deep must not return 0 passages when an inferred document scope is empty.
+
+    The SQL ledger is a superset of the vector store on partially-ingested corpora:
+    a ledger-inferred document_filename scope can point at documents that were never
+    vectorised, so the payload filter excludes every candidate and deep would return
+    0 passages (the empty grounding fallback the user sees). Deep has ample deadline
+    headroom, so it retries once over the collection without the doc-level filters.
+    """
+    monkeypatch.setattr(rag_context.settings, "rag_cross_encoder_enabled", False)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-scope-miss", name="Scope Miss", slug="scope-miss")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Scope Miss SPL")
+    upsert_collection_source(
+        db_session,
+        collection=collection,
+        filename="A__ACJ100__scope_miss.html",
+        status="ready",
+        chunk_count=60,
+    )
+    db_session.commit()
+
+    seen_filters: list[dict] = []
+
+    async def _fake_retrieve(doc_svc, query, mode, **kwargs):  # noqa: ARG001
+        filters = dict(kwargs.get("filters") or {})
+        seen_filters.append(filters)
+        # First (scoped) call: the inferred document scope is absent from the
+        # vector store, so retrieval finds nothing.
+        if "document_filename" in filters:
+            return SimpleNamespace(
+                chunks=[], scores=[], metadatas=[],
+                pipeline="chah_backend", label="C-HAH", reason="empty", detail="",
+                diagnostics={"sparse_backend": "disabled", "sparse_status": "disabled"},
+            )
+        # Relaxed retry over the collection returns real passages.
+        return SimpleNamespace(
+            chunks=["pompe centrifuge Etachrom B passage"],
+            scores=[0.81],
+            metadatas=[{"document_filename": "H__HYD100__pompe.pdf"}],
+            pipeline="chah_backend", label="C-HAH", reason="recovered", detail="",
+            diagnostics={"sparse_backend": "disabled", "sparse_status": "disabled"},
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "quelles sont toutes les pompes utilisées dans tous les projets ?",
+            "context_collection": collection.slug,
+            "workspace_id": workspace.id,
+            "workspace_slug": workspace.slug,
+            "latency_profile": "deep",
+            "deep_retrieval": True,
+            "rag_pipeline_mode": "chah",
+            "retrieval_filters": {"document_filename": ["H__HYD100__only_in_ledger.pdf"]},
+        },
+        doc_svc=RecordingDenseService(count=420),
+    )
+
+    # Two retrieval attempts: the empty scoped call, then the relaxed retry.
+    assert len(seen_filters) == 2
+    assert "document_filename" in seen_filters[0]
+    assert "document_filename" not in seen_filters[1]
+    assert result["metrics"].get("scope_miss_recovery") is True
+    assert result["chunks"], "deep scope-miss recovery must return grounded passages, not 0"
 
 
 async def test_retrieve_rag_context_cache_reuses_fast_context(db_session, monkeypatch):

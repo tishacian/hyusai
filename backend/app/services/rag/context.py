@@ -2131,27 +2131,31 @@ async def retrieve_rag_context(
         else _discovery_pool_top_k(profile["candidate_pool_k"], is_discovery)
     )
     synthesis_k = profile["synthesis_k"]
+
+    def _retrieve_coro(call_filters: dict[str, Any] | None, call_deadline: float):
+        return retrieve_for_mode(
+            doc_svc,
+            retrieval_query,
+            effective_mode,
+            top_k=pool_top_k,
+            use_hybrid=use_hybrid,
+            hah_chah_enabled=allow_hah_chah,
+            query_hints=guide_hint,
+            retrieval_policy=retrieval_policy,
+            filters=call_filters,
+            deadline_seconds=call_deadline,
+            max_variants=max_variants,
+            max_candidates=max_candidates,
+            allow_legacy_hybrid=allow_legacy_hybrid,
+            retrieval_profile=profile.get("retrieval_profile"),
+            latency_profile=profile.get("latency_profile"),
+            extra_variants=_deep_rewrite_variants(request, profile),
+        )
+
     try:
         retrieval_started_perf = time.perf_counter()
         result = await asyncio.wait_for(
-            retrieve_for_mode(
-                doc_svc,
-                retrieval_query,
-                effective_mode,
-                top_k=pool_top_k,
-                use_hybrid=use_hybrid,
-                hah_chah_enabled=allow_hah_chah,
-                query_hints=guide_hint,
-                retrieval_policy=retrieval_policy,
-                filters=retrieval_filters,
-                deadline_seconds=deadline_seconds,
-                max_variants=max_variants,
-                max_candidates=max_candidates,
-                allow_legacy_hybrid=allow_legacy_hybrid,
-                retrieval_profile=profile.get("retrieval_profile"),
-                latency_profile=profile.get("latency_profile"),
-                extra_variants=_deep_rewrite_variants(request, profile),
-            ),
+            _retrieve_coro(retrieval_filters, deadline_seconds),
             timeout=deadline_seconds,
         )
         retrieval_elapsed_ms = int((time.perf_counter() - retrieval_started_perf) * 1000)
@@ -2208,8 +2212,61 @@ async def retrieve_rag_context(
             }
         )
 
+    # Deep scope-miss recovery. A ledger-inferred document scope can point at
+    # documents that exist in the SQL ledger but were never ingested into the
+    # vector store (the SQL ledger is a superset of Qdrant on partially-ingested
+    # corpora). The payload filter then excludes every candidate and deep would
+    # return 0 passages — the empty grounding fallback the user sees as
+    # "deep_timeout · 0 passages". Deep (async) has ample deadline headroom, so
+    # retry once over the collection without the doc-level scope filters rather
+    # than degrading to an empty answer. Only triggers when a doc-level scope was
+    # actually inferred and produced nothing, so genuinely-unscoped deep plans
+    # (coarse inventory) and successful scoped retrievals are untouched.
+    _SCOPE_MISS_FILTER_KEYS = ("document_filename", "document_id", "archive_name")
+    scope_miss_recovery = None
+    if (
+        str(profile.get("latency_profile") or "") == "deep"
+        and not result.chunks
+        and isinstance(retrieval_filters, dict)
+        and any(key in retrieval_filters for key in _SCOPE_MISS_FILTER_KEYS)
+    ):
+        relaxed_filters = {
+            key: value
+            for key, value in retrieval_filters.items()
+            if key not in _SCOPE_MISS_FILTER_KEYS
+        }
+        remaining_deadline = deadline_seconds - (time.perf_counter() - retrieval_started_perf)
+        if remaining_deadline >= 1.0:
+            try:
+                retry_result = await asyncio.wait_for(
+                    _retrieve_coro(relaxed_filters or None, remaining_deadline),
+                    timeout=remaining_deadline,
+                )
+            except (TimeoutError, asyncio.TimeoutError):
+                retry_result = None
+            except Exception as exc:  # noqa: BLE001 - recovery must never break deep.
+                logger.warning("deep scope-miss recovery failed", error=str(exc))
+                retry_result = None
+            if retry_result is not None and retry_result.chunks:
+                result = retry_result
+                retrieval_filters = relaxed_filters
+                retrieval_elapsed_ms = int((time.perf_counter() - retrieval_started_perf) * 1000)
+                scope_miss_recovery = {
+                    "scope_miss_recovery": True,
+                    "scope_miss_dropped_filters": [
+                        key for key in _SCOPE_MISS_FILTER_KEYS if key in (profile.get("retrieval_filters") or {})
+                    ],
+                }
+                logger.info(
+                    "deep scope-miss recovery applied",
+                    chunks=len(result.chunks),
+                    dropped=scope_miss_recovery["scope_miss_dropped_filters"],
+                )
+
     duration_ms = int((time.time() - started) * 1000)
     raw_chunk_count = len(result.chunks)
+    if scope_miss_recovery:
+        metrics.update(scope_miss_recovery)
     retrieval_diagnostics = {
         key: value for key, value in (getattr(result, "diagnostics", {}) or {}).items() if value is not None
     }
