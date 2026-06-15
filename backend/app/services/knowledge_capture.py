@@ -5347,9 +5347,40 @@ def _resolve_capture_report_source_min_score() -> float:
     from app.core.config import settings as cfg
 
     try:
-        return float(getattr(cfg, "capture_report_source_min_score", 0.55) or 0.55)
+        return float(getattr(cfg, "capture_report_source_min_score", 0.35) or 0.35)
     except (TypeError, ValueError):
-        return 0.55
+        return 0.35
+
+
+def _normalized_relevance_score(metadata: Any) -> Optional[float]:
+    """Return a per-chunk relevance score on a normalized [0, 1] scale, or ``None``.
+
+    The ``scores`` list returned by ``retrieve_rag_context`` is the RRF fusion
+    weight, whose scale is path-dependent (~0.005-0.02 on the client-weighted
+    RRF path vs ~3-22 on the Qdrant server-side path) and therefore NOT
+    comparable to a cosine/similarity threshold. The retrieval layer instead
+    preserves, per chunk in the metadata, normalized signals we can threshold:
+
+    * ``cross_encoder_score`` — sigmoid relevance in [0, 1] (present only when
+      the balanced cross-encoder rerank actually ran; absent on timeout/skip).
+    * ``dense_score`` — the per-chunk dense cosine preserved at the dense layer
+      (present whenever the chunk surfaced through the dense lane).
+
+    Prefer the cross-encoder score, fall back to the dense cosine, and return
+    ``None`` when neither is available (e.g. sparse-only chunks) so the caller
+    keeps the chunk instead of dropping it on the meaningless fusion score.
+    """
+    if not isinstance(metadata, dict):
+        return None
+    for key in ("cross_encoder_score", "dense_score"):
+        raw = metadata.get(key)
+        if raw is None:
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def _filter_retrieval_by_min_score(
@@ -5358,22 +5389,32 @@ def _filter_retrieval_by_min_score(
     scores: List[float],
     min_score: float,
 ) -> Tuple[List[str], List[Dict[str, Any]], List[float]]:
-    """Drop retrieval hits below ``min_score`` before attaching them to reports."""
+    """Drop retrieval hits below ``min_score`` before attaching them to reports.
+
+    The threshold is applied to a NORMALIZED per-chunk relevance score in [0, 1]
+    (cross-encoder sigmoid score if present, else the dense cosine
+    ``dense_score``), NOT to the path-dependent RRF fusion ``scores``. A chunk
+    with no normalized signal (sparse-only / missing-score) is KEPT — dropping
+    it on the tiny client-weighted fusion score is exactly the regression this
+    guards against.
+    """
     if min_score <= 0:
         return list(chunks or []), list(metadatas or []), list(scores or [])
     kept_chunks: List[str] = []
     kept_meta: List[Dict[str, Any]] = []
     kept_scores: List[float] = []
     for index, chunk in enumerate(chunks or []):
-        score = scores[index] if index < len(scores) else None
-        if score is not None and float(score) < min_score:
-            continue
-        kept_chunks.append(str(chunk))
-        kept_meta.append(
+        metadata = (
             metadatas[index]
             if index < len(metadatas) and isinstance(metadatas[index], dict)
             else {}
         )
+        normalized = _normalized_relevance_score(metadata)
+        if normalized is not None and normalized < min_score:
+            continue
+        kept_chunks.append(str(chunk))
+        kept_meta.append(metadata)
+        score = scores[index] if index < len(scores) else None
         if score is not None:
             kept_scores.append(float(score))
     return kept_chunks, kept_meta, kept_scores

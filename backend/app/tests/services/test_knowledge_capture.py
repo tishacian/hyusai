@@ -40,6 +40,7 @@ from app.services.knowledge_capture import (
     update_proposal_open_question_statuses,
     update_capture_session_flags,
     _filter_retrieval_by_min_score,
+    _normalized_relevance_score,
 )
 from app.services.capture_report_templates import (
     ANDRITZ_TEMPLATE_ID,
@@ -634,23 +635,76 @@ def test_proposal_open_question_invalidate_rebuilds_report(db_session):
     assert node_questions[0]["status"] == "invalid"
 
 
-def test_filter_retrieval_by_min_score_drops_weak_hits():
-    chunks = ["strong hit", "weak hit", "medium hit"]
+def test_normalized_relevance_score_prefers_cross_encoder_then_dense():
+    # Cross-encoder sigmoid score wins when present.
+    assert _normalized_relevance_score(
+        {"cross_encoder_score": 0.91, "dense_score": 0.40}
+    ) == pytest.approx(0.91)
+    # Falls back to the dense cosine when no cross-encoder score is present.
+    assert _normalized_relevance_score({"dense_score": 0.367}) == pytest.approx(0.367)
+    # Sparse-only / missing-score chunk → no normalized signal.
+    assert _normalized_relevance_score({"document_id": "sparse-only"}) is None
+    assert _normalized_relevance_score(None) is None
+
+
+def test_filter_retrieval_by_min_score_thresholds_on_normalized_score():
+    # The fusion ``scores`` are tiny client-weighted RRF weights and must NOT
+    # drive the filter; only the per-chunk normalized signal (dense cosine /
+    # cross-encoder) does.
+    chunks = ["strong dense", "weak dense", "cross-encoder hit", "sparse only"]
     metadatas = [
-        {"document_id": "doc-a", "title": "Doc A"},
-        {"document_id": "doc-b", "title": "Doc B"},
-        {"document_id": "doc-c", "title": "Doc C"},
+        {"document_id": "doc-a", "title": "Doc A", "dense_score": 0.626},
+        {"document_id": "doc-b", "title": "Doc B", "dense_score": 0.12},
+        {"document_id": "doc-c", "title": "Doc C", "cross_encoder_score": 0.88, "dense_score": 0.05},
+        {"document_id": "doc-d", "title": "Doc D"},
     ]
-    scores = [0.82, 0.31, 0.58]
-    filtered_chunks, filtered_meta, filtered_scores = _filter_retrieval_by_min_score(
+    scores = [0.0048, 0.0224, 0.0091, 0.0007]
+    filtered_chunks, filtered_meta, _filtered_scores = _filter_retrieval_by_min_score(
         chunks,
         metadatas,
         scores,
-        0.55,
+        0.35,
     )
-    assert filtered_chunks == ["strong hit", "medium hit"]
-    assert [meta["document_id"] for meta in filtered_meta] == ["doc-a", "doc-c"]
-    assert filtered_scores == [0.82, 0.58]
+    # Strong dense kept, weak dense dropped, cross-encoder hit kept (its high
+    # cross-encoder score overrides its low dense_score), sparse-only kept.
+    assert filtered_chunks == ["strong dense", "cross-encoder hit", "sparse only"]
+    assert [meta["document_id"] for meta in filtered_meta] == ["doc-a", "doc-c", "doc-d"]
+
+
+def test_filter_retrieval_keeps_high_dense_despite_low_fusion_score():
+    # Regression: the analysis observed dense_score=0.626 with fusion
+    # scores=[0.0048, 0.0224, ...] on the client_weighted path → previously ALL
+    # sources were dropped. They must now be kept.
+    chunks = ["genuinely relevant"]
+    metadatas = [{"document_id": "tech-vocab", "title": "Tech Vocab", "dense_score": 0.626}]
+    scores = [0.0048]
+    kept_chunks, kept_meta, _kept_scores = _filter_retrieval_by_min_score(
+        chunks, metadatas, scores, 0.35
+    )
+    assert kept_chunks == ["genuinely relevant"]
+    assert kept_meta[0]["document_id"] == "tech-vocab"
+
+
+def test_filter_retrieval_drops_low_dense_score():
+    chunks = ["banana noise"]
+    metadatas = [{"document_id": "noise", "title": "Noise", "dense_score": 0.04}]
+    kept_chunks, kept_meta, _kept_scores = _filter_retrieval_by_min_score(
+        chunks, metadatas, [12.5], 0.35
+    )
+    assert kept_chunks == []
+    assert kept_meta == []
+
+
+def test_filter_retrieval_keeps_missing_normalized_score_chunk():
+    # Sparse-only chunk: no dense_score, no cross_encoder_score, tiny fusion
+    # weight. Must be kept (its evidence would otherwise be lost).
+    chunks = ["sparse exact match"]
+    metadatas = [{"document_id": "sparse-1", "title": "Sparse"}]
+    kept_chunks, kept_meta, _kept_scores = _filter_retrieval_by_min_score(
+        chunks, metadatas, [0.0011], 0.35
+    )
+    assert kept_chunks == ["sparse exact match"]
+    assert kept_meta[0]["document_id"] == "sparse-1"
 
 
 @pytest.mark.asyncio
@@ -658,17 +712,19 @@ async def test_finalize_capture_section_filters_low_score_sources(db_session, mo
     import app.services.knowledge_capture as kc
 
     async def _scored_retrieval(*_a, **_k):
+        # Both chunks have tiny client-weighted RRF fusion scores; the dense
+        # cosine in metadata is the real relevance signal driving the filter.
         return (
             ["Andritz unrelated doc", "Relevant section note"],
             [
-                {"document_id": "andritz-1", "title": "Andritz KB"},
-                {"document_id": "relevant-1", "title": "Process manual"},
+                {"document_id": "andritz-1", "title": "Andritz KB", "dense_score": 0.18},
+                {"document_id": "relevant-1", "title": "Process manual", "dense_score": 0.71},
             ],
-            [0.42, 0.71],
+            [0.0042, 0.0071],
         )
 
     monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _scored_retrieval)
-    monkeypatch.setattr(kc, "_resolve_capture_report_source_min_score", lambda: 0.55)
+    monkeypatch.setattr(kc, "_resolve_capture_report_source_min_score", lambda: 0.35)
 
     workspace = Workspace(id="ws-src-filter", name="Src Filter", slug="src-filter")
     user = User(id="user-src-filter", username="sf@datategy.local", email="sf@datategy.local")
@@ -699,6 +755,58 @@ async def test_finalize_capture_section_filters_low_score_sources(db_session, mo
     source_titles = [src.get("title") for src in entry.get("sources") or []]
     assert "Andritz KB" not in source_titles
     assert "Process manual" in source_titles
+
+
+@pytest.mark.asyncio
+async def test_finalize_capture_section_keeps_high_dense_low_fusion_sources(db_session, monkeypatch):
+    # Regression: long capture queries route to the client_weighted fusion path
+    # whose scores (~0.005-0.02) sit far below any cosine threshold. A section
+    # whose chunks have tiny fusion scores but high dense relevance (and a
+    # sparse-only chunk with no normalized signal) must keep ALL its sources.
+    import app.services.knowledge_capture as kc
+
+    async def _scored_retrieval(*_a, **_k):
+        return (
+            ["Strong KB note", "Sparse exact match"],
+            [
+                {"document_id": "kb-strong", "title": "Hydraulic Manual", "dense_score": 0.626},
+                {"document_id": "kb-sparse", "title": "Spare Parts Index"},
+            ],
+            [0.0048, 0.0011],
+        )
+
+    monkeypatch.setattr(kc, "_retrieve_context_chunks_async", _scored_retrieval)
+    monkeypatch.setattr(kc, "_resolve_capture_report_source_min_score", lambda: 0.35)
+
+    workspace = Workspace(id="ws-src-keep", name="Src Keep", slug="src-keep")
+    user = User(id="user-src-keep", username="sk@datategy.local", email="sk@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="La pression hydraulique est réglée à 12 bar avant démarrage.",
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        actor_user_id=user.id,
+    )
+
+    entry = await finalize_capture_section(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        workspace_slug=workspace.slug,
+    )
+
+    source_titles = [src.get("title") for src in entry.get("sources") or []]
+    assert "Hydraulic Manual" in source_titles
+    assert "Spare Parts Index" in source_titles
 
 
 @pytest.mark.asyncio

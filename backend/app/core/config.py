@@ -278,11 +278,19 @@ class Settings(BaseSettings):
     # workspace via ``workspace.settings.voice.transcript_rewrite_context``.
     voice_transcript_rewrite_context: str = "Nous sommes dans le contexte industriel Andritz."
 
-    # Minimum retrieval score for KB sources attached to capture FINAL reports.
-    # Chunks below this threshold are excluded from section sources and from the
-    # grounded-question / reformulation context. Cross-encoder scores are
-    # typically in [0, 1]; 0.55 filters weakly related documents.
-    capture_report_source_min_score: float = 0.55
+    # Minimum NORMALIZED per-chunk relevance score for KB sources attached to
+    # capture FINAL reports. Interpreted against a [0, 1]-scale signal carried in
+    # the chunk metadata — the cross-encoder sigmoid score when present, else the
+    # per-chunk dense cosine (``dense_score``). It is NOT applied to the RRF
+    # fusion score returned by retrieval (that score is rank-fusion weight whose
+    # scale is path-dependent: ~0.005-0.02 on the client-weighted RRF path vs
+    # ~3-22 on the Qdrant server-side RRF path, so a cosine threshold there drops
+    # genuinely relevant evidence). Default 0.35: a dense cosine of ~0.35 keeps
+    # both an abstract-but-on-topic chunk (observed ~0.367) and a strong match
+    # (~0.626) while still discarding near-zero noise; cross-encoder scores for
+    # relevant passages sit comfortably above this floor. Chunks with NO
+    # normalized signal (e.g. sparse-only hits) are kept rather than dropped.
+    capture_report_source_min_score: float = 0.35
 
     # Cascade TTS voice + steering. The steerable gpt-4o-mini-tts model accepts
     # an `instructions` field to control accent / persona / prosody; tts-1 and
