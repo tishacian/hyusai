@@ -169,6 +169,40 @@ Recommandations :
    label de source. Non fait ici (consigne : ne pas forcer d'assertion
    artificielle dans le golden).
 
+## 8. Suivi (2026-06-16) — hygiène du golden comparatif (chantier A)
+
+Le §6.3 est désormais traité (golden-only, aucun code live). Les
+`expected_sources` des 3 cas comparatifs étaient des **noms de composants**
+absents des `document_filename` (exports HTML / part-numbers) → échec
+structurel. Corrigés sur la base des sources RÉELLEMENT récupérables (vérifié
+in-container sur le vrai Qdrant) :
+
+| cas | expected_sources (réel) | expected_evidence_terms (2 côtés) | min |
+|-----|---|---|:--:|
+| hi_003 | `AKI300` | `CONTINENTAL`, `POLLRICH` | 1 |
+| hi_004 | `SINAMICS` | `G150`, `S120` | 1 |
+| hi_008 | `702435420` (doc pompe Wilo, REN100) | `Drain`, `NOLH` | 1 |
+
+Le double-côté est porté par `expected_evidence_terms` (contenu) ;
+`expected_sources` ancre un fragment réellement présent. Observations corpus :
+les deux soufflantes de hi_003 vivent dans les **mêmes** pages HTML AKI300 ; la
+doc Wilo de hi_008 est indexée sous **REN100** (part-number `702435420`), pas
+sous BEX200.
+
+Re-run in-container (vrai Qdrant), golden recalibré :
+
+| cas | deep (décompo ON) | balanced (décompo OFF) |
+|-----|:--:|:--:|
+| hi_003 | PASS | PASS (2 entités même page) |
+| hi_004 | PASS | PASS |
+| hi_008 | **PASS** (matched `702435420`, décompo) | **fail** (doc Wilo non remonté sans décompo) |
+
+Effet global hard-intents : **4/11 → 7/11 en deep, 6/11 en balanced**. hi_008
+est désormais **discriminant** : il ne passe que lorsque la décomposition
+récupère la doc Wilo (deep par défaut ; balanced seulement si le flag est ON).
+Les 4 échecs restants (hi_001/007/009/010) sont non-comparatifs, hors périmètre.
+Commit golden-only (pas de redéploiement) : voir §7.
+
 ## 7. Déploiement & traçabilité
 
 - **Commits** `demo/agentic` : `07a7faef` (feature + tests),

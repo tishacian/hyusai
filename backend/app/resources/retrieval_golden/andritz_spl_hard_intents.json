@@ -47,37 +47,38 @@
       "id": "hi_003_compare_continental_pollrich_aki300",
       "query": "What is the difference between the CONTINENTAL GVJS and POLLRICH GVJ1 vacuum set blowers on AKI300?",
       "collection": "andritz-notices-techniques-spl-pilot",
+      "_comment_sources": "Both blowers are documented within the AKI300 dryer/vacuum-set pages (A__AKI300__...accueil-Dryer.html); the component model names live in CONTENT, not in filenames. expected_sources gates on the retrievable AKI300 scope; the two-sided requirement is enforced by expected_evidence_terms (CONTINENTAL + POLLRICH).",
       "expected_sources": [
-        "CONTINENTAL GVJS",
-        "POLLRICH GVJ1"
+        "AKI300"
       ],
       "expected_evidence_terms": [
-        "AKI300",
-        "vacuum"
+        "CONTINENTAL",
+        "POLLRICH"
       ],
       "expected_intent": "comparative",
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "min_expected_sources": 2,
+      "min_expected_sources": 1,
       "expected_prompt_type": "comparative"
     },
     {
       "id": "hi_004_compare_g150_s120_drives",
       "query": "Quelles differences de parametres de mise en service entre les variateurs SINAMICS G150 et SINAMICS S120 ?",
       "collection": "andritz-notices-techniques-spl-pilot",
+      "_comment_sources": "The SINAMICS S120 commissioning manual is retrievable by filename (E__EXX200__...SINAMICS S120 Mise en route...). expected_sources gates on the SINAMICS family label; the two-sided requirement (both drives) is enforced by expected_evidence_terms (G150 + S120).",
       "expected_sources": [
-        "G150",
-        "S120"
+        "SINAMICS"
       ],
       "expected_evidence_terms": [
-        "SINAMICS"
+        "G150",
+        "S120"
       ],
       "expected_intent": "comparative",
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "fr",
-      "min_expected_sources": 2,
+      "min_expected_sources": 1,
       "expected_prompt_type": "comparative"
     },
     {
@@ -144,19 +145,19 @@
       "id": "hi_008_compare_wilo_drain_nolh_bex200",
       "query": "Compare the Wilo Drain SP and the Wilo NOLH pump manuals available for BEX200.",
       "collection": "andritz-notices-techniques-spl-pilot",
+      "_comment_sources": "The Wilo pump documentation is indexed under part-number filenames (702435420_F_EN_000.pdf) in the REN100 hydroentanglement diagrams, NOT under BEX200 — the model names live in CONTENT. Verified: without comparative decomposition the primary query surfaces none of the Wilo content (drain/nolh absent); with decomposition both surface. expected_sources gates on the Wilo doc, expected_evidence_terms (Drain + NOLH) enforces both pumps. This case therefore only passes when both entities are recalled.",
       "expected_sources": [
-        "Wilo Drain SP",
-        "Wilo NOLH"
+        "702435420"
       ],
       "expected_evidence_terms": [
-        "Wilo",
-        "BEX200"
+        "Drain",
+        "NOLH"
       ],
       "expected_intent": "comparative",
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "min_expected_sources": 2,
+      "min_expected_sources": 1,
       "expected_prompt_type": "comparative"
     },
     {
