@@ -67,6 +67,24 @@ class RetrievalGoldenCase:
     # can actually move — round-robin (which keys on ``document_id``) treats
     # per-project copies as diverse and cannot raise it.
     expected_distinct_content: int = 0
+    # Ground-truth reasoning type for the Bayesian prompt classifier
+    # (SystemPromptType value: factual | analytical | comparative | causal |
+    # hypothetical). The classifier runs AFTER retrieval (prompt_type=="auto"),
+    # so it is invisible to the retrieval scoring above — these fields drive a
+    # separate, offline classifier eval (``evaluate_prompt_type_case``).
+    # ``trivial`` is intentionally not a valid label: it must never be
+    # auto-selected.
+    expected_prompt_type: str | None = None
+    # Secondary types that also count as correct (genuine borderline cases,
+    # e.g. "what does X cover" reads as factual or analytical).
+    acceptable_prompt_types: tuple[str, ...] = ()
+    # Queries with no decisive reasoning marker (imperative retrieval commands)
+    # are excluded from strict classifier accuracy and reported separately.
+    prompt_type_ambiguous: bool = False
+    # Score this case with the full (patterns+coherence) classifier instead of
+    # the fast (patterns-only) path. The full path needs the embedder, so the
+    # offline runner only honours it when embeddings are available.
+    requires_coherence: bool = False
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "RetrievalGoldenCase":
@@ -94,6 +112,14 @@ class RetrievalGoldenCase:
             forbidden_sources=tuple(str(item) for item in payload.get("forbidden_sources") or ()),
             expected_distinct_documents=max(0, int(payload.get("expected_distinct_documents") or 0)),
             expected_distinct_content=max(0, int(payload.get("expected_distinct_content") or 0)),
+            expected_prompt_type=str(payload["expected_prompt_type"])
+            if payload.get("expected_prompt_type")
+            else None,
+            acceptable_prompt_types=tuple(
+                str(item) for item in payload.get("acceptable_prompt_types") or ()
+            ),
+            prompt_type_ambiguous=bool(payload.get("prompt_type_ambiguous") or False),
+            requires_coherence=bool(payload.get("requires_coherence") or False),
         )
 
     def to_request(self) -> dict[str, Any]:
@@ -299,4 +325,81 @@ def evaluate_retrieval_golden_case(
         "distinct_content": distinct_content,
         "content_diversity_shortfall": content_diversity_shortfall,
         "dense_policy": dense_policy or None,
+    }
+
+
+def _accept_set(case: RetrievalGoldenCase) -> set[str]:
+    """Labels that count as correct for the classifier eval."""
+    accepted = {label for label in case.acceptable_prompt_types if label}
+    if case.expected_prompt_type:
+        accepted.add(case.expected_prompt_type)
+    return accepted
+
+
+def evaluate_prompt_type_case(case: RetrievalGoldenCase) -> dict[str, Any] | None:
+    """Score the FAST (patterns-only) prompt classifier against a golden case.
+
+    Offline and zero-cost: no Qdrant, no LLM, no embeddings. The classifier
+    runs after retrieval in production, so this is the only place its choice is
+    measured against ground truth. Returns ``None`` for cases that carry no
+    prompt-type annotation (the field is optional across batches).
+
+    A case is ``correct`` when the selected type is in the accepted set
+    (``expected_prompt_type`` plus ``acceptable_prompt_types``). Ambiguous
+    cases (``prompt_type_ambiguous``) are evaluated but flagged so the runner
+    can keep them out of strict accuracy.
+    """
+    from app.services.system_prompts.classifier import classify_prompt_type_fast
+
+    accepted = _accept_set(case)
+    if not accepted and not case.prompt_type_ambiguous:
+        return None
+    decision = classify_prompt_type_fast(case.query)
+    predicted = decision.prompt_type.value
+    top_posterior = max(decision.posteriors, key=decision.posteriors.get) if decision.posteriors else None
+    return {
+        "id": case.id,
+        "language": case.language,
+        "query": case.query,
+        "expected_prompt_type": case.expected_prompt_type,
+        "acceptable_prompt_types": list(case.acceptable_prompt_types),
+        "ambiguous": case.prompt_type_ambiguous,
+        "predicted": predicted,
+        "top_posterior": top_posterior,
+        "fallback_applied": decision.fallback_applied,
+        "confidence": decision.confidence,
+        "correct": predicted in accepted if accepted else None,
+    }
+
+
+async def evaluate_prompt_type_case_full(
+    case: RetrievalGoldenCase,
+    *,
+    latency_profile: str = "balanced",
+) -> dict[str, Any] | None:
+    """Same as ``evaluate_prompt_type_case`` but via the full classifier.
+
+    Adds the embedding-coherence signal, so it requires a reachable embedder
+    (not offline). Used by the runner's optional ``--full`` pass for cases
+    marked ``requires_coherence``.
+    """
+    from app.services.system_prompts.classifier import classify_prompt_type
+
+    accepted = _accept_set(case)
+    if not accepted and not case.prompt_type_ambiguous:
+        return None
+    decision = await classify_prompt_type(case.query, latency_profile=latency_profile)
+    predicted = decision.prompt_type.value
+    return {
+        "id": case.id,
+        "language": case.language,
+        "query": case.query,
+        "expected_prompt_type": case.expected_prompt_type,
+        "acceptable_prompt_types": list(case.acceptable_prompt_types),
+        "ambiguous": case.prompt_type_ambiguous,
+        "predicted": predicted,
+        "method": decision.method,
+        "fallback_applied": decision.fallback_applied,
+        "confidence": decision.confidence,
+        "correct": predicted in accepted if accepted else None,
     }

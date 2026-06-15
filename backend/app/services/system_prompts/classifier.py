@@ -62,6 +62,10 @@ _PATTERN_BANKS: dict[SystemPromptType, tuple[tuple[str, float], ...]] = {
         (r"\bquel(?:le)?s?\b", _GENERIC), (r"\bliste[rz]?\b", _STRONG),
         (r"\bdefini[srt]\b", _STRONG), (r"\bdonne[- ]moi\b", _STRONG),
         (r"\bretrouve[rz]?\b", _STRONG), (r"\bcombien\b", _STRONG),
+        # Locate-a-document phrasings ("où se trouve / où trouver / où est"):
+        # factual source lookups that otherwise carry no marker and fall back.
+        (r"\bou se trouve", _STRONG), (r"\bou trouve[rz]?\b", _STRONG),
+        (r"\bou (?:est|sont)\b", _NORMAL),
         (r"\bwas ist\b", _GENERIC), (r"\bwer\b", _NORMAL), (r"\bwo\b", _NORMAL),
         (r"\bwann\b", _NORMAL), (r"\bwelche[rsn]?\b", _GENERIC), (r"\bnenne\b", _STRONG),
     ),

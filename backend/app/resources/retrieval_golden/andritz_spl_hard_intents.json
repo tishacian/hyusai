@@ -1,6 +1,6 @@
 {
   "id": "andritz_spl_hard_intents_v1",
-  "description": "Hard-intent cases: ambiguous partial identifiers matching several projects, comparative questions spanning 2+ documents, analytical multi-hop questions, and exclusion cases (forbidden_sources). Mixed FR/EN/DE. All sources verified against the live andritz__andritz-notices-techniques-spl-pilot Qdrant collection.",
+  "description": "Hard-intent cases: ambiguous partial identifiers matching several projects, comparative questions spanning 2+ documents, analytical multi-hop questions, and exclusion cases (forbidden_sources). Mixed FR/EN/DE. All sources verified against the live andritz__andritz-notices-techniques-spl-pilot Qdrant collection. expected_prompt_type annotates the ground-truth reasoning type for the Bayesian classifier eval (see scripts/golden_classifier_eval.py); it does NOT gate the retrieval scoring. hi_007 is an imperative retrieval command with no reasoning marker -> prompt_type_ambiguous (excluded from strict accuracy).",
   "cases": [
     {
       "id": "hi_001_ambiguous_parts_manual",
@@ -23,7 +23,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "fr",
-      "min_expected_sources": 2
+      "min_expected_sources": 2,
+      "expected_prompt_type": "factual"
     },
     {
       "id": "hi_002_ambiguous_kd724_partial_ref",
@@ -39,7 +40,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "fr",
-      "expected_distinct_documents": 2
+      "expected_distinct_documents": 2,
+      "expected_prompt_type": "factual"
     },
     {
       "id": "hi_003_compare_continental_pollrich_aki300",
@@ -57,7 +59,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "min_expected_sources": 2
+      "min_expected_sources": 2,
+      "expected_prompt_type": "comparative"
     },
     {
       "id": "hi_004_compare_g150_s120_drives",
@@ -74,7 +77,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "fr",
-      "min_expected_sources": 2
+      "min_expected_sources": 2,
+      "expected_prompt_type": "comparative"
     },
     {
       "id": "hi_005_analytical_php_pressure_drop",
@@ -89,7 +93,11 @@
       "expected_intent": "analytical",
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
-      "language": "fr"
+      "language": "fr",
+      "expected_prompt_type": "causal",
+      "acceptable_prompt_types": [
+        "analytical"
+      ]
     },
     {
       "id": "hi_006_german_simotics_akk200",
@@ -105,7 +113,8 @@
       "expected_intent": "source_lookup",
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
-      "language": "de"
+      "language": "de",
+      "expected_prompt_type": "factual"
     },
     {
       "id": "hi_007_exclusion_excelle_not_dutch",
@@ -124,6 +133,11 @@
       "language": "en",
       "forbidden_sources": [
         "TTN22074J"
+      ],
+      "prompt_type_ambiguous": true,
+      "acceptable_prompt_types": [
+        "factual",
+        "analytical"
       ]
     },
     {
@@ -142,7 +156,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "min_expected_sources": 2
+      "min_expected_sources": 2,
+      "expected_prompt_type": "comparative"
     },
     {
       "id": "hi_009_ambiguous_lh2_identifier",
@@ -158,7 +173,11 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "en",
-      "expected_distinct_documents": 2
+      "expected_distinct_documents": 2,
+      "expected_prompt_type": "factual",
+      "acceptable_prompt_types": [
+        "analytical"
+      ]
     },
     {
       "id": "hi_010_analytical_wilo_rexa_vacuum_lot100",
@@ -174,7 +193,11 @@
       "expected_intent": "analytical",
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
-      "language": "fr"
+      "language": "fr",
+      "expected_prompt_type": "factual",
+      "acceptable_prompt_types": [
+        "analytical"
+      ]
     },
     {
       "id": "hi_011_ambiguous_etachrom_bc_multiproject",
@@ -190,7 +213,8 @@
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "fr",
-      "expected_distinct_documents": 2
+      "expected_distinct_documents": 2,
+      "expected_prompt_type": "factual"
     }
   ]
 }

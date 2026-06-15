@@ -1,6 +1,12 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
+from app.services.rag.retrieval_golden import (
+    evaluate_prompt_type_case,
+    load_retrieval_golden_cases,
+)
 from app.services.system_prompts import classifier as classifier_module
 from app.services.system_prompts.classifier import (
     PromptTypeDecision,
@@ -8,6 +14,19 @@ from app.services.system_prompts.classifier import (
     classify_prompt_type_fast,
 )
 from app.services.system_prompts.types import SystemPromptType
+
+
+_HARD_INTENTS = (
+    Path(__file__).resolve().parents[2]
+    / "resources"
+    / "retrieval_golden"
+    / "andritz_spl_hard_intents.json"
+)
+_HARD_INTENT_CASES = [
+    case
+    for case in load_retrieval_golden_cases(_HARD_INTENTS)
+    if case.expected_prompt_type or case.prompt_type_ambiguous
+]
 
 
 # (query, language, expected type) — markers must survive accent folding.
@@ -69,6 +88,62 @@ def test_ambiguous_hypothetical_causal_resolves_to_either(query, lang):
     decision = classify_prompt_type_fast(query)
     acceptable = {SystemPromptType.HYPOTHETICAL, SystemPromptType.CAUSAL, SystemPromptType.ANALYTICAL}
     assert decision.prompt_type in acceptable, f"{lang}: {query} -> {decision.posteriors}"
+
+
+@pytest.mark.parametrize(
+    "case", _HARD_INTENT_CASES, ids=[c.id for c in _HARD_INTENT_CASES]
+)
+def test_hard_intent_prompt_types_fast(case):
+    """The fast classifier matches the hard-intent ground-truth labels.
+
+    Ambiguous cases (imperative retrieval commands) are not held to a strict
+    label — they only must not land on an obviously wrong reasoning type.
+    """
+    result = evaluate_prompt_type_case(case)
+    assert result is not None
+    if case.prompt_type_ambiguous:
+        accepted = set(case.acceptable_prompt_types) or {"factual", "analytical"}
+        assert result["predicted"] in accepted, result
+    else:
+        assert result["correct"], result
+
+
+def test_hard_intent_fast_accuracy_meets_threshold():
+    results = [r for c in _HARD_INTENT_CASES if (r := evaluate_prompt_type_case(c))]
+    strict = [r for r in results if not r["ambiguous"]]
+    accuracy = sum(1 for r in strict if r["correct"]) / len(strict)
+    assert accuracy >= 0.8, [r for r in strict if not r["correct"]]
+
+
+def test_hard_intent_comparative_and_causal_cases_classify():
+    # At least two comparative/analytical/causal cases must land on a reasoning
+    # type (not fall back to a generic factual lookup).
+    reasoning = {
+        SystemPromptType.COMPARATIVE.value,
+        SystemPromptType.ANALYTICAL.value,
+        SystemPromptType.CAUSAL.value,
+    }
+    hits = [
+        r
+        for c in _HARD_INTENT_CASES
+        if (r := evaluate_prompt_type_case(c))
+        and not r["ambiguous"]
+        and r["expected_prompt_type"] in reasoning
+        and r["predicted"] in reasoning
+        and r["correct"]
+    ]
+    assert len(hits) >= 2, hits
+
+
+def test_locate_phrasings_classify_as_factual():
+    # The minimal FR "locate-a-document" markers added to the FACTUAL bank.
+    for query in (
+        "Ou se trouve le parts manual ?",
+        "Ou trouver la notice etachrom bc du circuit HP ?",
+        "Ou est la documentation de la pompe ?",
+    ):
+        decision = classify_prompt_type_fast(query)
+        assert decision.prompt_type == SystemPromptType.FACTUAL, f"{query} -> {decision.posteriors}"
 
 
 def test_trivial_is_never_auto_selected():
