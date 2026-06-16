@@ -87,3 +87,7 @@ node_modules/
 # Demo deck binary artifacts (kept local; the build_deck.py generator is tracked).
 demo-assets/**/*.png
 demo-assets/**/*.pptx
+
+# PIH product doc build outputs (generators under docs/render/ are tracked).
+docs/render/out/*.docx
+docs/render/assets/diagrams/
