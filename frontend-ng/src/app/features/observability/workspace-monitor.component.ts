@@ -107,6 +107,41 @@ type WindowKey = '24h' | '7d';
           <ck-stat-readout variant="tile" label="Eval breaches" [value]="overview()!.evaluations.breaches" icon="shield" tone="warn" />
         </section>
 
+        <section class="mb-5 rounded-md border border-emerald-400/15 bg-emerald-400/[0.035]">
+          <header class="flex items-center gap-2 border-b border-emerald-400/10 px-4 py-3">
+            <ck-glyph name="flow" [size]="14" />
+            <h2 class="ck-mono text-[11px] uppercase tracking-[0.18em] text-emerald-200">Retrieval decisions</h2>
+            <span class="ck-mono ml-auto text-[10px] text-emerald-300/70">
+              {{ overview()!.retrieval_decisions?.total || 0 }} traced · {{ overview()!.retrieval_decisions?.missing || 0 }} missing
+            </span>
+          </header>
+          <div class="grid grid-cols-1 gap-3 p-4 xl:grid-cols-12">
+            <div class="xl:col-span-7">
+              @if (retrievalRoutes().length) {
+                <div class="grid gap-2 md:grid-cols-2">
+                  @for (route of retrievalRoutes().slice(0, 6); track route.route) {
+                    <div class="rounded border border-white/5 bg-black/20 px-3 py-2">
+                      <div class="ck-mono text-[10px] uppercase tracking-[0.14em] text-gray-500">Route</div>
+                      <div class="mt-1 flex items-center gap-2">
+                        <span class="truncate text-sm font-medium text-white">{{ routeLabel(route.route) }}</span>
+                        <span class="ck-mono ml-auto text-xs text-emerald-300">{{ route.count }}</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <app-empty-state size="sm" icon="git-branch" title="No decision trace yet" description="Run the chat to capture retrieval routing decisions." />
+              }
+            </div>
+            <div class="xl:col-span-5 grid grid-cols-2 gap-2">
+              <ck-stat-readout variant="tile" label="Sparse fallbacks" [value]="summary().sparse_fallbacks || 0" icon="warn" tone="warn" />
+              <ck-stat-readout variant="tile" label="Sparse timeouts" [value]="summary().sparse_timeouts || 0" icon="timer" tone="warn" />
+              <ck-stat-readout variant="tile" label="Cross issues" [value]="summary().cross_encoder_issues || 0" icon="shield" tone="neg" />
+              <ck-stat-readout variant="tile" label="Deep launched" [value]="summary().deep_launched || 0" icon="rocket" tone="violet" />
+            </div>
+          </div>
+        </section>
+
         <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
           <section class="rounded-md border border-white/10 bg-white/[0.03] xl:col-span-7">
             <header class="flex items-center gap-2 border-b border-white/5 px-4 py-3">
@@ -219,11 +254,19 @@ export class WorkspaceMonitorComponent implements OnInit, OnDestroy {
     jobs_failed: 0,
     evaluations_total: 0,
     alerts_total: 0,
+    retrieval_traces_total: 0,
+    retrieval_traces_missing: 0,
+    sparse_timeouts: 0,
+    sparse_fallbacks: 0,
+    cross_encoder_issues: 0,
+    deep_recommended: 0,
+    deep_launched: 0,
   });
   readonly systems = computed<SystemHealthRow[]>(() => this.overview()?.systems ?? []);
   readonly jobs = computed<JobHealthRow[]>(() => this.overview()?.jobs ?? []);
   readonly alerts = computed<ObservabilityAlert[]>(() => this.overview()?.alerts ?? []);
   readonly timeline = computed<ActivityTimelineItem[]>(() => this.overview()?.timeline ?? []);
+  readonly retrievalRoutes = computed(() => this.overview()?.retrieval_decisions?.routes ?? []);
 
   ngOnInit(): void {
     this.refresh(true);
@@ -293,6 +336,10 @@ export class WorkspaceMonitorComponent implements OnInit, OnDestroy {
 
   shortStatus(status?: string | null): string {
     return status ? status.slice(0, 4).toUpperCase() : '—';
+  }
+
+  routeLabel(route?: string | null): string {
+    return String(route || 'retrieval').replace(/_/g, ' ');
   }
 
   toneColor(tone?: string | null): string {

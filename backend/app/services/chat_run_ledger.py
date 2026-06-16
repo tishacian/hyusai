@@ -20,6 +20,7 @@ _RETRIEVAL_TELEMETRY_KEYS = (
     "latency_profile",
     "retrieval_latency_profile",
     "retrieval_latency_scope",
+    "retrieval_decision_trace",
     "dense_policy",
     "dense_only",
     "sparse_status",
@@ -153,7 +154,12 @@ def _create_chat_invocations(
             {
                 "slug": "chat_trivial_bypass_v1",
                 "latency_share": 0.25,
-                "output_ref": {"confidence": confidence, "mode": "trivial_bypass"},
+                "output_ref": {
+                    "confidence": confidence,
+                    "mode": "trivial_bypass",
+                    "retrieval_decision_trace": retrieval_telemetry.get("retrieval_decision_trace"),
+                },
+                "metrics": retrieval_telemetry,
             }
         )
     else:

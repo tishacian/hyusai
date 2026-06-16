@@ -44,6 +44,7 @@ from app.services.chat_run_ledger import enrich_chat_run_ledger
 from app.services.chat_trivial_bypass import TrivialBypass, maybe_trivial_bypass
 from app.services.systems.bootstrap import WORKSPACE_CHAT_VARIANT
 from app.services.systems.bootstrap import workspace_chat_system_id
+from app.services.rag.decision_trace import build_trivial_retrieval_decision_trace
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
 from app.services.workspace_maps import handle_map_chat_query
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
@@ -57,6 +58,7 @@ response_validator = ResponseValidator()
 _RETRIEVAL_OBSERVABILITY_KEYS = (
     "retrieval_scope",
     "retrieval_plan",
+    "retrieval_decision_trace",
     "scope_confidence",
     "scope_reason",
     "dense_policy",
@@ -246,6 +248,15 @@ def _trivial_bypass_for_language(
         "trivial_greeting": "Hello, I'm listening.",
     }
     return TrivialBypass(content=english.get(bypass.reason, bypass.content), reason=bypass.reason)
+
+
+def _trivial_bypass_metadata(bypass: TrivialBypass, query: str | None = None) -> dict[str, Any]:
+    metadata = dict(bypass.metadata())
+    metadata["retrieval_decision_trace"] = build_trivial_retrieval_decision_trace(
+        reason=bypass.reason,
+        query=query,
+    )
+    return metadata
 
 
 def _resolve_system_id(
@@ -627,9 +638,11 @@ def _persist_trivial_bypass_turn(
     query: str,
     bypass: TrivialBypass,
 ) -> Optional[str]:
+    bypass_metrics = _trivial_bypass_metadata(bypass, query)
     metadata = {
         "trivial_bypass": True,
-        "retrieval_metrics": bypass.metadata(),
+        "retrieval_metrics": bypass_metrics,
+        "retrieval_decision_trace": bypass_metrics.get("retrieval_decision_trace"),
     }
     if request.session_id:
         db.add(
@@ -680,12 +693,14 @@ def _persist_trivial_bypass_turn(
 
 
 def _trivial_bypass_completion_payload(run_id: Optional[str], bypass: TrivialBypass) -> Dict[str, Any]:
+    bypass_metrics = _trivial_bypass_metadata(bypass)
     return {
         "run_id": run_id,
         "content": bypass.content,
         "reasoning_trace": None,
         "sources": [],
-        "retrieval_metrics": bypass.metadata(),
+        "retrieval_metrics": bypass_metrics,
+        "retrieval_decision_trace": bypass_metrics.get("retrieval_decision_trace"),
         "trivial_bypass": True,
         "deep_retrieval_recommended": False,
         "status": "completed",
@@ -2399,7 +2414,7 @@ async def chat_stream(
                         "phase": "bypassed",
                         "content": "",
                         "message": "Trivial chat bypassed retrieval",
-                        "details": empty_bypass.metadata(),
+                        "details": _trivial_bypass_metadata(empty_bypass, ""),
                         "is_final": False,
                     }
                 )
@@ -2450,7 +2465,7 @@ async def chat_stream(
                         "phase": "bypassed",
                         "content": "",
                         "message": "Trivial chat bypassed retrieval",
-                        "details": trivial_bypass.metadata(),
+                        "details": _trivial_bypass_metadata(trivial_bypass, validated_query),
                         "is_final": False,
                     }
                 )

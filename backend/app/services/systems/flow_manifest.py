@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from sqlalchemy.orm import Session as DBSession
 
+from app.models.run import Run
 from app.models.skill import Skill
 from app.models.system import System
 from app.services.skills_registry import runtime_status
@@ -345,6 +346,37 @@ def _effective_chat_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _trace_from_payload(payload: Any) -> Dict[str, Any] | None:
+    data = _as_dict(payload)
+    trace = data.get("retrieval_decision_trace")
+    if isinstance(trace, Mapping):
+        return dict(trace)
+    metrics = data.get("retrieval_metrics")
+    if isinstance(metrics, Mapping) and isinstance(metrics.get("retrieval_decision_trace"), Mapping):
+        return dict(metrics["retrieval_decision_trace"])
+    return None
+
+
+def _latest_retrieval_decision_trace(db: DBSession, system: System) -> Dict[str, Any] | None:
+    run = (
+        db.query(Run)
+        .filter(Run.system_id == system.id)
+        .order_by(Run.started_at.desc())
+        .first()
+    )
+    if not run:
+        return None
+    trace = _trace_from_payload(run.output_ref)
+    if trace:
+        return {
+            "run_id": run.id,
+            "status": run.status,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "trace": trace,
+        }
+    return None
+
+
 def serialize_flow_manifest(db: DBSession, system: System) -> Dict[str, Any]:
     """Return the runtime manifest backing the Flow Builder UI."""
     flow = _as_dict(system.flow_definition)
@@ -358,6 +390,7 @@ def serialize_flow_manifest(db: DBSession, system: System) -> Dict[str, Any]:
     units = [_unit_for_node(node, skills) for node in nodes]
     sync_mode = "chat_runtime" if flow.get("variant") == WORKSPACE_CHAT_VARIANT else "run_engine_dag"
     live_surface = flow.get("ui", {}).get("entry_route") if isinstance(flow.get("ui"), Mapping) else None
+    latest_retrieval_decision = _latest_retrieval_decision_trace(db, system) if sync_mode == "chat_runtime" else None
     return {
         "system_id": system.id,
         "system_name": system.name,
@@ -370,6 +403,7 @@ def serialize_flow_manifest(db: DBSession, system: System) -> Dict[str, Any]:
         "runtime_contract": flow.get("runtime_contract") or {},
         "prompt_contract": flow.get("prompt_contract") or {},
         "effective_config": _effective_chat_config(flow) if sync_mode == "chat_runtime" else {},
+        "latest_retrieval_decision": latest_retrieval_decision,
         "unit_catalog": units,
         "summary": {
             "nodes": len(nodes),

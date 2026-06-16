@@ -90,6 +90,25 @@ type AnswerBlock =
   | { kind: 'list'; ordered: boolean; items: AnswerToken[][] }
   | { kind: 'codeblock'; value: string };
 
+interface RetrievalDecisionTrace {
+  summary?: string;
+  query_type?: string;
+  latency_profile?: string | null;
+  retrieval_profile?: string | null;
+  selected_route?: string;
+  route_reason?: string;
+  tradeoff?: string;
+  collection_scope?: Record<string, unknown>;
+  layers?: Array<Record<string, unknown>>;
+  quality_controls?: Record<string, unknown>;
+  fallbacks?: Array<Record<string, unknown>>;
+  deep_search?: Record<string, unknown>;
+  timings?: Record<string, unknown>;
+  candidate_counts?: Record<string, unknown>;
+  selected_sources?: Array<Record<string, unknown>>;
+  trace_source?: string;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -118,6 +137,7 @@ interface ChatMessage {
     } | null;
     stageTimings?: Record<string, number | null> | null;
     candidateCounts?: Record<string, number | null> | null;
+    decisionTrace?: RetrievalDecisionTrace | null;
     deepJobId?: string | null;
     deepStatus?: string | null;
     deepProgress?: number | null;
@@ -1261,6 +1281,15 @@ const STEP_ICONS: Record<string, string> = {
                         {{ retrievalPolicyLabel(retrieval) }}
                       </span>
                     }
+                    @if (retrieval.decisionTrace; as trace) {
+                      <span
+                        class="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                        [title]="decisionTraceTitle(trace)"
+                      >
+                        <app-icon name="git-branch" [size]="10" />
+                        Route: {{ decisionRouteLabel(trace) }}
+                      </span>
+                    }
                     @if (sparseDegraded(retrieval)) {
                       <span
                         class="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20"
@@ -1316,6 +1345,32 @@ const STEP_ICONS: Record<string, string> = {
                     Quality
                   </a>
                 </div>
+              }
+
+              @if (msg.retrievalInfo?.decisionTrace; as trace) {
+                <details
+                  class="ml-0 mt-1 rounded-md bg-emerald-500/5 ring-1 ring-emerald-500/15 text-[11px] text-gray-700 dark:text-gray-300"
+                >
+                  <summary class="cursor-pointer select-none px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-emerald-300">
+                    Decision trace · {{ decisionRouteLabel(trace) }}
+                  </summary>
+                  <div class="grid gap-2 px-3 pb-3 md:grid-cols-2">
+                    <div>
+                      <div class="text-[10px] uppercase tracking-wider text-gray-500">Reason</div>
+                      <div class="mt-0.5 text-gray-300">{{ trace.route_reason || trace.summary || 'Runtime route selected.' }}</div>
+                    </div>
+                    <div>
+                      <div class="text-[10px] uppercase tracking-wider text-gray-500">Tradeoff</div>
+                      <div class="mt-0.5 text-gray-300">{{ trace.tradeoff || 'No tradeoff recorded.' }}</div>
+                    </div>
+                    <div class="font-mono text-[10px] text-gray-400">
+                      {{ decisionTraceQualityLine(trace) }}
+                    </div>
+                    <div class="font-mono text-[10px] text-gray-400 truncate">
+                      {{ decisionTraceSourcesLine(trace) }}
+                    </div>
+                  </div>
+                </details>
               }
 
               @if (msg.retrievalInfo?.deepJobId && msg.retrievalInfo; as deepInfo) {
@@ -3380,6 +3435,23 @@ export class ChatPanelComponent implements AfterViewInit {
     const deepJobId = (meta['deep_job_id'] as string | undefined) || (meta['workspace_job_id'] as string | undefined) || null;
     const deepSummary = this.parseDeepSummaryMeta(meta['deep_summary']);
     const deepSources = Array.isArray(meta['deep_sources']) ? (meta['deep_sources'] as Source[]) : undefined;
+    const metaMetrics = this.isRecord(meta['retrieval_metrics'])
+      ? (meta['retrieval_metrics'] as Record<string, unknown>)
+      : {};
+    const decisionTrace =
+      this.parseRetrievalDecisionTrace(meta['retrieval_decision_trace'])
+      ?? this.parseRetrievalDecisionTrace(metaMetrics['retrieval_decision_trace'])
+      ?? this.parseRetrievalDecisionTrace(deepSummary && this.isRecord(meta['deep_summary'])
+        ? (meta['deep_summary'] as Record<string, unknown>)['retrieval_decision_trace']
+        : null);
+    const hasRetrievalInfo = !!(
+      deepJobId
+      || decisionTrace
+      || meta['dense_policy']
+      || meta['retrieval_scope']
+      || meta['latency_profile']
+      || metaMetrics['dense_policy']
+    );
     return {
       id: message.id,
       role: message.role,
@@ -3389,10 +3461,40 @@ export class ChatPanelComponent implements AfterViewInit {
       feedback: null,
       evaluation: null,
       runId: (meta['run_id'] as string | undefined) || null,
-      retrievalInfo: deepJobId
+      retrievalInfo: hasRetrievalInfo
         ? {
+            densePolicy: (meta['dense_policy'] as string | undefined) || (metaMetrics['dense_policy'] as string | undefined) || null,
+            fallbackReason:
+              (meta['fallback_reason'] as string | undefined)
+              || (metaMetrics['fallback_reason'] as string | undefined)
+              || null,
+            sparseStatus: (meta['sparse_status'] as string | undefined) || (metaMetrics['sparse_status'] as string | undefined) || null,
+            retrievalScope: this.isRecord(meta['retrieval_scope'])
+              ? (meta['retrieval_scope'] as Record<string, unknown>)
+              : this.isRecord(metaMetrics['retrieval_scope'])
+                ? (metaMetrics['retrieval_scope'] as Record<string, unknown>)
+                : null,
+            retrievalPlan: this.isRecord(meta['retrieval_plan'])
+              ? (meta['retrieval_plan'] as Record<string, unknown>)
+              : this.isRecord(metaMetrics['retrieval_plan'])
+                ? (metaMetrics['retrieval_plan'] as Record<string, unknown>)
+                : null,
+            scopeReason: (meta['scope_reason'] as string | undefined) || (metaMetrics['scope_reason'] as string | undefined) || null,
+            scopeConfidence: typeof meta['scope_confidence'] === 'number'
+              ? (meta['scope_confidence'] as number)
+              : typeof metaMetrics['scope_confidence'] === 'number'
+                ? (metaMetrics['scope_confidence'] as number)
+                : null,
+            latencyProfile:
+              (meta['latency_profile'] as string | undefined)
+              || (metaMetrics['latency_profile'] as string | undefined)
+              || null,
+            latencyBudget: this.parseLatencyBudget(meta['latency_budget'] ?? metaMetrics['latency_budget']),
+            stageTimings: this.parseNumberRecord(metaMetrics['stage_timings']),
+            candidateCounts: this.parseNumberRecord(metaMetrics['candidate_counts']),
+            decisionTrace,
             deepJobId,
-            deepPollUrl: (meta['deep_poll_url'] as string | undefined) || `/workspace-jobs/${deepJobId}`,
+            deepPollUrl: deepJobId ? ((meta['deep_poll_url'] as string | undefined) || `/workspace-jobs/${deepJobId}`) : null,
             deepStatus: (meta['deep_status'] as string | undefined) || 'queued',
             deepProgress: typeof meta['deep_progress'] === 'number' ? (meta['deep_progress'] as number) : null,
             deepStage: (meta['deep_stage'] as string | undefined) || null,
@@ -3434,6 +3536,11 @@ export class ChatPanelComponent implements AfterViewInit {
         deepStage: typeof raw['stage'] === 'string' ? (raw['stage'] as string) : null,
         deepParentMessageId: typeof raw['parent_message_id'] === 'string' ? (raw['parent_message_id'] as string) : null,
         deepSummary: this.parseDeepSummaryFromJob(raw),
+        decisionTrace:
+          this.parseRetrievalDecisionTrace(result['retrieval_decision_trace'])
+          ?? this.parseRetrievalDecisionTrace(this.isRecord(result['summary'])
+            ? (result['summary'] as Record<string, unknown>)['retrieval_decision_trace']
+            : null),
         deepSources: this.deepSourcesFromJob(raw),
         deepAnswer: answer,
         deepAnswerStatus: typeof result['answer_status'] === 'string' ? (result['answer_status'] as string) : null,
@@ -4661,6 +4768,45 @@ export class ChatPanelComponent implements AfterViewInit {
     return Object.keys(out).length ? out : null;
   }
 
+  private parseRetrievalDecisionTrace(value: unknown): RetrievalDecisionTrace | null {
+    if (!this.isRecord(value)) return null;
+    return value as RetrievalDecisionTrace;
+  }
+
+  decisionRouteLabel(trace: RetrievalDecisionTrace | null | undefined): string {
+    const route = String(trace?.selected_route || 'retrieval');
+    return route.replace(/_/g, ' ');
+  }
+
+  decisionTraceTitle(trace: RetrievalDecisionTrace | null | undefined): string {
+    if (!trace) return 'Retrieval decision trace';
+    return [trace.summary, trace.route_reason, trace.tradeoff]
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .join(' · ') || 'Retrieval decision trace';
+  }
+
+  decisionTraceQualityLine(trace: RetrievalDecisionTrace | null | undefined): string {
+    const quality = this.isRecord(trace?.quality_controls) ? trace!.quality_controls! : {};
+    const sparse = quality['sparse_status'] ? `Sparse ${quality['sparse_status']}` : null;
+    const cross = quality['cross_encoder_status'] ? `Cross-encoder ${quality['cross_encoder_status']}` : null;
+    const latency = trace?.latency_profile ? `Latency ${trace.latency_profile}` : null;
+    const queryType = trace?.query_type ? `Type ${trace.query_type}` : null;
+    return [queryType, latency, sparse, cross].filter(Boolean).join(' · ') || 'Quality controls not recorded';
+  }
+
+  decisionTraceSourcesLine(trace: RetrievalDecisionTrace | null | undefined): string {
+    const sources = Array.isArray(trace?.selected_sources) ? trace!.selected_sources! : [];
+    if (!sources.length) return 'Sources: none selected in trace';
+    const labels = sources
+      .map((source) => {
+        if (!this.isRecord(source)) return null;
+        return String(source['label'] || source['document_id'] || source['collection'] || '').trim();
+      })
+      .filter((label): label is string => !!label)
+      .slice(0, 3);
+    return labels.length ? `Sources: ${labels.join(' · ')}` : `${sources.length} source(s) selected`;
+  }
+
   private groundingDefaultMode(value: unknown): GroundingMode | null {
     if (!this.isRecord(value)) return null;
     const mode = value['default_mode'];
@@ -5333,6 +5479,7 @@ export class ChatPanelComponent implements AfterViewInit {
             const latencyBudget = this.parseLatencyBudget(details['latency_budget']);
             const stageTimings = this.parseNumberRecord(details['stage_timings']);
             const candidateCounts = this.parseNumberRecord(details['candidate_counts']);
+            const decisionTrace = this.parseRetrievalDecisionTrace(details['retrieval_decision_trace']);
             retrievalInfo = {
               ...(retrievalInfo || {}),
               densePolicy: (details['dense_policy'] as string | undefined) ?? retrievalInfo?.densePolicy ?? null,
@@ -5363,6 +5510,7 @@ export class ChatPanelComponent implements AfterViewInit {
               latencyBudget: latencyBudget ?? retrievalInfo?.latencyBudget ?? null,
               stageTimings: stageTimings ?? retrievalInfo?.stageTimings ?? null,
               candidateCounts: candidateCounts ?? retrievalInfo?.candidateCounts ?? null,
+              decisionTrace: decisionTrace ?? retrievalInfo?.decisionTrace ?? null,
               deepJobId: (details['deep_job_id'] as string | undefined) ?? retrievalInfo?.deepJobId ?? null,
               deepStatus: (details['deep_status'] as string | undefined) ?? retrievalInfo?.deepStatus ?? null,
               deepProgress:
@@ -5726,6 +5874,7 @@ export class ChatPanelComponent implements AfterViewInit {
       stage?: string | null,
       sources?: Source[],
       answer?: { text?: string | null; status?: string | null; model?: string | null },
+      decisionTrace?: RetrievalDecisionTrace | null,
     ): void => {
       const promotedAnswer = answer?.text?.trim();
       const shouldPromoteAnswer =
@@ -5747,6 +5896,7 @@ export class ChatPanelComponent implements AfterViewInit {
               deepAnswer: answer?.text ?? msg.retrievalInfo.deepAnswer ?? null,
               deepAnswerStatus: answer?.status ?? msg.retrievalInfo.deepAnswerStatus ?? null,
               deepAnswerModel: answer?.model ?? msg.retrievalInfo.deepAnswerModel ?? null,
+              decisionTrace: decisionTrace ?? msg.retrievalInfo.decisionTrace ?? null,
             },
           };
         }),
@@ -5813,6 +5963,16 @@ export class ChatPanelComponent implements AfterViewInit {
           })),
       };
     };
+    const parseDecisionTrace = (job: { result?: unknown }): RetrievalDecisionTrace | null => {
+      const result = job.result;
+      if (!this.isRecord(result)) return null;
+      return (
+        this.parseRetrievalDecisionTrace(result['retrieval_decision_trace'])
+        ?? this.parseRetrievalDecisionTrace(this.isRecord(result['summary'])
+          ? (result['summary'] as Record<string, unknown>)['retrieval_decision_trace']
+          : null)
+      );
+    };
     const jobPath = pollUrl && (pollUrl.startsWith('/workspace-jobs/') || pollUrl.startsWith('/documents/jobs/'))
       ? pollUrl
       : `/workspace-jobs/${encodeURIComponent(jobId)}`;
@@ -5828,7 +5988,7 @@ export class ChatPanelComponent implements AfterViewInit {
           const status = String(job?.status || 'queued');
           const progress = typeof job?.progress === 'number' ? job.progress : null;
           const stage = typeof job?.stage === 'string' ? job.stage : null;
-          updateStatus(status, parseSummary(job), progress, stage, this.deepSourcesFromJob(job), parseAnswer(job));
+          updateStatus(status, parseSummary(job), progress, stage, this.deepSourcesFromJob(job), parseAnswer(job), parseDecisionTrace(job));
           if (status === 'queued' || status === 'running') {
             window.setTimeout(tick, 2000);
           } else {

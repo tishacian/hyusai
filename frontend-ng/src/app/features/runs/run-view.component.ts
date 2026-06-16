@@ -11,7 +11,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { HelpTooltipComponent, PageFrameComponent, RunOutcomeCardComponent } from '@app/shared/cockpit';
-import { CanonicalApiService, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
+import { CanonicalApiService, type RetrievalDecisionTrace, type Run, type SkillInvocation } from '@app/core/canonical-api.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
 
 @Component({
@@ -175,6 +175,54 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
           </div>
         }
 
+        @if (retrievalDecisionTrace(); as trace) {
+          <section class="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.04] mb-6">
+            <header class="px-4 py-2.5 border-b border-emerald-400/10 flex items-center gap-2">
+              <app-icon name="git-branch" [size]="14" class="text-emerald-300" />
+              <h2 class="text-xs uppercase tracking-wider text-emerald-200 font-semibold">
+                Retrieval decision
+              </h2>
+              <span class="ml-auto font-mono text-[10px] text-emerald-300/70">
+                {{ trace.trace_source || 'runtime' }}
+              </span>
+            </header>
+            <div class="grid grid-cols-1 gap-3 px-4 py-3 md:grid-cols-4">
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Route</div>
+                <div class="mt-1 font-mono text-sm text-white">{{ routeLabel(trace) }}</div>
+              </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Query type</div>
+                <div class="mt-1 font-mono text-sm text-gray-200">{{ trace.query_type || '—' }}</div>
+              </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Latency</div>
+                <div class="mt-1 font-mono text-sm text-gray-200">{{ trace.latency_profile || 'default' }}</div>
+              </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Controls</div>
+                <div class="mt-1 font-mono text-sm text-gray-200">{{ qualityLine(trace) }}</div>
+              </div>
+            </div>
+            <div class="px-4 pb-3 grid gap-2 md:grid-cols-2">
+              <div class="rounded border border-white/5 bg-black/20 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Reason</div>
+                <p class="mt-1 text-sm text-gray-300">{{ trace.route_reason || trace.summary || 'Runtime route selected.' }}</p>
+              </div>
+              <div class="rounded border border-white/5 bg-black/20 p-3">
+                <div class="text-[10px] uppercase tracking-wider text-gray-500 font-mono">Tradeoff</div>
+                <p class="mt-1 text-sm text-gray-300">{{ trace.tradeoff || 'No tradeoff recorded.' }}</p>
+              </div>
+            </div>
+            <details class="mx-4 mb-4 rounded border border-white/5 bg-black/20">
+              <summary class="cursor-pointer px-3 py-2 text-[10px] uppercase tracking-wider text-gray-400 font-mono">
+                Decision JSON
+              </summary>
+              <pre class="px-3 pb-3 text-[10px] font-mono text-gray-300 whitespace-pre-wrap break-words">{{ asJson(trace) }}</pre>
+            </details>
+          </section>
+        }
+
         <!-- Skill timeline -->
         <section class="rounded-lg border border-white/5 bg-white/[0.02] mb-6">
           <header class="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
@@ -336,6 +384,22 @@ export class RunViewComponent implements OnInit {
 
   readonly outcomeJson = computed(() => this.asJson(this.run()?.outcome ?? {}));
 
+  readonly retrievalDecisionTrace = computed<RetrievalDecisionTrace | null>(() => {
+    const run = this.run();
+    if (!run) return null;
+    const output = run.output_ref ?? {};
+    const direct = this.traceFrom(output);
+    if (direct) return direct;
+    for (const invocation of run.skill_invocations ?? []) {
+      const trace =
+        this.traceFrom(invocation.metrics)
+        ?? this.traceFrom(invocation.output_ref)
+        ?? this.traceFrom(invocation.trace);
+      if (trace) return trace;
+    }
+    return null;
+  });
+
   ngOnInit(): void {
     this.route.paramMap.subscribe((params) => {
       const id = params.get('runId') ?? '';
@@ -395,6 +459,33 @@ export class RunViewComponent implements OnInit {
     } catch {
       return String(v);
     }
+  }
+
+  routeLabel(trace: RetrievalDecisionTrace): string {
+    return String(trace.selected_route || 'retrieval').replace(/_/g, ' ');
+  }
+
+  qualityLine(trace: RetrievalDecisionTrace): string {
+    const quality = this.isRecord(trace.quality_controls) ? trace.quality_controls : {};
+    const sparse = quality['sparse_status'] ? `sparse ${quality['sparse_status']}` : null;
+    const cross = quality['cross_encoder_status'] ? `cross ${quality['cross_encoder_status']}` : null;
+    return [sparse, cross].filter(Boolean).join(' · ') || '—';
+  }
+
+  private traceFrom(payload?: Record<string, unknown> | null): RetrievalDecisionTrace | null {
+    if (!this.isRecord(payload)) return null;
+    if (this.isRecord(payload['retrieval_decision_trace'])) {
+      return payload['retrieval_decision_trace'] as RetrievalDecisionTrace;
+    }
+    const metrics = payload['retrieval_metrics'];
+    if (this.isRecord(metrics) && this.isRecord(metrics['retrieval_decision_trace'])) {
+      return metrics['retrieval_decision_trace'] as RetrievalDecisionTrace;
+    }
+    return null;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
   }
 
   hasInvocationDetails(inv: SkillInvocation): boolean {

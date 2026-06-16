@@ -324,6 +324,27 @@ export interface FlowTemplate {
           </div>
         </div>
 
+        @if (manifest.latest_retrieval_decision?.trace; as trace) {
+          <div class="df-runtime-decision">
+            <div>
+              <span class="df-runtime-card__label">Latest retrieval decision</span>
+              <strong>{{ manifestDecisionRoute(trace.selected_route) }}</strong>
+              <span>{{ trace.query_type || 'query' }} · {{ trace.latency_profile || 'default' }} latency</span>
+            </div>
+            <div>
+              <span class="df-runtime-card__label">Reason</span>
+              <span>{{ trace.route_reason || trace.summary || 'Runtime route selected.' }}</span>
+            </div>
+            <a
+              [routerLink]="['/runs', manifest.latest_retrieval_decision!.run_id]"
+              class="df-tag"
+              data-tone="pos"
+            >
+              Open run
+            </a>
+          </div>
+        }
+
         @if (manifestUnitsPreview().length > 0) {
           <div class="df-runtime-units">
             @for (unit of manifestUnitsPreview(); track unit.id) {
@@ -1879,6 +1900,10 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       .filter(([, value]) => value !== undefined && value !== null && value !== '')
       .map(([key, value]) => ({ key: String(key), value: this.compactInspectorValue(value, 160) }));
   });
+
+  manifestDecisionRoute(route?: string | null): string {
+    return String(route || 'retrieval').replace(/_/g, ' ');
+  }
 
   readonly selectedManifestUnit = computed<FlowManifestUnit | null>(() => {
     const node = this.selectedNode();

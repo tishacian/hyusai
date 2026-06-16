@@ -277,6 +277,9 @@ def evaluate_retrieval_golden_case(
         if _normalise(term) and _normalise(term) not in context_text
     ]
     metrics = context.get("metrics") if isinstance(context.get("metrics"), Mapping) else {}
+    retrieval_decision_trace = context.get("retrieval_decision_trace")
+    if not isinstance(retrieval_decision_trace, Mapping):
+        retrieval_decision_trace = metrics.get("retrieval_decision_trace")
     dense_policy = str(metrics.get("dense_policy") or context.get("dense_policy") or "")
     forbidden_route_hit = bool(case.forbidden_route and case.forbidden_route in dense_policy)
     forbidden_source_hits = [
@@ -325,6 +328,9 @@ def evaluate_retrieval_golden_case(
         "distinct_content": distinct_content,
         "content_diversity_shortfall": content_diversity_shortfall,
         "dense_policy": dense_policy or None,
+        "retrieval_decision_trace": dict(retrieval_decision_trace)
+        if isinstance(retrieval_decision_trace, Mapping)
+        else None,
     }
 
 

@@ -107,7 +107,20 @@ def test_workspace_overview_aggregates_workspace_runs_jobs_and_alerts(db_session
                 status="completed",
                 trigger="chat",
                 input_ref={"query": "AKK200"},
-                output_ref={"response": "Answer", "sources": []},
+                output_ref={
+                    "response": "Answer",
+                    "sources": [],
+                    "retrieval_decision_trace": {
+                        "version": 1,
+                        "selected_route": "chah_backend",
+                        "query_type": "exact_reference",
+                        "quality_controls": {
+                            "sparse_status": "applied",
+                            "cross_encoder_status": "applied",
+                        },
+                        "deep_search": {"recommended": True, "launched": False},
+                    },
+                },
                 started_at=now - timedelta(minutes=5),
                 completed_at=now - timedelta(minutes=4),
                 duration_ms=1200,
@@ -151,5 +164,8 @@ def test_workspace_overview_aggregates_workspace_runs_jobs_and_alerts(db_session
     assert body["summary"]["runs_total"] == 1
     assert body["summary"]["jobs_failed"] == 1
     assert body["evaluations"]["breaches"] == 1
+    assert body["summary"]["retrieval_traces_total"] == 1
+    assert body["summary"]["deep_recommended"] == 1
+    assert body["retrieval_decisions"]["routes"][0]["route"] == "chah_backend"
     assert any(item["kind"] == "run_without_sources" for item in body["alerts"])
     assert "run-other" not in str(body)

@@ -13,6 +13,7 @@ from app.models.workspace import Workspace
 from app.models.workspace_job import WorkspaceJob
 from app.services.knowledge_collections import update_job
 from app.services.rag.context import retrieve_rag_context
+from app.services.rag.decision_trace import build_retrieval_decision_trace
 from app.services.workspace_jobs import transition_job
 
 logger = get_logger(__name__)
@@ -144,6 +145,9 @@ def _summarize_deep_retrieval_context(context: dict[str, Any]) -> dict[str, Any]
     scores = context.get("scores") if isinstance(context.get("scores"), list) else []
     metadatas = context.get("metadatas") if isinstance(context.get("metadatas"), list) else []
     metrics = context.get("metrics") if isinstance(context.get("metrics"), dict) else {}
+    retrieval_decision_trace = context.get("retrieval_decision_trace")
+    if not isinstance(retrieval_decision_trace, dict):
+        retrieval_decision_trace = metrics.get("retrieval_decision_trace")
     source_counts: dict[str, int] = {}
     for meta in metadatas:
         label = _source_label(meta)
@@ -174,7 +178,26 @@ def _summarize_deep_retrieval_context(context: dict[str, Any]) -> dict[str, Any]
         "scope_confidence": context.get("scope_confidence") or metrics.get("scope_confidence"),
         "fallback_reason": context.get("fallback_reason") or metrics.get("fallback_reason"),
         "duration_ms": metrics.get("duration_ms"),
+        "retrieval_decision_trace": retrieval_decision_trace if isinstance(retrieval_decision_trace, dict) else None,
     }
+
+
+def _timeout_retrieval_decision_trace(payload: dict[str, Any], retrieval_summary: dict[str, Any]) -> dict[str, Any]:
+    existing = retrieval_summary.get("retrieval_decision_trace")
+    if isinstance(existing, dict):
+        return existing
+    return build_retrieval_decision_trace(
+        request=payload,
+        metrics={
+            **retrieval_summary,
+            "pipeline": "deep_timeout",
+            "mode_label": "deep_timeout",
+            "latency_profile": "deep",
+            "fallback_reason": "deep_retrieval_deadline_exceeded",
+            "deadline_exceeded": True,
+            "deep_retrieval_recommended": True,
+        },
+    )
 
 
 def _model_preferences(payload: dict[str, Any]) -> tuple[str, str]:
@@ -413,6 +436,7 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "retrieval_context_available": True,
             "sources_preview": sources_preview,
             "summary": summary,
+            "retrieval_decision_trace": summary.get("retrieval_decision_trace"),
             **answer_payload,
             "stage": "deep_completed",
             "status": "completed",
@@ -433,6 +457,7 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             if isinstance(partial_result.get("sources_preview"), list)
             else []
         )
+        timeout_trace = _timeout_retrieval_decision_trace(payload, retrieval_summary)
         summary = {
             "chunks_retrieved": retrieval_summary.get("chunks_retrieved") or 0,
             "sources_returned": None,
@@ -446,6 +471,7 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "fallback_reason": "deep_retrieval_deadline_exceeded",
             "duration_ms": int(float(settings.rag_deep_retrieval_deadline_seconds) * 1000),
             "partial": True,
+            "retrieval_decision_trace": timeout_trace,
         }
         partial_answer = (
             partial_result.get("answer_preview")
@@ -460,6 +486,7 @@ async def _run_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "retrieval_context_available": False,
             "sources_preview": sources_preview,
             "summary": summary,
+            "retrieval_decision_trace": summary.get("retrieval_decision_trace"),
             "answer": partial_answer
             or _extractive_deep_answer(
                 str(payload.get("query") or ""),
@@ -502,6 +529,9 @@ def run_deep_retrieval(job_id: str) -> dict[str, Any]:
 
 def _message_meta_with_deep_result(job: WorkspaceJob, result: dict[str, Any]) -> dict[str, Any]:
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    retrieval_decision_trace = result.get("retrieval_decision_trace")
+    if not isinstance(retrieval_decision_trace, dict):
+        retrieval_decision_trace = summary.get("retrieval_decision_trace")
     meta = {
         "workspace_job_id": job.id,
         "deep_job_id": job.id,
@@ -523,7 +553,10 @@ def _message_meta_with_deep_result(job: WorkspaceJob, result: dict[str, Any]) ->
             "pipeline": summary.get("pipeline"),
             "partial": bool(summary.get("partial")),
             "fallback_reason": summary.get("fallback_reason"),
+            "retrieval_decision_trace": retrieval_decision_trace if isinstance(retrieval_decision_trace, dict) else None,
         },
+        "retrieval_decision_trace": retrieval_decision_trace if isinstance(retrieval_decision_trace, dict) else None,
+        "deep_retrieval_decision_trace": retrieval_decision_trace if isinstance(retrieval_decision_trace, dict) else None,
     }
     return {key: value for key, value in meta.items() if value is not None}
 
@@ -650,6 +683,7 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "retrieval_context_available": True,
             "sources_preview": sources_preview,
             "summary": summary,
+            "retrieval_decision_trace": summary.get("retrieval_decision_trace"),
             **answer_payload,
             "stage": "deep_completed",
             "status": "completed",
@@ -683,6 +717,7 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             if isinstance(partial_result.get("sources_preview"), list)
             else []
         )
+        timeout_trace = _timeout_retrieval_decision_trace(payload, retrieval_summary)
         summary = {
             "chunks_retrieved": retrieval_summary.get("chunks_retrieved") or 0,
             "sources_returned": None,
@@ -696,6 +731,7 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "fallback_reason": "deep_retrieval_deadline_exceeded",
             "duration_ms": int(float(settings.rag_deep_retrieval_deadline_seconds) * 1000),
             "partial": True,
+            "retrieval_decision_trace": timeout_trace,
         }
         partial_answer = (
             partial_result.get("answer_preview")
@@ -710,6 +746,7 @@ async def _run_workspace_deep_retrieval_async(job_id: str) -> dict[str, Any]:
             "retrieval_context_available": False,
             "sources_preview": sources_preview,
             "summary": summary,
+            "retrieval_decision_trace": summary.get("retrieval_decision_trace"),
             "answer": partial_answer
             or _extractive_deep_answer(
                 str(payload.get("query") or ""),

@@ -34,6 +34,7 @@ from app.services.rag.corpus_planner import (
     plan_corpus,
 )
 from app.services.rag.cross_encoder_stage import rerank_with_cross_encoder
+from app.services.rag.decision_trace import build_retrieval_decision_trace
 from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_scope
 from app.services.rag.lexical_retrieval import analyze_query, lexical_match_details
 from app.services.rag.mode_selector import resolve_retrieval_mode
@@ -545,6 +546,20 @@ def _finalize_retrieval_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     if isinstance(trace, dict):
         trace["timings"] = stage_timings
         trace["candidate_counts"] = candidate_counts
+    if not isinstance(metrics.get("retrieval_decision_trace"), Mapping):
+        try:
+            metrics["retrieval_decision_trace"] = build_retrieval_decision_trace(
+                metrics=metrics,
+                trace_source=str(metrics.get("retrieval_decision_trace_source") or "runtime"),
+            )
+        except Exception:  # noqa: BLE001 - telemetry must never break retrieval
+            metrics["retrieval_decision_trace"] = {
+                "version": 1,
+                "trace_source": "runtime",
+                "selected_route": str(metrics.get("pipeline") or metrics.get("mode_label") or "retrieval"),
+                "summary": "Retrieval decision trace unavailable; raw metrics are still present.",
+                "fallbacks": [{"kind": "trace_build_error", "reason": "failed_to_build_trace"}],
+            }
     return metrics
 
 
@@ -1157,6 +1172,7 @@ def _retrieve_collection_inventory_context(
                 "collections": inventories,
             },
             "metrics": metrics,
+            "retrieval_decision_trace": metrics.get("retrieval_decision_trace"),
             "retrieval_scope": metrics.get("retrieval_scope"),
             "retrieval_plan": metrics.get("retrieval_plan"),
             "scope_confidence": metrics.get("scope_confidence"),
@@ -1242,6 +1258,7 @@ def _retrieve_dense_unscoped_coarse_context(
             "fallback_reason": metrics.get("fallback_reason"),
             "deep_retrieval_recommended": deep_recommended,
             "metrics": metrics,
+            "retrieval_decision_trace": metrics.get("retrieval_decision_trace"),
         }
     )
     return _jsonable(context)
@@ -1950,6 +1967,8 @@ async def retrieve_rag_context(
         profile["_corpus_plan_max_candidates"] = corpus_plan.max_candidates
     retrieval_filters = dict(profile.get("retrieval_filters") or {})
     metrics: dict[str, Any] = {
+        "query": query,
+        "retrieval_query": retrieval_query,
         "duration_ms": 0,
         "chunks_retrieved": 0,
         "scope": profile.get("knowledge_scope"),
@@ -2077,6 +2096,7 @@ async def retrieve_rag_context(
             "retrieval_constraints": {},
             "clarification": clarification,
             "metrics": _jsonable(metrics),
+            "retrieval_decision_trace": _jsonable(metrics.get("retrieval_decision_trace")),
             "collections_touched": [],
             "collection_errors": [{"collection": profile["collection"], "error": str(exc)}],
         }
@@ -2204,6 +2224,7 @@ async def retrieve_rag_context(
                 "vector_db": profile["vector_db"],
                 "workspace_slug": profile["workspace_slug"],
                 "metrics": metrics,
+                "retrieval_decision_trace": metrics.get("retrieval_decision_trace"),
                 "retrieval_scope": metrics.get("retrieval_scope"),
                 "retrieval_plan": metrics.get("retrieval_plan"),
                 "scope_confidence": metrics.get("scope_confidence"),
@@ -2527,6 +2548,7 @@ async def retrieve_rag_context(
             "vector_db": profile["vector_db"],
             "workspace_slug": profile["workspace_slug"],
             "metrics": metrics,
+            "retrieval_decision_trace": metrics.get("retrieval_decision_trace"),
             "retrieval_scope": metrics.get("retrieval_scope"),
             "retrieval_plan": metrics.get("retrieval_plan"),
             "scope_confidence": metrics.get("scope_confidence"),
@@ -2967,6 +2989,7 @@ async def _retrieve_multi_collection_context(
             "collection_errors": collection_errors,
             "collections_touched": touched,
             "metrics": metrics,
+            "retrieval_decision_trace": metrics.get("retrieval_decision_trace"),
             "retrieval_scope": metrics.get("retrieval_scope"),
             "retrieval_plan": metrics.get("retrieval_plan"),
             "scope_confidence": metrics.get("scope_confidence"),

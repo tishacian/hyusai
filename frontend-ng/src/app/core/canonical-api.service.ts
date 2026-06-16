@@ -81,6 +81,28 @@ export interface SkillInvocation {
   error?: string | null;
 }
 
+export interface RetrievalDecisionTrace {
+  version?: number;
+  trace_id?: string;
+  summary?: string;
+  query_type?: string;
+  latency_profile?: string | null;
+  retrieval_profile?: string | null;
+  selected_route?: string;
+  route_reason?: string;
+  tradeoff?: string;
+  collection_scope?: Record<string, unknown>;
+  layers?: Array<Record<string, unknown>>;
+  quality_controls?: Record<string, unknown>;
+  fallbacks?: Array<Record<string, unknown>>;
+  deep_search?: Record<string, unknown>;
+  answer_shaping?: Record<string, unknown>;
+  timings?: Record<string, unknown>;
+  candidate_counts?: Record<string, unknown>;
+  selected_sources?: Array<Record<string, unknown>>;
+  trace_source?: string;
+}
+
 export interface RunHitlPayload {
   node_id?: string;
   prompt?: string;
@@ -118,6 +140,8 @@ export interface Run {
   retries?: number;
   error?: string | null;
   trigger?: string;
+  input_ref?: Record<string, unknown>;
+  output_ref?: Record<string, unknown>;
   skill_invocations?: SkillInvocation[];
   /** Populated when status === 'hitl_pending' — contains the pending
    * Decision reference plus the prompt to surface in the Terminal.
@@ -199,6 +223,20 @@ export interface WorkspaceOverview {
     jobs_failed: number;
     evaluations_total: number;
     alerts_total: number;
+    retrieval_traces_total?: number;
+    retrieval_traces_missing?: number;
+    sparse_timeouts?: number;
+    sparse_fallbacks?: number;
+    cross_encoder_issues?: number;
+    deep_recommended?: number;
+    deep_launched?: number;
+  };
+  retrieval_decisions?: {
+    total?: number;
+    missing?: number;
+    routes?: Array<{ route: string; count: number }>;
+    query_types?: Array<{ query_type: string; count: number }>;
+    quality?: Record<string, number>;
   };
   systems: SystemHealthRow[];
   jobs: JobHealthRow[];
@@ -312,6 +350,12 @@ export interface FlowRuntimeManifest {
   runtime_contract?: Record<string, unknown>;
   prompt_contract?: Record<string, unknown>;
   effective_config?: Record<string, unknown>;
+  latest_retrieval_decision?: {
+    run_id?: string;
+    status?: string;
+    started_at?: string | null;
+    trace?: RetrievalDecisionTrace;
+  } | null;
   unit_catalog?: FlowManifestUnit[];
   summary?: {
     nodes?: number;

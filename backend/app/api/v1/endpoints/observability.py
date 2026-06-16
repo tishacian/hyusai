@@ -1,6 +1,7 @@
 """Workspace observability endpoints."""
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -63,6 +64,7 @@ async def workspace_overview(
 
     system_rows = [_system_row(system, runs) for system in systems]
     job_rows = [_job_row(job) for job in jobs[:30]]
+    retrieval_decisions = _retrieval_decision_summary(runs)
     alerts = _alerts(runs, jobs, evaluations)
     return {
         "window": window,
@@ -86,7 +88,15 @@ async def workspace_overview(
             "jobs_failed": sum(1 for j in jobs if j.status == "failed"),
             "evaluations_total": len(evaluations),
             "alerts_total": len(alerts),
+            "retrieval_traces_total": retrieval_decisions["total"],
+            "retrieval_traces_missing": retrieval_decisions["missing"],
+            "sparse_timeouts": retrieval_decisions["quality"]["sparse_timeouts"],
+            "sparse_fallbacks": retrieval_decisions["quality"]["sparse_fallbacks"],
+            "cross_encoder_issues": retrieval_decisions["quality"]["cross_encoder_issues"],
+            "deep_recommended": retrieval_decisions["quality"]["deep_recommended"],
+            "deep_launched": retrieval_decisions["quality"]["deep_launched"],
         },
+        "retrieval_decisions": retrieval_decisions,
         "systems": system_rows,
         "jobs": job_rows,
         "evaluations": _evaluation_summary(evaluations),
@@ -173,6 +183,88 @@ def _evaluation_summary(rows: list[EvaluationScore]) -> dict[str, Any]:
     }
 
 
+def _retrieval_decision_summary(runs: list[Run]) -> dict[str, Any]:
+    routes: Counter[str] = Counter()
+    query_types: Counter[str] = Counter()
+    sparse_timeouts = 0
+    sparse_fallbacks = 0
+    cross_encoder_issues = 0
+    deep_recommended = 0
+    deep_launched = 0
+    traced = 0
+    missing = 0
+
+    for run in runs:
+        trace = _run_retrieval_decision_trace(run)
+        if not trace:
+            if _run_expects_retrieval_trace(run):
+                missing += 1
+            continue
+        traced += 1
+        route = str(trace.get("selected_route") or "unknown")
+        query_type = str(trace.get("query_type") or "unknown")
+        routes[route] += 1
+        query_types[query_type] += 1
+        quality = trace.get("quality_controls") if isinstance(trace.get("quality_controls"), dict) else {}
+        sparse_status = str(quality.get("sparse_status") or "").lower()
+        cross_encoder_status = str(quality.get("cross_encoder_status") or "").lower()
+        fallbacks = trace.get("fallbacks") if isinstance(trace.get("fallbacks"), list) else []
+        if "timeout" in sparse_status:
+            sparse_timeouts += 1
+        if any("sparse" in str(item.get("kind") or "").lower() for item in fallbacks if isinstance(item, dict)):
+            sparse_fallbacks += 1
+        if cross_encoder_status and cross_encoder_status not in {"applied", "ok", "skipped", "disabled", "not_applicable"}:
+            cross_encoder_issues += 1
+        deep = trace.get("deep_search") if isinstance(trace.get("deep_search"), dict) else {}
+        if deep.get("recommended"):
+            deep_recommended += 1
+        if deep.get("launched"):
+            deep_launched += 1
+
+    return {
+        "total": traced,
+        "missing": missing,
+        "routes": [{"route": key, "count": value} for key, value in routes.most_common()],
+        "query_types": [{"query_type": key, "count": value} for key, value in query_types.most_common()],
+        "quality": {
+            "sparse_timeouts": sparse_timeouts,
+            "sparse_fallbacks": sparse_fallbacks,
+            "cross_encoder_issues": cross_encoder_issues,
+            "deep_recommended": deep_recommended,
+            "deep_launched": deep_launched,
+        },
+    }
+
+
+def _run_retrieval_decision_trace(run: Run) -> dict[str, Any] | None:
+    output = run.output_ref if isinstance(run.output_ref, dict) else {}
+    candidates: list[Any] = [
+        output.get("retrieval_decision_trace"),
+        (output.get("retrieval_metrics") or {}).get("retrieval_decision_trace")
+        if isinstance(output.get("retrieval_metrics"), dict)
+        else None,
+        (output.get("meta") or {}).get("retrieval_decision_trace") if isinstance(output.get("meta"), dict) else None,
+    ]
+    for invocation in getattr(run, "invocations", []) or []:
+        for payload in (invocation.metrics, invocation.output_ref, invocation.trace):
+            if isinstance(payload, dict):
+                candidates.append(payload.get("retrieval_decision_trace"))
+                metrics = payload.get("retrieval_metrics")
+                if isinstance(metrics, dict):
+                    candidates.append(metrics.get("retrieval_decision_trace"))
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            return candidate
+    return None
+
+
+def _run_expects_retrieval_trace(run: Run) -> bool:
+    if (run.trigger or "") == "chat":
+        return True
+    output = run.output_ref if isinstance(run.output_ref, dict) else {}
+    return any(key in output for key in ("retrieval_metrics", "retrieval_scope", "retrieval_plan"))
+
+
 def _alerts(
     runs: list[Run],
     jobs: list[WorkspaceJob],
@@ -184,6 +276,17 @@ def _alerts(
             out.append(_alert("run_failed", "neg", f"Run failed · {run.error or run.id}", f"/runs/{run.id}", run.started_at))
         if _is_unsourced_chat_run(run):
             out.append(_alert("run_without_sources", "warn", "Chat answer completed without workspace sources", f"/runs/{run.id}", run.started_at))
+        trace = _run_retrieval_decision_trace(run)
+        if not trace and _run_expects_retrieval_trace(run):
+            out.append(_alert("retrieval_trace_missing", "warn", "Retrieval decision trace missing on chat/retrieval run", f"/runs/{run.id}", run.started_at))
+        if trace:
+            quality = trace.get("quality_controls") if isinstance(trace.get("quality_controls"), dict) else {}
+            sparse_status = str(quality.get("sparse_status") or "").lower()
+            cross_encoder_status = str(quality.get("cross_encoder_status") or "").lower()
+            if "timeout" in sparse_status:
+                out.append(_alert("sparse_timeout", "warn", "Sparse retrieval timeout; vector fallback used", f"/runs/{run.id}", run.started_at))
+            if cross_encoder_status and cross_encoder_status not in {"applied", "ok", "skipped", "disabled", "not_applicable"}:
+                out.append(_alert("cross_encoder_issue", "warn", f"Cross-encoder status · {cross_encoder_status}", f"/runs/{run.id}", run.started_at))
     for job in jobs:
         if job.status == "failed":
             route = "/connectors/sftp" if job.kind == "sftp_reconciliation" else "/observability"
@@ -202,6 +305,7 @@ def _timeline(
 ) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for run in runs:
+        trace = _run_retrieval_decision_trace(run)
         items.append({
             "id": f"run:{run.id}",
             "kind": "run",
@@ -209,7 +313,12 @@ def _timeline(
             "label": f"Run {run.status} · {run.trigger or 'manual'}",
             "timestamp": _time(run.started_at),
             "route": f"/runs/{run.id}",
-            "meta": {"duration_ms": run.duration_ms, "system_id": run.system_id},
+            "meta": {
+                "duration_ms": run.duration_ms,
+                "system_id": run.system_id,
+                "retrieval_route": trace.get("selected_route") if trace else None,
+                "query_type": trace.get("query_type") if trace else None,
+            },
         })
     for job in jobs:
         items.append({

@@ -224,6 +224,7 @@ async def answer(
             "deep_job_id",
             "deep_poll_url",
             "deep_status",
+            "retrieval_decision_trace",
         ):
             if key in retrieval_details:
                 meta[key] = retrieval_details[key]
