@@ -146,4 +146,4 @@ embarqué le code D (bornage CE deep) et lu l'env VM avec le flag B :
 - A `2e182f0d` · C `67188785` · D `ee182f45` · (golden_flag_ab latence `6176982d`,
   feature décompo `07a7faef`, rapport décompo `4562c285` — chantiers antérieurs).
 - B : pas de commit code (flip via env VM non versionné, par conception).
-- Ce rapport : `f4f15f05`.
+- Ce rapport : dernier commit docs de `demo/agentic` (après `ee182f45`).
