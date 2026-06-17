@@ -1679,6 +1679,12 @@ const STEP_ICONS: Record<string, string> = {
                     </button>
                   </div>
 
+                  @if ((correctionMicState() === 'recording' || correctionMicState() === 'transcribing') && correctionLiveTranscript()) {
+                    <div class="rounded-md bg-black/5 dark:bg-white/5 px-2.5 py-1.5 text-[11px] italic leading-relaxed text-gray-600 dark:text-gray-300">
+                      <span class="not-italic text-[9px] uppercase tracking-wider text-emerald-600 dark:text-emerald-300 mr-1.5 align-middle">En direct</span>{{ correctionLiveTranscript() }}
+                    </div>
+                  }
+
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-[10px] text-gray-500">
                       @switch (correctionMicState()) {
@@ -1714,6 +1720,33 @@ const STEP_ICONS: Record<string, string> = {
                         }
                       </button>
                     </div>
+                  </div>
+                </div>
+              }
+
+              <!-- Persistent trace of a submitted correction: keeps the record
+                   visible in the chat after the composer collapses. -->
+              @if (canCorrectInChat() && correctionTraceFor(msg.id); as trace) {
+                <div class="ml-2 mt-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-2.5 space-y-1">
+                  <div class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-300 font-semibold">
+                    <app-icon name="check-circle" [size]="12" />
+                    <span>Correction envoyée en revue</span>
+                    @if (trace.usedVoice) {
+                      <app-icon name="mic" [size]="11" class="opacity-70" title="Dictée vocale" />
+                    }
+                  </div>
+                  <p class="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">{{ trace.correction }}</p>
+                  <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-gray-500">
+                    <span>En attente de relecture experte avant publication.</span>
+                    @if (trace.reviewQueueUrl) {
+                      <button
+                        type="button"
+                        class="text-emerald-600 dark:text-emerald-300 hover:underline"
+                        (click)="openReviewQueue(trace.reviewQueueUrl)"
+                      >
+                        Voir la file de revue
+                      </button>
+                    }
                   </div>
                 </div>
               }
@@ -2942,6 +2975,28 @@ export class ChatPanelComponent implements AfterViewInit {
   private correctionChunks: Blob[] = [];
   /** Last dictation recording, sent (base64) for audit/replay when voice used. */
   private correctionAudioBlob: Blob | null = null;
+  /**
+   * Best-effort *live* preview shown while the expert dictates. The browser
+   * SpeechRecognition engine streams interim words so the user sees text appear
+   * in real time; the authoritative transcript still comes from the server
+   * `/voice/transcribe` call on stop (French-tuned + persisted for audit).
+   */
+  readonly correctionLiveTranscript = signal('');
+  private correctionSpeech: { stop?: () => void; abort?: () => void; onresult?: unknown; onerror?: unknown; onend?: unknown } | null = null;
+  /** Accumulated *final* segments from the live engine, kept as a fallback. */
+  private correctionSpeechFinal = '';
+  /**
+   * Per-message persistent trace of submitted corrections so the expert keeps a
+   * visible record in the chat after the composer collapses (keyed by the
+   * assistant message id).
+   */
+  readonly correctionTraces = signal<Record<string, {
+    correction: string;
+    usedVoice: boolean;
+    proposalId: string | null;
+    reviewQueueUrl: string | null;
+    at: number;
+  }>>({});
 
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly showAdvancedChatControls = computed(() =>
@@ -6280,6 +6335,18 @@ export class ChatPanelComponent implements AfterViewInit {
     return this.previousUserQueryFor(msg.id) || '';
   }
 
+  /** Persistent trace of a submitted correction for an assistant message, or
+   * null when none has been sent in this session view. */
+  correctionTraceFor(id: string): {
+    correction: string;
+    usedVoice: boolean;
+    proposalId: string | null;
+    reviewQueueUrl: string | null;
+    at: number;
+  } | null {
+    return this.correctionTraces()[id] ?? null;
+  }
+
   /** Toggle the inline correction composer for a given assistant message. Only
    * one composer is open at a time. */
   toggleCorrection(msg: ChatMessage): void {
@@ -6349,12 +6416,85 @@ export class ChatPanelComponent implements AfterViewInit {
     recorder.onstop = () => this.transcribeCorrectionRecording();
     recorder.start();
     this.correctionMicState.set('recording');
+    // Best-effort live preview while recording (server transcript is authoritative).
+    this.startCorrectionSpeech();
     this.cdr.markForCheck();
+  }
+
+  /**
+   * Start the browser SpeechRecognition engine (when available) purely for a
+   * live, in-place transcript preview. It runs alongside MediaRecorder and is a
+   * no-op on unsupported browsers — the server transcription remains the source
+   * of truth on stop.
+   */
+  private startCorrectionSpeech(): void {
+    this.correctionSpeechFinal = '';
+    this.correctionLiveTranscript.set('');
+    const SR =
+      (window as unknown as { SpeechRecognition?: new () => any; webkitSpeechRecognition?: new () => any })
+        .SpeechRecognition ||
+      (window as unknown as { webkitSpeechRecognition?: new () => any }).webkitSpeechRecognition;
+    if (!SR) return;
+    let recognition: any;
+    try {
+      recognition = new SR();
+    } catch {
+      return;
+    }
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'fr-FR';
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const transcript = result[0]?.transcript ?? '';
+        if (result.isFinal) {
+          this.correctionSpeechFinal = `${this.correctionSpeechFinal} ${transcript}`.trim();
+        } else {
+          interim += transcript;
+        }
+      }
+      const live = `${this.correctionSpeechFinal} ${interim}`.trim();
+      this.correctionLiveTranscript.set(live);
+      this.cdr.markForCheck();
+    };
+    recognition.onerror = () => {
+      /* best-effort preview: ignore (mic/server transcript still handle it) */
+    };
+    recognition.onend = () => {
+      /* engine may auto-stop; we don't restart — recording continues regardless */
+    };
+    try {
+      recognition.start();
+      this.correctionSpeech = recognition;
+    } catch {
+      this.correctionSpeech = null;
+    }
+  }
+
+  private stopCorrectionSpeech(): void {
+    const recognition = this.correctionSpeech;
+    this.correctionSpeech = null;
+    if (!recognition) return;
+    recognition.onresult = null;
+    recognition.onerror = null;
+    recognition.onend = null;
+    try {
+      recognition.stop?.();
+    } catch {
+      try {
+        recognition.abort?.();
+      } catch {
+        /* already stopped */
+      }
+    }
   }
 
   private stopCorrectionRecording(): void {
     const recorder = this.correctionRecorder;
     if (!recorder) return;
+    this.stopCorrectionSpeech();
     this.correctionMicState.set('transcribing');
     this.cdr.markForCheck();
     try {
@@ -6370,11 +6510,22 @@ export class ChatPanelComponent implements AfterViewInit {
 
   private transcribeCorrectionRecording(): void {
     this.releaseCorrectionStream();
+    this.stopCorrectionSpeech();
     this.correctionRecorder = null;
     const chunks = this.correctionChunks;
     this.correctionChunks = [];
+    // Live preview captured while speaking — used as a fallback if the server
+    // transcript is empty or fails so dictated words are never silently lost.
+    const livePreview = (this.correctionSpeechFinal || this.correctionLiveTranscript()).trim();
     if (!chunks.length) {
+      if (livePreview) {
+        this.applyCorrectionTranscript(livePreview);
+        this.correctionLiveTranscript.set('');
+        this.cdr.markForCheck();
+        return;
+      }
       this.correctionMicState.set('idle');
+      this.correctionLiveTranscript.set('');
       this.toast.warning('Aucun son capté. Réessayez ou saisissez la correction.', 'Dictée');
       this.cdr.markForCheck();
       return;
@@ -6393,24 +6544,41 @@ export class ChatPanelComponent implements AfterViewInit {
           if (text) {
             // Keep the raw transcript verbatim for audit; the expert edits the
             // textarea copy before submitting.
-            this.correctionTranscriptRaw = text;
-            this.correctionUsedVoice.set(true);
-            const existing = this.correctionText().trim();
-            this.correctionText.set(existing ? `${existing} ${text}` : text);
-            this.correctionMicState.set('ready');
+            this.applyCorrectionTranscript(text);
+          } else if (livePreview) {
+            // Server returned nothing usable — keep the live preview rather than
+            // discarding what the expert dictated.
+            this.applyCorrectionTranscript(livePreview);
           } else {
             this.correctionMicState.set('idle');
             this.toast.warning('Transcription vide. Vous pouvez saisir la correction.', 'Dictée');
           }
+          this.correctionLiveTranscript.set('');
           this.cdr.markForCheck();
         },
         error: () => {
-          // Clean degradation: keep the textarea usable for manual typing.
-          this.correctionMicState.set('idle');
-          this.toast.error('Transcription indisponible. Saisissez la correction manuellement.', 'Dictée');
+          // Clean degradation: fall back to the in-browser live transcript when
+          // present, otherwise keep the textarea usable for manual typing.
+          if (livePreview) {
+            this.applyCorrectionTranscript(livePreview);
+            this.toast.info('Transcription serveur indisponible — texte capté localement, relisez-le.', 'Dictée');
+          } else {
+            this.correctionMicState.set('idle');
+            this.toast.error('Transcription indisponible. Saisissez la correction manuellement.', 'Dictée');
+          }
+          this.correctionLiveTranscript.set('');
           this.cdr.markForCheck();
         },
       });
+  }
+
+  /** Append a transcript to the composer textarea, marking the voice path used. */
+  private applyCorrectionTranscript(text: string): void {
+    this.correctionTranscriptRaw = text;
+    this.correctionUsedVoice.set(true);
+    const existing = this.correctionText().trim();
+    this.correctionText.set(existing ? `${existing} ${text}` : text);
+    this.correctionMicState.set('ready');
   }
 
   private releaseCorrectionStream(): void {
@@ -6431,6 +6599,9 @@ export class ChatPanelComponent implements AfterViewInit {
     }
     this.correctionRecorder = null;
     this.correctionChunks = [];
+    this.stopCorrectionSpeech();
+    this.correctionSpeechFinal = '';
+    this.correctionLiveTranscript.set('');
     this.releaseCorrectionStream();
   }
 
@@ -6486,6 +6657,18 @@ export class ChatPanelComponent implements AfterViewInit {
             proposal_id: res?.proposal_id ?? null,
           });
           const url = res?.review_queue_url || null;
+          // Persist a visible trace under the message so the expert keeps a
+          // record of what was corrected even after the composer collapses.
+          this.correctionTraces.update((traces) => ({
+            ...traces,
+            [msg.id]: {
+              correction,
+              usedVoice,
+              proposalId: res?.proposal_id ?? null,
+              reviewQueueUrl: url,
+              at: Date.now(),
+            },
+          }));
           // Review is required before publication — never claim the fiche is live.
           const toastRef: ActiveToast<unknown> = this.toast.success(
             url
@@ -6519,7 +6702,7 @@ export class ChatPanelComponent implements AfterViewInit {
       });
   }
 
-  private openReviewQueue(url: string | null): void {
+  openReviewQueue(url: string | null): void {
     // Absolute external URL: open in a new tab. Otherwise route to the in-app
     // Knowledge Capture workbench (the backend's `review_queue_url` is an API
     // path, not an Angular route, so we never navigate the SPA to it).
