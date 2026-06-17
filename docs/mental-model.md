@@ -3957,6 +3957,153 @@ into a single coherent experience.
 
 ---
 
+## 42. Correction experte en chat (expert fiche) · ✅ Shipped (flag-gated, OFF by default)
+
+A reviewer reading a chat answer can correct or complete it inline. The
+correction does **not** edit the live answer and is **not** published directly:
+it becomes a `pending_review` proposal in the existing Knowledge Capture review
+queue, and only a second reviewer's accept → publish turns it into an indexed
+**expert fiche** that is then strongly boosted at retrieval time.
+
+> **✅ Shipped in `demo/agentic`** — backend + API + UI wired end-to-end, but
+> gated behind two flags that are **OFF by default** (see OPS note in §42.5). No
+> workspace is enabled until an operator opts in.
+
+### 42.1 Inline correction flow
+
+```mermaid
+flowchart TD
+  expert["Reviewer (REVIEW_ROLES) reads a chat answer"] --> cta["Inline CTA Corriger / Compléter"]
+  cta --> compose["Compact composer: text OR microphone"]
+  compose -->|"voice"| rec["MediaRecorder webm"]
+  rec --> transcribe["POST /voice/transcribe (workspace provider)"]
+  transcribe --> draft["Editable transcript in the composer"]
+  compose -->|"text"| draft
+  draft --> ep["POST /knowledge-capture/chat-correction (+ audio_base64 / audio_ref)"]
+  ep --> prop["Lightweight ExpertCaptureSession + KnowledgeUpdateProposal (pending_review)"]
+  prop --> queue["Existing KC review queue (/knowledge-capture/proposals)"]
+  queue --> review["Second reviewer: accept → publish (existing flow)"]
+  review --> ingest["Ingestion with metadata source_type=expert_fiche"]
+  ingest --> coll["Publication collection (configurable)"]
+  coll --> scope["Included in the active scope when the flag is ON"]
+  scope --> rank["Strong ranking boost (no override)"]
+  rank --> answer["Future answers prefer the validated fiche"]
+```
+
+- **Capture is 1-shot (text or voice).** The reviewer either types the
+  correction or push-to-talks: the audio is recorded client-side, transcribed
+  through the existing `POST /voice/transcribe` (workspace voice provider), and
+  the returned text fills the composer where it stays **editable** before
+  submission. If transcription fails the composer still accepts typed text
+  (graceful degradation).
+- **No direct publication.** The endpoint creates a lightweight
+  `ExpertCaptureSession` (`status="chat_correction"`) plus a
+  `KnowledgeUpdateProposal` (`status="pending_review"`) pre-filled with the
+  reformulated correction, the original question, and the cited sources. It then
+  reuses the existing review queue — a different reviewer must `accept` then
+  `publish` (no new publication path).
+- The toast confirms *"correction sent for review"* with a link to the queue —
+  never *"fiche published"*, since validation is required.
+
+> **✅ Shipped** — CTA + composer + voice in
+> `frontend-ng/src/app/features/chat/chat-panel.component.ts` (gated on
+> capability + `chat_correct` permission + the workspace flag);
+> `submitChatCorrection` in `frontend-ng/src/app/core/api.service.ts` (sends raw
+> `audio_base64`, no `data:` prefix). Endpoint
+> `POST /knowledge-capture/chat-correction` and
+> `create_chat_correction_proposal(...)` /
+> `publish_proposal_to_knowledge(...)` in
+> `backend/app/services/knowledge_capture.py`.
+
+### 42.2 Strong ranking boost (not an override)
+
+Once a fiche is published, retrieval applies a **strong but additive** ranking
+boost to results whose ingest metadata carries `source_type == "expert_fiche"`
+(or `origin == "chat_correction"`). This is deliberately **not** a hard override
+and injects **no explicit contradiction** ("the doc says X, the expert corrected
+to Y" is never prepended): the fiche simply outranks near-tie stale docs on the
+same topic. The boost weight (`rag_expert_fiche_boost`, default `18`) is much
+stronger than the generic provenance tiebreaker (capped at `6`) but remains a
+ranking signal, not a filter.
+
+- Applied in **both** rerankers in
+  `backend/app/services/rag/retrieval_policy.py`:
+  `rerank_results_with_policy` (dict results) and `rerank_aligned_with_policy`
+  (the chat-path aligned chunks/scores/metadatas), keyed by
+  `is_expert_fiche_metadata(...)`.
+- Diagnostics: each boosted result is stamped with
+  `metadata["expert_fiche_boost_applied"] = True` for observability.
+- The OFF path is **byte-for-byte unchanged** — when
+  `rag_expert_fiche_boost_enabled` is `False` the boost weight is read as `0`
+  and the fiche markers are ignored entirely.
+
+> **✅ Shipped** — `rag_expert_fiche_boost_enabled` / `rag_expert_fiche_boost`
+> in `backend/app/core/config.py`; scope inclusion via
+> `_include_expert_fiche_collection` in `backend/app/services/rag/context.py`
+> (gated by `source_policy.expert_fiche_correction_enabled`).
+
+### 42.3 Configurable target collection
+
+The fiche destination is resolved by `resolve_expert_fiche_collection(workspace,
+source_policy)` (`backend/app/services/rag/knowledge_scopes.py`):
+
+1. `source_policy["expert_fiche_collection"]` when set to a valid slug — point
+   it at the workspace's **existing capture publication collection** to make the
+   two share storage.
+2. otherwise the per-workspace default `f"{workspace.slug}-expert-fiche"`
+   (sanitized to a valid collection slug).
+3. a constant `expert-fiche` fallback when no usable workspace slug exists.
+
+When the per-workspace flag is ON, that same slug is appended (dedup-preserving)
+to the active scope's `collection_slugs` so freshly validated fiches are visible
+to retrieval without any scope reconfiguration.
+
+### 42.4 RBAC + audio retention
+
+- **RBAC** — the endpoint is reserved to `REVIEW_ROLES`
+  (reviewer / admin / owner) through a new IAM rule
+  `PermissionRule("knowledge_proposal", "chat_correct", REVIEW_ROLES)` in
+  `backend/app/services/iam/manifest.py`. The `expert_knowledge_capture`
+  capability must also be active. `/voice/transcribe` stays guarded by
+  `voice_read` (which REVIEW_ROLES already hold).
+- **Audio retention** — when audio is submitted, the raw bytes are written to
+  the object store under
+  `workspaces/<id>/expert-fiche-captures/<collection>/<uuid>/audio.<ext>` and the
+  resulting `audio_ref` is recorded on the proposal metadata and on a voice
+  `ExpertCaptureEvent` (`source="voice"`, `text_raw`=raw transcript,
+  `text_amended`=edited text) for audit/replay.
+
+### 42.5 OPS note — feature flags (default OFF)
+
+The feature is governed by **two independent flags, both OFF by default**:
+
+| Flag | Scope | Default | Authoritative location |
+|------|-------|---------|------------------------|
+| `rag_expert_fiche_boost_enabled` (+ weight `rag_expert_fiche_boost`) | Global kill-switch for the ranking boost | `False` | `backend/app/core/config.py` (env/settings) |
+| `expert_fiche_correction_enabled` (+ optional `expert_fiche_collection`) | Per-workspace: enables the CTA, scope inclusion and the publish path | absent → `False` | the **workspace chat System's `settings.source_policy`** |
+
+To enable the feature for a workspace (e.g. Andritz) for the demo, set
+`expert_fiche_correction_enabled: true` (and optionally `expert_fiche_collection`)
+on the **workspace chat System's `settings.source_policy`** — this is the
+location the backend reads authoritatively (`_resolve_chat_source_policy`, which
+mirrors how `/chat` folds in the source policy). Then flip
+`rag_expert_fiche_boost_enabled` on globally so the validated fiche actually
+outranks stale docs. With both OFF (the default) the capture endpoint returns
+`403` and the reranker path is byte-for-byte identical to before.
+
+> **⚠️ Integration note** — the chat frontend currently reads the
+> `expert_fiche_correction_enabled` flag from `workspace.settings.source_policy`
+> (then `workspace.settings.chat.source_policy`), which is **not** the
+> backend-authoritative location (the chat System settings). The frontend gate is
+> intentionally null-tolerant (it only hides the CTA when the flag is explicitly
+> `false`), so setting the flag on the chat System settings is sufficient for the
+> demo: the CTA still renders for REVIEW_ROLES and the backend allows the
+> submission. Setting the flag **only** on `workspace.settings` would show the
+> CTA but every submission would `403`. See the testing report for the
+> recommended defensive fallback.
+
+---
+
 ## Appendix A — Gap ledger (what to build next)
 
 Aggregated from the status annotations above, sorted by product impact.
@@ -4001,4 +4148,4 @@ Aggregated from the status annotations above, sorted by product impact.
 
 ---
 
-_Last reconciled: 2026-04-21. Update this document when either the vision or the shipped state changes — never let them drift._
+_Last reconciled: 2026-06-17 (added §42 Correction experte en chat). Update this document when either the vision or the shipped state changes — never let them drift._

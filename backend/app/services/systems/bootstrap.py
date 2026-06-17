@@ -796,6 +796,36 @@ def workspace_chat_system_id(db: DBSession, workspace_id: str) -> Optional[str]:
     return system.id if system else None
 
 
+def resolve_workspace_chat_source_policy(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    system: Optional[System] = None,
+) -> Dict[str, Any]:
+    """Resolve the effective chat ``source_policy`` for a workspace.
+
+    Layers the workspace chat System policy (its ``settings.source_policy``,
+    then its ``flow_definition.source_policy``) over the workspace-level
+    ``settings.source_policy``. The System level wins (parity with ``/chat``),
+    while the workspace level only fills keys the System leaves unset, so a flag
+    such as ``expert_fiche_correction_enabled`` is honoured whether an operator
+    sets it on the chat System or on the workspace settings (the location the
+    chat frontend reads). Returns ``{}`` when neither defines a policy.
+
+    ``system`` may be passed to avoid a redundant lookup when the caller has
+    already loaded the workspace chat System.
+    """
+    if system is None:
+        system = _find_workspace_chat_system(db, workspace.id)
+    system_policy: Dict[str, Any] = {}
+    if system is not None:
+        system_policy = _as_dict(_as_dict(system.settings).get("source_policy")) or _as_dict(
+            _as_dict(system.flow_definition).get("source_policy")
+        )
+    workspace_policy = _as_dict(_as_dict(getattr(workspace, "settings", None)).get("source_policy"))
+    return {**workspace_policy, **system_policy}
+
+
 def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Optional[System]:
     """Create or refresh the workspace's always-on chat System.
 

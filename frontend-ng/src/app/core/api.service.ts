@@ -106,6 +106,35 @@ export interface CaptureEventAmendRequest {
   reason?: string | null;
 }
 
+/**
+ * Body for the inline chat-correction endpoint. An expert (REVIEW_ROLES)
+ * corrects/completes an assistant answer; the backend turns it into a
+ * ``pending_review`` knowledge proposal. ``input_modality`` distinguishes a
+ * typed correction (``text``) from a dictated one (``voice``); when voice was
+ * used, ``transcript_raw`` carries the raw STT output while ``correction``
+ * holds the expert-edited text.
+ */
+export interface ChatCorrectionRequest {
+  query: string;
+  answer: string;
+  correction: string;
+  message_id: string;
+  session_id?: string | null;
+  sources?: unknown[];
+  transcript_raw?: string | null;
+  /** Pre-resolved object-store reference, when the caller already uploaded. */
+  audio_ref?: string | null;
+  /** Base64-encoded dictation audio (no data: prefix) for backend audit/replay. */
+  audio_base64?: string | null;
+  audio_content_type?: string | null;
+  input_modality: 'text' | 'voice';
+}
+
+export interface ChatCorrectionResponse {
+  proposal_id: string;
+  review_queue_url?: string | null;
+}
+
 export interface VoiceRuntimeProviderOption {
   slug: string;
   status: string;
@@ -683,6 +712,17 @@ export class ApiService {
     body: { instruction: string; current_content?: string | null },
   ): Observable<unknown> {
     return this.post(`/knowledge-capture/proposals/${proposalId}/instruction`, body);
+  }
+
+  /**
+   * Submit an expert correction/completion of a chat answer. Creates a
+   * ``pending_review`` knowledge proposal in the existing KC review queue.
+   * The backend returns 403 when the feature is disabled for the workspace
+   * or the caller lacks the ``chat_correct`` permission, so callers must
+   * degrade gracefully on that status.
+   */
+  submitChatCorrection(body: ChatCorrectionRequest): Observable<ChatCorrectionResponse> {
+    return this.post<ChatCorrectionResponse>('/knowledge-capture/chat-correction', body);
   }
 
 }

@@ -35,7 +35,11 @@ from app.services.rag.corpus_planner import (
 )
 from app.services.rag.cross_encoder_stage import rerank_with_cross_encoder
 from app.services.rag.decision_trace import build_retrieval_decision_trace
-from app.services.rag.knowledge_scopes import fallback_scope, resolve_knowledge_scope
+from app.services.rag.knowledge_scopes import (
+    fallback_scope,
+    resolve_expert_fiche_collection,
+    resolve_knowledge_scope,
+)
 from app.services.rag.lexical_retrieval import analyze_query, lexical_match_details
 from app.services.rag.mode_selector import resolve_retrieval_mode
 from app.services.rag.comparative_retrieval import (
@@ -383,6 +387,13 @@ def _apply_source_policy_to_retrieval_policy(
     enforcement. Rollout is gated by ``rag_reject_cross_project_enforce``:
     until collections carry project_code payloads (backfill), the filter runs
     in shadow/log-only mode so untagged corpora keep their evidence.
+
+    ``source_policy`` is free-form and flows end-to-end untouched, so other
+    consumers read their own keys without a schema change. Expert fiche
+    correction adds two such keys here: ``expert_fiche_correction_enabled``
+    (bool) and ``expert_fiche_collection`` (str|null, resolved via
+    ``resolve_expert_fiche_collection``). They are consumed by scope inclusion
+    and the ranking boost in Volet 3, not by this retrieval-policy fold.
     """
     source_policy = request.get("source_policy")
     if not isinstance(source_policy, Mapping):
@@ -404,6 +415,30 @@ def _apply_source_policy_to_retrieval_policy(
         require_project_code_match=True,
         cross_project_log_only=log_only and not retrieval_policy.require_project_code_match,
     )
+
+
+def _include_expert_fiche_collection(
+    collections: list[str],
+    *,
+    workspace_slug: Any,
+    source_policy: Any,
+) -> list[str]:
+    """Add the resolved expert-fiche collection to the searched set (Volet 3).
+
+    No-op unless the workspace opted in via
+    ``source_policy["expert_fiche_correction_enabled"]``. The destination slug is
+    resolved with ``resolve_expert_fiche_collection`` and appended dedup-preserving
+    so a validated expert fiche is always retrievable for the chat turn when the
+    feature is on; the order returned when OFF is byte-for-byte unchanged.
+    """
+    if not isinstance(source_policy, Mapping):
+        return collections
+    if not bool(source_policy.get("expert_fiche_correction_enabled")):
+        return collections
+    slug = resolve_expert_fiche_collection({"slug": workspace_slug}, source_policy)
+    if slug and slug not in collections:
+        collections.append(slug)
+    return collections
 
 
 def _deep_rewrite_variants(request: Mapping[str, Any], profile: Mapping[str, Any]) -> list[str] | None:
@@ -691,7 +726,12 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         synthesis_k = min(max(synthesis_k, source_display_k), profile_contract.max_synthesis_k)
         candidate_pool_k = min(max(candidate_pool_k, synthesis_k), profile_contract.max_candidate_pool_k)
         deadline_seconds = profile_contract.deadline_seconds or deadline_seconds
-    collections = scope.get("collection_slugs") or [fallback_collection]
+    collections = list(scope.get("collection_slugs") or [fallback_collection])
+    collections = _include_expert_fiche_collection(
+        collections,
+        workspace_slug=request.get("workspace_slug"),
+        source_policy=request.get("source_policy"),
+    )
     vector_db_type = resolve_vector_db_type(app_settings)
     return {
         "query": _history_augmented_query(request),

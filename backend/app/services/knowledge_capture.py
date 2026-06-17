@@ -9,6 +9,7 @@ import tempfile
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -27,6 +28,7 @@ from app.models.expert_capture import (
 from app.models.run import Run, SkillInvocation
 from app.models.system import System
 from app.services.audit_logger import emit_audit_event
+from app.services.rag.knowledge_scopes import resolve_expert_fiche_collection
 from app.services.capture_knowledge_oracle import (
     CaptureSessionContext,
     analyze_plan_oracle_async,
@@ -2951,6 +2953,12 @@ async def publish_proposal_to_knowledge(
                 "expert_name": expert_name,
                 "captured_by_user_id": expert_user_id,
                 "open_questions_count": unresolved_count,
+                # Carry the expert-fiche provenance so the Volet 3 ranking boost
+                # (keyed on source_type=expert_fiche) survives ingestion. Only
+                # set when present on the proposal's recommended ingestion.
+                "source_type": metadata.get("source_type"),
+                "origin": metadata.get("origin"),
+                "input_modality": metadata.get("input_modality"),
             }.items()
             if value
         }
@@ -5080,6 +5088,224 @@ def create_update_proposal(
     db.commit()
     db.refresh(proposal)
     return proposal
+
+
+def _chat_correction_title(query: Optional[str]) -> str:
+    """Derive a short human title from the originating chat question."""
+    text = " ".join(str(query or "").split())
+    if not text:
+        return "Correction experte"
+    snippet = text[:96].rstrip()
+    if len(text) > len(snippet):
+        snippet = f"{snippet}…"
+    return f"Correction experte – {snippet}"
+
+
+def _normalize_chat_correction_sources(sources: Optional[List[Any]]) -> List[Dict[str, Any]]:
+    """Coerce free-form chat sources into a stable list of dicts for metadata."""
+    normalized: List[Dict[str, Any]] = []
+    for item in sources or []:
+        if isinstance(item, Mapping):
+            entry = {
+                key: value
+                for key, value in {
+                    "title": _clean_optional_string(item.get("title") or item.get("name")),
+                    "url": _clean_optional_string(item.get("url") or item.get("uri")),
+                    "document_id": _clean_optional_string(item.get("document_id") or item.get("id")),
+                    "collection": _clean_optional_string(
+                        item.get("collection") or item.get("collection_slug")
+                    ),
+                    "snippet": _clean_optional_string(item.get("snippet") or item.get("excerpt")),
+                }.items()
+                if value
+            }
+            if entry:
+                normalized.append(entry)
+        else:
+            label = _clean_optional_string(item)
+            if label:
+                normalized.append({"title": label})
+    return normalized
+
+
+def _chat_correction_markdown(
+    *,
+    query: Optional[str],
+    correction_text: str,
+    sources: List[Dict[str, Any]],
+    expert_name: Optional[str],
+    title: str,
+) -> str:
+    """Compose a clean, reviewable expert fiche from an inline chat correction.
+
+    Layout mirrors the captured-fiche shape (question, expert answer, evidence)
+    so reviewers and the downstream ingestion see a familiar structure.
+    """
+    question = " ".join(str(query or "").split()) or "—"
+    correction = str(correction_text or "").strip()
+    source_lines = []
+    for source in sources:
+        label = source.get("title") or source.get("url") or source.get("document_id")
+        if not label:
+            continue
+        url = source.get("url")
+        source_lines.append(f"- [{label}]({url})" if url else f"- {label}")
+    sources_block = "\n".join(source_lines) or "- Aucune source citée."
+    expert_block = f"\n_Expert : {expert_name}_\n" if expert_name else ""
+    return (
+        f"# {title}\n"
+        f"{expert_block}\n"
+        "## Question d'origine\n"
+        f"{question}\n\n"
+        "## Correction / complément de l'expert\n"
+        f"{correction or '—'}\n\n"
+        "## Sources citées\n"
+        f"{sources_block}\n"
+    )
+
+
+def create_chat_correction_proposal(
+    db: DBSession,
+    *,
+    workspace: Any,
+    user: Any,
+    query: str,
+    assistant_answer: Optional[str],
+    correction_text: str,
+    sources: Optional[List[Any]] = None,
+    transcript_raw: Optional[str] = None,
+    audio_ref: Optional[str] = None,
+    input_modality: str = "text",
+    source_policy: Optional[Dict[str, Any]] = None,
+) -> Tuple[KnowledgeUpdateProposal, ExpertCaptureSession]:
+    """Turn an inline chat correction into a ``pending_review`` proposal.
+
+    A lightweight :class:`ExpertCaptureSession` (status ``chat_correction``)
+    anchors the audit trail. When the correction came from voice, the raw
+    transcript and the edited text are recorded on an ``ExpertCaptureEvent``
+    (``source="voice"``) for replay. The resulting
+    :class:`KnowledgeUpdateProposal` carries ``source_type="expert_fiche"`` so
+    Volet 3 can boost it once published, and its publication destination
+    defaults to :func:`resolve_expert_fiche_collection`.
+    """
+    workspace_id = getattr(workspace, "id", None) or (
+        workspace.get("id") if isinstance(workspace, Mapping) else None
+    )
+    user_id = getattr(user, "id", None) or (user.get("id") if isinstance(user, Mapping) else None)
+    objective = " ".join(str(query or "").split()) or "Correction experte en chat"
+    title = _chat_correction_title(query)
+    normalized_modality = (input_modality or "text").strip().lower() or "text"
+    is_voice = normalized_modality == "voice" or bool(transcript_raw)
+    if is_voice:
+        normalized_modality = "voice"
+
+    capability = db.query(Capability).filter(Capability.slug == CAPABILITY_SLUG).first()
+    session = ExpertCaptureSession(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace_id,
+        capability_id=capability.id if capability else None,
+        created_by_user_id=user_id,
+        title=title,
+        objective=objective,
+        status="chat_correction",
+        plan={},
+        knowledge_gaps=[],
+        metrics={"origin": "chat_correction", "input_modality": normalized_modality},
+    )
+    db.add(session)
+    db.flush()
+
+    if is_voice:
+        _record_capture_event(
+            db,
+            session=session,
+            event_type="chat_correction_voice",
+            speaker="expert",
+            source="voice",
+            status="accepted",
+            audio_ref=audio_ref,
+            text_raw=transcript_raw,
+            text_amended=correction_text,
+            created_by=user_id,
+            meta_data={"origin": "chat_correction", "input_modality": "voice"},
+        )
+
+    expert_name = _resolve_user_label(db, user_id)
+    normalized_sources = _normalize_chat_correction_sources(sources)
+    destination_collection = resolve_expert_fiche_collection(workspace, source_policy)
+    content = _chat_correction_markdown(
+        query=query,
+        correction_text=correction_text,
+        sources=normalized_sources,
+        expert_name=expert_name,
+        title=title,
+    )
+
+    metadata: Dict[str, Any] = {
+        "source_type": "expert_fiche",
+        "origin": "chat_correction",
+        "input_modality": normalized_modality,
+        "question": objective,
+        "sources": normalized_sources,
+        "publication_destination": destination_collection,
+        "publication_destination_scope": destination_collection,
+    }
+    if assistant_answer and str(assistant_answer).strip():
+        metadata["assistant_answer"] = str(assistant_answer).strip()
+    if expert_name:
+        metadata["expert_name"] = expert_name
+    if audio_ref:
+        metadata["audio_ref"] = audio_ref
+
+    payload: Dict[str, Any] = {
+        "session_id": session.id,
+        "title": title,
+        "objective": objective,
+        "report_markdown": content,
+        "recommended_ingestion": {
+            "title": title,
+            "content": content,
+            "metadata": metadata,
+        },
+        "publication": {
+            "destination": destination_collection,
+            "destination_scope": destination_collection,
+            "final_title": title,
+        },
+        "review": {
+            "required": True,
+            "reason": "Expert chat corrections must be validated before they become indexed fiches.",
+        },
+    }
+
+    proposal = KnowledgeUpdateProposal(
+        id=str(uuid.uuid4()),
+        workspace_id=workspace_id,
+        session_id=session.id,
+        status="pending_review",
+        proposal=payload,
+        created_by_user_id=user_id,
+    )
+    db.add(proposal)
+    db.flush()
+    _record_capture_event(
+        db,
+        session=session,
+        event_type="proposal_generated",
+        source="capture_engine",
+        status="accepted",
+        created_by=user_id,
+        meta_data={
+            "proposal_id": proposal.id,
+            "origin": "chat_correction",
+            "input_modality": normalized_modality,
+            "destination_collection": destination_collection,
+        },
+    )
+    db.commit()
+    db.refresh(proposal)
+    db.refresh(session)
+    return proposal, session
 
 
 def review_proposal(

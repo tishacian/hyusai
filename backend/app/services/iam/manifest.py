@@ -71,6 +71,7 @@ CAPTURE_MANIFEST = CapabilityIAMManifest(
         PermissionRule("knowledge_proposal", "submit_review", (WORKSPACE_CONTRIBUTOR,), ("owner_match",)),
         PermissionRule("knowledge_proposal", "submit_review", ADMIN_ROLES),
         PermissionRule("knowledge_proposal", "review_decide", REVIEW_ROLES),
+        PermissionRule("knowledge_proposal", "chat_correct", REVIEW_ROLES),
         PermissionRule("knowledge_proposal", "trigger_ingestion", REVIEW_ROLES, ("second_eye_ingestion",)),
         PermissionRule("workspace", "manage_members", ADMIN_ROLES),
         PermissionRule("policy", "manage_policies", ADMIN_ROLES),

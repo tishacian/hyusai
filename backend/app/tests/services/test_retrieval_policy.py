@@ -556,3 +556,172 @@ def test_discovery_flag_actually_changes_preferred_family_score():
     )
     # +12 preferred-family boost only under discovery intent.
     assert on - off == 12
+
+
+# --- Expert-fiche strong ranking boost (plan Volet 3) -----------------------
+
+_EXPERT_FICHE_QUERY = "pump maintenance procedure"
+
+
+def _expert_fiche_sample_rows():
+    """Two close rows; the second is a validated expert fiche.
+
+    Identical evidence coverage means equal base policy scores, so only the
+    expert-fiche boost can change the ordering between them.
+    """
+    return [
+        {
+            "content": "Pump maintenance procedure from the manual.",
+            "score": 0.80,
+            "metadata": {"document_filename": "manual-extract.md"},
+        },
+        {
+            "content": "Pump maintenance procedure corrected by an expert.",
+            "score": 0.78,
+            "metadata": {"document_filename": "fiche.md", "source_type": "expert_fiche"},
+        },
+    ]
+
+
+def _strip_fiche_markers(rows):
+    plain = []
+    for row in rows:
+        meta = {k: v for k, v in row["metadata"].items() if k not in {"source_type", "origin"}}
+        plain.append({**row, "metadata": meta})
+    return plain
+
+
+def test_expert_fiche_boost_off_is_byte_for_byte_baseline(monkeypatch):
+    from app.core.config import settings as app_config
+
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost_enabled", False)
+
+    ranked_fiche = rerank_results_with_policy(
+        _expert_fiche_sample_rows(), _EXPERT_FICHE_QUERY, None
+    )
+    ranked_plain = rerank_results_with_policy(
+        _strip_fiche_markers(_expert_fiche_sample_rows()), _EXPERT_FICHE_QUERY, None
+    )
+
+    # OFF must ignore the fiche markers entirely: same order and same scores as
+    # the identical rows without any expert-fiche metadata.
+    assert [r["content"] for r in ranked_fiche] == [r["content"] for r in ranked_plain]
+    assert [r["metadata"].get("retrieval_policy_score") for r in ranked_fiche] == [
+        r["metadata"].get("retrieval_policy_score") for r in ranked_plain
+    ]
+    # The higher raw-score non-fiche row keeps the lead; no boost marker leaks.
+    assert ranked_fiche[0]["metadata"]["document_filename"] == "manual-extract.md"
+    assert all(
+        "expert_fiche_boost_applied" not in r["metadata"] for r in ranked_fiche
+    )
+
+
+def test_expert_fiche_boost_on_outranks_close_non_fiche(monkeypatch):
+    from app.core.config import settings as app_config
+
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost_enabled", True)
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost", 18)
+
+    ranked = rerank_results_with_policy(
+        _expert_fiche_sample_rows(), _EXPERT_FICHE_QUERY, None
+    )
+
+    # The validated fiche now leads despite its lower raw similarity score.
+    assert ranked[0]["metadata"]["document_filename"] == "fiche.md"
+    assert ranked[0]["metadata"]["expert_fiche_boost_applied"] is True
+
+    score_by_file = {
+        r["metadata"]["document_filename"]: r["metadata"].get("retrieval_policy_score")
+        for r in ranked
+    }
+    # The fiche row gains exactly rag_expert_fiche_boost over the close non-fiche row.
+    assert score_by_file["fiche.md"] - score_by_file["manual-extract.md"] == 18
+
+
+def test_expert_fiche_boost_on_keys_on_chat_correction_origin(monkeypatch):
+    from app.core.config import settings as app_config
+
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost_enabled", True)
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost", 18)
+
+    rows = [
+        {
+            "content": "Pump maintenance procedure from the manual.",
+            "score": 0.80,
+            "metadata": {"document_filename": "manual-extract.md"},
+        },
+        {
+            "content": "Pump maintenance procedure corrected by an expert.",
+            "score": 0.78,
+            "metadata": {"document_filename": "fiche.md", "origin": "chat_correction"},
+        },
+    ]
+
+    ranked = rerank_results_with_policy(rows, _EXPERT_FICHE_QUERY, None)
+
+    assert ranked[0]["metadata"]["document_filename"] == "fiche.md"
+    assert ranked[0]["metadata"]["expert_fiche_boost_applied"] is True
+
+
+# --- Expert-fiche scope inclusion (plan Volet 3) ----------------------------
+
+
+def test_scope_inclusion_on_appends_configured_slug():
+    from app.services.rag.context import _include_expert_fiche_collection
+
+    collections = _include_expert_fiche_collection(
+        ["documents"],
+        workspace_slug="andritz",
+        source_policy={
+            "expert_fiche_correction_enabled": True,
+            "expert_fiche_collection": "andritz-validated-fiches",
+        },
+    )
+    assert collections == ["documents", "andritz-validated-fiches"]
+
+
+def test_scope_inclusion_on_uses_workspace_default_when_unconfigured():
+    from app.services.rag.context import _include_expert_fiche_collection
+
+    collections = _include_expert_fiche_collection(
+        ["documents"],
+        workspace_slug="andritz",
+        source_policy={"expert_fiche_correction_enabled": True},
+    )
+    assert collections == ["documents", "andritz-expert-fiche"]
+
+
+def test_scope_inclusion_dedupes_existing_slug():
+    from app.services.rag.context import _include_expert_fiche_collection
+
+    collections = _include_expert_fiche_collection(
+        ["andritz-validated-fiches", "documents"],
+        workspace_slug="andritz",
+        source_policy={
+            "expert_fiche_correction_enabled": True,
+            "expert_fiche_collection": "andritz-validated-fiches",
+        },
+    )
+    assert collections == ["andritz-validated-fiches", "documents"]
+
+
+def test_scope_inclusion_off_is_noop():
+    from app.services.rag.context import _include_expert_fiche_collection
+
+    collections = _include_expert_fiche_collection(
+        ["documents"],
+        workspace_slug="andritz",
+        source_policy={
+            "expert_fiche_correction_enabled": False,
+            "expert_fiche_collection": "andritz-validated-fiches",
+        },
+    )
+    assert collections == ["documents"]
+
+
+def test_scope_inclusion_noop_without_source_policy():
+    from app.services.rag.context import _include_expert_fiche_collection
+
+    assert _include_expert_fiche_collection(
+        ["documents"], workspace_slug="andritz", source_policy=None
+    ) == ["documents"]

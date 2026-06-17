@@ -43,6 +43,7 @@ from app.services.chat_grounding import resolve_grounding_policy
 from app.services.chat_run_ledger import enrich_chat_run_ledger
 from app.services.chat_trivial_bypass import TrivialBypass, maybe_trivial_bypass
 from app.services.systems.bootstrap import WORKSPACE_CHAT_VARIANT
+from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
 from app.services.systems.bootstrap import workspace_chat_system_id
 from app.services.rag.decision_trace import build_trivial_retrieval_decision_trace
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
@@ -334,9 +335,7 @@ def _apply_workspace_chat_flow_defaults(
     if not request.knowledge_scope and chat.get("knowledge_scope"):
         request.knowledge_scope = str(chat["knowledge_scope"])
     if request.source_policy is None:
-        source_policy = _as_dict(_as_dict(system.settings).get("source_policy")) or _as_dict(
-            flow.get("source_policy")
-        )
+        source_policy = resolve_workspace_chat_source_policy(db, workspace, system=system)
         if source_policy:
             request.source_policy = source_policy
     if request.latency_profile is None and retrieval_defaults.get("latency_profile") in {"fast", "balanced", "deep"}:

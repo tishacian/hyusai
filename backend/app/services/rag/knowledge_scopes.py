@@ -18,6 +18,10 @@ from app.models.workspace import Workspace
 
 COLLECTION_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$")
 
+# Safe constant used when no usable workspace slug is available to derive the
+# per-workspace expert fiche collection default.
+EXPERT_FICHE_COLLECTION_FALLBACK = "expert-fiche"
+
 
 def _as_mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
@@ -138,3 +142,54 @@ def resolve_knowledge_scope(
     finally:
         if should_close:
             session.close()
+
+
+def _workspace_slug(workspace: Any) -> str:
+    """Best-effort slug read from an ORM object or a mapping-like workspace."""
+    slug = getattr(workspace, "slug", None)
+    if slug is None and isinstance(workspace, Mapping):
+        slug = workspace.get("slug")
+    return _safe_key(slug)
+
+
+def _sanitize_collection_slug(value: Any) -> str:
+    """Coerce an arbitrary string into a COLLECTION_SLUG_RE-valid slug.
+
+    Invalid characters are replaced with ``-``, leading non-alphanumerics are
+    trimmed (the first char must be alphanumeric) and the result is truncated to
+    120 chars. Returns ``""`` when nothing valid remains.
+    """
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]", "-", _safe_key(value))
+    cleaned = cleaned.lstrip("_.-")[:120]
+    return cleaned if cleaned and COLLECTION_SLUG_RE.match(cleaned) else ""
+
+
+def resolve_expert_fiche_collection(workspace: Any, source_policy: Any) -> str:
+    """Resolve the destination collection slug for validated expert fiches.
+
+    Decision (plan Volet 1): reuse the workspace capture publication collection
+    by default, configurable per workspace. Pointing ``expert_fiche_collection``
+    (in the chat ``source_policy``) at an existing capture publication collection
+    slug makes the two share storage.
+
+    Resolution order:
+      1. ``source_policy["expert_fiche_collection"]`` when present and slug-valid.
+      2. A deterministic per-workspace default ``f"{workspace.slug}-expert-fiche"``
+         sanitized to satisfy COLLECTION_SLUG_RE.
+      3. ``EXPERT_FICHE_COLLECTION_FALLBACK`` when no usable workspace slug exists.
+
+    This volet only resolves the slug; it does not wire scope inclusion or the
+    ranking boost (Volet 3).
+    """
+    policy = _as_mapping(source_policy)
+    configured = _safe_key(policy.get("expert_fiche_collection"))
+    if configured and COLLECTION_SLUG_RE.match(configured):
+        return configured
+
+    workspace_slug = _workspace_slug(workspace)
+    if workspace_slug:
+        default_slug = _sanitize_collection_slug(f"{workspace_slug}-expert-fiche")
+        if default_slug:
+            return default_slug
+
+    return EXPERT_FICHE_COLLECTION_FALLBACK

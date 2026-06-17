@@ -35,6 +35,7 @@ import {
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { PermissionsService } from '@app/core/permissions.service';
 import { AssistantEffectsService } from '@app/core/assistant-effects.service';
 import { I18nService, type Locale } from '@app/core/i18n.service';
 import { RuntimeStatusBadgeComponent } from '@app/shared/cockpit';
@@ -1599,12 +1600,123 @@ const STEP_ICONS: Record<string, string> = {
                     }
                   </button>
                 }
+                @if (canCorrectInChat()) {
+                  <button
+                    type="button"
+                    class="p-1 rounded hover:bg-emerald-500/10 transition flex items-center gap-1 text-emerald-600 dark:text-emerald-300"
+                    [class.bg-emerald-500\\/10]="correctionOpenFor() === msg.id"
+                    title="Corriger ou compléter cette réponse (relecture experte requise)"
+                    (click)="toggleCorrection(msg)"
+                  >
+                    <app-icon name="pencil" [size]="12" />
+                    <span>Corriger / Compléter</span>
+                  </button>
+                }
                 @if (!isDemoMode() && msg.evaluation) {
                   <span class="ml-auto font-mono text-[10px] text-emerald-400"
                     >Score {{ msg.evaluation.composite_score.toFixed(1) }}</span
                   >
                 }
               </div>
+
+              <!-- Inline expert correction composer -->
+              @if (canCorrectInChat() && correctionOpenFor() === msg.id) {
+                <div class="ml-2 mt-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.04] p-3 space-y-2">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-300 font-semibold">
+                      <app-icon name="pencil" [size]="12" />
+                      Correction experte
+                    </div>
+                    <button
+                      type="button"
+                      class="p-1 rounded text-gray-500 hover:text-gray-300 hover:bg-white/5 transition"
+                      title="Fermer"
+                      (click)="closeCorrection()"
+                    >
+                      <app-icon name="x" [size]="12" />
+                    </button>
+                  </div>
+
+                  @if (correctionQuestionFor(msg); as question) {
+                    <p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                      <span class="font-semibold text-gray-600 dark:text-gray-300">Question :</span>
+                      <span class="line-clamp-2">{{ question }}</span>
+                    </p>
+                  }
+
+                  <div class="flex items-start gap-2">
+                    <textarea
+                      rows="3"
+                      class="flex-1 resize-y rounded-md border border-black/10 dark:border-white/10 bg-white dark:bg-white/[0.03] px-2.5 py-2 text-[12px] text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                      placeholder="Corrigez ou complétez la réponse. Vous pouvez aussi dicter au micro."
+                      [ngModel]="correctionText()"
+                      (ngModelChange)="correctionText.set($event)"
+                    ></textarea>
+                    <button
+                      type="button"
+                      class="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-full transition ring-1"
+                      [class.bg-red-500\\/15]="correctionMicState() === 'recording'"
+                      [class.text-red-400]="correctionMicState() === 'recording'"
+                      [class.ring-red-500\\/40]="correctionMicState() === 'recording'"
+                      [class.animate-pulse]="correctionMicState() === 'recording'"
+                      [class.bg-emerald-500\\/10]="correctionMicState() !== 'recording'"
+                      [class.text-emerald-600]="correctionMicState() !== 'recording'"
+                      [class.dark:text-emerald-300]="correctionMicState() !== 'recording'"
+                      [class.ring-emerald-500\\/30]="correctionMicState() !== 'recording'"
+                      [disabled]="correctionMicState() === 'transcribing' || correctionSubmitting()"
+                      [title]="correctionMicState() === 'recording'
+                        ? 'Arrêter et transcrire'
+                        : (correctionMicState() === 'transcribing' ? 'Transcription en cours…' : 'Dicter la correction')"
+                      (click)="toggleCorrectionMic()"
+                    >
+                      @if (correctionMicState() === 'transcribing') {
+                        <app-icon name="loader-2" [size]="15" class="animate-spin" />
+                      } @else if (correctionMicState() === 'recording') {
+                        <app-icon name="square" [size]="14" />
+                      } @else {
+                        <app-icon name="mic" [size]="15" />
+                      }
+                    </button>
+                  </div>
+
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-[10px] text-gray-500">
+                      @switch (correctionMicState()) {
+                        @case ('recording') { <span class="text-red-400">● Enregistrement… touchez le carré pour arrêter</span> }
+                        @case ('transcribing') { Transcription en cours… }
+                        @case ('ready') { Transcription prête — relisez et ajustez avant d’envoyer. }
+                        @default { Saisie ou dictée — relecture experte requise avant publication. }
+                      }
+                    </span>
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        class="px-2 py-1 rounded text-[11px] text-gray-500 hover:text-gray-300 hover:bg-white/5 transition"
+                        (click)="closeCorrection()"
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        type="button"
+                        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 ring-1 ring-emerald-500/30 hover:bg-emerald-500/25 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        [disabled]="!correctionText().trim()
+                          || correctionSubmitting()
+                          || correctionMicState() === 'recording'
+                          || correctionMicState() === 'transcribing'"
+                        (click)="submitCorrection(msg)"
+                      >
+                        @if (correctionSubmitting()) {
+                          <app-icon name="loader-2" [size]="12" class="animate-spin" />
+                          <span>Envoi…</span>
+                        } @else {
+                          <app-icon name="send" [size]="12" />
+                          <span>Envoyer en revue</span>
+                        }
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              }
 
               <!-- Calm, end-user-friendly auto-QA marker. Replaces the alarming
                    top toast for everyone; operators additionally get the raw
@@ -2710,6 +2822,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly workspace = inject(WorkspaceService);
+  private readonly permissions = inject(PermissionsService);
   private readonly assistantEffects = inject(AssistantEffectsService);
   private readonly i18n = inject(I18nService);
   readonly settings = inject(SettingsService);
@@ -2814,6 +2927,22 @@ export class ChatPanelComponent implements AfterViewInit {
 	  readonly voiceNotice = signal<string | null>(null);
 	  readonly voiceOracleStage = signal<VoiceOracleStage>('idle');
 	  readonly voiceOracleMessage = signal('Batch mode: no persistent voice session is open.');
+
+  // --- Inline expert correction ("Corriger / Compléter") composer state ---
+  // Only one composer is open at a time, keyed by the assistant message id.
+  readonly correctionOpenFor = signal<string | null>(null);
+  readonly correctionText = signal('');
+  /** Raw STT output kept verbatim for audit when the correction was dictated. */
+  private correctionTranscriptRaw: string | null = null;
+  readonly correctionUsedVoice = signal(false);
+  readonly correctionMicState = signal<'idle' | 'recording' | 'transcribing' | 'ready'>('idle');
+  readonly correctionSubmitting = signal(false);
+  private correctionStream: MediaStream | null = null;
+  private correctionRecorder: MediaRecorder | null = null;
+  private correctionChunks: Blob[] = [];
+  /** Last dictation recording, sent (base64) for audit/replay when voice used. */
+  private correctionAudioBlob: Blob | null = null;
+
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly showAdvancedChatControls = computed(() =>
     !this.isDemoMode() && (!this.executiveMode() || this.traceOpen()),
@@ -2885,6 +3014,47 @@ export class ChatPanelComponent implements AfterViewInit {
       ...(this.isRecord(profileConfig) ? profileConfig : {}),
     } as WorkspaceVoiceOutputConfig;
   });
+  /**
+   * Per-workspace toggle for the inline expert-correction CTA. Read from the
+   * client-side workspace settings under ``source_policy`` (primary) or
+   * ``chat.source_policy`` (fallback). Returns ``null`` when the key is absent
+   * client-side — in that case we do not block on it and rely on backend
+   * enforcement (the endpoint returns 403 when the feature is disabled).
+   */
+  readonly expertCorrectionFlag = computed<boolean | null>(() => {
+    const settings = this.workspace.current()?.settings;
+    const rootPolicy = this.isRecord(settings?.['source_policy'])
+      ? (settings!['source_policy'] as Record<string, unknown>)
+      : null;
+    const chat = this.isRecord(settings?.['chat']) ? (settings!['chat'] as Record<string, unknown>) : null;
+    const chatPolicy = chat && this.isRecord(chat['source_policy'])
+      ? (chat['source_policy'] as Record<string, unknown>)
+      : null;
+    for (const policy of [rootPolicy, chatPolicy]) {
+      if (policy && 'expert_fiche_correction_enabled' in policy) {
+        return policy['expert_fiche_correction_enabled'] === true;
+      }
+    }
+    return null;
+  });
+
+  /**
+   * Whether the inline "Corriger / Compléter" CTA is available. Gated by:
+   *  - the matrix permission ``knowledge_proposal:chat_correct`` which the
+   *    backend grants to REVIEW_ROLES (reviewer/admin/owner) — reusing the same
+   *    PermissionsService the Knowledge Capture workbench relies on for its own
+   *    role gating, and
+   *  - the per-workspace ``expert_fiche_correction_enabled`` flag (only when it
+   *    is explicitly present client-side; absent -> we do not block on it).
+   * The ``expert_knowledge_capture`` capability-active check and the workspace
+   * flag are ultimately enforced server-side (the endpoint returns 403 when the
+   * feature is disabled), which the submit handler degrades gracefully.
+   */
+  readonly canCorrectInChat = computed(() => {
+    if (this.expertCorrectionFlag() === false) return false;
+    return this.permissions.can('knowledge_proposal', 'chat_correct');
+  });
+
   readonly selectedSource = signal<SourceSelection>('auto');
   readonly sessionDocsMode = signal<SessionDocsMode>('replace');
   readonly knowledgeScopeOptions = computed<KnowledgeScopeOption[]>(() => {
@@ -3256,6 +3426,9 @@ export class ChatPanelComponent implements AfterViewInit {
       this.loadDemoVoiceActions(profileKey, systemId);
     });
     this.settings.refresh();
+    // Refresh the IAM matrix so the inline expert-correction CTA can gate on
+    // the `chat_correct` permission (capability-active + REVIEW_ROLES).
+    this.permissions.refresh().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
     this.health.load().subscribe();
     this.loadReasoningTemplates();
     this.loadVoiceRuntimes();
@@ -3271,6 +3444,7 @@ export class ChatPanelComponent implements AfterViewInit {
       this.voiceLoop.dispose();
       this.ttsPlayback.destroy();
       this.voiceConnection?.close();
+      this.releaseCorrectionRecorder();
     });
   }
 
@@ -6096,6 +6270,282 @@ export class ChatPanelComponent implements AfterViewInit {
       .writeText(text)
       .then(() => this.toast.info('Copied to clipboard'))
       .catch(() => this.toast.error('Copy failed'));
+  }
+
+  // --- Inline expert correction ("Corriger / Compléter") -------------------
+
+  /** Short reminder of the question the assistant answered, shown above the
+   * composer so the expert keeps the context in view. */
+  correctionQuestionFor(msg: ChatMessage): string {
+    return this.previousUserQueryFor(msg.id) || '';
+  }
+
+  /** Toggle the inline correction composer for a given assistant message. Only
+   * one composer is open at a time. */
+  toggleCorrection(msg: ChatMessage): void {
+    if (this.correctionOpenFor() === msg.id) {
+      this.closeCorrection();
+      return;
+    }
+    this.releaseCorrectionRecorder();
+    this.correctionText.set('');
+    this.correctionTranscriptRaw = null;
+    this.correctionAudioBlob = null;
+    this.correctionUsedVoice.set(false);
+    this.correctionMicState.set('idle');
+    this.correctionSubmitting.set(false);
+    this.correctionOpenFor.set(msg.id);
+  }
+
+  closeCorrection(): void {
+    this.releaseCorrectionRecorder();
+    this.correctionOpenFor.set(null);
+    this.correctionText.set('');
+    this.correctionTranscriptRaw = null;
+    this.correctionAudioBlob = null;
+    this.correctionUsedVoice.set(false);
+    this.correctionMicState.set('idle');
+    this.correctionSubmitting.set(false);
+  }
+
+  /** Push-to-talk toggle: start recording when idle/ready, stop (and transcribe)
+   * while recording. A no-op while a transcription is already in flight. */
+  async toggleCorrectionMic(): Promise<void> {
+    const state = this.correctionMicState();
+    if (state === 'recording') {
+      this.stopCorrectionRecording();
+      return;
+    }
+    if (state === 'transcribing') return;
+    await this.startCorrectionRecording();
+  }
+
+  private async startCorrectionRecording(): Promise<void> {
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      this.toast.error('Le micro n’est pas disponible dans ce navigateur. Saisissez la correction.', 'Dictée');
+      return;
+    }
+    try {
+      this.correctionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      this.correctionMicState.set('idle');
+      this.toast.error('Accès au micro refusé. Vous pouvez saisir la correction manuellement.', 'Dictée');
+      this.cdr.markForCheck();
+      return;
+    }
+    this.correctionChunks = [];
+    let recorder: MediaRecorder;
+    try {
+      recorder = MediaRecorder.isTypeSupported('audio/webm')
+        ? new MediaRecorder(this.correctionStream, { mimeType: 'audio/webm' })
+        : new MediaRecorder(this.correctionStream);
+    } catch {
+      recorder = new MediaRecorder(this.correctionStream);
+    }
+    this.correctionRecorder = recorder;
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) this.correctionChunks.push(event.data);
+    };
+    recorder.onstop = () => this.transcribeCorrectionRecording();
+    recorder.start();
+    this.correctionMicState.set('recording');
+    this.cdr.markForCheck();
+  }
+
+  private stopCorrectionRecording(): void {
+    const recorder = this.correctionRecorder;
+    if (!recorder) return;
+    this.correctionMicState.set('transcribing');
+    this.cdr.markForCheck();
+    try {
+      if (recorder.state !== 'inactive') {
+        recorder.stop();
+      } else {
+        this.transcribeCorrectionRecording();
+      }
+    } catch {
+      this.transcribeCorrectionRecording();
+    }
+  }
+
+  private transcribeCorrectionRecording(): void {
+    this.releaseCorrectionStream();
+    this.correctionRecorder = null;
+    const chunks = this.correctionChunks;
+    this.correctionChunks = [];
+    if (!chunks.length) {
+      this.correctionMicState.set('idle');
+      this.toast.warning('Aucun son capté. Réessayez ou saisissez la correction.', 'Dictée');
+      this.cdr.markForCheck();
+      return;
+    }
+    const blob = new Blob(chunks, { type: 'audio/webm' });
+    // Keep the recording so the dictation audio can be persisted for audit when
+    // the expert submits (the backend stores it and derives an audio_ref).
+    this.correctionAudioBlob = blob;
+    this.correctionMicState.set('transcribing');
+    this.api
+      .transcribeAudio(blob, 'chat-correction.webm')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          const text = (res?.text || '').trim();
+          if (text) {
+            // Keep the raw transcript verbatim for audit; the expert edits the
+            // textarea copy before submitting.
+            this.correctionTranscriptRaw = text;
+            this.correctionUsedVoice.set(true);
+            const existing = this.correctionText().trim();
+            this.correctionText.set(existing ? `${existing} ${text}` : text);
+            this.correctionMicState.set('ready');
+          } else {
+            this.correctionMicState.set('idle');
+            this.toast.warning('Transcription vide. Vous pouvez saisir la correction.', 'Dictée');
+          }
+          this.cdr.markForCheck();
+        },
+        error: () => {
+          // Clean degradation: keep the textarea usable for manual typing.
+          this.correctionMicState.set('idle');
+          this.toast.error('Transcription indisponible. Saisissez la correction manuellement.', 'Dictée');
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
+  private releaseCorrectionStream(): void {
+    this.correctionStream?.getTracks().forEach((track) => track.stop());
+    this.correctionStream = null;
+  }
+
+  private releaseCorrectionRecorder(): void {
+    const recorder = this.correctionRecorder;
+    if (recorder) {
+      recorder.ondataavailable = null;
+      recorder.onstop = null;
+      try {
+        if (recorder.state !== 'inactive') recorder.stop();
+      } catch {
+        /* recorder already stopped */
+      }
+    }
+    this.correctionRecorder = null;
+    this.correctionChunks = [];
+    this.releaseCorrectionStream();
+  }
+
+  async submitCorrection(msg: ChatMessage): Promise<void> {
+    if (this.correctionSubmitting()) return;
+    const micState = this.correctionMicState();
+    if (micState === 'recording' || micState === 'transcribing') return;
+    const correction = this.correctionText().trim();
+    if (!correction) {
+      this.toast.warning('Saisissez ou dictez une correction avant d’envoyer.', 'Correction');
+      return;
+    }
+    const usedVoice = this.correctionUsedVoice() && !!this.correctionTranscriptRaw;
+    const query = this.previousUserQueryFor(msg.id) || '';
+    const sessionId = this.activeChatSessionId();
+    this.correctionSubmitting.set(true);
+    // When dictated, ship the raw audio (base64) so the backend persists it for
+    // audit/replay (it derives the audio_ref). Failure to encode is non-fatal —
+    // the correction still goes through with the transcript only.
+    let audioBase64: string | null = null;
+    let audioContentType: string | null = null;
+    if (usedVoice && this.correctionAudioBlob) {
+      try {
+        audioBase64 = await this.blobToBase64(this.correctionAudioBlob);
+        audioContentType = this.correctionAudioBlob.type || 'audio/webm';
+      } catch {
+        audioBase64 = null;
+        audioContentType = null;
+      }
+    }
+    this.api
+      .submitChatCorrection({
+        query,
+        answer: msg.content,
+        correction,
+        message_id: msg.id,
+        session_id: sessionId,
+        sources: msg.sources ?? [],
+        transcript_raw: usedVoice ? this.correctionTranscriptRaw : null,
+        audio_base64: audioBase64,
+        audio_content_type: audioContentType,
+        input_modality: usedVoice ? 'voice' : 'text',
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.correctionSubmitting.set(false);
+          this.logAudit('chat_correction_submitted', {
+            message_id: msg.id,
+            agent_id: this.systemId(),
+            session_id: sessionId,
+            input_modality: usedVoice ? 'voice' : 'text',
+            proposal_id: res?.proposal_id ?? null,
+          });
+          const url = res?.review_queue_url || null;
+          // Review is required before publication — never claim the fiche is live.
+          const toastRef: ActiveToast<unknown> = this.toast.success(
+            url
+              ? 'Correction envoyée en revue — toucher pour ouvrir la file de revue.'
+              : 'Correction envoyée en revue.',
+            'Merci',
+            { closeButton: true, tapToDismiss: !url },
+          );
+          if (url) {
+            toastRef.onTap.subscribe(() => this.openReviewQueue(url));
+          }
+          this.closeCorrection();
+          this.cdr.markForCheck();
+        },
+        error: (err) => {
+          this.correctionSubmitting.set(false);
+          if (err?.status === 403) {
+            // Feature disabled for the workspace / caller not permitted: degrade
+            // gracefully by collapsing the composer and informing the expert.
+            this.toast.info(
+              'La correction experte n’est pas activée pour ce workspace.',
+              'Correction',
+            );
+            this.closeCorrection();
+            this.cdr.markForCheck();
+            return;
+          }
+          this.toast.error(err?.error?.detail ?? 'Envoi de la correction impossible.', 'Correction');
+          this.cdr.markForCheck();
+        },
+      });
+  }
+
+  private openReviewQueue(url: string | null): void {
+    // Absolute external URL: open in a new tab. Otherwise route to the in-app
+    // Knowledge Capture workbench (the backend's `review_queue_url` is an API
+    // path, not an Angular route, so we never navigate the SPA to it).
+    if (url && /^https?:\/\//i.test(url)) {
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+    if (url && url.startsWith('/') && !url.startsWith('/api/')) {
+      void this.router.navigateByUrl(url);
+      return;
+    }
+    void this.router.navigate(['/knowledge/capture']);
+  }
+
+  /** Encode a Blob as a base64 string (without the ``data:`` URL prefix). */
+  private blobToBase64(blob: Blob): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error ?? new Error('blob read failed'));
+      reader.onload = () => {
+        const result = typeof reader.result === 'string' ? reader.result : '';
+        const comma = result.indexOf(',');
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.readAsDataURL(blob);
+    });
   }
 
   factCheck(msg: ChatMessage): void {

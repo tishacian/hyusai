@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.services.rag.lexical_retrieval import (
     LexicalRetrievalConfig,
@@ -783,6 +784,18 @@ def provenance_boost_score(metadata: Mapping[str, Any] | None) -> int:
     return min(boost, 6)
 
 
+def is_expert_fiche_metadata(metadata: Mapping[str, Any] | None) -> bool:
+    """Identify validated expert-correction fiches from their ingest metadata.
+
+    Keyed on the markers stamped at capture/publish time (plan Volet 2):
+    ``source_type == "expert_fiche"`` or ``origin == "chat_correction"``.
+    """
+    metadata = metadata or {}
+    if str(metadata.get("source_type") or "").strip().lower() == "expert_fiche":
+        return True
+    return str(metadata.get("origin") or "").strip().lower() == "chat_correction"
+
+
 def matched_required_terms(
     *,
     content: str,
@@ -808,6 +821,9 @@ def rerank_results_with_policy(
     ranked: list[tuple[int, float, int, dict[str, Any]]] = []
     has_policy_ranking = bool(policy and policy.enabled)
     has_provenance_boost = False
+    # Flag read once (cheap gating): 0 keeps the OFF path byte-for-byte identical.
+    expert_fiche_boost = int(settings.rag_expert_fiche_boost) if settings.rag_expert_fiche_boost_enabled else 0
+    has_expert_fiche_boost = False
     for index, row in enumerate(results):
         metadata = _as_mapping(row.get("metadata"))
         content = str(row.get("content") or metadata.get("content") or "")
@@ -847,12 +863,17 @@ def rerank_results_with_policy(
             metadata["retrieval_evidence_coverage"] = float(evidence_details.get("coverage") or 0.0)
             if int(evidence_details.get("score") or 0) > 0:
                 has_policy_ranking = True
+        if expert_fiche_boost and is_expert_fiche_metadata(metadata):
+            policy_score += expert_fiche_boost
+            metadata["expert_fiche_boost_applied"] = True
+            has_expert_fiche_boost = True
+            row = {**row, "metadata": metadata}
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score
             row = {**row, "metadata": metadata}
         raw_score = float(row.get("combined_score") or row.get("score") or 0.0)
         ranked.append((policy_score, raw_score, -index, row))
-    if not has_policy_ranking and not has_provenance_boost:
+    if not has_policy_ranking and not has_provenance_boost and not has_expert_fiche_boost:
         return results
     ranked.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
     return [row for _, _, _, row in ranked]
@@ -872,6 +893,9 @@ def rerank_aligned_with_policy(
     rows: list[tuple[int, float, int, str, float, dict[str, Any]]] = []
     has_policy_ranking = bool(policy and policy.enabled)
     has_provenance_boost = False
+    # Flag read once (cheap gating): 0 keeps the OFF path byte-for-byte identical.
+    expert_fiche_boost = int(settings.rag_expert_fiche_boost) if settings.rag_expert_fiche_boost_enabled else 0
+    has_expert_fiche_boost = False
     for index, chunk in enumerate(chunks):
         metadata = dict(metadatas[index] if index < len(metadatas) else {})
         lexical_details = lexical_match_details(
@@ -909,11 +933,15 @@ def rerank_aligned_with_policy(
             metadata["retrieval_evidence_coverage"] = float(evidence_details.get("coverage") or 0.0)
             if int(evidence_details.get("score") or 0) > 0:
                 has_policy_ranking = True
+        if expert_fiche_boost and is_expert_fiche_metadata(metadata):
+            policy_score += expert_fiche_boost
+            metadata["expert_fiche_boost_applied"] = True
+            has_expert_fiche_boost = True
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score
         score = float(scores[index]) if index < len(scores) else 0.0
         rows.append((policy_score, score, -index, chunk, score, metadata))
-    if not has_policy_ranking and not has_provenance_boost:
+    if not has_policy_ranking and not has_provenance_boost and not has_expert_fiche_boost:
         return chunks, scores, metadatas
     rows.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
     return (

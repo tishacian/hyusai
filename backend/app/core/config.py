@@ -183,6 +183,13 @@ class Settings(BaseSettings):
     # backfilled with project_code payloads, otherwise untagged corpora would
     # lose evidence.
     rag_reject_cross_project_enforce: bool = False
+    # Expert fiche correction (chat -> pending_review -> validated fiche). Global
+    # kill-switch defaults OFF; per-workspace activation rides on the chat
+    # source_policy (expert_fiche_correction_enabled). The boost weight is the
+    # strong-but-not-override ranking bump applied to source_type=expert_fiche
+    # results, wired in Volet 3 (rerank/provenance), not here.
+    rag_expert_fiche_boost_enabled: bool = False
+    rag_expert_fiche_boost: int = 18
     # Conversation history sent to the LLM is token-budgeted (not a fixed
     # message count); older turns beyond the budget are condensed into a
     # one-line summary prefix.

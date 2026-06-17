@@ -6,8 +6,12 @@ needed, and emits a reviewable knowledge update proposal.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 import tempfile
+import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -25,13 +29,18 @@ from app.db.base import get_db
 from app.models.expert_capture import ExpertCaptureSession, KnowledgeUpdateProposal
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.audit_logger import emit_audit_event
 from app.services.iam.config_service import effective_role_flags, load_iam_config
+from app.services.object_store import get_object_store
+from app.services.rag.knowledge_scopes import resolve_expert_fiche_collection
+from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
 from app.services.knowledge_capture import (
     amend_capture_event,
     amend_capture_plan,
     answer_proposal_open_question,
     append_turn,
     archive_capture_session,
+    create_chat_correction_proposal,
     delete_capture_session,
     session_is_archived,
     apply_proposal_report_instruction,
@@ -188,6 +197,43 @@ async def _extract_plan_source_text(upload: UploadFile) -> Dict[str, Any]:
 
 def _actor_label(user: User) -> str:
     return user.email or user.username or user.id
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _resolve_chat_source_policy(db: DBSession, workspace: Workspace) -> Dict[str, Any]:
+    """Resolve the workspace chat ``source_policy`` the same way chat does.
+
+    Delegates to the shared resolver so the inline-correction surface folds in
+    the exact policy the chat endpoint uses: the workspace chat System settings
+    (then its flow definition) layered over the workspace-level
+    ``settings.source_policy``. This means ``expert_fiche_correction_enabled``
+    is honoured whether it is set on the chat System or on the workspace
+    settings (the location the chat frontend reads), keeping the CTA gate and
+    the backend 403 enforcement consistent.
+    """
+    return resolve_workspace_chat_source_policy(db, workspace)
+
+
+_AUDIO_CONTENT_TYPE_EXTENSIONS = {
+    "audio/webm": ".webm",
+    "audio/ogg": ".ogg",
+    "audio/oga": ".ogg",
+    "audio/mp4": ".m4a",
+    "audio/x-m4a": ".m4a",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/wave": ".wav",
+}
+
+
+def _audio_extension(content_type: Optional[str]) -> str:
+    key = str(content_type or "").split(";")[0].strip().lower()
+    return _AUDIO_CONTENT_TYPE_EXTENSIONS.get(key, ".webm")
 
 
 def _session_attrs(session: ExpertCaptureSession) -> Dict[str, Any]:
@@ -413,6 +459,20 @@ class EventAmendRequest(BaseModel):
     text_amended: str = Field(..., min_length=1)
     actor: Optional[str] = None
     reason: Optional[str] = None
+
+
+class ChatCorrectionRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    answer: str = Field(default="")
+    correction: str = Field(..., min_length=1)
+    message_id: Optional[str] = None
+    session_id: Optional[str] = None
+    sources: Optional[List[Any]] = None
+    transcript_raw: Optional[str] = None
+    audio_base64: Optional[str] = None
+    audio_content_type: Optional[str] = None
+    audio_ref: Optional[str] = None
+    input_modality: Optional[str] = "text"
 
 
 @router.get("/voice-runtimes")
@@ -1816,3 +1876,100 @@ async def publish_capture_proposal(
         )
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc
+
+
+_CHAT_CORRECTION_AUDIO_MAX_BYTES = 25 * 1024 * 1024
+
+
+@router.post("/chat-correction")
+async def submit_chat_correction(
+    body: ChatCorrectionRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Turn an inline chat correction/completion into a ``pending_review`` proposal.
+
+    Reserved to ``REVIEW_ROLES`` via the ``knowledge_proposal:chat_correct``
+    rule and gated by the per-workspace ``expert_fiche_correction_enabled``
+    source-policy flag (403 when off, so the frontend degrades gracefully).
+    """
+    enforce_permission(
+        db,
+        user=user,
+        workspace=workspace,
+        resource_kind="knowledge_proposal",
+        action="chat_correct",
+        resource_attrs={"capability": CAPTURE_CAPABILITY},
+        audit_prefix="kc",
+    )
+
+    source_policy = _resolve_chat_source_policy(db, workspace)
+    if not source_policy.get("expert_fiche_correction_enabled"):
+        raise HTTPException(
+            status_code=403,
+            detail="Expert fiche correction is disabled for this workspace.",
+        )
+
+    collection_slug = resolve_expert_fiche_collection(workspace, source_policy)
+
+    audio_ref = (body.audio_ref or "").strip() or None
+    if not audio_ref and body.audio_base64:
+        try:
+            raw_audio = base64.b64decode(body.audio_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid audio_base64 payload.") from exc
+        if len(raw_audio) > _CHAT_CORRECTION_AUDIO_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Audio payload exceeds the 25 MB limit.")
+        if raw_audio:
+            store = get_object_store()
+            capture_ref = uuid.uuid4().hex
+            audio_ref = store.key(
+                "workspaces",
+                workspace.id,
+                "expert-fiche-captures",
+                collection_slug,
+                capture_ref,
+                f"audio{_audio_extension(body.audio_content_type)}",
+            )
+            store.write_bytes(audio_ref, raw_audio)
+
+    try:
+        proposal, session = create_chat_correction_proposal(
+            db,
+            workspace=workspace,
+            user=user,
+            query=body.query,
+            assistant_answer=body.answer,
+            correction_text=body.correction,
+            sources=body.sources,
+            transcript_raw=body.transcript_raw,
+            audio_ref=audio_ref,
+            input_modality=body.input_modality or "text",
+            source_policy=source_policy,
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+
+    emit_audit_event(
+        db=db,
+        workspace_id=workspace.id,
+        event_type="kc.chat_correction.created",
+        actor=_actor_label(user),
+        details={
+            "proposal_id": proposal.id,
+            "session_id": session.id,
+            "collection": collection_slug,
+            "input_modality": body.input_modality or "text",
+            "message_id": body.message_id,
+            "chat_session_id": body.session_id,
+            "audio_ref": audio_ref,
+        },
+    )
+
+    return {
+        "proposal_id": proposal.id,
+        "status": "pending_review",
+        "collection": collection_slug,
+        "review_queue_url": "/api/v1/knowledge-capture/proposals?status=pending_review",
+    }
