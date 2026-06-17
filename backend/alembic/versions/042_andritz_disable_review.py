@@ -11,7 +11,7 @@ folds the System policy over the workspace one), so we converge both.
 Idempotent: only writes when a value actually changes. Modelled on
 ``041_andritz_default_scope_spl``.
 
-Revision ID: 042_andritz_disable_expert_review
+Revision ID: 042_andritz_disable_review
 Revises: 041_andritz_default_scope_spl
 Create Date: 2026-06-18
 """
@@ -25,7 +25,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "042_andritz_disable_expert_review"
+revision = "042_andritz_disable_review"
 down_revision = "041_andritz_default_scope_spl"
 branch_labels = None
 depends_on = None

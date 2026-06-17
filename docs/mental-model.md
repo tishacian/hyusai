@@ -4168,7 +4168,7 @@ when present, else the global default).
 > leave `KC_EXPERT_REVIEW_REQUIRED` at its default `True`; the per-workspace
 > `expert_review_required=false` (plus `expert_fiche_correction_enabled=true`)
 > override does the disabling. Migration
-> `042_andritz_disable_expert_review` applies both flags to the Andritz
+> `042_andritz_disable_review` applies both flags to the Andritz
 > workspace settings **and** its always-on chat System settings (idempotent).
 
 ---
