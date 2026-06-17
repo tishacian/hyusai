@@ -122,6 +122,16 @@ def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
     assert request.rag_pipeline_mode == "chah"
     assert request.top_k == 6
     assert request.system_prompt and "curated knowledge base" in request.system_prompt
+    assert request.answer_policy and request.answer_policy["key"] == "industrial_answer_profile_v1"
+    assert request.answer_profile == "precise_fact"
+    assert request.answer_profile_decision["profile"] == "precise_fact"
+
+    inventory_request = ChatRequest(query="Quels projets utilisent une pompe Uraca ?")
+    _apply_workspace_chat_flow_defaults(db_session, workspace=workspace, request=inventory_request)
+    assert inventory_request.answer_profile == "transversal_inventory"
+    assert inventory_request.deep_retrieval is True
+    assert inventory_request.latency_profile == "deep"
+    assert inventory_request.retrieval_profile == "deep_async"
 
     manifest = serialize_flow_manifest(db_session, system)
     effective = manifest["effective_config"]
@@ -131,6 +141,9 @@ def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
 
     prompt_stack = effective["prompt_stack"]
     assert "curated knowledge base" in prompt_stack["system_prompt"]
+    assert prompt_stack["answer_policy"]["key"] == "industrial_answer_profile_v1"
+    assert "transversal_inventory" in prompt_stack["answer_profiles"]
+    assert prompt_stack["default_answer_profile"] == "precise_fact"
     assert prompt_stack["selected_reasoning_template"]["key"] == "factual"
     assert prompt_stack["selected_reasoning_template"]["template"]
     assert any(row["key"] == "trivial" for row in prompt_stack["available_reasoning_templates"])

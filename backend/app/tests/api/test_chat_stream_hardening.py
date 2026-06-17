@@ -521,7 +521,8 @@ def test_chat_stream_auto_queues_deep_job_for_degraded_retrieval(db_session, mon
     assert job.input_ref["request"]["top_k"] == 8
     assert job.input_ref["request"]["candidate_pool_k"] == 80
     assert job.input_ref["request"]["synthesis_k"] == 24
-    assert "retrieval: retrieval_deadline_exceeded" in job.input_ref["partial_result"]["answer_preview"]
+    assert "retrieval: retrieval_deadline_exceeded" not in job.input_ref["partial_result"]["answer_preview"]
+    assert "source workspace" in job.input_ref["partial_result"]["answer_preview"]
     assert job.input_ref["request"]["retrieval_filters"] == {
         "collection_slug": "documents",
         "project_code": "ACJ100",

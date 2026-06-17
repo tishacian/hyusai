@@ -5092,6 +5092,24 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       );
       add(
         'runtime',
+        'effective_config.prompt_stack.answer_policy',
+        'Industrial answer policy',
+        promptStack['answer_policy'],
+        false,
+        true,
+        'runtime · answer profiling contract',
+      );
+      add(
+        'runtime',
+        'effective_config.prompt_stack.answer_profiles',
+        'Industrial answer profiles',
+        promptStack['answer_profiles'],
+        false,
+        true,
+        'runtime · selectable response profiles',
+      );
+      add(
+        'runtime',
         'effective_config.prompt_stack.runtime_read_fields',
         'Runtime-read fields',
         promptStack['runtime_read_fields'],
@@ -5138,6 +5156,9 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       add('node', 'rag_user_prompt_builder', 'RAG user prompt builder', nodeContract['rag_user_prompt_builder']);
       add('node', 'system_prompt_builder', 'System prompt builder', nodeContract['system_prompt_builder']);
       add('node', 'answer_shaping_instructions', 'Answer shaping instructions', nodeContract['answer_shaping_instructions']);
+      add('node', 'answer_policy', 'Industrial answer policy', nodeContract['answer_policy']);
+      add('node', 'answer_profiles', 'Industrial answer profiles', nodeContract['answer_profiles']);
+      add('node', 'default_answer_profile', 'Default answer profile', nodeContract['default_answer_profile']);
     }
     add('node', 'grounding', 'Grounding policy', data['grounding'], false);
     add('node', 'source_policy', 'Source policy', data['source_policy'], false);
@@ -5153,6 +5174,9 @@ export class WorkflowEditorComponent implements OnInit, AfterViewInit, OnDestroy
       add('flow', 'balanced_grounding_appendix', 'Flow balanced appendix', flowContract['balanced_grounding_appendix'], true, true, 'flow · inherited prompt contract');
       add('flow', 'reasoning_template_factual', 'Flow reasoning template · factual', flowContract['reasoning_template_factual'], true, true, 'flow · inherited prompt contract');
       add('flow', 'answer_shaping_instructions', 'Flow answer shaping instructions', flowContract['answer_shaping_instructions'], true, true, 'flow · inherited prompt contract');
+      add('flow', 'answer_policy', 'Flow industrial answer policy', flowContract['answer_policy'], true, true, 'flow · inherited prompt contract');
+      add('flow', 'answer_profiles', 'Flow industrial answer profiles', flowContract['answer_profiles'], true, true, 'flow · inherited prompt contract');
+      add('flow', 'default_answer_profile', 'Flow default answer profile', flowContract['default_answer_profile'], true, true, 'flow · inherited prompt contract');
     }
     if (showGlobalPromptStack && chatConfig) {
       add('flow', 'chat.assistant_profile', 'Assistant profile', chatConfig['assistant_profile'], false);

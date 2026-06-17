@@ -42,6 +42,12 @@ from app.services.actions import handle_registry_chat_action, handle_transverse_
 from app.services.chat_grounding import resolve_grounding_policy
 from app.services.chat_run_ledger import enrich_chat_run_ledger
 from app.services.chat_trivial_bypass import TrivialBypass, maybe_trivial_bypass
+from app.services.industrial_answer_profile import (
+    answer_policy_prompt,
+    apply_answer_policy_to_text,
+    industrial_answer_policy,
+    resolve_answer_profile,
+)
 from app.services.systems.bootstrap import WORKSPACE_CHAT_VARIANT
 from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
 from app.services.systems.bootstrap import workspace_chat_system_id
@@ -142,6 +148,12 @@ class ChatRequest(BaseModel):
     # server-side from the always-on chat System; clients never need to set it
     # and setting it only tightens retrieval filtering.
     source_policy: Optional[Dict[str, Any]] = None
+    # Workspace/System-owned answer policy. Folded server-side from Flow Builder
+    # and used to shape user-facing generation without changing the /chat input
+    # contract expected by clients.
+    answer_policy: Optional[Dict[str, Any]] = None
+    answer_profile: Optional[str] = None
+    answer_profile_decision: Optional[Dict[str, Any]] = None
     # Answer grounding policy requested by chat-first surfaces. ``balanced`` is
     # intentionally scoped by backend policy and may be downgraded to ``strict``
     # for workspace facts, documents, actions, or sensitive/current claims.
@@ -354,6 +366,31 @@ def _apply_workspace_chat_flow_defaults(
                 pass
     if request.prompt_type is None and prompt_contract.get("default_prompt_type"):
         request.prompt_type = str(prompt_contract["default_prompt_type"])
+    if request.answer_policy is None:
+        answer_policy = _as_dict(prompt_contract.get("answer_policy"))
+        if not answer_policy and prompt_contract.get("answer_profiles"):
+            answer_policy = {
+                "key": "industrial_answer_profile_v1",
+                "default_answer_profile": prompt_contract.get("default_answer_profile") or "precise_fact",
+                "profiles": prompt_contract.get("answer_profiles"),
+            }
+        if answer_policy:
+            request.answer_policy = answer_policy
+    if request.answer_profile_decision is None:
+        policy = request.answer_policy or industrial_answer_policy()
+        decision = resolve_answer_profile(request.query, policy)
+        request.answer_profile_decision = decision.as_dict()
+        request.answer_profile = decision.profile
+        if decision.requires_exhaustive_retrieval:
+            request.deep_retrieval = True
+            request.latency_profile = "deep"
+            request.retrieval_profile = "deep_async"
+            if request.source_display_k is None:
+                request.source_display_k = 24
+            if request.synthesis_k is None:
+                request.synthesis_k = 48
+            if request.candidate_pool_k is None:
+                request.candidate_pool_k = 200
 
     # Grounding config can set a default mode, but the normal resolver still
     # enforces strict guards for documents/current-state/workspace facts.
@@ -368,6 +405,14 @@ def _apply_workspace_chat_flow_defaults(
         system_prompt = node_prompt_contract.get("system_prompt") or prompt_contract.get("base_system_prompt")
         if isinstance(system_prompt, str) and system_prompt.strip():
             request.system_prompt = system_prompt
+    if request.system_prompt:
+        policy_text = answer_policy_prompt(
+            answer_policy=request.answer_policy,
+            profile_decision=request.answer_profile_decision,
+            language=request.response_language,
+        )
+        if policy_text and policy_text not in request.system_prompt:
+            request.system_prompt = f"{request.system_prompt.rstrip()}\n\n{policy_text}"
 
     return system_id
 
@@ -1920,6 +1965,17 @@ async def chat_completion(
         
         # Combine chunks
         content = "".join(full_content)
+        content, answer_policy_violations = apply_answer_policy_to_text(
+            content,
+            answer_policy=request_dict.get("answer_policy") if isinstance(request_dict.get("answer_policy"), dict) else None,
+            profile_decision=request_dict.get("answer_profile_decision")
+            if isinstance(request_dict.get("answer_profile_decision"), dict)
+            else None,
+        )
+        chunk_state["answer_profile"] = request_dict.get("answer_profile")
+        chunk_state["answer_profile_decision"] = request_dict.get("answer_profile_decision")
+        chunk_state["answer_policy_applied"] = bool(request_dict.get("answer_policy"))
+        chunk_state["answer_policy_violations"] = answer_policy_violations
         
         # Validate response
         try:
@@ -1965,6 +2021,10 @@ async def chat_completion(
                 "grounding_mode": grounding_policy["mode"],
                 "grounding_policy": grounding_policy,
                 "response_language": response_language,
+                "answer_profile": chunk_state.get("answer_profile"),
+                "answer_profile_decision": chunk_state.get("answer_profile_decision"),
+                "answer_policy_applied": chunk_state.get("answer_policy_applied"),
+                "answer_policy_violations": chunk_state.get("answer_policy_violations"),
                 "retrieval_scope": chunk_state.get("retrieval_scope"),
                 "retrieval_plan": chunk_state.get("retrieval_plan"),
                 "scope_confidence": chunk_state.get("scope_confidence"),
@@ -2029,6 +2089,10 @@ async def chat_completion(
                 "context_mode": request.context_mode,
                 "assistant_profile": request.assistant_profile,
                 "response_language": response_language,
+                "answer_profile": chunk_state.get("answer_profile"),
+                "answer_profile_decision": chunk_state.get("answer_profile_decision"),
+                "answer_policy_applied": chunk_state.get("answer_policy_applied"),
+                "answer_policy_violations": chunk_state.get("answer_policy_violations"),
                 "collections_touched": chunk_state.get("collections_touched"),
                 "retrieval_scope": chunk_state.get("retrieval_scope"),
                 "retrieval_plan": chunk_state.get("retrieval_plan"),
@@ -2077,6 +2141,9 @@ async def chat_completion(
             "deep_poll_url": chunk_state.get("deep_poll_url"),
             "deep_status": chunk_state.get("deep_status"),
             "deep_job": deep_job_payload,
+            "answer_profile": chunk_state.get("answer_profile"),
+            "answer_policy_applied": chunk_state.get("answer_policy_applied"),
+            "answer_policy_violations": chunk_state.get("answer_policy_violations"),
             **_retrieval_observability(chunk_state),
             "status": "completed",
         }
@@ -3244,6 +3311,21 @@ async def chat_stream(
             fallback_reason = _retrieval_fallback_reason(chunk_state)
             deep_job_payload = None
             assistant_message_id = None
+            if full_content:
+                sanitized_content, answer_policy_violations = apply_answer_policy_to_text(
+                    "".join(full_content),
+                    answer_policy=request_dict.get("answer_policy")
+                    if isinstance(request_dict.get("answer_policy"), dict)
+                    else None,
+                    profile_decision=request_dict.get("answer_profile_decision")
+                    if isinstance(request_dict.get("answer_profile_decision"), dict)
+                    else None,
+                )
+                full_content[:] = [sanitized_content]
+                chunk_state["answer_profile"] = request_dict.get("answer_profile")
+                chunk_state["answer_profile_decision"] = request_dict.get("answer_profile_decision")
+                chunk_state["answer_policy_applied"] = bool(request_dict.get("answer_policy"))
+                chunk_state["answer_policy_violations"] = answer_policy_violations
             
             # Save assistant message after streaming completes
             if request.session_id and full_content:
@@ -3258,6 +3340,10 @@ async def chat_stream(
                     "grounding_policy": grounding_policy,
                     "grounding_state": chunk_state.get("grounding_state"),
                     "response_language": response_language,
+                    "answer_profile": chunk_state.get("answer_profile"),
+                    "answer_profile_decision": chunk_state.get("answer_profile_decision"),
+                    "answer_policy_applied": chunk_state.get("answer_policy_applied"),
+                    "answer_policy_violations": chunk_state.get("answer_policy_violations"),
                     "retrieval_scope": chunk_state.get("retrieval_scope"),
                     "retrieval_plan": chunk_state.get("retrieval_plan"),
                     "scope_confidence": chunk_state.get("scope_confidence"),
@@ -3408,6 +3494,10 @@ async def chat_stream(
                         "context_mode": request.context_mode,
                         "assistant_profile": request.assistant_profile,
                         "response_language": response_language,
+                        "answer_profile": chunk_state.get("answer_profile"),
+                        "answer_profile_decision": chunk_state.get("answer_profile_decision"),
+                        "answer_policy_applied": chunk_state.get("answer_policy_applied"),
+                        "answer_policy_violations": chunk_state.get("answer_policy_violations"),
                         "collections_touched": chunk_state.get("collections_touched"),
                         "retrieval_scope": chunk_state.get("retrieval_scope"),
                         "retrieval_plan": chunk_state.get("retrieval_plan"),

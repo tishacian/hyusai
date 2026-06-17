@@ -245,6 +245,19 @@ def _effective_chat_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
         or prompt_contract.get("answer_shaping_instructions")
         or []
     )
+    answer_policy = (
+        node_prompt_contract.get("answer_policy")
+        or prompt_node_contract.get("answer_policy")
+        or prompt_contract.get("answer_policy")
+        or {}
+    )
+    answer_profiles = (
+        node_prompt_contract.get("answer_profiles")
+        or prompt_node_contract.get("answer_profiles")
+        or prompt_contract.get("answer_profiles")
+        or (answer_policy.get("profiles") if isinstance(answer_policy, Mapping) else {})
+        or {}
+    )
     prompt_type = prompt_contract.get("default_prompt_type")
     reasoning_templates = _reasoning_template_catalog()
     selected_template = _selected_reasoning_template(prompt_type, reasoning_templates)
@@ -320,9 +333,16 @@ def _effective_chat_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
                 "missing_source_instructions": missing_source_instructions,
                 "answer_shaping_instructions": answer_shaping,
             },
+            "answer_policy": answer_policy,
+            "answer_profiles": answer_profiles,
+            "default_answer_profile": prompt_contract.get("default_answer_profile")
+            or (answer_policy.get("default_answer_profile") if isinstance(answer_policy, Mapping) else None),
             "runtime_read_fields": [
                 "nodes.skill.fast_answer.data.prompt_contract.system_prompt",
                 "flow.prompt_contract.default_prompt_type",
+                "flow.prompt_contract.answer_policy",
+                "flow.prompt_contract.answer_profiles",
+                "flow.prompt_contract.default_answer_profile",
             ],
             "manifest_only_fields": [
                 "flow.prompt_contract.balanced_grounding_appendix",

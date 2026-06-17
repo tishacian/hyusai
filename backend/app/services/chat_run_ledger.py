@@ -40,6 +40,13 @@ _RETRIEVAL_TELEMETRY_KEYS = (
     "fallback_reason",
 )
 
+_ANSWER_POLICY_KEYS = (
+    "answer_profile",
+    "answer_profile_decision",
+    "answer_policy_applied",
+    "answer_policy_violations",
+)
+
 
 def enrich_chat_run_ledger(
     db: DBSession,
@@ -180,7 +187,11 @@ def _create_chat_invocations(
             {
                 "slug": "llm_rag_answer_v1",
                 "latency_share": 0.55,
-                "output_ref": {"confidence": confidence, "response": "completed"},
+                "output_ref": {
+                    "confidence": confidence,
+                    "response": "completed",
+                    **_answer_policy_telemetry(extra_output),
+                },
             }
         )
         if extra_output.get("deep_job_id") or extra_output.get("deep_retrieval_recommended"):
@@ -246,6 +257,10 @@ def _retrieval_telemetry(extra_output: dict[str, Any]) -> dict[str, Any]:
     if out:
         out.setdefault("retrieval_latency_scope", "direct_chat")
     return out
+
+
+def _answer_policy_telemetry(extra_output: dict[str, Any]) -> dict[str, Any]:
+    return {key: extra_output.get(key) for key in _ANSWER_POLICY_KEYS if extra_output.get(key) is not None}
 
 
 def _skill_unit_price(db: DBSession, slug: str) -> float:

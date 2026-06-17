@@ -245,6 +245,7 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
     def prompt_contract() -> Dict[str, object]:
         try:
             from app.agents.procurement_agent import BALANCED_GROUNDING_APPENDIX, SYSTEM_PROMPT
+            from app.services.industrial_answer_profile import industrial_answer_policy
             from app.services.system_prompts import SYSTEM_PROMPT_TEMPLATES, SystemPromptType
 
             factual_template = SYSTEM_PROMPT_TEMPLATES.get(SystemPromptType.FACTUAL, "")
@@ -271,8 +272,14 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
                 "Context: {context}\n\nQuestion: {question}\n\n"
                 "Provide a clear factual response based on the context."
             )
+            from app.services.industrial_answer_profile import industrial_answer_policy
+
+        answer_policy = industrial_answer_policy()
         return {
             "default_prompt_type": "factual",
+            "default_answer_profile": answer_policy["default_answer_profile"],
+            "answer_profiles": answer_policy["profiles"],
+            "answer_policy": answer_policy,
             "base_system_prompt": SYSTEM_PROMPT,
             "balanced_grounding_appendix": BALANCED_GROUNDING_APPENDIX,
             "reasoning_template_factual": factual_template,
@@ -284,6 +291,9 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
                 "For broad questions, give 3 to 5 key points.",
                 "If retrieved content is thin or contradictory, name the gap explicitly.",
                 "Do not end with generic Andritz contact boilerplate unless the user asked for contacts.",
+                "For precise industrial facts, answer only the requested value/reference with unit and condition when available.",
+                "For cross-project equipment inventories, consolidate all documented matches and do not present a partial sample as exhaustive.",
+                "Never expose internal retrieval mechanics, chunk counts, scores, model names or database names in the user-facing answer.",
             ],
         }
 

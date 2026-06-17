@@ -648,6 +648,7 @@ def _build_rag_user_prompt(
     retrieval_policy_prompt: str = "",
     retrieval_constraints: dict[str, Any] | None = None,
     retrieval_summary: str = "",
+    answer_policy_prompt: str = "",
 ) -> str:
     if grounding_policy.get("mode") == "balanced" and not has_retrieved_context:
         fallback_disclaimer = (
@@ -693,6 +694,7 @@ If the context is not relevant or missing, say so clearly rather than guessing."
     policy_instructions = f"\n\n{policy_body}" if policy_body else ""
 
     summary_block = f"\n\nRetrieved content synthesis brief:\n{retrieval_summary}" if retrieval_summary else ""
+    answer_policy_block = f"\n\n{answer_policy_prompt}" if answer_policy_prompt else ""
 
     return f"""User message:
 {query}
@@ -701,12 +703,15 @@ Knowledge base context:
 {context_text}{keyword_hint}{summary_block}
 {policy_instructions}
 {grounding_instructions}
+{answer_policy_block}
 
 Answer-shaping instructions:
 - Start with a concise synthesis of what the retrieved content says, not only with source locators.
 - Include the useful evidence/citations after the synthesis when workspace sources exist.
 - For broad questions, give 3 to 5 key points and stop before overloading the user.
 - If the retrieved content is too thin or contradictory, say that explicitly and name the gap.
+- Follow the active industrial answer profile: precise facts must stay short; summaries must be structured and complete; inventories must not be presented as exhaustive unless the evidence supports that.
+- Do not mention internal mechanics such as chunks, scores, vector search, model names, database names, RAG/LLM engines, confidence rates or retrieval methods in the user-facing answer.
 - Do not end with generic document boilerplate asking the user to contact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details."""
 
 
@@ -1358,6 +1363,8 @@ class OmniRAGAgent(BaseAgent):
                 wants_more_detail=wants_more_detail,
             )
         else:
+            from app.services.industrial_answer_profile import answer_policy_prompt as _answer_policy_prompt
+
             user_prompt = _build_rag_user_prompt(
                 query=query,
                 context_text=context_text,
@@ -1367,6 +1374,13 @@ class OmniRAGAgent(BaseAgent):
                 retrieval_policy_prompt=str((retrieval_context.get("retrieval_policy") or {}).get("prompt") or ""),
                 retrieval_constraints=retrieval_context.get("retrieval_constraints") or {},
                 retrieval_summary=retrieval_summary,
+                answer_policy_prompt=_answer_policy_prompt(
+                    answer_policy=request.get("answer_policy") if isinstance(request.get("answer_policy"), dict) else None,
+                    profile_decision=request.get("answer_profile_decision")
+                    if isinstance(request.get("answer_profile_decision"), dict)
+                    else None,
+                    language=request.get("response_language"),
+                ),
             )
 
         await asyncio.sleep(0.03)
