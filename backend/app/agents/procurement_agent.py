@@ -280,6 +280,17 @@ def _meta_source_type(meta: dict[str, Any]) -> str:
     return str(meta.get("source_type") or meta.get("type") or "").strip().lower()
 
 
+def _is_expert_fiche_meta(meta: dict[str, Any]) -> bool:
+    """Validated expert-correction fiche, keyed on the capture/publish markers.
+
+    Mirrors ``retrieval_policy.is_expert_fiche_metadata`` so the answer profile
+    recognises the same authoritative sources the pin/boost act on.
+    """
+    if _meta_source_type(meta) == "expert_fiche":
+        return True
+    return str(meta.get("origin") or "").strip().lower() == "chat_correction"
+
+
 def _is_advisory_meta(meta: dict[str, Any]) -> bool:
     return (
         _meta_source_type(meta) in _ADVISORY_SOURCE_TYPES
@@ -505,6 +516,9 @@ def _assemble_context_and_sources(
     citable = selected[:display_limit]
     additional = selected[display_limit:]
 
+    # Flag-gated: surface validated expert fiches explicitly so the model can
+    # identify the authoritative source. OFF keeps the header byte-for-byte.
+    label_expert_fiche = bool(settings.rag_expert_fiche_pin_enabled)
     context_blocks: list[str] = []
     for idx, entry in enumerate(citable):
         meta = entry["meta"]
@@ -512,6 +526,8 @@ def _assemble_context_and_sources(
         page = meta.get("page")
         if page is not None:
             header = f"{header} (p. {page})"
+        if label_expert_fiche and _is_expert_fiche_meta(meta):
+            header = f"{header} (Fiche experte — validée)"
         context_blocks.append(f"{header}\n{entry['chunk']}")
 
     additional_blocks: list[str] = []
@@ -649,6 +665,7 @@ def _build_rag_user_prompt(
     retrieval_constraints: dict[str, Any] | None = None,
     retrieval_summary: str = "",
     answer_policy_prompt: str = "",
+    has_expert_fiche: bool = False,
 ) -> str:
     if grounding_policy.get("mode") == "balanced" and not has_retrieved_context:
         fallback_disclaimer = (
@@ -696,6 +713,33 @@ If the context is not relevant or missing, say so clearly rather than guessing."
     summary_block = f"\n\nRetrieved content synthesis brief:\n{retrieval_summary}" if retrieval_summary else ""
     answer_policy_block = f"\n\n{answer_policy_prompt}" if answer_policy_prompt else ""
 
+    # When a validated expert fiche is present (and the flag is ON), the answer
+    # states the expert's fact as reference truth and does NOT narrate that it
+    # contradicts/supersedes a stale doc — so the "contradictory ... name the
+    # gap" invitation is dropped. With no fiche the block is byte-for-byte the
+    # pre-change prompt (non-regression).
+    thin_or_contradictory_line = (
+        "- If the retrieved content is too thin, say that explicitly and name the gap."
+        if has_expert_fiche
+        else "- If the retrieved content is too thin or contradictory, say that explicitly and name the gap."
+    )
+    answer_shaping_lines = [
+        "Answer-shaping instructions:",
+        "- Start with a concise synthesis of what the retrieved content says, not only with source locators.",
+        "- Include the useful evidence/citations after the synthesis when workspace sources exist.",
+        "- For broad questions, give 3 to 5 key points and stop before overloading the user.",
+        thin_or_contradictory_line,
+        "- Follow the active industrial answer profile: precise facts must stay short; summaries must be structured and complete; inventories must not be presented as exhaustive unless the evidence supports that.",
+        "- Do not mention internal mechanics such as chunks, scores, vector search, model names, database names, RAG/LLM engines, confidence rates or retrieval methods in the user-facing answer.",
+        "- Do not end with generic document boilerplate asking the user to contact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details.",
+    ]
+    if has_expert_fiche:
+        answer_shaping_lines.append(
+            "- Une note validée par un expert (fiche experte) est présente : traite-la comme vérité de référence, "
+            "énonce son fait directement et ne mentionne pas qu'elle contredit ou remplace un autre document."
+        )
+    answer_shaping = "\n".join(answer_shaping_lines)
+
     return f"""User message:
 {query}
 
@@ -705,14 +749,7 @@ Knowledge base context:
 {grounding_instructions}
 {answer_policy_block}
 
-Answer-shaping instructions:
-- Start with a concise synthesis of what the retrieved content says, not only with source locators.
-- Include the useful evidence/citations after the synthesis when workspace sources exist.
-- For broad questions, give 3 to 5 key points and stop before overloading the user.
-- If the retrieved content is too thin or contradictory, say that explicitly and name the gap.
-- Follow the active industrial answer profile: precise facts must stay short; summaries must be structured and complete; inventories must not be presented as exhaustive unless the evidence supports that.
-- Do not mention internal mechanics such as chunks, scores, vector search, model names, database names, RAG/LLM engines, confidence rates or retrieval methods in the user-facing answer.
-- Do not end with generic document boilerplate asking the user to contact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details."""
+{answer_shaping}"""
 
 
 def _build_followup_user_prompt(*, query: str, wants_more_detail: bool) -> str:
@@ -1357,6 +1394,15 @@ class OmniRAGAgent(BaseAgent):
             else ""
         )
 
+        # Detect a validated expert fiche in the assembled context (flag-gated)
+        # so the answer profile treats it as reference truth without narrating a
+        # contradiction. OFF leaves has_expert_fiche False -> prompt unchanged.
+        has_expert_fiche = bool(settings.rag_expert_fiche_pin_enabled) and any(
+            _is_expert_fiche_meta(meta)
+            for meta in filtered_metadatas
+            if isinstance(meta, Mapping)
+        )
+
         if is_followup:
             user_prompt = _build_followup_user_prompt(
                 query=query,
@@ -1381,6 +1427,7 @@ class OmniRAGAgent(BaseAgent):
                     else None,
                     language=request.get("response_language"),
                 ),
+                has_expert_fiche=has_expert_fiche,
             )
 
         await asyncio.sleep(0.03)

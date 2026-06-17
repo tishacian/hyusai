@@ -818,12 +818,17 @@ def rerank_results_with_policy(
     if not results:
         return results
     is_document_discovery = is_document_discovery_query(query)
-    ranked: list[tuple[int, float, int, dict[str, Any]]] = []
+    ranked: list[tuple[int, int, float, int, dict[str, Any]]] = []
     has_policy_ranking = bool(policy and policy.enabled)
     has_provenance_boost = False
     # Flag read once (cheap gating): 0 keeps the OFF path byte-for-byte identical.
     expert_fiche_boost = int(settings.rag_expert_fiche_boost) if settings.rag_expert_fiche_boost_enabled else 0
     has_expert_fiche_boost = False
+    # Hard pin (flag-gated, default OFF): a validated expert fiche present among
+    # the candidates is ordered ahead of regular documents regardless of score.
+    # OFF keeps is_fiche=0 for every row, so the sort key is unchanged.
+    pin_enabled = bool(settings.rag_expert_fiche_pin_enabled)
+    has_expert_fiche_pin = False
     for index, row in enumerate(results):
         metadata = _as_mapping(row.get("metadata"))
         content = str(row.get("content") or metadata.get("content") or "")
@@ -868,15 +873,30 @@ def rerank_results_with_policy(
             metadata["expert_fiche_boost_applied"] = True
             has_expert_fiche_boost = True
             row = {**row, "metadata": metadata}
+        is_fiche = 0
+        if pin_enabled and is_expert_fiche_metadata(metadata):
+            is_fiche = 1
+            metadata["expert_fiche_pinned"] = True
+            has_expert_fiche_pin = True
+            row = {**row, "metadata": metadata}
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score
             row = {**row, "metadata": metadata}
         raw_score = float(row.get("combined_score") or row.get("score") or 0.0)
-        ranked.append((policy_score, raw_score, -index, row))
-    if not has_policy_ranking and not has_provenance_boost and not has_expert_fiche_boost:
+        ranked.append((is_fiche, policy_score, raw_score, -index, row))
+    if (
+        not has_policy_ranking
+        and not has_provenance_boost
+        and not has_expert_fiche_boost
+        and not has_expert_fiche_pin
+    ):
         return results
-    ranked.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
-    return [row for _, _, _, row in ranked]
+    if pin_enabled:
+        # is_fiche leads the key so fiches pin to the top; ties keep the prior order.
+        ranked.sort(key=lambda item: (item[0], item[1], item[2], item[3]), reverse=True)
+    else:
+        ranked.sort(key=lambda item: (item[1], item[2], item[3]), reverse=True)
+    return [row for *_, row in ranked]
 
 
 def rerank_aligned_with_policy(
@@ -890,12 +910,17 @@ def rerank_aligned_with_policy(
     if not chunks:
         return chunks, scores, metadatas
     is_document_discovery = is_document_discovery_query(query)
-    rows: list[tuple[int, float, int, str, float, dict[str, Any]]] = []
+    rows: list[tuple[int, int, float, int, str, float, dict[str, Any]]] = []
     has_policy_ranking = bool(policy and policy.enabled)
     has_provenance_boost = False
     # Flag read once (cheap gating): 0 keeps the OFF path byte-for-byte identical.
     expert_fiche_boost = int(settings.rag_expert_fiche_boost) if settings.rag_expert_fiche_boost_enabled else 0
     has_expert_fiche_boost = False
+    # Hard pin (flag-gated, default OFF): a validated expert fiche present among
+    # the candidates is ordered ahead of regular documents regardless of score.
+    # OFF keeps is_fiche=0 for every row, so the sort key is unchanged.
+    pin_enabled = bool(settings.rag_expert_fiche_pin_enabled)
+    has_expert_fiche_pin = False
     for index, chunk in enumerate(chunks):
         metadata = dict(metadatas[index] if index < len(metadatas) else {})
         lexical_details = lexical_match_details(
@@ -937,17 +962,31 @@ def rerank_aligned_with_policy(
             policy_score += expert_fiche_boost
             metadata["expert_fiche_boost_applied"] = True
             has_expert_fiche_boost = True
+        is_fiche = 0
+        if pin_enabled and is_expert_fiche_metadata(metadata):
+            is_fiche = 1
+            metadata["expert_fiche_pinned"] = True
+            has_expert_fiche_pin = True
         if policy_score:
             metadata["retrieval_policy_score"] = policy_score
         score = float(scores[index]) if index < len(scores) else 0.0
-        rows.append((policy_score, score, -index, chunk, score, metadata))
-    if not has_policy_ranking and not has_provenance_boost and not has_expert_fiche_boost:
+        rows.append((is_fiche, policy_score, score, -index, chunk, score, metadata))
+    if (
+        not has_policy_ranking
+        and not has_provenance_boost
+        and not has_expert_fiche_boost
+        and not has_expert_fiche_pin
+    ):
         return chunks, scores, metadatas
-    rows.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+    if pin_enabled:
+        # is_fiche leads the key so fiches pin to the top; ties keep the prior order.
+        rows.sort(key=lambda item: (item[0], item[1], item[2], item[3]), reverse=True)
+    else:
+        rows.sort(key=lambda item: (item[1], item[2], item[3]), reverse=True)
     return (
-        [row[3] for row in rows],
         [row[4] for row in rows],
         [row[5] for row in rows],
+        [row[6] for row in rows],
     )
 
 

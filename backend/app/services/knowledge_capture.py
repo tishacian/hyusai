@@ -2954,9 +2954,11 @@ async def publish_proposal_to_knowledge(
                 "captured_by_user_id": expert_user_id,
                 "open_questions_count": unresolved_count,
                 # Carry the expert-fiche provenance so the Volet 3 ranking boost
-                # (keyed on source_type=expert_fiche) survives ingestion. Only
-                # set when present on the proposal's recommended ingestion.
-                "source_type": metadata.get("source_type"),
+                # (keyed on source_type=expert_fiche) survives ingestion. Every
+                # capture publication IS an expert fiche, so default the marker
+                # when the proposal did not set it; without the pin/boost flags
+                # enabled this changes no ranking.
+                "source_type": metadata.get("source_type") or "expert_fiche",
                 "origin": metadata.get("origin"),
                 "input_modality": metadata.get("input_modality"),
             }.items()
@@ -5161,6 +5163,128 @@ def _chat_correction_markdown(
         f"{correction or '—'}\n\n"
         "## Sources citées\n"
         f"{sources_block}\n"
+    )
+
+
+def is_expert_review_required(source_policy: Optional[Mapping[str, Any]]) -> bool:
+    """Whether expert corrections/captures must be reviewed before publication.
+
+    Honours a per-workspace ``source_policy["expert_review_required"]`` override
+    when present, otherwise falls back to the global default
+    ``settings.kc_expert_review_required`` (``True``). Keeping the default
+    ``True`` leaves the review workflow byte-for-byte unchanged unless a
+    workspace explicitly opts out (``expert_review_required: false``).
+    """
+    if isinstance(source_policy, Mapping) and "expert_review_required" in source_policy:
+        return bool(source_policy.get("expert_review_required"))
+    from app.core.config import settings as cfg
+
+    return bool(getattr(cfg, "kc_expert_review_required", True))
+
+
+_CHAT_CORRECTION_THEME_MAX_WORDS = 12
+
+
+def _fallback_chat_correction_theme(query: Optional[str], correction_text: str) -> str:
+    """Deterministic short theme used when the LLM is unavailable.
+
+    Derives from the first clause of the correction, then the originating
+    question, truncated to a handful of words so the acknowledgement stays a
+    one-liner. Never raises and never returns an empty string.
+    """
+    for raw in (correction_text, query):
+        text = " ".join(str(raw or "").split())
+        if not text:
+            continue
+        clause = re.split(r"[.;:\n]", text, maxsplit=1)[0].strip() or text
+        words = clause.split()
+        theme = " ".join(words[:_CHAT_CORRECTION_THEME_MAX_WORDS])
+        if len(words) > _CHAT_CORRECTION_THEME_MAX_WORDS:
+            theme = f"{theme}…"
+        if theme:
+            return theme
+    return "votre correction"
+
+
+async def summarize_chat_correction_theme(
+    query: Optional[str],
+    correction_text: str,
+    *,
+    workspace_id: Optional[str] = None,
+    timeout_seconds: float = 4.0,
+) -> str:
+    """Very short (≤ ~12 words) thematic synthesis of an expert chat correction.
+
+    Uses a cheap LLM call (mirrors :func:`plan_structure_llm_async`) bounded by a
+    hard timeout, with a deterministic fallback derived from the
+    question/correction so the acknowledgement never fails or hangs when no LLM
+    is configured or the call errors/times out.
+    """
+    fallback = _fallback_chat_correction_theme(query, correction_text)
+    correction = " ".join(str(correction_text or "").split())
+    if not correction:
+        return fallback
+    try:
+        api_key, model = _resolve_llm_config(workspace_id)
+        if not api_key:
+            return fallback
+        from app.core.config import settings as cfg
+
+        model = str(getattr(cfg, "capture_finalize_model", "") or model).strip() or model
+
+        async def _call() -> Optional[str]:
+            from openai import AsyncOpenAI
+
+            client = AsyncOpenAI(api_key=api_key)
+            prompt = {
+                "question": " ".join(str(query or "").split()) or None,
+                "correction": correction,
+                "instruction": (
+                    "Résume en UNE expression thématique très courte (≤ 12 mots, "
+                    "sans phrase complète, sans ponctuation finale) le SUJET de la "
+                    "correction apportée par l'expert. Réponds en JSON "
+                    '{"theme": "..."}.'
+                ),
+            }
+            response = await client.chat.completions.create(
+                model=model,
+                **_model_chat_kwargs(model, temperature=0.2),
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": "Synthèse thématique courte. JSON only."},
+                    {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                ],
+            )
+            content = response.choices[0].message.content if response.choices else None
+            if not content:
+                return None
+            parsed = json.loads(content)
+            theme = str((parsed or {}).get("theme") or "").strip()
+            return theme or None
+
+        theme = await asyncio.wait_for(_call(), timeout=timeout_seconds)
+    except Exception:
+        return fallback
+    if not theme:
+        return fallback
+    words = theme.split()
+    if len(words) > _CHAT_CORRECTION_THEME_MAX_WORDS:
+        theme = " ".join(words[:_CHAT_CORRECTION_THEME_MAX_WORDS]) + "…"
+    return theme
+
+
+def build_chat_correction_acknowledgement(theme: str, *, published: bool) -> str:
+    """Natural-language acquittal added to the chat thread after a correction.
+
+    This is a simple acknowledgement of the correction — it does NOT reformulate
+    or regenerate the original answer.
+    """
+    theme = (theme or "").strip() or "votre correction"
+    if published:
+        return f"J'ai bien pris en compte votre correction : {theme}."
+    return (
+        f"J'ai bien pris en compte votre correction : {theme}. "
+        "Elle a été envoyée en revue avant publication."
     )
 
 

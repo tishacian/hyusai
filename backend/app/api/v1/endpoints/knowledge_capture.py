@@ -27,7 +27,7 @@ from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, normalize_role_template
 from app.services.iam.manifest import REVIEW_ROLES
 from app.db.base import get_db
 from app.models.expert_capture import ExpertCaptureSession, KnowledgeUpdateProposal
-from app.models.user import User
+from app.models.user import Message, User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.iam.config_service import effective_role_flags, load_iam_config
@@ -46,6 +46,7 @@ from app.services.knowledge_capture import (
     apply_proposal_report_instruction,
     apply_session_closure_action,
     approve_capture_plan,
+    build_chat_correction_acknowledgement,
     build_open_questions,
     build_quality_backlog,
     build_session_closure_sheet,
@@ -60,6 +61,7 @@ from app.services.knowledge_capture import (
     get_hint_queue,
     get_plan_topics,
     get_session,
+    is_expert_review_required,
     list_capture_events,
     list_published_fiches,
     pause_capture_session,
@@ -73,6 +75,7 @@ from app.services.knowledge_capture import (
     serialize_proposal,
     serialize_session,
     start_session,
+    summarize_chat_correction_theme,
     warm_capture_context_cache,
     update_oracle_question_statuses,
     update_proposal_open_question_statuses,
@@ -215,6 +218,16 @@ def _resolve_chat_source_policy(db: DBSession, workspace: Workspace) -> Dict[str
     the backend 403 enforcement consistent.
     """
     return resolve_workspace_chat_source_policy(db, workspace)
+
+
+def _resolve_workspace_source_policy(workspace: Workspace) -> Dict[str, Any]:
+    """Resolve the workspace-level ``source_policy`` for the capture surface.
+
+    System captures have no chat System, so the review gate reads the
+    workspace ``settings.source_policy`` directly (the location the migration /
+    workbench writes ``expert_review_required`` to).
+    """
+    return _as_dict(_as_dict(getattr(workspace, "settings", None)).get("source_policy"))
 
 
 _AUDIO_CONTENT_TYPE_EXTENSIONS = {
@@ -1054,6 +1067,35 @@ async def create_capture_proposal(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # Auto-validation for system captures: when the workspace disables expert
+    # review, accept and publish the freshly created proposal immediately.
+    # The status guard prevents a double-publish if the proposal was already
+    # advanced past pending_review.
+    source_policy = _resolve_workspace_source_policy(workspace)
+    if not is_expert_review_required(source_policy) and proposal.status == "pending_review":
+        try:
+            review_proposal(
+                db,
+                workspace_id=workspace.id,
+                proposal_id=proposal.id,
+                status="accepted",
+                reviewer="auto",
+                review_notes="auto-validée (revue désactivée)",
+            )
+            await publish_proposal_to_knowledge(
+                db,
+                workspace=workspace,
+                proposal_id=proposal.id,
+                actor_label=_actor_label(user),
+            )
+            db.refresh(proposal)
+        except Exception:  # noqa: BLE001 — never lose the capture on ingest failure.
+            logger.exception(
+                "kc.capture_proposal.auto_publish_failed",
+                proposal_id=proposal.id,
+                workspace_id=workspace.id,
+            )
     return serialize_proposal(proposal)
 
 
@@ -1967,9 +2009,77 @@ async def submit_chat_correction(
         },
     )
 
+    # Auto-validation: when the workspace disables expert review, accept and
+    # publish immediately so the correction becomes a live expert fiche without
+    # a second reviewer. Ingestion failures degrade gracefully — the proposal
+    # is preserved (the correction is never lost) and a review status is
+    # reported instead.
+    status = "pending_review"
+    document_id: Optional[str] = None
+    if not is_expert_review_required(source_policy):
+        try:
+            review_proposal(
+                db,
+                workspace_id=workspace.id,
+                proposal_id=proposal.id,
+                status="accepted",
+                reviewer="auto",
+                review_notes="auto-validée (revue désactivée)",
+            )
+            publication = await publish_proposal_to_knowledge(
+                db,
+                workspace=workspace,
+                proposal_id=proposal.id,
+                actor_label=_actor_label(user),
+            )
+            status = "published"
+            document_id = publication.get("document_id")
+        except Exception:  # noqa: BLE001 — never lose the correction on ingest failure.
+            logger.exception(
+                "kc.chat_correction.auto_publish_failed",
+                proposal_id=proposal.id,
+                workspace_id=workspace.id,
+            )
+            status = "pending_review"
+
+    theme = await summarize_chat_correction_theme(
+        body.query,
+        body.correction,
+        workspace_id=workspace.id,
+    )
+    acknowledgement = build_chat_correction_acknowledgement(
+        theme, published=status == "published"
+    )
+
+    # Persist the acknowledgement into the chat session (mirrors the chat
+    # endpoint's Message persistence) so the trace survives a reload. Only when
+    # a chat session_id is supplied.
+    ack_message_id: Optional[str] = None
+    if body.session_id:
+        ack_message_id = str(uuid.uuid4())
+        db.add(
+            Message(
+                id=ack_message_id,
+                session_id=body.session_id,
+                role="assistant",
+                content=acknowledgement,
+                meta_data={
+                    "kind": "expert_correction_ack",
+                    "proposal_id": proposal.id,
+                    "status": status,
+                    "source_message_id": body.message_id,
+                },
+            )
+        )
+        db.commit()
+
     return {
         "proposal_id": proposal.id,
-        "status": "pending_review",
+        "status": status,
         "collection": collection_slug,
+        "document_id": document_id,
+        "acknowledgement": acknowledgement,
+        "ack_message_id": ack_message_id,
+        "summary": theme,
         "review_queue_url": "/api/v1/knowledge-capture/proposals?status=pending_review",
     }

@@ -3966,8 +3966,10 @@ queue, and only a second reviewer's accept → publish turns it into an indexed
 **expert fiche** that is then strongly boosted at retrieval time.
 
 > **✅ Shipped in `demo/agentic`** — backend + API + UI wired end-to-end, but
-> gated behind two flags that are **OFF by default** (see OPS note in §42.5). No
-> workspace is enabled until an operator opts in.
+> gated behind flags that are **OFF by default** (see OPS note in §42.5). No
+> workspace is enabled until an operator opts in. The review step itself is now
+> a per-workspace toggle that can auto-publish + hard-pin validated fiches —
+> see **§42.6** (kept fully reactivable).
 
 ### 42.1 Inline correction flow
 
@@ -4080,6 +4082,9 @@ The feature is governed by **two independent flags, both OFF by default**:
 | Flag | Scope | Default | Authoritative location |
 |------|-------|---------|------------------------|
 | `rag_expert_fiche_boost_enabled` (+ weight `rag_expert_fiche_boost`) | Global kill-switch for the ranking boost | `False` | `backend/app/core/config.py` (env/settings) |
+| `rag_expert_fiche_pin_enabled` | Global kill-switch for the **hard pin** (and the answer posture) | `False` (VM env: `RAG_EXPERT_FICHE_PIN_ENABLED=true`) | `backend/app/core/config.py` (env/settings) |
+| `kc_expert_review_required` | Global default for the review gate | `True` | `backend/app/core/config.py` (env `KC_EXPERT_REVIEW_REQUIRED`) |
+| `expert_review_required` | **Per-workspace** review gate override (False → auto-publish) | absent → global default `True` | workspace `settings.source_policy` **and** the chat System `settings.source_policy` |
 | `expert_fiche_correction_enabled` (+ optional `expert_fiche_collection`) | Per-workspace: enables the CTA, scope inclusion and the publish path | absent → `False` | the **workspace chat System's `settings.source_policy`** |
 
 To enable the feature for a workspace (e.g. Andritz) for the demo, set
@@ -4101,6 +4106,70 @@ outranks stale docs. With both OFF (the default) the capture endpoint returns
 > submission. Setting the flag **only** on `workspace.settings` would show the
 > CTA but every submission would `403`. See the testing report for the
 > recommended defensive fallback.
+
+### 42.6 Disabling the review workflow (per-workspace, kept reactivable)
+
+The review/validation step is now a **per-workspace toggle**
+`source_policy.expert_review_required` (layered like
+`expert_fiche_correction_enabled`), with global default
+`settings.kc_expert_review_required = True`. The review code is **kept intact**
+and simply short-circuited when the flag is OFF. Resolver:
+`is_expert_review_required(source_policy)` in
+`backend/app/services/knowledge_capture.py` (returns the per-workspace value
+when present, else the global default).
+
+- **Auto-validation (review OFF).** When `expert_review_required` is `False`:
+  - `submit_chat_correction` auto-accepts (`reviewer="auto"`) and immediately
+    `publish_proposal_to_knowledge(...)`, returning `status="published"`. On
+    ingestion failure it degrades gracefully — the proposal is preserved (the
+    correction is never lost) and a `pending_review` status is reported.
+  - `create_capture_proposal` does the same for system captures (resolving the
+    flag from `workspace.settings.source_policy` — captures have no chat
+    System), guarded by `proposal.status == "pending_review"` to prevent a
+    double-publish.
+  - Review ON keeps the previous `pending_review` behaviour byte-for-byte.
+- **Default provenance at publish.** `publish_proposal_to_knowledge` now stamps
+  `source_type = metadata.get("source_type") or "expert_fiche"`: every capture
+  publication is an expert fiche and becomes eligible for the pin/boost. With
+  the pin/boost flags OFF this changes no ranking.
+- **Hard pin (`rag_expert_fiche_pin_enabled`, default OFF).** On top of the
+  additive boost, when enabled both rerankers
+  (`rerank_results_with_policy` / `rerank_aligned_with_policy`) add a leading
+  `is_fiche` (1/0) sort key **before** `policy_score`, so any validated fiche
+  among the already-retrieved candidates is ordered **ahead** of regular docs
+  regardless of score (relative order otherwise preserved), and the
+  fiche-present case is excluded from the early-return. Pinned rows are stamped
+  `metadata["expert_fiche_pinned"] = True`. OFF is byte-for-byte identical (the
+  sort key reverts to `(policy_score, raw_score, -index)`). Recall of the fiche
+  still relies on `_include_expert_fiche_collection` (scope inclusion).
+- **Answer posture — the expert's fact, no contradiction narration.** Gated by
+  the same `rag_expert_fiche_pin_enabled`, when a validated fiche is present in
+  the assembled context (`_is_expert_fiche_meta`, keyed on
+  `source_type=expert_fiche` / `origin=chat_correction`),
+  `_build_rag_user_prompt` (a) **drops** the "too thin **or contradictory** …
+  name the gap" invitation and (b) adds an instruction to treat the fiche as
+  **reference truth**, state its fact directly and **not** mention that it
+  contradicts/replaces another document; the matching context entry is labelled
+  `[n] … (Fiche experte — validée)`. With no fiche (or the flag OFF) the prompt
+  is strictly unchanged (non-regression).
+- **Conversational acknowledgement.** After a chat correction the endpoint adds
+  a sober assistant message to the thread — *"J'ai bien pris en compte votre
+  correction : <synthèse thématique très courte>"* — **without** reformulating
+  the original answer. The short theme comes from
+  `summarize_chat_correction_theme(...)` (a cheap, timeout-bounded LLM call with
+  a **deterministic fallback** derived from the question/correction, so it never
+  hangs/fails when no LLM is configured). When a chat `session_id` is present it
+  is persisted as `Message(role="assistant", meta_data={"kind":
+  "expert_correction_ack", …})` so the trace survives a reload; the response
+  also returns `status`, `acknowledgement`, `ack_message_id` and `summary` for
+  immediate display.
+
+> **Ops / rollout.** Set `RAG_EXPERT_FICHE_PIN_ENABLED=true` in the VM env and
+> leave `KC_EXPERT_REVIEW_REQUIRED` at its default `True`; the per-workspace
+> `expert_review_required=false` (plus `expert_fiche_correction_enabled=true`)
+> override does the disabling. Migration
+> `042_andritz_disable_expert_review` applies both flags to the Andritz
+> workspace settings **and** its always-on chat System settings (idempotent).
 
 ---
 

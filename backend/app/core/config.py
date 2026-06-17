@@ -190,6 +190,18 @@ class Settings(BaseSettings):
     # results, wired in Volet 3 (rerank/provenance), not here.
     rag_expert_fiche_boost_enabled: bool = False
     rag_expert_fiche_boost: int = 18
+    # Hard pin (kill-switch) for validated expert fiches. When enabled, any
+    # expert fiche present among the already-retrieved candidates is ordered
+    # ahead of regular documents regardless of score (the additive
+    # rag_expert_fiche_boost above stays a ranking signal; this is a sort key).
+    # Default OFF keeps the retrieval path byte-for-byte identical.
+    rag_expert_fiche_pin_enabled: bool = False
+    # Global default for the per-workspace expert-review gate. When a workspace
+    # chat/source policy does not override expert_review_required, this decides
+    # whether expert corrections/captures stay pending_review (True) or are
+    # auto-validated and published immediately (False). Per-workspace override
+    # rides on source_policy.expert_review_required.
+    kc_expert_review_required: bool = True
     # Conversation history sent to the LLM is token-budgeted (not a fixed
     # message count); older turns beyond the budget are condensed into a
     # one-line summary prefix.

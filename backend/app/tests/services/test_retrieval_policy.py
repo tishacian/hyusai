@@ -725,3 +725,105 @@ def test_scope_inclusion_noop_without_source_policy():
     assert _include_expert_fiche_collection(
         ["documents"], workspace_slug="andritz", source_policy=None
     ) == ["documents"]
+
+
+# --- Expert-fiche hard pin (plan: disable expert review workflow) -----------
+
+
+def _pin_sample_rows():
+    """A high-score plain doc and a much lower-score validated expert fiche.
+
+    The raw-score gap is large enough that only the hard pin (not a +18 boost)
+    can move the fiche to the top, isolating the pin from the additive boost.
+    """
+    return [
+        {
+            "content": "Pump maintenance procedure from the manual.",
+            "score": 0.95,
+            "metadata": {"document_filename": "manual-extract.md"},
+        },
+        {
+            "content": "Pump maintenance procedure corrected by an expert.",
+            "score": 0.10,
+            "metadata": {"document_filename": "fiche.md", "source_type": "expert_fiche"},
+        },
+    ]
+
+
+def test_expert_fiche_pin_off_is_byte_for_byte_baseline(monkeypatch):
+    from app.core.config import settings as app_config
+
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost_enabled", False)
+    monkeypatch.setattr(app_config, "rag_expert_fiche_pin_enabled", False)
+
+    ranked_fiche = rerank_results_with_policy(_pin_sample_rows(), _EXPERT_FICHE_QUERY, None)
+    ranked_plain = rerank_results_with_policy(
+        _strip_fiche_markers(_pin_sample_rows()), _EXPERT_FICHE_QUERY, None
+    )
+
+    # OFF ignores the fiche marker entirely: same order/content as plain rows.
+    assert [r["content"] for r in ranked_fiche] == [r["content"] for r in ranked_plain]
+    assert ranked_fiche[0]["metadata"]["document_filename"] == "manual-extract.md"
+    assert all("expert_fiche_pinned" not in r["metadata"] for r in ranked_fiche)
+
+
+def test_expert_fiche_pin_on_reorders_fiche_to_top(monkeypatch):
+    from app.core.config import settings as app_config
+
+    # Boost OFF so the reordering is attributable to the pin alone.
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost_enabled", False)
+    monkeypatch.setattr(app_config, "rag_expert_fiche_pin_enabled", True)
+
+    ranked = rerank_results_with_policy(_pin_sample_rows(), _EXPERT_FICHE_QUERY, None)
+
+    assert ranked[0]["metadata"]["document_filename"] == "fiche.md"
+    assert ranked[0]["metadata"]["expert_fiche_pinned"] is True
+    # The non-fiche doc is demoted below the pinned fiche, carrying no pin mark.
+    assert ranked[-1]["metadata"]["document_filename"] == "manual-extract.md"
+    assert "expert_fiche_pinned" not in ranked[-1]["metadata"]
+
+
+def _pin_aligned_sample():
+    chunks = ["Plain manual chunk.", "Expert fiche chunk."]
+    scores = [0.95, 0.10]
+    metadatas = [
+        {"document_filename": "manual-extract.md"},
+        {"document_filename": "fiche.md", "source_type": "expert_fiche"},
+    ]
+    return chunks, scores, metadatas
+
+
+def test_expert_fiche_pin_aligned_off_keeps_order(monkeypatch):
+    from app.core.config import settings as app_config
+
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost_enabled", False)
+    monkeypatch.setattr(app_config, "rag_expert_fiche_pin_enabled", False)
+
+    chunks, scores, metadatas = _pin_aligned_sample()
+    ranked_chunks, ranked_scores, ranked_metas = rerank_aligned_with_policy(
+        list(chunks), list(scores), [dict(m) for m in metadatas],
+        query=_EXPERT_FICHE_QUERY, policy=None,
+    )
+
+    # Byte-for-byte: nothing reordered, no pin marker leaks.
+    assert ranked_chunks == chunks
+    assert ranked_scores == scores
+    assert ranked_metas[0]["document_filename"] == "manual-extract.md"
+    assert all("expert_fiche_pinned" not in m for m in ranked_metas)
+
+
+def test_expert_fiche_pin_aligned_on_promotes_fiche(monkeypatch):
+    from app.core.config import settings as app_config
+
+    monkeypatch.setattr(app_config, "rag_expert_fiche_boost_enabled", False)
+    monkeypatch.setattr(app_config, "rag_expert_fiche_pin_enabled", True)
+
+    chunks, scores, metadatas = _pin_aligned_sample()
+    ranked_chunks, _ranked_scores, ranked_metas = rerank_aligned_with_policy(
+        list(chunks), list(scores), [dict(m) for m in metadatas],
+        query=_EXPERT_FICHE_QUERY, policy=None,
+    )
+
+    assert ranked_metas[0]["document_filename"] == "fiche.md"
+    assert ranked_chunks[0] == "Expert fiche chunk."
+    assert ranked_metas[0]["expert_fiche_pinned"] is True

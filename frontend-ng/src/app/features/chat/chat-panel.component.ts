@@ -114,6 +114,13 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * Distinguishes special assistant bubbles from regular answers. A
+   * ``correction_ack`` message is the sober conversational acknowledgement
+   * appended after an expert correction — it renders muted with a check icon
+   * and carries no action row, sources panel, or fact-check affordances.
+   */
+  kind?: 'correction_ack';
   decisionSteps?: DecisionStep[];
   sources?: Source[];
   mapCommand?: Record<string, unknown>;
@@ -870,6 +877,16 @@ const STEP_ICONS: Record<string, string> = {
                 [class.vigie-user-bubble]="executiveMode()"
               >
                 {{ msg.content }}
+              </div>
+            </div>
+          } @else if (msg.kind === 'correction_ack') {
+            <!-- Sober conversational acknowledgement of an expert correction.
+                 Intentionally carries no action row, sources, or fact-check —
+                 it is a simple acquittal in the thread, not an answer. -->
+            <div class="flex justify-start">
+              <div class="inline-flex items-start gap-2 max-w-[80%] rounded-2xl rounded-bl-sm bg-emerald-500/[0.06] px-3.5 py-2 text-[13px] leading-relaxed text-gray-600 dark:text-gray-300 ring-1 ring-emerald-500/20">
+                <app-icon name="check" [size]="14" class="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-300" />
+                <span class="whitespace-pre-wrap">{{ msg.content }}</span>
               </div>
             </div>
           } @else {
@@ -1730,22 +1747,30 @@ const STEP_ICONS: Record<string, string> = {
                 <div class="ml-2 mt-1.5 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-2.5 space-y-1">
                   <div class="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-300 font-semibold">
                     <app-icon name="check-circle" [size]="12" />
-                    <span>Correction envoyée en revue</span>
+                    @if (trace.status === 'published') {
+                      <span>Connaissance experte publiée — prioritaire</span>
+                    } @else {
+                      <span>Correction envoyée en revue</span>
+                    }
                     @if (trace.usedVoice) {
                       <app-icon name="mic" [size]="11" class="opacity-70" title="Dictée vocale" />
                     }
                   </div>
                   <p class="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">{{ trace.correction }}</p>
                   <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-gray-500">
-                    <span>En attente de relecture experte avant publication.</span>
-                    @if (trace.reviewQueueUrl) {
-                      <button
-                        type="button"
-                        class="text-emerald-600 dark:text-emerald-300 hover:underline"
-                        (click)="openReviewQueue(trace.reviewQueueUrl)"
-                      >
-                        Voir la file de revue
-                      </button>
+                    @if (trace.status === 'published') {
+                      <span>Publiée et priorisée devant les documents ingérés.</span>
+                    } @else {
+                      <span>En attente de relecture experte avant publication.</span>
+                      @if (trace.reviewQueueUrl) {
+                        <button
+                          type="button"
+                          class="text-emerald-600 dark:text-emerald-300 hover:underline"
+                          (click)="openReviewQueue(trace.reviewQueueUrl)"
+                        >
+                          Voir la file de revue
+                        </button>
+                      }
                     }
                   </div>
                 </div>
@@ -2995,6 +3020,7 @@ export class ChatPanelComponent implements AfterViewInit {
     usedVoice: boolean;
     proposalId: string | null;
     reviewQueueUrl: string | null;
+    status: 'published' | 'pending_review';
     at: number;
   }>>({});
 
@@ -3681,10 +3707,15 @@ export class ChatPanelComponent implements AfterViewInit {
       || meta['latency_profile']
       || metaMetrics['dense_policy']
     );
+    // The backend persists the expert-correction acknowledgement as a regular
+    // assistant message tagged ``kind: "expert_correction_ack"`` so the sober
+    // bubble (and its missing action row) survives a reload.
+    const kind = meta['kind'] === 'expert_correction_ack' ? 'correction_ack' as const : undefined;
     return {
       id: message.id,
       role: message.role,
       content: message.content,
+      kind,
       decisionSteps,
       sources,
       feedback: null,
@@ -6342,6 +6373,7 @@ export class ChatPanelComponent implements AfterViewInit {
     usedVoice: boolean;
     proposalId: string | null;
     reviewQueueUrl: string | null;
+    status: 'published' | 'pending_review';
     at: number;
   } | null {
     return this.correctionTraces()[id] ?? null;
@@ -6657,6 +6689,12 @@ export class ChatPanelComponent implements AfterViewInit {
             proposal_id: res?.proposal_id ?? null,
           });
           const url = res?.review_queue_url || null;
+          // When the workspace has expert review disabled, the backend
+          // auto-accepts and publishes the fiche immediately and reports
+          // ``status: "published"``. Otherwise we keep the legacy review-queue
+          // wording. Anything unexpected degrades to the safe review wording.
+          const published = res?.status === 'published';
+          const status: 'published' | 'pending_review' = published ? 'published' : 'pending_review';
           // Persist a visible trace under the message so the expert keeps a
           // record of what was corrected even after the composer collapses.
           this.correctionTraces.update((traces) => ({
@@ -6666,19 +6704,38 @@ export class ChatPanelComponent implements AfterViewInit {
               usedVoice,
               proposalId: res?.proposal_id ?? null,
               reviewQueueUrl: url,
+              status,
               at: Date.now(),
             },
           }));
-          // Review is required before publication — never claim the fiche is live.
-          const toastRef: ActiveToast<unknown> = this.toast.success(
-            url
-              ? 'Correction envoyée en revue — toucher pour ouvrir la file de revue.'
-              : 'Correction envoyée en revue.',
-            'Merci',
-            { closeButton: true, tapToDismiss: !url },
-          );
-          if (url) {
+          const toastRef: ActiveToast<unknown> = published
+            ? this.toast.success(
+                'Connaissance experte publiée — prioritaire.',
+                'Merci',
+                { closeButton: true, tapToDismiss: true },
+              )
+            : this.toast.success(
+                url
+                  ? 'Correction envoyée en revue — toucher pour ouvrir la file de revue.'
+                  : 'Correction envoyée en revue.',
+                'Merci',
+                { closeButton: true, tapToDismiss: !url },
+              );
+          if (!published && url) {
             toastRef.onTap.subscribe(() => this.openReviewQueue(url));
+          }
+          // Conversational acknowledgement: drop a sober assistant bubble into
+          // the thread (and never touch the original corrected answer). Only
+          // when the backend handed us a ready-to-show sentence.
+          const ack = (res?.acknowledgement ?? '').trim();
+          if (ack) {
+            const ackMsg: ChatMessage = {
+              id: res?.ack_message_id || cryptoId(),
+              role: 'assistant',
+              content: ack,
+              kind: 'correction_ack',
+            };
+            this.messages.update((list) => [...list, ackMsg]);
           }
           this.closeCorrection();
           this.cdr.markForCheck();

@@ -132,3 +132,77 @@ def test_stream_filter_removes_chunked_andritz_contact_footer():
 
     assert "contactez Andritz" not in emitted
     assert emitted == "La ligne BBA120 combine hydroentanglement et contrôle de cadence."
+
+
+# --- Expert-fiche answer profile (no contradiction narration) ---------------
+
+
+def test_rag_prompt_expert_fiche_states_reference_truth_without_contradiction():
+    policy = _grounding_policy_from_request({"grounding_mode": "strict"})
+    prompt = _build_rag_user_prompt(
+        query="Quelle est la pression nominale de la pompe KD724 ?",
+        context_text="[1] Fiche\nLa pression nominale est 7 bar.",
+        keyword_hint="",
+        grounding_policy=policy,
+        has_retrieved_context=True,
+        has_expert_fiche=True,
+    )
+
+    # Reference-truth instruction present...
+    assert "vérité de référence" in prompt
+    assert "ne mentionne pas qu'elle contredit ou remplace" in prompt
+    # ...and the contradiction-narration invitation is dropped.
+    assert "too thin or contradictory" not in prompt
+    assert "too thin, say that explicitly and name the gap" in prompt
+
+
+def test_rag_prompt_without_expert_fiche_is_unchanged():
+    policy = _grounding_policy_from_request({"grounding_mode": "strict"})
+    base_kwargs = dict(
+        query="Quelle est la pression nominale de la pompe KD724 ?",
+        context_text="[1] Manual\nLa pression nominale est 5 bar.",
+        keyword_hint="",
+        grounding_policy=policy,
+        has_retrieved_context=True,
+    )
+    prompt_default = _build_rag_user_prompt(**base_kwargs)
+    prompt_no_fiche = _build_rag_user_prompt(**base_kwargs, has_expert_fiche=False)
+
+    # has_expert_fiche defaults to False and is byte-for-byte the pre-change prompt.
+    assert prompt_default == prompt_no_fiche
+    assert "vérité de référence" not in prompt_no_fiche
+    assert "too thin or contradictory" in prompt_no_fiche
+
+
+def test_context_assembly_labels_expert_fiche_when_pin_enabled(monkeypatch):
+    from app.core.config import settings as app_config
+
+    monkeypatch.setattr(app_config, "rag_expert_fiche_pin_enabled", True)
+    chunks = ["Plain doc passage.", "Expert correction passage."]
+    metas = [
+        {"document_filename": "manual.pdf"},
+        {"document_filename": "fiche.md", "source_type": "expert_fiche"},
+    ]
+
+    context_text, _sources, _has = _assemble_context_and_sources(
+        chunks, [0.9, 0.8], metas
+    )
+
+    assert "(Fiche experte — validée)" in context_text
+
+
+def test_context_assembly_does_not_label_when_pin_disabled(monkeypatch):
+    from app.core.config import settings as app_config
+
+    monkeypatch.setattr(app_config, "rag_expert_fiche_pin_enabled", False)
+    chunks = ["Plain doc passage.", "Expert correction passage."]
+    metas = [
+        {"document_filename": "manual.pdf"},
+        {"document_filename": "fiche.md", "source_type": "expert_fiche"},
+    ]
+
+    context_text, _sources, _has = _assemble_context_and_sources(
+        chunks, [0.9, 0.8], metas
+    )
+
+    assert "(Fiche experte — validée)" not in context_text

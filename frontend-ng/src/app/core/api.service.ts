@@ -133,6 +133,22 @@ export interface ChatCorrectionRequest {
 export interface ChatCorrectionResponse {
   proposal_id: string;
   review_queue_url?: string | null;
+  /**
+   * Lifecycle of the correction. ``published`` means the workspace has expert
+   * review disabled and the fiche went live immediately; ``pending_review``
+   * keeps the legacy review-queue flow.
+   */
+  status?: 'published' | 'pending_review' | string | null;
+  /**
+   * Ready-to-show natural-language acknowledgement sentence (e.g. "J'ai bien
+   * pris en compte votre correction : …"). Empty/absent when the backend has
+   * nothing conversational to surface.
+   */
+  acknowledgement?: string | null;
+  /** Server-assigned id of the persisted acknowledgement assistant message. */
+  ack_message_id?: string | null;
+  /** Short thematic synthesis of the correction. */
+  summary?: string | null;
 }
 
 export interface VoiceRuntimeProviderOption {

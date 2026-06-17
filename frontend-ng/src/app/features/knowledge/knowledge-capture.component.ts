@@ -613,6 +613,21 @@ interface ProposalFact {
         }
       </nav>
 
+      <!-- Expert review disabled: capture fiches are auto-validated and
+           published immediately. The review/publish surfaces stay available
+           for when review is re-enabled per workspace. -->
+      @if (expertReviewDisabled()) {
+        <div class="flex items-start gap-2.5 rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          <app-icon name="check-circle" [size]="16" class="mt-0.5 shrink-0 text-emerald-300" />
+          <div>
+            <p class="font-semibold text-emerald-100">Revue désactivée — publication automatique</p>
+            <p class="text-[12px] text-emerald-100/80 leading-relaxed">
+              Les connaissances expertes capturées sont validées et publiées immédiatement, puis priorisées dans les résultats.
+            </p>
+          </div>
+        </div>
+      }
+
       @if (activeSurface() === 'prep') {
         <section class="max-w-5xl mx-auto py-6 lg:py-8 space-y-6 min-h-[calc(100vh-15rem)] flex flex-col">
           <div>
@@ -3715,6 +3730,25 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   readonly permissions = inject(PermissionsService);
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
   readonly isPilotMode = this.isDemoMode;
+  /**
+   * Per-workspace toggle: must a capture fiche pass expert review before going
+   * live? Read from ``source_policy.expert_review_required`` (root, then the
+   * ``chat`` fallback), mirroring how the chat panel reads its correction flag.
+   * Default-safe: an absent/undefined value means review is REQUIRED.
+   */
+  readonly expertReviewRequired = computed<boolean>(() => {
+    const settings = this.workspace.current()?.settings;
+    const rootPolicy = this.asRecord(settings?.['source_policy']);
+    const chatPolicy = this.asRecord(this.asRecord(settings?.['chat'])['source_policy']);
+    for (const policy of [rootPolicy, chatPolicy]) {
+      if ('expert_review_required' in policy) {
+        return policy['expert_review_required'] !== false;
+      }
+    }
+    return true;
+  });
+  /** Convenience inverse of {@link expertReviewRequired} for template gating. */
+  readonly expertReviewDisabled = computed(() => !this.expertReviewRequired());
   readonly workspaceVoiceLoopConfig = computed<WorkspaceVoiceLoopConfig>(() => {
     const settings = this.asRecord(this.workspace.current()?.settings);
     const voiceLoop = this.asRecord(settings['voice_loop']);
@@ -8089,6 +8123,20 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       });
   }
 
+  /**
+   * Where to land after a capture proposal is generated. When the workspace has
+   * expert review disabled the backend auto-accepts and publishes the fiche, so
+   * we route straight to the published-fiche (``publish``) surface instead of
+   * the review queue. The review/publish surfaces stay intact in the code for
+   * when review is re-enabled — this only gates the post-generation routing.
+   */
+  private surfaceAfterProposalGeneration(proposal: CaptureProposal | null): CaptureSurfaceView {
+    if (this.expertReviewDisabled() || proposal?.status === 'published') {
+      return 'publish';
+    }
+    return 'review';
+  }
+
   createProposal(session: CaptureSession): void {
     if (!this.canProposalSubmit(session)) {
       this.setVoiceNotice('Votre rôle ne permet pas de préparer le rapport pour cette session.', 'error');
@@ -8102,7 +8150,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         .subscribe((proposal) => {
           this.setProposal(proposal as CaptureProposal);
           this.refreshDashboard();
-          this.activeSurface.set('review');
+          this.activeSurface.set(this.surfaceAfterProposalGeneration(proposal as CaptureProposal));
         });
       return;
     }
@@ -8134,7 +8182,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           .subscribe((proposal) => {
             this.setProposal(proposal as CaptureProposal);
             this.refreshDashboard();
-            this.activeSurface.set('review');
+            this.activeSurface.set(this.surfaceAfterProposalGeneration(proposal as CaptureProposal));
             this.voiceState.set('idle');
           });
       });
@@ -8177,7 +8225,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           if (step.proposal) {
             this.setProposal(step.proposal as CaptureProposal);
             if (step.intent === 'proposal_requested') {
-              this.activeSurface.set('review');
+              this.activeSurface.set(this.surfaceAfterProposalGeneration(step.proposal as CaptureProposal));
             }
           }
           if (step.closure_sheet?.markdown) {
