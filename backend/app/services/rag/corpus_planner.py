@@ -29,27 +29,6 @@ from app.services.rag.summary_artifacts import load_summary_index_records
 logger = get_logger(__name__)
 
 
-# #region agent log (debug e963ab — retrieval probe; env-gated, inert unless RETRIEVAL_PROBE_LOG is set)
-def _probe_log(event: str, data: dict[str, Any]) -> None:
-    import os
-    path = os.environ.get("RETRIEVAL_PROBE_LOG")
-    if not path:
-        return
-    try:
-        import json as _json, time as _time
-        with open(path, "a", encoding="utf-8") as _f:
-            _f.write(_json.dumps({
-                "sessionId": "e963ab",
-                "hypothesisId": "H1",
-                "location": "corpus_planner._infer_ledger_document_scope",
-                "event": event,
-                "data": data,
-                "timestamp": int(_time.time() * 1000),
-            }, default=str) + "\n")
-    except Exception:
-        pass
-# #endregion
-
 LatencyProfile = str
 
 _CATALOGUE_RE = re.compile(
@@ -846,9 +825,6 @@ def _infer_ledger_document_scope(
         threshold = 6.0 if project_codes else 7.0
         if score >= threshold:
             scored.append((score, matched_project, strong_phrase_match, row))
-    # #region agent log (debug e963ab)
-    _probe_universe = sorted(scored, key=lambda i: -i[0])
-    # #endregion
     if not scored:
         return {}, 0.0, "", []
     if project_codes and any(item[1] for item in scored):
@@ -877,26 +853,6 @@ def _infer_ledger_document_scope(
         return {}, 0.0, "", []
     top_score = float(ranked[0][0])
     broad_project_scope = bool(project_codes) and top_score < _PROJECT_SCOPE_STRONG_MATCH
-    # #region agent log (debug e963ab)
-    _probe_log("ledger_scope_ranking", {
-        "query": str(query)[:160],
-        "project_codes": project_codes,
-        "top_score": round(top_score, 2),
-        "broad_project_scope": broad_project_scope,
-        "universe_count": len(_probe_universe),
-        "universe": [
-            {
-                "filename": str(getattr(r[3], "filename", "") or ""),
-                "score": round(float(r[0]), 2),
-                "matched_project": bool(r[1]),
-                "strong_phrase": bool(r[2]),
-            }
-            for r in _probe_universe[:80]
-        ],
-        "kept_filenames": filenames,
-        "kept_count": len(filenames),
-    })
-    # #endregion
     if broad_project_scope:
         # Generic project question (no document scored clearly above the
         # project-code base): scope the dense search to the whole project so
