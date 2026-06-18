@@ -41,6 +41,8 @@ export interface WorkspaceMemberDetail {
   custom_labels?: string[];
   joined_at: string;
   is_current_user: boolean;
+  status?: 'active' | 'pending';
+  last_login?: string | null;
 }
 
 /**

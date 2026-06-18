@@ -180,6 +180,10 @@ class MemberDetail(BaseModel):
     custom_labels: list[str] = []
     joined_at: datetime
     is_current_user: bool
+    # Invitation lifecycle: "active" once onboarding is complete, "pending"
+    # while the invitee still has to set a password / verify their email.
+    status: str = "active"
+    last_login: Optional[datetime] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1059,6 +1063,23 @@ async def leave_workspace(
     return {"status": "ok"}
 
 
+def _member_invitation_status(kc_data: dict, last_login: Optional[datetime]) -> str:
+    """Derive whether an invitee has finished onboarding.
+
+    Invited users are provisioned in Keycloak with the
+    ``UPDATE_PASSWORD``/``VERIFY_EMAIL`` required actions and an unverified
+    email; they stay ``pending`` until they set a password or log in at least
+    once. Anyone who has logged in, or whose Keycloak account has no pending
+    onboarding action, resolves to ``active``.
+    """
+    if last_login is not None:
+        return "active"
+    required = set(kc_data.get("requiredActions") or [])
+    if "UPDATE_PASSWORD" in required or kc_data.get("emailVerified") is False:
+        return "pending"
+    return "active"
+
+
 @router.get("/workspaces/{slug}/members", response_model=list[MemberDetail])
 async def list_members(
     slug: str,
@@ -1089,6 +1110,8 @@ async def list_members(
             custom_labels=m.custom_labels or [],
             joined_at=m.joined_at,
             is_current_user=(u.id == user.id),
+            status=_member_invitation_status(kc_data, u.last_login),
+            last_login=u.last_login,
         ))
     return result
 

@@ -130,11 +130,26 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
                         You
                       </span>
                     }
+                    @if (isPending(m)) {
+                      <span class="text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wider font-semibold inline-flex items-center gap-1 bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30">
+                        <app-icon name="mail" [size]="9" />
+                        Pending invite
+                      </span>
+                    } @else {
+                      <span class="text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wider font-semibold inline-flex items-center gap-1 bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30">
+                        <app-icon name="check" [size]="9" />
+                        Active
+                      </span>
+                    }
                   </div>
                   <div class="text-sm text-gray-400 truncate">{{ m.email }}</div>
                   <div class="text-xs text-gray-500 mt-0.5 inline-flex items-center gap-1">
                     <app-icon name="clock" [size]="11" />
-                    Joined {{ m.joined_at | date: 'mediumDate' }}
+                    @if (isPending(m)) {
+                      Invited {{ m.joined_at | date: 'mediumDate' }} · awaiting first sign-in
+                    } @else {
+                      Joined {{ m.joined_at | date: 'mediumDate' }}
+                    }
                   </div>
                 </div>
 
@@ -383,5 +398,9 @@ export class WorkspaceMembersComponent {
     if (this.isOwner(member)) return 'owner';
     if (this.isAdmin(member)) return 'admin';
     return 'member';
+  }
+
+  isPending(member: WorkspaceMemberDetail): boolean {
+    return member.status === 'pending';
   }
 }
