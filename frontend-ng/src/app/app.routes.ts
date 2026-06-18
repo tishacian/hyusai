@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './core/auth.guard';
 import { loginGuard } from './core/login.guard';
+import { navigationProfileGuard } from './core/navigation-profile.guard';
 
 export const routes: Routes = [
   {
@@ -17,6 +18,7 @@ export const routes: Routes = [
   {
     path: '',
     canActivate: [authGuard],
+    canActivateChild: [navigationProfileGuard],
     loadComponent: () =>
       import('./features/layout/shell.component').then((m) => m.ShellComponent),
     children: [

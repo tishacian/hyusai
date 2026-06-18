@@ -12,6 +12,7 @@ import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
 import { CanonicalApiService, type Context, type System } from '@app/core/canonical-api.service';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { TagComponent } from '@app/shared/cockpit';
@@ -90,7 +91,15 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
     <div class="t-shell" [class.t-inline]="inline()" [class.t-executive-shell]="executiveAssistant()">
       <!-- Header — system picker + mode badge -->
       <header class="t-header">
-        @if (executiveAssistant()) {
+        @if (businessSurface()) {
+          <div class="t-header-left">
+            <ck-tag tone="pos" variant="solid">Chat transverse</ck-tag>
+            <span class="t-header-hint">Questions et recherche sur les connaissances du workspace.</span>
+          </div>
+          <div class="t-header-right">
+            <span class="t-source-pill">Sources du workspace</span>
+          </div>
+        } @else if (executiveAssistant()) {
           <div class="t-header-left">
             <span class="t-executive-mark">{{ assistantInitials() }}</span>
             <div class="t-executive-copy">
@@ -767,6 +776,7 @@ export class ChatWorkspaceComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(ToastrService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly navigationProfile = inject(NavigationProfileService);
   private readonly router = inject(Router);
 
   /** When `true`, render the compact (overlay) layout. Full-screen otherwise. */
@@ -824,6 +834,7 @@ export class ChatWorkspaceComponent implements OnInit {
   });
 
   readonly executiveAssistant = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
+  readonly businessSurface = computed(() => this.navigationProfile.businessShellActive());
   readonly assistantLabel = computed(() => String(this.activeAssistantProfile()?.['label'] || 'Agentium'));
   readonly assistantInitials = computed(() => this.assistantLabel().slice(0, 3).toUpperCase());
 
@@ -848,24 +859,30 @@ export class ChatWorkspaceComponent implements OnInit {
   });
 
   readonly effectiveSystemId = computed<string | null>(() => {
+    if (this.businessSurface()) return this.workspaceChatSystem()?.id ?? null;
     return this.selectedSystemId() ?? this.workspaceChatSystem()?.id ?? null;
   });
 
-  readonly flowBuilderSystemId = computed<string | null>(() => this.effectiveSystemId());
+  readonly flowBuilderSystemId = computed<string | null>(() =>
+    this.businessSurface() ? null : this.effectiveSystemId(),
+  );
 
   readonly modeLabel = computed<string>(() => {
+    if (this.businessSurface()) return 'Chat transverse';
     if (this.ephemeralContextId()) return 'Drop-and-ask';
     if (this.selectedSystemId()) return 'System chat';
     return 'Quick ask';
   });
 
   readonly modeTone = computed<'cool' | 'violet' | 'pos'>(() => {
+    if (this.businessSurface()) return 'pos';
     if (this.ephemeralContextId()) return 'violet';
     if (this.selectedSystemId()) return 'cool';
     return 'pos';
   });
 
   readonly modeHint = computed<string>(() => {
+    if (this.businessSurface()) return 'Questions sur les sources du workspace';
     if (this.ephemeralContextId()) return 'Session docs ground the answer';
     const selected = this.selectedSystemId();
     if (selected) {
@@ -878,7 +895,7 @@ export class ChatWorkspaceComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.selectedSystemId.set(this.initialSystemId() ?? null);
+    this.selectedSystemId.set(this.businessSurface() ? null : this.initialSystemId() ?? null);
     this.ephemeralContextId.set(this.initialContextId() ?? null);
     // Inline overlay: keep dropzone collapsed unless drop-mode was asked.
     // When chat upload is disabled, never force-open the dropzone even if
@@ -897,6 +914,7 @@ export class ChatWorkspaceComponent implements OnInit {
   }
 
   onSystemChange(id: string | null): void {
+    if (this.businessSurface()) return;
     this.selectedSystemId.set(id);
   }
 

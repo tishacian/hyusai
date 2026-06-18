@@ -1,10 +1,11 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import { ToastrService } from 'ngx-toastr';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { WorkspaceDetail, WorkspaceMode, WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
@@ -197,6 +198,78 @@ const FIELD =
         </section>
 
         <section class="t-card t-elevated rounded-md p-6">
+          <div class="flex items-start gap-3 mb-4">
+            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+              <app-icon name="panel-left" [size]="18" />
+            </div>
+            <div class="flex-1">
+              <h2 class="text-base font-semibold text-white">Navigation profile</h2>
+              <p class="text-sm text-gray-400 mt-0.5 max-w-2xl">
+                Simplifies the workspace for business end users. Admins keep the full Agentium cockpit by default.
+              </p>
+            </div>
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <button
+              type="button"
+              (click)="setNavigationProfile(false)"
+              [disabled]="!canEdit() || savingNavigationProfile()"
+              [class.ring-2]="!navigationProfileEnabled()"
+              [class.ring-brand-500]="!navigationProfileEnabled()"
+              [class.bg-brand-500]="!navigationProfileEnabled()"
+              [class.bg-opacity-10]="!navigationProfileEnabled()"
+              class="text-left p-4 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div class="flex items-center gap-2 mb-2">
+                <app-icon name="layout-dashboard" [size]="16" class="text-brand-400" />
+                <span class="text-sm font-semibold text-white">Standard</span>
+                @if (!navigationProfileEnabled()) {
+                  <span class="ml-auto text-[10px] uppercase tracking-wider text-brand-400 font-mono">active</span>
+                }
+              </div>
+              <p class="text-xs text-gray-400 leading-relaxed">Full cockpit: Systems, Runs, Observability, Governance and workspace tools.</p>
+            </button>
+            <button
+              type="button"
+              (click)="setNavigationProfile(true)"
+              [disabled]="!canEdit() || savingNavigationProfile()"
+              [class.ring-2]="navigationProfileEnabled()"
+              [class.ring-brand-500]="navigationProfileEnabled()"
+              [class.bg-brand-500]="navigationProfileEnabled()"
+              [class.bg-opacity-10]="navigationProfileEnabled()"
+              class="text-left p-4 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div class="flex items-center gap-2 mb-2">
+                <app-icon name="message-square" [size]="16" class="text-brand-400" />
+                <span class="text-sm font-semibold text-white">Business end-user</span>
+                @if (navigationProfileEnabled()) {
+                  <span class="ml-auto text-[10px] uppercase tracking-wider text-brand-400 font-mono">active</span>
+                }
+              </div>
+              <p class="text-xs text-gray-400 leading-relaxed">Business users see only Chat transverse and Capture de connaissances.</p>
+            </button>
+          </div>
+          @if (navigationProfileEnabled() && canEdit()) {
+            <div class="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
+              <p class="text-xs text-gray-400 max-w-2xl">
+                Preview shows the same mini-shell business users will see. The top bar contains a return button for admins.
+              </p>
+              <button
+                type="button"
+                (click)="previewBusinessNavigation()"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black"
+              >
+                <app-icon name="eye" [size]="14" />
+                Preview business shell
+              </button>
+            </div>
+          }
+          @if (!canEdit()) {
+            <p class="text-xs text-gray-500 mt-3">Only owners and admins can change the navigation profile.</p>
+          }
+        </section>
+
+        <section class="t-card t-elevated rounded-md p-6">
           <h2 class="text-base font-semibold text-white mb-4 flex items-center gap-2">
             <app-icon name="info" [size]="16" class="text-brand-400" />
             Metadata
@@ -235,7 +308,9 @@ const FIELD =
 })
 export class WorkspaceGeneralComponent {
   protected readonly workspaceService = inject(WorkspaceService);
+  private readonly navigationProfile = inject(NavigationProfileService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly toastr = inject(ToastrService);
 
   protected readonly field = FIELD;
@@ -250,6 +325,7 @@ export class WorkspaceGeneralComponent {
   readonly savingMode = signal(false);
   readonly savingDemoSafe = signal(false);
   readonly savingChatUpload = signal(false);
+  readonly savingNavigationProfile = signal(false);
   readonly copied = signal(false);
 
   readonly modes: { key: Exclude<WorkspaceMode, 'demo'>; label: string; icon: string; description: string }[] = [
@@ -281,6 +357,11 @@ export class WorkspaceGeneralComponent {
     if (!d) return false;
     return d.mode === 'demo' || this.demoSafeFromSettings(d.settings);
   });
+  readonly navigationProfileEnabled = computed(() => {
+    const settings = this.detail()?.settings || {};
+    const profile = this.asRecord(settings['navigation_profile']);
+    return profile['key'] === 'business_end_user';
+  });
 
   /**
    * Drop-and-ask upload gating. Reads `settings.features.chat_document_upload`
@@ -297,7 +378,8 @@ export class WorkspaceGeneralComponent {
 
   readonly canEdit = computed(() => {
     const role = this.detail()?.role;
-    return role === 'owner' || role === 'admin';
+    const roleTemplate = this.detail()?.role_template;
+    return role === 'owner' || role === 'admin' || roleTemplate === 'workspace_owner' || roleTemplate === 'workspace_admin';
   });
 
   readonly dirty = computed(() => {
@@ -412,6 +494,38 @@ export class WorkspaceGeneralComponent {
         this.toastr.error(err?.error?.detail || 'Failed to update chat upload setting', 'Error');
       },
     });
+  }
+
+  setNavigationProfile(enabled: boolean): void {
+    const d = this.detail();
+    if (!d || !this.canEdit()) return;
+    const settings = { ...(d.settings || {}) };
+    if (enabled) {
+      settings['navigation_profile'] = this.navigationProfile.businessProfileConfig(true);
+    } else {
+      delete settings['navigation_profile'];
+      this.navigationProfile.setBusinessPreview(false);
+    }
+    this.savingNavigationProfile.set(true);
+    this.workspaceService.updateWorkspaceSettings(d.slug, settings).subscribe({
+      next: (updated) => {
+        this.savingNavigationProfile.set(false);
+        this.detail.set(updated);
+        this.toastr.success(
+          enabled ? 'Business navigation profile enabled.' : 'Standard navigation restored.',
+          'Saved',
+        );
+      },
+      error: (err) => {
+        this.savingNavigationProfile.set(false);
+        this.toastr.error(err?.error?.detail || 'Failed to update navigation profile', 'Error');
+      },
+    });
+  }
+
+  previewBusinessNavigation(): void {
+    this.navigationProfile.setBusinessPreview(true);
+    this.router.navigateByUrl('/chat');
   }
 
   copy(slug: string): void {

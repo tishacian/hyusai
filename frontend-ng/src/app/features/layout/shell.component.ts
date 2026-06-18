@@ -3,11 +3,13 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { TitleBarComponent } from './title-bar.component';
 import { SideRailComponent } from './side-rail.component';
 import { MiniRailComponent } from './mini-rail.component';
 import { CommandBarComponent } from './command-bar.component';
 import { CommandPaletteComponent } from './command-palette.component';
+import { BusinessShellHeaderComponent } from './business-shell-header.component';
 import { CkPanelHostComponent } from '@app/shared/cockpit/panel.component';
 import { ChatOverlayComponent } from '@app/features/chat/chat-overlay.component';
 import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draft-drawer.component';
@@ -28,6 +30,7 @@ import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draf
     MiniRailComponent,
     CommandBarComponent,
     CommandPaletteComponent,
+    BusinessShellHeaderComponent,
     CkPanelHostComponent,
     ChatOverlayComponent,
     AssistantDraftDrawerComponent,
@@ -39,16 +42,18 @@ import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draf
       [style.height]="'100dvh'"
       [style.overflow]="'hidden'"
       [style.display]="'grid'"
-      [style.gridTemplateRows]="immersiveWorkspaceApp() ? '1fr' : '48px 1fr 28px'"
+      [style.gridTemplateRows]="immersiveWorkspaceApp() ? '1fr' : (businessShell() ? '52px 1fr' : '48px 1fr 28px')"
       [style.background]="'var(--ck-bg-base)'"
       [style.color]="'var(--ck-fg-1)'"
     >
-      @if (!immersiveWorkspaceApp()) {
+      @if (businessShell()) {
+        <app-business-shell-header></app-business-shell-header>
+      } @else if (!immersiveWorkspaceApp()) {
         <app-title-bar></app-title-bar>
       }
 
       <div [style.display]="'flex'" [style.minHeight]="'0'" [style.position]="'relative'">
-        @if (!immersiveWorkspaceApp()) {
+        @if (!immersiveWorkspaceApp() && !businessShell()) {
           <app-side-rail></app-side-rail>
           <app-mini-rail></app-mini-rail>
         }
@@ -64,9 +69,13 @@ import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draf
       </div>
 
       @if (!immersiveWorkspaceApp()) {
-        <app-command-bar></app-command-bar>
+        @if (!businessShell()) {
+          <app-command-bar></app-command-bar>
+        }
       }
-      <app-command-palette></app-command-palette>
+      @if (!businessShell()) {
+        <app-command-palette></app-command-palette>
+      }
       <app-panel-host></app-panel-host>
       <app-chat-overlay></app-chat-overlay>
       <app-assistant-draft-drawer></app-assistant-draft-drawer>
@@ -75,6 +84,7 @@ import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draf
 })
 export class ShellComponent {
   private readonly workspaceService = inject(WorkspaceService);
+  private readonly navigationProfile = inject(NavigationProfileService);
   private readonly router = inject(Router);
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -86,6 +96,9 @@ export class ShellComponent {
   );
 
   readonly currentPath = computed(() => (this.url() || '/').split('?')[0]);
+  readonly businessShell = computed(() =>
+    this.navigationProfile.businessShellActive() && !this.immersiveWorkspaceApp(),
+  );
   readonly immersiveWorkspaceApp = computed(() => {
     const workspace = this.workspaceService.current();
     const path = this.currentPath();
@@ -102,6 +115,11 @@ export class ShellComponent {
   constructor() {
     this.workspaceService.loadWorkspaces().subscribe(() => {
       const path = (this.router.url || '/').split('?')[0];
+      const businessRedirect = this.navigationProfile.businessRedirectFor(this.router.url || '/');
+      if (businessRedirect) {
+        this.router.navigateByUrl(businessRedirect);
+        return;
+      }
       if (this.workspaceService.isDemoMode() && (path === '/' || path === '/hypervisor')) {
         const defaultRoute =
           (this.workspaceService.current()?.settings?.['default_route'] as string | undefined) ||

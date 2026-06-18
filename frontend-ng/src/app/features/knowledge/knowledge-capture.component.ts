@@ -7,6 +7,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService, PublishedCaptureFiche } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { LiveKitConversationConnection, LiveKitConversationService } from '@app/core/livekit-conversation.service';
+import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { PermissionsService } from '@app/core/permissions.service';
 import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-playback.service';
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
@@ -3726,9 +3727,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private readonly livekitConversation = inject(LiveKitConversationService);
   private readonly ttsPlaybackFactory = inject(VoiceTtsPlaybackService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly navigationProfile = inject(NavigationProfileService);
   readonly i18n = inject(I18nService);
   readonly permissions = inject(PermissionsService);
-  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode());
+  readonly isBusinessSurface = computed(() => this.navigationProfile.businessShellActive());
+  // Keep the existing template predicate, but let the business profile reuse
+  // the same simplified capture UI without changing workspace.mode to "demo".
+  readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode() || this.isBusinessSurface());
   readonly isPilotMode = this.isDemoMode;
   /**
    * Per-workspace toggle: must a capture fiche pass expert review before going
