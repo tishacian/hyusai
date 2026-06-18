@@ -727,6 +727,18 @@ def _expanded_query_terms(query: str, policy: RetrievalPolicy | None = None) -> 
     return terms[:40]
 
 
+# Navigation/boilerplate documents (menus, picture frames, image/asset files)
+# carry the project code in their path and therefore tie with real technical
+# sections under the project-code bonus. They are never an answer source, so we
+# demote them before the top-N cut to keep technical content in scope.
+_DEMOTE_SOURCE_RE = re.compile(
+    r"(?:^|__)(?:menu|pictures?|images?|img|frames?|css|js|assets?|fonts?)__"
+    r"|\.(?:jpe?g|png|gif|bmp|ico|tiff?|svg|webp|css|js)(?:$|__)"
+    r"|(?:^|__)(?:accueil|index|sommaire|home|nexline-index)[^_]*\.html?(?:$|__)",
+    re.IGNORECASE,
+)
+
+
 def _infer_ledger_document_scope(
     query: str,
     rows: list[Any],
@@ -817,6 +829,9 @@ def _infer_ledger_document_scope(
             strong_phrase_match = True
         if has_source_lookup_signal:
             score += min(max(int(getattr(row, "chunk_count", 0) or 0), 0), 100) / 200.0
+        if _DEMOTE_SOURCE_RE.search(filename):
+            score -= 10.0
+            strong_phrase_match = False
         threshold = 6.0 if project_codes else 7.0
         if score >= threshold:
             scored.append((score, matched_project, strong_phrase_match, row))

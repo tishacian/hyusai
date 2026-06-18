@@ -108,12 +108,13 @@ DEFAULT_INDUSTRIAL_ANSWER_POLICY: dict[str, Any] = {
 
 
 _PROJECT_SUMMARY_RE = re.compile(
-    r"\b(r[eé]sume|synth[eè]se|summary|summari[sz]e)\b.*\b(projet|project)\b"
-    r"|\b(projet|project)\b.*\b(r[eé]sume|synth[eè]se|summary|summari[sz]e)\b",
+    r"\b(r[eé]sume|synth[eè]se|summary|summari[sz]e|aper[cç]u|overview|pr[ée]sentation)\b.*\b(projet|project|manuel|manual|dossier|document)\b"
+    r"|\b(projet|project|manuel|manual)\b.*\b(r[eé]sume|synth[eè]se|summary|summari[sz]e|aper[cç]u|overview)\b"
+    r"|\b(d[ée]taille|d[ée]tailler|d[ée]cris|d[ée]crire|d[ée]crit|pr[ée]sente|pr[ée]senter|contenu|contient)\b.*\b(manuel|manual|projet|project|document|dossier)\b",
     re.IGNORECASE,
 )
 _TRANSVERSAL_RE = re.compile(
-    r"\b(quels?|quelles?|liste|list|tous|toutes|all|which)\b.*\b(projets?|projects?|manuels?|manuals?)\b"
+    r"\b(quels|quelles|liste|list|tous|toutes|all|which)\b.*\b(projets|projects|manuels|manuals)\b"
     r"|\b(dans quels?|where)\b.*\b(projets?|projects?)\b"
     r"|\b(utilisent|using|use|retrouve|retrouve-t-on|installed|install[eé])\b.*\b(projets?|projects?)\b"
     r"|\b(liste|list|tous|toutes|all)\b.*\b(pompes?|pumps?|moteurs?|motors?|injecteurs?|buses?|nozzles?|rouleaux?|s[ée]cheurs?|dryers?|filtres?|filters?|pi[eè]ces?|parts?)\b",
