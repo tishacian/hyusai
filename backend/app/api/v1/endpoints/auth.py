@@ -1277,11 +1277,11 @@ async def invite_member(
     db.add(new_member)
     db.commit()
     logger.info(
-        "Invited teammate to workspace",
-        workspace_id=workspace.id,
-        target_user=target_user.id,
-        role=body.role,
-        provisioned_in_keycloak=created_in_kc,
+        "Invited teammate to workspace workspace_id=%s target_user=%s role=%s provisioned_in_keycloak=%s",
+        workspace.id,
+        target_user.id,
+        body.role,
+        created_in_kc,
     )
     return {
         "status": "ok",
