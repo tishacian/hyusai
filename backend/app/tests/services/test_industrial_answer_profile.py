@@ -20,6 +20,20 @@ def test_resolve_project_summary_profile():
     assert decision.requires_exhaustive_retrieval is False
 
 
+def test_resolve_broad_knowledge_request_as_project_summary():
+    # "Tell me everything about project X" wants a structured synthesis, not the
+    # terse precise_fact one-liner.
+    policy = industrial_answer_policy()
+    for query in (
+        "donne moi tout ce que tu sais sur le projet AKK200",
+        "parle-moi du projet AKK200",
+        "tout sur le projet AKK200",
+    ):
+        assert resolve_answer_profile(query, policy).profile == "project_summary", query
+    # A single factual question on the same project stays precise_fact.
+    assert resolve_answer_profile("quelle pompe est utilisée dans ce projet ?", policy).profile == "precise_fact"
+
+
 def test_resolve_equipment_list_as_transversal_inventory():
     decision = resolve_answer_profile("Liste toutes les pompes Uraca", industrial_answer_policy())
 

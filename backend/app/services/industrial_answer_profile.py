@@ -110,7 +110,13 @@ DEFAULT_INDUSTRIAL_ANSWER_POLICY: dict[str, Any] = {
 _PROJECT_SUMMARY_RE = re.compile(
     r"\b(r[eé]sume|synth[eè]se|summary|summari[sz]e|aper[cç]u|overview|pr[ée]sentation)\b.*\b(projet|project|manuel|manual|dossier|document)\b"
     r"|\b(projet|project|manuel|manual)\b.*\b(r[eé]sume|synth[eè]se|summary|summari[sz]e|aper[cç]u|overview)\b"
-    r"|\b(d[ée]taille|d[ée]tailler|d[ée]cris|d[ée]crire|d[ée]crit|pr[ée]sente|pr[ée]senter|contenu|contient)\b.*\b(manuel|manual|projet|project|document|dossier)\b",
+    r"|\b(d[ée]taille|d[ée]tailler|d[ée]cris|d[ée]crire|d[ée]crit|pr[ée]sente|pr[ée]senter|contenu|contient)\b.*\b(manuel|manual|projet|project|document|dossier)\b"
+    # "tell me everything about project X": broad-knowledge requests that want a
+    # structured project synthesis, not a single fact. Anchored on an explicit
+    # broad-knowledge phrase + a project object (word or project code) so plain
+    # factual or cross-project questions stay on their own profiles.
+    r"|\b(tout\s+ce\s+que\s+tu\s+sais|tout\s+savoir|que\s+sais[-\s]?tu|que\s+sait[-\s]?on|parle[-\s]?moi|raconte[-\s]?moi|dis[-\s]?moi\s+tout|tell\s+me\s+(?:everything|all)|what\s+do\s+you\s+know)\b.*\b(projet|project|dossier|[A-Z]{2,}\d{2,})\b"
+    r"|\btout\b.*\b(?:sur|about|concernant|au\s+sujet)\b.*\b(projet|project|dossier|[A-Z]{2,}\d{2,})\b",
     re.IGNORECASE,
 )
 _TRANSVERSAL_RE = re.compile(
