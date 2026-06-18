@@ -85,10 +85,22 @@ export type AnswerToken =
   | { kind: 'link'; value: string; href: string }
   | { kind: 'cite'; n: number; label?: string };
 
+/**
+ * A single list item: its inline tokens plus optional nested children. The
+ * tree shape lets the renderer preserve the indentation hierarchy the model
+ * emits (sub-bullets stay nested) instead of flattening every item to one
+ * level.
+ */
+interface AnswerListItem {
+  tokens: AnswerToken[];
+  ordered: boolean;
+  children: AnswerListItem[];
+}
+
 type AnswerBlock =
   | { kind: 'paragraph'; tokens: AnswerToken[] }
   | { kind: 'heading'; level: 2 | 3 | 4; tokens: AnswerToken[] }
-  | { kind: 'list'; ordered: boolean; items: AnswerToken[][] }
+  | { kind: 'list'; ordered: boolean; items: AnswerListItem[] }
   | { kind: 'codeblock'; value: string };
 
 interface RetrievalDecisionTrace {
@@ -1097,6 +1109,42 @@ const STEP_ICONS: Record<string, string> = {
                 }
               </ng-template>
 
+              <!-- Recursive list renderer: preserves nested-bullet indentation
+                   the model emits. Each level picks <ol>/<ul> from its first
+                   item and recurses into children. Shared by the main answer
+                   and the Deep Search answer. -->
+              <ng-template
+                #answerList
+                let-items
+                let-sources="sources"
+                let-sourceHostId="sourceHostId"
+                let-openDirectSources="openDirectSources"
+              >
+                @if (items[0]?.ordered) {
+                  <ol class="my-1.5 list-decimal pl-5 space-y-0.5">
+                    @for (item of items; track $index) {
+                      <li>
+                        <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item.tokens, sources: sources, sourceHostId: sourceHostId, openDirectSources: openDirectSources }"></ng-container>
+                        @if (item.children?.length) {
+                          <ng-container [ngTemplateOutlet]="answerList" [ngTemplateOutletContext]="{ $implicit: item.children, sources: sources, sourceHostId: sourceHostId, openDirectSources: openDirectSources }"></ng-container>
+                        }
+                      </li>
+                    }
+                  </ol>
+                } @else {
+                  <ul class="my-1.5 list-disc pl-5 space-y-0.5">
+                    @for (item of items; track $index) {
+                      <li>
+                        <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item.tokens, sources: sources, sourceHostId: sourceHostId, openDirectSources: openDirectSources }"></ng-container>
+                        @if (item.children?.length) {
+                          <ng-container [ngTemplateOutlet]="answerList" [ngTemplateOutletContext]="{ $implicit: item.children, sources: sources, sourceHostId: sourceHostId, openDirectSources: openDirectSources }"></ng-container>
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
+              </ng-template>
+
               <!-- Content -->
               <div class="flex justify-start">
                 <div
@@ -1109,19 +1157,7 @@ const STEP_ICONS: Record<string, string> = {
                         <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens, sources: msg.sources, sourceHostId: msg.id, openDirectSources: true }"></ng-container>
                       </h3>
                     } @else if (block.kind === 'list') {
-                      @if (block.ordered) {
-                        <ol class="my-1.5 list-decimal pl-5 space-y-0.5">
-                          @for (item of block.items; track $index) {
-                            <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item, sources: msg.sources, sourceHostId: msg.id, openDirectSources: true }"></ng-container></li>
-                          }
-                        </ol>
-                      } @else {
-                        <ul class="my-1.5 list-disc pl-5 space-y-0.5">
-                          @for (item of block.items; track $index) {
-                            <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item, sources: msg.sources, sourceHostId: msg.id, openDirectSources: true }"></ng-container></li>
-                          }
-                        </ul>
-                      }
+                      <ng-container [ngTemplateOutlet]="answerList" [ngTemplateOutletContext]="{ $implicit: block.items, sources: msg.sources, sourceHostId: msg.id, openDirectSources: true }"></ng-container>
                     } @else if (block.kind === 'codeblock') {
                       <pre class="my-2 max-w-full overflow-auto rounded-md bg-black/5 dark:bg-white/[0.06] p-2 text-xs leading-relaxed"><code>{{ block.value }}</code></pre>
                     } @else {
@@ -1474,19 +1510,7 @@ const STEP_ICONS: Record<string, string> = {
                                 <ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: block.tokens, sources: deepInfo.deepSources || msg.sources, sourceHostId: deepSourceHostId(msg), openDirectSources: false }"></ng-container>
                               </h3>
                             } @else if (block.kind === 'list') {
-                              @if (block.ordered) {
-                                <ol class="my-1.5 list-decimal pl-5 space-y-0.5">
-                                  @for (item of block.items; track $index) {
-                                    <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item, sources: deepInfo.deepSources || msg.sources, sourceHostId: deepSourceHostId(msg), openDirectSources: false }"></ng-container></li>
-                                  }
-                                </ol>
-                              } @else {
-                                <ul class="my-1.5 list-disc pl-5 space-y-0.5">
-                                  @for (item of block.items; track $index) {
-                                    <li><ng-container [ngTemplateOutlet]="answerInline" [ngTemplateOutletContext]="{ tokens: item, sources: deepInfo.deepSources || msg.sources, sourceHostId: deepSourceHostId(msg), openDirectSources: false }"></ng-container></li>
-                                  }
-                                </ul>
-                              }
+                              <ng-container [ngTemplateOutlet]="answerList" [ngTemplateOutletContext]="{ $implicit: block.items, sources: deepInfo.deepSources || msg.sources, sourceHostId: deepSourceHostId(msg), openDirectSources: false }"></ng-container>
                             } @else if (block.kind === 'codeblock') {
                               <pre class="my-2 max-w-full overflow-auto rounded-md bg-black/5 dark:bg-white/[0.06] p-2 text-xs leading-relaxed"><code>{{ block.value }}</code></pre>
                             } @else {
@@ -4294,8 +4318,7 @@ export class ChatPanelComponent implements AfterViewInit {
     const lines = text.split('\n');
     const blocks: AnswerBlock[] = [];
     let paragraph: string[] = [];
-    let listItems: AnswerToken[][] = [];
-    let listOrdered = false;
+    let bulletBuffer: Array<{ level: number; ordered: boolean; tokens: AnswerToken[] }> = [];
     let codeLines: string[] = [];
     let inCode = false;
 
@@ -4305,9 +4328,14 @@ export class ChatPanelComponent implements AfterViewInit {
       paragraph = [];
     };
     const flushList = () => {
-      if (listItems.length) blocks.push({ kind: 'list', ordered: listOrdered, items: listItems });
-      listItems = [];
-      listOrdered = false;
+      if (bulletBuffer.length) {
+        blocks.push({
+          kind: 'list',
+          ordered: bulletBuffer[0].ordered,
+          items: this.buildAnswerListTree(bulletBuffer),
+        });
+      }
+      bulletBuffer = [];
     };
 
     for (const rawLine of lines) {
@@ -4341,16 +4369,14 @@ export class ChatPanelComponent implements AfterViewInit {
         blocks.push({ kind: 'heading', level, tokens: this.inlineMarkdownTokens(heading[2], sources) });
         continue;
       }
-      const unordered = /^\s*[-*•]\s+(.+)$/.exec(line);
-      const ordered = /^\s*\d+[\.)]\s+(.+)$/.exec(line);
-      if (unordered || ordered) {
+      const bullet = this.parseAnswerBulletLine(line);
+      if (bullet) {
         flushParagraph();
-        const isOrdered = !!ordered;
-        if (listItems.length && listOrdered !== isOrdered) {
-          flushList();
-        }
-        listOrdered = isOrdered;
-        listItems.push(this.inlineMarkdownTokens((ordered || unordered)![1], sources));
+        bulletBuffer.push({
+          level: bullet.level,
+          ordered: bullet.ordered,
+          tokens: this.inlineMarkdownTokens(bullet.content, sources),
+        });
         continue;
       }
       flushList();
@@ -4362,6 +4388,40 @@ export class ChatPanelComponent implements AfterViewInit {
     flushParagraph();
     flushList();
     return blocks.length ? blocks : [{ kind: 'paragraph', tokens: [{ kind: 'text', value: '(no response)' }] }];
+  }
+
+  /**
+   * Parse a markdown list line into its indent level, ordered flag and inline
+   * content. Leading whitespace (two spaces / one tab per level) drives the
+   * nesting depth so sub-bullets are not collapsed into siblings.
+   */
+  private parseAnswerBulletLine(
+    line: string,
+  ): { level: number; ordered: boolean; content: string } | null {
+    const match = /^([\t ]*)([-*•]|\d+[.)])\s+(.+)$/.exec(line);
+    if (!match) return null;
+    const indent = match[1].replace(/\t/g, '  ').length;
+    return { level: Math.floor(indent / 2), ordered: /\d/.test(match[2]), content: match[3] };
+  }
+
+  /**
+   * Turn a flat, indent-tagged bullet list into a nested tree using a level
+   * stack. Orderedness is kept per node so nested groups can mix bullets and
+   * numbers. Mirrors the parser used by the knowledge-capture fiche.
+   */
+  private buildAnswerListTree(
+    flat: Array<{ level: number; ordered: boolean; tokens: AnswerToken[] }>,
+  ): AnswerListItem[] {
+    const root: AnswerListItem[] = [];
+    const stack: Array<{ level: number; item: AnswerListItem }> = [];
+    for (const entry of flat) {
+      const node: AnswerListItem = { tokens: entry.tokens, ordered: entry.ordered, children: [] };
+      while (stack.length && stack[stack.length - 1].level >= entry.level) stack.pop();
+      if (!stack.length) root.push(node);
+      else stack[stack.length - 1].item.children.push(node);
+      stack.push({ level: entry.level, item: node });
+    }
+    return root;
   }
 
   private normalizeAnswerMarkdown(content: string): string {
