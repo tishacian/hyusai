@@ -192,7 +192,9 @@ def normalize_latency_profile(value: Any, *, deep_retrieval: Any = None) -> Late
 
 
 def is_catalogue_query(query: str) -> bool:
-    text = str(query or "").strip()
+    from app.services.rag.conversation_anchors import strip_conversation_anchor
+
+    text = strip_conversation_anchor(query).strip()
     if not text:
         return False
     if re.search(
@@ -207,7 +209,9 @@ def is_catalogue_query(query: str) -> bool:
 
 
 def classify_intent(query: str) -> str:
-    text = str(query or "")
+    from app.services.rag.conversation_anchors import strip_conversation_anchor
+
+    text = strip_conversation_anchor(query)
     if _DOCUMENT_DISCOVERY_RE.search(text) or (
         re.search(r"\b(?:quels?|which|what)\b", text, re.IGNORECASE)
         and _CONTENT_SEARCH_HINT_RE.search(text)

@@ -165,7 +165,9 @@ def _int_clamped(value: Any, default: int, *, minimum: int = 1, maximum: int = 2
 
 
 def is_collection_inventory_query(query: str) -> bool:
-    text = str(query or "").strip()
+    from app.services.rag.conversation_anchors import strip_conversation_anchor
+
+    text = strip_conversation_anchor(query).strip()
     if not text:
         return False
     # "Quels documents parlent de X ?" is a content-discovery query, not an
@@ -333,6 +335,8 @@ def _history_augmented_query(request: dict[str, Any]) -> str:
     # useful for display or generic reasoning, but in document search it can
     # silently corrupt domain terms ("carde" -> "carte") and destroy recall.
     # Keep opt-in support for specialised callers, but default to the raw turn.
+    from app.services.rag.conversation_anchors import ANCHOR_PREFIX
+
     if request.get("use_rewritten_query_for_retrieval") is True:
         query = str(request.get("rewritten_query") or request.get("query") or "").strip()
     else:
@@ -352,7 +356,7 @@ def _history_augmented_query(request: dict[str, Any]) -> str:
 
     anchors = [msg for msg in recent_user_messages if _SPREADSHEET_SIGNAL_RE.search(msg)]
     if anchors:
-        return " | ".join([query, "Previous user context:", *reversed(anchors[:2])])
+        return " | ".join([query, ANCHOR_PREFIX, *reversed(anchors[:2])])
 
     # No tabular anchor: fall back to domain anchors (project/machine codes,
     # document names) so an anaphoric follow-up ("et pour cette machine ?")
@@ -374,7 +378,7 @@ def _history_augmented_query(request: dict[str, Any]) -> str:
         terms = anchor_terms(extract_salient_entities(*recent_user_messages))
     if not terms:
         return query
-    return " | ".join([query, "Previous user context:", *terms])
+    return " | ".join([query, ANCHOR_PREFIX, *terms])
 
 
 def _apply_source_policy_to_retrieval_policy(
