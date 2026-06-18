@@ -316,24 +316,51 @@ def _targeted_collection_source_rows(
     source_lookup_query: str | None = None,
     limit: int = 200,
 ) -> list[Any]:
-    clauses = []
-    lookup_terms = _source_lookup_terms(project_codes, source_lookup_query)
-    for lookup_term in lookup_terms:
-        like = f"%{lookup_term}%"
-        clauses.extend(
-            [
-                KnowledgeCollectionSource.filename.ilike(like),
-                KnowledgeCollectionSource.normalized_name.ilike(like),
-            ]
+    cap = max(1, int(limit))
+    code_terms = _source_lookup_terms(project_codes, None)
+    content_terms = _source_lookup_terms(project_codes, source_lookup_query) - code_terms
+
+    def _run(terms: set[str]) -> list[Any]:
+        clauses: list[Any] = []
+        for lookup_term in terms:
+            like = f"%{lookup_term}%"
+            clauses.extend(
+                [
+                    KnowledgeCollectionSource.filename.ilike(like),
+                    KnowledgeCollectionSource.normalized_name.ilike(like),
+                ]
+            )
+        if not clauses:
+            return []
+        return (
+            db.query(KnowledgeCollectionSource)
+            .filter(
+                KnowledgeCollectionSource.collection_id == collection.id,
+                KnowledgeCollectionSource.status != "deleted",
+                or_(*clauses),
+            )
+            .order_by(KnowledgeCollectionSource.filename.asc())
+            .limit(cap)
+            .all()
         )
-    if not clauses:
-        return []
-    query = db.query(KnowledgeCollectionSource).filter(
-        KnowledgeCollectionSource.collection_id == collection.id,
-        KnowledgeCollectionSource.status != "deleted",
-        or_(*clauses),
-    )
-    return query.order_by(KnowledgeCollectionSource.filename.asc()).limit(max(1, int(limit))).all()
+
+    # Fetch project-code rows on their own budget. A single combined OR with a
+    # filename-ordered LIMIT lets a common content term ("machine", "transfert")
+    # fill every slot with non-project rows that sort earlier alphabetically,
+    # silently dropping the project's own documents and collapsing the inferred
+    # scope to the dense guardrail. Querying the code separately guarantees the
+    # project documents always reach the candidate set.
+    code_rows = _run(code_terms)
+    if not content_terms:
+        return code_rows
+    merged = list(code_rows)
+    seen = {row.id for row in merged}
+    for row in _run(content_terms):
+        if row.id in seen:
+            continue
+        merged.append(row)
+        seen.add(row.id)
+    return merged
 
 
 def _targeted_document_name_rows(
@@ -359,10 +386,16 @@ def _targeted_document_name_rows(
     names = [str(name or "").strip() for name in (collection.document_names or []) if str(name or "").strip()]
     if not names:
         return []
-    lookup_terms = _source_lookup_terms(project_codes, source_lookup_query)
-    lowered_terms = {term.lower() for term in lookup_terms if term}
+    code_lowered = {term.lower() for term in _source_lookup_terms(project_codes, None) if term}
+    lowered_terms = {term.lower() for term in _source_lookup_terms(project_codes, source_lookup_query) if term}
     if not lowered_terms:
         return []
+    # Scan project-code matches first so a common content term cannot fill the
+    # cap with non-project names and drop the project's own documents (mirrors
+    # the separate-budget targeting in _targeted_collection_source_rows). Stable
+    # sort preserves original order within each group.
+    if code_lowered:
+        names.sort(key=lambda n: 0 if any(term in n.lower() for term in code_lowered) else 1)
     existing = {
         _search_text(getattr(row, "filename", "") or getattr(row, "normalized_name", "") or "")
         for row in existing_rows
