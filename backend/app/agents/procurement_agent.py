@@ -488,6 +488,27 @@ def _source_entry_from(index: int, entry: dict[str, Any]) -> dict[str, Any]:
     return source_entry
 
 
+def _normalise_project_token(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def _query_references_project(query: str, project_code: str) -> bool:
+    """True when the user query explicitly names this project code.
+
+    The grounding header "— projet X" is only trustworthy when the user actually
+    scoped the question to project X. Many generic pages (e.g.
+    Filtration_vacuum_maintenance.html) are duplicated near-identically across
+    dozens of project manuals, each tagged with its own project_code; surfacing
+    one copy for a generic question and stamping it "— projet AKK200" mislabels
+    generic content as project-specific. Gating on an explicit query mention
+    keeps the header for project-scoped questions and drops it otherwise.
+    """
+    code = _normalise_project_token(project_code)
+    if len(code) < 4:
+        return False
+    return code in _normalise_project_token(query)
+
+
 def _assemble_context_and_sources(
     chunks: list[Any],
     scores: list[Any],
@@ -495,6 +516,7 @@ def _assemble_context_and_sources(
     *,
     allow_foundational_fallback: bool = False,
     source_display_k: int | None = None,
+    query: str = "",
 ) -> tuple[str, list[dict[str, Any]], bool]:
     """Build the LLM context block and the user-facing sources in lockstep.
 
@@ -529,9 +551,12 @@ def _assemble_context_and_sources(
         # Surface the project attribution so the model trusts that a source
         # belongs to the queried project even when the project code is not
         # repeated in the body text (e.g. a manufacturer datasheet filed under
-        # a project's equipment folder).
+        # a project's equipment folder). Only do so when the user actually named
+        # the project: generic shared pages are duplicated across many project
+        # manuals, so stamping an arbitrary copy's code on a non-scoped question
+        # mislabels generic content as project-specific.
         project_code = str(meta.get("project_code") or "").strip()
-        if project_code:
+        if project_code and _query_references_project(query, project_code):
             header = f"{header} — projet {project_code}"
         if label_expert_fiche and _is_expert_fiche_meta(meta):
             header = f"{header} (Fiche experte — validée)"
@@ -1372,6 +1397,7 @@ class OmniRAGAgent(BaseAgent):
             filtered_metadatas,
             allow_foundational_fallback=bool(grounding_policy.get("allow_foundational_fallback")),
             source_display_k=int(retrieval_context.get("source_display_k") or (retrieval_context.get("metrics") or {}).get("source_display_k") or _MAX_CITABLE_SOURCES),
+            query=str(query or ""),
         )
         retrieval_summary = _retrieval_synthesis_brief(filtered_chunks, filtered_metadatas)
 
