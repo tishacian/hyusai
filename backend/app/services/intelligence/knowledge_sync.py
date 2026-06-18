@@ -19,6 +19,7 @@ from app.services.knowledge_collections import (
     create_or_get_collection,
     ingested_key,
     original_key,
+    record_ingested_sources,
     update_collection_status,
 )
 from app.services.object_store import get_object_store
@@ -243,6 +244,13 @@ async def sync_intelligence_to_knowledge(
     )
     document_count = len(await doc_service.list_documents())
     chunk_count = await doc_service.get_document_count()
+    record_ingested_sources(
+        db,
+        collection=collection,
+        ingest_result=ingest_result,
+        document_names=list(docs.keys()),
+        origin="intelligence.news_lab",
+    )
     bm25 = await rebuild_bm25_artifact(collection=collection, vector_db=doc_service.vector_db, store=store)
 
     collection.name = INTELLIGENCE_COLLECTION_NAME

@@ -208,6 +208,48 @@ def upsert_collection_source(
     return row
 
 
+def record_ingested_sources(
+    db: DBSession,
+    *,
+    collection: KnowledgeCollection,
+    ingest_result: dict[str, Any] | None,
+    document_names: list[str] | None = None,
+    origin: str = "sync",
+) -> int:
+    """Write one ledger row per ingested document from a DocumentService batch.
+
+    Direct-sync indexing paths (intelligence/mission-room knowledge sync) push
+    chunks straight into Qdrant via ``ingest_documents_batch`` and set
+    ``collection.document_names`` but historically skipped
+    ``knowledge_collection_sources``. That leaves the planner relying on the
+    metadata-less ``document_names`` fallback. This mirrors the worker_ingest
+    ledger pass so those collections keep the ledger in step with Qdrant.
+    """
+    results = (ingest_result or {}).get("results") or []
+    names = list(document_names or [])
+    written = 0
+    for index, item in enumerate(results):
+        if not isinstance(item, dict):
+            continue
+        filename = names[index] if index < len(names) else (item.get("filename") or "")
+        filename = filename or Path(str(item.get("document_id") or "")).name
+        if not filename:
+            continue
+        status = "ready" if item.get("status") == "success" else "error"
+        upsert_collection_source(
+            db,
+            collection=collection,
+            filename=str(filename),
+            status=status,
+            origin=origin,
+            chunk_count=int(item.get("chunks_processed") or 0),
+            source_metadata={"document_id": item.get("document_id")},
+            last_error=item.get("error"),
+        )
+        written += 1
+    return written
+
+
 def collection_source_rows(
     db: DBSession,
     *,

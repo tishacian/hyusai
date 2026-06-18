@@ -21,6 +21,7 @@ from app.services.knowledge_collections import (
     create_or_get_collection,
     ingested_key,
     original_key,
+    record_ingested_sources,
     update_collection_status,
 )
 from app.services.object_store import get_object_store
@@ -443,6 +444,13 @@ async def sync_markdown_documents_to_collection(
     )
     document_count = len(await doc_service.list_documents())
     chunk_count = await doc_service.get_document_count()
+    record_ingested_sources(
+        db,
+        collection=collection,
+        ingest_result=ingest_result,
+        document_names=[path.name for path in local_paths],
+        origin="mission_room.fixtures",
+    )
     bm25 = await rebuild_bm25_artifact(collection=collection, vector_db=doc_service.vector_db, store=store)
 
     collection.name = definition["name"]

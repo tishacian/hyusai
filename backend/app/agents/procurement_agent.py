@@ -526,6 +526,13 @@ def _assemble_context_and_sources(
         page = meta.get("page")
         if page is not None:
             header = f"{header} (p. {page})"
+        # Surface the project attribution so the model trusts that a source
+        # belongs to the queried project even when the project code is not
+        # repeated in the body text (e.g. a manufacturer datasheet filed under
+        # a project's equipment folder).
+        project_code = str(meta.get("project_code") or "").strip()
+        if project_code:
+            header = f"{header} — projet {project_code}"
         if label_expert_fiche and _is_expert_fiche_meta(meta):
             header = f"{header} (Fiche experte — validée)"
         context_blocks.append(f"{header}\n{entry['chunk']}")
@@ -690,6 +697,7 @@ Do not invent citations."""
 Grounding instructions:
 Answer using the context above. Cite sources by their [number] when relevant.
 Do not write raw filename or chapter references in brackets such as [menu.html] or [I.2.html]; use the numeric source id instead.
+Each source may be labelled with its project (e.g. "projet AKK200"); treat that label as the authoritative project attribution even when the project code is not repeated in the body text, and do not describe such a source as generic or unrelated to that project.
 If the context is not relevant or missing, say so clearly rather than guessing."""
 
     constraint_lines: list[str] = []
