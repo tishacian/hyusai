@@ -5,7 +5,7 @@ configuration concern rather than a schema change. Non-admin users get the
 mini-shell with Chat transverse + Capture de connaissances; admins keep the
 full cockpit unless they explicitly preview the business shell.
 
-Revision ID: 044_andritz_business_navigation_profile
+Revision ID: 044_andritz_business_nav
 Revises: 043_andritz_disable_chat_upload
 Create Date: 2026-06-18
 """
@@ -19,7 +19,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "044_andritz_business_navigation_profile"
+revision = "044_andritz_business_nav"
 down_revision = "043_andritz_disable_chat_upload"
 branch_labels = None
 depends_on = None
