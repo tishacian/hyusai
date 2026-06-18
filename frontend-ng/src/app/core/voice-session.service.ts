@@ -61,6 +61,9 @@ export interface VoiceSessionStartOptions {
   oracle?: {
     min_interval_ms?: number;
     min_delta_chars?: number;
+    partial_stt_min_interval_ms?: number;
+    live_partial_stt_enabled?: boolean;
+    live_questions_enabled?: boolean;
   };
   capability?: string;
   context_id?: string | null;

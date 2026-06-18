@@ -44,6 +44,7 @@ class LiveKitAgentDispatchRequest(BaseModel):
     surface: str = Field(default="knowledge_capture", min_length=1)
     mode: str = Field(default="conversation_only", min_length=1)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    voice_session_start: Dict[str, Any] = Field(default_factory=dict)
     destination_identity: Optional[str] = None
     mock_partial_text: Optional[str] = None
 
@@ -177,6 +178,7 @@ async def livekit_agent_dispatch(
             agent_identity=agent_identity,
             metadata=metadata,
             destination_identity=req.destination_identity,
+            voice_session_start=req.voice_session_start,
         )
         events = []
         if sidecar.mode == "data_only_fallback":

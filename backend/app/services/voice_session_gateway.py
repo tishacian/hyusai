@@ -139,6 +139,9 @@ class VoiceSessionState:
     turn_started_at: Optional[float] = None
     endpoint_at: Optional[float] = None
     tandem_oracle_enabled: bool = True
+    live_partial_stt_enabled: bool = True
+    live_questions_enabled: bool = True
+    partial_stt_min_interval_ms: int = field(default_factory=lambda: _PARTIAL_STT_MIN_INTERVAL_MS)
     oracle: VoiceTandemOracle = field(default_factory=VoiceTandemOracle)
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_contradiction_candidates: list[Dict[str, Any]] = field(default_factory=list)
@@ -184,6 +187,8 @@ class VoiceSessionState:
     live_questions_in_flight: bool = False
     last_live_questions_at: Optional[float] = None
     live_open_questions: list[Dict[str, Any]] = field(default_factory=list)
+    live_questions_generation: int = 0
+    live_questions_tasks: set[asyncio.Task] = field(default_factory=set)
     # Manual section.select locks auto-detection on the gateway for N seconds so
     # a left-rail click is not immediately overridden by speech overlap.
     manual_section_until: Optional[float] = None
@@ -223,6 +228,30 @@ _LIVE_QUESTIONS_CONTEXT_TURNS = 10
 # emits are throttled; turn commits always run detection once.
 _LIVE_SECTION_DETECT_PARTIAL_INTERVAL_S = 30.0
 _MANUAL_SECTION_OVERRIDE_COOLDOWN_S = 60.0
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _coerce_int_range(value: Any, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
 
 _TRANSCRIPT_FILLERS = (
     "euh",
@@ -394,11 +423,35 @@ class VoiceSessionGateway:
             state.language = str(payload.get("language") or payload.get("input_language") or state.language or "fr")
             state.fallback_policy = str(payload.get("fallback_policy") or state.fallback_policy)
             state.codec = payload.get("codec") if isinstance(payload.get("codec"), dict) else {}
-            state.tandem_oracle_enabled = bool(payload.get("tandem_oracle", True))
+            state.tandem_oracle_enabled = _coerce_bool(payload.get("tandem_oracle"), True)
             oracle_config = payload.get("oracle") if isinstance(payload.get("oracle"), dict) else {}
+            state.live_partial_stt_enabled = _coerce_bool(
+                oracle_config.get("live_partial_stt_enabled"),
+                state.tandem_oracle_enabled,
+            )
+            state.live_questions_enabled = _coerce_bool(
+                oracle_config.get("live_questions_enabled"),
+                state.tandem_oracle_enabled,
+            )
+            state.partial_stt_min_interval_ms = _coerce_int_range(
+                oracle_config.get("partial_stt_min_interval_ms"),
+                _PARTIAL_STT_MIN_INTERVAL_MS,
+                minimum=0,
+                maximum=120_000,
+            )
             state.oracle = VoiceTandemOracle(
-                min_interval_ms=int(oracle_config.get("min_interval_ms") or 350),
-                min_delta_chars=int(oracle_config.get("min_delta_chars") or 24),
+                min_interval_ms=_coerce_int_range(
+                    oracle_config.get("min_interval_ms"),
+                    350,
+                    minimum=0,
+                    maximum=120_000,
+                ),
+                min_delta_chars=_coerce_int_range(
+                    oracle_config.get("min_delta_chars"),
+                    24,
+                    minimum=0,
+                    maximum=10_000,
+                ),
             )
             await self._send(
                 websocket,
@@ -413,6 +466,9 @@ class VoiceSessionGateway:
                     "capability": state.capability,
                     "fallback_policy": state.fallback_policy,
                     "tandem_oracle": state.tandem_oracle_enabled,
+                    "live_partial_stt_enabled": state.live_partial_stt_enabled,
+                    "partial_stt_min_interval_ms": state.partial_stt_min_interval_ms,
+                    "live_questions_enabled": state.live_questions_enabled,
                 },
             )
             return
@@ -656,7 +712,7 @@ class VoiceSessionGateway:
             if frame_turn_id and str(frame_turn_id) != state.client_turn_id:
                 state.client_turn_id = str(frame_turn_id)
         state.audio_chunks.append(chunk)
-        if payload.get("incremental_transcription") is False:
+        if payload.get("incremental_transcription") is False or not state.live_partial_stt_enabled:
             return
         # Fire-and-forget: the incremental STT (0.5-3 s, grows with the buffer)
         # must NEVER run inline on the receive loop, otherwise audio.endpoint
@@ -689,7 +745,7 @@ class VoiceSessionGateway:
         per-pause segment end). The authoritative buffer (``state.audio_chunks``) is read
         but never cleared here, so the endpoint's full transcription stays intact.
         """
-        if not state.tandem_oracle_enabled or state.partial_stt_in_flight:
+        if not state.live_partial_stt_enabled or state.partial_stt_in_flight:
             return
         chunk_count = len(state.audio_chunks)
         if chunk_count < 1 or chunk_count <= state.last_partial_chunk_count:
@@ -697,7 +753,7 @@ class VoiceSessionGateway:
         now = time.perf_counter()
         if (
             state.last_partial_stt_at is not None
-            and (now - state.last_partial_stt_at) * 1000.0 < _PARTIAL_STT_MIN_INTERVAL_MS
+            and (now - state.last_partial_stt_at) * 1000.0 < state.partial_stt_min_interval_ms
         ):
             return
         try:
@@ -781,7 +837,7 @@ class VoiceSessionGateway:
                         "chunks": chunk_count,
                         "audio_bytes": len(audio_bytes),
                         "stt_ms": int((time.perf_counter() - _kcdbg_stt_t0) * 1000),
-                        "interval_floor_ms": _PARTIAL_STT_MIN_INTERVAL_MS,
+                        "interval_floor_ms": state.partial_stt_min_interval_ms,
                         "gap_since_prev_ms": _kcdbg_gap_ms,
                         "offloaded": True,
                         "ts": int(time.time() * 1000),
@@ -845,24 +901,22 @@ class VoiceSessionGateway:
                 "transcript.partial",
                 {"segment_id": turn_id, "turn_id": turn_id, "text": text},
             )
-            events = state.oracle.observe_partial(
-                text,
-                turn_id=turn_id,
-                input_state={
-                    "transcript_state": "partial",
-                    "provider": transcript.get("provider") or state.runtime,
-                    "transport": state.transport,
-                },
-                output_state={"oracle_state": "thinking"},
-                duration_ms=0,
-            )
-            await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
-            # Shared per-connection DB session: hold db_lock only around the
-            # short synchronous DB phases, NEVER across the hint pass'
-            # retrieval/network round-trip — otherwise an audio.endpoint waits
-            # on db_lock for the whole call (endpoint-vs-partial serialization,
-            # trace 24a345). The hint pass re-acquires the lock internally for
-            # its own DB mutation phase.
+            if state.tandem_oracle_enabled:
+                events = state.oracle.observe_partial(
+                    text,
+                    turn_id=turn_id,
+                    input_state={
+                        "transcript_state": "partial",
+                        "provider": transcript.get("provider") or state.runtime,
+                        "transport": state.transport,
+                    },
+                    output_state={"oracle_state": "thinking"},
+                    duration_ms=0,
+                )
+                await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
+            # Hint retrieval/mutation runs on its own DB session inside the
+            # background task, so the endpoint path never waits on oracle
+            # retrieval or a shared WebSocket DB lock.
             async with state.db_lock:
                 if state.partial_stt_generation != my_generation:
                     return
@@ -959,52 +1013,65 @@ class VoiceSessionGateway:
         partial_text: str,
         generation: Optional[int] = None,
     ) -> None:
+        del websocket, db
         if len(partial_text.split()) < 6:
             return
-        # Contextualize live retrieval with the current plan topic AND the active
-        # open_questions so retrieved chunks stay relevant to what the plan cares about.
-        query_context = self._retrieval_query_context(capture_session)
-        expanded_query = f"{partial_text} {query_context}".strip()
-        if _retrieve_context_chunks is not _ORIGINAL_RETRIEVE_CONTEXT_CHUNKS:
-            chunks, metadatas, scores = await asyncio.to_thread(
-                _retrieve_context_chunks,
-                db,
-                workspace_id=workspace.id,
-                workspace_slug=workspace.slug,
-                session=capture_session,
-                query=expanded_query,
-                top_k=4,
-            )
-        else:
-            chunks, metadatas, scores = await _retrieve_context_chunks_async(
-                db,
-                workspace_id=workspace.id,
-                workspace_slug=workspace.slug,
-                session=capture_session,
-                query=expanded_query,
-                top_k=4,
-            )
-        state.last_retrieval_chunks = list(chunks)
-        state.last_retrieval_metadatas = list(metadatas or [])
-        state.last_retrieval_scores = list(scores or [])
-        # Only the synchronous DB mutation phase is gated by db_lock (the
-        # retrieval network call above runs unlocked), so the endpoint handler
-        # waits at most ONE short lock-critical-section behind a partial task.
-        async with state.db_lock:
-            if generation is not None and state.partial_stt_generation != generation:
-                # The turn was endpointed/paused/reset while retrieval ran: its
-                # hint mutation would target a finished turn — drop it.
-                return
-            result = process_capture_partial_hints(
-                db,
-                workspace_id=workspace.id,
-                session_id=capture_session.id,
-                partial_text=partial_text,
-                retrieval_chunks=chunks,
-                retrieval_metadatas=metadatas,
-                client_turn_id=state.client_turn_id,
-                actor_user_id=user.id,
-            )
+        if generation is not None and state.partial_stt_generation != generation:
+            return
+        client_turn_id = state.client_turn_id
+        try:
+            from app.db.base import SessionLocal
+
+            with SessionLocal() as hint_db:
+                capture_snapshot = get_session(
+                    hint_db,
+                    workspace_id=workspace.id,
+                    session_id=capture_session.id,
+                )
+                # Contextualize live retrieval with the current plan topic AND the
+                # active open_questions so retrieved chunks stay relevant to what
+                # the plan cares about. This uses the independent DB snapshot,
+                # never the WebSocket session/lock.
+                query_context = self._retrieval_query_context(capture_snapshot)
+                expanded_query = f"{partial_text} {query_context}".strip()
+                if _retrieve_context_chunks is not _ORIGINAL_RETRIEVE_CONTEXT_CHUNKS:
+                    chunks, metadatas, scores = await asyncio.to_thread(
+                        _retrieve_context_chunks,
+                        hint_db,
+                        workspace_id=workspace.id,
+                        workspace_slug=workspace.slug,
+                        session=capture_snapshot,
+                        query=expanded_query,
+                        top_k=3,
+                    )
+                else:
+                    chunks, metadatas, scores = await _retrieve_context_chunks_async(
+                        hint_db,
+                        workspace_id=workspace.id,
+                        workspace_slug=workspace.slug,
+                        session=capture_snapshot,
+                        query=expanded_query,
+                        top_k=3,
+                        retrieval_profile="oracle_live_fast",
+                    )
+                if generation is not None and state.partial_stt_generation != generation:
+                    return
+                state.last_retrieval_chunks = list(chunks)
+                state.last_retrieval_metadatas = list(metadatas or [])
+                state.last_retrieval_scores = list(scores or [])
+                result = process_capture_partial_hints(
+                    hint_db,
+                    workspace_id=workspace.id,
+                    session_id=capture_session.id,
+                    partial_text=partial_text,
+                    retrieval_chunks=chunks,
+                    retrieval_metadatas=metadatas,
+                    client_turn_id=client_turn_id,
+                    actor_user_id=user.id,
+                )
+        except Exception:
+            logger.debug("live capture hints failed", exc_info=True)
+            return
         candidates = result.get("contradiction_candidates") or []
         if candidates:
             state.last_contradiction_candidates = candidates
@@ -1168,6 +1235,7 @@ class VoiceSessionGateway:
         audio_bytes = b"".join(state.audio_chunks)
         state.audio_chunks = []
         started = state.turn_started_at or state.endpoint_at
+        turn_audio_capture_ms = max(0, int((state.endpoint_at - started) * 1000))
         # TASK 1 (reuse): if the last incremental partial transcribed the EXACT same
         # buffer (same chunk count == same bytes, since both join from chunk 0), its
         # text is already the complete utterance. Reuse it as the basis for text.final
@@ -1179,6 +1247,8 @@ class VoiceSessionGateway:
             and chunk_count > 0
             and state.last_partial_text_chunk_count == chunk_count
         )
+        endpoint_stt_started_at = time.perf_counter()
+        endpoint_stt_source = "reused_partial" if reuse_partial else "provider"
         if reuse_partial:
             transcript: Dict[str, Any] = {
                 "text": state.last_partial_text,
@@ -1227,6 +1297,7 @@ class VoiceSessionGateway:
                 self._reset_turn_after_stt_failure(state)
                 return
 
+        endpoint_stt_ms = max(0, int((time.perf_counter() - endpoint_stt_started_at) * 1000))
         text = str(transcript.get("text") or transcript.get("transcript") or "").strip()
         ignored_reason = "stt_noise" if text and is_capture_text_noise(text) else None
         if ignored_reason:
@@ -1235,6 +1306,10 @@ class VoiceSessionGateway:
         latency = {
             "first_text": first_text_ms,
             "final_text": first_text_ms,
+            "text_final_total_ms": first_text_ms,
+            "turn_audio_capture_ms": turn_audio_capture_ms,
+            "endpoint_stt_ms": endpoint_stt_ms,
+            "endpoint_stt_source": endpoint_stt_source,
             "audio_bytes": len(audio_bytes),
             "runtime_provider": transcript.get("provider") or state.runtime,
             "runtime_requested_provider": transcript.get("requested_provider") or state.runtime,
@@ -1256,10 +1331,10 @@ class VoiceSessionGateway:
                         "chunks": chunk_count,
                         "audio_bytes": len(audio_bytes),
                         "reused_partial": bool(transcript.get("reused_partial")),
-                        "endpoint_stt_ms": int((time.perf_counter() - state.endpoint_at) * 1000)
-                        if state.endpoint_at
-                        else None,
+                        "endpoint_stt_ms": endpoint_stt_ms,
+                        "endpoint_stt_source": endpoint_stt_source,
                         "first_text_ms": first_text_ms,
+                        "turn_audio_capture_ms": turn_audio_capture_ms,
                         "ts": int(time.time() * 1000),
                     },
                     ensure_ascii=False,
@@ -1269,12 +1344,12 @@ class VoiceSessionGateway:
         except Exception:
             pass
         # #endregion
+        endpoint_oracle_events: list[Dict[str, Any]] = []
         if text:
             state.text_partials.append(text)
-            oracle_events: list[Dict[str, Any]] = []
             partial_seq = None
             if state.tandem_oracle_enabled:
-                oracle_events = state.oracle.observe_partial(
+                endpoint_oracle_events = state.oracle.observe_partial(
                     text,
                     turn_id=state.client_turn_id or str(uuid.uuid4()),
                     input_state={
@@ -1286,7 +1361,7 @@ class VoiceSessionGateway:
                     duration_ms=first_text_ms,
                     force=True,
                 )
-                partial_seq = self._oracle_partial_seq(oracle_events)
+                partial_seq = self._oracle_partial_seq(endpoint_oracle_events)
             await self._send(
                 websocket,
                 state,
@@ -1296,9 +1371,11 @@ class VoiceSessionGateway:
                     "partial_seq": partial_seq,
                     "text": text,
                     "latency_ms": first_text_ms,
+                    "text_final_total_ms": first_text_ms,
+                    "endpoint_stt_ms": endpoint_stt_ms,
+                    "endpoint_stt_source": endpoint_stt_source,
                 },
             )
-            await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=oracle_events)
         # Raw-live contract (TASK 2 — "carde = final only"): the committed live
         # text.final stays as close to raw STT as possible. NO domain-term glossary
         # substitution happens here (no live carte->carde). All correction and
@@ -1335,6 +1412,10 @@ class VoiceSessionGateway:
                 "reason": None if text else (ignored_reason or "empty_transcript"),
                 "confidence": transcript.get("confidence"),
                 "latency_ms": first_text_ms,
+                "text_final_total_ms": first_text_ms,
+                "turn_audio_capture_ms": turn_audio_capture_ms,
+                "endpoint_stt_ms": endpoint_stt_ms,
+                "endpoint_stt_source": endpoint_stt_source,
                 "source": f"{transcript.get('provider') or state.runtime}_stt",
                 "provider": transcript.get("provider") or state.runtime,
                 "requested_provider": transcript.get("requested_provider") or state.runtime,
@@ -1354,8 +1435,40 @@ class VoiceSessionGateway:
                 "model": transcript.get("model") or state.model,
                 "transport": state.transport,
                 "fallback_used": bool(transcript.get("fallback")),
+                "text_final_total_ms": first_text_ms,
+                "turn_audio_capture_ms": turn_audio_capture_ms,
+                "endpoint_stt_ms": endpoint_stt_ms,
+                "endpoint_stt_source": endpoint_stt_source,
             },
         )
+        await self._send(
+            websocket,
+            state,
+            "runtime.metric",
+            {
+                "metric": "endpoint_stt",
+                "value_ms": endpoint_stt_ms,
+                "turn_id": state.client_turn_id,
+                "source": endpoint_stt_source,
+                "audio_bytes": len(audio_bytes),
+                "chunk_count": chunk_count,
+                "turn_audio_capture_ms": turn_audio_capture_ms,
+                "text_final_total_ms": first_text_ms,
+                "provider": transcript.get("provider") or state.runtime,
+                "model": transcript.get("model") or state.model,
+                "transport": state.transport,
+                "fallback_used": bool(transcript.get("fallback")),
+            },
+        )
+        if endpoint_oracle_events:
+            await self._emit_oracle_events(
+                websocket,
+                db,
+                user=user,
+                workspace=workspace,
+                state=state,
+                events=endpoint_oracle_events,
+            )
 
         if capture_session and text:
             turn_started = time.perf_counter()
@@ -1394,6 +1507,7 @@ class VoiceSessionGateway:
                 state.committed_turns_section = section_key
                 state.committed_turn_texts = []
                 state.live_open_questions = []
+                state.live_questions_generation += 1
             state.committed_turn_texts.append(corrected_text)
             # Passive "contexte retrouvé" panel only — no content questions/relances.
             oracle_retrieval = {
@@ -1439,6 +1553,7 @@ class VoiceSessionGateway:
                 websocket,
                 state,
                 workspace_id=str(workspace.id),
+                workspace_slug=workspace.slug,
                 capture_session_id=capture_session.id if capture_session else None,
             )
             if state.tandem_oracle_enabled:
@@ -1482,20 +1597,21 @@ class VoiceSessionGateway:
         state: VoiceSessionState,
         *,
         workspace_id: str,
+        workspace_slug: Optional[str] = None,
         capture_session_id: Optional[str] = None,
     ) -> None:
         """Fire-and-forget generation of LIVE grounded open questions.
 
-        Called right after a capture turn is committed. Guards: tandem oracle
+        Called right after a capture turn is committed. Guards: live questions
         enabled, some accumulated expert text, at most ONE generation in flight
         per session, and at most one generation per
         ``_LIVE_QUESTIONS_MIN_INTERVAL_S`` seconds. All inputs are snapshotted
         here because ``_handle_audio_endpoint`` clears ``last_retrieval_*`` and
         ``client_turn_id`` right after scheduling.
         """
-        if not state.tandem_oracle_enabled:
+        if not state.tandem_oracle_enabled or not state.live_questions_enabled:
             return
-        if not state.committed_turn_texts:
+        if not capture_session_id or not state.committed_turn_texts:
             return
         if state.live_questions_in_flight:
             return
@@ -1508,21 +1624,42 @@ class VoiceSessionGateway:
         state.live_questions_in_flight = True
         state.last_live_questions_at = now
         context = "\n".join(state.committed_turn_texts[-_LIVE_QUESTIONS_CONTEXT_TURNS:])
-        chunks = list(state.last_retrieval_chunks)
-        metadatas = [dict(m) for m in state.last_retrieval_metadatas if isinstance(m, dict)]
         plan_section = {
             "topic_id": state.active_topic_id,
             "subtopic_id": state.active_subtopic_id,
         }
         section_key = state.committed_turns_section
         turn_id = state.client_turn_id
+        generation = state.live_questions_generation
 
         async def _run() -> None:
             try:
                 from app.services.capture_knowledge_oracle import (
                     generate_grounded_open_questions_async,
                 )
+                from app.db.base import SessionLocal
 
+                with SessionLocal() as question_db:
+                    capture_snapshot = get_session(
+                        question_db,
+                        workspace_id=workspace_id,
+                        session_id=capture_session_id,
+                    )
+                    query_context = self._retrieval_query_context(capture_snapshot)
+                    retrieval_query = f"{context} {query_context}".strip()
+                    chunks, metadatas, _scores = await _retrieve_context_chunks_async(
+                        question_db,
+                        workspace_id=workspace_id,
+                        workspace_slug=workspace_slug,
+                        session=capture_snapshot,
+                        query=retrieval_query,
+                        top_k=6,
+                        retrieval_profile="oracle_grounded_async",
+                    )
+                if not chunks:
+                    return
+                if state.live_questions_generation != generation or state.committed_turns_section != section_key:
+                    return
                 raw_questions = await generate_grounded_open_questions_async(
                     context,
                     chunks,
@@ -1538,6 +1675,9 @@ class VoiceSessionGateway:
                     text_value = str(raw.get("text") or "").strip()
                     if not text_value:
                         continue
+                    grounding_status = str(raw.get("grounding_status") or "kb_grounded").strip()
+                    if grounding_status not in {"kb_grounded", "expert_statement_grounded"}:
+                        continue
                     questions.append(
                         {
                             "id": raw.get("id") or f"live-{turn_id or 'turn'}-{index:02d}",
@@ -1547,13 +1687,14 @@ class VoiceSessionGateway:
                             "priority": raw.get("priority", 0.7),
                             "status": raw.get("status") or "open",
                             "source": "oracle_live",
+                            "grounding_status": grounding_status,
                         }
                     )
                 if not questions:
                     return
                 # Drop stale results if the expert moved to another section while
                 # the generation was running.
-                if state.committed_turns_section != section_key:
+                if state.live_questions_generation != generation or state.committed_turns_section != section_key:
                     return
                 state.live_open_questions = questions
                 if capture_session_id:
@@ -1585,7 +1726,9 @@ class VoiceSessionGateway:
             finally:
                 state.live_questions_in_flight = False
 
-        asyncio.create_task(_run())
+        task = asyncio.create_task(_run())
+        state.live_questions_tasks.add(task)
+        task.add_done_callback(state.live_questions_tasks.discard)
 
     async def _handle_audio_pause(
         self,

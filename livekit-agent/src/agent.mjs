@@ -187,12 +187,17 @@ async function connectVoiceGateway(session, dispatch, options = {}) {
   sendVoiceGatewayEvent(bridge, 'session.start', {
     runtime: startPayload.runtime || startPayload.provider || 'cascade_openai',
     provider: startPayload.provider || startPayload.runtime || 'cascade_openai',
+    model: startPayload.model || null,
     transport: 'livekit',
     mode: startPayload.mode || dispatch.mode || 'conversation_only',
     capability: startPayload.capability || 'voice2voice_interaction',
     tandem_oracle: startPayload.tandem_oracle ?? true,
+    oracle: startPayload.oracle || { min_interval_ms: 350, min_delta_chars: 24 },
+    context_id: startPayload.context_id || null,
+    system_id: startPayload.system_id || null,
     codec: startPayload.codec || { input: 'pcm_wav', channels: session.audio.channels || 1 },
     language: startPayload.language || startPayload.input_language || 'fr',
+    output_language: startPayload.output_language || null,
     fallback_policy: startPayload.fallback_policy || 'cascade_openai',
   });
   return bridge;

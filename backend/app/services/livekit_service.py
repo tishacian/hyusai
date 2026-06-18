@@ -554,6 +554,7 @@ class LiveKitService:
         agent_identity: str,
         metadata: Dict[str, Any],
         destination_identity: Optional[str] = None,
+        voice_session_start: Optional[Dict[str, Any]] = None,
     ) -> LiveKitAgentDispatchResult:
         if not settings.livekit_agent_dispatch_url:
             return LiveKitAgentDispatchResult(
@@ -590,6 +591,23 @@ class LiveKitService:
             "metadata": metadata,
         }
         if settings.livekit_voice_gateway_ws_url:
+            requested_start = dict(voice_session_start or {})
+            if not requested_start:
+                maybe_metadata_start = metadata.get("voice_session_start") if isinstance(metadata, dict) else None
+                requested_start = dict(maybe_metadata_start) if isinstance(maybe_metadata_start, dict) else {}
+            session_start = {
+                "runtime": "cascade_openai",
+                "provider": "cascade_openai",
+                "transport": "livekit",
+                "mode": metadata.get("mode") or "conversation_only",
+                "capability": "voice2voice_interaction",
+                "tandem_oracle": True,
+                "codec": {"input": "pcm_wav", "channels": 1},
+            }
+            session_start.update({key: value for key, value in requested_start.items() if value is not None})
+            session_start["transport"] = "livekit"
+            if not isinstance(session_start.get("codec"), dict):
+                session_start["codec"] = {"input": "pcm_wav", "channels": 1}
             body["voice_gateway"] = {
                 "url": settings.livekit_voice_gateway_ws_url,
                 "token": self.issue_voice_bridge_token(
@@ -599,15 +617,7 @@ class LiveKitService:
                     user_id=str(metadata.get("created_by_user_id") or ""),
                 ),
                 "workspace_slug": metadata.get("workspace_slug"),
-                "session_start": {
-                    "runtime": "cascade_openai",
-                    "provider": "cascade_openai",
-                    "transport": "livekit",
-                    "mode": metadata.get("mode") or "conversation_only",
-                    "capability": "voice2voice_interaction",
-                    "tandem_oracle": True,
-                    "codec": {"input": "pcm_wav", "channels": 1},
-                },
+                "session_start": session_start,
             }
         try:
             payload = await self._post_agent_dispatch(settings.livekit_agent_dispatch_url, body)

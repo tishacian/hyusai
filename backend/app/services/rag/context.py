@@ -656,7 +656,7 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         latency_profile=latency_profile,
     )
     profile_contract = retrieval_profile_for(retrieval_profile)
-    if retrieval_profile == "oracle_fast":
+    if retrieval_profile in {"oracle_fast", "oracle_live_fast", "oracle_grounded_async"}:
         latency_profile = profile_contract.latency_profile
     elif retrieval_profile == "deep_async":
         latency_profile = profile_contract.latency_profile
@@ -673,7 +673,7 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         or app_settings.get("ragPipelineMode")
         or app_settings.get("mode")
     )
-    if retrieval_profile == "oracle_fast":
+    if retrieval_profile in {"oracle_fast", "oracle_live_fast", "oracle_grounded_async"}:
         rag_mode = explicit_rag_mode or profile_contract.force_mode or "naive"
     explicit_top_k = request.get("top_k") is not None
     top_k = _int_or_default(
@@ -724,7 +724,7 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
         synthesis_k = min(max(synthesis_k, source_display_k), 48)
         candidate_pool_k = min(max(candidate_pool_k, synthesis_k), 200)
     deadline_seconds = _deadline_seconds_for_profile(latency_profile)
-    if retrieval_profile == "oracle_fast":
+    if retrieval_profile in {"oracle_fast", "oracle_live_fast", "oracle_grounded_async"}:
         top_k = min(top_k, profile_contract.max_top_k)
         source_display_k = min(source_display_k, profile_contract.max_source_display_k)
         synthesis_k = min(max(synthesis_k, source_display_k), profile_contract.max_synthesis_k)

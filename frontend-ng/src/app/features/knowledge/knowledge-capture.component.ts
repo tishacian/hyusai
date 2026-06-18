@@ -230,6 +230,9 @@ interface WorkspaceVoiceLoopConfig {
   dictation_silence_ms?: number;
   dictation_min_speech_ms?: number;
   max_turn_ms?: number;
+  partial_stt_min_interval_ms?: number;
+  live_partial_stt_enabled?: boolean;
+  live_questions_enabled?: boolean;
   cooldown_ms?: number;
   rms_threshold?: number;
 }
@@ -3757,11 +3760,17 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   readonly workspaceVoiceLoopConfig = computed<WorkspaceVoiceLoopConfig>(() => {
     const settings = this.asRecord(this.workspace.current()?.settings);
     const voiceLoop = this.asRecord(settings['voice_loop']);
+    const workspaceSlug = String(this.workspace.current()?.slug || this.workspace.currentSlug() || '').toLowerCase();
+    const andritzDefaults: WorkspaceVoiceLoopConfig =
+      workspaceSlug === 'andritz'
+        ? { silence_ms: 900, min_speech_ms: 350, max_turn_ms: 25000 }
+        : {};
     return {
       auto_endpoint: true,
       auto_rearm_after_tts: true,
       barge_in: true,
       commands_enabled: true,
+      ...andritzDefaults,
       ...voiceLoop,
     } as WorkspaceVoiceLoopConfig;
   });
@@ -8810,6 +8819,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           context_id: session.context_id || this.contextId || null,
           system_id: session.system_id || this.systemId || null,
           mode: 'conversation_only',
+          tandem_oracle: true,
+          oracle: this.voiceOracleSessionOptions(),
           surface: 'knowledge_capture',
           publishMicrophone: true,
           dispatchAgent: true,
@@ -8851,7 +8862,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         mode: 'conversation_only',
         codec: { input: 'webm', channels: 1 },
         tandem_oracle: true,
-        oracle: { min_interval_ms: 300, min_delta_chars: 20 },
+        oracle: this.voiceOracleSessionOptions(),
       });
       return this.voiceConnection;
     } catch {
@@ -9515,8 +9526,24 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private voiceEndpointMaxTurnMs(): number {
-    // Keep the mic open far longer so the expert can speak a whole section at once.
     return this.voiceLoopSettingNumber('max_turn_ms', 120000, 5000, 600000);
+  }
+
+  private voiceOracleSessionOptions(): {
+    min_interval_ms: number;
+    min_delta_chars: number;
+    partial_stt_min_interval_ms: number;
+    live_partial_stt_enabled: boolean;
+    live_questions_enabled: boolean;
+  } {
+    const config = this.workspaceVoiceLoopConfig();
+    return {
+      min_interval_ms: 300,
+      min_delta_chars: 20,
+      partial_stt_min_interval_ms: this.voiceLoopSettingNumber('partial_stt_min_interval_ms', 1200, 0, 120000),
+      live_partial_stt_enabled: config.live_partial_stt_enabled !== false,
+      live_questions_enabled: config.live_questions_enabled !== false,
+    };
   }
 
   private voiceEndpointRmsThreshold(): number {

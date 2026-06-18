@@ -299,6 +299,22 @@ export class LiveKitConversationService {
       }
       connection.start({ ...options, transport: 'livekit' });
       if (options.dispatchAgent ?? true) {
+        const voiceSessionStart = {
+          runtime: options.runtime || options.provider || 'cascade_openai',
+          provider: options.provider || options.runtime || 'cascade_openai',
+          model: options.model || null,
+          transport: 'livekit',
+          language: options.language || null,
+          output_language: options.output_language || null,
+          fallback_policy: options.fallback_policy || 'backend_ws',
+          tandem_oracle: options.tandem_oracle ?? true,
+          oracle: options.oracle || { min_interval_ms: 350, min_delta_chars: 24 },
+          capability: options.capability || 'voice2voice_interaction',
+          context_id: options.context_id || null,
+          system_id: options.system_id || null,
+          mode: options.mode || 'conversation_only',
+          codec: options.codec || { input: 'opus', channels: 1 },
+        };
         const dispatch = await firstValueFrom(
           this.api.post<LiveKitAgentDispatchResponse>(`/livekit/sessions/${encodeURIComponent(sessionId)}/agent/dispatch`, {
             surface: options.surface || 'knowledge_capture',
@@ -306,6 +322,7 @@ export class LiveKitConversationService {
             destination_identity: token.identity,
             mock_partial_text: options.mockPartialText || null,
             metadata: options.metadata || {},
+            voice_session_start: voiceSessionStart,
           }),
         );
         if ((options.requireVoiceGateway ?? true) && dispatch.mode !== 'voice_gateway_bridge') {

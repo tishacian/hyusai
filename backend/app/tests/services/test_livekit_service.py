@@ -393,6 +393,13 @@ async def test_livekit_agent_dispatch_posts_sidecar_payload(monkeypatch):
         agent_identity="agentium-agent-1",
         metadata={"workspace_id": "workspace-1", "workspace_slug": "andritz", "created_by_user_id": "user-1"},
         destination_identity="expert-1",
+        voice_session_start={
+            "oracle": {
+                "partial_stt_min_interval_ms": 6000,
+                "live_partial_stt_enabled": True,
+                "live_questions_enabled": True,
+            }
+        },
     )
 
     assert result.status == "accepted"
@@ -408,6 +415,7 @@ async def test_livekit_agent_dispatch_posts_sidecar_payload(monkeypatch):
     assert body["voice_gateway"]["url"] == settings.livekit_voice_gateway_ws_url
     assert body["voice_gateway"]["workspace_slug"] == "andritz"
     assert body["voice_gateway"]["session_start"]["transport"] == "livekit"
+    assert body["voice_gateway"]["session_start"]["oracle"]["partial_stt_min_interval_ms"] == 6000
     bridge_claims = LiveKitService().decode_voice_bridge_token(body["voice_gateway"]["token"], session_id="session-1")
     assert bridge_claims["workspace_id"] == "workspace-1"
     assert bridge_claims["user_id"] == "user-1"

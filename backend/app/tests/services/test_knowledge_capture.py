@@ -1963,10 +1963,13 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
     assert "transcript.improved" not in types_after
     final = next(p for t, p in sent if t == "text.final")
     assert final.get("reframed") is False
+    assert final.get("endpoint_stt_source") == "reused_partial"
     # TASK 2: the committed live text stays RAW (no glossary substitution live); it is
     # exactly the latest partial text.
     last_partial = [p.get("text") for t, p in sent if t == "transcript.partial"][-1]
     assert final.get("text") == last_partial
+    endpoint_metric = next(p for t, p in sent if t == "runtime.metric" and p.get("metric") == "endpoint_stt")
+    assert endpoint_metric["source"] == "reused_partial"
     # B2: no content relance / next prompt / proposal during capture (timeline only).
     assert "prompt.next" not in types_after
     assert "conversation.step" not in types_after
@@ -1977,6 +1980,294 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
     assert state.audio_chunks == []
     assert state.partial_stt_in_flight is False
     assert state.last_partial_text == ""
+
+
+@pytest.mark.asyncio
+async def test_gateway_endpoint_stt_metric_excludes_capture_duration(db_session, monkeypatch):
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-stt-metric", name="GW STT Metric", slug="gw-stt-metric")
+    user = User(id="user-gw-stt-metric", username="metric@datategy.local", email="metric@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="STT metric",
+        objective="Mesurer la latence endpoint STT.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+
+    class FakeProvider:
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None, language=None):
+            await asyncio.sleep(0.02)
+            return {
+                "text": "la transcription finale arrive apres l endpoint",
+                "provider": "fake",
+                "model": "fake-stt",
+            }
+
+    monkeypatch.setattr(gw, "get_voice_runtime_provider", lambda *a, **k: FakeProvider())
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id=session.id, tandem_oracle_enabled=False, live_partial_stt_enabled=False)
+
+    await gateway._handle_event(
+        FakeWebSocket(),
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={
+            "type": "audio.frame",
+            "payload": {
+                "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+                "turn_id": "seg-metric-1",
+                "content_type": "audio/webm",
+                "incremental_transcription": False,
+            },
+        },
+    )
+    assert state.turn_started_at is not None
+    state.turn_started_at -= 5.0
+
+    await gateway._handle_event(
+        FakeWebSocket(),
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "audio.endpoint", "payload": {"turn_id": "seg-metric-1"}},
+    )
+
+    final = next(p for t, p in sent if t == "text.final")
+    assert final["endpoint_stt_source"] == "provider"
+    assert final["turn_audio_capture_ms"] >= 4900
+    assert final["endpoint_stt_ms"] < final["text_final_total_ms"]
+
+    endpoint_metric = next(p for t, p in sent if t == "runtime.metric" and p.get("metric") == "endpoint_stt")
+    assert endpoint_metric["value_ms"] == final["endpoint_stt_ms"]
+    assert endpoint_metric["turn_audio_capture_ms"] == final["turn_audio_capture_ms"]
+
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    turn = next(item for item in reloaded.transcript or [] if item.get("client_turn_id") == "seg-metric-1")
+    latency = turn["latency_ms"]
+    assert latency["endpoint_stt_source"] == "provider"
+    assert latency["endpoint_stt_ms"] == final["endpoint_stt_ms"]
+    assert latency["turn_audio_capture_ms"] == final["turn_audio_capture_ms"]
+    assert reloaded.metrics["voice_stream"]["last_latency_ms"]["endpoint_stt_ms"] == final["endpoint_stt_ms"]
+
+
+@pytest.mark.asyncio
+async def test_gateway_live_questions_are_after_text_final_and_grounded(db_session, monkeypatch):
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-live-q", name="GW Live Questions", slug="gw-live-q")
+    user = User(id="user-gw-live-q", username="liveq@datategy.local", email="liveq@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Questions live",
+        objective="Verifier que les questions sont asynchrones.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+
+    class FakeProvider:
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None, language=None):
+            return {
+                "text": "la vitesse est reglee selon le grade papier et la temperature machine",
+                "provider": "fake",
+                "model": "fake-stt",
+            }
+
+    async def fake_retrieve(*_args, **_kwargs):
+        return (
+            ["Le manuel indique une correction de vitesse selon le grade papier."],
+            [{"title": "Manuel SPL", "document_id": "doc-spl"}],
+            [0.93],
+        )
+
+    async def fake_questions(*_args, **_kwargs):
+        await asyncio.sleep(0.01)
+        return [{"text": "Quelle correction appliquez-vous quand la temperature depasse le seuil ?", "priority": 0.9}]
+
+    monkeypatch.setattr(gw, "get_voice_runtime_provider", lambda *a, **k: FakeProvider())
+    monkeypatch.setattr(gw, "_retrieve_context_chunks_async", fake_retrieve)
+    monkeypatch.setattr(
+        "app.services.capture_knowledge_oracle.generate_grounded_open_questions_async",
+        fake_questions,
+    )
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(
+        session_id=session.id,
+        mode="guided",
+        tandem_oracle_enabled=True,
+        live_partial_stt_enabled=False,
+        live_questions_enabled=True,
+    )
+    state.oracle = gw.VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={
+            "type": "audio.frame",
+            "payload": {
+                "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+                "turn_id": "seg-live-q-1",
+                "content_type": "audio/webm",
+                "incremental_transcription": False,
+            },
+        },
+    )
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "audio.endpoint", "payload": {"turn_id": "seg-live-q-1"}},
+    )
+
+    types_before_questions = [t for t, _ in sent]
+    assert "text.final" in types_before_questions
+    assert "oracle.questions" not in types_before_questions
+
+    await asyncio.gather(*list(state.live_questions_tasks))
+
+    types = [t for t, _ in sent]
+    assert types.index("text.final") < types.index("oracle.questions")
+    questions_payload = next(p for t, p in sent if t == "oracle.questions")
+    question = questions_payload["open_questions"][0]
+    assert question["grounding_status"] == "kb_grounded"
+    assert question["source"] == "oracle_live"
+
+
+@pytest.mark.asyncio
+async def test_gateway_live_questions_retrieval_timeout_emits_no_grounded_questions(db_session, monkeypatch):
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-live-q-timeout", name="GW Live Questions Timeout", slug="gw-live-q-timeout")
+    user = User(id="user-gw-live-q-timeout", username="liveqt@datategy.local", email="liveqt@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Questions live timeout",
+        objective="Verifier que le grounding manquant reste silencieux.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+
+    class FakeProvider:
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None, language=None):
+            return {
+                "text": "la machine suit une procedure mais sans source retrouvee",
+                "provider": "fake",
+                "model": "fake-stt",
+            }
+
+    async def fake_retrieve_timeout(*_args, **_kwargs):
+        return ([], [], [])
+
+    async def fail_questions(*_args, **_kwargs):
+        raise AssertionError("questions must not run without retrieval chunks")
+
+    monkeypatch.setattr(gw, "get_voice_runtime_provider", lambda *a, **k: FakeProvider())
+    monkeypatch.setattr(gw, "_retrieve_context_chunks_async", fake_retrieve_timeout)
+    monkeypatch.setattr(
+        "app.services.capture_knowledge_oracle.generate_grounded_open_questions_async",
+        fail_questions,
+    )
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(
+        session_id=session.id,
+        mode="guided",
+        tandem_oracle_enabled=True,
+        live_partial_stt_enabled=False,
+        live_questions_enabled=True,
+    )
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={
+            "type": "audio.frame",
+            "payload": {
+                "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+                "turn_id": "seg-live-q-timeout-1",
+                "content_type": "audio/webm",
+                "incremental_transcription": False,
+            },
+        },
+    )
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "audio.endpoint", "payload": {"turn_id": "seg-live-q-timeout-1"}},
+    )
+    await asyncio.gather(*list(state.live_questions_tasks))
+
+    assert any(t == "text.final" for t, _ in sent)
+    assert not any(t == "oracle.questions" for t, _ in sent)
+    assert state.live_questions_in_flight is False
 
 
 @pytest.mark.asyncio

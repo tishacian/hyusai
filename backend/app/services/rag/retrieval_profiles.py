@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-RetrievalProfileName = Literal["oracle_fast", "chat", "deep_async"]
+RetrievalProfileName = Literal["oracle_fast", "oracle_live_fast", "oracle_grounded_async", "chat", "deep_async"]
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,14 @@ RETRIEVAL_PROFILE_ALIASES = {
     "oracle": "oracle_fast",
     "oracle-fast": "oracle_fast",
     "oracle_fast": "oracle_fast",
+    "oracle-live": "oracle_live_fast",
+    "oracle_live": "oracle_live_fast",
+    "oracle-live-fast": "oracle_live_fast",
+    "oracle_live_fast": "oracle_live_fast",
+    "oracle-grounded": "oracle_grounded_async",
+    "oracle_grounded": "oracle_grounded_async",
+    "oracle-grounded-async": "oracle_grounded_async",
+    "oracle_grounded_async": "oracle_grounded_async",
     "kc": "oracle_fast",
     "knowledge_capture": "oracle_fast",
     "chat": "chat",
@@ -49,6 +57,30 @@ RETRIEVAL_PROFILES: dict[RetrievalProfileName, RetrievalProfile] = {
         max_synthesis_k=12,
         max_candidate_pool_k=20,
         deadline_seconds=2.5,
+        force_mode="naive",
+        allow_hah_chah=False,
+        allow_cross_encoder=False,
+    ),
+    "oracle_live_fast": RetrievalProfile(
+        name="oracle_live_fast",
+        latency_profile="fast",
+        max_top_k=3,
+        max_source_display_k=3,
+        max_synthesis_k=3,
+        max_candidate_pool_k=12,
+        deadline_seconds=1.8,
+        force_mode="naive",
+        allow_hah_chah=False,
+        allow_cross_encoder=False,
+    ),
+    "oracle_grounded_async": RetrievalProfile(
+        name="oracle_grounded_async",
+        latency_profile="balanced",
+        max_top_k=6,
+        max_source_display_k=6,
+        max_synthesis_k=8,
+        max_candidate_pool_k=24,
+        deadline_seconds=6.0,
         force_mode="naive",
         allow_hah_chah=False,
         allow_cross_encoder=False,

@@ -2571,6 +2571,58 @@ def test_retrieval_profile_oracle_fast_forces_bounded_single_pass(monkeypatch):
     assert profile["retrieval_profile_contract"]["allow_hah_chah"] is False
 
 
+def test_retrieval_profile_oracle_live_fast_is_tightly_bounded(monkeypatch):
+    monkeypatch.setattr(rag_context, "get_resolved_settings", lambda **kwargs: {"ragVectorDBType": "qdrant"})
+
+    profile = get_retrieval_profile(
+        {
+            "query": "prélecture capture vibration",
+            "retrieval_profile": "oracle_live_fast",
+            "latency_profile": "deep",
+            "rag_pipeline_mode": "auto",
+            "top_k": 12,
+            "candidate_pool_k": 200,
+        }
+    )
+
+    assert profile["retrieval_profile"] == "oracle_live_fast"
+    assert profile["latency_profile"] == "fast"
+    assert profile["rag_mode"] == "naive"
+    assert profile["top_k"] == 3
+    assert profile["source_display_k"] == 3
+    assert profile["synthesis_k"] == 3
+    assert profile["candidate_pool_k"] == 12
+    assert profile["deadline_seconds"] == 1.8
+    assert profile["latency_budget"]["allow_cross_encoder"] is False
+
+
+def test_retrieval_profile_oracle_grounded_async_keeps_quality_budget_without_cross_encoder(monkeypatch):
+    monkeypatch.setattr(rag_context, "get_resolved_settings", lambda **kwargs: {"ragVectorDBType": "qdrant"})
+
+    profile = get_retrieval_profile(
+        {
+            "query": "questions fondées SPL",
+            "retrieval_profile": "oracle_grounded_async",
+            "latency_profile": "deep",
+            "rag_pipeline_mode": "auto",
+            "top_k": 12,
+            "candidate_pool_k": 200,
+            "synthesis_k": 200,
+            "source_display_k": 200,
+        }
+    )
+
+    assert profile["retrieval_profile"] == "oracle_grounded_async"
+    assert profile["latency_profile"] == "balanced"
+    assert profile["rag_mode"] == "naive"
+    assert profile["top_k"] == 6
+    assert profile["source_display_k"] == 6
+    assert profile["synthesis_k"] == 8
+    assert profile["candidate_pool_k"] == 24
+    assert profile["deadline_seconds"] == 6.0
+    assert profile["latency_budget"]["allow_cross_encoder"] is False
+
+
 def test_retrieval_profile_uses_system_collection_filter_as_scope(monkeypatch):
     monkeypatch.setattr(
         rag_context,

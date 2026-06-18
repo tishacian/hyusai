@@ -1562,7 +1562,7 @@ async def generate_grounded_open_questions_async(
 
     Returns specific, answerable gaps tied to the section (not the generic
     ``_BASE_GAPS`` taxonomy). Each item is
-    ``{id, text, topic_id, subtopic_id, priority, status, source}``.
+    ``{id, text, topic_id, subtopic_id, priority, status, source, grounding_status}``.
 
     Returns ``[]`` when no LLM is configured so callers can keep their existing
     deterministic fallback.
@@ -1575,6 +1575,7 @@ async def generate_grounded_open_questions_async(
         return []
     topic_id = (plan_section or {}).get("topic_id") if isinstance(plan_section, dict) else None
     subtopic_id = (plan_section or {}).get("subtopic_id") if isinstance(plan_section, dict) else None
+    grounding_status = "kb_grounded" if chunks else "expert_statement_grounded"
     try:
         from openai import AsyncOpenAI
 
@@ -1637,6 +1638,7 @@ async def generate_grounded_open_questions_async(
                     "priority": round(min(max(priority, 0.0), 1.0), 2),
                     "status": "open",
                     "source": "oracle_grounded",
+                    "grounding_status": grounding_status,
                 }
             )
             if len(items) >= max(1, int(max_questions)):
