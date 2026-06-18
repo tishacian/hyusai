@@ -1,4 +1,5 @@
 from app.services.industrial_answer_profile import (
+    answer_policy_prompt,
     apply_answer_policy_to_text,
     industrial_answer_policy,
     resolve_answer_profile,
@@ -36,8 +37,44 @@ def test_answer_policy_removes_internal_mechanics_terms():
 
     assert "chunks" not in cleaned.lower()
     assert "score vectoriel" not in cleaned.lower()
+    assert "j'ai trouvé" not in cleaned.lower()
     assert "La largeur est de 3 600 mm." in cleaned
     assert any(item.startswith("internal_term:") for item in violations)
+    assert "documentalist_preamble" in violations
+
+
+def test_answer_policy_strips_documentalist_preamble():
+    cleaned, violations = apply_answer_policy_to_text(
+        "Les sources indiquent que la pompe utilisée est une Uraca KD724 [1].",
+        answer_policy=industrial_answer_policy(),
+        profile_decision={"profile": "precise_fact"},
+    )
+
+    assert cleaned == "La pompe utilisée est une Uraca KD724 [1]."
+    assert "documentalist_preamble" in violations
+
+
+def test_answer_policy_keeps_fact_when_stripping_found_preamble():
+    cleaned, violations = apply_answer_policy_to_text(
+        "J'ai trouvé la pompe utilisée : Uraca KD724 [1].",
+        answer_policy=industrial_answer_policy(),
+        profile_decision={"profile": "precise_fact"},
+    )
+
+    assert cleaned == "La pompe utilisée : Uraca KD724 [1]."
+    assert "documentalist_preamble" in violations
+
+
+def test_answer_policy_prompt_prefers_direct_factual_answers():
+    prompt = answer_policy_prompt(
+        answer_policy=industrial_answer_policy(),
+        profile_decision={"profile": "precise_fact"},
+        language="fr",
+    )
+
+    assert "Start with the answer itself" in prompt
+    assert "I found" in prompt
+    assert "source-by-source lists" in prompt
 
 
 def test_answer_policy_removes_absence_then_answer_preamble():

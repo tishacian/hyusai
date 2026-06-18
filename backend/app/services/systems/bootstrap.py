@@ -286,9 +286,9 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
             "rag_user_prompt_builder": "app.agents.procurement_agent._build_rag_user_prompt",
             "system_prompt_builder": "app.agents.procurement_agent._system_prompt_with_grounding",
             "answer_shaping_instructions": [
-                "Start with a concise synthesis of what the retrieved content says.",
-                "Use numeric source ids when workspace sources exist; do not emit raw filename references as citations.",
-                "For broad questions, give 3 to 5 key points.",
+                "Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".",
+                "Use numeric source ids after the answer when workspace sources exist; do not emit raw filename references as citations.",
+                "For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.",
                 "If retrieved content is thin or contradictory, name the gap explicitly.",
                 "Do not end with generic Andritz contact boilerplate unless the user asked for contacts.",
                 "For precise industrial facts, answer only the requested value/reference with unit and condition when available.",

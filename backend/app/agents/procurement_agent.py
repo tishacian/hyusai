@@ -725,9 +725,9 @@ If the context is not relevant or missing, say so clearly rather than guessing."
     )
     answer_shaping_lines = [
         "Answer-shaping instructions:",
-        "- Start with a concise synthesis of what the retrieved content says, not only with source locators.",
-        "- Include the useful evidence/citations after the synthesis when workspace sources exist.",
-        "- For broad questions, give 3 to 5 key points and stop before overloading the user.",
+        "- Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".",
+        "- Include useful evidence/citations after the answer when workspace sources exist.",
+        "- For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.",
         thin_or_contradictory_line,
         "- Follow the active industrial answer profile: precise facts must stay short; summaries must be structured and complete; inventories must not be presented as exhaustive unless the evidence supports that.",
         "- Do not mention internal mechanics such as chunks, scores, vector search, model names, database names, RAG/LLM engines, confidence rates or retrieval methods in the user-facing answer.",

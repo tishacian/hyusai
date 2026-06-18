@@ -16,6 +16,7 @@ DEFAULT_INDUSTRIAL_ANSWER_PROFILES: dict[str, dict[str, Any]] = {
         "label": "Precise fact",
         "instructions": [
             "Answer only the asked fact.",
+            "Start directly with the factual answer; do not open with a discovery or source-finding preamble.",
             "Return the value with its unit and condition when available.",
             "Do not add project history, neighbouring equipment or general context unless asked.",
         ],
@@ -23,9 +24,11 @@ DEFAULT_INDUSTRIAL_ANSWER_PROFILES: dict[str, dict[str, Any]] = {
     "project_summary": {
         "label": "Project summary",
         "instructions": [
+            "Lead with the factual project synthesis, not with how the information was found.",
             "Produce a complete structured synthesis of the available project information.",
             "Group similar facts by theme and remove repetitions.",
             "Cover objective, customer, equipment, key technical characteristics, operating data and maintenance when present.",
+            "Do not produce an undifferentiated catalogue of snippets; use compact paragraphs or grouped bullets only when they clarify the answer.",
         ],
     },
     "transversal_inventory": {
@@ -40,8 +43,10 @@ DEFAULT_INDUSTRIAL_ANSWER_PROFILES: dict[str, dict[str, Any]] = {
     "equipment_detail": {
         "label": "Equipment detail",
         "instructions": [
+            "Start with the concrete technical answer or conclusion before supporting details.",
             "Build a consolidated technical sheet for the requested equipment, part or procedure.",
             "Include values, units, applicability and document-backed conditions when present.",
+            "Avoid a source-by-source catalogue; consolidate facts by attribute.",
             "Do not infer missing references or part numbers.",
         ],
     },
@@ -71,6 +76,8 @@ DEFAULT_INDUSTRIAL_ANSWER_POLICY: dict[str, Any] = {
         "Answer only the user question.",
         "Use documentary context as the only source for workspace/project/equipment facts.",
         "Consolidate multi-document facts into one coherent answer and remove duplicates.",
+        "Start with the factual answer, not with phrases such as \"I found\" or \"the sources indicate\".",
+        "Prefer concise paragraphs for direct answers; use lists only for inventories, comparisons or explicitly list-shaped requests.",
         "Never invent a value, part number, equipment reference or project relationship.",
     ],
     "forbidden_internal_terms": [
@@ -127,6 +134,34 @@ _ABSENCE_RE = re.compile(
     re.IGNORECASE,
 )
 _FACT_AFTER_ABSENCE_RE = re.compile(r"\b(est de|utilise|comprend|inclut|is|uses|includes)\b", re.IGNORECASE)
+_DOCUMENTALIST_FIRST_SENTENCE_RE = re.compile(
+    r"^\s*j['’]ai\s+trouv[ée]?\s+(?:cette|ces|des|les?)?\s*information[s]?"
+    r"(?:\s+[^.:\n]{0,140})?[.:]\s*",
+    re.IGNORECASE,
+)
+_DOCUMENTALIST_INLINE_PREAMBLE_RE = re.compile(
+    r"^\s*(?:"
+    r"j['’]ai\s+trouv[ée]?\s*:\s*|"
+    r"j['’]ai\s+trouv[ée]?\s+que\s+|"
+    r"j['’]ai\s+trouv[ée]?\s+(?=(?:la|le|les|un|une|ce|cet|cette|ces)\b|l['’])|"
+    r"les?\s+(?:documents?|sources?)\s+(?:indiquent|mentionnent|pr[ée]cisent|signalent|montrent)\s+que\s+|"
+    r"le\s+manuel\s+(?:indique|mentionne|pr[ée]cise|signale|montre)\s+que\s+|"
+    r"d['’]apr[eè]s\s+(?:les?\s+)?(?:documents?|sources?|le\s+manuel),?\s+|"
+    r"selon\s+(?:les?\s+)?(?:documents?|sources?|le\s+manuel),?\s+"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _sentence_case_start(value: str) -> str:
+    stripped = value.lstrip()
+    if not stripped:
+        return value.strip()
+    prefix = value[: len(value) - len(stripped)]
+    first = stripped[0]
+    if first.islower():
+        stripped = first.upper() + stripped[1:]
+    return f"{prefix}{stripped}".strip()
 
 
 @dataclass(frozen=True)
@@ -190,6 +225,8 @@ def answer_policy_prompt(
         lines.append(f"- {item}")
     lines.extend(
         [
+            "- Start with the answer itself; avoid documentary preambles such as \"I found\", \"the sources say\" or \"the documents mention\" unless provenance is the user's question.",
+            "- Do not turn factual answers into source-by-source lists; synthesize the answer first and keep evidence secondary.",
             "- Never mention internal mechanics such as document counts, chunk counts, relevance scores, vector search, databases, LLM/RAG engines, confidence rates or retrieval methods.",
             "- Never say no exploitable information is available and then continue with factual project/equipment claims.",
             "- Keep citations as numeric source ids when sources exist; do not expose raw retrieval diagnostics in the answer text.",
@@ -237,6 +274,13 @@ def apply_answer_policy_to_text(
             if re.search(rf"\b{re.escape(term)}\b", out, flags=re.IGNORECASE):
                 violations.append(f"internal_term:{term.lower()}")
                 out = re.sub(rf"\b{re.escape(term)}s?\b", "source", out, flags=re.IGNORECASE)
+    if _DOCUMENTALIST_FIRST_SENTENCE_RE.search(out):
+        violations.append("documentalist_preamble")
+        out = _DOCUMENTALIST_FIRST_SENTENCE_RE.sub("", out, count=1)
+    elif _DOCUMENTALIST_INLINE_PREAMBLE_RE.search(out):
+        violations.append("documentalist_preamble")
+        out = _DOCUMENTALIST_INLINE_PREAMBLE_RE.sub("", out, count=1)
+        out = _sentence_case_start(out)
     if _ABSENCE_RE.search(out):
         after = out[_ABSENCE_RE.search(out).end() :]  # type: ignore[union-attr]
         if _FACT_AFTER_ABSENCE_RE.search(after):
