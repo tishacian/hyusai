@@ -60,3 +60,11 @@ def feature_enabled(workspace: Any, feature: str, *, csv_fallback: str = "") -> 
         if item.strip()
     }
     return slug in allowed
+
+
+def chat_document_upload_enabled(workspace: Any) -> bool:
+    """Drop-and-ask upload in transverse chat. Enabled unless explicitly off."""
+    features = _workspace_settings(workspace).get("features")
+    if isinstance(features, Mapping) and "chat_document_upload" in features:
+        return bool(features["chat_document_upload"])
+    return True

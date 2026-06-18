@@ -49,6 +49,7 @@ from app.services.rag.vector_store_config import resolve_vector_db_type
 from app.services.secure_deposit import build_file_preview, preview_needs_file_bytes
 from app.services.worker_dispatch import dispatch_worker_job
 from app.services.worker_offline_retrieval_artifacts import SUPPORTED_KINDS as SUPPORTED_RETRIEVAL_ARTIFACT_KINDS
+from app.services.workspace_features import chat_document_upload_enabled
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -318,11 +319,17 @@ async def upload_documents_batch(
     files: list[UploadFile] = File(...),
     collection_name: str = Form("documents"),
     vector_db_type: Optional[str] = Form(None),
+    source: Optional[str] = Form(None),
     workspace: Workspace = Depends(get_current_workspace),
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Upload and index multiple documents"""
+    if source == "chat_drop_and_ask" and not chat_document_upload_enabled(workspace):
+        raise HTTPException(
+            status_code=403,
+            detail="Document upload in chat is disabled for this workspace",
+        )
     if settings.document_ingest_async_enabled:
         collection = create_or_get_collection(
             db,

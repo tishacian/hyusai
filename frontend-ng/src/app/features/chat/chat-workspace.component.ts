@@ -160,7 +160,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       <!-- Body: two-column (side panel in inline mode, full split in full-screen) -->
       <div class="t-body">
         <!-- Drop-and-ask sidebar -->
-        @if (!executiveAssistant() || startMode() === 'drop' || sessionDocs().length > 0) {
+        @if (chatUploadEnabled() && (!executiveAssistant() || startMode() === 'drop' || sessionDocs().length > 0)) {
         <aside class="t-sidebar" [class.t-sidebar-collapsed]="!dropOpen() && inline()">
           <div class="t-sidebar-head">
             <span class="ck-mono t-sidebar-eyebrow">
@@ -811,6 +811,18 @@ export class ChatWorkspaceComponent implements OnInit {
     return (profiles as Record<string, unknown>[]).find((profile) => profile['key'] === key) ?? null;
   });
 
+  /**
+   * Drop-and-ask upload gating. Reads the per-workspace
+   * `settings.features.chat_document_upload` flag. Enabled by default
+   * (opt-out): only an explicit `false` disables the chat dropzone.
+   */
+  readonly chatUploadEnabled = computed(() => {
+    const features = this.workspace.current()?.settings?.['features'] as
+      | Record<string, unknown>
+      | undefined;
+    return features?.['chat_document_upload'] !== false;
+  });
+
   readonly executiveAssistant = computed(() => isSentinelShowcaseProfile(this.activeAssistantProfile()));
   readonly assistantLabel = computed(() => String(this.activeAssistantProfile()?.['label'] || 'Agentium'));
   readonly assistantInitials = computed(() => this.assistantLabel().slice(0, 3).toUpperCase());
@@ -869,7 +881,9 @@ export class ChatWorkspaceComponent implements OnInit {
     this.selectedSystemId.set(this.initialSystemId() ?? null);
     this.ephemeralContextId.set(this.initialContextId() ?? null);
     // Inline overlay: keep dropzone collapsed unless drop-mode was asked.
-    if (this.inline() && this.startMode() !== 'drop') {
+    // When chat upload is disabled, never force-open the dropzone even if
+    // drop-mode was requested (the sidebar is hidden anyway).
+    if (this.inline() && (this.startMode() !== 'drop' || !this.chatUploadEnabled())) {
       this.dropOpen.set(false);
     }
     this.loadSystems();
@@ -909,10 +923,12 @@ export class ChatWorkspaceComponent implements OnInit {
   onDrop(e: DragEvent): void {
     e.preventDefault();
     this.dragging.set(false);
+    if (!this.chatUploadEnabled()) return;
     const files = e.dataTransfer?.files;
     if (files && files.length) this.uploadFiles(files);
   }
   onFileSelect(e: Event): void {
+    if (!this.chatUploadEnabled()) return;
     const input = e.target as HTMLInputElement;
     if (input.files && input.files.length) this.uploadFiles(input.files);
     input.value = '';
@@ -933,11 +949,15 @@ export class ChatWorkspaceComponent implements OnInit {
    * keeping the documents in the workspace knowledge base.
    */
   private uploadFiles(files: FileList): void {
+    if (!this.chatUploadEnabled()) return;
     this.uploading.set(true);
     this.uploadingCount.set(files.length);
     const formData = new FormData();
     Array.from(files).forEach((f) => formData.append('files', f));
     formData.append('collection_name', 'documents');
+    // Tags this batch as a chat drop-and-ask upload so the backend can
+    // enforce the `chat_document_upload` flag (the KB upload omits this).
+    formData.append('source', 'chat_drop_and_ask');
 
     interface UploadResponse {
       total: number;

@@ -160,6 +160,36 @@ const FIELD =
                 ></span>
               </button>
             </div>
+            <div class="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
+              <div class="flex items-start gap-3">
+                <div class="w-9 h-9 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/25">
+                  <app-icon name="cloud-upload" [size]="16" />
+                </div>
+                <div>
+                  <h3 class="text-sm font-semibold text-white">Document upload in chat</h3>
+                  <p class="text-xs text-gray-400 mt-1 max-w-2xl leading-relaxed">
+                    Allows drop-and-ask in the workspace chat: members can drop files to ground answers on them. Turn off to hide the chat dropzone.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                (click)="setChatUpload(!chatUploadEnabled())"
+                [disabled]="!canEdit() || savingChatUpload()"
+                class="relative inline-flex h-8 w-16 shrink-0 items-center rounded-full ring-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                [class.bg-brand-500\\/25]="chatUploadEnabled()"
+                [class.ring-brand-400\\/60]="chatUploadEnabled()"
+                [class.bg-white\\/5]="!chatUploadEnabled()"
+                [class.ring-white\\/10]="!chatUploadEnabled()"
+                [title]="chatUploadEnabled() ? 'Drop-and-ask is enabled in chat' : 'Drop-and-ask is disabled in chat'"
+              >
+                <span
+                  class="inline-block h-6 w-6 rounded-full bg-white shadow transition-transform"
+                  [class.translate-x-9]="chatUploadEnabled()"
+                  [class.translate-x-1]="!chatUploadEnabled()"
+                ></span>
+              </button>
+            </div>
           </div>
           @if (!canEdit()) {
             <p class="text-xs text-gray-500 mt-3">Only owners and admins can change the workspace mode.</p>
@@ -219,6 +249,7 @@ export class WorkspaceGeneralComponent {
   readonly saving = signal(false);
   readonly savingMode = signal(false);
   readonly savingDemoSafe = signal(false);
+  readonly savingChatUpload = signal(false);
   readonly copied = signal(false);
 
   readonly modes: { key: Exclude<WorkspaceMode, 'demo'>; label: string; icon: string; description: string }[] = [
@@ -249,6 +280,17 @@ export class WorkspaceGeneralComponent {
     const d = this.detail();
     if (!d) return false;
     return d.mode === 'demo' || this.demoSafeFromSettings(d.settings);
+  });
+
+  /**
+   * Drop-and-ask upload gating. Reads `settings.features.chat_document_upload`
+   * (enabled by default; only an explicit `false` disables it).
+   */
+  readonly chatUploadEnabled = computed(() => {
+    const features = this.detail()?.settings?.['features'] as
+      | Record<string, unknown>
+      | undefined;
+    return features?.['chat_document_upload'] !== false;
   });
 
   name = '';
@@ -342,6 +384,32 @@ export class WorkspaceGeneralComponent {
       error: (err) => {
         this.savingDemoSafe.set(false);
         this.toastr.error(err?.error?.detail || 'Failed to update presentation setting', 'Error');
+      },
+    });
+  }
+
+  setChatUpload(enabled: boolean): void {
+    const d = this.detail();
+    if (!d || !this.canEdit()) return;
+    const settings = { ...(d.settings || {}) };
+    const features = this.asRecord(settings['features']);
+    settings['features'] = {
+      ...features,
+      chat_document_upload: enabled,
+    };
+    this.savingChatUpload.set(true);
+    this.workspaceService.updateWorkspaceSettings(d.slug, settings).subscribe({
+      next: (updated) => {
+        this.savingChatUpload.set(false);
+        this.detail.set(updated);
+        this.toastr.success(
+          enabled ? 'Document upload in chat is enabled.' : 'Document upload in chat is disabled.',
+          'Saved',
+        );
+      },
+      error: (err) => {
+        this.savingChatUpload.set(false);
+        this.toastr.error(err?.error?.detail || 'Failed to update chat upload setting', 'Error');
       },
     });
   }

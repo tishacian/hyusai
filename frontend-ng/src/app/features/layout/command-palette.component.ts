@@ -229,8 +229,21 @@ export class CommandPaletteComponent implements OnInit {
   ];
   }
 
+  /**
+   * Drop-and-ask upload gating. Reads the per-workspace
+   * `settings.features.chat_document_upload` flag (enabled by default;
+   * only an explicit `false` disables it) so the palette hides the
+   * `chat.drop` command when chat document upload is off.
+   */
+  private get chatUploadEnabled(): boolean {
+    const features = this.workspace.current()?.settings?.['features'] as
+      | Record<string, unknown>
+      | undefined;
+    return features?.['chat_document_upload'] !== false;
+  }
+
   private get chatCommands(): CommandItem[] {
-    return [
+    const commands: CommandItem[] = [
       {
         id: 'chat.ask',
         label: this.i18n.t('palette.chat.ask'),
@@ -251,7 +264,9 @@ export class CommandPaletteComponent implements OnInit {
         keywords: 'chat system scoped test demo',
         action: () => this.openChat({ mode: 'system' }),
       },
-      {
+    ];
+    if (this.chatUploadEnabled) {
+      commands.push({
         id: 'chat.drop',
         label: this.i18n.t('palette.chat.drop'),
         hint: this.i18n.t('palette.chat.drop.hint'),
@@ -260,8 +275,9 @@ export class CommandPaletteComponent implements OnInit {
         route: '',
         keywords: 'drop upload files documents ephemeral context session pdf rag',
         action: () => this.openChat({ mode: 'drop' }),
-      },
-    ];
+      });
+    }
+    return commands;
   }
 
   readonly results = computed(() => {

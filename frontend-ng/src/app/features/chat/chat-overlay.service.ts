@@ -1,4 +1,5 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
+import { WorkspaceService } from '@app/core/workspace.service';
 
 /**
  * `ChatOverlayService` — coordinates the global chat side-panel.
@@ -21,6 +22,8 @@ export type ChatStartMode = 'quick' | 'system' | 'drop';
 
 @Injectable({ providedIn: 'root' })
 export class ChatOverlayService {
+  private readonly workspace = inject(WorkspaceService);
+
   readonly isOpen = signal(false);
   readonly startMode = signal<ChatStartMode>('quick');
   readonly preselectedSystemId = signal<string | null>(null);
@@ -28,6 +31,18 @@ export class ChatOverlayService {
   readonly assistantProfile = signal<string | null>(null);
   readonly initialPrompt = signal<string | null>(null);
   readonly autoStartVoiceLoop = signal(false);
+
+  /**
+   * Drop-and-ask upload gating. Reads the per-workspace
+   * `settings.features.chat_document_upload` flag (enabled by default;
+   * only an explicit `false` disables it).
+   */
+  private chatUploadEnabled(): boolean {
+    const features = this.workspace.current()?.settings?.['features'] as
+      | Record<string, unknown>
+      | undefined;
+    return features?.['chat_document_upload'] !== false;
+  }
 
   open(options?: {
     mode?: ChatStartMode;
@@ -37,7 +52,13 @@ export class ChatOverlayService {
     initialPrompt?: string | null;
     autoStartVoiceLoop?: boolean;
   }): void {
-    this.startMode.set(options?.mode ?? 'quick');
+    let mode = options?.mode ?? 'quick';
+    // When chat document upload is disabled for the workspace, the
+    // drop-and-ask surface is hidden, so fall back to a quick ask.
+    if (mode === 'drop' && !this.chatUploadEnabled()) {
+      mode = 'quick';
+    }
+    this.startMode.set(mode);
     this.preselectedSystemId.set(options?.systemId ?? null);
     this.preselectedContextId.set(options?.contextId ?? null);
     this.assistantProfile.set(options?.assistantProfile ?? null);

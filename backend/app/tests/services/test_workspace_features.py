@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from app.services.workspace_features import (
+    chat_document_upload_enabled,
     family_heuristic,
     feature_enabled,
     workspace_family,
@@ -48,3 +49,20 @@ def test_feature_enabled_csv_fallback_is_exact_match():
     assert feature_enabled(_workspace(slug="Andritz"), "x", csv_fallback="andritz")
     assert not feature_enabled(_workspace(slug="andritz-test"), "x", csv_fallback="andritz")
     assert not feature_enabled(_workspace(slug="andritz"), "x", csv_fallback="")
+
+
+def test_chat_document_upload_enabled_by_default():
+    # Default-on (opt-out): absent settings, empty settings, and empty features
+    # all resolve to True.
+    assert chat_document_upload_enabled(_workspace(settings=None))
+    assert chat_document_upload_enabled(_workspace(settings={}))
+    assert chat_document_upload_enabled(_workspace(settings={"features": {}}))
+    assert chat_document_upload_enabled(_workspace(settings={"features": {"other": False}}))
+
+
+def test_chat_document_upload_disabled_when_flag_false():
+    disabled = _workspace(settings={"features": {"chat_document_upload": False}})
+    assert not chat_document_upload_enabled(disabled)
+
+    explicit_on = _workspace(settings={"features": {"chat_document_upload": True}})
+    assert chat_document_upload_enabled(explicit_on)
