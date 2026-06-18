@@ -157,16 +157,37 @@ async def _probe_query(db, workspace: Workspace, query: str, level: int) -> dict
     ctx_request = dict(request_dict)
     try:
         context = await retrieve_rag_context(ctx_request)
-        names = _source_names(context.get("sources"))
+        chunks = context.get("chunks") or []
+        metas = context.get("metadatas") or []
+        scores = context.get("scores") or []
+        sample = []
+        for i, ch in enumerate(chunks[:12]):
+            meta = metas[i] if i < len(metas) and isinstance(metas[i], dict) else {}
+            txt = ch if isinstance(ch, str) else (ch.get("text") if isinstance(ch, dict) else str(ch))
+            fn = meta.get("document_filename") or meta.get("source") or meta.get("filename") or meta.get("title") or ""
+            blob = (str(txt) + " " + str(fn)).lower()
+            sample.append({
+                "fn": str(fn)[-60:],
+                "proj": meta.get("project_code"),
+                "score": round(float(scores[i]), 3) if i < len(scores) and scores[i] is not None else None,
+                "len": len(str(txt)),
+                "akk": "akk200" in blob,
+                "pump": ("pump" in blob or "pompe" in blob),
+                "head": str(txt)[:160].replace("\n", " "),
+            })
+        metrics = context.get("metrics") if isinstance(context.get("metrics"), dict) else {}
         out["retrieval"] = {
             "pipeline": context.get("pipeline"),
-            "chunks": len(context.get("chunks") or []),
-            "source_count": len(names),
-            "source_names": names[:12],
-            "selected_classify": _classify(names),
+            "chunk_count": len(chunks),
+            "meta_keys": sorted(str(k) for k in metas[0].keys()) if metas and isinstance(metas[0], dict) else None,
+            "first_meta": {str(k): str(v)[:70] for k, v in metas[0].items() if k not in ("content",)} if metas and isinstance(metas[0], dict) else None,
+            "chunk_sample": sample,
+            "scope_reason": metrics.get("scope_reason"),
+            "candidate_counts": metrics.get("candidate_counts"),
         }
     except Exception as exc:  # noqa: BLE001 - report and keep going
-        out["retrieval"] = {"error": f"{type(exc).__name__}: {exc}"}
+        import traceback
+        out["retrieval"] = {"error": f"{type(exc).__name__}: {exc}", "tb": traceback.format_exc()[-800:]}
     return out
 
 

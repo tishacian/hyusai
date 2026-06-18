@@ -738,6 +738,13 @@ _DEMOTE_SOURCE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Above the project-code base (+12 for a filename code hit), only a strong
+# filename-term match (+8) or an equipment-family match lifts a document. Below
+# this, the documents are merely "this project's files in alphabetical order",
+# so a filename allowlist drops deep content PDFs whose names don't advertise the
+# answer (e.g. a German pump datasheet). In that case scope by project instead.
+_PROJECT_SCOPE_STRONG_MATCH = 20.0
+
 
 def _infer_ledger_document_scope(
     query: str,
@@ -865,14 +872,13 @@ def _infer_ledger_document_scope(
     if not filenames:
         return {}, 0.0, "", []
     top_score = float(ranked[0][0])
-    confidence = min(0.94, 0.66 + min(top_score, 12.0) / 35.0)
-    reason = f"ledger source scope matched {len(filenames)} candidate document(s)"
-    if project_codes:
-        reason += f" for project/code {', '.join(project_codes[:3])}"
+    broad_project_scope = bool(project_codes) and top_score < _PROJECT_SCOPE_STRONG_MATCH
     # #region agent log (debug e963ab)
     _probe_log("ledger_scope_ranking", {
         "query": str(query)[:160],
         "project_codes": project_codes,
+        "top_score": round(top_score, 2),
+        "broad_project_scope": broad_project_scope,
         "universe_count": len(_probe_universe),
         "universe": [
             {
@@ -887,6 +893,21 @@ def _infer_ledger_document_scope(
         "kept_count": len(filenames),
     })
     # #endregion
+    if broad_project_scope:
+        # Generic project question (no document scored clearly above the
+        # project-code base): scope the dense search to the whole project so
+        # ranking can surface content-bearing documents the filename allowlist
+        # would otherwise drop.
+        confidence = min(0.85, 0.62 + min(top_score, 16.0) / 40.0)
+        reason = (
+            f"project scope for {', '.join(project_codes[:3])} "
+            f"({len(filenames)} filename candidates, top_score={top_score:.1f} below strong-match)"
+        )
+        return {"project_code": project_codes}, confidence, reason, collection_refs
+    confidence = min(0.94, 0.66 + min(top_score, 12.0) / 35.0)
+    reason = f"ledger source scope matched {len(filenames)} candidate document(s)"
+    if project_codes:
+        reason += f" for project/code {', '.join(project_codes[:3])}"
     return {"document_filename": filenames}, confidence, reason, collection_refs
 
 
