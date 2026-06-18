@@ -93,7 +93,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       <header class="t-header">
         @if (businessSurface()) {
           <div class="t-header-left">
-            <ck-tag tone="pos" variant="solid">Chat transverse</ck-tag>
+            <ck-tag tone="pos" variant="solid">Recherche</ck-tag>
             <span class="t-header-hint">Questions et recherche sur les connaissances du workspace.</span>
           </div>
           <div class="t-header-right">
@@ -868,7 +868,7 @@ export class ChatWorkspaceComponent implements OnInit {
   );
 
   readonly modeLabel = computed<string>(() => {
-    if (this.businessSurface()) return 'Chat transverse';
+    if (this.businessSurface()) return 'Recherche';
     if (this.ephemeralContextId()) return 'Drop-and-ask';
     if (this.selectedSystemId()) return 'System chat';
     return 'Quick ask';

@@ -246,7 +246,7 @@ const FIELD =
                   <span class="ml-auto text-[10px] uppercase tracking-wider text-brand-400 font-mono">active</span>
                 }
               </div>
-              <p class="text-xs text-gray-400 leading-relaxed">Business users see only Chat transverse and Capture de connaissances.</p>
+              <p class="text-xs text-gray-400 leading-relaxed">Business users see only Recherche and Capture de connaissances.</p>
             </button>
           </div>
           @if (navigationProfileEnabled() && canEdit()) {

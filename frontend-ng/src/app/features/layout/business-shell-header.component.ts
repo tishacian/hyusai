@@ -29,7 +29,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
           class="business-nav-link"
         >
           <app-icon name="message-square" [size]="14" />
-          Chat transverse
+          Recherche
         </a>
         <a
           routerLink="/knowledge/capture"
