@@ -734,7 +734,7 @@ def _expanded_query_terms(query: str, policy: RetrievalPolicy | None = None) -> 
 _DEMOTE_SOURCE_RE = re.compile(
     r"(?:^|__)(?:menu|pictures?|images?|img|frames?|css|js|assets?|fonts?)__"
     r"|\.(?:jpe?g|png|gif|bmp|ico|tiff?|svg|webp|css|js)(?:$|__)"
-    r"|(?:^|__)(?:accueil|index|sommaire|home|nexline-index)[^_]*\.html?(?:$|__)",
+    r"|(?:^|__)(?:accueil|index|sommaire|home|menu|frames?|nexline-index)[-_ ]?[^_]*\.html?(?:$|__)",
     re.IGNORECASE,
 )
 
