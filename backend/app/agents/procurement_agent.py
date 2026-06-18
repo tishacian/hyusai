@@ -567,7 +567,7 @@ def _assemble_context_and_sources(
         context_text = "\n\n".join(sections)
     else:
         context_text = (
-            "No workspace source was retrieved for this turn."
+            "No document was retrieved for this turn."
             if allow_foundational_fallback
             else "No documents found in the knowledge base."
         )
@@ -628,12 +628,13 @@ Do not reproduce generic supplier-document footers such as "contact Andritz for 
 Be professional, precise, and helpful."""
 
 BALANCED_GROUNDING_APPENDIX = """Grounding policy for this turn:
-- Use retrieved workspace context first whenever it exists.
-- If no relevant workspace context is available and the user asks for advice, explanation, drafting, planning, or general reasoning, answer from general knowledge.
-- For unsourced general answers, briefly mark the status in French: "Je n'ai pas de source workspace sur ce point ; analyse generale a valider :".
+- Use the retrieved context first whenever it contains the answer, and lead with the answer itself.
+- If the retrieved context does not contain the answer and the user asks for advice, explanation, drafting, planning or general reasoning, you may answer from general professional knowledge.
+- When you answer from general knowledge rather than from a document, mark it in one short, natural French sentence such as "Aucun document disponible ne traite ce point ; voici une analyse generale a valider :" — then give the analysis directly.
+- Never use internal platform vocabulary in the answer (for example "source workspace", "workspace", "base", "collection", "chunk", "retrieval"); speak as a domain expert citing documents, not the platform.
 - Do not cite sources unless they are present in the provided context.
-- For workspace-specific facts, documents, live/current state, numbers, actions, agenda, security/OSINT, or operational claims, do not invent. Say that the workspace source is missing and offer a safe next step or a draft framework.
-- Keep a concise advisory tone."""
+- For document-specific facts, figures, references, project relationships or operational claims, do not invent: state plainly that the available documentation does not cover the point, then offer a concrete next step (which document or reference would let you answer).
+- Keep a concise advisory tone and do not open with a source-finding preamble."""
 
 
 def _grounding_policy_from_request(request: dict[str, Any]) -> dict[str, Any]:

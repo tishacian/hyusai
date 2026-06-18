@@ -136,6 +136,10 @@ _PRECISE_FACT_RE = re.compile(
     r"^\s*(quelle?|quels?|quelles?|what|which|combien|how\s+much|how\s+many|pression|pressure|largeur|width|vitesse|speed)\b",
     re.IGNORECASE,
 )
+# Platform jargon: "source workspace" / "contexte workspace" leak the internal
+# term to end users. The balanced grounding prompt also instructs the model to
+# avoid it, but this normalises any streamed slip in the persisted answer.
+_WORKSPACE_JARGON_RE = re.compile(r"\b(sources?|contexte)\s+workspace\b", re.IGNORECASE)
 _ABSENCE_RE = re.compile(
     r"(je\s+n['’]ai\s+(?:pas|aucune)|aucune\s+(?:information|donn[ée]e)|no\s+(?:information|data|source))",
     re.IGNORECASE,
@@ -265,6 +269,9 @@ def apply_answer_policy_to_text(
     policy = answer_policy or industrial_answer_policy()
     forbidden = policy.get("forbidden_internal_terms")
     violations: list[str] = []
+    if _WORKSPACE_JARGON_RE.search(out):
+        violations.append("platform_jargon_workspace")
+        out = _WORKSPACE_JARGON_RE.sub(lambda m: m.group(1), out)
     if re.search(r"\((?:retrieval|fallback|worker|dense|sparse)\s*:", out, flags=re.IGNORECASE):
         violations.append("internal_diagnostic_parenthetical")
         out = re.sub(
