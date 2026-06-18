@@ -1618,14 +1618,17 @@ def plan_corpus(
     elif dense and latency_profile != "deep":
         allow_legacy_hybrid = False
         if not filters:
-            if latency_profile == "fast":
-                dense_policy = "fast_sparse_direct"
-                use_hybrid = True
-                fallback_reason = None
-            else:
-                dense_policy = "fast_scoped_dense_auto"
-                use_hybrid = False
-                fallback_reason = "dense_unscoped_fast_policy"
+            # Unscoped dense retrieval (no inferred scope): balanced runs the
+            # same real bounded vector/sparse search as fast. The HNSW vector
+            # search is sub-second regardless of corpus size; runtime evidence
+            # showed the former balanced guardrail returned only a synthetic
+            # inventory while fast surfaced the actual answer (e.g. filter
+            # nominal capacity for a flow-rate question), making balanced
+            # strictly worse than fast despite a larger latency budget. Deep
+            # refinement is still queued via deep_retrieval_recommended.
+            dense_policy = "fast_sparse_direct"
+            use_hybrid = True
+            fallback_reason = None
             allow_hah_chah = False
             deep_retrieval_recommended = True
         else:
