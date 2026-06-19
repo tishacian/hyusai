@@ -9053,15 +9053,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     return String(payload['segment_id'] || this.currentClientTurnId || 'live-turn');
   }
 
-  private voiceEventTurnId(payload: Record<string, any>): string {
-    return String(payload['turn_id'] || payload['segment_id'] || '').trim();
-  }
-
-  private voiceEventMatchesCurrentTurn(payload: Record<string, any>): boolean {
-    const eventTurnId = this.voiceEventTurnId(payload);
-    return Boolean(eventTurnId && this.currentClientTurnId && eventTurnId === this.currentClientTurnId);
-  }
-
   private handleVoiceSessionEvent(event: VoiceSessionEvent): void {
     const payload = event.payload || {};
     // Passive assist contract: any event may carry the oracle snapshot
@@ -9077,15 +9068,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       return;
     }
     if (event.type === 'text.partial' || event.type === 'transcript.partial') {
-      const recording = this.recording();
-      const finalizingSameTurn = !recording && this.transcribing() && this.voiceEventMatchesCurrentTurn(payload);
-      // Live partials are meaningful while recording, and still useful during
-      // endpoint finalisation when they belong to the exact same turn. True
-      // stale partials stay filtered so an older turn never flips committed text
-      // back to the live/italic state.
-      if ((!recording && !finalizingSameTurn) || (this.closeVoiceAfterStreamingTurn && !finalizingSameTurn)) {
+      // Live partials are only meaningful while the mic is actively recording.
+      // After a pause/stop/VAD endpoint the tail was already committed locally
+      // (upright); a late in-flight partial (e.g. the backend transcribing the
+      // recorder's final flush frame ~1s after audio.pause) must not flip it
+      // back to the live/italic state — the authoritative text lands with
+      // `text.final` (or stays as the local commit while paused).
+      if (this.closeVoiceAfterStreamingTurn || !this.recording()) {
         // #region agent log
-        fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'P1',location:'knowledge-capture.component.ts:partial-guard',message:'late partial dropped (stale)',data:{type:event.type,closeAfter:this.closeVoiceAfterStreamingTurn,recording,transcribing:this.transcribing(),sameTurn:this.voiceEventMatchesCurrentTurn(payload),eventTurn:this.voiceEventTurnId(payload),textLen:String(payload['text']||'').length,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
+        fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'P1',location:'knowledge-capture.component.ts:partial-guard',message:'late partial dropped (not recording)',data:{type:event.type,closeAfter:this.closeVoiceAfterStreamingTurn,transcribing:this.transcribing(),textLen:String(payload['text']||'').length,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
         // #endregion
         return;
       }
@@ -9094,18 +9085,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       // (grey/italic) transcript row and flag the "Transcription live" state.
       const text = String(payload['text'] || '').trim();
       if (text) {
-        if (recording) {
-          const command = this.detectCaptureVoiceCommand(text);
-          if (command && this.handleCaptureVoiceCommand(command, text)) {
-            return;
-          }
+        const command = this.detectCaptureVoiceCommand(text);
+        if (command && this.handleCaptureVoiceCommand(command, text)) {
+          return;
         }
         this.answer = text;
         this.setLivePartial(this.voiceSegmentId(payload), text);
-        if (recording) {
-          const session = this.session();
-          if (session) this.maybePrefetchRetrieval(session, text);
-        }
+        const session = this.session();
+        if (session) this.maybePrefetchRetrieval(session, text);
         // Keep the live indicator visible during speech (set after the
         // prefetch call, which may otherwise flip the state to "retrieving").
         this.voiceState.set('partial_transcribing');
@@ -10432,7 +10419,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             }
           }
           if (this.recording()) {
-            this.restoreVoiceStateAfterRetrieval();
+            this.voiceState.set(this.prefetchInFlight ? 'retrieving' : 'listening');
           }
         },
         error: () => {
@@ -10512,10 +10499,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           const typed = payload as RetrievalPrefetch;
           const passive = this.shouldKeepRetrievalPassive(session, typed);
           if (passive) {
-          this.prefetchInFlight = false;
-          this.restoreVoiceStateAfterRetrieval();
-          return;
-        }
+            this.prefetchInFlight = false;
+            if (this.recording()) {
+              this.voiceState.set('listening');
+            } else if (this.voiceState() === 'retrieving') {
+              this.voiceState.set('idle');
+            }
+            return;
+          }
           const mappedStatus =
             typed.status === 'completed' || typed.status === 'completed_from_warm_cache'
               ? 'ready'
@@ -10545,31 +10536,24 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.prefetchInFlight = false;
           this.refreshEvents(session.id);
           if (this.isTopicOnlyPlan(session)) this.refreshHintQueue(session.id, typed.active_subtopic_id || this.activeSubtopicId());
-          this.restoreVoiceStateAfterRetrieval();
+          if (this.recording()) {
+            this.voiceState.set('listening');
+          } else if (this.voiceState() === 'retrieving') {
+            this.voiceState.set('idle');
+          }
         },
         error: () => {
           if (!passiveSurface) {
             this.retrieval.set({ status: 'error', chunks: [], scores: [], metadatas: [] });
           }
           this.prefetchInFlight = false;
-          this.restoreVoiceStateAfterRetrieval();
+          if (this.recording()) {
+            this.voiceState.set('listening');
+          } else if (this.voiceState() === 'retrieving') {
+            this.voiceState.set('idle');
+          }
         },
       });
-  }
-
-  private restoreVoiceStateAfterRetrieval(): void {
-    if (this.recording()) {
-      const live = this.liveTranscript();
-      if (live?.status === 'live') {
-        this.voiceState.set('partial_transcribing');
-      } else if (this.voiceState() === 'retrieving') {
-        this.voiceState.set('listening');
-      }
-      return;
-    }
-    if (this.voiceState() === 'retrieving') {
-      this.voiceState.set('idle');
-    }
   }
 
   private shouldKeepRetrievalPassive(session: CaptureSession, payload: RetrievalPrefetch): boolean {

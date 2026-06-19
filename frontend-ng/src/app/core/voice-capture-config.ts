@@ -60,7 +60,6 @@ const ROBUST_PRESET = {
   dictation_silence_ms: 2600,
   min_speech_ms: 700,
   dictation_min_speech_ms: 700,
-  max_turn_ms: 12000,
   rms_threshold: 0.012,
   endpoint_grace_ms: 650,
   vad_hangover_ms: 350,
@@ -120,9 +119,6 @@ export function resolveVoiceCaptureConfig(
       resolved.vad_min_silence_frames_ms,
       ROBUST_PRESET.vad_min_silence_frames_ms,
     );
-  }
-  if (captureMode === 'robust') {
-    resolved.max_turn_ms = Math.min(resolved.max_turn_ms, ROBUST_PRESET.max_turn_ms);
   }
   if (captureMode === 'manual_safe') {
     resolved.auto_endpoint = false;

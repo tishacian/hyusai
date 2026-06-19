@@ -840,6 +840,10 @@ class VoiceSessionGateway:
             and (now - state.last_partial_stt_at) * 1000.0 < state.partial_stt_min_interval_ms
         ):
             return
+        try:
+            provider = get_voice_runtime_provider(state.runtime, workspace_settings=workspace.settings)
+        except VoiceProviderError:
+            return
         audio_bytes = b"".join(state.audio_chunks)
         if not audio_bytes:
             return
@@ -856,45 +860,6 @@ class VoiceSessionGateway:
         )
         _kcdbg_stt_t0 = time.perf_counter()
         # #endregion
-
-        async def emit_partial_metric(
-            status: str,
-            *,
-            reason: Optional[str] = None,
-            stt_ms: Optional[int] = None,
-            text_len: Optional[int] = None,
-        ) -> None:
-            payload: Dict[str, Any] = {
-                "metric": "partial_stt",
-                "status": status,
-                "turn_id": turn_id,
-                "source": "incremental",
-                "transport": state.transport,
-                "chunk_count": chunk_count,
-                "audio_bytes": len(audio_bytes),
-                "interval_floor_ms": state.partial_stt_min_interval_ms,
-            }
-            if reason:
-                payload["reason"] = reason
-            if stt_ms is not None:
-                payload["value_ms"] = stt_ms
-                payload["stt_ms"] = stt_ms
-            if text_len is not None:
-                payload["text_len"] = text_len
-            if _kcdbg_gap_ms is not None:
-                payload["gap_since_prev_ms"] = _kcdbg_gap_ms
-            try:
-                await self._send(websocket, state, "runtime.metric", payload)
-            except Exception:
-                logger.debug("partial STT metric emission failed", exc_info=True)
-
-        try:
-            provider = get_voice_runtime_provider(state.runtime, workspace_settings=workspace.settings)
-        except VoiceProviderError:
-            await emit_partial_metric("skipped", reason="provider_unavailable")
-            if state.partial_stt_generation == my_generation:
-                state.partial_stt_in_flight = False
-            return
         state.last_partial_stt_at = now
         state.last_partial_chunk_count = chunk_count
         try:
@@ -932,18 +897,8 @@ class VoiceSessionGateway:
             except Exception:
                 pass
             # #endregion
-            await emit_partial_metric(
-                "timeout",
-                reason="timeout",
-                stt_ms=int((time.perf_counter() - _kcdbg_stt_t0) * 1000),
-            )
             return
-        except Exception as exc:
-            await emit_partial_metric(
-                "error",
-                reason=exc.__class__.__name__,
-                stt_ms=int((time.perf_counter() - _kcdbg_stt_t0) * 1000),
-            )
+        except Exception:
             return
         finally:
             # Only clear the flag if no reset happened while we were transcribing:
@@ -1007,33 +962,16 @@ class VoiceSessionGateway:
             except Exception:
                 pass
             # #endregion
-            await emit_partial_metric(
-                "stale",
-                reason="turn_reset",
-                stt_ms=int((time.perf_counter() - _kcdbg_stt_t0) * 1000),
-            )
             return
 
         text = str(transcript.get("text") or transcript.get("transcript") or "").strip()
         if is_capture_text_noise(text):
-            await emit_partial_metric(
-                "noise",
-                reason="text_noise",
-                stt_ms=int((time.perf_counter() - _kcdbg_stt_t0) * 1000),
-                text_len=len(text),
-            )
             return
         if not text or text == state.last_partial_text:
             # Even when the text is unchanged, the bytes that produced it match the
             # current buffer, so the endpoint can still reuse this committed partial.
             if text and text == state.last_partial_text:
                 state.last_partial_text_chunk_count = chunk_count
-            await emit_partial_metric(
-                "duplicate" if text else "empty",
-                reason="unchanged_text" if text else "empty_text",
-                stt_ms=int((time.perf_counter() - _kcdbg_stt_t0) * 1000),
-                text_len=len(text),
-            )
             return
         state.last_partial_text = text
         # Pin the committed partial to the exact buffer size that produced it so the
@@ -1046,11 +984,6 @@ class VoiceSessionGateway:
                 state,
                 "transcript.partial",
                 {"segment_id": turn_id, "turn_id": turn_id, "text": text},
-            )
-            await emit_partial_metric(
-                "emitted",
-                stt_ms=int((time.perf_counter() - _kcdbg_stt_t0) * 1000),
-                text_len=len(text),
             )
             if state.tandem_oracle_enabled:
                 events = state.oracle.observe_partial(
