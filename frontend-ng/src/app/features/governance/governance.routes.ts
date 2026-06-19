@@ -18,6 +18,11 @@ export const governanceRoutes: Routes = [
           import('./access-roles.component').then((m) => m.AccessRolesComponent),
       },
       {
+        path: 'chat-history',
+        loadComponent: () =>
+          import('./chat-history.component').then((m) => m.ChatHistoryComponent),
+      },
+      {
         path: 'surface-map',
         loadComponent: () =>
           import('./surface-map.component').then((m) => m.SurfaceMapComponent),

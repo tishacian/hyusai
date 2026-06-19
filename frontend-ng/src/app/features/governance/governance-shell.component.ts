@@ -3,12 +3,15 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
+import { WorkspaceService } from '@app/core/workspace.service';
 
 interface Tab {
   label: string;
   glyph: CkGlyphName;
   route: string;
   exact?: boolean;
+  /** When true the tab is only shown to workspace admins/owners. */
+  adminOnly?: boolean;
 }
 
 /**
@@ -37,7 +40,7 @@ interface Tab {
         [style.borderRadius.px]="4"
         [style.padding.px]="2"
       >
-        @for (t of tabs; track t.route) {
+        @for (t of visibleTabs(); track t.route) {
           <a
             [routerLink]="t.route"
             [style.display]="'inline-flex'"
@@ -68,6 +71,7 @@ interface Tab {
 })
 export class GovernanceShellComponent {
   private readonly router = inject(Router);
+  private readonly workspace = inject(WorkspaceService);
   private readonly url = toSignal(
     this.router.events.pipe(
       filter((e): e is NavigationEnd => e instanceof NavigationEnd),
@@ -81,11 +85,17 @@ export class GovernanceShellComponent {
 
   readonly tabs: Tab[] = [
     { label: 'Audit log',       glyph: 'ledger', route: '/governance/audit' },
+    { label: 'Chat history',    glyph: 'ledger', route: '/governance/chat-history', adminOnly: true },
     { label: 'Canonical answers', glyph: 'focus', route: '/governance/canonical-answers' },
     { label: 'Access & roles',  glyph: 'focus',  route: '/governance/access' },
     { label: 'Blueprints',      glyph: 'layers', route: '/governance/blueprints' },
     { label: 'Surface map',     glyph: 'layers', route: '/governance/surface-map' },
   ];
+
+  /** Hide admin-only tabs (e.g. Chat history) from non-admin members. */
+  readonly visibleTabs = computed(() =>
+    this.tabs.filter((t) => !t.adminOnly || this.workspace.isAdmin()),
+  );
 
   isActive(t: Tab): boolean {
     const p = this.currentPath();
