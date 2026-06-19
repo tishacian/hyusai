@@ -48,6 +48,10 @@ from app.services.rag.comparative_retrieval import (
     ensure_entity_coverage,
 )
 from app.services.rag.pipeline_retrieval import retrieve_for_mode
+from app.services.rag.project_inventory import (
+    build_project_inventory,
+    query_targets_projects,
+)
 from app.services.rag.retrieval_policy import (
     RetrievalPolicy,
     clarification_from_policy,
@@ -1936,6 +1940,32 @@ def _set_cached_retrieval_context(cache_key: str | None, payload: dict[str, Any]
         _RETRIEVAL_CONTEXT_CACHE.popitem(last=False)
 
 
+def _should_build_project_inventory(request: dict[str, Any], query: str) -> bool:
+    """True for a transversal_inventory question that enumerates projects.
+
+    The answer-profile decision (set on the request before retrieval) marks
+    cross-project inventory questions; we additionally require the question to be
+    about *projects* so an equipment-only inventory stays on the regular path.
+    """
+    decision = request.get("answer_profile_decision")
+    is_transversal = str(request.get("answer_profile") or "") == "transversal_inventory"
+    if not is_transversal and isinstance(decision, Mapping):
+        is_transversal = (
+            str(decision.get("profile") or "") == "transversal_inventory"
+            or bool(decision.get("requires_exhaustive_retrieval"))
+        )
+    return bool(is_transversal and query_targets_projects(query))
+
+
+def _safe_build_project_inventory(profile: dict[str, Any], query: str) -> dict[str, Any] | None:
+    """Wrap the facet aggregation so a Qdrant error never breaks the answer."""
+    try:
+        return build_project_inventory(profile, query)
+    except Exception as exc:  # noqa: BLE001 - inventory is best-effort.
+        logger.warning("rag_context: project inventory build failed", error=str(exc))
+        return None
+
+
 async def retrieve_rag_context(
     request: dict[str, Any],
     *,
@@ -2065,6 +2095,36 @@ async def retrieve_rag_context(
     if cached_context is not None:
         return cached_context
 
+    # Exhaustive cross-project enumeration (transversal_inventory). For "which
+    # projects have/use <equipment>" questions the LLM otherwise enumerates from
+    # the few dozen retrieved chunks and returns a partial list. We compute the
+    # COMPLETE list deterministically by faceting Qdrant on the project_code
+    # payload key, filtered by the query's discriminating equipment term(s), and
+    # attach it to the answer context so the model lists every project. The
+    # facet runs concurrently with retrieval and is awaited at payload assembly;
+    # any failure leaves the existing deep-retrieval behaviour untouched.
+    inventory_task = None
+    if _should_build_project_inventory(request, query):
+        inventory_task = asyncio.ensure_future(
+            asyncio.to_thread(_safe_build_project_inventory, dict(profile), query)
+        )
+
+    async def _attach_project_inventory(payload: dict[str, Any]) -> dict[str, Any]:
+        if inventory_task is None or not isinstance(payload, dict):
+            return payload
+        try:
+            inventory = await inventory_task
+        except Exception as exc:  # noqa: BLE001 - inventory is best-effort.
+            logger.warning("rag_context: project inventory task failed", error=str(exc))
+            inventory = None
+        if inventory:
+            payload["project_inventory"] = inventory
+            payload_metrics = payload.get("metrics")
+            if isinstance(payload_metrics, dict):
+                payload_metrics["project_inventory_total_projects"] = inventory.get("total_projects")
+                payload_metrics["project_inventory_terms"] = inventory.get("terms")
+        return payload
+
     if is_collection_inventory_query(query) or (corpus_plan is not None and corpus_plan.intent == "catalogue"):
         inventory_context = _retrieve_collection_inventory_context(
             profile,
@@ -2072,6 +2132,7 @@ async def retrieve_rag_context(
             metrics=metrics,
         )
         if inventory_context is not None:
+            inventory_context = await _attach_project_inventory(inventory_context)
             _set_cached_retrieval_context(cache_key, inventory_context)
             return inventory_context
 
@@ -2088,11 +2149,12 @@ async def retrieve_rag_context(
             metrics=metrics,
         )
         if coarse_context is not None:
+            coarse_context = await _attach_project_inventory(coarse_context)
             _set_cached_retrieval_context(cache_key, coarse_context)
             return coarse_context
 
     if len(collections) > 1 and doc_svc is None:
-        return await _retrieve_multi_collection_context(
+        multi_context = await _retrieve_multi_collection_context(
             request,
             profile=profile,
             started=started,
@@ -2106,6 +2168,7 @@ async def retrieve_rag_context(
             retrieval_policy=retrieval_policy,
             clarification=clarification,
         )
+        return await _attach_project_inventory(multi_context)
 
     try:
         if doc_svc is None:
@@ -2123,7 +2186,7 @@ async def retrieve_rag_context(
         metrics["chunks_retrieved"] = len(guide_chunks)
         metrics["no_context"] = len(guide_chunks) == 0
         _finalize_retrieval_metrics(metrics)
-        return {
+        return await _attach_project_inventory({
             "chunks": guide_chunks,
             "scores": guide_scores,
             "metadatas": guide_metas,
@@ -2143,7 +2206,7 @@ async def retrieve_rag_context(
             "retrieval_decision_trace": _jsonable(metrics.get("retrieval_decision_trace")),
             "collections_touched": [],
             "collection_errors": [{"collection": profile["collection"], "error": str(exc)}],
-        }
+        })
 
     use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
         doc_svc,
@@ -2240,7 +2303,7 @@ async def retrieve_rag_context(
         )
         guide_chunks, guide_scores, guide_metas = guide_context_entries(guides)
         _finalize_retrieval_metrics(metrics)
-        return _jsonable(
+        return await _attach_project_inventory(_jsonable(
             {
                 "chunks": guide_chunks,
                 "scores": guide_scores,
@@ -2280,7 +2343,7 @@ async def retrieve_rag_context(
                 "collections_touched": [profile["collection"]],
                 "collection_errors": [],
             }
-        )
+        ))
 
     # Deep scope-miss recovery. A ledger-inferred document scope can point at
     # documents that exist in the SQL ledger but were never ingested into the
@@ -2607,6 +2670,7 @@ async def retrieve_rag_context(
             "collection_errors": [],
         }
     )
+    payload = await _attach_project_inventory(payload)
     _set_cached_retrieval_context(cache_key, payload)
     return payload
 

@@ -601,6 +601,48 @@ def _assemble_context_and_sources(
     return context_text, sources, bool(citable or additional or advisory)
 
 
+def _format_project_inventory_block(inventory: Any) -> str:
+    """Render the exhaustive project_code facet aggregation for the prompt.
+
+    For a transversal_inventory "which projects use <equipment>" question the
+    retrieval layer attaches a deterministic, complete project list (computed by
+    faceting the indexed project metadata, not sampled from the few retrieved
+    excerpts). We surface it as an authoritative context block so the model can
+    return the full deduplicated list instead of enumerating from excerpts.
+    """
+    if not isinstance(inventory, Mapping):
+        return ""
+    projects = inventory.get("projects")
+    if not isinstance(projects, list) or not projects:
+        return ""
+    terms = [str(term) for term in (inventory.get("terms") or []) if str(term).strip()]
+    term_label = " + ".join(terms) if terms else "l'équipement demandé"
+    try:
+        total = int(inventory.get("total_projects") or len(projects))
+    except (TypeError, ValueError):
+        total = len(projects)
+    entries: list[str] = []
+    for project in projects:
+        if not isinstance(project, Mapping):
+            continue
+        code = str(project.get("project_code") or "").strip()
+        if not code:
+            continue
+        try:
+            count = int(project.get("chunk_count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        entries.append(f"{code} ({count})" if count > 0 else code)
+    if not entries:
+        return ""
+    return (
+        f"Inventaire projets consolidé (couverture exhaustive établie sur l'ensemble "
+        f"du corpus indexé pour « {term_label} ») — {total} projet(s) au total. "
+        f"Liste complète ci-dessous ; le nombre entre parenthèses indique le volume "
+        f"de documentation associée à chaque projet :\n" + ", ".join(entries)
+    )
+
+
 def _retrieval_synthesis_brief(
     chunks: list[Any],
     metadatas: list[Any],
@@ -1409,6 +1451,19 @@ class OmniRAGAgent(BaseAgent):
             query=str(query or ""),
         )
         retrieval_summary = _retrieval_synthesis_brief(filtered_chunks, filtered_metadatas)
+
+        # Transversal inventory: prepend the exhaustive project list (computed by
+        # faceting the indexed project metadata) so the model lists every project
+        # instead of enumerating from the handful of retrieved excerpts. The
+        # block is authoritative context, not a numbered citation.
+        project_inventory_block = _format_project_inventory_block(
+            retrieval_context.get("project_inventory")
+            if isinstance(retrieval_context, Mapping)
+            else None
+        )
+        if project_inventory_block:
+            context_text = f"{project_inventory_block}\n\n{context_text}"
+            has_citable_context = True
 
         # Aggregate docmeta TF-IDF keywords across the top chunks so the LLM
         # can anchor on document topics even when the user's query is fuzzy

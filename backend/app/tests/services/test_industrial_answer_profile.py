@@ -117,6 +117,28 @@ def test_answer_policy_prompt_prefers_direct_factual_answers():
     assert "source-by-source lists" in prompt
 
 
+def test_answer_policy_prompt_transversal_inventory_uses_consolidated_list():
+    # The transversal_inventory profile must instruct the model to present the
+    # full project list from the consolidated facet aggregation (when provided)
+    # and never claim the information is unavailable / partial.
+    prompt = answer_policy_prompt(
+        answer_policy=industrial_answer_policy(),
+        profile_decision={"profile": "transversal_inventory"},
+        language="fr",
+    )
+
+    assert "Inventaire projets consolidé" in prompt
+    assert "couverture exhaustive" in prompt
+    assert "full deduplicated set of projects" in prompt
+    # A non-inventory profile must NOT carry the consolidated-list instruction.
+    precise = answer_policy_prompt(
+        answer_policy=industrial_answer_policy(),
+        profile_decision={"profile": "precise_fact"},
+        language="fr",
+    )
+    assert "Inventaire projets consolidé" not in precise
+
+
 def test_answer_policy_prompt_contains_source_conflict_instruction():
     # Case 1: documents disagree on the asked fact. The policy prompt must tell
     # the model to answer AND flag the disagreement, naming both values+sources,

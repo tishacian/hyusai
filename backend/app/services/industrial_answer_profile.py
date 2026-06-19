@@ -262,6 +262,7 @@ def answer_policy_prompt(
             lines.append(f"- {item}")
     if profile_key == "transversal_inventory":
         lines.append("- This is an exhaustive inventory question: if evidence is insufficient, say which information is documented and what remains unavailable; do not call a partial sample exhaustive.")
+        lines.append("- When the context includes a consolidated project inventory block (\"Inventaire projets consolidé … couverture exhaustive\"), treat that list as the complete, authoritative coverage of the indexed corpus: present the full deduplicated set of projects it contains (you may group or order by the associated documentation volume given in parentheses) and never claim the information is unavailable or that the list is partial when that block is present.")
     return "\n".join(lines)
 
 
