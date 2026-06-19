@@ -2124,6 +2124,61 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
 
 
 @pytest.mark.asyncio
+async def test_gateway_metrics_empty_incremental_stt(db_session, monkeypatch):
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-empty-partial", name="GW Empty Partial", slug="gw-empty-partial")
+    user = User(id="user-gw-empty-partial", username="empty@datategy.local", email="empty@datategy.local")
+    db_session.add_all([workspace, user])
+
+    class FakeProvider:
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None, language=None):
+            return {"text": "", "provider": "fake", "model": "fake-stt"}
+
+    monkeypatch.setattr(gw, "get_voice_runtime_provider", lambda *a, **k: FakeProvider())
+    monkeypatch.setattr(gw, "_PARTIAL_STT_MIN_INTERVAL_MS", 0)
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id="capture-empty-partial", tandem_oracle_enabled=False)
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={
+            "type": "audio.frame",
+            "payload": {
+                "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+                "turn_id": "seg-empty-partial",
+                "content_type": "audio/webm",
+            },
+        },
+    )
+    await asyncio.gather(*list(state.partial_stt_tasks))
+
+    assert "transcript.partial" not in [event_type for event_type, _ in sent]
+    partial_metric = next(
+        payload
+        for event_type, payload in sent
+        if event_type == "runtime.metric" and payload.get("metric") == "partial_stt"
+    )
+    assert partial_metric["status"] == "empty"
+    assert partial_metric["reason"] == "empty_text"
+    assert partial_metric["turn_id"] == "seg-empty-partial"
+    assert partial_metric["text_len"] == 0
+    assert state.partial_stt_in_flight is False
+
+
+@pytest.mark.asyncio
 async def test_gateway_endpoint_stt_metric_excludes_capture_duration(db_session, monkeypatch):
     from app.services import voice_session_gateway as gw
 
