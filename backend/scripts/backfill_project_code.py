@@ -39,12 +39,22 @@ considered, so a re-run is a no-op. Reuses the reconcile script's Qdrant
 plumbing (``_client`` / ``_resolve_collection``) and the same document-identity
 key (``normalize_source_name``) so PG and Qdrant rows are matched consistently.
 
+A companion ``--qdrant`` mode fills the *chunk payloads* themselves (via
+``set_payload``, vectors untouched) for the same fill-only discipline: existing
+points whose ``project_code`` is null get the namespace-derived code +
+``project_reference_kind`` so retrieval / facets (incl. the transversal
+inventory) can see the now-resolvable projects without a reindex. It is scoped
+per ``document_filename`` and skips any document whose other chunks already
+carry a divergent code.
+
 Usage (inside the backend container):
     python -m scripts.backfill_project_code --workspace andritz            # dry-run (default)
     python -m scripts.backfill_project_code --workspace andritz --apply    # write
     python -m scripts.backfill_project_code --workspace andritz \
         --collection andritz-notices-techniques-spl-pilot --apply
     python -m scripts.backfill_project_code --all-workspaces                # every workspace
+    python -m scripts.backfill_project_code --workspace andritz --qdrant            # chunk-payload dry-run
+    python -m scripts.backfill_project_code --workspace andritz --qdrant --apply    # chunk-payload write
 """
 from __future__ import annotations
 
@@ -169,6 +179,157 @@ def _resolve_qdrant_code(codes: set[str]):
     if len(codes) == 1:
         return next(iter(codes))
     return _CONFLICT
+
+
+def _blank_qdrant_filter(models, document_filename: str | None = None):
+    """Filter for points whose ``project_code`` is null/missing (fill-only).
+
+    ``IsEmptyCondition`` matches null, missing, or empty-array payloads, so a
+    re-run after a fill is a no-op (the filled points are no longer empty) and a
+    point that already carries a code is never selected for overwrite. An
+    optional ``document_filename`` scopes the filter to a single document.
+    """
+    must = [models.IsEmptyCondition(is_empty=models.PayloadField(key="project_code"))]
+    if document_filename is not None:
+        must.append(
+            models.FieldCondition(
+                key="document_filename", match=models.MatchValue(value=document_filename)
+            )
+        )
+    return models.Filter(must=must)
+
+
+def _blank_doc_point_counts(client, coll: str, batch: int = 2000) -> Counter:
+    """Count blank-``project_code`` points grouped by ``document_filename``."""
+    from qdrant_client import models
+
+    counts: Counter = Counter()
+    next_offset = None
+    while True:
+        points, next_offset = client.scroll(
+            collection_name=coll,
+            scroll_filter=_blank_qdrant_filter(models),
+            limit=batch,
+            offset=next_offset,
+            with_payload=["document_filename"],
+            with_vectors=False,
+        )
+        for point in points:
+            name = str((point.payload or {}).get("document_filename") or "").strip()
+            if name:
+                counts[name] += 1
+        if next_offset is None:
+            break
+    return counts
+
+
+def qdrant_fill_collection(client, collection: KnowledgeCollection, apply: bool) -> dict:
+    """Fill ``project_code`` on existing Qdrant chunks (no reindex, fill-only).
+
+    For every document that still carries blank chunks, derive its project code
+    from the archive-namespace prefix (the same discipline as the ledger
+    backfill) and ``set_payload`` ``project_code`` + ``project_reference_kind``
+    on *only* the blank points of that document, scoped by ``document_filename``.
+    Vectors are untouched. A document whose other chunks already carry a
+    *different* code is flagged and skipped rather than made inconsistent.
+    """
+    from qdrant_client import models
+
+    base = collection.vector_collection_name
+    try:
+        coll = _resolve_collection(client, base)
+    except Exception:
+        coll = base
+
+    blank_counts = _blank_doc_point_counts(client, coll)
+    stats = Counter()
+    code_points: Counter = Counter()
+    code_docs: Counter = Counter()
+    fill_docs = fill_points = 0
+    flagged: list = []
+    no_code: list = []
+    examples: list = []
+
+    for name, blank_points in blank_counts.items():
+        stats["blank_docs"] += 1
+        stats["blank_points"] += blank_points
+        derived = _extract_andritz_project_reference(_archive_namespace(name)).get("project_code")
+        if not derived:
+            stats["no_code_docs"] += 1
+            stats["no_code_points"] += blank_points
+            if len(no_code) < _EXAMPLES_PER_BUCKET:
+                no_code.append((name, _archive_namespace(name)))
+            continue
+
+        # Fill-only safety: if the document's *other* chunks already carry a
+        # code, only proceed when it equals the derived value; a divergent code
+        # is reported, never overwritten or mixed.
+        existing = _doc_project_codes(client, coll, name)
+        conflicting = {code for code in existing if code != derived}
+        if conflicting:
+            stats["flagged_docs"] += 1
+            if len(flagged) < _EXAMPLES_PER_BUCKET:
+                flagged.append((name, f"derived={derived} existing={sorted(existing)}"))
+            continue
+
+        fill_docs += 1
+        fill_points += blank_points
+        code_points[derived] += blank_points
+        code_docs[derived] += 1
+        if len(examples) < _EXAMPLES_PER_BUCKET:
+            examples.append((name, derived))
+
+        if apply:
+            client.set_payload(
+                collection_name=coll,
+                payload={"project_code": derived, "project_reference_kind": "andritz_project"},
+                points=_blank_qdrant_filter(models, name),
+                wait=True,
+            )
+
+    return {
+        "collection": collection.slug,
+        "qdrant_coll": coll,
+        "blank_docs": stats["blank_docs"],
+        "blank_points": stats["blank_points"],
+        "fill_docs": fill_docs,
+        "fill_points": fill_points,
+        "no_code_docs": stats["no_code_docs"],
+        "no_code_points": stats["no_code_points"],
+        "flagged_docs": stats["flagged_docs"],
+        "distinct_codes": sorted(code_docs),
+        "code_docs": code_docs.most_common(12),
+        "code_points": dict(code_points),
+        "examples": examples,
+        "no_code_examples": no_code,
+        "flagged": flagged,
+    }
+
+
+def _print_qdrant_result(result: dict, apply: bool) -> None:
+    verb = "filled" if apply else "fillable"
+    print(
+        f"[{result['collection']}] blank_points={result['blank_points']} "
+        f"blank_docs={result['blank_docs']} -> {verb}: "
+        f"docs={result['fill_docs']} points={result['fill_points']} | "
+        f"unresolved: no_code_docs={result['no_code_docs']} "
+        f"(points={result['no_code_points']}) flagged_docs={result['flagged_docs']} "
+        f"(coll={result['qdrant_coll']})"
+    )
+    if result["code_docs"]:
+        spread = ", ".join(
+            f"{code}:{docs}d/{result['code_points'].get(code, 0)}p"
+            for code, docs in result["code_docs"]
+        )
+        print(f"    {verb} codes (docs/points): {spread}")
+    if result["distinct_codes"]:
+        print(f"    distinct codes: {', '.join(result['distinct_codes'])}")
+    for name, code in result["examples"][:3]:
+        print(f"    [fill    ] {code:18s} <- {name[:90]}")
+    for name, info in result["no_code_examples"][:3]:
+        print(f"    [no_code ] {info:18s} <- {name[:90]}")
+    for name, info in result["flagged"]:
+        print(f"    [FLAGGED ] {info} <- {name[:90]}")
 
 
 def _iter_blank_batches(db, collection_id: str, batch: int):
@@ -322,6 +483,11 @@ def main() -> None:
     parser.add_argument("--all-workspaces", action="store_true", help="Process every workspace")
     parser.add_argument("--collection", default=None, help="Limit to a single collection slug")
     parser.add_argument("--apply", action="store_true", help="Write changes (default: dry-run)")
+    parser.add_argument(
+        "--qdrant",
+        action="store_true",
+        help="Fill project_code on existing Qdrant chunks (set_payload, no reindex) instead of the ledger",
+    )
     args = parser.parse_args()
 
     db = SessionLocal()
@@ -336,6 +502,7 @@ def main() -> None:
             workspaces = [workspace]
 
         mode = "APPLY" if args.apply else "DRY-RUN"
+        target = "qdrant-payload" if args.qdrant else "ledger"
         totals = Counter()
         for workspace in workspaces:
             query = db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id == workspace.id)
@@ -343,21 +510,38 @@ def main() -> None:
                 query = query.filter(KnowledgeCollection.slug == args.collection)
             collections = query.order_by(KnowledgeCollection.slug.asc()).all()
             print(
-                f"=== project_code backfill [{mode}] workspace={workspace.slug} "
+                f"=== project_code backfill [{mode}/{target}] workspace={workspace.slug} "
                 f"collections={len(collections)} ==="
             )
             for collection in collections:
-                result = backfill_collection(db, client, collection, args.apply)
-                for key in ("blank", "fill_qdrant", "fill_path", "no_code", "conflict", "disagree", "blank_after"):
-                    totals[key] += result[key]
-                _print_result(result, args.apply)
+                if args.qdrant:
+                    result = qdrant_fill_collection(client, collection, args.apply)
+                    for key in (
+                        "blank_docs", "blank_points", "fill_docs", "fill_points",
+                        "no_code_docs", "no_code_points", "flagged_docs",
+                    ):
+                        totals[key] += result[key]
+                    _print_qdrant_result(result, args.apply)
+                else:
+                    result = backfill_collection(db, client, collection, args.apply)
+                    for key in ("blank", "fill_qdrant", "fill_path", "no_code", "conflict", "disagree", "blank_after"):
+                        totals[key] += result[key]
+                    _print_result(result, args.apply)
 
-        print(
-            f"=== TOTAL [{mode}] blank={totals['blank']} "
-            f"fill_qdrant={totals['fill_qdrant']} fill_path={totals['fill_path']} "
-            f"unresolved(no_code={totals['no_code']} conflict={totals['conflict']} "
-            f"disagree={totals['disagree']}) blank_after={totals['blank_after']} ==="
-        )
+        if args.qdrant:
+            print(
+                f"=== TOTAL [{mode}/qdrant-payload] blank_docs={totals['blank_docs']} "
+                f"blank_points={totals['blank_points']} -> fill_docs={totals['fill_docs']} "
+                f"fill_points={totals['fill_points']} | unresolved("
+                f"no_code_docs={totals['no_code_docs']} flagged_docs={totals['flagged_docs']}) ==="
+            )
+        else:
+            print(
+                f"=== TOTAL [{mode}] blank={totals['blank']} "
+                f"fill_qdrant={totals['fill_qdrant']} fill_path={totals['fill_path']} "
+                f"unresolved(no_code={totals['no_code']} conflict={totals['conflict']} "
+                f"disagree={totals['disagree']}) blank_after={totals['blank_after']} ==="
+            )
     finally:
         db.close()
 
