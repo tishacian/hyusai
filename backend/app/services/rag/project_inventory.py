@@ -84,6 +84,24 @@ def _fold_compact(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", folded.lower())
 
 
+def _term_case_variants(term: str) -> list[str]:
+    """Case variants of a folded term for a case-sensitive ``MatchText`` scan.
+
+    The chunk ``content`` field carries no full-text index, so Qdrant's
+    ``MatchText`` falls back to a *case-sensitive* payload scan. Equipment brands
+    are canonically uppercase in the corpus (e.g. "URACA" appears ~10x more often
+    than "uraca"), so matching only the lowercased query token under-counts the
+    inventory by ~12x. Emit lower/UPPER/Title variants and OR them so the facet
+    captures every casing without needing a full-text index.
+    """
+    variants: list[str] = []
+    for variant in (term, term.upper(), term.capitalize()):
+        candidate = variant.strip()
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+    return variants
+
+
 def extract_inventory_terms(query: str) -> list[str]:
     """Return the query's discriminating equipment term(s).
 
@@ -116,9 +134,16 @@ def _facet_once(
 ) -> list[tuple[str, int]]:
     from qdrant_client import models
 
+    # AND across the discriminating terms; OR the case variants of each term so a
+    # case-sensitive (un-indexed) ``MatchText`` scan still captures every casing.
     query_filter = models.Filter(
         must=[
-            models.FieldCondition(key="content", match=models.MatchText(text=term))
+            models.Filter(
+                should=[
+                    models.FieldCondition(key="content", match=models.MatchText(text=variant))
+                    for variant in _term_case_variants(term)
+                ]
+            )
             for term in terms
         ]
     )
