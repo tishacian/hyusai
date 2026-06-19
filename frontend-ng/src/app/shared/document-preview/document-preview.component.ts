@@ -8,7 +8,7 @@ import { Subscription } from 'rxjs';
 import { IconComponent } from '@app/shared/ui/icon.component';
 
 interface RichDocumentPreview {
-  kind: 'text' | 'spreadsheet' | 'image' | 'pdf' | 'binary';
+  kind: 'text' | 'html' | 'spreadsheet' | 'image' | 'pdf' | 'binary';
   filename: string;
   content_type: string;
   size_bytes: number;
@@ -75,12 +75,17 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
               </div>
             } @else if (preview(); as doc) {
               @if (htmlSrcdoc()) {
-                <iframe
-                  class="block h-full w-full bg-white"
-                  sandbox=""
-                  [srcdoc]="htmlSrcdoc()!"
-                  title="HTML document preview"
-                ></iframe>
+                <div class="relative h-full">
+                  @if (doc.truncated) {
+                    <span class="absolute right-3 top-3 z-10 rounded bg-yellow-500/90 px-2 py-0.5 text-[10px] font-semibold text-black shadow ring-1 ring-yellow-600/40">Truncated preview</span>
+                  }
+                  <iframe
+                    class="block h-full w-full bg-white"
+                    sandbox=""
+                    [srcdoc]="htmlSrcdoc()!"
+                    title="HTML document preview"
+                  ></iframe>
+                </div>
               } @else if (doc.kind === 'text') {
                 <pre class="min-h-full whitespace-pre-wrap p-4 font-mono text-xs leading-relaxed text-gray-100">{{ doc.content || '' }}</pre>
               } @else if (doc.kind === 'spreadsheet') {
@@ -341,6 +346,7 @@ export class DocumentPreviewComponent {
   }
 
   private isHtmlPreview(doc: RichDocumentPreview): boolean {
+    if (doc.kind === 'html') return !!doc.content;
     const filename = (doc.filename || '').toLowerCase();
     const contentType = (doc.content_type || '').toLowerCase();
     return (

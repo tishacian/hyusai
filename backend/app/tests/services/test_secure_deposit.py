@@ -19,6 +19,7 @@ from app.services.object_store import get_object_store
 from app.services.secure_deposit import (
     authenticate_link,
     build_deposit_archive,
+    build_file_preview,
     create_link,
     promote_file_to_collection,
     preview_deposit_file,
@@ -254,6 +255,42 @@ def test_preview_deposit_file_returns_text_content(db_session, monkeypatch, tmp_
     assert preview["kind"] == "text"
     assert "Torque setting" in preview["content"]
     assert preview["download_url"].endswith(f"/{row.id}/download")
+
+
+def test_build_file_preview_large_pdf_renders_inline(tmp_path):
+    # Carde manuals routinely exceed the 25 MB image cap (the real one was
+    # ~125 MB). The PDF branch only needs size + media type, so we assert the
+    # large-PDF path without materialising 130 MB of bytes on disk.
+    preview = build_file_preview(
+        tmp_path / "70060-Carde ELM001Y.pdf",
+        filename="70060-Carde ELM001Y.pdf",
+        media_type="application/pdf",
+        size_bytes=130 * 1024 * 1024,
+        download_url="/api/v1/documents/doc-1/raw",
+    )
+
+    assert preview["kind"] == "pdf"
+    assert preview["size_bytes"] == 130 * 1024 * 1024
+
+
+def test_build_file_preview_html_returns_html_content(tmp_path):
+    source = tmp_path / "report.html"
+    source.write_text(
+        "<html><body><h1>Commissioning</h1><p>Torque 42 Nm</p></body></html>",
+        encoding="utf-8",
+    )
+
+    preview = build_file_preview(
+        source,
+        filename="report.html",
+        media_type="text/html",
+        size_bytes=source.stat().st_size,
+        download_url="/api/v1/documents/doc-2/raw",
+    )
+
+    assert preview["kind"] == "html"
+    assert "Commissioning" in preview["content"]
+    assert preview["truncated"] is False
 
 
 def test_preview_deposit_file_returns_spreadsheet_rows(db_session, monkeypatch, tmp_path):

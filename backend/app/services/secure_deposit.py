@@ -64,6 +64,9 @@ _UPLOAD_CHUNK_BYTES = 1024 * 1024
 _TEXT_PREVIEW_BYTES = 1024 * 1024
 _STRUCTURED_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
 _INLINE_PREVIEW_MAX_BYTES = 25 * 1024 * 1024
+# PDFs (e.g. Andritz carde manuals) routinely exceed the 25 MB image cap; the
+# viewer streams the bytes lazily as a blob, so a generous cap is fine.
+_PDF_PREVIEW_MAX_BYTES = 256 * 1024 * 1024
 _TEXT_EXTENSIONS = {
     "csv",
     "json",
@@ -402,11 +405,11 @@ def build_file_preview(
         content = _decode_preview_text(data)
         return {**base, "kind": "text", "content": content, "truncated": truncated}
 
-    if size <= _INLINE_PREVIEW_MAX_BYTES:
-        if media_type.startswith("image/"):
-            return {**base, "kind": "image"}
-        if media_type == "application/pdf":
-            return {**base, "kind": "pdf"}
+    if media_type == "application/pdf" and size <= _PDF_PREVIEW_MAX_BYTES:
+        return {**base, "kind": "pdf"}
+
+    if media_type.startswith("image/") and size <= _INLINE_PREVIEW_MAX_BYTES:
+        return {**base, "kind": "image"}
 
     return {**base, "kind": "binary"}
 
