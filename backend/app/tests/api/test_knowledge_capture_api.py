@@ -111,6 +111,53 @@ def test_free_conversation_plan_via_api(db_session, monkeypatch):
     assert body["metrics"]["capture_domain"] == "technical"
 
 
+def test_free_conversation_proposal_endpoint_returns_structured_topic(db_session, monkeypatch):
+    import app.services.knowledge_capture as kc_service
+
+    workspace = Workspace(id="ws-kc-api-free-proposal", name="KC API Free Proposal", slug="kc-api-free-proposal")
+    user = User(id="user-kc-api-free-proposal", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    finalize_calls: list[str] = []
+
+    async def _fast_finalize(db, *, workspace_id, session_id, created_by_user_id=None, **_kwargs):
+        finalize_calls.append(session_id)
+        return kc_service.create_update_proposal(
+            db,
+            workspace_id=workspace_id,
+            session_id=session_id,
+            created_by_user_id=created_by_user_id,
+        )
+
+    monkeypatch.setattr(knowledge_capture, "finalize_capture", _fast_finalize)
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture libre rapport",
+            "objective": "Capturer un retour terrain sans plan.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={"speaker": "expert", "text": "La pompe doit être purgée deux minutes avant redémarrage terrain."},
+    )
+
+    response = client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/proposal")
+
+    assert response.status_code == 200
+    assert finalize_calls == [session_id]
+    topics = response.json()["proposal"]["plan_structure"]["topics"]
+    assert topics[0]["topic_id"] == "session"
+    assert topics[0]["title"] == "Synthèse de la capture"
+
+
 def test_plan_creation_keeps_warm_cache_failures_non_blocking(db_session, monkeypatch):
     workspace = Workspace(id="ws-kc-api-warm-fail", name="KC API Warm Fail", slug="kc-api-warm-fail")
     user = User(id="user-kc-api-warm-fail", username="operator", email="operator@example.test")
@@ -218,6 +265,59 @@ def test_closure_sheet_and_extend_endpoints(db_session, monkeypatch):
     assert finish_body["action"] == "finish"
     assert finish_body["closure_sheet"]["markdown"]
     assert finish_body["session"]["status"] == "completed"
+
+
+def test_free_conversation_closure_finish_returns_structured_proposal(db_session, monkeypatch):
+    import app.services.knowledge_capture as kc_service
+
+    workspace = Workspace(id="ws-kc-api-free-closure", name="KC API Free Closure", slug="kc-api-free-closure")
+    user = User(id="user-kc-api-free-closure", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    finalize_calls: list[str] = []
+
+    async def _fast_finalize(db, *, workspace_id, session_id, created_by_user_id=None, **_kwargs):
+        finalize_calls.append(session_id)
+        return kc_service.create_update_proposal(
+            db,
+            workspace_id=workspace_id,
+            session_id=session_id,
+            created_by_user_id=created_by_user_id,
+        )
+
+    monkeypatch.setattr(knowledge_capture, "finalize_capture", _fast_finalize)
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture libre clôture",
+            "objective": "Capturer un retour terrain sans plan.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={"speaker": "expert", "text": "Le convoyeur doit rester à vitesse réduite après nettoyage humide."},
+    )
+
+    response = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/closure",
+        json={"action": "finish"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert finalize_calls == [session_id]
+    assert body["action"] == "finish"
+    assert body["session"]["status"] == "completed"
+    topics = body["proposal"]["proposal"]["plan_structure"]["topics"]
+    assert topics[0]["topic_id"] == "session"
+    assert topics[0]["title"] == "Synthèse de la capture"
 
 
 def test_archive_and_unarchive_session(db_session, monkeypatch):

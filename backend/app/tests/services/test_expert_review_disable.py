@@ -8,8 +8,8 @@ Covers the per-workspace ``source_policy.expert_review_required`` gate:
   ``Message(role="assistant", kind="expert_correction_ack")`` when a chat
   ``session_id`` is present, and skipped otherwise;
 * the thematic synthesis has a deterministic fallback when no LLM is configured;
-* system capture with review OFF auto-publishes, and publication defaults the
-  ``source_type=expert_fiche`` provenance marker.
+* system capture with review OFF is auto-validated but not published without
+  an explicit publication action.
 """
 from __future__ import annotations
 
@@ -265,7 +265,7 @@ def test_acknowledgement_wording_published_vs_pending():
 
 
 # ---------------------------------------------------------------------------
-# System capture — review OFF auto-publishes + default source_type stamping
+# System capture — review OFF auto-validates but does not publish
 # ---------------------------------------------------------------------------
 
 
@@ -297,7 +297,7 @@ def _seed_capture_session(db_session, workspace, *, context):
     return session
 
 
-def test_capture_proposal_review_off_auto_publishes(db_session, monkeypatch):
+def test_capture_proposal_review_off_auto_accepts_without_publishing(db_session, monkeypatch):
     workspace = Workspace(
         id="ws-cap-autopub",
         name="Capture Autopublish",
@@ -326,10 +326,8 @@ def test_capture_proposal_review_off_auto_publishes(db_session, monkeypatch):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "published"
-    # Capture publications default to the expert-fiche provenance marker even
-    # though the proposal never set source_type explicitly.
-    assert _FakeDocumentService.captured["source_type"] == "expert_fiche"
+    assert data["status"] == "accepted"
+    assert _FakeDocumentService.captured == {}
 
 
 def test_capture_proposal_review_on_stays_pending(db_session, monkeypatch):

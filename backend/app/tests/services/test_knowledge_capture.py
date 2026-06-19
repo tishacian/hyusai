@@ -1541,6 +1541,83 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
     assert all(event.event_type not in {"stt_partial", "retrieval_prefetch_started"} for event in business_events)
 
 
+@pytest.mark.asyncio
+async def test_free_conversation_prefetch_weak_evidence_is_passive(db_session, monkeypatch):
+    workspace = Workspace(id="ws-free-passive", name="Free Passive", slug="free-passive")
+    context = Context(
+        id="ctx-free-passive",
+        workspace_id=workspace.id,
+        name="Passive collection",
+        environment_state={"collection": "passive-knowledge"},
+    )
+    db_session.add_all([workspace, context])
+    seed_skills_and_capabilities(db_session)
+
+    async def fake_retrieve_rag_context(_request):
+        return {
+            "chunks": ["Parent context: DCC parameter glossary and unrelated motor maintenance table."],
+            "scores": [0.42],
+            "metadatas": [
+                {
+                    "title": "Unrelated manual",
+                    "source": "manual",
+                    "retrieval_evidence_coverage": 0.05,
+                    "retrieval_policy_score": 1,
+                    "retrieval_exact_terms_matched": [],
+                }
+            ],
+            "pipeline": "hybrid",
+            "metrics": {"retrieval_profile": "oracle_fast"},
+        }
+
+    def fail_hints(*_args, **_kwargs):
+        raise AssertionError("weak free-conversation retrieval must not push live hints")
+
+    monkeypatch.setattr("app.services.rag.context.retrieve_rag_context", fake_retrieve_rag_context)
+    monkeypatch.setattr("app.services.knowledge_capture.process_capture_partial_hints", fail_hints)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture libre",
+        objective="Tester la capture sans plan.",
+        expert_profile="Expert métier",
+        duration_minutes=20,
+        context_id=context.id,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+
+    prefetch = await prefetch_capture_retrieval(
+        db_session,
+        workspace_id=workspace.id,
+        workspace_slug=workspace.slug,
+        session_id=session.id,
+        client_turn_id="turn-free-passive",
+        question_id=None,
+        partial_text="Donc je suis en mode robuste et je teste la latence de transcription.",
+        top_k=4,
+    )
+
+    assert prefetch["status"] == "completed"
+    assert prefetch["passive"] is True
+    assert prefetch["passive_reason"] == "weak_evidence"
+    assert prefetch["chunks"] == []
+    assert prefetch["hints"] == []
+    assert prefetch["active_section_confidence"] == 0.0
+
+    events = list_capture_events(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+    )
+    prefetch_event = next(event for event in events if event.event_type == "retrieval_prefetch_completed")
+    assert prefetch_event.meta_data["passive"] is True
+    assert prefetch_event.meta_data["passive_reason"] == "weak_evidence"
+    assert prefetch_event.meta_data["chunks"], "audit keeps the raw retrieval evidence"
+
+
 def test_oracle_detects_rpm_contradiction_and_hint():
     from app.services.capture_knowledge_oracle import (
         CaptureSessionContext,
@@ -5249,3 +5326,46 @@ def test_attach_section_synthesis_session_entry_ignored_when_topics_exist():
     result = kc._attach_section_synthesis(structure, plan)
     assert len(result["topics"]) == 1
     assert result["topics"][0]["synthesis"] == "Synthèse du sujet 1."
+
+
+def test_create_update_proposal_free_conversation_materializes_session_topic(db_session):
+    workspace = Workspace(id="ws-free-direct-topic", name="Free Direct Topic", slug="free-direct-topic")
+    user = User(id="user-free-direct-topic", username="free-direct@datategy.local", email="free-direct@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture libre directe",
+        objective="Capturer une fiche sans plan.",
+        expert_profile="Senior field engineer",
+        duration_minutes=0,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        created_by_user_id=user.id,
+        plan_mode="free_conversation",
+    )
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="La pompe de reprise doit être purgée deux minutes avant redémarrage terrain.",
+        actor_user_id=user.id,
+    )
+
+    proposal = create_update_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        created_by_user_id=user.id,
+    )
+
+    structure = proposal.proposal["plan_structure"]
+    assert structure["unassigned"] == []
+    assert structure["topics"][0]["topic_id"] == "session"
+    assert structure["topics"][0]["title"] == "Synthèse de la capture"
+    assert structure["topics"][0]["facts"][0]["text"].startswith("La pompe de reprise")

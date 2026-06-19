@@ -3698,6 +3698,12 @@ def structure_capture_payload(
     # per-section FINAL synthesis when available (cabled _structure_facts_by_plan).
     plan_structure = _structure_facts_by_plan(plan, captured)
     plan_structure = _attach_section_synthesis(plan_structure, plan)
+    plan_structure = _ensure_free_conversation_report_topic(
+        session,
+        plan_structure,
+        captured,
+        open_questions,
+    )
     from app.services.capture_report_templates import (
         build_knowledge_sheet_content,
         resolve_knowledge_sheet_template,
@@ -4375,6 +4381,47 @@ def _attach_section_synthesis(plan_structure: Dict[str, Any], plan: Dict[str, An
                 }
             ]
             plan_structure["unassigned"] = []
+    return plan_structure
+
+
+def _ensure_free_conversation_report_topic(
+    session: ExpertCaptureSession,
+    plan_structure: Dict[str, Any],
+    captured_facts: List[Dict[str, Any]],
+    open_questions: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not _is_free_conversation_session(session):
+        return plan_structure
+    if plan_structure.get("topics"):
+        return plan_structure
+    facts = list(plan_structure.get("unassigned") or captured_facts or [])
+    if not facts:
+        return plan_structure
+    sources: List[Dict[str, Any]] = []
+    seen_sources: set[str] = set()
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        for ref in fact.get("retrieval_refs") or []:
+            if not isinstance(ref, dict):
+                continue
+            key = str(ref.get("document_id") or ref.get("source") or ref.get("title") or ref)
+            if key in seen_sources:
+                continue
+            seen_sources.add(key)
+            sources.append(ref)
+    plan_structure["topics"] = [
+        {
+            "topic_id": "session",
+            "title": "Synthèse de la capture",
+            "prompt": None,
+            "facts": facts,
+            "subtopics": [],
+            "sources": sources,
+            "open_questions": list(open_questions or []),
+        }
+    ]
+    plan_structure["unassigned"] = []
     return plan_structure
 
 
@@ -6859,6 +6906,51 @@ async def apply_proposal_report_instruction(
     return proposal
 
 
+def _is_free_conversation_session(session: ExpertCaptureSession) -> bool:
+    plan = session.plan or {}
+    return plan.get("mode") == "free_conversation" or plan.get("schema_version") == FREE_CONVERSATION_SCHEMA_VERSION
+
+
+def is_free_conversation_session(session: ExpertCaptureSession) -> bool:
+    return _is_free_conversation_session(session)
+
+
+def _metadata_float(metadata: Dict[str, Any], key: str) -> float:
+    try:
+        return float(metadata.get(key) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _retrieval_metadata_has_strong_evidence(metadatas: List[Dict[str, Any]]) -> bool:
+    for metadata in metadatas:
+        coverage = _metadata_float(metadata, "retrieval_evidence_coverage")
+        policy_score = _metadata_float(metadata, "retrieval_policy_score")
+        exact_terms = metadata.get("retrieval_exact_terms_matched")
+        exact_term_count = len(exact_terms) if isinstance(exact_terms, list) else 0
+        if coverage >= 0.35 or exact_term_count >= 2 or (coverage >= 0.2 and policy_score >= 3):
+            return True
+    return False
+
+
+def _capture_prefetch_passive_state(
+    session: ExpertCaptureSession,
+    *,
+    status: str,
+    oracle_exact_matches: List[Dict[str, Any]],
+    metadatas: List[Dict[str, Any]],
+) -> tuple[bool, Optional[str]]:
+    if not _is_free_conversation_session(session):
+        return False, None
+    if status in {"timeout", "error"}:
+        return True, status
+    if oracle_exact_matches:
+        return False, None
+    if _retrieval_metadata_has_strong_evidence(metadatas):
+        return False, None
+    return True, "weak_evidence"
+
+
 async def prefetch_capture_retrieval(
     db: DBSession,
     *,
@@ -6999,6 +7091,12 @@ async def prefetch_capture_retrieval(
 
     if chunks:
         oracle_exact_matches = sparse_exact_match_evidence(text, chunks, metadatas)
+    passive, passive_reason = _capture_prefetch_passive_state(
+        session,
+        status=status,
+        oracle_exact_matches=oracle_exact_matches,
+        metadatas=metadatas,
+    )
 
     latency_ms = int((time.perf_counter() - started) * 1000)
     final_event = _record_capture_event(
@@ -7022,6 +7120,8 @@ async def prefetch_capture_retrieval(
             "metadatas": metadatas,
             "stale": False,
             "warm_cache_hit": warm_cache_hit,
+            "passive": passive,
+            "passive_reason": passive_reason,
             "oracle_exact_matches": oracle_exact_matches,
             "oracle_exact_match_count": len(oracle_exact_matches),
             **question_meta,
@@ -7032,7 +7132,7 @@ async def prefetch_capture_retrieval(
     db.refresh(final_event)
 
     hint_payload: Dict[str, Any] = {}
-    if chunks and len(_words(text)) >= 6:
+    if not passive and chunks and len(_words(text)) >= 6:
         hint_payload = process_capture_partial_hints(
             db,
             workspace_id=workspace_id,
@@ -7045,23 +7145,28 @@ async def prefetch_capture_retrieval(
         if not oracle_exact_matches:
             oracle_exact_matches = list(hint_payload.get("oracle_exact_matches") or [])
 
+    returned_chunks = [] if passive else chunks
+    returned_scores = [] if passive else scores
+    returned_metadatas = [] if passive else metadatas
     return {
         "event_id": final_event.id,
         "status": status,
         "latency_ms": latency_ms,
-        "chunks": chunks,
-        "scores": scores,
-        "metadatas": metadatas,
+        "chunks": returned_chunks,
+        "scores": returned_scores,
+        "metadatas": returned_metadatas,
         "stale": False,
         "warm_cache_hit": warm_cache_hit,
+        "passive": passive,
+        "passive_reason": passive_reason,
         "oracle_exact_matches": oracle_exact_matches,
         "oracle_exact_match_count": len(oracle_exact_matches),
         "collection_name": collection_name,
-        "hints": hint_payload.get("hints") or [],
-        "active_subtopic_id": hint_payload.get("active_subtopic_id"),
-        "active_topic_id": hint_payload.get("active_topic_id"),
-        "active_section_confidence": hint_payload.get("active_section_confidence") or 0.0,
-        "contradiction_candidates": hint_payload.get("contradiction_candidates") or [],
+        "hints": [] if passive else (hint_payload.get("hints") or []),
+        "active_subtopic_id": None if passive else hint_payload.get("active_subtopic_id"),
+        "active_topic_id": None if passive else hint_payload.get("active_topic_id"),
+        "active_section_confidence": 0.0 if passive else (hint_payload.get("active_section_confidence") or 0.0),
+        "contradiction_candidates": [] if passive else (hint_payload.get("contradiction_candidates") or []),
         **question_meta,
     }
 
@@ -7802,6 +7907,10 @@ def _session_has_proposal_material(db: DBSession, *, workspace_id: str, session:
     events = list_capture_events(db, workspace_id=workspace_id, session_id=session.id)
     payload = structure_capture_payload(session, events)
     return bool(payload.get("captured_facts"))
+
+
+def session_has_proposal_material(db: DBSession, *, workspace_id: str, session: ExpertCaptureSession) -> bool:
+    return _session_has_proposal_material(db, workspace_id=workspace_id, session=session)
 
 
 def _resolve_collection_name(ctx: Optional[Context]) -> str:

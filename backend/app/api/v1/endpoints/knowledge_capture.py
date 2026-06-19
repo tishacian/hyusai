@@ -55,12 +55,14 @@ from app.services.knowledge_capture import (
     defer_quality_item,
     export_session_proposal_markdown,
     extend_capture_session,
+    finalize_capture,
     finalize_plan_from_dialogue,
     generate_question_bank,
     generate_session_closure_sheet,
     get_hint_queue,
     get_plan_topics,
     get_session,
+    is_free_conversation_session,
     is_expert_review_required,
     list_capture_events,
     list_published_fiches,
@@ -74,6 +76,7 @@ from app.services.knowledge_capture import (
     serialize_event,
     serialize_proposal,
     serialize_session,
+    session_has_proposal_material,
     start_session,
     summarize_chat_correction_theme,
     warm_capture_context_cache,
@@ -228,6 +231,38 @@ def _resolve_workspace_source_policy(workspace: Workspace) -> Dict[str, Any]:
     workbench writes ``expert_review_required`` to).
     """
     return _as_dict(_as_dict(getattr(workspace, "settings", None)).get("source_policy"))
+
+
+def _auto_accept_capture_proposal_if_review_disabled(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    user: User,
+    proposal: KnowledgeUpdateProposal,
+) -> KnowledgeUpdateProposal:
+    # Review-disabled capture removes reviewer arbitration only. Publishing must
+    # stay explicit from the publish step.
+    source_policy = _resolve_workspace_source_policy(workspace)
+    if is_expert_review_required(source_policy) or proposal.status != "pending_review":
+        return proposal
+    try:
+        review_proposal(
+            db,
+            workspace_id=workspace.id,
+            proposal_id=proposal.id,
+            status="accepted",
+            reviewer="auto",
+            review_notes="auto-validée (revue désactivée)",
+        )
+        db.refresh(proposal)
+    except Exception:  # noqa: BLE001 — never lose the capture on auto-review failure.
+        logger.exception(
+            "kc.capture_proposal.auto_review_failed",
+            proposal_id=proposal.id,
+            workspace_id=workspace.id,
+            actor=_actor_label(user),
+        )
+    return proposal
 
 
 _AUDIO_CONTENT_TYPE_EXTENSIONS = {
@@ -1059,43 +1094,34 @@ async def create_capture_proposal(
             resource_attrs=_session_attrs(session),
             audit_prefix="kc",
         )
-        proposal = create_update_proposal(
+        if is_free_conversation_session(session) and session_has_proposal_material(
             db,
             workspace_id=workspace.id,
-            session_id=session_id,
-            created_by_user_id=user.id,
-        )
+            session=session,
+        ):
+            proposal = await finalize_capture(
+                db,
+                workspace_id=workspace.id,
+                session_id=session_id,
+                workspace_slug=workspace.slug,
+                created_by_user_id=user.id,
+            )
+        else:
+            proposal = create_update_proposal(
+                db,
+                workspace_id=workspace.id,
+                session_id=session_id,
+                created_by_user_id=user.id,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    # Auto-validation for system captures: when the workspace disables expert
-    # review, accept and publish the freshly created proposal immediately.
-    # The status guard prevents a double-publish if the proposal was already
-    # advanced past pending_review.
-    source_policy = _resolve_workspace_source_policy(workspace)
-    if not is_expert_review_required(source_policy) and proposal.status == "pending_review":
-        try:
-            review_proposal(
-                db,
-                workspace_id=workspace.id,
-                proposal_id=proposal.id,
-                status="accepted",
-                reviewer="auto",
-                review_notes="auto-validée (revue désactivée)",
-            )
-            await publish_proposal_to_knowledge(
-                db,
-                workspace=workspace,
-                proposal_id=proposal.id,
-                actor_label=_actor_label(user),
-            )
-            db.refresh(proposal)
-        except Exception:  # noqa: BLE001 — never lose the capture on ingest failure.
-            logger.exception(
-                "kc.capture_proposal.auto_publish_failed",
-                proposal_id=proposal.id,
-                workspace_id=workspace.id,
-            )
+    proposal = _auto_accept_capture_proposal_if_review_disabled(
+        db,
+        workspace=workspace,
+        user=user,
+        proposal=proposal,
+    )
     return serialize_proposal(proposal)
 
 
@@ -1844,6 +1870,36 @@ async def apply_capture_session_closure(
             resource_attrs=_session_attrs(session),
             audit_prefix="kc",
         )
+        normalized_action = (body.action or "finish").strip().lower()
+        if normalized_action == "finish" and is_free_conversation_session(session) and session_has_proposal_material(
+            db,
+            workspace_id=workspace.id,
+            session=session,
+        ):
+            proposal = await finalize_capture(
+                db,
+                workspace_id=workspace.id,
+                session_id=session_id,
+                workspace_slug=workspace.slug,
+                created_by_user_id=user.id,
+            )
+            proposal = _auto_accept_capture_proposal_if_review_disabled(
+                db,
+                workspace=workspace,
+                user=user,
+                proposal=proposal,
+            )
+            refreshed = get_session(db, workspace_id=workspace.id, session_id=session_id)
+            closure = build_session_closure_sheet(
+                refreshed,
+                list_capture_events(db, workspace_id=workspace.id, session_id=session_id),
+            )
+            return {
+                "action": "finish",
+                "session": serialize_session(refreshed),
+                "closure_sheet": closure,
+                "proposal": serialize_proposal(proposal),
+            }
         return apply_session_closure_action(
             db,
             workspace_id=workspace.id,

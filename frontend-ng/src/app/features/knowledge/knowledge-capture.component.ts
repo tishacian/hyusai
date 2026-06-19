@@ -2,7 +2,7 @@ import { AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, ElementR
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, Subscription } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService, PublishedCaptureFiche } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
@@ -204,7 +204,7 @@ type Voice2VoiceState =
 
 interface RetrievalPrefetch {
   event_id?: string;
-  status: 'idle' | 'searching' | 'ready' | 'late' | 'timeout' | 'error' | 'completed';
+  status: 'idle' | 'searching' | 'ready' | 'late' | 'timeout' | 'error' | 'completed' | 'completed_from_warm_cache' | 'ignored';
   latency_ms?: number;
   collection_name?: string;
   chunks: string[];
@@ -214,6 +214,9 @@ interface RetrievalPrefetch {
   active_subtopic_id?: string;
   active_topic_id?: string;
   active_section_confidence?: number;
+  oracle_exact_match_count?: number;
+  passive?: boolean;
+  passive_reason?: string;
 }
 
 type ConversationMode = 'manual' | 'conversation_only';
@@ -223,6 +226,9 @@ type CaptureSurfaceView = 'dashboard' | 'prep' | 'plan' | 'plan_build' | 'sessio
 type QualityTab = 'imprecisions' | 'contradictions' | 'open_questions';
 type PlanOutlineFormatAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down';
 type CaptureEndpointReason = 'manual' | 'silence' | 'max_turn' | 'no_speech' | 'stop' | 'error';
+
+const HTTP_BATCH_PARTIAL_MAX_AUDIO_BYTES = 512 * 1024;
+const HTTP_BATCH_PARTIAL_MIN_INTERVAL_MS = 1200;
 
 interface WorkspaceVoiceLoopConfig {
   capture_mode?: VoiceCaptureMode | string | null;
@@ -240,6 +246,7 @@ interface WorkspaceVoiceLoopConfig {
   dictation_min_speech_ms?: number;
   max_turn_ms?: number;
   partial_stt_min_interval_ms?: number;
+  partial_stt_max_audio_bytes?: number;
   live_partial_stt_enabled?: boolean;
   live_questions_enabled?: boolean;
   cooldown_ms?: number;
@@ -630,16 +637,15 @@ interface ProposalFact {
         }
       </nav>
 
-      <!-- Expert review disabled: capture fiches are auto-validated and
-           published immediately. The review/publish surfaces stay available
-           for when review is re-enabled per workspace. -->
+      <!-- Expert review disabled: capture fiches can skip reviewer arbitration,
+           but publication still requires an explicit user action. -->
       @if (expertReviewDisabled()) {
         <div class="flex items-start gap-2.5 rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
           <app-icon name="check-circle" [size]="16" class="mt-0.5 shrink-0 text-emerald-300" />
           <div>
-            <p class="font-semibold text-emerald-100">Revue désactivée — publication automatique</p>
+            <p class="font-semibold text-emerald-100">Revue désactivée — publication sur confirmation</p>
             <p class="text-[12px] text-emerald-100/80 leading-relaxed">
-              Les connaissances expertes capturées sont validées et publiées immédiatement, puis priorisées dans les résultats.
+              Le rapport peut être validé sans second relecteur, mais la publication reste déclenchée explicitement.
             </p>
           </div>
         </div>
@@ -1890,7 +1896,7 @@ interface ProposalFact {
                         [disabled]="!answer.trim() || !canCaptureUpdate(s)"
                         (click)="sendAnswer(s)"
                       >
-                        <app-icon name="send" [size]="14" /> {{ i18n.t('capture.action.evaluate_answer') }}
+                        <app-icon name="send" [size]="14" /> {{ captureAnswerActionLabel(s) }}
                       </button>
                       <button
                         type="button"
@@ -1990,30 +1996,32 @@ interface ProposalFact {
                       <span class="text-xs text-brand-100">Active</span>
                     }
                   </div>
-                  <div class="mt-3 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      [class]="conversationMode() === 'manual'
-                        ? 'rounded border border-brand-300 bg-brand-500/15 px-3 py-2 text-left text-brand-100'
-                        : 'rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-gray-300 hover:bg-white/[0.06]'"
-                      (click)="setConversationMode('manual')"
-                    >
-                      <span class="flex items-center gap-2 text-xs font-semibold">
-                        <app-icon name="list-checks" [size]="13" /> Guidé
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      [class]="conversationMode() === 'conversation_only'
-                        ? 'rounded border border-brand-300 bg-brand-500/15 px-3 py-2 text-left text-brand-100'
-                        : 'rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-gray-300 hover:bg-white/[0.06]'"
-                      (click)="setConversationMode('conversation_only')"
-                    >
-                      <span class="flex items-center gap-2 text-xs font-semibold">
-                        <app-icon name="message-circle" [size]="13" /> Conversation
-                      </span>
-                    </button>
-                  </div>
+                  @if (!isFreeConversationSession(s)) {
+                    <div class="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        [class]="conversationMode() === 'manual'
+                          ? 'rounded border border-brand-300 bg-brand-500/15 px-3 py-2 text-left text-brand-100'
+                          : 'rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-gray-300 hover:bg-white/[0.06]'"
+                        (click)="setConversationMode('manual')"
+                      >
+                        <span class="flex items-center gap-2 text-xs font-semibold">
+                          <app-icon name="list-checks" [size]="13" /> Guidé
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        [class]="conversationMode() === 'conversation_only'
+                          ? 'rounded border border-brand-300 bg-brand-500/15 px-3 py-2 text-left text-brand-100'
+                          : 'rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-gray-300 hover:bg-white/[0.06]'"
+                        (click)="setConversationMode('conversation_only')"
+                      >
+                        <span class="flex items-center gap-2 text-xs font-semibold">
+                          <app-icon name="message-circle" [size]="13" /> Conversation
+                        </span>
+                      </button>
+                    </div>
+                  }
                     @if (conversationMode() === 'conversation_only') {
                       <p class="mt-3 text-sm text-white">{{ lastConversationLabel() }}</p>
                       @if (nextPrompt()) {
@@ -4143,8 +4151,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   private recorder: MediaRecorder | null = null;
   private chunks: BlobPart[] = [];
+  private recordedAudioBytes = 0;
   private stream: MediaStream | null = null;
   private partialTranscriptionInFlight = false;
+  private partialTranscriptionSubscription: Subscription | null = null;
+  private partialTranscriptionRequestId = 0;
+  private activePartialTranscriptionRequestId = 0;
+  private lastPartialTranscriptionStartedAt = 0;
+  private partialTranscriptionDisabledForTurn = false;
+  private partialTranscriptionLimitNoticeShown = false;
   private prefetchInFlight = false;
   private lastPrefetchText = '';
   private lastPrefetchAt = 0;
@@ -4154,6 +4169,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private readonly ttsPlayback = this.ttsPlaybackFactory.createController('knowledge_capture');
   private pendingVoiceFrameSends: Promise<void>[] = [];
   private deferredLoopStopAfterStreamingTurn: Record<string, unknown> | null = null;
+  private deferredCaptureFinishAfterStreamingTurn = false;
   private closeVoiceAfterStreamingTurn = false;
   private revokedAudioUrls: string[] = [];
   private autoResumeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -4285,7 +4301,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.publicationFinalTitle = '';
     this.planSourceStep.set(false);
     this.extractingPlanSource.set(false);
-    this.conversationMode.set(this.isDemoMode() ? 'conversation_only' : 'manual');
+    this.conversationMode.set('conversation_only');
     this.activeSurface.set('prep');
   }
 
@@ -4435,6 +4451,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       }
       if (mode === 'free_conversation') {
         this.conversationMode.set('conversation_only');
+      } else if (!this.session()) {
+        this.conversationMode.set(this.isDemoMode() ? 'conversation_only' : 'manual');
       }
       if (mode === 'plan_build') {
         this.selectedPlanMode = 'plan_build';
@@ -7477,7 +7495,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.dictationVoiceDetected.set(false);
     this.dictationSilenceEnding.set(false);
     this.dictationAudioLevel.set(0);
-    this.chunks = [];
+    this.resetHttpBatchRecordingBuffers();
     this.currentClientTurnId = this.newTurnId();
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
@@ -7911,7 +7929,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
                 this.activeSurface.set('review');
               }
             } else if (!this.captureFinalizing()) {
-              this.activeSurface.set('dashboard');
+              this.activeSurface.set('session');
+              this.setVoiceNotice('Aucun rapport exploitable n’a encore été produit. Reprenez la capture ou régénérez après ajout de matière.', 'warning');
             }
           }
           this.closureActionLoading.set(false);
@@ -8018,6 +8037,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   setConversationMode(mode: ConversationMode): void {
+    const current = this.session();
+    if (mode === 'manual' && current && this.isFreeConversationSession(current) && !this.textFallbackActive()) {
+      this.conversationMode.set('conversation_only');
+      return;
+    }
     if (this.conversationMode() === mode) return;
     this.conversationMode.set(mode);
     this.textFallbackActive.set(false);
@@ -8034,7 +8058,16 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   showAnswerComposer(session: CaptureSession): boolean {
-    return this.sessionHasStarted(session) && (this.conversationMode() === 'manual' || this.textFallbackActive());
+    if (!this.sessionHasStarted(session)) return false;
+    if (this.textFallbackActive()) return true;
+    if (this.isFreeConversationSession(session)) return false;
+    return this.conversationMode() === 'manual';
+  }
+
+  captureAnswerActionLabel(session: CaptureSession): string {
+    return this.isFreeConversationSession(session)
+      ? 'Enregistrer la réponse'
+      : this.i18n.t('capture.action.evaluate_answer');
   }
 
   sessionStartStateLabel(session: CaptureSession): string {
@@ -8197,14 +8230,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   /**
-   * Where to land after a capture proposal is generated. When the workspace has
-   * expert review disabled the backend auto-accepts and publishes the fiche, so
-   * we route straight to the published-fiche (``publish``) surface instead of
-   * the review queue. The review/publish surfaces stay intact in the code for
-   * when review is re-enabled — this only gates the post-generation routing.
+   * Where to land after a capture proposal is generated. Even when reviewer
+   * arbitration is disabled, publication remains an explicit operator action.
    */
   private surfaceAfterProposalGeneration(proposal: CaptureProposal | null): CaptureSurfaceView {
-    if (this.expertReviewDisabled() || proposal?.status === 'published') {
+    if (proposal?.status === 'published') {
       return 'publish';
     }
     return 'review';
@@ -8213,6 +8243,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   createProposal(session: CaptureSession): void {
     if (!this.canProposalSubmit(session)) {
       this.setVoiceNotice('Votre rôle ne permet pas de préparer le rapport pour cette session.', 'error');
+      return;
+    }
+    if (this.isFreeConversationSession(session) && session.status === 'active' && !this.textFallbackActive()) {
+      this.finishCapture(session);
       return;
     }
     const draft = this.answer.trim();
@@ -8962,9 +8996,21 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   private finalizeDeferredStreamingStop(): void {
     const loopStopPayload = this.deferredLoopStopAfterStreamingTurn;
+    const shouldFinishCapture = this.deferredCaptureFinishAfterStreamingTurn;
     const shouldClose = this.closeVoiceAfterStreamingTurn;
     this.deferredLoopStopAfterStreamingTurn = null;
+    this.deferredCaptureFinishAfterStreamingTurn = false;
     this.closeVoiceAfterStreamingTurn = false;
+    if (shouldFinishCapture && this.voiceConnection) {
+      if (!this.captureFinalizing()) {
+        this.beginCaptureFinalizing();
+      }
+      this.voiceConnection.captureFinish({ surface: 'knowledge_capture' });
+      this.voiceState.set('thinking');
+      this.armConversationProcessingWatchdog();
+      this.setVoiceNotice('Dernier tour capturé. Préparation de la synthèse finale…', 'info');
+      return;
+    }
     if (loopStopPayload && this.voiceConnection) {
       this.voiceConnection.loopStop(loopStopPayload);
     }
@@ -9382,7 +9428,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.voiceState.set('idle');
       return;
     }
-    this.chunks = [];
+    this.resetHttpBatchRecordingBuffers();
     this.currentClientTurnId = this.newTurnId();
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
@@ -9813,6 +9859,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     this.recording.set(false);
     this.deferredLoopStopAfterStreamingTurn = null;
+    this.deferredCaptureFinishAfterStreamingTurn = false;
     this.closeVoiceAfterStreamingTurn = false;
     this.voiceConnection?.loopStop({ surface: 'knowledge_capture', reason: 'user_stop' });
     this.releaseAudioStream();
@@ -9843,6 +9890,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   pauseMicrophone(): void {
     this.clearAutoResumeTimer();
     this.deferredLoopStopAfterStreamingTurn = null;
+    this.deferredCaptureFinishAfterStreamingTurn = false;
     this.closeVoiceAfterStreamingTurn = false;
     this.captureEndpointReason = 'stop';
     this.stopCaptureEndpointMonitor();
@@ -10094,16 +10142,48 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   /**
    * "Terminer la capture" — closes all remaining sections and starts the final
-   * phase (reformulation + proposal). Sends capture.finish, then tears down the
-   * local mic. The existing closure flow still advances the UI to the proposal.
+   * phase (reformulation + proposal). If a voice turn is still recording or
+   * finalizing, flush it first so the final transcript is persisted before
+   * capture.finish builds the report.
    */
   finishCapture(session: CaptureSession): void {
     this.clearAutoResumeTimer();
-    this.deferredLoopStopAfterStreamingTurn = null;
-    this.closeVoiceAfterStreamingTurn = false;
     this.captureEndpointReason = 'stop';
     this.stopCaptureEndpointMonitor();
-    if (this.voiceConnection) {
+    const hasStreamingConnection = Boolean(this.voiceConnection);
+    if (hasStreamingConnection && (this.recording() || this.transcribing())) {
+      this.deferredLoopStopAfterStreamingTurn = null;
+      this.deferredCaptureFinishAfterStreamingTurn = true;
+      this.closeVoiceAfterStreamingTurn = true;
+      this.stopSpeech(false);
+      if (this.recording()) {
+        if (this.recorder) {
+          try {
+            this.recorder.onstop = null;
+          } catch {
+            /* browser cleanup only */
+          }
+          try {
+            if (this.recorder.state !== 'inactive') this.recorder.stop();
+          } catch {
+            /* browser cleanup only */
+          }
+          this.recorder = null;
+        }
+        this.recording.set(false);
+        this.conversationSessionActive.set(false);
+        this.releaseAudioStream();
+        void this.finishStreamingVoiceTurn('stop');
+      } else {
+        this.conversationSessionActive.set(false);
+        this.setVoiceNotice('Finalisation du dernier tour avant synthèse…', 'info');
+      }
+      return;
+    }
+    this.deferredLoopStopAfterStreamingTurn = null;
+    this.deferredCaptureFinishAfterStreamingTurn = false;
+    this.closeVoiceAfterStreamingTurn = false;
+    if (hasStreamingConnection) {
       // The heavy FINAL pass runs behind capture.finish: gate the report screen
       // behind the finalization loader until the proposal-ready step lands.
       this.beginCaptureFinalizing();
@@ -10132,7 +10212,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.voiceState.set('thinking');
     this.armConversationProcessingWatchdog();
     this.setVoiceNotice('Capture terminée. Préparation de la synthèse finale…', 'info');
-    if (session.status === 'active') {
+    if (session.status === 'active' && !hasStreamingConnection) {
       this.applySessionClosure(session, 'finish');
     }
   }
@@ -10142,6 +10222,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.releaseAudioStream();
     }
     this.recorder = null;
+    this.cancelPartialTranscription('final');
     // Dictation always finalises over HTTP so the stop callback receives the
     // transcript; only conversation turns hand off to the streaming gateway.
     if (!this.recordingStopCallback && this.voiceConnection && this.conversationMode() === 'conversation_only') {
@@ -10185,7 +10266,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             if (this.conversationMode() === 'conversation_only') {
               this.runConversationStep(session, text);
             } else {
-              this.setVoiceNotice('Transcription prête pour évaluation.', 'info');
+              this.setVoiceNotice(
+                session && this.isFreeConversationSession(session)
+                  ? 'Transcription prête. Relisez puis enregistrez la réponse pour l’ajouter à la session.'
+                  : 'Transcription prête pour évaluation.',
+                'info',
+              );
             }
           }
         },
@@ -10213,11 +10299,70 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     return `event:${event.id}`;
   }
 
+  private resetHttpBatchRecordingBuffers(): void {
+    this.cancelPartialTranscription('reset');
+    this.chunks = [];
+    this.recordedAudioBytes = 0;
+    this.lastPartialTranscriptionStartedAt = 0;
+    this.partialTranscriptionDisabledForTurn = false;
+    this.partialTranscriptionLimitNoticeShown = false;
+  }
+
+  private cancelPartialTranscription(_reason: 'reset' | 'final' | 'stop'): void {
+    this.partialTranscriptionRequestId += 1;
+    this.activePartialTranscriptionRequestId = this.partialTranscriptionRequestId;
+    if (this.partialTranscriptionSubscription && !this.partialTranscriptionSubscription.closed) {
+      this.partialTranscriptionSubscription.unsubscribe();
+    }
+    this.partialTranscriptionSubscription = null;
+    this.partialTranscriptionInFlight = false;
+  }
+
+  private httpBatchPartialSttMaxAudioBytes(): number {
+    return this.voiceLoopSettingNumber(
+      'partial_stt_max_audio_bytes',
+      HTTP_BATCH_PARTIAL_MAX_AUDIO_BYTES,
+      64 * 1024,
+      4 * 1024 * 1024,
+    );
+  }
+
+  private httpBatchPartialSttMinIntervalMs(): number {
+    return this.voiceLoopSettingNumber(
+      'partial_stt_min_interval_ms',
+      HTTP_BATCH_PARTIAL_MIN_INTERVAL_MS,
+      0,
+      120000,
+    );
+  }
+
+  private markHttpBatchPartialsCapped(blobBytes: number): void {
+    this.partialTranscriptionDisabledForTurn = true;
+    if (!this.partialTranscriptionLimitNoticeShown && this.recording() && !this.recordingPartialCallback) {
+      this.partialTranscriptionLimitNoticeShown = true;
+      this.setVoiceNotice(
+        'Transcription live allégée sur ce tour ; la transcription complète sera finalisée à l’arrêt.',
+        'info',
+      );
+    }
+    this.emitCaptureClientMetric({
+      metric: 'partial_stt_capped',
+      value: blobBytes,
+      partial_blob_bytes: blobBytes,
+      partial_blob_cap_bytes: this.httpBatchPartialSttMaxAudioBytes(),
+    });
+  }
+
   private transcribePartialRecording(): void {
     if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
       return;
     }
-    if (this.partialTranscriptionInFlight || this.chunks.length < 2) {
+    if (
+      this.partialTranscriptionInFlight ||
+      this.partialTranscriptionDisabledForTurn ||
+      this.workspaceVoiceLoopConfig().live_partial_stt_enabled === false ||
+      this.chunks.length < 2
+    ) {
       return;
     }
     const session = this.session();
@@ -10227,14 +10372,37 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (!session && !dictation) {
       return;
     }
+    const blobBytes = Math.max(this.recordedAudioBytes, 0);
+    if (blobBytes > this.httpBatchPartialSttMaxAudioBytes()) {
+      this.markHttpBatchPartialsCapped(blobBytes);
+      return;
+    }
+    const now = performance.now();
+    const minIntervalMs = this.httpBatchPartialSttMinIntervalMs();
+    if (this.lastPartialTranscriptionStartedAt > 0 && now - this.lastPartialTranscriptionStartedAt < minIntervalMs) {
+      return;
+    }
     this.partialTranscriptionInFlight = true;
+    this.lastPartialTranscriptionStartedAt = now;
     this.voiceState.set('partial_transcribing');
     const blob = new Blob(this.chunks, { type: 'audio/webm' });
-    this.api
+    if (blob.size > this.httpBatchPartialSttMaxAudioBytes()) {
+      this.partialTranscriptionInFlight = false;
+      this.markHttpBatchPartialsCapped(blob.size);
+      return;
+    }
+    const requestId = ++this.partialTranscriptionRequestId;
+    this.activePartialTranscriptionRequestId = requestId;
+    const turnId = this.currentClientTurnId;
+    this.partialTranscriptionSubscription = this.api
       .transcribeAudio(blob, 'partial.webm')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
+          if (requestId !== this.activePartialTranscriptionRequestId || (!dictation && turnId !== this.currentClientTurnId)) {
+            return;
+          }
+          this.partialTranscriptionSubscription = null;
           this.partialTranscriptionInFlight = false;
           const text = (res.text || '').trim();
           if (text) {
@@ -10255,6 +10423,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           }
         },
         error: () => {
+          if (requestId !== this.activePartialTranscriptionRequestId || (!dictation && turnId !== this.currentClientTurnId)) {
+            return;
+          }
+          this.partialTranscriptionSubscription = null;
           this.partialTranscriptionInFlight = false;
           if (this.recording()) {
             this.voiceState.set('listening');
@@ -10303,13 +10475,16 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const now = Date.now();
     const newWords = Math.abs(clean.split(/\s+/).length - this.lastPrefetchText.split(/\s+/).filter(Boolean).length);
     if (!force && newWords < 8 && now - this.lastPrefetchAt < 2500) return;
+    const passiveSurface = this.isFreeConversationSession(session);
     this.prefetchInFlight = true;
     this.lastPrefetchText = clean;
     this.lastPrefetchAt = now;
-    if (!this.recording()) {
+    if (!passiveSurface && !this.recording()) {
       this.voiceState.set('retrieving');
     }
-    this.retrieval.set({ ...this.retrieval(), status: 'searching' });
+    if (!passiveSurface) {
+      this.retrieval.set({ ...this.retrieval(), status: 'searching' });
+    }
     this.api
       .prefetchCaptureRetrieval(session.id, {
         client_turn_id: this.currentClientTurnId,
@@ -10322,8 +10497,22 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       .subscribe({
         next: (payload) => {
           const typed = payload as RetrievalPrefetch;
+          const passive = this.shouldKeepRetrievalPassive(session, typed);
+          if (passive) {
+            this.prefetchInFlight = false;
+            if (this.recording()) {
+              this.voiceState.set('listening');
+            } else if (this.voiceState() === 'retrieving') {
+              this.voiceState.set('idle');
+            }
+            return;
+          }
           const mappedStatus =
-            typed.status === 'completed' ? 'ready' : typed.status === 'timeout' ? 'timeout' : typed.status;
+            typed.status === 'completed' || typed.status === 'completed_from_warm_cache'
+              ? 'ready'
+              : typed.status === 'timeout'
+                ? 'timeout'
+                : typed.status;
           this.retrieval.set({
             event_id: typed.event_id,
             status: mappedStatus as RetrievalPrefetch['status'],
@@ -10354,7 +10543,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           }
         },
         error: () => {
-          this.retrieval.set({ status: 'error', chunks: [], scores: [], metadatas: [] });
+          if (!passiveSurface) {
+            this.retrieval.set({ status: 'error', chunks: [], scores: [], metadatas: [] });
+          }
           this.prefetchInFlight = false;
           if (this.recording()) {
             this.voiceState.set('listening');
@@ -10363,6 +10554,33 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           }
         },
       });
+  }
+
+  private shouldKeepRetrievalPassive(session: CaptureSession, payload: RetrievalPrefetch): boolean {
+    if (!this.isFreeConversationSession(session)) {
+      return payload.passive === true;
+    }
+    if (payload.status === 'timeout' || payload.status === 'error' || payload.passive === true) {
+      return true;
+    }
+    if (Number(payload.oracle_exact_match_count || 0) > 0) {
+      return false;
+    }
+    if (Number(payload.active_section_confidence || 0) >= 0.45) {
+      return false;
+    }
+    return !this.hasStrongRetrievalEvidence(payload.metadatas || []);
+  }
+
+  private hasStrongRetrievalEvidence(metadatas: Record<string, any>[]): boolean {
+    return metadatas.some((meta) => {
+      const coverage = Number(meta['retrieval_evidence_coverage'] ?? 0);
+      const policyScore = Number(meta['retrieval_policy_score'] ?? 0);
+      const exactTerms = Array.isArray(meta['retrieval_exact_terms_matched'])
+        ? meta['retrieval_exact_terms_matched'].length
+        : 0;
+      return coverage >= 0.35 || exactTerms >= 2 || (coverage >= 0.2 && policyScore >= 3);
+    });
   }
 
   retrievalChunkTrack(index: number, chunk: string): string {
@@ -10451,7 +10669,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.reportEditMode.set(false);
       this.activeSurface.set('review');
     } else {
-      this.activeSurface.set('dashboard');
+      this.activeSurface.set(this.session() ? 'session' : 'dashboard');
     }
   }
 
@@ -11289,6 +11507,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F4',location:'knowledge-capture.component.ts:ondataavailable',message:'anomalous frame after stop/teardown',data:{recId:dbgRec.__dbgId,recState:dbgRec.state,isCurrentRecorder:this.recorder===dbgRec,closeAfter:this.closeVoiceAfterStreamingTurn,recording:this.recording(),bytes:event.data.size,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
         }
         // #endregion
+        this.recordedAudioBytes += event.data.size;
         this.chunks.push(event.data);
         if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
           const sendStartedAt = performance.now();
@@ -11345,7 +11564,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.voiceState.set('idle');
       return;
     }
-    this.chunks = [];
+    this.resetHttpBatchRecordingBuffers();
     this.currentClientTurnId = this.newTurnId();
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
@@ -11379,13 +11598,16 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.setVoiceNotice(null);
     if (this.recording()) {
       this.deferredLoopStopAfterStreamingTurn = loopStopPayload;
+      this.deferredCaptureFinishAfterStreamingTurn = false;
       this.closeVoiceAfterStreamingTurn = true;
       this.endpointRecordingTurn('manual');
     } else if (this.transcribing() && this.voiceConnection) {
       this.deferredLoopStopAfterStreamingTurn = loopStopPayload;
+      this.deferredCaptureFinishAfterStreamingTurn = false;
       this.closeVoiceAfterStreamingTurn = true;
     } else if (!this.transcribing()) {
       this.deferredLoopStopAfterStreamingTurn = null;
+      this.deferredCaptureFinishAfterStreamingTurn = false;
       this.closeVoiceAfterStreamingTurn = false;
       this.voiceConnection?.loopStop(loopStopPayload);
       this.releaseAudioStream();
