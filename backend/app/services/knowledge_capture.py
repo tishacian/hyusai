@@ -7381,6 +7381,9 @@ def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] =
     summary_short = _session_summary_short(session)
     open_questions_count = _session_open_questions_count(session)
     last_activity = (session.updated_at or session.completed_at or session.started_at or session.created_at)
+    # Lightweight scalar count of recorded conversation turns, mirroring the RAG
+    # session ``message_count`` so unified admin views can show a single column.
+    turn_count = len([turn for turn in (session.transcript or []) if isinstance(turn, dict)])
     return {
         "id": session.id,
         "workspace_id": session.workspace_id,
@@ -7392,6 +7395,7 @@ def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] =
         "created_by_label": _session_created_by_label(session),
         "title": session.title,
         "objective": session.objective,
+        "turn_count": turn_count,
         "expert_profile": session.expert_profile,
         "duration_minutes": session.duration_minutes,
         "voice_runtime": session.voice_runtime,

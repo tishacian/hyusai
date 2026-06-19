@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, NgClass, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { ApiService } from '@app/core/api.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
@@ -45,12 +47,120 @@ interface AdminSessionListResponse {
   total?: number;
 }
 
+/**
+ * Expert-capture session as returned by ``GET /knowledge-capture/sessions``.
+ * Admins/reviewers receive every member's session (contributors are scoped to
+ * their own). Folded into the same admin table as RAG chat sessions so a single
+ * governance view exposes both conversation kinds.
+ */
+interface CaptureSessionSummary {
+  id: string;
+  created_by_user_id?: string | null;
+  created_by_label?: string | null;
+  title?: string | null;
+  objective?: string | null;
+  status?: string | null;
+  system_id?: string | null;
+  context_id?: string | null;
+  turn_count?: number;
+  archived?: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+  last_activity?: string | null;
+  transcript?: CaptureTurnRaw[];
+  metrics?: Record<string, unknown> | null;
+}
+
+interface CaptureTurnRaw {
+  id?: string;
+  speaker?: string | null;
+  text?: string | null;
+  text_raw?: string | null;
+  text_amended?: string | null;
+  question_id?: string | null;
+  turn_kind?: string | null;
+  created_at?: string | null;
+}
+
+interface CaptureSessionDetail extends CaptureSessionSummary {
+  captured_facts?: Array<Record<string, unknown>>;
+}
+
+interface CaptureSessionListResponse {
+  sessions?: CaptureSessionSummary[];
+}
+
+interface CaptureEvent {
+  id: string;
+  event_type: string;
+  speaker?: string | null;
+  sequence?: number;
+  text?: string | null;
+  text_raw?: string | null;
+  text_amended?: string | null;
+  status?: string | null;
+  source?: string | null;
+  created_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+interface CaptureEventListResponse {
+  events?: CaptureEvent[];
+}
+
+interface CaptureProposal {
+  id: string;
+  status?: string | null;
+  proposal?: Record<string, unknown> | null;
+  review_notes?: string | null;
+  reviewer?: string | null;
+  created_at?: string | null;
+  reviewed_at?: string | null;
+}
+
+interface CaptureProposalListResponse {
+  proposals?: CaptureProposal[];
+}
+
 interface MemberOption {
   user_id: string;
   label: string;
 }
 
 type StatusFilter = 'active' | 'archived' | 'all';
+
+/** What kind of session a unified row represents. */
+type SessionKind = 'chat' | 'capture' | 'correction';
+
+/**
+ * One row in the unified admin table. Common columns (author/date/status/count)
+ * are flattened so chat and expert-capture sessions render side by side; the
+ * original payload is kept on ``chat`` / ``capture`` for the detail drawer.
+ */
+interface UnifiedRow {
+  id: string;
+  kind: SessionKind;
+  userId: string | null;
+  authorLabel: string;
+  authorEmail: string | null;
+  title: string;
+  status: string;
+  createdAt: string | null;
+  lastActivity: string | null;
+  count: number;
+  context: string;
+  chat?: AdminSessionSummary;
+  capture?: CaptureSessionSummary;
+}
+
+/** A read-only capture conversation entry (transcript turn or business event). */
+interface CaptureEntry {
+  speaker: string;
+  label: string;
+  text: string;
+  rawText: string | null;
+  timestamp: string | null;
+}
 
 /** Inline markdown token for the read-only transcript renderer. */
 interface InlineToken {
@@ -75,6 +185,15 @@ interface TranscriptTurn {
   blocks: TranscriptBlock[];
 }
 
+/** Capture business-event types worth surfacing when a session has no recorded
+ *  transcript (notably voice chat-corrections, which store the raw dictation and
+ *  the expert-edited text on a single event). */
+const MEANINGFUL_CAPTURE_EVENTS = new Set([
+  'chat_correction_voice',
+  'expert_turn_finalized',
+  'transcript_turn_recorded',
+]);
+
 @Component({
   selector: 'app-chat-history',
   standalone: true,
@@ -95,7 +214,7 @@ interface TranscriptTurn {
       breadcrumb="Govern"
       title="Chat history"
       icon="message-square"
-      subtitle="Read-only view of every member's chat sessions across the workspace."
+      subtitle="Read-only view of every member's chat and expert-capture sessions across the workspace."
     >
       <button
         type="button"
@@ -120,6 +239,22 @@ interface TranscriptTurn {
       </select>
 
       <div class="flex items-center gap-1 p-1 rounded bg-black/20 border border-white/5">
+        @for (f of kindFilters; track f.key) {
+          <button
+            type="button"
+            (click)="setKind(f.key)"
+            class="px-2.5 py-1 text-xs rounded transition"
+            [class.bg-brand-500\\/20]="kindFilter() === f.key"
+            [class.text-brand-300]="kindFilter() === f.key"
+            [class.text-gray-400]="kindFilter() !== f.key"
+            [class.hover:text-gray-200]="kindFilter() !== f.key"
+          >
+            {{ f.label }}
+          </button>
+        }
+      </div>
+
+      <div class="flex items-center gap-1 p-1 rounded bg-black/20 border border-white/5">
         @for (f of statusFilters; track f.key) {
           <button
             type="button"
@@ -136,7 +271,7 @@ interface TranscriptTurn {
       </div>
 
       <span class="text-[11px] text-gray-500 font-mono ml-auto">
-        {{ sessions().length }} session{{ sessions().length === 1 ? '' : 's' }}
+        {{ rows().length }} session{{ rows().length === 1 ? '' : 's' }}
       </span>
     </div>
 
@@ -153,11 +288,11 @@ interface TranscriptTurn {
             <app-skeleton variant="line" height="44px" />
           }
         </div>
-      } @else if (sessions().length === 0) {
+      } @else if (rows().length === 0) {
         <app-empty-state
           icon="message-square"
-          title="No chat sessions"
-          description="Member conversations in this workspace will show up here."
+          title="No sessions"
+          description="Member conversations and expert-capture sessions in this workspace will show up here."
         />
       } @else {
         <div class="overflow-x-auto">
@@ -165,46 +300,56 @@ interface TranscriptTurn {
             <thead>
               <tr class="text-left text-[11px] uppercase tracking-wider text-gray-500 border-b border-white/5">
                 <th class="px-5 py-3 font-semibold">Author</th>
+                <th class="px-5 py-3 font-semibold">Type</th>
                 <th class="px-5 py-3 font-semibold">Title</th>
                 <th class="px-5 py-3 font-semibold">Last activity</th>
-                <th class="px-5 py-3 font-semibold text-center">Messages</th>
+                <th class="px-5 py-3 font-semibold text-center">Count</th>
                 <th class="px-5 py-3 font-semibold">System / Context</th>
                 <th class="px-5 py-3 font-semibold">Status</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-white/5">
-              @for (session of sessions(); track session.id) {
+              @for (row of rows(); track row.kind + ':' + row.id) {
                 <tr
                   class="hover:bg-white/[0.02] transition cursor-pointer"
-                  (click)="openDetail(session)"
+                  (click)="openDetail(row)"
                 >
                   <td class="px-5 py-3">
                     <div class="flex items-center gap-2 min-w-0">
                       <span class="h-7 w-7 shrink-0 rounded-full bg-white/[0.04] ring-1 ring-brand-400/30 flex items-center justify-center text-[11px] font-semibold text-brand-200">
-                        {{ authorInitial(session) }}
+                        {{ authorInitial(row) }}
                       </span>
                       <div class="min-w-0">
-                        <div class="truncate text-white font-medium">{{ authorLabel(session) }}</div>
-                        @if (session.author_email && session.author_email !== authorLabel(session)) {
-                          <div class="truncate text-[11px] text-gray-500">{{ session.author_email }}</div>
+                        <div class="truncate text-white font-medium">{{ row.authorLabel }}</div>
+                        @if (row.authorEmail && row.authorEmail !== row.authorLabel) {
+                          <div class="truncate text-[11px] text-gray-500">{{ row.authorEmail }}</div>
                         }
                       </div>
                     </div>
                   </td>
-                  <td class="px-5 py-3 text-gray-200 max-w-xs">
-                    <span class="block truncate">{{ sessionTitle(session) }}</span>
-                  </td>
-                  <td class="px-5 py-3 text-gray-400 whitespace-nowrap">
-                    {{ (session.last_activity || session.created_at) | date: 'MMM d, HH:mm' }}
-                  </td>
-                  <td class="px-5 py-3 text-gray-300 text-center font-mono">{{ session.message_count ?? 0 }}</td>
-                  <td class="px-5 py-3 text-gray-400 font-mono text-xs">{{ systemContext(session) }}</td>
                   <td class="px-5 py-3">
                     <span
                       class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full uppercase tracking-wider"
-                      [ngClass]="statusClass(session.status)"
+                      [ngClass]="kindClass(row.kind)"
                     >
-                      {{ session.status || 'active' }}
+                      <app-icon [name]="kindIcon(row.kind)" [size]="11" />
+                      {{ kindLabel(row.kind) }}
+                    </span>
+                  </td>
+                  <td class="px-5 py-3 text-gray-200 max-w-xs">
+                    <span class="block truncate">{{ row.title }}</span>
+                  </td>
+                  <td class="px-5 py-3 text-gray-400 whitespace-nowrap">
+                    {{ (row.lastActivity || row.createdAt) | date: 'MMM d, HH:mm' }}
+                  </td>
+                  <td class="px-5 py-3 text-gray-300 text-center font-mono">{{ row.count }}</td>
+                  <td class="px-5 py-3 text-gray-400 font-mono text-xs">{{ row.context }}</td>
+                  <td class="px-5 py-3">
+                    <span
+                      class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full uppercase tracking-wider"
+                      [ngClass]="statusClass(row.status)"
+                    >
+                      {{ statusLabel(row.status) }}
                     </span>
                   </td>
                 </tr>
@@ -215,7 +360,7 @@ interface TranscriptTurn {
         @if (hasMore()) {
           <div class="px-5 py-3 flex items-center justify-between border-t border-white/5">
             <span class="text-[11px] text-gray-500 font-mono">
-              Showing {{ sessions().length }}
+              Showing {{ rows().length }}
             </span>
             <button
               type="button"
@@ -229,8 +374,9 @@ interface TranscriptTurn {
       }
     </section>
 
-    <!-- Read-only detail drawer: renders the transcript reusing the chat-panel
-         message-rendering approach, with NO correction CTA and no edit/delete. -->
+    <!-- Read-only detail drawer. Chat sessions reuse the chat-panel message
+         renderer; capture/correction sessions render their transcript, voice
+         raw/amended text and the proposed fiche read-only. No CTA, no edit. -->
     <app-drawer
       [open]="drawerOpen()"
       [title]="drawerTitle()"
@@ -239,30 +385,56 @@ interface TranscriptTurn {
       [width]="640"
       (close)="closeDetail()"
     >
-      @if (selected(); as session) {
+      @if (selectedRow(); as row) {
         <div class="space-y-5">
           <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
             <div>
               <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Author</dt>
-              <dd class="text-gray-200 mt-0.5">{{ authorLabel(session) }}</dd>
+              <dd class="text-gray-200 mt-0.5">{{ row.authorLabel }}</dd>
+            </div>
+            <div>
+              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Type</dt>
+              <dd class="text-gray-200 mt-0.5">{{ kindLabel(row.kind) }}</dd>
             </div>
             <div>
               <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Status</dt>
-              <dd class="text-gray-200 mt-0.5">{{ session.status || 'active' }}</dd>
-            </div>
-            <div>
-              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Created</dt>
-              <dd class="text-gray-200 mt-0.5">{{ session.created_at | date: 'MMM d, y HH:mm' }}</dd>
+              <dd class="text-gray-200 mt-0.5">{{ statusLabel(row.status) }}</dd>
             </div>
             <div>
               <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Last activity</dt>
-              <dd class="text-gray-200 mt-0.5">{{ session.last_activity | date: 'MMM d, y HH:mm' }}</dd>
+              <dd class="text-gray-200 mt-0.5">{{ row.lastActivity | date: 'MMM d, y HH:mm' }}</dd>
             </div>
-            <div class="col-span-2">
+            <div>
+              <dt class="text-gray-500 uppercase tracking-wider text-[10px]">Created</dt>
+              <dd class="text-gray-200 mt-0.5">{{ row.createdAt | date: 'MMM d, y HH:mm' }}</dd>
+            </div>
+            <div>
               <dt class="text-gray-500 uppercase tracking-wider text-[10px]">System / Context</dt>
-              <dd class="text-gray-200 mt-0.5 font-mono text-[11px]">{{ systemContext(session) }}</dd>
+              <dd class="text-gray-200 mt-0.5 font-mono text-[11px]">{{ row.context }}</dd>
             </div>
           </dl>
+
+          @if (row.kind !== 'chat' && captureObjective()) {
+            <div class="rounded-md bg-white/[0.03] ring-1 ring-white/5 px-3 py-2.5">
+              <div class="text-[10px] uppercase tracking-wider text-gray-500 mb-1">Objective</div>
+              <div class="text-sm text-gray-200 leading-relaxed">{{ captureObjective() }}</div>
+            </div>
+          }
+
+          <!-- Inline markdown token renderer shared by every block. -->
+          <ng-template #inline let-tokens>
+            @for (tok of tokens; track $index) {
+              @if (tok.kind === 'strong') {
+                <strong class="font-semibold text-white">{{ tok.value }}</strong>
+              } @else if (tok.kind === 'em') {
+                <em class="italic">{{ tok.value }}</em>
+              } @else if (tok.kind === 'code') {
+                <code class="rounded bg-white/10 px-1 py-0.5 font-mono text-[0.92em]">{{ tok.value }}</code>
+              } @else {
+                {{ tok.value }}
+              }
+            }
+          </ng-template>
 
           <div class="border-t border-white/10 pt-4">
             <h3 class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-3 flex items-center gap-1.5">
@@ -276,74 +448,141 @@ interface TranscriptTurn {
                   <app-skeleton variant="line" height="56px" />
                 }
               </div>
-            } @else if (turns().length === 0) {
-              <app-empty-state
-                icon="inbox"
-                size="sm"
-                title="No messages"
-                description="This conversation has no recorded messages."
-              />
-            } @else {
-              <!-- Inline markdown token renderer shared by every block. -->
-              <ng-template #inline let-tokens>
-                @for (tok of tokens; track $index) {
-                  @if (tok.kind === 'strong') {
-                    <strong class="font-semibold text-white">{{ tok.value }}</strong>
-                  } @else if (tok.kind === 'em') {
-                    <em class="italic">{{ tok.value }}</em>
-                  } @else if (tok.kind === 'code') {
-                    <code class="rounded bg-white/10 px-1 py-0.5 font-mono text-[0.92em]">{{ tok.value }}</code>
-                  } @else {
-                    {{ tok.value }}
-                  }
-                }
-              </ng-template>
-
-              <div class="space-y-4">
-                @for (turn of turns(); track $index) {
-                  @if (turn.role === 'user') {
-                    <div class="flex justify-end">
-                      <div class="max-w-[85%] bg-brand-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed shadow-sm">
-                        {{ turn.content }}
+            } @else if (row.kind === 'chat') {
+              @if (turns().length === 0) {
+                <app-empty-state
+                  icon="inbox"
+                  size="sm"
+                  title="No messages"
+                  description="This conversation has no recorded messages."
+                />
+              } @else {
+                <div class="space-y-4">
+                  @for (turn of turns(); track $index) {
+                    @if (turn.role === 'user') {
+                      <div class="flex justify-end">
+                        <div class="max-w-[85%] bg-brand-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed shadow-sm">
+                          {{ turn.content }}
+                        </div>
                       </div>
-                    </div>
-                  } @else {
-                    <div class="flex justify-start">
-                      <div class="max-w-[85%] bg-white/[0.04] text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed ring-1 ring-white/5">
-                        @for (block of turn.blocks; track $index) {
-                          @if (block.kind === 'heading') {
-                            <h4 class="mt-2 first:mt-0 mb-1 text-[0.95rem] font-semibold text-white">
-                              <ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: block.tokens }" />
-                            </h4>
-                          } @else if (block.kind === 'list') {
-                            @if (block.ordered) {
-                              <ol class="my-1.5 list-decimal pl-5 space-y-0.5">
-                                @for (item of block.items; track $index) {
-                                  <li><ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: item }" /></li>
-                                }
-                              </ol>
+                    } @else {
+                      <div class="flex justify-start">
+                        <div class="max-w-[85%] bg-white/[0.04] text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed ring-1 ring-white/5">
+                          @for (block of turn.blocks; track $index) {
+                            @if (block.kind === 'heading') {
+                              <h4 class="mt-2 first:mt-0 mb-1 text-[0.95rem] font-semibold text-white">
+                                <ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: block.tokens }" />
+                              </h4>
+                            } @else if (block.kind === 'list') {
+                              @if (block.ordered) {
+                                <ol class="my-1.5 list-decimal pl-5 space-y-0.5">
+                                  @for (item of block.items; track $index) {
+                                    <li><ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: item }" /></li>
+                                  }
+                                </ol>
+                              } @else {
+                                <ul class="my-1.5 list-disc pl-5 space-y-0.5">
+                                  @for (item of block.items; track $index) {
+                                    <li><ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: item }" /></li>
+                                  }
+                                </ul>
+                              }
+                            } @else if (block.kind === 'code') {
+                              <pre class="my-2 max-w-full overflow-auto rounded-md bg-white/[0.06] p-2 text-xs leading-relaxed"><code>{{ block.value }}</code></pre>
                             } @else {
-                              <ul class="my-1.5 list-disc pl-5 space-y-0.5">
-                                @for (item of block.items; track $index) {
-                                  <li><ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: item }" /></li>
-                                }
-                              </ul>
+                              <p class="my-1 first:mt-0 last:mb-0">
+                                <ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: block.tokens }" />
+                              </p>
                             }
-                          } @else if (block.kind === 'code') {
-                            <pre class="my-2 max-w-full overflow-auto rounded-md bg-white/[0.06] p-2 text-xs leading-relaxed"><code>{{ block.value }}</code></pre>
-                          } @else {
-                            <p class="my-1 first:mt-0 last:mb-0">
-                              <ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: block.tokens }" />
-                            </p>
                           }
-                        }
+                        </div>
                       </div>
-                    </div>
+                    }
+                  }
+                </div>
+              }
+            } @else {
+              <!-- Capture / correction transcript: expert vs system turns, with
+                   the raw dictation surfaced above the expert-edited text. -->
+              @if (captureEntries().length === 0) {
+                <app-empty-state
+                  icon="inbox"
+                  size="sm"
+                  title="No recorded turns"
+                  description="This capture session has no recorded conversation turns."
+                />
+              } @else {
+                <div class="space-y-4">
+                  @for (entry of captureEntries(); track $index) {
+                    @if (entry.speaker === 'expert') {
+                      <div class="flex justify-end">
+                        <div class="max-w-[85%] bg-brand-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed shadow-sm">
+                          <div class="text-[10px] uppercase tracking-wider text-white/70 mb-1">{{ entry.label }}</div>
+                          @if (entry.rawText) {
+                            <div class="mb-1.5 rounded bg-black/15 px-2 py-1 text-[12px] text-white/80">
+                              <span class="text-[9px] uppercase tracking-wider text-white/60 mr-1">Raw</span>
+                              {{ entry.rawText }}
+                            </div>
+                          }
+                          <div class="whitespace-pre-wrap">{{ entry.text }}</div>
+                        </div>
+                      </div>
+                    } @else {
+                      <div class="flex justify-start">
+                        <div class="max-w-[85%] bg-white/[0.04] text-gray-100 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm leading-relaxed ring-1 ring-white/5">
+                          <div class="text-[10px] uppercase tracking-wider text-gray-500 mb-1">{{ entry.label }}</div>
+                          <div class="whitespace-pre-wrap">{{ entry.text }}</div>
+                        </div>
+                      </div>
+                    }
+                  }
+                </div>
+              }
+            }
+          </div>
+
+          @if (row.kind !== 'chat' && !detailLoading() && captureProposalBlocks().length > 0) {
+            <div class="border-t border-white/10 pt-4">
+              <h3 class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-3 flex items-center gap-1.5">
+                <app-icon name="file-text" [size]="13" class="text-brand-400" />
+                Proposed knowledge
+                @if (captureProposalStatus(); as st) {
+                  <span class="ml-1 inline-flex items-center px-1.5 py-0.5 text-[9px] rounded-full" [ngClass]="statusClass(st)">
+                    {{ statusLabel(st) }}
+                  </span>
+                }
+              </h3>
+              <div class="rounded-md bg-white/[0.03] ring-1 ring-white/5 px-4 py-3 text-sm text-gray-100 leading-relaxed">
+                @for (block of captureProposalBlocks(); track $index) {
+                  @if (block.kind === 'heading') {
+                    <h4 class="mt-2 first:mt-0 mb-1 text-[0.95rem] font-semibold text-white">
+                      <ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: block.tokens }" />
+                    </h4>
+                  } @else if (block.kind === 'list') {
+                    @if (block.ordered) {
+                      <ol class="my-1.5 list-decimal pl-5 space-y-0.5">
+                        @for (item of block.items; track $index) {
+                          <li><ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: item }" /></li>
+                        }
+                      </ol>
+                    } @else {
+                      <ul class="my-1.5 list-disc pl-5 space-y-0.5">
+                        @for (item of block.items; track $index) {
+                          <li><ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: item }" /></li>
+                        }
+                      </ul>
+                    }
+                  } @else if (block.kind === 'code') {
+                    <pre class="my-2 max-w-full overflow-auto rounded-md bg-white/[0.06] p-2 text-xs leading-relaxed"><code>{{ block.value }}</code></pre>
+                  } @else {
+                    <p class="my-1 first:mt-0 last:mb-0">
+                      <ng-container [ngTemplateOutlet]="inline" [ngTemplateOutletContext]="{ $implicit: block.tokens }" />
+                    </p>
                   }
                 }
               </div>
-            }
-          </div>
+            </div>
+          }
         </div>
       }
     </app-drawer>
@@ -380,23 +619,39 @@ export class ChatHistoryComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly workspace = inject(WorkspaceService);
 
-  readonly sessions = signal<AdminSessionSummary[]>([]);
+  readonly rows = signal<UnifiedRow[]>([]);
   readonly members = signal<MemberOption[]>([]);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
 
   readonly memberFilter = signal<string>('');
   readonly status = signal<StatusFilter>('active');
+  readonly kindFilter = signal<'all' | SessionKind>('all');
   private readonly pageSize = 50;
   private readonly limit = signal(this.pageSize);
   private readonly hasMoreFlag = signal(false);
 
-  readonly selected = signal<AdminSessionDetail | null>(null);
+  readonly selectedRow = signal<UnifiedRow | null>(null);
   readonly drawerOpen = signal(false);
   readonly detailLoading = signal(false);
+
+  // Chat detail state.
   readonly turns = signal<TranscriptTurn[]>([]);
 
+  // Capture detail state.
+  readonly captureObjective = signal<string>('');
+  readonly captureEntries = signal<CaptureEntry[]>([]);
+  readonly captureProposalStatus = signal<string | null>(null);
+  readonly captureProposalBlocks = signal<TranscriptBlock[]>([]);
+
   readonly skeletonRows = Array(6);
+
+  readonly kindFilters: { key: 'all' | SessionKind; label: string }[] = [
+    { key: 'all', label: 'All types' },
+    { key: 'chat', label: 'Chat' },
+    { key: 'capture', label: 'Capture' },
+    { key: 'correction', label: 'Corrections' },
+  ];
 
   readonly statusFilters: { key: StatusFilter; label: string }[] = [
     { key: 'active', label: 'Active' },
@@ -406,16 +661,13 @@ export class ChatHistoryComponent implements OnInit {
 
   readonly hasMore = computed(() => this.hasMoreFlag());
 
-  readonly drawerTitle = computed(() => {
-    const session = this.selected();
-    return session ? this.sessionTitle(session) : 'Chat session';
-  });
+  readonly drawerTitle = computed(() => this.selectedRow()?.title || 'Session');
 
   readonly drawerSubtitle = computed(() => {
-    const session = this.selected();
-    if (!session) return undefined;
-    const count = session.message_count ?? this.turns().length;
-    return `${this.authorLabel(session)} · ${count} message${count === 1 ? '' : 's'}`;
+    const row = this.selectedRow();
+    if (!row) return undefined;
+    const unit = row.kind === 'chat' ? 'message' : 'turn';
+    return `${row.authorLabel} · ${this.kindLabel(row.kind)} · ${row.count} ${unit}${row.count === 1 ? '' : 's'}`;
   });
 
   ngOnInit(): void {
@@ -452,6 +704,12 @@ export class ChatHistoryComponent implements OnInit {
     this.reload();
   }
 
+  setKind(kind: 'all' | SessionKind): void {
+    if (this.kindFilter() === kind) return;
+    this.kindFilter.set(kind);
+    this.reload();
+  }
+
   setMember(userId: string): void {
     this.memberFilter.set(userId || '');
     this.reload();
@@ -460,46 +718,157 @@ export class ChatHistoryComponent implements OnInit {
   private fetchSessions(): void {
     this.loading.set(true);
     this.error.set(null);
-    const params: Record<string, string> = {
+    const status = this.status();
+    const member = this.memberFilter();
+    const limit = this.limit();
+    const kind = this.kindFilter();
+
+    const chatParams: Record<string, string> = {
       include_admin: 'true',
-      status: this.status(),
-      limit: String(this.limit()),
+      status,
+      limit: String(limit),
       offset: '0',
     };
-    const member = this.memberFilter();
-    if (member) params['user_id'] = member;
-    this.api.get<AdminSessionListResponse | AdminSessionSummary[]>('/sessions', params).subscribe({
-      next: (payload) => {
-        const rows = Array.isArray(payload) ? payload : payload?.sessions ?? [];
-        this.sessions.set(rows);
-        this.hasMoreFlag.set(rows.length >= this.limit());
+    if (member) chatParams['user_id'] = member;
+
+    const captureParams: Record<string, string> = { limit: String(limit) };
+    if (status !== 'active') captureParams['include_archived'] = 'true';
+
+    let chatError: string | null = null;
+    const chat$ =
+      kind === 'capture' || kind === 'correction'
+        ? of<AdminSessionListResponse>({ sessions: [] })
+        : this.api
+            .get<AdminSessionListResponse | AdminSessionSummary[]>('/sessions', chatParams)
+            .pipe(
+              catchError((err) => {
+                chatError =
+                  err?.status === 403
+                    ? 'Admin role is required to view workspace chat history.'
+                    : 'Unable to load chat sessions.';
+                return of<AdminSessionListResponse>({ sessions: [] });
+              }),
+            );
+
+    const capture$ =
+      kind === 'chat'
+        ? of<CaptureSessionListResponse>({ sessions: [] })
+        : this.api
+            .get<CaptureSessionListResponse>('/knowledge-capture/sessions', captureParams)
+            .pipe(catchError(() => of<CaptureSessionListResponse>({ sessions: [] })));
+
+    forkJoin({ chat: chat$, capture: capture$ }).subscribe({
+      next: ({ chat, capture }) => {
+        const chatRows = Array.isArray(chat) ? chat : chat?.sessions ?? [];
+        const captureRows = capture?.sessions ?? [];
+        this.mergeRows(chatRows, captureRows, { status, member, kind });
+        this.hasMoreFlag.set(chatRows.length >= limit || captureRows.length >= limit);
+        this.error.set(chatError);
         this.loading.set(false);
       },
-      error: (err) => {
-        this.sessions.set([]);
+      error: () => {
+        this.rows.set([]);
         this.loading.set(false);
-        this.error.set(
-          err?.status === 403
-            ? 'Admin role is required to view workspace chat history.'
-            : 'Unable to load chat history.',
-        );
+        this.error.set('Unable to load session history.');
       },
     });
   }
 
-  openDetail(session: AdminSessionSummary): void {
-    this.selected.set(session);
+  private mergeRows(
+    chatRows: AdminSessionSummary[],
+    captureRows: CaptureSessionSummary[],
+    filters: { status: StatusFilter; member: string; kind: 'all' | SessionKind },
+  ): void {
+    const merged: UnifiedRow[] = [];
+
+    if (filters.kind === 'all' || filters.kind === 'chat') {
+      for (const s of chatRows) merged.push(this.chatToRow(s));
+    }
+
+    for (const c of captureRows) {
+      const row = this.captureToRow(c);
+      if (filters.kind !== 'all' && row.kind !== filters.kind) continue;
+      // Capture endpoint has no per-member filter — narrow client-side.
+      if (filters.member && (row.userId || '') !== filters.member) continue;
+      // The capture endpoint cannot scope to "archived only"; do it here.
+      if (filters.status === 'archived' && !c.archived) continue;
+      merged.push(row);
+    }
+
+    merged.sort((a, b) => this.activityMs(b) - this.activityMs(a));
+    this.rows.set(merged);
+  }
+
+  private activityMs(row: UnifiedRow): number {
+    const value = row.lastActivity || row.createdAt;
+    const parsed = value ? Date.parse(value) : NaN;
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  private chatToRow(s: AdminSessionSummary): UnifiedRow {
+    return {
+      id: s.id,
+      kind: 'chat',
+      userId: s.user_id ?? null,
+      authorLabel:
+        (s.author_label || '').trim() ||
+        (s.author_email || '').trim() ||
+        s.user_id ||
+        'Unknown',
+      authorEmail: s.author_email ?? null,
+      title: (s.title || '').trim() || 'Untitled conversation',
+      status: s.status || 'active',
+      createdAt: s.created_at ?? null,
+      lastActivity: s.last_activity || s.created_at || null,
+      count: s.message_count ?? 0,
+      context: this.chatContext(s),
+      chat: s,
+    };
+  }
+
+  private captureToRow(c: CaptureSessionSummary): UnifiedRow {
+    const status = c.status || 'planned';
+    return {
+      id: c.id,
+      kind: status === 'chat_correction' ? 'correction' : 'capture',
+      userId: c.created_by_user_id ?? null,
+      authorLabel: (c.created_by_label || '').trim() || c.created_by_user_id || 'Unknown',
+      authorEmail: null,
+      title: (c.title || '').trim() || (c.objective || '').trim() || 'Untitled capture',
+      status,
+      createdAt: c.created_at ?? null,
+      lastActivity: c.last_activity || c.updated_at || c.created_at || null,
+      count: c.turn_count ?? (c.transcript?.length ?? 0),
+      context: this.captureContext(c),
+      capture: c,
+    };
+  }
+
+  openDetail(row: UnifiedRow): void {
+    this.selectedRow.set(row);
     this.turns.set([]);
+    this.captureEntries.set([]);
+    this.captureObjective.set('');
+    this.captureProposalStatus.set(null);
+    this.captureProposalBlocks.set([]);
     this.drawerOpen.set(true);
     this.detailLoading.set(true);
+
+    if (row.kind === 'chat') {
+      this.loadChatDetail(row);
+    } else {
+      this.loadCaptureDetail(row);
+    }
+  }
+
+  private loadChatDetail(row: UnifiedRow): void {
     this.api
-      .get<AdminSessionDetail>(
-        `/sessions/${encodeURIComponent(session.id)}`,
-        { include_messages: 'true', include_jobs: 'true' },
-      )
+      .get<AdminSessionDetail>(`/sessions/${encodeURIComponent(row.id)}`, {
+        include_messages: 'true',
+        include_jobs: 'true',
+      })
       .subscribe({
         next: (detail) => {
-          this.selected.set({ ...session, ...detail });
           this.turns.set((detail.messages || []).map((m) => this.toTurn(m)));
           this.detailLoading.set(false);
         },
@@ -510,33 +879,113 @@ export class ChatHistoryComponent implements OnInit {
       });
   }
 
+  private loadCaptureDetail(row: UnifiedRow): void {
+    const id = encodeURIComponent(row.id);
+    forkJoin({
+      detail: this.api
+        .get<CaptureSessionDetail>(`/knowledge-capture/sessions/${id}`)
+        .pipe(catchError(() => of<CaptureSessionDetail | null>(null))),
+      events: this.api
+        .get<CaptureEventListResponse>(`/knowledge-capture/sessions/${id}/events`)
+        .pipe(catchError(() => of<CaptureEventListResponse>({ events: [] }))),
+      proposals: this.api
+        .get<CaptureProposalListResponse>('/knowledge-capture/proposals', { session_id: row.id })
+        .pipe(catchError(() => of<CaptureProposalListResponse>({ proposals: [] }))),
+    }).subscribe({
+      next: ({ detail, events, proposals }) => {
+        const objective = (detail?.objective || row.capture?.objective || '').trim();
+        this.captureObjective.set(objective);
+        this.captureEntries.set(
+          this.buildCaptureEntries(detail?.transcript || row.capture?.transcript || [], events?.events || []),
+        );
+        const proposal = (proposals?.proposals || [])[0] || null;
+        this.captureProposalStatus.set(proposal?.status ?? null);
+        this.captureProposalBlocks.set(this.renderMarkdown(this.proposalContent(proposal)));
+        this.detailLoading.set(false);
+      },
+      error: () => {
+        this.detailLoading.set(false);
+        this.error.set('Unable to load this capture session.');
+      },
+    });
+  }
+
   closeDetail(): void {
     this.drawerOpen.set(false);
-    this.selected.set(null);
+    this.selectedRow.set(null);
     this.turns.set([]);
+    this.captureEntries.set([]);
+    this.captureObjective.set('');
+    this.captureProposalStatus.set(null);
+    this.captureProposalBlocks.set([]);
   }
 
   // ---- presentation helpers -------------------------------------------------
 
-  authorLabel(session: AdminSessionSummary): string {
-    return (
-      (session.author_label || '').trim() ||
-      (session.author_email || '').trim() ||
-      session.user_id ||
-      'Unknown'
-    );
+  authorInitial(row: UnifiedRow): string {
+    return (row.authorLabel || '').charAt(0).toUpperCase() || '?';
   }
 
-  authorInitial(session: AdminSessionSummary): string {
-    return this.authorLabel(session).charAt(0).toUpperCase() || '?';
+  kindLabel(kind: SessionKind): string {
+    switch (kind) {
+      case 'capture':
+        return 'Expert capture';
+      case 'correction':
+        return 'Correction';
+      default:
+        return 'Chat';
+    }
   }
 
-  sessionTitle(session: AdminSessionSummary): string {
-    return (session.title || '').trim() || 'Untitled conversation';
+  kindIcon(kind: SessionKind): string {
+    switch (kind) {
+      case 'capture':
+        return 'mic';
+      case 'correction':
+        return 'edit-3';
+      default:
+        return 'message-square';
+    }
   }
 
-  systemContext(session: AdminSessionSummary): string {
-    const meta = session.meta_data || {};
+  kindClass(kind: SessionKind): string {
+    switch (kind) {
+      case 'capture':
+        return 'bg-violet-500/15 text-violet-300 ring-1 ring-violet-500/30';
+      case 'correction':
+        return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30';
+      default:
+        return 'bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30';
+    }
+  }
+
+  statusLabel(status?: string): string {
+    if (!status) return 'active';
+    if (status === 'chat_correction') return 'correction';
+    return status.replace(/_/g, ' ');
+  }
+
+  statusClass(status?: string): string {
+    switch (status) {
+      case 'archived':
+        return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30';
+      case 'deleted':
+      case 'rejected':
+        return 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30';
+      case 'completed':
+      case 'published':
+      case 'accepted':
+        return 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30';
+      case 'pending_review':
+      case 'changes_requested':
+        return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30';
+      default:
+        return 'bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/30';
+    }
+  }
+
+  private chatContext(s: AdminSessionSummary): string {
+    const meta = s.meta_data || {};
     const parts: string[] = [];
     const system = this.metaString(meta, 'system_id');
     const context = this.metaString(meta, 'context_id');
@@ -551,20 +1000,92 @@ export class ChatHistoryComponent implements OnInit {
     );
   }
 
-  statusClass(status?: string): string {
-    switch (status) {
-      case 'archived':
-        return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30';
-      case 'deleted':
-        return 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30';
-      default:
-        return 'bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/30';
-    }
+  private captureContext(c: CaptureSessionSummary): string {
+    const parts: string[] = [];
+    if (c.system_id) parts.push(c.system_id);
+    if (c.context_id) parts.push(c.context_id);
+    if (parts.length) return parts.join(' · ');
+    const domain = this.metaString(c.metrics || {}, 'capture_domain');
+    if (domain) return domain;
+    const origin = this.metaString(c.metrics || {}, 'origin');
+    if (origin) return origin.replace(/_/g, ' ');
+    return '—';
   }
 
   private metaString(meta: Record<string, unknown>, key: string): string {
     const value = meta[key];
     return typeof value === 'string' ? value : '';
+  }
+
+  // ---- capture transcript building ------------------------------------------
+
+  private buildCaptureEntries(transcript: CaptureTurnRaw[], events: CaptureEvent[]): CaptureEntry[] {
+    const entries: CaptureEntry[] = [];
+
+    for (const turn of transcript || []) {
+      const text = (turn.text || turn.text_amended || turn.text_raw || '').trim();
+      const raw = (turn.text_raw || '').trim();
+      if (!text && !raw) continue;
+      const speaker = (turn.speaker || 'expert').toLowerCase();
+      entries.push({
+        speaker: speaker === 'expert' ? 'expert' : 'system',
+        label: this.speakerLabel(speaker, turn.turn_kind),
+        text: text || raw,
+        rawText: turn.text_amended && raw && raw !== text ? raw : null,
+        timestamp: turn.created_at ?? null,
+      });
+    }
+
+    // Fall back to business events when the session has no transcript (the case
+    // for chat-corrections, where the voice event carries raw + amended text).
+    if (entries.length === 0) {
+      for (const ev of events || []) {
+        if (!MEANINGFUL_CAPTURE_EVENTS.has(ev.event_type)) continue;
+        const amended = (ev.text_amended || '').trim();
+        const raw = (ev.text_raw || '').trim();
+        const text = (ev.text || amended || raw).trim();
+        if (!text && !raw) continue;
+        const speaker = (ev.speaker || 'expert').toLowerCase();
+        entries.push({
+          speaker: speaker === 'expert' ? 'expert' : 'system',
+          label: this.eventLabel(ev.event_type),
+          text: text || raw,
+          rawText: amended && raw && raw !== amended ? raw : null,
+          timestamp: ev.created_at ?? null,
+        });
+      }
+    }
+
+    return entries;
+  }
+
+  private speakerLabel(speaker: string, turnKind?: string | null): string {
+    if (speaker === 'expert') {
+      if (turnKind === 'correction') return 'Expert · correction';
+      if (turnKind === 'complement') return 'Expert · complement';
+      return 'Expert';
+    }
+    if (speaker === 'operator') return 'Operator';
+    return 'Interviewer';
+  }
+
+  private eventLabel(eventType: string): string {
+    switch (eventType) {
+      case 'chat_correction_voice':
+        return 'Voice correction';
+      case 'expert_turn_finalized':
+        return 'Expert';
+      default:
+        return eventType.replace(/_/g, ' ');
+    }
+  }
+
+  private proposalContent(proposal: CaptureProposal | null): string {
+    if (!proposal) return '';
+    const payload = (proposal.proposal || {}) as Record<string, unknown>;
+    const recommended = (payload['recommended_ingestion'] || {}) as Record<string, unknown>;
+    const content = recommended['content'] ?? payload['report_markdown'] ?? '';
+    return typeof content === 'string' ? content.trim() : '';
   }
 
   // ---- read-only transcript rendering (mirrors chat-panel approach) ---------
@@ -582,6 +1103,7 @@ export class ChatHistoryComponent implements OnInit {
 
   private renderMarkdown(content: string): TranscriptBlock[] {
     const text = (content || '').replace(/\r\n?/g, '\n');
+    if (!text.trim()) return [];
     const lines = text.split('\n');
     const blocks: TranscriptBlock[] = [];
     let paragraph: string[] = [];

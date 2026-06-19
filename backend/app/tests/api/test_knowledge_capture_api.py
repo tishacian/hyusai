@@ -513,6 +513,110 @@ def test_list_published_fiches_returns_workspace_outputs(db_session, monkeypatch
     assert missing.json()["total"] == 0
 
 
+def test_admin_lists_all_members_capture_sessions(db_session, monkeypatch):
+    """A workspace admin browses every member's capture sessions read-only, and
+    each row carries the author label + turn count the unified admin view needs."""
+    from app.models.expert_capture import ExpertCaptureSession
+    from app.models.workspace import WorkspaceMember
+
+    workspace = Workspace(id="ws-kc-admin-list", name="KC Admin List", slug="kc-admin-list")
+    author_a = User(id="user-kc-author-a", username="aa", email="aa@example.test")
+    author_b = User(id="user-kc-author-b", username="bb", email="bb@example.test")
+    admin = User(id="user-kc-admin", username="adm", email="adm@example.test")
+    db_session.add_all([workspace, author_a, author_b, admin])
+    db_session.add(
+        WorkspaceMember(
+            user_id=admin.id,
+            workspace_id=workspace.id,
+            role="admin",
+            role_template="workspace_admin",
+        )
+    )
+    db_session.add_all(
+        [
+            ExpertCaptureSession(
+                id="cap-a",
+                workspace_id=workspace.id,
+                created_by_user_id=author_a.id,
+                title="Session A",
+                objective="Objectif A",
+                status="completed",
+                transcript=[
+                    {"id": "t1", "speaker": "expert", "text": "Réponse 1"},
+                    {"id": "t2", "speaker": "expert", "text": "Réponse 2"},
+                ],
+            ),
+            ExpertCaptureSession(
+                id="cap-b",
+                workspace_id=workspace.id,
+                created_by_user_id=author_b.id,
+                title="Correction B",
+                objective="Objectif B",
+                status="chat_correction",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    client = _client(db_session, workspace, admin, monkeypatch)
+    listed = client.get("/api/v1/knowledge-capture/sessions")
+    assert listed.status_code == 200
+    by_id = {row["id"]: row for row in listed.json()["sessions"]}
+    assert {"cap-a", "cap-b"} <= set(by_id)
+    assert by_id["cap-a"]["created_by_label"] == "aa@example.test"
+    assert by_id["cap-a"]["turn_count"] == 2
+    assert by_id["cap-b"]["created_by_label"] == "bb@example.test"
+    assert by_id["cap-b"]["turn_count"] == 0
+
+
+def test_contributor_only_sees_own_capture_sessions(db_session, monkeypatch):
+    """A contributor (default IAM flag) only sees their own capture sessions,
+    confirming the admin path above genuinely widens visibility."""
+    from app.models.expert_capture import ExpertCaptureSession
+    from app.models.workspace import WorkspaceMember
+
+    workspace = Workspace(id="ws-kc-contrib-list", name="KC Contrib List", slug="kc-contrib-list")
+    author_a = User(id="user-kc-contrib-a", username="ca", email="ca@example.test")
+    author_b = User(id="user-kc-contrib-b", username="cb", email="cb@example.test")
+    db_session.add_all([workspace, author_a, author_b])
+    db_session.add(
+        WorkspaceMember(
+            user_id=author_a.id,
+            workspace_id=workspace.id,
+            role="member",
+            role_template="workspace_contributor",
+        )
+    )
+    db_session.add_all(
+        [
+            ExpertCaptureSession(
+                id="cap-mine",
+                workspace_id=workspace.id,
+                created_by_user_id=author_a.id,
+                title="Ma session",
+                objective="Objectif",
+                status="completed",
+            ),
+            ExpertCaptureSession(
+                id="cap-foreign",
+                workspace_id=workspace.id,
+                created_by_user_id=author_b.id,
+                title="Session voisine",
+                objective="Objectif",
+                status="completed",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    client = _client(db_session, workspace, author_a, monkeypatch)
+    listed = client.get("/api/v1/knowledge-capture/sessions")
+    assert listed.status_code == 200
+    ids = {row["id"] for row in listed.json()["sessions"]}
+    assert "cap-mine" in ids
+    assert "cap-foreign" not in ids
+
+
 def test_conversation_step_accept_checks_proposal_review_permissions(db_session, monkeypatch):
     workspace = Workspace(id="ws-kc-api-conv-perm", name="KC API Conv Perm", slug="kc-api-conv-perm")
     user = User(id="user-kc-api-conv-perm", username="operator", email="operator@example.test")
