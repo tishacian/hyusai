@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from types import SimpleNamespace
 
-from sqlalchemy import or_
+from sqlalchemy import case, or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
@@ -266,6 +266,15 @@ def _request_filters(request: Mapping[str, Any] | None) -> dict[str, Any]:
 # use bounded DB-side candidate targeting instead (see _rows_for_collections).
 _LEDGER_TARGETING_MIN_SOURCES = 5000
 _LEDGER_TARGETING_MIN_CHUNKS = 50000
+
+# A query term that already matches more than this many facts in the scoped
+# collection carries no document-scoping signal (e.g. "machine" on an industrial
+# corpus matches ~13% of all facts). Such terms are dropped from the candidate
+# gate in _infer_fact_document_scope: keeping them both crowds out the specific
+# multi-term fact and makes the trigram index unselective (the planner falls back
+# to a full sequential scan). Detection is a bounded, index-friendly count that
+# stops at the threshold, so it stays cheap even for the common term itself.
+_FACT_SCOPE_COMMON_TERM_MAX = 15000
 
 
 _SOURCE_LOOKUP_GENERIC_TERMS = {
@@ -985,14 +994,20 @@ def _infer_filters(query: str, rows: list[Any]) -> tuple[dict[str, Any], float, 
 
 
 def _query_terms(query: str) -> list[str]:
-    # >=5 mirrors the strong filename/source signal used elsewhere (project codes
-    # and _source_lookup_terms both require len >= 5). It also bounds the
-    # fact-table ILIKE in _infer_fact_document_scope (the only caller): shorter
-    # tokens match too much and turn the content-column scan into noise.
+    # Long word tokens (>=5) mirror the strong filename/source signal used
+    # elsewhere (project codes and _source_lookup_terms both require len >= 5).
+    # Short tokens that carry a digit are kept too: model numbers, sizes and part
+    # codes ("1500", "ø1500"->"1500", "s35ppp") are the most selective signal for
+    # measurement/parameter lookups, yet the blanket len>=5 rule used to drop them
+    # and leave only common words ("poids", "machine") that cannot pinpoint a
+    # document. _infer_fact_document_scope still demotes ubiquitous terms, so the
+    # extra numeric tokens sharpen scope without flooding the candidate scan.
     terms: list[str] = []
     for raw in _TERM_RE.findall(str(query or "").lower()):
         token = raw.strip("_-")
-        if len(token) < 5 or token in _QUERY_STOPWORDS:
+        if token in _QUERY_STOPWORDS:
+            continue
+        if len(token) < 5 and not any(ch.isdigit() for ch in token):
             continue
         if token not in terms:
             terms.append(token)
@@ -1014,6 +1029,23 @@ def _fact_text(fact: KnowledgeDocumentFact) -> str:
     ).lower()
 
 
+# Candidate gating ILIKEs the structured fact fields, not the free-text content
+# column: the answer-bearing value for measurement/parameter facts lives in
+# subject/value_raw, content is the main source of ubiquitous-term noise, and the
+# trigram indexes back exactly these columns (migration 045).
+_FACT_SCOPE_CANDIDATE_COLUMNS = (
+    KnowledgeDocumentFact.subject,
+    KnowledgeDocumentFact.value_raw,
+    KnowledgeDocumentFact.section_path,
+    KnowledgeDocumentFact.document_filename,
+)
+
+
+def _fact_term_predicates(term: str) -> list[Any]:
+    like = f"%{term}%"
+    return [column.ilike(like) for column in _FACT_SCOPE_CANDIDATE_COLUMNS]
+
+
 def _infer_fact_document_scope(
     db: DBSession,
     *,
@@ -1029,26 +1061,48 @@ def _infer_fact_document_scope(
     if not collection_ids or not workspace_id:
         return {}, 0.0, ""
 
-    predicates = []
+    base = db.query(KnowledgeDocumentFact).filter(
+        KnowledgeDocumentFact.workspace_id == workspace_id,
+        KnowledgeDocumentFact.collection_id.in_(collection_ids),
+    )
+
+    # Drop ubiquitous terms that cannot scope to a document. The bounded count
+    # short-circuits at the threshold, so even the common term stays cheap.
+    discriminating: list[str] = []
     for term in terms:
-        like = f"%{term}%"
-        predicates.extend(
-            [
-                KnowledgeDocumentFact.content.ilike(like),
-                KnowledgeDocumentFact.subject.ilike(like),
-                KnowledgeDocumentFact.value_raw.ilike(like),
-                KnowledgeDocumentFact.section_path.ilike(like),
-                KnowledgeDocumentFact.document_filename.ilike(like),
-            ]
+        hits = (
+            base.filter(or_(*_fact_term_predicates(term)))
+            .limit(_FACT_SCOPE_COMMON_TERM_MAX + 1)
+            .count()
         )
+        if 0 < hits <= _FACT_SCOPE_COMMON_TERM_MAX:
+            discriminating.append(term)
+    if not discriminating:
+        # Every term is either absent or ubiquitous: fall back to all present
+        # terms so a single-rare-term query (e.g. one short code) still scopes.
+        discriminating = terms
+
+    predicates: list[Any] = []
+    for term in discriminating:
+        predicates.extend(_fact_term_predicates(term))
+
+    # Rank candidates by how many DISTINCT discriminating terms each fact matches
+    # (NULL-safe via CASE), not by raw confidence. The answer-bearing fact often
+    # has only modest confidence and is otherwise evicted by the high-confidence
+    # volume of a single common term (the Q7 crowd-out pattern); confidence only
+    # breaks ties between equally specific facts.
+    coverage = None
+    for term in discriminating:
+        piece = case((or_(*_fact_term_predicates(term)), 1), else_=0)
+        coverage = piece if coverage is None else coverage + piece
+
     query_rows = (
-        db.query(KnowledgeDocumentFact)
-        .filter(
-            KnowledgeDocumentFact.workspace_id == workspace_id,
-            KnowledgeDocumentFact.collection_id.in_(collection_ids),
-            or_(*predicates),
+        base.filter(or_(*predicates))
+        .order_by(
+            coverage.desc(),
+            KnowledgeDocumentFact.confidence.desc(),
+            KnowledgeDocumentFact.updated_at.desc(),
         )
-        .order_by(KnowledgeDocumentFact.confidence.desc(), KnowledgeDocumentFact.updated_at.desc())
         .limit(800)
         .all()
     )
@@ -1069,7 +1123,7 @@ def _infer_fact_document_scope(
             continue
         haystack = _fact_text(fact)
         score = 0.0
-        for term in terms:
+        for term in discriminating:
             if term in haystack:
                 score += 1.0
             if filename and term in filename.lower():
@@ -1518,20 +1572,14 @@ def plan_corpus(
         confidence = max(confidence, ledger_confidence)
         reason = ledger_reason
     filters = {**inferred_filters, **explicit_filters}
-    # Fact-scope inference ILIKEs the document-fact table (content column), which
-    # is a sequential scan on large corpora (~tens of seconds, 42d8226). Deep
-    # (async, backgrounded) can always afford it; balanced (interactive) only on
-    # collections small enough that the bounded scan stays cheap. Large
-    # ledger-backed corpora stay deep-only on fact-scope and fall through to the
-    # bounded summary-artifact scope, exactly as fast does.
-    large_collection_scope = any(
-        int(getattr(c, "document_count", 0) or 0) > _LEDGER_TARGETING_MIN_SOURCES
-        or int(getattr(c, "chunk_count", 0) or 0) > _LEDGER_TARGETING_MIN_CHUNKS
-        for c in collection_rows
-    )
-    run_fact_scope = latency_profile == "deep" or (
-        latency_profile == "balanced" and not large_collection_scope
-    )
+    # Fact-scope inference scopes retrieval to the documents whose facts carry the
+    # query's discriminating terms. It is backed by GIN pg_trgm indexes on the
+    # fact columns (migration 045) and demotes ubiquitous terms, so the bounded
+    # candidate scan is interactive (single-digit seconds) instead of the former
+    # ~tens-of-seconds sequential scan that forced large corpora to be deep-only.
+    # Deep (async) and balanced (interactive, 16s budget) both run it; fast keeps
+    # its snappy 8s budget and falls through to the bounded summary-artifact scope.
+    run_fact_scope = latency_profile in ("deep", "balanced")
     if explicit_filters:
         confidence = max(confidence, 0.95)
         reason = f"System/agent retrieval filters supplied: {', '.join(sorted(explicit_filters))}."
