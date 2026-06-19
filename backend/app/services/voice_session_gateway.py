@@ -753,26 +753,6 @@ class VoiceSessionGateway:
                 or (now - state.last_orphan_drop_log_at) >= 1.0
             ):
                 state.last_orphan_drop_log_at = now
-                # #region agent log (debug-24a345)
-                try:
-                    import json as _kcdbg_json
-
-                    print(
-                        "KCDBG24a345 "
-                        + _kcdbg_json.dumps(
-                            {
-                                "location": "voice_session_gateway.py:orphan_frame_dropped",
-                                "turn": payload.get("turn_id") or payload.get("client_turn_id") or state.client_turn_id,
-                                "bytes": len(chunk),
-                                "ts": int(time.time() * 1000),
-                            },
-                            ensure_ascii=False,
-                        ),
-                        flush=True,
-                    )
-                except Exception:
-                    pass
-                # #endregion
             return
         if not state.audio_chunks:
             state.turn_started_at = time.perf_counter()
@@ -840,10 +820,6 @@ class VoiceSessionGateway:
             and (now - state.last_partial_stt_at) * 1000.0 < state.partial_stt_min_interval_ms
         ):
             return
-        try:
-            provider = get_voice_runtime_provider(state.runtime, workspace_settings=workspace.settings)
-        except VoiceProviderError:
-            return
         audio_bytes = b"".join(state.audio_chunks)
         if not audio_bytes:
             return
@@ -854,12 +830,49 @@ class VoiceSessionGateway:
         # detect, after the STT await, that the turn was endpointed/reset meanwhile.
         state.partial_stt_in_flight = True
         my_generation = state.partial_stt_generation
-        # #region agent log (debug-24a345)
-        _kcdbg_gap_ms = (
+        gap_since_prev_ms = (
             int((now - state.last_partial_stt_at) * 1000.0) if state.last_partial_stt_at is not None else None
         )
-        _kcdbg_stt_t0 = time.perf_counter()
-        # #endregion
+        stt_started_at = time.perf_counter()
+
+        async def emit_partial_metric(
+            status: str,
+            *,
+            reason: Optional[str] = None,
+            stt_ms: Optional[int] = None,
+            text_len: Optional[int] = None,
+        ) -> None:
+            metric_payload: Dict[str, Any] = {
+                "metric": "partial_stt",
+                "status": status,
+                "turn_id": turn_id,
+                "source": "incremental",
+                "transport": state.transport,
+                "chunk_count": chunk_count,
+                "audio_bytes": len(audio_bytes),
+                "interval_floor_ms": state.partial_stt_min_interval_ms,
+            }
+            if reason:
+                metric_payload["reason"] = reason
+            if stt_ms is not None:
+                metric_payload["value_ms"] = stt_ms
+                metric_payload["stt_ms"] = stt_ms
+            if text_len is not None:
+                metric_payload["text_len"] = text_len
+            if gap_since_prev_ms is not None:
+                metric_payload["gap_since_prev_ms"] = gap_since_prev_ms
+            try:
+                await self._send(websocket, state, "runtime.metric", metric_payload)
+            except Exception:
+                logger.debug("partial STT metric emission failed", exc_info=True)
+
+        try:
+            provider = get_voice_runtime_provider(state.runtime, workspace_settings=workspace.settings)
+        except VoiceProviderError:
+            await emit_partial_metric("skipped", reason="provider_unavailable")
+            if state.partial_stt_generation == my_generation:
+                state.partial_stt_in_flight = False
+            return
         state.last_partial_stt_at = now
         state.last_partial_chunk_count = chunk_count
         try:
@@ -877,28 +890,18 @@ class VoiceSessionGateway:
             # Degraded provider: drop this advisory partial silently; the
             # in-flight flag is cleared (generation-guarded) in the finally below
             # so the next frame can schedule a fresh partial.
-            # #region agent log (debug-24a345)
-            try:
-                import json as _kcdbg_json
-
-                print(
-                    "KCDBG24a345 "
-                    + _kcdbg_json.dumps(
-                        {
-                            "location": "voice_session_gateway.py:partial_stt_timeout",
-                            "turn": turn_id,
-                            "chunks": chunk_count,
-                            "ts": int(time.time() * 1000),
-                        },
-                        ensure_ascii=False,
-                    ),
-                    flush=True,
-                )
-            except Exception:
-                pass
-            # #endregion
+            await emit_partial_metric(
+                "timeout",
+                reason="timeout",
+                stt_ms=int((time.perf_counter() - stt_started_at) * 1000),
+            )
             return
-        except Exception:
+        except Exception as exc:
+            await emit_partial_metric(
+                "error",
+                reason=exc.__class__.__name__,
+                stt_ms=int((time.perf_counter() - stt_started_at) * 1000),
+            )
             return
         finally:
             # Only clear the flag if no reset happened while we were transcribing:
@@ -906,34 +909,6 @@ class VoiceSessionGateway:
             # clearing it here would allow two concurrent incremental STTs.
             if state.partial_stt_generation == my_generation:
                 state.partial_stt_in_flight = False
-        # #region agent log (debug-24a345)
-        try:
-            import json as _kcdbg_json
-
-            print(
-                "KCDBG24a345 "
-                + _kcdbg_json.dumps(
-                    {
-                        "hypothesisId": "L1,L2,L3",
-                        "location": "voice_session_gateway.py:_maybe_run_incremental_transcription",
-                        "phase": "partial_stt",
-                        "turn": turn_id,
-                        "chunks": chunk_count,
-                        "audio_bytes": len(audio_bytes),
-                        "stt_ms": int((time.perf_counter() - _kcdbg_stt_t0) * 1000),
-                        "interval_floor_ms": state.partial_stt_min_interval_ms,
-                        "gap_since_prev_ms": _kcdbg_gap_ms,
-                        "offloaded": True,
-                        "ts": int(time.time() * 1000),
-                    },
-                    ensure_ascii=False,
-                ),
-                flush=True,
-            )
-        except Exception:
-            pass
-        # #endregion
-
         # Staleness guard: the offloaded STT may complete AFTER the turn ended
         # (audio.endpoint / pause / barge-in reset the partial state and bumped the
         # generation, or a new turn replaced client_turn_id). Drop the result
@@ -941,37 +916,33 @@ class VoiceSessionGateway:
         # a finished turn and corrupt the next turn's partial-reuse logic in
         # _handle_audio_endpoint.
         if state.partial_stt_generation != my_generation or state.client_turn_id != turn_id:
-            # #region agent log (debug-24a345)
-            try:
-                import json as _kcdbg_json
-
-                print(
-                    "KCDBG24a345 "
-                    + _kcdbg_json.dumps(
-                        {
-                            "hypothesisId": "B1",
-                            "location": "voice_session_gateway.py:partial_stt_stale_drop",
-                            "turn": turn_id,
-                            "chunks": chunk_count,
-                            "ts": int(time.time() * 1000),
-                        },
-                        ensure_ascii=False,
-                    ),
-                    flush=True,
-                )
-            except Exception:
-                pass
-            # #endregion
+            await emit_partial_metric(
+                "stale",
+                reason="turn_reset",
+                stt_ms=int((time.perf_counter() - stt_started_at) * 1000),
+            )
             return
 
         text = str(transcript.get("text") or transcript.get("transcript") or "").strip()
         if is_capture_text_noise(text):
+            await emit_partial_metric(
+                "noise",
+                reason="noise_text",
+                stt_ms=int((time.perf_counter() - stt_started_at) * 1000),
+                text_len=len(text),
+            )
             return
         if not text or text == state.last_partial_text:
             # Even when the text is unchanged, the bytes that produced it match the
             # current buffer, so the endpoint can still reuse this committed partial.
             if text and text == state.last_partial_text:
                 state.last_partial_text_chunk_count = chunk_count
+            await emit_partial_metric(
+                "duplicate" if text else "empty",
+                reason="unchanged_text" if text else "empty_text",
+                stt_ms=int((time.perf_counter() - stt_started_at) * 1000),
+                text_len=len(text),
+            )
             return
         state.last_partial_text = text
         # Pin the committed partial to the exact buffer size that produced it so the
@@ -984,6 +955,11 @@ class VoiceSessionGateway:
                 state,
                 "transcript.partial",
                 {"segment_id": turn_id, "turn_id": turn_id, "text": text},
+            )
+            await emit_partial_metric(
+                "emitted",
+                stt_ms=int((time.perf_counter() - stt_started_at) * 1000),
+                text_len=len(text),
             )
             if state.tandem_oracle_enabled:
                 events = state.oracle.observe_partial(
@@ -1281,26 +1257,6 @@ class VoiceSessionGateway:
         state: VoiceSessionState,
         payload: Dict[str, Any],
     ) -> None:
-        # #region agent log (debug-24a345)
-        try:
-            import json as _kcdbg_json
-
-            print(
-                "KCDBG24a345 "
-                + _kcdbg_json.dumps(
-                    {
-                        "location": "voice_session_gateway.py:endpoint_entry",
-                        "turn": state.client_turn_id,
-                        "chunks": len(state.audio_chunks),
-                        "ts": int(time.time() * 1000),
-                    },
-                    ensure_ascii=False,
-                ),
-                flush=True,
-            )
-        except Exception:
-            pass
-        # #endregion
         # Any in-flight incremental STT is superseded by this endpoint's
         # authoritative full-buffer transcription: cancel it so the endpoint
         # never queues behind a slow partial round-trip or behind db_lock held
@@ -1400,34 +1356,6 @@ class VoiceSessionGateway:
             "runtime_model": transcript.get("model") or state.model,
             "fallback_used": bool(transcript.get("fallback")),
         }
-        # #region agent log (debug-24a345)
-        try:
-            import json as _kcdbg_json
-
-            print(
-                "KCDBG24a345 "
-                + _kcdbg_json.dumps(
-                    {
-                        "hypothesisId": "L1,L2,L3",
-                        "location": "voice_session_gateway.py:_handle_audio_endpoint",
-                        "phase": "endpoint_stt",
-                        "turn": state.client_turn_id,
-                        "chunks": chunk_count,
-                        "audio_bytes": len(audio_bytes),
-                        "reused_partial": bool(transcript.get("reused_partial")),
-                        "endpoint_stt_ms": endpoint_stt_ms,
-                        "endpoint_stt_source": endpoint_stt_source,
-                        "first_text_ms": first_text_ms,
-                        "turn_audio_capture_ms": turn_audio_capture_ms,
-                        "ts": int(time.time() * 1000),
-                    },
-                    ensure_ascii=False,
-                ),
-                flush=True,
-            )
-        except Exception:
-            pass
-        # #endregion
         endpoint_oracle_events: list[Dict[str, Any]] = []
         if text:
             state.text_partials.append(text)
@@ -1834,29 +1762,7 @@ class VoiceSessionGateway:
         starts a fresh turn under the frontend's new turn id (trace 24a345:
         keeping the buffer open across pauses emitted text.final under the
         stale turn id 524e65aa). A pause with an empty/silent buffer is normal:
-        reset silently, never emit an ``empty_audio`` error. The KCDBG entry
-        print and the ack below are emitted unconditionally so a pause is
-        ALWAYS observable in traces, even with an empty buffer."""
-        # #region agent log (debug-24a345)
-        try:
-            import json as _kcdbg_json
-
-            print(
-                "KCDBG24a345 "
-                + _kcdbg_json.dumps(
-                    {
-                        "location": "voice_session_gateway.py:pause_entry",
-                        "turn": state.client_turn_id,
-                        "chunks": len(state.audio_chunks),
-                        "ts": int(time.time() * 1000),
-                    },
-                    ensure_ascii=False,
-                ),
-                flush=True,
-            )
-        except Exception:
-            pass
-        # #endregion
+        reset silently, never emit an ``empty_audio`` error."""
         await self._send(websocket, state, "audio.pause", {"status": "ok", **payload})
         if not state.audio_chunks:
             # No buffered speech: nothing to flush, just clear partial bookkeeping.
@@ -2340,36 +2246,6 @@ class VoiceSessionGateway:
     ) -> None:
         async with state.send_lock:
             state.sequence += 1
-            # #region agent log (debug-24a345)
-            try:
-                import json as _kcdbg_json
-
-                _kcdbg_p = payload if isinstance(payload, dict) else {}
-                _kcdbg_oq = _kcdbg_p.get("open_questions")
-                print(
-                    "KCDBG24a345 "
-                    + _kcdbg_json.dumps(
-                        {
-                            "hypothesisId": "A,B,C",
-                            "location": "voice_session_gateway.py:_send",
-                            "ev": event_type,
-                            "seq": state.sequence,
-                            "turn": _kcdbg_p.get("turn_id"),
-                            "seg": _kcdbg_p.get("segment_id"),
-                            "text_len": len(str(_kcdbg_p.get("text") or "")),
-                            "empty": _kcdbg_p.get("empty"),
-                            "reframed": _kcdbg_p.get("reframed"),
-                            "oq": (len(_kcdbg_oq) if isinstance(_kcdbg_oq, list) else None),
-                            "tandem": getattr(state, "tandem_oracle_enabled", None),
-                            "ts": int(time.time() * 1000),
-                        },
-                        ensure_ascii=False,
-                    ),
-                    flush=True,
-                )
-            except Exception:
-                pass
-            # #endregion
             await websocket.send_json(
                 {
                     "id": str(uuid.uuid4()),

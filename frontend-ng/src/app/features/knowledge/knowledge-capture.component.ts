@@ -7603,9 +7603,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
               this.refreshPublishedFiches();
             }
             this.setVoiceNotice(this.i18n.t('capture.publish.success_title'), 'info');
-            // #region agent log
-            fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'PUB1',location:'knowledge-capture.component.ts:publishToKnowledge',message:'capture proposal published',data:{proposalId,collection:result.collection,documentId:result.document_id,chunks:result.chunks_processed},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
           },
           error: () => {
             this.setVoiceNotice('Publication impossible pour le moment.', 'error');
@@ -9053,6 +9050,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     return String(payload['segment_id'] || this.currentClientTurnId || 'live-turn');
   }
 
+  private voiceEventTurnId(payload: Record<string, any>): string {
+    return String(payload['turn_id'] || payload['segment_id'] || '').trim();
+  }
+
+  private voiceEventMatchesCurrentTurn(payload: Record<string, any>): boolean {
+    const eventTurnId = this.voiceEventTurnId(payload);
+    return Boolean(eventTurnId && this.currentClientTurnId && eventTurnId === this.currentClientTurnId);
+  }
+
   private handleVoiceSessionEvent(event: VoiceSessionEvent): void {
     const payload = event.payload || {};
     // Passive assist contract: any event may carry the oracle snapshot
@@ -9068,34 +9074,31 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       return;
     }
     if (event.type === 'text.partial' || event.type === 'transcript.partial') {
-      // Live partials are only meaningful while the mic is actively recording.
-      // After a pause/stop/VAD endpoint the tail was already committed locally
-      // (upright); a late in-flight partial (e.g. the backend transcribing the
-      // recorder's final flush frame ~1s after audio.pause) must not flip it
-      // back to the live/italic state — the authoritative text lands with
-      // `text.final` (or stays as the local commit while paused).
-      if (this.closeVoiceAfterStreamingTurn || !this.recording()) {
-        // #region agent log
-        fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'P1',location:'knowledge-capture.component.ts:partial-guard',message:'late partial dropped (not recording)',data:{type:event.type,closeAfter:this.closeVoiceAfterStreamingTurn,transcribing:this.transcribing(),textLen:String(payload['text']||'').length,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
+      const recording = this.recording();
+      const finalizingSameTurn = !recording && this.transcribing() && this.voiceEventMatchesCurrentTurn(payload);
+      // Render partials during active speech, plus late same-turn partials while
+      // endpoint STT is finalising. Older-turn partials stay filtered so a stale
+      // result never flips committed text back to a live/italic row.
+      if ((!recording && !finalizingSameTurn) || (this.closeVoiceAfterStreamingTurn && !finalizingSameTurn)) {
         return;
       }
       // Server-side incremental STT is the single source of truth for live
-      // partials: the gateway emits these mid-utterance. Render the live
-      // (grey/italic) transcript row and flag the "Transcription live" state.
+      // partials: render the subtitle row without coupling it to retrieval.
       const text = String(payload['text'] || '').trim();
       if (text) {
-        const command = this.detectCaptureVoiceCommand(text);
-        if (command && this.handleCaptureVoiceCommand(command, text)) {
-          return;
+        if (recording) {
+          const command = this.detectCaptureVoiceCommand(text);
+          if (command && this.handleCaptureVoiceCommand(command, text)) {
+            return;
+          }
         }
         this.answer = text;
         this.setLivePartial(this.voiceSegmentId(payload), text);
-        const session = this.session();
-        if (session) this.maybePrefetchRetrieval(session, text);
-        // Keep the live indicator visible during speech (set after the
-        // prefetch call, which may otherwise flip the state to "retrieving").
-        this.voiceState.set('partial_transcribing');
+        // Keep the live indicator visible during speech; during endpoint
+        // finalisation the text can update without changing the loop state.
+        if (recording) {
+          this.voiceState.set('partial_transcribing');
+        }
       }
       return;
     }
@@ -9138,9 +9141,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       }
       this.clearTranscriptionWatchdog();
       this.transcribing.set(false);
-      // #region agent log
-      fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F1,F2,F3',location:'knowledge-capture.component.ts:text.final',message:'text.final received',data:{textLen:text.length,closeAfter:this.closeVoiceAfterStreamingTurn,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       // Continuous capture path: the redesigned backend no longer emits a
       // per-turn `conversation.step`, so entering `thinking` + arming the 60s
       // `armConversationProcessingWatchdog()` here left every turn stuck in the
@@ -9309,7 +9309,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.setVoiceNotice('Connexion audio en cours, mode secours disponible.', 'warning');
         }
       }
-      if (metric === 'micro_turn') {
+      if (metric === 'micro_turn' && !this.recording()) {
         this.voiceState.set('oracle_updating');
       }
       // Only attribute latency to the retrieval panel when the metric is actually a
@@ -9794,9 +9794,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   stopConversation(): void {
     this.clearAutoResumeTimer();
     this.conversationSessionActive.set(false);
-    // #region agent log
-    fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F1',location:'knowledge-capture.component.ts:stopConversation:entry',message:'stop entry',data:{recording:this.recording(),transcribing:this.transcribing(),closeAfter:this.closeVoiceAfterStreamingTurn,hasConn:!!this.voiceConnection,recState:this.recorder?.state||null,recId:(this.recorder as any)?.__dbgId??null,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     // Re-entrancy guard: a stop is already finalising (e.g. voice-command stop
     // followed by a manual click, or a click while a VAD endpoint's text.final
     // is in flight). Tearing the connection down here would kill the pending
@@ -9807,9 +9804,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       if (!this.deferredLoopStopAfterStreamingTurn) {
         this.deferredLoopStopAfterStreamingTurn = { surface: 'knowledge_capture', reason: 'user_stop' };
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F1',location:'knowledge-capture.component.ts:stopConversation:guard',message:'guard branch: deferred to in-flight finalisation',data:{recState:this.recorder?.state||null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       this.setVoiceNotice('Conversation arrêtée. Finalisation du dernier tour…', 'info');
       return;
     }
@@ -9850,9 +9844,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.closeVoiceAfterStreamingTurn = true;
       this.deferredLoopStopAfterStreamingTurn = { surface: 'knowledge_capture', reason: 'user_stop' };
       this.releaseAudioStream();
-      // #region agent log
-      fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F2',location:'knowledge-capture.component.ts:stopConversation:flush',message:'flush branch: endpoint scheduled',data:{pendingSends:this.pendingVoiceFrameSends.length,wsReady:(this.voiceConnection as any)?.['socket']?.readyState??'n/a'},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       void this.finishStreamingVoiceTurn('stop');
       this.setVoiceNotice('Conversation arrêtée. Finalisation du dernier tour…', 'info');
       return;
@@ -10453,13 +10444,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (pending.length) {
       await Promise.allSettled(pending);
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F2,F3',location:'knowledge-capture.component.ts:finishStreamingVoiceTurn:pre-endpoint',message:'about to send endpoint',data:{reason,pendingAwaited:pending.length,connNull:!connection,wsReady:(connection as any)?.['socket']?.readyState??'n/a',turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     connection?.endpoint(this.voiceFrameMeta(reason));
-    // #region agent log
-    fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F3',location:'knowledge-capture.component.ts:finishStreamingVoiceTurn:post-endpoint',message:'endpoint() returned',data:{reason,wsReady:(connection as any)?.['socket']?.readyState??'n/a'},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (reason === 'no_speech') {
       this.transcribing.set(false);
       this.voiceState.set('idle');
@@ -11216,9 +11201,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           now - this.dictationLastVoiceAt >= silenceMs + hangoverMs;
         if (reachedSilence && this.dictationEndpointCandidateTimer === null) {
           this.setVoiceNotice(this.dictationEndpointNotice('silence'), 'info');
-          // #region agent log
-          fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F5',location:'knowledge-capture.component.ts:startDictationAudioMonitor',message:'dictation silence endpoint',data:{surface:this.dictationSurface(),silenceMs,minSpeechMs,threshold,rms:Number(rms.toFixed(4)),elapsedMs:Math.round(elapsed),sinceVoiceMs:Math.round(now-this.dictationLastVoiceAt),turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
           this.scheduleDictationEndpointCandidate({
             since_voice_ms: Math.round(now - this.dictationLastVoiceAt),
             rms: Number(rms.toFixed(5)),
@@ -11479,10 +11461,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     try {
       this.recorder = new MediaRecorder(this.stream!);
-      // #region agent log
-      const dbgRec = this.recorder as any; dbgRec.__dbgId = `rec-${Date.now().toString(36)}-${Math.floor(Math.random()*1e4)}`; let dbgAnomalous = 0;
-      fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F4',location:'knowledge-capture.component.ts:startAudioRecorder',message:'recorder created',data:{recId:dbgRec.__dbgId,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       this.captureEndpointReason = 'manual';
       this.lastVoiceChunkAt = 0;
       this.recorder.ondataavailable = (event) => {
@@ -11502,11 +11480,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           value: event.data.size,
           chunk_size: event.data.size,
         });
-        // #region agent log
-        if ((this.closeVoiceAfterStreamingTurn || !this.recording() || this.recorder !== dbgRec) && dbgAnomalous < 6) { dbgAnomalous++;
-          fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F4',location:'knowledge-capture.component.ts:ondataavailable',message:'anomalous frame after stop/teardown',data:{recId:dbgRec.__dbgId,recState:dbgRec.state,isCurrentRecorder:this.recorder===dbgRec,closeAfter:this.closeVoiceAfterStreamingTurn,recording:this.recording(),bytes:event.data.size,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
-        }
-        // #endregion
         this.recordedAudioBytes += event.data.size;
         this.chunks.push(event.data);
         if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
@@ -11708,9 +11681,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.clearTranscriptionWatchdog();
     this.transcriptionWatchdog = window.setTimeout(() => {
       if (!this.transcribing()) return;
-      // #region agent log
-      fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F2,F3',location:'knowledge-capture.component.ts:transcriptionWatchdog',message:'45s watchdog fired (no text.final received)',data:{turn:this.currentClientTurnId,closeAfter:this.closeVoiceAfterStreamingTurn,wsReady:(this.voiceConnection as any)?.['socket']?.readyState??'n/a'},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       this.transcribing.set(false);
       this.voiceState.set('idle');
       this.releaseAudioStream();
