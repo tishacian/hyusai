@@ -41,6 +41,32 @@ def test_resolve_equipment_list_as_transversal_inventory():
     assert decision.requires_exhaustive_retrieval is True
 
 
+def test_resolve_imperative_project_inventory_as_transversal_inventory():
+    # Reverse-lookup phrased as an imperative without a leading
+    # "quels/liste/tous/which" still asks for the set of projects equipped with
+    # a piece of equipment. It must route to the exhaustive cross-project
+    # inventory path, not the shallow precise_fact one (which previously made the
+    # assistant claim it could not list the projects).
+    policy = industrial_answer_policy()
+    for query in (
+        "donne moi les projets avec une pompe uraca",
+        "projets avec une pompe uraca",
+        "donne-moi les projets équipés d'une pompe Uraca",
+        "les projets qui ont une pompe Uraca",
+        "list the projects with a Uraca pump",
+    ):
+        decision = resolve_answer_profile(query, policy)
+        assert decision.profile == "transversal_inventory", query
+        assert decision.requires_exhaustive_retrieval is True, query
+
+    # A single-project factual question must NOT be promoted to the inventory
+    # path by the new imperative pattern.
+    assert (
+        resolve_answer_profile("quelle pompe est utilisée dans ce projet ?", policy).profile
+        == "precise_fact"
+    )
+
+
 def test_answer_policy_removes_internal_mechanics_terms():
     cleaned, violations = apply_answer_policy_to_text(
         "J'ai trouvé cette information dans 17 chunks avec un score vectoriel élevé. "

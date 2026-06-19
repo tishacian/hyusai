@@ -123,6 +123,13 @@ _TRANSVERSAL_RE = re.compile(
     r"\b(quels|quelles|liste|list|tous|toutes|all|which)\b.*\b(projets|projects|manuels|manuals)\b"
     r"|\b(dans quels?|where)\b.*\b(projets?|projects?)\b"
     r"|\b(utilisent|using|use|retrouve|retrouve-t-on|installed|install[eé])\b.*\b(projets?|projects?)\b"
+    # Imperative / declarative cross-project inventory phrasings that lack a
+    # leading "quels/liste/tous/which" but still ask for the set of projects
+    # qualified by a piece of equipment, e.g. "donne moi les projets avec une
+    # pompe Uraca" or "les projets équipés d'une pompe X". Anchored on the
+    # plural projets/projects + a possession/equipment qualifier so single-fact
+    # questions ("quelle pompe dans ce projet ?") stay on precise_fact.
+    r"|\b(projets|projects)\b[^?.!\n]{0,80}\b(avec|[eé]quip[eé]?s?|munis?|dot[eé]?s?|poss[eé]dant|comportant|int[eè]grant|with|having|equipped|using|qui\s+(?:ont|utilisent|poss[eè]dent|disposent|int[eè]grent))\b"
     r"|\b(liste|list|tous|toutes|all)\b.*\b(pompes?|pumps?|moteurs?|motors?|injecteurs?|buses?|nozzles?|rouleaux?|s[ée]cheurs?|dryers?|filtres?|filters?|pi[eè]ces?|parts?)\b",
     re.IGNORECASE,
 )
