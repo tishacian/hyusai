@@ -148,7 +148,7 @@ def facet_project_codes(
     terms: list[str],
     *,
     limit: int = _FACET_BUCKET_LIMIT,
-    exact: bool = False,
+    exact: bool = True,
 ) -> list[tuple[str, int]]:
     """Facet ``project_code`` for chunks whose ``content`` matches ``terms``.
 
@@ -156,6 +156,12 @@ def facet_project_codes(
     When that yields nothing and several terms were given — typically because a
     model number is not indexed as a single full-text token — it falls back to
     the single term that surfaces the most projects, so the brand still answers.
+
+    ``exact=True`` (the default) makes the facet traverse every segment so the
+    enumeration is genuinely complete and the per-project counts are exact; the
+    approximate mode under-counts distinct projects, which defeats the purpose of
+    an exhaustive inventory. The aggregation runs concurrently with retrieval and
+    well within the deep latency budget.
     """
     if not terms:
         return []
