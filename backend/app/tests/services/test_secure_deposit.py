@@ -17,6 +17,7 @@ from app.models.workspace import Workspace, WorkspaceMember
 from app.services.knowledge_collections import document_manifest_key
 from app.services.object_store import get_object_store
 from app.services.secure_deposit import (
+    _extract_andritz_project_reference,
     authenticate_link,
     build_deposit_archive,
     build_file_preview,
@@ -712,6 +713,47 @@ async def test_promote_zip_rejects_supported_file_count_over_limit(db_session, m
     db_session.refresh(row)
     assert exc.value.status_code == 413
     assert row.status == "received"
+
+
+@pytest.mark.parametrize(
+    "source, expected_code, expected_position",
+    [
+        # Trailing single-letter suffix (the previously-unresolvable codes).
+        ("R__ELM001Y", "ELM001Y", "001"),
+        ("R__RJT003Y", "RJT003Y", "003"),
+        ("R__MUR002Y", "MUR002Y", "002"),
+        # Two-letter suffix.
+        ("N__NBD100ZH", "NBD100ZH", "100"),
+        # Codes embedded in a flattened document name resolve from the prefix.
+        ("R__ELM001Y__70060-Carde ELM001Y.pdf", "ELM001Y", "001"),
+        # Backward compatibility: no suffix => exact historical output.
+        ("Manual_AKK200/Operator manual/Chapter 01.pdf", "AKK200", "200"),
+        ("Manual_BHX100_revE.zip", "BHX100", "100"),
+        # Lower-case suffix is normalised to upper-case.
+        ("elm001y", "ELM001Y", "001"),
+    ],
+)
+def test_extract_andritz_project_reference_supports_letter_suffix(
+    source, expected_code, expected_position
+):
+    reference = _extract_andritz_project_reference(source)
+    assert reference["project_code"] == expected_code
+    assert reference["project_position"] == expected_position
+    assert reference["initial_buyer_code"] == expected_code[:3]
+    assert reference["project_reference_kind"] == "andritz_project"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "KD724",  # only two leading letters
+        "L10080",  # only one leading letter
+        "ABC1234XYZ",  # 3+ trailing letters must not be swallowed
+        "manuals/drive/note.md",  # no Andritz code at all
+    ],
+)
+def test_extract_andritz_project_reference_rejects_non_codes(source):
+    assert _extract_andritz_project_reference(source) == {}
 
 
 def test_safe_filename_strips_paths_and_unsafe_characters():

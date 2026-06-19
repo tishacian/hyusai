@@ -97,7 +97,15 @@ _WORKER_PROMOTION_EXTENSIONS = (
 )
 _BULK_PROMOTION_MAX_FILES = 50
 _BULK_PROMOTION_MAX_DOCUMENTS = 200
-_ANDRITZ_PROJECT_RE = re.compile(r"(?<![A-Z0-9])([A-Z]{3})[\s_-]?(\d{2,4})(?![A-Z0-9])", re.IGNORECASE)
+# Andritz project codes are ``BBB123`` (3 letters + 2-4 digits) optionally
+# followed by a 1-2 letter site/variant suffix (``ELM001Y``, ``NBD100ZH``). The
+# leading negative look-behind and trailing negative look-ahead keep the match
+# anchored to a discrete token so longer alphanumeric runs (3+ trailing letters,
+# embedded part numbers) are still rejected; an empty suffix preserves the
+# historical ``AKK200`` / ``BHX100`` output verbatim.
+_ANDRITZ_PROJECT_RE = re.compile(
+    r"(?<![A-Z0-9])([A-Z]{3})[\s_-]?(\d{2,4})([A-Z]{0,2})(?![A-Z0-9])", re.IGNORECASE
+)
 
 
 def enabled_workspace_slugs() -> set[str]:
@@ -727,8 +735,9 @@ def _extract_andritz_project_reference(*values: str | None) -> dict[str, str]:
         for match in _ANDRITZ_PROJECT_RE.finditer(str(value or "")):
             buyer = match.group(1).upper()
             position = match.group(2)
+            suffix = (match.group(3) or "").upper()
             return {
-                "project_code": f"{buyer}{position}",
+                "project_code": f"{buyer}{position}{suffix}",
                 "initial_buyer_code": buyer,
                 "project_position": position,
                 "project_reference_kind": "andritz_project",
@@ -745,7 +754,7 @@ def _extract_machine_reference(*values: str | None, exclude: str | None = None) 
     """
     for value in values:
         for match in _ANDRITZ_PROJECT_RE.finditer(str(value or "")):
-            reference = f"{match.group(1).upper()}{match.group(2)}"
+            reference = f"{match.group(1).upper()}{match.group(2)}{(match.group(3) or '').upper()}"
             if exclude and reference == exclude:
                 continue
             return {"machine": reference}
