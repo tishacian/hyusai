@@ -19,7 +19,9 @@ Two distinct populations of blank rows exist (observed on the andritz pilot):
   project, recovered with the exact ingestion-time derivation
   (:func:`app.services.secure_deposit._extract_andritz_project_reference`, i.e.
   the ``_ANDRITZ_PROJECT_RE`` / archive-namespace path derivation) applied to
-  the document's own identity. Inheriting the canonical's code would be wrong.
+  the document's own identity (its archive-namespace prefix, not the inner
+  document path -- see :func:`_archive_namespace`). Inheriting the canonical's
+  code, or a component/model reference from deep in the path, would be wrong.
 
 Resolution per blank row (fill-only, never overwrites an existing value):
 
@@ -127,20 +129,36 @@ def _doc_project_codes(client, coll: str, document_filename: str, batch: int = 2
     return codes
 
 
-def _derive_reference(row: KnowledgeCollectionSource) -> dict:
-    """Ingestion-time project derivation from the row's own identity.
+def _archive_namespace(normalized_name: str) -> str:
+    """Archive-namespace prefix (``parent__stem``) of a flattened document name.
 
-    Mirrors how ``secure_deposit`` computes the reference at ingest: scan the
-    deposit path, the inner archive path and the document name (in that order)
-    with ``_ANDRITZ_PROJECT_RE``. For deduplicated rows only the namespaced
-    ``normalized_name`` is available -- its archive-namespace prefix carries the
-    document's own project, so the first match is the correct code.
+    Flattened names look like ``{parent}__{archive_stem}__{inner/path/__/...}``
+    where the archive namespace (built by ``secure_deposit`` as ``parent`` +
+    ``__`` + ``archive_stem``, e.g. ``R__REN100`` or ``N__NBD100ZH``) carries
+    the document's *own* project. The inner path may contain component or model
+    references (a Hydac ``HDA4400`` sensor, a URACA ``PHP01`` pump, a carding
+    ``TCF3750``) that must NOT be mistaken for a project code. Deriving from the
+    namespace prefix instead of the full path avoids those inner-path false
+    positives; archives whose stem carries no Andritz code (``NBD100ZH``,
+    ``L10080``) then correctly resolve to no code rather than to inner noise.
+    """
+    tokens = str(normalized_name or "").split("__")
+    return "__".join(tokens[:2]) if len(tokens) > 1 else (tokens[0] if tokens else "")
+
+
+def _derive_reference(row: KnowledgeCollectionSource) -> dict:
+    """Ingestion-time project derivation from the document's own identity.
+
+    Mirrors how ``secure_deposit`` computes the reference at ingest with
+    ``_ANDRITZ_PROJECT_RE``, but scans only project-level identifiers (the
+    deposit/archive path and the archive-namespace prefix), never the inner
+    document path, so component/model references buried inside a document are
+    not promoted to a project code.
     """
     meta = row.source_metadata or {}
     return _extract_andritz_project_reference(
         meta.get("source_deposit_path"),
-        meta.get("inner_document_path"),
-        row.normalized_name,
+        _archive_namespace(row.normalized_name),
     )
 
 
