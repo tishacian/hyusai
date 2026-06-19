@@ -86,8 +86,8 @@ def test_rag_prompt_requests_synthesis_before_source_locators():
     )
 
     assert "Retrieved content synthesis brief" in prompt
-    assert "Start with a concise synthesis" in prompt
-    assert "not only with source locators" in prompt
+    assert "Start with the direct factual answer or synthesis" in prompt
+    assert "synthesize by theme instead of listing every retrieved excerpt" in prompt
 
 
 def test_rag_prompt_forbids_generic_andritz_contact_footer():

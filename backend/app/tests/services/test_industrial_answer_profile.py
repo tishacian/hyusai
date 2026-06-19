@@ -154,5 +154,7 @@ def test_answer_policy_removes_internal_diagnostic_parenthetical():
     )
 
     assert "retrieval" not in cleaned.lower()
-    assert cleaned == "Je n'ai pas de source workspace sur ce point"
+    # The platform-jargon filter also normalises "source workspace" -> "source".
+    assert cleaned == "Je n'ai pas de source sur ce point"
     assert "internal_diagnostic_parenthetical" in violations
+    assert "platform_jargon_workspace" in violations
