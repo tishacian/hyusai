@@ -183,6 +183,103 @@ def test_admin_can_read_other_user_session_with_audit_event(db_session):
     assert audit.details["owner_user_id"] == other.id
 
 
+def test_admin_list_includes_other_members_sessions_with_author_labels(db_session):
+    workspace, owner, other, admin = _seed_workspace_users(db_session)
+    db_session.add_all(
+        [
+            ChatSession(
+                id="session-owner-admin",
+                workspace_id=workspace.id,
+                user_id=owner.id,
+                title="Owner chat",
+                status="active",
+                meta_data={"system_id": "sys-1", "context_id": "ctx-1", "knowledge_scope": "workspace"},
+            ),
+            ChatSession(
+                id="session-other-admin",
+                workspace_id=workspace.id,
+                user_id=other.id,
+                title="Other chat",
+                status="archived",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    admin_client = _client(db_session, workspace, admin)
+    listed = admin_client.get("/api/v1/sessions?include_admin=true&status=all")
+    assert listed.status_code == 200
+    by_id = {item["id"]: item for item in listed.json()["sessions"]}
+    assert {"session-owner-admin", "session-other-admin"} <= set(by_id)
+    assert by_id["session-owner-admin"]["author_label"] == owner.email
+    assert by_id["session-owner-admin"]["author_email"] == owner.email
+    assert by_id["session-owner-admin"]["user_id"] == owner.id
+    assert by_id["session-owner-admin"]["meta_data"]["system_id"] == "sys-1"
+    assert by_id["session-other-admin"]["author_label"] == other.email
+
+    audit = db_session.query(AuditLog).filter(AuditLog.event_type == "chat.session.admin_list").all()
+    assert audit
+    assert audit[-1].workspace_id == workspace.id
+
+
+def test_admin_list_member_filter_narrows_to_one_member(db_session):
+    workspace, owner, other, admin = _seed_workspace_users(db_session)
+    db_session.add_all(
+        [
+            ChatSession(id="session-owner-f", workspace_id=workspace.id, user_id=owner.id, title="Owner", status="active"),
+            ChatSession(id="session-other-f", workspace_id=workspace.id, user_id=other.id, title="Other", status="active"),
+        ]
+    )
+    db_session.commit()
+
+    admin_client = _client(db_session, workspace, admin)
+    listed = admin_client.get(f"/api/v1/sessions?include_admin=true&status=all&user_id={other.id}")
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["sessions"]] == ["session-other-f"]
+
+
+def test_non_admin_cannot_list_other_members_sessions(db_session):
+    workspace, owner, other, _admin = _seed_workspace_users(db_session)
+    db_session.add_all(
+        [
+            ChatSession(id="session-owner-n", workspace_id=workspace.id, user_id=owner.id, title="Owner", status="active"),
+            ChatSession(id="session-other-n", workspace_id=workspace.id, user_id=other.id, title="Other", status="active"),
+        ]
+    )
+    db_session.commit()
+
+    client = _client(db_session, workspace, owner)
+    listed = client.get("/api/v1/sessions?include_admin=true&status=all")
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["sessions"]] == ["session-owner-n"]
+    assert db_session.query(AuditLog).filter(AuditLog.event_type == "chat.session.admin_list").count() == 0
+
+
+def test_admin_access_to_foreign_session_is_read_only(db_session):
+    workspace, _owner, other, admin = _seed_workspace_users(db_session)
+    session = ChatSession(
+        id="session-readonly",
+        workspace_id=workspace.id,
+        user_id=other.id,
+        title="Foreign chat",
+        status="active",
+    )
+    db_session.add(session)
+    db_session.commit()
+
+    admin_client = _client(db_session, workspace, admin)
+    assert admin_client.get("/api/v1/sessions/session-readonly").status_code == 200
+    assert admin_client.patch("/api/v1/sessions/session-readonly", json={"title": "hijack"}).status_code == 403
+    assert admin_client.delete("/api/v1/sessions/session-readonly").status_code == 403
+
+    owner_client = _client(db_session, workspace, other)
+    patched = owner_client.patch("/api/v1/sessions/session-readonly", json={"title": "renamed"})
+    assert patched.status_code == 200
+    assert patched.json()["title"] == "renamed"
+    assert patched.json()["author_label"] == other.email
+    assert owner_client.delete("/api/v1/sessions/session-readonly").status_code == 200
+
+
 def test_workspace_jobs_are_filtered_by_session_and_owner(db_session):
     workspace, owner, other, _admin = _seed_workspace_users(db_session)
     owner_session = ChatSession(

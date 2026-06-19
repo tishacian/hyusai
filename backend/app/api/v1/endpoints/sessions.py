@@ -1,7 +1,7 @@
 """Session management endpoints — scoped by workspace/user."""
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy.orm import Session as DBSession
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.iam.roles import is_admin_template
@@ -74,11 +74,38 @@ def _serialize_message(message: Message) -> Dict[str, Any]:
     }
 
 
-def _serialize_session(session: SessionModel, *, include_messages: bool = False, include_jobs: bool = False) -> Dict[str, Any]:
+def _build_author_lookup(db: DBSession, sessions: List[SessionModel]) -> Dict[str, User]:
+    """Batch-load session authors in a single query (avoids N+1)."""
+    user_ids = {s.user_id for s in sessions if getattr(s, "user_id", None)}
+    if not user_ids:
+        return {}
+    rows = db.query(User).filter(User.id.in_(user_ids)).all()
+    return {row.id: row for row in rows}
+
+
+def _resolve_author_fields(user: Optional[User], user_id: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """Best-effort author label (email -> username -> id) and email."""
+    email = getattr(user, "email", None) if user else None
+    username = getattr(user, "username", None) if user else None
+    label = str(email or username or user_id or "") or None
+    return label, (str(email) if email else None)
+
+
+def _serialize_session(
+    session: SessionModel,
+    *,
+    include_messages: bool = False,
+    include_jobs: bool = False,
+    author_lookup: Optional[Dict[str, User]] = None,
+) -> Dict[str, Any]:
+    author = (author_lookup or {}).get(getattr(session, "user_id", None))
+    author_label, author_email = _resolve_author_fields(author, session.user_id)
     payload: Dict[str, Any] = {
         "id": session.id,
         "user_id": session.user_id,
         "workspace_id": session.workspace_id,
+        "author_label": author_label,
+        "author_email": author_email,
         "title": session.title,
         "status": getattr(session, "status", None) or "active",
         "context_signature": getattr(session, "context_signature", None),
@@ -162,6 +189,7 @@ def _fetch_scoped_session(
     workspace: Workspace,
     *,
     include_deleted: bool = False,
+    require_owner: bool = False,
 ) -> SessionModel:
     session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
     if not session:
@@ -169,6 +197,10 @@ def _fetch_scoped_session(
     admin = _is_workspace_admin(db, user, workspace)
     if session.workspace_id != workspace.id or (session.user_id != user.id and not admin):
         raise HTTPException(status_code=404, detail="Session not found")
+    # Admin cross-member access is strictly read-only: a non-owner (even an
+    # admin) cannot mutate another member's session.
+    if require_owner and session.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Cannot modify another member's session")
     if not include_deleted and (getattr(session, "status", None) == "deleted" or getattr(session, "deleted_at", None)):
         raise HTTPException(status_code=404, detail="Session not found")
     if admin and session.user_id != user.id:
@@ -204,7 +236,7 @@ async def create_session(
         db.commit()
         db.refresh(db_session)
 
-        return _serialize_session(db_session)
+        return _serialize_session(db_session, author_lookup={user.id: user})
     except Exception as e:
         logger.error("Failed to create session", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -213,18 +245,28 @@ async def create_session(
 @router.get("")
 async def list_sessions(
     skip: int = 0,
+    offset: Optional[int] = Query(default=None, ge=0),
     limit: int = Query(default=100, ge=1, le=200),
     status: str = Query(default="active"),
     include_admin: bool = Query(default=False),
+    member_user_id: Optional[str] = Query(default=None, alias="user_id"),
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    """List durable chat sessions in the current workspace."""
+    """List durable chat sessions in the current workspace.
+
+    Workspace admins may pass ``include_admin=true`` to browse every member's
+    sessions (read-only); ``user_id`` then narrows the list to one member.
+    """
     try:
         admin = include_admin and _is_workspace_admin(db, user, workspace)
+        effective_offset = offset if offset is not None else skip
         base_query = db.query(SessionModel).filter(SessionModel.workspace_id == workspace.id)
-        if not admin:
+        if admin:
+            if member_user_id:
+                base_query = base_query.filter(SessionModel.user_id == member_user_id)
+        else:
             base_query = base_query.filter(SessionModel.user_id == user.id)
         if status != "all":
             statuses = [item.strip() for item in status.split(",") if item.strip()]
@@ -236,17 +278,33 @@ async def list_sessions(
             base_query = base_query.filter(SessionModel.status != "deleted")
         sessions = (
             base_query.order_by(SessionModel.last_activity.desc())
-            .offset(skip)
+            .offset(effective_offset)
             .limit(limit)
             .all()
         )
+        author_lookup = _build_author_lookup(db, sessions)
+
+        if admin:
+            emit_audit_event(
+                db=db,
+                workspace_id=workspace.id,
+                event_type="chat.session.admin_list",
+                actor=_actor(user),
+                details={
+                    "status": status,
+                    "member_user_id": member_user_id,
+                    "returned": len(sessions),
+                },
+            )
 
         return {
-            "sessions": [_serialize_session(s) for s in sessions],
+            "sessions": [_serialize_session(s, author_lookup=author_lookup) for s in sessions],
             "total": base_query.count(),
-            "skip": skip,
+            "skip": effective_offset,
             "limit": limit,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Failed to list sessions", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -273,7 +331,13 @@ async def get_session(
             .order_by(WorkspaceJob.updated_at.desc(), WorkspaceJob.created_at.desc())
             .all()
         )
-    return _serialize_session(session, include_messages=include_messages, include_jobs=include_jobs)
+    author_lookup = _build_author_lookup(db, [session])
+    return _serialize_session(
+        session,
+        include_messages=include_messages,
+        include_jobs=include_jobs,
+        author_lookup=author_lookup,
+    )
 
 
 @router.patch("/{session_id}")
@@ -284,7 +348,7 @@ async def patch_session(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    session = _fetch_scoped_session(db, session_id, user, workspace, include_deleted=True)
+    session = _fetch_scoped_session(db, session_id, user, workspace, include_deleted=True, require_owner=True)
     now = datetime.utcnow()
     if body.title is not None:
         cleaned = body.title.strip()
@@ -303,7 +367,7 @@ async def patch_session(
     session.last_activity = now
     db.commit()
     db.refresh(session)
-    return _serialize_session(session)
+    return _serialize_session(session, author_lookup=_build_author_lookup(db, [session]))
 
 
 @router.delete("/{session_id}")
@@ -313,7 +377,7 @@ async def delete_session(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    session = _fetch_scoped_session(db, session_id, user, workspace, include_deleted=True)
+    session = _fetch_scoped_session(db, session_id, user, workspace, include_deleted=True, require_owner=True)
     now = datetime.utcnow()
     session.status = "deleted"
     session.deleted_at = now
