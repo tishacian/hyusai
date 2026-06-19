@@ -132,6 +132,11 @@ export class LiveKitConversationConnection {
       interruption_of_event_id: meta.interruption_of_event_id,
       auto: Boolean(meta.auto),
       reason: meta.reason || null,
+      capture_mode: meta.capture_mode || null,
+      silence_ms: meta.silence_ms ?? null,
+      min_speech_ms: meta.min_speech_ms ?? null,
+      rms_threshold: meta.rms_threshold ?? null,
+      endpoint_grace_ms: meta.endpoint_grace_ms ?? null,
     });
   }
 
@@ -179,6 +184,10 @@ export class LiveKitConversationConnection {
 
   loopArmed(payload: Record<string, unknown> = {}): void {
     void this.sendControl('loop.armed', payload);
+  }
+
+  clientMetric(payload: Record<string, unknown> = {}): void {
+    void this.sendControl('client.metric', payload);
   }
 
   ttsStarted(payload: Record<string, unknown> = {}): void {

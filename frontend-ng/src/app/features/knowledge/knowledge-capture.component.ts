@@ -9,6 +9,13 @@ import { I18nService } from '@app/core/i18n.service';
 import { LiveKitConversationConnection, LiveKitConversationService } from '@app/core/livekit-conversation.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { PermissionsService } from '@app/core/permissions.service';
+import {
+  ResolvedVoiceCaptureConfig,
+  VoiceCaptureMode,
+  normalizeVoiceCaptureMode,
+  resolveVoiceCaptureConfig,
+  voiceCaptureStorageKey,
+} from '@app/core/voice-capture-config';
 import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-playback.service';
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -218,6 +225,8 @@ type PlanOutlineFormatAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | '
 type CaptureEndpointReason = 'manual' | 'silence' | 'max_turn' | 'no_speech' | 'stop' | 'error';
 
 interface WorkspaceVoiceLoopConfig {
+  capture_mode?: VoiceCaptureMode | string | null;
+  auto_capture_mode_enabled?: boolean;
   auto_endpoint?: boolean;
   auto_rearm_after_tts?: boolean;
   barge_in?: boolean;
@@ -235,6 +244,10 @@ interface WorkspaceVoiceLoopConfig {
   live_questions_enabled?: boolean;
   cooldown_ms?: number;
   rms_threshold?: number;
+  endpoint_grace_ms?: number;
+  vad_hangover_ms?: number;
+  vad_calibration_ms?: number;
+  vad_min_silence_frames_ms?: number;
 }
 
 interface QualityBacklogItem {
@@ -1826,6 +1839,18 @@ interface ProposalFact {
                         <app-icon [name]="conversationPrimaryIcon()" [size]="15" />
                         {{ conversationPrimaryLabel() }}
                       </button>
+                      <label class="inline-flex w-full items-center gap-2 rounded border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-gray-300 sm:w-auto" [title]="voiceCaptureModeHint()">
+                        <app-icon name="shield-check" [size]="13" class="text-emerald-300" />
+                        <select
+                          class="bg-transparent text-xs font-semibold text-gray-100 outline-none"
+                          [ngModel]="voiceCaptureMode()"
+                          (ngModelChange)="setVoiceCaptureMode($event)"
+                        >
+                          <option value="normal">Normal</option>
+                          <option value="robust">Robuste</option>
+                          <option value="manual_safe">Manuel</option>
+                        </select>
+                      </label>
                       @if (sessionHasStarted(s) && s.status === 'active') {
                         <button
                           type="button"
@@ -3774,6 +3799,27 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       ...voiceLoop,
     } as WorkspaceVoiceLoopConfig;
   });
+  readonly voiceCaptureMode = signal<VoiceCaptureMode>('normal');
+  readonly resolvedVoiceCaptureConfig = computed<ResolvedVoiceCaptureConfig>(() =>
+    resolveVoiceCaptureConfig(this.workspaceVoiceLoopConfig(), this.voiceCaptureMode(), {
+      silence_ms: 8000,
+      dictation_silence_ms: 2000,
+      min_speech_ms: 350,
+      dictation_min_speech_ms: 300,
+      max_turn_ms: 120000,
+      rms_threshold: 0.018,
+    }),
+  );
+  private loadedVoiceCaptureStorageKey = '';
+  private readonly voiceCaptureModeLoader = effect(() => {
+    const workspaceSlug = this.workspace.current()?.slug || this.workspace.currentSlug() || 'workspace';
+    const config = this.workspaceVoiceLoopConfig();
+    const storageKey = voiceCaptureStorageKey({ surface: 'knowledge_capture', workspaceSlug, profileKey: 'capture' });
+    if (storageKey === this.loadedVoiceCaptureStorageKey) return;
+    this.loadedVoiceCaptureStorageKey = storageKey;
+    const stored = this.readStoredVoiceCaptureMode(storageKey, normalizeVoiceCaptureMode(config.capture_mode));
+    queueMicrotask(() => this.voiceCaptureMode.set(stored));
+  });
   readonly workspaceVoiceOutputConfig = computed(() => {
     const settings = this.asRecord(this.workspace.current()?.settings);
     const voiceOutput = this.asRecord(settings['voice_output']);
@@ -4126,6 +4172,19 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private captureLastVoiceAt = 0;
   private captureTurnStartedAt = 0;
   private captureEndpointReason: CaptureEndpointReason = 'manual';
+  private captureNoiseFloor = 0;
+  private captureSpeechAboveSince = 0;
+  private captureSilenceBelowSince = 0;
+  private captureLastVadMetricAt = 0;
+  private captureEndpointCandidateTimer: ReturnType<typeof setTimeout> | null = null;
+  private captureEndpointCandidateStartedAt = 0;
+  private dictationNoiseFloor = 0;
+  private dictationSpeechAboveSince = 0;
+  private dictationSilenceBelowSince = 0;
+  private dictationLastVadMetricAt = 0;
+  private dictationEndpointCandidateTimer: ReturnType<typeof setTimeout> | null = null;
+  private dictationEndpointCandidateStartedAt = 0;
+  private lastVoiceChunkAt = 0;
   private lastSuggestedContextName = '';
 
   ngOnInit(): void {
@@ -9286,8 +9345,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     content_type: string;
     auto?: boolean;
     reason?: string | null;
+    capture_mode?: VoiceCaptureMode;
+    silence_ms?: number;
+    min_speech_ms?: number;
+    rms_threshold?: number;
+    endpoint_grace_ms?: number;
   } {
     const autoEndpoint = reason != null && reason !== 'manual';
+    const captureConfig = this.resolvedVoiceCaptureConfig();
     return {
       turn_id: this.currentClientTurnId,
       question_id: this.selectedQuestionId(),
@@ -9296,6 +9361,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       content_type: 'audio/webm',
       auto: autoEndpoint,
       reason,
+      capture_mode: captureConfig.capture_mode,
+      silence_ms: captureConfig.silence_ms,
+      min_speech_ms: captureConfig.min_speech_ms,
+      rms_threshold: captureConfig.rms_threshold,
+      endpoint_grace_ms: captureConfig.endpoint_grace_ms,
     };
   }
 
@@ -9336,15 +9406,20 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     const session = this.session();
     const connection = session ? await this.ensureVoiceConnection(session) : null;
+    const captureConfig = this.resolvedVoiceCaptureConfig();
     this.conversationSessionActive.set(true);
     connection?.loopStart({
       surface: 'knowledge_capture',
       mode: 'conversation_loop',
-      auto_endpoint: this.voiceLoopAutoEndpointEnabled(),
+      auto_endpoint: captureConfig.auto_endpoint,
+      capture_mode: captureConfig.capture_mode,
       auto_rearm_after_tts: this.voiceLoopAutoRearmEnabled(),
       barge_in: this.voiceLoopBargeInEnabled(),
-      silence_ms: this.voiceEndpointSilenceMs(),
-      max_turn_ms: this.voiceEndpointMaxTurnMs(),
+      silence_ms: captureConfig.silence_ms,
+      min_speech_ms: captureConfig.min_speech_ms,
+      rms_threshold: captureConfig.rms_threshold,
+      endpoint_grace_ms: captureConfig.endpoint_grace_ms,
+      max_turn_ms: captureConfig.max_turn_ms,
     });
     this.setVoiceNotice('Préparation du micro pour la conversation.', 'info');
     const armed = await this.ensureAudioStream();
@@ -9509,24 +9584,24 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private voiceEndpointSilenceMs(): number {
     // Continuous capture: a turn should only auto-close on a very long silence,
     // never on the short conversational pauses an expert makes while thinking.
-    return this.voiceLoopSettingNumber('silence_ms', 8000, 300, 30000);
+    return this.resolvedVoiceCaptureConfig().silence_ms;
   }
 
   private dictationEndpointSilenceMs(): number {
     // Plan/prep dictation: stop soon after the user finishes speaking (unlike capture turns).
-    return this.voiceLoopSettingNumber('dictation_silence_ms', 2000, 1200, 4000);
+    return this.resolvedVoiceCaptureConfig().dictation_silence_ms;
   }
 
   private dictationEndpointMinSpeechMs(): number {
-    return this.voiceLoopSettingNumber('dictation_min_speech_ms', 300, 100, 2000);
+    return this.resolvedVoiceCaptureConfig().dictation_min_speech_ms;
   }
 
   private voiceEndpointMinSpeechMs(): number {
-    return this.voiceLoopSettingNumber('min_speech_ms', 350, 100, 3000);
+    return this.resolvedVoiceCaptureConfig().min_speech_ms;
   }
 
   private voiceEndpointMaxTurnMs(): number {
-    return this.voiceLoopSettingNumber('max_turn_ms', 120000, 5000, 600000);
+    return this.resolvedVoiceCaptureConfig().max_turn_ms;
   }
 
   private voiceOracleSessionOptions(): {
@@ -9547,8 +9622,23 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private voiceEndpointRmsThreshold(): number {
-    const value = Number(this.workspaceVoiceLoopConfig().rms_threshold);
-    return Number.isFinite(value) ? Math.min(0.15, Math.max(0.001, value)) : 0.018;
+    return this.resolvedVoiceCaptureConfig().rms_threshold;
+  }
+
+  private voiceEndpointGraceMs(): number {
+    return this.resolvedVoiceCaptureConfig().endpoint_grace_ms;
+  }
+
+  private voiceVadHangoverMs(): number {
+    return this.resolvedVoiceCaptureConfig().vad_hangover_ms;
+  }
+
+  private voiceVadCalibrationMs(): number {
+    return this.resolvedVoiceCaptureConfig().vad_calibration_ms;
+  }
+
+  private voiceVadMinSilenceFramesMs(): number {
+    return this.resolvedVoiceCaptureConfig().vad_min_silence_frames_ms;
   }
 
   private voiceLoopCooldownMs(): number {
@@ -9564,7 +9654,43 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private voiceLoopAutoEndpointEnabled(): boolean {
-    return this.workspaceVoiceLoopConfig().auto_endpoint !== false;
+    return this.resolvedVoiceCaptureConfig().auto_endpoint;
+  }
+
+  voiceCaptureModeHint(): string {
+    const config = this.resolvedVoiceCaptureConfig();
+    if (config.capture_mode === 'manual_safe') return 'Mode manuel: le micro ne coupe pas automatiquement sur silence.';
+    if (config.capture_mode === 'robust') return `Mode robuste: silence ${config.silence_ms} ms, parole min ${config.min_speech_ms} ms.`;
+    return 'Mode normal: utilise les réglages voix du workspace.';
+  }
+
+  setVoiceCaptureMode(mode: VoiceCaptureMode | string): void {
+    const next = normalizeVoiceCaptureMode(mode);
+    this.voiceCaptureMode.set(next);
+    try {
+      const workspaceSlug = this.workspace.current()?.slug || this.workspace.currentSlug() || 'workspace';
+      localStorage.setItem(
+        voiceCaptureStorageKey({ surface: 'knowledge_capture', workspaceSlug, profileKey: 'capture' }),
+        next,
+      );
+    } catch {
+      /* local preference only */
+    }
+    if (next === 'manual_safe') {
+      this.stopCaptureEndpointMonitor();
+      this.stopDictationAudioMonitor();
+      this.setVoiceNotice('Mode capture manuel activé : terminez les tours au bouton micro.', 'info');
+    } else if (next === 'robust') {
+      this.setVoiceNotice('Mode capture robuste activé pour ce workspace.', 'info');
+    }
+  }
+
+  private readStoredVoiceCaptureMode(key: string, fallback: VoiceCaptureMode): VoiceCaptureMode {
+    try {
+      return normalizeVoiceCaptureMode(localStorage.getItem(key), fallback);
+    } catch {
+      return fallback;
+    }
   }
 
   speak(text: string): void {
@@ -10634,6 +10760,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const notice = isDictation ? this.dictationEndpointNotice(reason) : this.captureEndpointNotice(reason);
     this.setVoiceNotice(notice, reason === 'no_speech' ? 'warning' : 'info');
     try {
+      this.requestRecorderData();
       this.recorder.stop();
     } catch {
       this.captureEndpointReason = 'error';
@@ -10641,6 +10768,122 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     this.recording.set(false);
     this.stopDictationAudioMonitor();
+  }
+
+  private emitCaptureClientMetric(payload: Record<string, unknown>): void {
+    const config = this.resolvedVoiceCaptureConfig();
+    const network = (navigator as Navigator & { connection?: { effectiveType?: string } }).connection;
+    this.voiceConnection?.clientMetric({
+      surface: 'knowledge_capture',
+      turn_id: this.currentClientTurnId,
+      capture_mode: config.capture_mode,
+      auto_endpoint: config.auto_endpoint,
+      silence_ms: config.silence_ms,
+      min_speech_ms: config.min_speech_ms,
+      endpoint_grace_ms: config.endpoint_grace_ms,
+      visibility_state: document.visibilityState,
+      network_effective_type: network?.effectiveType || '',
+      ...payload,
+    });
+  }
+
+  private requestRecorderData(): void {
+    const recorder = this.recorder as (MediaRecorder & { requestData?: () => void }) | null;
+    if (!recorder || recorder.state !== 'recording' || typeof recorder.requestData !== 'function') return;
+    try {
+      recorder.requestData();
+    } catch {
+      /* best-effort flush before endpoint */
+    }
+  }
+
+  private updateAudioNoiseFloor(current: number, rms: number, preferFastAdapt: boolean): number {
+    if (!Number.isFinite(rms)) return current;
+    if (current <= 0) return rms;
+    const alpha = preferFastAdapt ? 0.12 : 0.025;
+    return current * (1 - alpha) + rms * alpha;
+  }
+
+  private clearCaptureEndpointCandidate(): void {
+    if (this.captureEndpointCandidateTimer !== null) {
+      clearTimeout(this.captureEndpointCandidateTimer);
+      this.captureEndpointCandidateTimer = null;
+    }
+    this.captureEndpointCandidateStartedAt = 0;
+  }
+
+  private scheduleCaptureEndpointCandidate(details: Record<string, unknown>): void {
+    if (this.captureEndpointCandidateTimer !== null) return;
+    const graceMs = this.voiceEndpointGraceMs();
+    this.captureEndpointCandidateStartedAt = performance.now();
+    this.emitCaptureClientMetric({
+      metric: 'endpoint_candidate',
+      endpoint_reason: 'silence',
+      ...details,
+    });
+    this.requestRecorderData();
+    this.captureEndpointCandidateTimer = setTimeout(() => {
+      this.clearCaptureEndpointCandidate();
+      this.emitCaptureClientMetric({
+        metric: 'endpoint_confirmed',
+        endpoint_reason: 'silence',
+      });
+      this.endpointRecordingTurn('silence');
+    }, graceMs);
+  }
+
+  private cancelCaptureEndpointCandidate(reason: string): void {
+    if (this.captureEndpointCandidateTimer === null) return;
+    const elapsed = Math.round(performance.now() - this.captureEndpointCandidateStartedAt);
+    this.clearCaptureEndpointCandidate();
+    this.emitCaptureClientMetric({
+      metric: 'endpoint_cancelled',
+      endpoint_reason: reason,
+      endpoint_grace_ms: elapsed,
+      cancelled: true,
+    });
+  }
+
+  private clearDictationEndpointCandidate(): void {
+    if (this.dictationEndpointCandidateTimer !== null) {
+      clearTimeout(this.dictationEndpointCandidateTimer);
+      this.dictationEndpointCandidateTimer = null;
+    }
+    this.dictationEndpointCandidateStartedAt = 0;
+  }
+
+  private scheduleDictationEndpointCandidate(details: Record<string, unknown>): void {
+    if (this.dictationEndpointCandidateTimer !== null) return;
+    const graceMs = this.voiceEndpointGraceMs();
+    this.dictationEndpointCandidateStartedAt = performance.now();
+    this.dictationSilenceEnding.set(true);
+    this.emitCaptureClientMetric({
+      metric: 'endpoint_candidate',
+      endpoint_reason: 'silence',
+      ...details,
+    });
+    this.requestRecorderData();
+    this.dictationEndpointCandidateTimer = setTimeout(() => {
+      this.clearDictationEndpointCandidate();
+      this.emitCaptureClientMetric({
+        metric: 'endpoint_confirmed',
+        endpoint_reason: 'silence',
+      });
+      this.endpointRecordingTurn('silence');
+    }, graceMs);
+  }
+
+  private cancelDictationEndpointCandidate(reason: string): void {
+    if (this.dictationEndpointCandidateTimer === null) return;
+    const elapsed = Math.round(performance.now() - this.dictationEndpointCandidateStartedAt);
+    this.clearDictationEndpointCandidate();
+    this.dictationSilenceEnding.set(false);
+    this.emitCaptureClientMetric({
+      metric: 'endpoint_cancelled',
+      endpoint_reason: reason,
+      endpoint_grace_ms: elapsed,
+      cancelled: true,
+    });
   }
 
   private captureEndpointNotice(reason: CaptureEndpointReason): string {
@@ -10684,10 +10927,17 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.dictationTurnStartedAt = performance.now();
       this.dictationLastVoiceAt = this.dictationTurnStartedAt;
       this.dictationSilenceEnding.set(false);
+      this.dictationNoiseFloor = 0;
+      this.dictationSpeechAboveSince = 0;
+      this.dictationSilenceBelowSince = 0;
+      this.dictationLastVadMetricAt = 0;
       const data = new Uint8Array(analyser.fftSize);
       const threshold = this.voiceEndpointRmsThreshold();
       const silenceMs = this.dictationEndpointSilenceMs();
       const minSpeechMs = this.dictationEndpointMinSpeechMs();
+      const hangoverMs = this.voiceVadHangoverMs();
+      const calibrationMs = this.voiceVadCalibrationMs();
+      const minSilenceFramesMs = this.voiceVadMinSilenceFramesMs();
       const tick = () => {
         if (!this.recording() || !this.recordingPartialCallback) {
           this.stopDictationAudioMonitor();
@@ -10703,23 +10953,59 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         const now = performance.now();
         const elapsed = now - this.dictationTurnStartedAt;
         this.dictationAudioLevel.set(Math.min(1, rms / 0.12));
-        if (rms >= threshold) {
+        const calibrating = elapsed <= calibrationMs && !this.dictationSpeechDetected;
+        this.dictationNoiseFloor = this.updateAudioNoiseFloor(
+          this.dictationNoiseFloor,
+          rms,
+          calibrating || !this.dictationSpeechDetected,
+        );
+        const speechThreshold = Math.max(threshold, this.dictationNoiseFloor * 2.6 + 0.004);
+        const silenceThreshold = Math.max(this.dictationNoiseFloor * 1.7 + 0.002, speechThreshold * 0.62);
+        if (rms >= speechThreshold) {
+          if (this.dictationSpeechAboveSince <= 0) this.dictationSpeechAboveSince = now;
+          this.dictationSilenceBelowSince = 0;
+        } else {
+          this.dictationSpeechAboveSince = 0;
+          if (rms <= silenceThreshold) {
+            if (this.dictationSilenceBelowSince <= 0) this.dictationSilenceBelowSince = now;
+          } else {
+            this.dictationSilenceBelowSince = 0;
+          }
+        }
+        const speechStable = this.dictationSpeechAboveSince > 0 && now - this.dictationSpeechAboveSince >= 80;
+        if (speechStable) {
+          this.cancelDictationEndpointCandidate('voice_resumed');
           this.dictationSpeechDetected = true;
           this.dictationLastVoiceAt = now;
           this.dictationVoiceDetected.set(true);
         }
+        if (now - this.dictationLastVadMetricAt >= 1000) {
+          this.dictationLastVadMetricAt = now;
+          this.emitCaptureClientMetric({
+            metric: 'rms',
+            value: Number(rms.toFixed(5)),
+            rms: Number(rms.toFixed(5)),
+            noise_floor: Number(this.dictationNoiseFloor.toFixed(5)),
+            threshold: Number(speechThreshold.toFixed(5)),
+          });
+        }
+        const silenceStable =
+          this.dictationSilenceBelowSince > 0 && now - this.dictationSilenceBelowSince >= minSilenceFramesMs;
         const reachedSilence =
           this.dictationSpeechDetected &&
           elapsed >= minSpeechMs &&
-          now - this.dictationLastVoiceAt >= silenceMs;
-        if (reachedSilence) {
-          this.dictationSilenceEnding.set(true);
+          silenceStable &&
+          now - this.dictationLastVoiceAt >= silenceMs + hangoverMs;
+        if (reachedSilence && this.dictationEndpointCandidateTimer === null) {
           this.setVoiceNotice(this.dictationEndpointNotice('silence'), 'info');
           // #region agent log
           fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F5',location:'knowledge-capture.component.ts:startDictationAudioMonitor',message:'dictation silence endpoint',data:{surface:this.dictationSurface(),silenceMs,minSpeechMs,threshold,rms:Number(rms.toFixed(4)),elapsedMs:Math.round(elapsed),sinceVoiceMs:Math.round(now-this.dictationLastVoiceAt),turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
           // #endregion
-          this.endpointRecordingTurn('silence');
-          return;
+          this.scheduleDictationEndpointCandidate({
+            since_voice_ms: Math.round(now - this.dictationLastVoiceAt),
+            rms: Number(rms.toFixed(5)),
+            threshold: Number(speechThreshold.toFixed(5)),
+          });
         }
         this.dictationAudioRaf = requestAnimationFrame(tick);
       };
@@ -10730,6 +11016,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private stopDictationAudioMonitor(): void {
+    this.clearDictationEndpointCandidate();
     if (this.dictationAudioRaf !== null) {
       cancelAnimationFrame(this.dictationAudioRaf);
       this.dictationAudioRaf = null;
@@ -10745,6 +11032,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.dictationSpeechDetected = false;
     this.dictationLastVoiceAt = 0;
     this.dictationTurnStartedAt = 0;
+    this.dictationNoiseFloor = 0;
+    this.dictationSpeechAboveSince = 0;
+    this.dictationSilenceBelowSince = 0;
+    this.dictationLastVadMetricAt = 0;
     this.dictationVoiceDetected.set(false);
     this.dictationSilenceEnding.set(false);
     this.dictationAudioLevel.set(0);
@@ -10772,12 +11063,19 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.captureSpeechDetected = false;
       this.captureTurnStartedAt = performance.now();
       this.captureLastVoiceAt = this.captureTurnStartedAt;
+      this.captureNoiseFloor = 0;
+      this.captureSpeechAboveSince = 0;
+      this.captureSilenceBelowSince = 0;
+      this.captureLastVadMetricAt = 0;
 
       const data = new Uint8Array(analyser.fftSize);
       const silenceMs = this.voiceEndpointSilenceMs();
       const minSpeechMs = this.voiceEndpointMinSpeechMs();
       const maxTurnMs = this.voiceEndpointMaxTurnMs();
       const threshold = this.voiceEndpointRmsThreshold();
+      const hangoverMs = this.voiceVadHangoverMs();
+      const calibrationMs = this.voiceVadCalibrationMs();
+      const minSilenceFramesMs = this.voiceVadMinSilenceFramesMs();
       const tick = () => {
         if (!this.recorder || this.recorder.state !== 'recording') return;
         analyser.getByteTimeDomainData(data);
@@ -10789,18 +11087,62 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         const rms = Math.sqrt(sum / data.length);
         const now = performance.now();
         const elapsed = now - this.captureTurnStartedAt;
-        if (rms >= threshold) {
+        const calibrating = elapsed <= calibrationMs && !this.captureSpeechDetected;
+        this.captureNoiseFloor = this.updateAudioNoiseFloor(
+          this.captureNoiseFloor,
+          rms,
+          calibrating || !this.captureSpeechDetected,
+        );
+        const speechThreshold = Math.max(threshold, this.captureNoiseFloor * 2.6 + 0.004);
+        const silenceThreshold = Math.max(this.captureNoiseFloor * 1.7 + 0.002, speechThreshold * 0.62);
+        if (rms >= speechThreshold) {
+          if (this.captureSpeechAboveSince <= 0) this.captureSpeechAboveSince = now;
+          this.captureSilenceBelowSince = 0;
+        } else {
+          this.captureSpeechAboveSince = 0;
+          if (rms <= silenceThreshold) {
+            if (this.captureSilenceBelowSince <= 0) this.captureSilenceBelowSince = now;
+          } else {
+            this.captureSilenceBelowSince = 0;
+          }
+        }
+        const speechStable = this.captureSpeechAboveSince > 0 && now - this.captureSpeechAboveSince >= 80;
+        if (speechStable) {
+          this.cancelCaptureEndpointCandidate('voice_resumed');
           this.captureSpeechDetected = true;
           this.captureLastVoiceAt = now;
         }
+        if (now - this.captureLastVadMetricAt >= 1000) {
+          this.captureLastVadMetricAt = now;
+          this.emitCaptureClientMetric({
+            metric: 'rms',
+            value: Number(rms.toFixed(5)),
+            rms: Number(rms.toFixed(5)),
+            noise_floor: Number(this.captureNoiseFloor.toFixed(5)),
+            threshold: Number(speechThreshold.toFixed(5)),
+          });
+        }
+        const silenceStable =
+          this.captureSilenceBelowSince > 0 && now - this.captureSilenceBelowSince >= minSilenceFramesMs;
         const reachedSilence =
-          this.captureSpeechDetected && elapsed >= minSpeechMs && now - this.captureLastVoiceAt >= silenceMs;
+          this.captureSpeechDetected &&
+          elapsed >= minSpeechMs &&
+          silenceStable &&
+          now - this.captureLastVoiceAt >= silenceMs + hangoverMs;
         const reachedMax = elapsed >= maxTurnMs;
-        if (reachedSilence || reachedMax) {
+        if (reachedMax) {
+          this.requestRecorderData();
           this.endpointRecordingTurn(
-            !this.captureSpeechDetected ? 'no_speech' : reachedSilence ? 'silence' : 'max_turn',
+            !this.captureSpeechDetected ? 'no_speech' : 'max_turn',
           );
           return;
+        }
+        if (reachedSilence) {
+          this.scheduleCaptureEndpointCandidate({
+            since_voice_ms: Math.round(now - this.captureLastVoiceAt),
+            rms: Number(rms.toFixed(5)),
+            threshold: Number(speechThreshold.toFixed(5)),
+          });
         }
         this.captureEndpointRaf = requestAnimationFrame(tick);
       };
@@ -10812,6 +11154,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private stopCaptureEndpointMonitor(): void {
+    this.clearCaptureEndpointCandidate();
     if (this.captureEndpointRaf !== null) {
       cancelAnimationFrame(this.captureEndpointRaf);
       this.captureEndpointRaf = null;
@@ -10825,6 +11168,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.captureEndpointSource = null;
     this.captureEndpointAudioContext = null;
     this.captureSpeechDetected = false;
+    this.captureNoiseFloor = 0;
+    this.captureSpeechAboveSince = 0;
+    this.captureSilenceBelowSince = 0;
+    this.captureLastVadMetricAt = 0;
     if (context && context.state !== 'closed') {
       void context.close().catch(() => undefined);
     }
@@ -10919,8 +11266,24 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F4',location:'knowledge-capture.component.ts:startAudioRecorder',message:'recorder created',data:{recId:dbgRec.__dbgId,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
       // #endregion
       this.captureEndpointReason = 'manual';
+      this.lastVoiceChunkAt = 0;
       this.recorder.ondataavailable = (event) => {
         if (event.data.size <= 0) return;
+        const chunkAt = performance.now();
+        if (this.lastVoiceChunkAt > 0) {
+          this.emitCaptureClientMetric({
+            metric: 'chunk_gap_ms',
+            value_ms: Math.round(chunkAt - this.lastVoiceChunkAt),
+            chunk_gap_ms: Math.round(chunkAt - this.lastVoiceChunkAt),
+            chunk_size: event.data.size,
+          });
+        }
+        this.lastVoiceChunkAt = chunkAt;
+        this.emitCaptureClientMetric({
+          metric: 'chunk_size',
+          value: event.data.size,
+          chunk_size: event.data.size,
+        });
         // #region agent log
         if ((this.closeVoiceAfterStreamingTurn || !this.recording() || this.recorder !== dbgRec) && dbgAnomalous < 6) { dbgAnomalous++;
           fetch('http://127.0.0.1:7675/ingest/10b839da-81bf-4724-8fda-54f6f46d21b9',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'24a345'},body:JSON.stringify({sessionId:'24a345',hypothesisId:'F4',location:'knowledge-capture.component.ts:ondataavailable',message:'anomalous frame after stop/teardown',data:{recId:dbgRec.__dbgId,recState:dbgRec.state,isCurrentRecorder:this.recorder===dbgRec,closeAfter:this.closeVoiceAfterStreamingTurn,recording:this.recording(),bytes:event.data.size,turn:this.currentClientTurnId},timestamp:Date.now()})}).catch(()=>{});
@@ -10928,8 +11291,18 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         // #endregion
         this.chunks.push(event.data);
         if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
+          const sendStartedAt = performance.now();
           const send = this.voiceConnection
             .sendAudioFrame(event.data, this.voiceFrameMeta())
+            .then(() => {
+              const elapsed = Math.round(performance.now() - sendStartedAt);
+              this.emitCaptureClientMetric({
+                metric: 'send_audio_frame_ms',
+                value_ms: elapsed,
+                send_audio_frame_ms: elapsed,
+                chunk_size: event.data.size,
+              });
+            })
             .catch(() => this.setVoiceNotice('Une trame vocale n’a pas pu être envoyée ; le fallback HTTP peut être nécessaire.', 'warning'));
           this.pendingVoiceFrameSends.push(send);
           void send.finally(() => {
@@ -10979,12 +11352,17 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const session = this.session();
     if (session) {
       const connection = await this.ensureVoiceConnection(session);
+      const captureConfig = this.resolvedVoiceCaptureConfig();
       connection?.loopArmed({
         surface: 'knowledge_capture',
         mode: 'conversation_loop',
-        auto_endpoint: this.voiceLoopAutoEndpointEnabled(),
-        silence_ms: this.voiceEndpointSilenceMs(),
-        max_turn_ms: this.voiceEndpointMaxTurnMs(),
+        auto_endpoint: captureConfig.auto_endpoint,
+        capture_mode: captureConfig.capture_mode,
+        silence_ms: captureConfig.silence_ms,
+        min_speech_ms: captureConfig.min_speech_ms,
+        rms_threshold: captureConfig.rms_threshold,
+        endpoint_grace_ms: captureConfig.endpoint_grace_ms,
+        max_turn_ms: captureConfig.max_turn_ms,
       });
     }
     if (!this.startAudioRecorder('Micro ouvert. Terminez le tour quand la réponse expert est complète.')) {
@@ -11079,9 +11457,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         this.voiceConnection?.loopArmed({
           surface: 'knowledge_capture',
           mode: 'conversation_loop',
-          auto_endpoint: this.voiceLoopAutoEndpointEnabled(),
-          silence_ms: this.voiceEndpointSilenceMs(),
-          max_turn_ms: this.voiceEndpointMaxTurnMs(),
+          auto_endpoint: this.resolvedVoiceCaptureConfig().auto_endpoint,
+          capture_mode: this.resolvedVoiceCaptureConfig().capture_mode,
+          silence_ms: this.resolvedVoiceCaptureConfig().silence_ms,
+          min_speech_ms: this.resolvedVoiceCaptureConfig().min_speech_ms,
+          rms_threshold: this.resolvedVoiceCaptureConfig().rms_threshold,
+          endpoint_grace_ms: this.resolvedVoiceCaptureConfig().endpoint_grace_ms,
+          max_turn_ms: this.resolvedVoiceCaptureConfig().max_turn_ms,
         });
         void this.startRecordingTurn();
       }

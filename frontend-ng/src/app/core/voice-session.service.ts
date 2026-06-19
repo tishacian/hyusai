@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 import { TokenStorageService } from './token-storage.service';
+import { VoiceCaptureMode } from './voice-capture-config';
 import { WorkspaceService } from './workspace.service';
 
 export type VoiceSessionEventType =
@@ -11,6 +12,7 @@ export type VoiceSessionEventType =
   | 'loop.resume'
   | 'loop.stop'
   | 'loop.armed'
+  | 'client.metric'
   | 'audio.frame'
   | 'audio.pause'
   | 'audio.endpoint'
@@ -84,6 +86,11 @@ export interface VoiceFrameMeta {
   content_type?: string | null;
   auto?: boolean;
   reason?: string | null;
+  capture_mode?: VoiceCaptureMode;
+  silence_ms?: number;
+  min_speech_ms?: number;
+  rms_threshold?: number;
+  endpoint_grace_ms?: number;
 }
 
 export class VoiceSessionConnection {
@@ -165,6 +172,11 @@ export class VoiceSessionConnection {
       interruption_of_event_id: meta.interruption_of_event_id,
       auto: Boolean(meta.auto),
       reason: meta.reason || null,
+      capture_mode: meta.capture_mode || null,
+      silence_ms: meta.silence_ms ?? null,
+      min_speech_ms: meta.min_speech_ms ?? null,
+      rms_threshold: meta.rms_threshold ?? null,
+      endpoint_grace_ms: meta.endpoint_grace_ms ?? null,
     });
   }
 
@@ -224,6 +236,10 @@ export class VoiceSessionConnection {
 
   loopArmed(payload: Record<string, any> = {}): void {
     this.send('loop.armed', payload);
+  }
+
+  clientMetric(payload: Record<string, any> = {}): void {
+    this.send('client.metric', payload);
   }
 
   voiceCommand(command: string, transcript: string, payload: Record<string, any> = {}): void {

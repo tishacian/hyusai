@@ -1852,6 +1852,70 @@ async def test_voice_gateway_barge_in_is_audited_and_metriced(db_session):
 
 
 @pytest.mark.asyncio
+async def test_voice_gateway_client_metric_is_sanitized_and_reemitted(db_session):
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-client-metric", name="GW Client Metric", slug="gw-client-metric")
+    user = User(id="user-gw-client-metric", username="metric@datategy.local", email="metric@datategy.local")
+    db_session.add_all([workspace, user])
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id="capture-client-metric", transport="backend_ws")
+    state.client_turn_id = "turn-client-metric"
+
+    await gateway._handle_event(
+        FakeWebSocket(),
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "client.metric", "payload": {"metric": "unknown_metric", "value_ms": 12}},
+    )
+    assert sent == []
+
+    await gateway._handle_event(
+        FakeWebSocket(),
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={
+            "type": "client.metric",
+            "payload": {
+                "metric": "endpoint_candidate",
+                "capture_mode": "robust",
+                "endpoint_reason": "silence",
+                "value_ms": 650,
+                "threshold": 0.012,
+                "rms": 0.004,
+                "unexpected_large": "x" * 500,
+            },
+        },
+    )
+
+    assert [event_type for event_type, _ in sent] == ["runtime.metric"]
+    payload = sent[0][1]
+    assert payload["metric"] == "endpoint_candidate"
+    assert payload["source"] == "client_capture"
+    assert payload["turn_id"] == "turn-client-metric"
+    assert payload["capture_mode"] == "robust"
+    assert payload["endpoint_reason"] == "silence"
+    assert payload["threshold"] == 0.012
+    assert "unexpected_large" not in payload
+
+    audit = db_session.query(AuditLog).filter_by(event_type="voice.client_metric").one()
+    assert audit.workspace_id == workspace.id
+    assert audit.details["session_id"] == "capture-client-metric"
+    assert audit.details["source"] == "client_capture"
+
+
+@pytest.mark.asyncio
 async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, monkeypatch):
     """Server-side incremental transcription: several audio.frame messages must emit
     live transcript.partial + oracle analysis BEFORE any audio.endpoint, while

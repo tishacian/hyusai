@@ -1,5 +1,6 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { VoiceCaptureMode } from '@app/core/voice-capture-config';
 import { IconComponent } from '@app/shared/ui/icon.component';
 
 export type SharedVoiceTransportChoice = 'batch_http' | 'backend_ws';
@@ -79,6 +80,25 @@ export interface SharedVoiceOracleStep {
         >
           Realtime
         </button>
+      </div>
+
+      <div class="voice-control-group">
+        <span class="voice-control-label">
+          <app-icon name="shield-check" [size]="13" class="text-emerald-300" />
+          Capture
+        </span>
+        <div class="voice-select-wrap voice-capture-select-wrap" [title]="captureModeHint">
+          <select
+            class="voice-select"
+            [ngModel]="captureMode"
+            (ngModelChange)="captureModeChange.emit($event)"
+          >
+            <option value="normal">Normal</option>
+            <option value="robust">Robuste</option>
+            <option value="manual_safe">Manuel</option>
+          </select>
+          <app-icon name="chevron-down" [size]="12" class="voice-select-chevron" />
+        </div>
       </div>
 
       @if (transport === 'backend_ws') {
@@ -259,6 +279,9 @@ export interface SharedVoiceOracleStep {
       align-items: center;
       min-width: 176px;
       max-width: 260px;
+    }
+    .voice-capture-select-wrap {
+      min-width: 120px;
     }
     .voice-select {
       width: 100%;
@@ -443,6 +466,8 @@ export class VoiceControlsComponent {
   @Input() tandemOracleHint = '';
   @Input() autoSend = false;
   @Input() autoEndpoint = true;
+  @Input() captureMode: VoiceCaptureMode = 'normal';
+  @Input() captureModeHint = '';
   @Input() statusClass = '';
   @Input() statusLabel = '';
   @Input() runtimeDetail = '';
@@ -459,4 +484,5 @@ export class VoiceControlsComponent {
   @Output() stopConversation = new EventEmitter<void>();
   @Output() autoSendChange = new EventEmitter<boolean>();
   @Output() autoEndpointChange = new EventEmitter<boolean>();
+  @Output() captureModeChange = new EventEmitter<VoiceCaptureMode>();
 }

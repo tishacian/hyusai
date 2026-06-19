@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import inspect
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -197,6 +198,10 @@ class VoiceSessionState:
     # Throttle for the orphan-frame-dropped debug print (at most one per second
     # per session) — late MediaRecorder continuation frames can arrive in bursts.
     last_orphan_drop_log_at: Optional[float] = None
+    # Client-side audio/VAD metrics are diagnostic only and must never compete
+    # with the hot audio path. Unknown metrics are ignored and accepted metrics
+    # are lightly throttled per connection.
+    last_client_metric_at: Optional[float] = None
 
 
 # Cadence of the server-side incremental transcription. The live preview
@@ -228,6 +233,19 @@ _LIVE_QUESTIONS_CONTEXT_TURNS = 10
 # emits are throttled; turn commits always run detection once.
 _LIVE_SECTION_DETECT_PARTIAL_INTERVAL_S = 30.0
 _MANUAL_SECTION_OVERRIDE_COOLDOWN_S = 60.0
+_CLIENT_METRIC_MIN_INTERVAL_S = 0.15
+_CLIENT_CAPTURE_METRICS = {
+    "chunk_gap_ms",
+    "chunk_size",
+    "send_audio_frame_ms",
+    "rms",
+    "noise_floor",
+    "threshold",
+    "endpoint_candidate",
+    "endpoint_confirmed",
+    "endpoint_cancelled",
+    "endpoint_reason",
+}
 
 
 def _coerce_bool(value: Any, default: bool) -> bool:
@@ -510,6 +528,9 @@ class VoiceSessionGateway:
         if event_type == "audio.pause":
             await self._handle_audio_pause(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
             return
+        if event_type == "client.metric":
+            await self._handle_client_metric(websocket, db, user=user, workspace=workspace, state=state, payload=payload)
+            return
         if event_type == "section.select":
             await self._handle_section_select(websocket, db, workspace=workspace, state=state, payload=payload)
             return
@@ -601,6 +622,69 @@ class VoiceSessionGateway:
             await websocket.close(code=1000)
             return
         await self._send_error(websocket, "unknown_event", f"Unknown voice event: {event_type}", state=state)
+
+    async def _handle_client_metric(
+        self,
+        websocket: WebSocket,
+        db: Session,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        payload: Dict[str, Any],
+    ) -> None:
+        metric = str(payload.get("metric") or "").strip()
+        if metric not in _CLIENT_CAPTURE_METRICS:
+            return
+        now = time.perf_counter()
+        if state.last_client_metric_at is not None and now - state.last_client_metric_at < _CLIENT_METRIC_MIN_INTERVAL_S:
+            return
+        state.last_client_metric_at = now
+        forwarded: Dict[str, Any] = {
+            "metric": metric,
+            "source": "client_capture",
+            "runtime": state.runtime,
+            "transport": state.transport,
+            "turn_id": payload.get("turn_id") or state.client_turn_id,
+        }
+        for key in (
+            "value_ms",
+            "value",
+            "chunk_gap_ms",
+            "chunk_size",
+            "send_audio_frame_ms",
+            "rms",
+            "rms_p50",
+            "rms_p95",
+            "noise_floor",
+            "threshold",
+            "silence_ms",
+            "min_speech_ms",
+            "endpoint_grace_ms",
+            "since_voice_ms",
+        ):
+            value = payload.get(key)
+            if isinstance(value, (int, float)) and math.isfinite(float(value)):
+                forwarded[key] = value
+        for key in ("capture_mode", "endpoint_reason", "surface", "visibility_state", "network_effective_type"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                forwarded[key] = value.strip()[:80]
+        for key in ("auto_endpoint", "cancelled"):
+            value = payload.get(key)
+            if isinstance(value, bool):
+                forwarded[key] = value
+        emit_audit_event(
+            workspace_id=workspace.id,
+            event_type="voice.client_metric",
+            actor=user.email or user.username or user.id,
+            details={
+                "session_id": state.session_id,
+                **forwarded,
+            },
+            db=db,
+        )
+        await self._send(websocket, state, "runtime.metric", forwarded)
 
     @staticmethod
     def _reset_partial_stt_state(state: VoiceSessionState) -> None:

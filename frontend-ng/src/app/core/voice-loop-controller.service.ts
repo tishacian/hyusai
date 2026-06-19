@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { VoiceCaptureMode } from './voice-capture-config';
 
 export type VoiceLoopState =
   | 'idle'
@@ -22,11 +23,17 @@ export interface VoiceLoopTurnConfig {
   minSpeechMs?: number;
   maxTurnMs?: number;
   rmsThreshold?: number;
+  captureMode?: VoiceCaptureMode;
+  endpointGraceMs?: number;
+  vadHangoverMs?: number;
+  vadCalibrationMs?: number;
+  vadMinSilenceFramesMs?: number;
   stream?: MediaStream | null;
   releaseStreamOnStop?: boolean;
   onChunk?: (blob: Blob) => void;
   onEndpoint?: (blob: Blob, reason: VoiceLoopEndpointReason) => void;
   onSpeechStart?: () => void;
+  onMetric?: (payload: Record<string, unknown>) => void;
   onNotice?: (message: string | null) => void;
   onState?: (state: VoiceLoopState) => void;
   onError?: (message: string) => void;
@@ -53,6 +60,14 @@ export class VoiceLoopController {
   private lastVoiceAt = 0;
   private startedAt = 0;
   private emitEndpointOnStop = true;
+  private lastChunkAt = 0;
+  private lastVadMetricAt = 0;
+  private noiseFloor = 0;
+  private speechAboveSince = 0;
+  private silenceBelowSince = 0;
+  private endpointCandidateTimer: ReturnType<typeof setTimeout> | null = null;
+  private endpointCandidateReason: VoiceLoopEndpointReason | null = null;
+  private endpointCandidateStartedAt = 0;
 
   constructor(id: string) {
     void id;
@@ -70,6 +85,7 @@ export class VoiceLoopController {
     this.endpointReason = 'manual';
     this.emitEndpointOnStop = true;
     this.chunks = [];
+    this.lastChunkAt = 0;
 
     try {
       this.stream = config.stream || await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -78,6 +94,23 @@ export class VoiceLoopController {
       this.recorder = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data.size <= 0) return;
+        const chunkAt = performance.now();
+        if (this.lastChunkAt > 0) {
+          config.onMetric?.({
+            metric: 'chunk_gap_ms',
+            value_ms: Math.round(chunkAt - this.lastChunkAt),
+            chunk_gap_ms: Math.round(chunkAt - this.lastChunkAt),
+            chunk_size: event.data.size,
+            capture_mode: config.captureMode || 'normal',
+          });
+        }
+        this.lastChunkAt = chunkAt;
+        config.onMetric?.({
+          metric: 'chunk_size',
+          value: event.data.size,
+          chunk_size: event.data.size,
+          capture_mode: config.captureMode || 'normal',
+        });
         this.chunks.push(event.data);
         config.onChunk?.(event.data);
       };
@@ -130,6 +163,10 @@ export class VoiceLoopController {
   stopLoop(): void {
     this.stopTurn('stop', false);
     this.state.set('idle');
+  }
+
+  disableAutoEndpoint(): void {
+    this.stopEndpointMonitor();
   }
 
   /**
@@ -185,6 +222,10 @@ export class VoiceLoopController {
       this.speechDetected = false;
       this.startedAt = performance.now();
       this.lastVoiceAt = this.startedAt;
+      this.lastVadMetricAt = 0;
+      this.noiseFloor = 0;
+      this.speechAboveSince = 0;
+      this.silenceBelowSince = 0;
       config.onNotice?.('Auto endpoint listening');
 
       const data = new Uint8Array(analyser.fftSize);
@@ -192,6 +233,11 @@ export class VoiceLoopController {
       const minSpeechMs = config.minSpeechMs ?? DEFAULT_MIN_SPEECH_MS;
       const maxTurnMs = config.maxTurnMs ?? DEFAULT_MAX_TURN_MS;
       const threshold = config.rmsThreshold ?? DEFAULT_RMS_THRESHOLD;
+      const captureMode = config.captureMode || 'normal';
+      const endpointGraceMs = Math.max(0, config.endpointGraceMs ?? 0);
+      const vadHangoverMs = Math.max(0, config.vadHangoverMs ?? 0);
+      const vadCalibrationMs = Math.max(0, config.vadCalibrationMs ?? 300);
+      const vadMinSilenceFramesMs = Math.max(0, config.vadMinSilenceFramesMs ?? 0);
 
       const tick = () => {
         if (this.recorder?.state !== 'recording') return;
@@ -204,24 +250,67 @@ export class VoiceLoopController {
         const rms = Math.sqrt(sum / data.length);
         const now = performance.now();
         const elapsed = now - this.startedAt;
-        if (rms >= threshold) {
+        const calibrating = elapsed <= vadCalibrationMs && !this.speechDetected;
+        this.updateNoiseFloor(rms, calibrating || !this.speechDetected);
+        const speechThreshold = Math.max(threshold, this.noiseFloor * 2.6 + 0.004);
+        const silenceThreshold = Math.max(this.noiseFloor * 1.7 + 0.002, speechThreshold * 0.62);
+        if (rms >= speechThreshold) {
+          if (this.speechAboveSince <= 0) this.speechAboveSince = now;
+          this.silenceBelowSince = 0;
+        } else {
+          this.speechAboveSince = 0;
+          if (rms <= silenceThreshold) {
+            if (this.silenceBelowSince <= 0) this.silenceBelowSince = now;
+          } else {
+            this.silenceBelowSince = 0;
+          }
+        }
+        const speechStable = this.speechAboveSince > 0 && now - this.speechAboveSince >= 80;
+        if (speechStable) {
+          if (this.endpointCandidateReason) {
+            this.cancelEndpointCandidate(config, 'voice_resumed');
+          }
           if (!this.speechDetected) config.onSpeechStart?.();
           this.speechDetected = true;
           this.lastVoiceAt = now;
         }
-        const reachedSilence = this.speechDetected && elapsed >= minSpeechMs && now - this.lastVoiceAt >= silenceMs;
+        if (now - this.lastVadMetricAt >= 1000) {
+          this.lastVadMetricAt = now;
+          config.onMetric?.({
+            metric: 'rms',
+            value: Number(rms.toFixed(5)),
+            rms: Number(rms.toFixed(5)),
+            noise_floor: Number(this.noiseFloor.toFixed(5)),
+            threshold: Number(speechThreshold.toFixed(5)),
+            capture_mode: captureMode,
+          });
+        }
+        const silenceStable =
+          this.silenceBelowSince > 0 && now - this.silenceBelowSince >= vadMinSilenceFramesMs;
+        const reachedSilence =
+          this.speechDetected &&
+          elapsed >= minSpeechMs &&
+          silenceStable &&
+          now - this.lastVoiceAt >= silenceMs + vadHangoverMs;
         const reachedMax = elapsed >= maxTurnMs;
         const reachedNoSpeech = reachedMax && !this.speechDetected;
-        if (reachedSilence || reachedMax) {
+        if (reachedMax) {
           config.onNotice?.(
             reachedNoSpeech
               ? 'No speech detected'
-              : reachedSilence
-                ? 'Silence detected'
-                : 'Max voice turn reached',
+              : 'Max voice turn reached',
           );
-          this.stopTurn(reachedNoSpeech ? 'no_speech' : reachedSilence ? 'silence' : 'max_turn');
+          this.requestRecorderData();
+          this.stopTurn(reachedNoSpeech ? 'no_speech' : 'max_turn');
           return;
+        }
+        if (reachedSilence && !this.endpointCandidateReason) {
+          config.onNotice?.('Silence detected');
+          this.scheduleEndpointCandidate(config, endpointGraceMs, {
+            since_voice_ms: Math.round(now - this.lastVoiceAt),
+            rms: Number(rms.toFixed(5)),
+            threshold: Number(speechThreshold.toFixed(5)),
+          });
         }
         this.raf = requestAnimationFrame(tick);
       };
@@ -234,6 +323,7 @@ export class VoiceLoopController {
   }
 
   private stopEndpointMonitor(): void {
+    this.clearEndpointCandidate();
     if (this.raf !== null) {
       cancelAnimationFrame(this.raf);
       this.raf = null;
@@ -247,7 +337,91 @@ export class VoiceLoopController {
     this.source = null;
     this.audioContext = null;
     this.speechDetected = false;
+    this.noiseFloor = 0;
+    this.speechAboveSince = 0;
+    this.silenceBelowSince = 0;
     if (context && context.state !== 'closed') void context.close().catch(() => undefined);
+  }
+
+  private scheduleEndpointCandidate(
+    config: VoiceLoopTurnConfig,
+    endpointGraceMs: number,
+    details: Record<string, unknown>,
+  ): void {
+    this.endpointCandidateReason = 'silence';
+    this.endpointCandidateStartedAt = performance.now();
+    config.onMetric?.({
+      metric: 'endpoint_candidate',
+      capture_mode: config.captureMode || 'normal',
+      endpoint_reason: 'silence',
+      silence_ms: config.silenceMs ?? DEFAULT_SILENCE_MS,
+      min_speech_ms: config.minSpeechMs ?? DEFAULT_MIN_SPEECH_MS,
+      endpoint_grace_ms: endpointGraceMs,
+      ...details,
+    });
+    this.requestRecorderData();
+    if (endpointGraceMs <= 0) {
+      this.confirmEndpointCandidate(config);
+      return;
+    }
+    this.endpointCandidateTimer = setTimeout(() => this.confirmEndpointCandidate(config), endpointGraceMs);
+  }
+
+  private confirmEndpointCandidate(config: VoiceLoopTurnConfig): void {
+    if (!this.endpointCandidateReason || this.recorder?.state !== 'recording') return;
+    const reason = this.endpointCandidateReason;
+    const elapsed = Math.round(performance.now() - this.endpointCandidateStartedAt);
+    this.clearEndpointCandidate();
+    this.requestRecorderData();
+    config.onMetric?.({
+      metric: 'endpoint_confirmed',
+      capture_mode: config.captureMode || 'normal',
+      endpoint_reason: reason,
+      endpoint_grace_ms: elapsed,
+    });
+    this.stopTurn(reason);
+  }
+
+  private cancelEndpointCandidate(config: VoiceLoopTurnConfig, reason: string): void {
+    if (!this.endpointCandidateReason) return;
+    const elapsed = Math.round(performance.now() - this.endpointCandidateStartedAt);
+    this.clearEndpointCandidate();
+    config.onMetric?.({
+      metric: 'endpoint_cancelled',
+      capture_mode: config.captureMode || 'normal',
+      endpoint_reason: reason,
+      endpoint_grace_ms: elapsed,
+      cancelled: true,
+    });
+  }
+
+  private clearEndpointCandidate(): void {
+    if (this.endpointCandidateTimer !== null) {
+      clearTimeout(this.endpointCandidateTimer);
+      this.endpointCandidateTimer = null;
+    }
+    this.endpointCandidateReason = null;
+    this.endpointCandidateStartedAt = 0;
+  }
+
+  private requestRecorderData(): void {
+    const recorder = this.recorder as (MediaRecorder & { requestData?: () => void }) | null;
+    if (!recorder || recorder.state !== 'recording' || typeof recorder.requestData !== 'function') return;
+    try {
+      recorder.requestData();
+    } catch {
+      /* best-effort flush before endpoint */
+    }
+  }
+
+  private updateNoiseFloor(rms: number, preferFastAdapt: boolean): void {
+    if (!Number.isFinite(rms)) return;
+    if (this.noiseFloor <= 0) {
+      this.noiseFloor = rms;
+      return;
+    }
+    const alpha = preferFastAdapt ? 0.12 : 0.025;
+    this.noiseFloor = this.noiseFloor * (1 - alpha) + rms * alpha;
   }
 
   private releaseStream(): void {

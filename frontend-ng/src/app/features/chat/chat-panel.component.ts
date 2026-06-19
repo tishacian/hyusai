@@ -32,6 +32,13 @@ import {
   VoiceLoopEndpointReason,
   VoiceLoopState,
 } from '@app/core/voice-loop-controller.service';
+import {
+  ResolvedVoiceCaptureConfig,
+  VoiceCaptureMode,
+  normalizeVoiceCaptureMode,
+  resolveVoiceCaptureConfig,
+  voiceCaptureStorageKey,
+} from '@app/core/voice-capture-config';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -286,6 +293,8 @@ type VoiceLoopDefaultMode = 'batch' | 'session_loop' | 'realtime';
 interface WorkspaceVoiceLoopConfig {
   default_mode?: VoiceLoopDefaultMode;
   enabled_default?: boolean;
+  capture_mode?: VoiceCaptureMode | string | null;
+  auto_capture_mode_enabled?: boolean;
   auto_send_final_transcript?: boolean;
   auto_endpoint?: boolean;
   auto_rearm_after_tts?: boolean;
@@ -299,6 +308,10 @@ interface WorkspaceVoiceLoopConfig {
   max_turn_ms?: number;
   cooldown_ms?: number;
   rms_threshold?: number;
+  endpoint_grace_ms?: number;
+  vad_hangover_ms?: number;
+  vad_calibration_ms?: number;
+  vad_min_silence_frames_ms?: number;
 }
 
 interface WorkspaceVoiceOutputConfig extends VoiceOutputConfig {}
@@ -756,6 +769,8 @@ const STEP_ICONS: Record<string, string> = {
         [tandemOracleHint]="voiceTandemOracleHint()"
         [autoSend]="voiceAutoSend()"
         [autoEndpoint]="voiceAutoEndpoint()"
+        [captureMode]="voiceCaptureMode()"
+        [captureModeHint]="voiceCaptureModeHint()"
         [statusClass]="voiceStatusClass()"
         [statusLabel]="voiceStatusLabel()"
         [runtimeDetail]="voiceRuntimeDetail()"
@@ -771,6 +786,7 @@ const STEP_ICONS: Record<string, string> = {
         (stopConversation)="stopConversationLoop()"
         (autoSendChange)="voiceAutoSend.set($event)"
         (autoEndpointChange)="voiceAutoEndpoint.set($event)"
+        (captureModeChange)="setVoiceCaptureMode($event)"
       />
 
       @if (isDemoMode() && !demoVoiceChipsDismissed() && demoVoiceChips().length) {
@@ -3003,6 +3019,17 @@ export class ChatPanelComponent implements AfterViewInit {
 	  readonly voiceTransport = signal<VoiceTransportChoice>('batch_http');
 	  readonly voiceAutoSend = signal(false);
 	  readonly voiceAutoEndpoint = signal(true);
+  readonly voiceCaptureMode = signal<VoiceCaptureMode>('normal');
+  readonly resolvedVoiceCaptureConfig = computed<ResolvedVoiceCaptureConfig>(() =>
+    resolveVoiceCaptureConfig(this.workspaceVoiceLoopConfig(), this.voiceCaptureMode(), {
+      silence_ms: 1200,
+      dictation_silence_ms: 2000,
+      min_speech_ms: 350,
+      dictation_min_speech_ms: 300,
+      max_turn_ms: 45000,
+      rms_threshold: 0.018,
+    }),
+  );
 	  readonly voiceConversationActive = signal(false);
 	  readonly voiceConversationPaused = signal(false);
 	  readonly voicePartial = signal('');
@@ -3467,6 +3494,7 @@ export class ChatPanelComponent implements AfterViewInit {
   private voiceLoopRearmTimer: ReturnType<typeof setTimeout> | null = null;
   private voiceLastEndpointReason: VoiceLoopEndpointReason | null = null;
   private appliedVoiceDefaultsSignature = '';
+  private loadedVoiceCaptureStorageKey = '';
   /**
    * Streaming-turn state. When the conversation loop runs over a backend_ws
    * session we stream MediaRecorder chunks to the gateway as they arrive
@@ -3505,7 +3533,14 @@ export class ChatPanelComponent implements AfterViewInit {
       const profileKey = this.activeAssistantProfile()?.key || this.assistantProfileKey() || 'default';
       const config = this.workspaceVoiceLoopConfig();
       const selectable = this.canUseVoiceSession();
-      const signature = `${workspaceSlug}|${profileKey}|${selectable}|${JSON.stringify(config)}`;
+      const storageKey = voiceCaptureStorageKey({ surface: 'chat', workspaceSlug, profileKey });
+      if (storageKey !== this.loadedVoiceCaptureStorageKey) {
+        this.loadedVoiceCaptureStorageKey = storageKey;
+        const stored = this.readStoredVoiceCaptureMode(storageKey, normalizeVoiceCaptureMode(config.capture_mode));
+        queueMicrotask(() => this.voiceCaptureMode.set(stored));
+      }
+      const mode = this.voiceCaptureMode();
+      const signature = `${workspaceSlug}|${profileKey}|${selectable}|${mode}|${JSON.stringify(config)}`;
       if (signature === this.appliedVoiceDefaultsSignature) return;
       this.appliedVoiceDefaultsSignature = signature;
       this.applyWorkspaceVoiceDefaults(config, selectable);
@@ -3899,6 +3934,7 @@ export class ChatPanelComponent implements AfterViewInit {
 
   private applyWorkspaceVoiceDefaults(config: WorkspaceVoiceLoopConfig, canUseSession: boolean): void {
     if (this.voiceConversationActive() || this.recording() || this.transcribing()) return;
+    const capture = this.resolvedVoiceCaptureConfig();
     const mode = config.default_mode || (config.enabled_default ? 'session_loop' : 'batch');
     if (mode === 'session_loop' && canUseSession) {
       this.voiceTransport.set('backend_ws');
@@ -3908,9 +3944,7 @@ export class ChatPanelComponent implements AfterViewInit {
     if (typeof config.auto_send_final_transcript === 'boolean') {
       this.voiceAutoSend.set(config.auto_send_final_transcript);
     }
-    if (typeof config.auto_endpoint === 'boolean') {
-      this.voiceAutoEndpoint.set(config.auto_endpoint);
-    }
+    this.voiceAutoEndpoint.set(capture.auto_endpoint);
     this.cdr.markForCheck();
   }
 
@@ -6970,20 +7004,35 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   private voiceEndpointSilenceMs(): number {
-    return this.voiceLoopSettingNumber('silence_ms', 1200, 300, 5000);
+    return this.resolvedVoiceCaptureConfig().silence_ms;
   }
 
   private voiceEndpointMinSpeechMs(): number {
-    return this.voiceLoopSettingNumber('min_speech_ms', 350, 100, 3000);
+    return this.resolvedVoiceCaptureConfig().min_speech_ms;
   }
 
   private voiceEndpointMaxTurnMs(): number {
-    return this.voiceLoopSettingNumber('max_turn_ms', 45000, 5000, 180000);
+    return this.resolvedVoiceCaptureConfig().max_turn_ms;
   }
 
   private voiceEndpointRmsThreshold(): number {
-    const value = Number(this.workspaceVoiceLoopConfig().rms_threshold);
-    return Number.isFinite(value) ? Math.min(0.15, Math.max(0.001, value)) : 0.018;
+    return this.resolvedVoiceCaptureConfig().rms_threshold;
+  }
+
+  private voiceEndpointGraceMs(): number {
+    return this.resolvedVoiceCaptureConfig().endpoint_grace_ms;
+  }
+
+  private voiceVadHangoverMs(): number {
+    return this.resolvedVoiceCaptureConfig().vad_hangover_ms;
+  }
+
+  private voiceVadCalibrationMs(): number {
+    return this.resolvedVoiceCaptureConfig().vad_calibration_ms;
+  }
+
+  private voiceVadMinSilenceFramesMs(): number {
+    return this.resolvedVoiceCaptureConfig().vad_min_silence_frames_ms;
   }
 
   private voiceLoopCooldownMs(): number {
@@ -6996,6 +7045,57 @@ export class ChatPanelComponent implements AfterViewInit {
 
   private voiceLoopAutoRearmEnabled(): boolean {
     return this.workspaceVoiceLoopConfig().auto_rearm_after_tts !== false;
+  }
+
+  voiceCaptureModeHint(): string {
+    const config = this.resolvedVoiceCaptureConfig();
+    if (config.capture_mode === 'manual_safe') return 'Auto endpoint disabled; use manual stop for degraded microphones.';
+    if (config.capture_mode === 'robust') return `Robust capture: silence ${config.silence_ms} ms, min speech ${config.min_speech_ms} ms.`;
+    return 'Normal capture uses workspace voice settings.';
+  }
+
+  setVoiceCaptureMode(mode: VoiceCaptureMode | string): void {
+    const next = normalizeVoiceCaptureMode(mode);
+    this.voiceCaptureMode.set(next);
+    try {
+      const workspaceSlug = this.workspace.current()?.slug || 'workspace';
+      const profileKey = this.activeAssistantProfile()?.key || this.assistantProfileKey() || 'default';
+      localStorage.setItem(voiceCaptureStorageKey({ surface: 'chat', workspaceSlug, profileKey }), next);
+    } catch {
+      /* local preference only */
+    }
+    if (!this.voiceConversationActive() && !this.recording() && !this.transcribing()) {
+      this.applyWorkspaceVoiceDefaults(this.workspaceVoiceLoopConfig(), this.canUseVoiceSession());
+    }
+    if (next === 'manual_safe' && this.recording()) {
+      this.voiceLoop.disableAutoEndpoint();
+      this.voiceNotice.set('Manual capture mode enabled for the current turn.');
+    }
+  }
+
+  private readStoredVoiceCaptureMode(key: string, fallback: VoiceCaptureMode): VoiceCaptureMode {
+    try {
+      return normalizeVoiceCaptureMode(localStorage.getItem(key), fallback);
+    } catch {
+      return fallback;
+    }
+  }
+
+  private emitVoiceClientMetric(payload: Record<string, unknown>): void {
+    const config = this.resolvedVoiceCaptureConfig();
+    const network = (navigator as Navigator & { connection?: { effectiveType?: string } }).connection;
+    this.voiceConnection?.clientMetric({
+      surface: 'chat',
+      turn_id: this.voiceTurnId,
+      capture_mode: config.capture_mode,
+      auto_endpoint: config.auto_endpoint,
+      silence_ms: config.silence_ms,
+      min_speech_ms: config.min_speech_ms,
+      endpoint_grace_ms: config.endpoint_grace_ms,
+      visibility_state: document.visibilityState,
+      network_effective_type: network?.effectiveType || '',
+      ...payload,
+    });
   }
 
   private async startVoiceTurn(fromConversationLoop: boolean): Promise<boolean> {
@@ -7018,16 +7118,24 @@ export class ChatPanelComponent implements AfterViewInit {
         this.voiceNotice.set('Voice output stopped for listening');
       }
 
-      const autoEndpoint = fromConversationLoop || this.voiceAutoEndpoint();
+      const captureConfig = this.resolvedVoiceCaptureConfig();
+      const autoEndpoint = (fromConversationLoop || this.voiceAutoEndpoint()) && captureConfig.auto_endpoint;
       this.voiceConnection?.loopArmed({
         surface: 'chat',
         mode: fromConversationLoop ? 'conversation_loop' : 'manual_turn',
         auto_endpoint: autoEndpoint,
+        capture_mode: captureConfig.capture_mode,
+        silence_ms: captureConfig.silence_ms,
+        min_speech_ms: captureConfig.min_speech_ms,
+        rms_threshold: captureConfig.rms_threshold,
+        endpoint_grace_ms: captureConfig.endpoint_grace_ms,
       });
       this.voiceOracleStage.set('listening');
       this.voiceOracleMessage.set(
         autoEndpoint
-          ? 'Listening: the assistant will end this voice turn after a short silence.'
+          ? captureConfig.capture_mode === 'robust'
+            ? 'Listening: robust capture will wait for a stable silence.'
+            : 'Listening: the assistant will end this voice turn after a short silence.'
           : 'Listening: press the microphone again to end this voice turn.',
       );
 
@@ -7064,11 +7172,17 @@ export class ChatPanelComponent implements AfterViewInit {
         minSpeechMs: this.voiceEndpointMinSpeechMs(),
         maxTurnMs: this.voiceEndpointMaxTurnMs(),
         rmsThreshold: this.voiceEndpointRmsThreshold(),
+        captureMode: captureConfig.capture_mode,
+        endpointGraceMs: this.voiceEndpointGraceMs(),
+        vadHangoverMs: this.voiceVadHangoverMs(),
+        vadCalibrationMs: this.voiceVadCalibrationMs(),
+        vadMinSilenceFramesMs: this.voiceVadMinSilenceFramesMs(),
         onChunk: streamTurn
           ? (chunk) => this.onConversationVoiceChunk(chunk)
           : livePartialTurn
             ? (chunk) => this.onManualVoiceChunk(chunk)
             : undefined,
+        onMetric: (payload) => this.emitVoiceClientMetric(payload),
         onState: (state) => this.syncVoiceLoopState(state),
         onSpeechStart: () => {
           this.voiceOracleStage.set('listening');
@@ -7129,8 +7243,9 @@ export class ChatPanelComponent implements AfterViewInit {
     }
     if (this.voiceConversationActive()) return;
     const config = this.workspaceVoiceLoopConfig();
+    const captureConfig = this.resolvedVoiceCaptureConfig();
     this.setVoiceTransport('backend_ws');
-    this.voiceAutoEndpoint.set(config.auto_endpoint !== false);
+    this.voiceAutoEndpoint.set(captureConfig.auto_endpoint);
     this.voiceAutoSend.set(config.auto_send_final_transcript !== false);
     if (this.voiceOutputProvider()) this.ttsEnabled.set(true);
     this.voiceConversationActive.set(true);
@@ -7139,9 +7254,13 @@ export class ChatPanelComponent implements AfterViewInit {
     connection?.loopStart({
       surface: 'chat',
       mode: 'conversation_loop',
-      auto_endpoint: true,
+      auto_endpoint: captureConfig.auto_endpoint,
       auto_rearm_after_tts: this.voiceLoopAutoRearmEnabled(),
+      capture_mode: captureConfig.capture_mode,
       silence_ms: this.voiceEndpointSilenceMs(),
+      min_speech_ms: this.voiceEndpointMinSpeechMs(),
+      rms_threshold: this.voiceEndpointRmsThreshold(),
+      endpoint_grace_ms: this.voiceEndpointGraceMs(),
       max_turn_ms: this.voiceEndpointMaxTurnMs(),
       barge_in: this.voiceLoopBargeInEnabled(),
     });
@@ -7538,10 +7657,17 @@ export class ChatPanelComponent implements AfterViewInit {
     this.voiceTurnChunks.push(chunk);
     const connection = this.voiceConnection;
     if (connection) {
+      const sendStartedAt = performance.now();
       const send = connection
         .sendAudioFrame(chunk, { turn_id: this.voiceTurnId, content_type: chunk.type || 'audio/webm' })
         .then(() => {
           this.voiceFramesStreamed = true;
+          this.emitVoiceClientMetric({
+            metric: 'send_audio_frame_ms',
+            value_ms: Math.round(performance.now() - sendStartedAt),
+            send_audio_frame_ms: Math.round(performance.now() - sendStartedAt),
+            chunk_size: chunk.size,
+          });
         })
         .catch(() => {
           // Frame transport failed; finalise this turn with a single blob.
@@ -7607,10 +7733,16 @@ export class ChatPanelComponent implements AfterViewInit {
     const pending = [...this.pendingVoiceFrameSends];
     this.pendingVoiceFrameSends = [];
     if (pending.length) await Promise.allSettled(pending);
+    const captureConfig = this.resolvedVoiceCaptureConfig();
     connection.endpoint({
       turn_id: this.voiceTurnId,
       auto: reason === 'silence' || reason === 'max_turn',
       reason,
+      capture_mode: captureConfig.capture_mode,
+      silence_ms: captureConfig.silence_ms,
+      min_speech_ms: captureConfig.min_speech_ms,
+      rms_threshold: captureConfig.rms_threshold,
+      endpoint_grace_ms: captureConfig.endpoint_grace_ms,
     });
     this.voiceLastEndpointReason = null;
   }

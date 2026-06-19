@@ -62,10 +62,13 @@ interface ChatSettingsDraft {
 }
 
 type VoiceLoopDefaultMode = 'batch' | 'session_loop' | 'realtime';
+type VoiceCaptureMode = 'normal' | 'robust' | 'manual_safe';
 type VoiceOutputLatencyProfile = 'fast' | 'balanced' | 'quality';
 
 interface VoiceLoopSettingsDraft {
   default_mode: VoiceLoopDefaultMode;
+  capture_mode: VoiceCaptureMode;
+  auto_capture_mode_enabled: boolean;
   auto_send_final_transcript: boolean;
   auto_endpoint: boolean;
   auto_rearm_after_tts: boolean;
@@ -75,9 +78,16 @@ interface VoiceLoopSettingsDraft {
   command_packs_text: string;
   stop_phrases_text: string;
   silence_ms: number;
+  dictation_silence_ms: number;
   min_speech_ms: number;
+  dictation_min_speech_ms: number;
   max_turn_ms: number;
   cooldown_ms: number;
+  rms_threshold: number;
+  endpoint_grace_ms: number;
+  vad_hangover_ms: number;
+  vad_calibration_ms: number;
+  vad_min_silence_frames_ms: number;
 }
 
 interface VoiceOutputSettingsDraft {
@@ -1062,6 +1072,28 @@ interface AssistantProfileDraft {
               </div>
             </div>
 
+            <div class="grid gap-4 md:grid-cols-3">
+              <label class="block">
+                <span class="field-label">Capture mode</span>
+                <select class="ag-field" [(ngModel)]="voiceLoopDraft.capture_mode" [disabled]="!canEdit()">
+                  <option value="normal">Normal</option>
+                  <option value="robust">Robust</option>
+                  <option value="manual_safe">Manual safe</option>
+                </select>
+              </label>
+              <label class="voice-toggle-row">
+                <input type="checkbox" [(ngModel)]="voiceLoopDraft.auto_capture_mode_enabled" [disabled]="!canEdit()" />
+                <span>
+                  <strong>Auto robust capture</strong>
+                  <small>Reserved for metric-based degradation detection; off by default.</small>
+                </span>
+              </label>
+              <label class="block">
+                <span class="field-label">RMS threshold</span>
+                <input class="ag-field" type="number" min="0.001" max="0.15" step="0.001" [(ngModel)]="voiceLoopDraft.rms_threshold" [disabled]="!canEdit()" />
+              </label>
+            </div>
+
             <div class="grid gap-3 lg:grid-cols-2">
               <label class="voice-toggle-row">
                 <input type="checkbox" [(ngModel)]="voiceLoopDraft.auto_send_final_transcript" [disabled]="!canEdit()" />
@@ -1109,6 +1141,29 @@ interface AssistantProfileDraft {
               <label class="block">
                 <span class="field-label">Cooldown ms</span>
                 <input class="ag-field" type="number" min="0" max="5000" [(ngModel)]="voiceLoopDraft.cooldown_ms" [disabled]="!canEdit()" />
+              </label>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-5">
+              <label class="block">
+                <span class="field-label">Dictation silence ms</span>
+                <input class="ag-field" type="number" min="300" max="30000" [(ngModel)]="voiceLoopDraft.dictation_silence_ms" [disabled]="!canEdit()" />
+              </label>
+              <label class="block">
+                <span class="field-label">Dictation min speech ms</span>
+                <input class="ag-field" type="number" min="100" max="3000" [(ngModel)]="voiceLoopDraft.dictation_min_speech_ms" [disabled]="!canEdit()" />
+              </label>
+              <label class="block">
+                <span class="field-label">Endpoint grace ms</span>
+                <input class="ag-field" type="number" min="0" max="3000" [(ngModel)]="voiceLoopDraft.endpoint_grace_ms" [disabled]="!canEdit()" />
+              </label>
+              <label class="block">
+                <span class="field-label">VAD hangover ms</span>
+                <input class="ag-field" type="number" min="0" max="2000" [(ngModel)]="voiceLoopDraft.vad_hangover_ms" [disabled]="!canEdit()" />
+              </label>
+              <label class="block">
+                <span class="field-label">Min silence frames ms</span>
+                <input class="ag-field" type="number" min="0" max="2000" [(ngModel)]="voiceLoopDraft.vad_min_silence_frames_ms" [disabled]="!canEdit()" />
               </label>
             </div>
 
@@ -2718,6 +2773,8 @@ export class ChatKnowledgeSettingsComponent {
   private cleanVoiceLoopSettings(): Record<string, unknown> {
     return {
       default_mode: this.voiceLoopDraft.default_mode,
+      capture_mode: this.voiceLoopDraft.capture_mode || 'normal',
+      auto_capture_mode_enabled: !!this.voiceLoopDraft.auto_capture_mode_enabled,
       enabled_default: this.voiceLoopDraft.default_mode === 'session_loop',
       auto_send_final_transcript: !!this.voiceLoopDraft.auto_send_final_transcript,
       auto_endpoint: !!this.voiceLoopDraft.auto_endpoint,
@@ -2728,9 +2785,16 @@ export class ChatKnowledgeSettingsComponent {
       command_packs: this.csvToList(this.voiceLoopDraft.command_packs_text),
       stop_phrases: this.csvToList(this.voiceLoopDraft.stop_phrases_text),
       silence_ms: this.clampNumber(this.voiceLoopDraft.silence_ms, 1200, 300, 5000),
+      dictation_silence_ms: this.clampNumber(this.voiceLoopDraft.dictation_silence_ms, 2000, 300, 30000),
       min_speech_ms: this.clampNumber(this.voiceLoopDraft.min_speech_ms, 350, 100, 3000),
+      dictation_min_speech_ms: this.clampNumber(this.voiceLoopDraft.dictation_min_speech_ms, 300, 100, 3000),
       max_turn_ms: this.clampNumber(this.voiceLoopDraft.max_turn_ms, 45000, 5000, 180000),
       cooldown_ms: this.clampNumber(this.voiceLoopDraft.cooldown_ms, 500, 0, 5000),
+      rms_threshold: this.clampFloat(this.voiceLoopDraft.rms_threshold, 0.018, 0.001, 0.15),
+      endpoint_grace_ms: this.clampNumber(this.voiceLoopDraft.endpoint_grace_ms, 0, 0, 3000),
+      vad_hangover_ms: this.clampNumber(this.voiceLoopDraft.vad_hangover_ms, 0, 0, 2000),
+      vad_calibration_ms: this.clampNumber(this.voiceLoopDraft.vad_calibration_ms, 300, 0, 3000),
+      vad_min_silence_frames_ms: this.clampNumber(this.voiceLoopDraft.vad_min_silence_frames_ms, 0, 0, 2000),
     };
   }
 
@@ -2792,6 +2856,10 @@ export class ChatKnowledgeSettingsComponent {
         : 'batch';
     return {
       default_mode: mode,
+      capture_mode: config['capture_mode'] === 'robust' || config['capture_mode'] === 'manual_safe'
+        ? config['capture_mode'] as VoiceCaptureMode
+        : 'normal',
+      auto_capture_mode_enabled: config['auto_capture_mode_enabled'] === true,
       auto_send_final_transcript: config['auto_send_final_transcript'] === true,
       auto_endpoint: config['auto_endpoint'] !== false,
       auto_rearm_after_tts: config['auto_rearm_after_tts'] !== false,
@@ -2801,9 +2869,16 @@ export class ChatKnowledgeSettingsComponent {
       command_packs_text: this.listToCsv(config['command_packs']) || 'generic, fr_basic',
       stop_phrases_text: this.listToCsv(config['stop_phrases']) || "on peut s'arrêter là, ça suffit, fin de session",
       silence_ms: this.num(config['silence_ms'], 1200),
+      dictation_silence_ms: this.num(config['dictation_silence_ms'], 2000),
       min_speech_ms: this.num(config['min_speech_ms'], 350),
+      dictation_min_speech_ms: this.num(config['dictation_min_speech_ms'], 300),
       max_turn_ms: this.num(config['max_turn_ms'], 45000),
       cooldown_ms: this.num(config['cooldown_ms'], 500),
+      rms_threshold: this.num(config['rms_threshold'], 0.018),
+      endpoint_grace_ms: this.num(config['endpoint_grace_ms'], 0),
+      vad_hangover_ms: this.num(config['vad_hangover_ms'], 0),
+      vad_calibration_ms: this.num(config['vad_calibration_ms'], 300),
+      vad_min_silence_frames_ms: this.num(config['vad_min_silence_frames_ms'], 0),
     };
   }
 
@@ -2825,6 +2900,8 @@ export class ChatKnowledgeSettingsComponent {
   private defaultVoiceLoopDraft(): VoiceLoopSettingsDraft {
     return {
       default_mode: 'batch',
+      capture_mode: 'normal',
+      auto_capture_mode_enabled: false,
       auto_send_final_transcript: false,
       auto_endpoint: true,
       auto_rearm_after_tts: true,
@@ -2834,9 +2911,16 @@ export class ChatKnowledgeSettingsComponent {
       command_packs_text: 'generic, fr_basic',
       stop_phrases_text: "on peut s'arrêter là, ça suffit, fin de session",
       silence_ms: 1200,
+      dictation_silence_ms: 2000,
       min_speech_ms: 350,
+      dictation_min_speech_ms: 300,
       max_turn_ms: 45000,
       cooldown_ms: 500,
+      rms_threshold: 0.018,
+      endpoint_grace_ms: 0,
+      vad_hangover_ms: 0,
+      vad_calibration_ms: 300,
+      vad_min_silence_frames_ms: 0,
     };
   }
 
