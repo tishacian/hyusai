@@ -836,6 +836,64 @@ def resolve_workspace_chat_source_policy(
     return {**workspace_policy, **system_policy}
 
 
+# Expert-correction source_policy keys that an admin can toggle from the UI and
+# that must stay authoritative through ``resolve_workspace_chat_source_policy``
+# (which lets the chat System policy SHADOW the workspace one).
+EXPERT_CORRECTION_POLICY_KEYS = (
+    "expert_fiche_correction_enabled",
+    "expert_review_required",
+)
+
+
+def sync_chat_system_expert_correction_policy(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    keys: tuple[str, ...] = EXPERT_CORRECTION_POLICY_KEYS,
+) -> Optional[System]:
+    """Mirror the workspace expert-correction ``source_policy`` flags onto the chat System.
+
+    ``resolve_workspace_chat_source_policy`` layers the chat System
+    ``settings.source_policy`` OVER the workspace ``settings.source_policy``
+    (System wins, for parity with ``/chat``). An admin toggle that wrote only the
+    workspace level would therefore be silently shadowed by a System-level flag
+    (exactly the state migration ``042_andritz_disable_review`` produces). This
+    helper converges the two layers for the expert-correction keys — the same way
+    that migration writes BOTH — so the merged backend read always matches the
+    workspace-level value the frontend CTA reads.
+
+    Only keys explicitly present in the workspace ``source_policy`` are synced, so
+    unrelated settings saves never clobber an existing System-level flag. Returns
+    the chat System it inspected (or ``None`` when the workspace has none).
+    """
+    workspace_policy = _as_dict(_as_dict(getattr(workspace, "settings", None)).get("source_policy"))
+    system = _find_workspace_chat_system(db, workspace.id)
+    if system is None:
+        return None
+    system_settings = _as_dict(system.settings)
+    system_policy = _as_dict(system_settings.get("source_policy"))
+    changed = False
+    for key in keys:
+        if key not in workspace_policy:
+            continue
+        if system_policy.get(key) != workspace_policy[key]:
+            system_policy[key] = workspace_policy[key]
+            changed = True
+    if not changed:
+        return system
+    system_settings["source_policy"] = system_policy
+    system.settings = system_settings
+    db.commit()
+    db.refresh(system)
+    logger.info(
+        "workspace_chat_system.expert_correction_policy.synced",
+        workspace_id=workspace.id,
+        system_id=system.id,
+        source_policy={k: system_policy.get(k) for k in keys if k in system_policy},
+    )
+    return system
+
+
 def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Optional[System]:
     """Create or refresh the workspace's always-on chat System.
 

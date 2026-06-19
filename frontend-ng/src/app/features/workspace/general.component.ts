@@ -200,6 +200,85 @@ const FIELD =
         <section class="t-card t-elevated rounded-md p-6">
           <div class="flex items-start gap-3 mb-4">
             <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+              <app-icon name="message-square" [size]="18" />
+            </div>
+            <div class="flex-1">
+              <h2 class="text-base font-semibold text-white">Expert knowledge correction</h2>
+              <p class="text-sm text-gray-400 mt-0.5 max-w-2xl">
+                Lets reviewers correct or complete chat answers inline. Validated corrections become expert fiches that ground future answers.
+              </p>
+            </div>
+          </div>
+          <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
+            <div class="flex items-start gap-3">
+              <div class="w-9 h-9 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/25">
+                <app-icon name="message-square" [size]="16" />
+              </div>
+              <div>
+                <h3 class="text-sm font-semibold text-white">Inline chat correction</h3>
+                <p class="text-xs text-gray-400 mt-1 max-w-2xl leading-relaxed">
+                  Shows the "Corriger / Compléter" action in chat for reviewers and admins, and enables the backend accept/publish path. Turn off to hide the CTA everywhere.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              (click)="setExpertCorrection(!expertCorrectionEnabled())"
+              [disabled]="!canEdit() || savingExpertCorrection()"
+              class="relative inline-flex h-8 w-16 shrink-0 items-center rounded-full ring-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              [class.bg-brand-500\\/25]="expertCorrectionEnabled()"
+              [class.ring-brand-400\\/60]="expertCorrectionEnabled()"
+              [class.bg-white\\/5]="!expertCorrectionEnabled()"
+              [class.ring-white\\/10]="!expertCorrectionEnabled()"
+              [title]="expertCorrectionEnabled() ? 'Inline chat correction is enabled' : 'Inline chat correction is disabled'"
+            >
+              <span
+                class="inline-block h-6 w-6 rounded-full bg-white shadow transition-transform"
+                [class.translate-x-9]="expertCorrectionEnabled()"
+                [class.translate-x-1]="!expertCorrectionEnabled()"
+              ></span>
+            </button>
+          </div>
+          @if (expertCorrectionEnabled()) {
+            <div class="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
+              <div class="flex items-start gap-3">
+                <div class="w-9 h-9 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/25">
+                  <app-icon name="eye" [size]="16" />
+                </div>
+                <div>
+                  <h3 class="text-sm font-semibold text-white">Require expert review</h3>
+                  <p class="text-xs text-gray-400 mt-1 max-w-2xl leading-relaxed">
+                    When on, corrections wait in review before publication. Turn off to auto-publish validated corrections immediately.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                (click)="setExpertReview(!expertReviewRequired())"
+                [disabled]="!canEdit() || savingExpertReview()"
+                class="relative inline-flex h-8 w-16 shrink-0 items-center rounded-full ring-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                [class.bg-brand-500\\/25]="expertReviewRequired()"
+                [class.ring-brand-400\\/60]="expertReviewRequired()"
+                [class.bg-white\\/5]="!expertReviewRequired()"
+                [class.ring-white\\/10]="!expertReviewRequired()"
+                [title]="expertReviewRequired() ? 'Corrections require review before publication' : 'Corrections are auto-published'"
+              >
+                <span
+                  class="inline-block h-6 w-6 rounded-full bg-white shadow transition-transform"
+                  [class.translate-x-9]="expertReviewRequired()"
+                  [class.translate-x-1]="!expertReviewRequired()"
+                ></span>
+              </button>
+            </div>
+          }
+          @if (!canEdit()) {
+            <p class="text-xs text-gray-500 mt-3">Only owners and admins can change expert correction settings.</p>
+          }
+        </section>
+
+        <section class="t-card t-elevated rounded-md p-6">
+          <div class="flex items-start gap-3 mb-4">
+            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
               <app-icon name="panel-left" [size]="18" />
             </div>
             <div class="flex-1">
@@ -326,6 +405,8 @@ export class WorkspaceGeneralComponent {
   readonly savingDemoSafe = signal(false);
   readonly savingChatUpload = signal(false);
   readonly savingNavigationProfile = signal(false);
+  readonly savingExpertCorrection = signal(false);
+  readonly savingExpertReview = signal(false);
   readonly copied = signal(false);
 
   readonly modes: { key: Exclude<WorkspaceMode, 'demo'>; label: string; icon: string; description: string }[] = [
@@ -372,6 +453,26 @@ export class WorkspaceGeneralComponent {
       | Record<string, unknown>
       | undefined;
     return features?.['chat_document_upload'] !== false;
+  });
+
+  /**
+   * Per-workspace expert chat-correction toggle, read from the workspace
+   * `settings.source_policy.expert_fiche_correction_enabled` (the same location
+   * the chat CTA gate reads). Disabled unless explicitly `true`.
+   */
+  readonly expertCorrectionEnabled = computed(() => {
+    const policy = this.asRecord(this.detail()?.settings?.['source_policy']);
+    return policy['expert_fiche_correction_enabled'] === true;
+  });
+
+  /**
+   * Whether expert corrections must be reviewed before publication. Reads
+   * `settings.source_policy.expert_review_required`; defaults to `true` (review
+   * required) to mirror the backend default when the key is absent.
+   */
+  readonly expertReviewRequired = computed(() => {
+    const policy = this.asRecord(this.detail()?.settings?.['source_policy']);
+    return 'expert_review_required' in policy ? policy['expert_review_required'] !== false : true;
   });
 
   name = '';
@@ -492,6 +593,58 @@ export class WorkspaceGeneralComponent {
       error: (err) => {
         this.savingChatUpload.set(false);
         this.toastr.error(err?.error?.detail || 'Failed to update chat upload setting', 'Error');
+      },
+    });
+  }
+
+  setExpertCorrection(enabled: boolean): void {
+    const d = this.detail();
+    if (!d || !this.canEdit()) return;
+    const settings = { ...(d.settings || {}) };
+    settings['source_policy'] = {
+      ...this.asRecord(settings['source_policy']),
+      expert_fiche_correction_enabled: enabled,
+    };
+    this.savingExpertCorrection.set(true);
+    this.workspaceService.updateWorkspaceSettings(d.slug, settings).subscribe({
+      next: (updated) => {
+        this.savingExpertCorrection.set(false);
+        this.detail.set(updated);
+        this.workspaceService.refreshCurrentWorkspace().subscribe();
+        this.toastr.success(
+          enabled ? 'Expert chat correction is enabled.' : 'Expert chat correction is disabled.',
+          'Saved',
+        );
+      },
+      error: (err) => {
+        this.savingExpertCorrection.set(false);
+        this.toastr.error(err?.error?.detail || 'Failed to update expert correction setting', 'Error');
+      },
+    });
+  }
+
+  setExpertReview(required: boolean): void {
+    const d = this.detail();
+    if (!d || !this.canEdit()) return;
+    const settings = { ...(d.settings || {}) };
+    settings['source_policy'] = {
+      ...this.asRecord(settings['source_policy']),
+      expert_review_required: required,
+    };
+    this.savingExpertReview.set(true);
+    this.workspaceService.updateWorkspaceSettings(d.slug, settings).subscribe({
+      next: (updated) => {
+        this.savingExpertReview.set(false);
+        this.detail.set(updated);
+        this.workspaceService.refreshCurrentWorkspace().subscribe();
+        this.toastr.success(
+          required ? 'Expert corrections now require review.' : 'Expert corrections are auto-published.',
+          'Saved',
+        );
+      },
+      error: (err) => {
+        this.savingExpertReview.set(false);
+        this.toastr.error(err?.error?.detail || 'Failed to update review setting', 'Error');
       },
     });
   }

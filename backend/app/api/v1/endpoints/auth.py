@@ -899,6 +899,24 @@ async def update_workspace(
 
     db.commit()
     db.refresh(workspace)
+
+    # The chat source_policy is resolved with the chat System SHADOWING the
+    # workspace settings, so an admin toggle on workspace settings must also be
+    # mirrored onto the chat System or it would be silently overridden. Keep the
+    # two layers converged for the expert-correction flags (no-op when absent).
+    if body.settings is not None:
+        try:
+            from app.services.systems.bootstrap import (
+                sync_chat_system_expert_correction_policy,
+            )
+
+            sync_chat_system_expert_correction_policy(db, workspace)
+        except Exception:  # noqa: BLE001 — settings already saved; sync is best-effort.
+            logging.getLogger(__name__).exception(
+                "update_workspace.expert_correction_policy_sync_failed",
+                extra={"workspace_slug": workspace.slug},
+            )
+
     member_count = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace.id
     ).count()

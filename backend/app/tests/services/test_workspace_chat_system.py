@@ -9,6 +9,8 @@ from app.services.systems.bootstrap import (
     WORKSPACE_CHAT_CAPABILITY_SLUG,
     WORKSPACE_CHAT_VARIANT,
     ensure_workspace_chat_system_default,
+    resolve_workspace_chat_source_policy,
+    sync_chat_system_expert_correction_policy,
     workspace_chat_system_id,
 )
 from app.services.systems.flow_manifest import serialize_flow_manifest
@@ -192,3 +194,177 @@ def test_sentinel_workspace_chat_reuses_aya_profile(db_session):
     assert system.settings["knowledge_scope"] == "vigie"
     assert system.settings["source_policy"]["mode"] == "executive_mission_grounding"
     assert system.flow_definition["chat"]["actions"]["enabled_packs"] == ["sentinel_ci_aya_v1"]
+
+
+# ---------------------------------------------------------------------------
+# Admin expert-correction toggle — authoritative through the precedence merge
+# ---------------------------------------------------------------------------
+
+
+def _set_workspace_source_policy(db_session, workspace, policy):
+    workspace.settings = {**(workspace.settings or {}), "source_policy": policy}
+    db_session.commit()
+    db_session.refresh(workspace)
+
+
+def test_expert_correction_toggle_is_authoritative_through_resolver(db_session):
+    """The admin toggle must survive the chat System SHADOWING the workspace.
+
+    ``resolve_workspace_chat_source_policy`` merges the chat System policy OVER
+    the workspace one, so a workspace-only write can be silently overridden by a
+    System-level flag (the Andritz state produced by migration 042). Syncing the
+    two layers (``sync_chat_system_expert_correction_policy``) makes the toggle
+    authoritative end-to-end, for both ON and OFF.
+    """
+    workspace = Workspace(id="ws-expert-toggle", name="Toggle WS", slug="toggle-ws")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+    system = ensure_workspace_chat_system_default(db_session, workspace.id)
+    assert system is not None
+
+    # Baseline: neither layer sets the expert flag.
+    assert "expert_fiche_correction_enabled" not in resolve_workspace_chat_source_policy(
+        db_session, workspace
+    )
+
+    # Reproduce the precedence trap: System shadows with the flag OFF while the
+    # workspace tries to turn it ON.
+    system.settings = {
+        **(system.settings or {}),
+        "source_policy": {
+            **((system.settings or {}).get("source_policy") or {}),
+            "expert_fiche_correction_enabled": False,
+        },
+    }
+    db_session.commit()
+    _set_workspace_source_policy(
+        db_session, workspace, {"expert_fiche_correction_enabled": True}
+    )
+    trapped = resolve_workspace_chat_source_policy(db_session, workspace)
+    assert trapped.get("expert_fiche_correction_enabled") is False  # trap reproduced
+
+    # Sync converges the layers (mirrors migration 042) -> ON is honoured.
+    sync_chat_system_expert_correction_policy(db_session, workspace)
+    resolved_on = resolve_workspace_chat_source_policy(db_session, workspace)
+    assert resolved_on.get("expert_fiche_correction_enabled") is True
+
+    # Toggle OFF: workspace False + sync -> resolver returns False.
+    _set_workspace_source_policy(
+        db_session, workspace, {"expert_fiche_correction_enabled": False}
+    )
+    sync_chat_system_expert_correction_policy(db_session, workspace)
+    resolved_off = resolve_workspace_chat_source_policy(db_session, workspace)
+    assert resolved_off.get("expert_fiche_correction_enabled") is False
+
+
+def test_sync_only_touches_keys_present_in_workspace_policy(db_session):
+    """Unrelated settings saves must not clobber an existing System-level flag.
+
+    The sync only mirrors the expert-correction keys that are explicitly present
+    in the workspace ``source_policy``, so e.g. an Andritz workspace whose flag
+    lives on the chat System keeps it after a save that omits ``source_policy``.
+    """
+    workspace = Workspace(id="ws-expert-keep", name="Keep WS", slug="keep-ws")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+    system = ensure_workspace_chat_system_default(db_session, workspace.id)
+    system.settings = {
+        **(system.settings or {}),
+        "source_policy": {
+            **((system.settings or {}).get("source_policy") or {}),
+            "expert_fiche_correction_enabled": True,
+        },
+    }
+    db_session.commit()
+
+    # Workspace settings carry no source_policy at all -> sync is a no-op.
+    workspace.settings = {"chat": {"title": "Hello"}}
+    db_session.commit()
+    db_session.refresh(workspace)
+    sync_chat_system_expert_correction_policy(db_session, workspace)
+
+    resolved = resolve_workspace_chat_source_policy(db_session, workspace)
+    assert resolved.get("expert_fiche_correction_enabled") is True
+
+
+# ---------------------------------------------------------------------------
+# Capture endpoint 403/accept driven by the REAL resolved policy
+# ---------------------------------------------------------------------------
+
+
+def _chat_correction_client(db_session, workspace, user, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.v1.endpoints import knowledge_capture as kc_endpoint
+
+    app = FastAPI()
+    app.include_router(kc_endpoint.router, prefix="/api/v1/knowledge-capture")
+    app.dependency_overrides[kc_endpoint.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[kc_endpoint.get_current_user] = lambda: user
+    app.dependency_overrides[kc_endpoint.get_db] = lambda: db_session
+    monkeypatch.setattr(kc_endpoint, "enforce_permission", lambda *a, **k: None)
+    return TestClient(app)
+
+
+def test_chat_correction_endpoint_403_when_toggle_off(db_session, monkeypatch):
+    from app.models.user import User
+
+    workspace = Workspace(id="ws-cc-toggle-off", name="Andritz", slug="andritz")
+    user = User(id="user-cc-toggle-off", username="reviewer", email="rev-off@demo.test")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+    ensure_workspace_chat_system_default(db_session, workspace.id)
+
+    # Toggle OFF (write workspace + sync the chat System).
+    _set_workspace_source_policy(
+        db_session, workspace, {"expert_fiche_correction_enabled": False}
+    )
+    sync_chat_system_expert_correction_policy(db_session, workspace)
+
+    client = _chat_correction_client(db_session, workspace, user, monkeypatch)
+    response = client.post(
+        "/api/v1/knowledge-capture/chat-correction",
+        json={"query": "q", "answer": "a", "correction": "c précise."},
+    )
+    assert response.status_code == 403
+
+
+def test_chat_correction_endpoint_accepts_when_toggle_on(db_session, monkeypatch):
+    from app.models.user import User
+
+    workspace = Workspace(id="ws-cc-toggle-on", name="Andritz", slug="andritz")
+    user = User(id="user-cc-toggle-on", username="reviewer", email="rev-on@demo.test")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+    system = ensure_workspace_chat_system_default(db_session, workspace.id)
+
+    # Precedence trap: the chat System shadows with the flag OFF.
+    system.settings = {
+        **(system.settings or {}),
+        "source_policy": {
+            **((system.settings or {}).get("source_policy") or {}),
+            "expert_fiche_correction_enabled": False,
+        },
+    }
+    db_session.commit()
+
+    # Toggle ON (review still required by default) + sync -> overrides the shadow.
+    _set_workspace_source_policy(
+        db_session,
+        workspace,
+        {"expert_fiche_correction_enabled": True, "expert_review_required": True},
+    )
+    sync_chat_system_expert_correction_policy(db_session, workspace)
+
+    client = _chat_correction_client(db_session, workspace, user, monkeypatch)
+    response = client.post(
+        "/api/v1/knowledge-capture/chat-correction",
+        json={
+            "query": "Quelle est la pression nominale ?",
+            "answer": "5 bar",
+            "correction": "La pression nominale est 7 bar, pas 5 bar.",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending_review"
