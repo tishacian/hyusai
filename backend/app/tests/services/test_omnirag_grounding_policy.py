@@ -134,10 +134,13 @@ def test_stream_filter_removes_chunked_andritz_contact_footer():
     assert emitted == "La ligne BBA120 combine hydroentanglement et contrôle de cadence."
 
 
-# --- Expert-fiche answer profile (no contradiction narration) ---------------
+# --- Expert-fiche answer posture (expert first, doc flagged outdated) --------
 
 
-def test_rag_prompt_expert_fiche_states_reference_truth_without_contradiction():
+def test_rag_prompt_expert_fiche_leads_with_expert_and_flags_doc_outdated():
+    # Case 2: a validated expert fiche is present. The answer must lead with the
+    # expert reply, say it comes from an expert, and flag any differing document
+    # as outdated / to verify (the opposite of the old "no contradiction" posture).
     policy = _grounding_policy_from_request({"grounding_mode": "strict"})
     prompt = _build_rag_user_prompt(
         query="Quelle est la pression nominale de la pompe KD724 ?",
@@ -148,12 +151,18 @@ def test_rag_prompt_expert_fiche_states_reference_truth_without_contradiction():
         has_expert_fiche=True,
     )
 
-    # Reference-truth instruction present...
-    assert "vérité de référence" in prompt
-    assert "ne mentionne pas qu'elle contredit ou remplace" in prompt
-    # ...and the contradiction-narration invitation is dropped.
-    assert "too thin or contradictory" not in prompt
-    assert "too thin, say that explicitly and name the gap" in prompt
+    # Expert-priority instruction present: expert answer first + doc flagged stale.
+    assert "donne d'abord cette réponse" in prompt
+    assert "provient d'un expert" in prompt
+    assert "obsolète / à faire vérifier" in prompt
+    # Case 3: conflicting expert fiches carry equal weight -> ambiguity handling.
+    assert "plusieurs fiches expertes se contredisent" in prompt
+    assert "le même poids" in prompt
+    # The old "treat as reference truth, do not narrate the contradiction" posture
+    # is gone, and the contradiction-handling invitation is kept for every turn.
+    assert "vérité de référence" not in prompt
+    assert "ne mentionne pas qu'elle contredit ou remplace" not in prompt
+    assert "too thin or contradictory" in prompt
 
 
 def test_rag_prompt_without_expert_fiche_is_unchanged():
@@ -168,9 +177,11 @@ def test_rag_prompt_without_expert_fiche_is_unchanged():
     prompt_default = _build_rag_user_prompt(**base_kwargs)
     prompt_no_fiche = _build_rag_user_prompt(**base_kwargs, has_expert_fiche=False)
 
-    # has_expert_fiche defaults to False and is byte-for-byte the pre-change prompt.
+    # has_expert_fiche defaults to False; no expert-priority text leaks in, and the
+    # generic contradiction-handling line stays in place.
     assert prompt_default == prompt_no_fiche
-    assert "vérité de référence" not in prompt_no_fiche
+    assert "donne d'abord cette réponse" not in prompt_no_fiche
+    assert "plusieurs fiches expertes" not in prompt_no_fiche
     assert "too thin or contradictory" in prompt_no_fiche
 
 

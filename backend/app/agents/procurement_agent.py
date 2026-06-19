@@ -747,30 +747,39 @@ If the context is not relevant or missing, say so clearly rather than guessing."
     summary_block = f"\n\nRetrieved content synthesis brief:\n{retrieval_summary}" if retrieval_summary else ""
     answer_policy_block = f"\n\n{answer_policy_prompt}" if answer_policy_prompt else ""
 
-    # When a validated expert fiche is present (and the flag is ON), the answer
-    # states the expert's fact as reference truth and does NOT narrate that it
-    # contradicts/supersedes a stale doc — so the "contradictory ... name the
-    # gap" invitation is dropped. With no fiche the block is byte-for-byte the
-    # pre-change prompt (non-regression).
-    thin_or_contradictory_line = (
-        "- If the retrieved content is too thin, say that explicitly and name the gap."
-        if has_expert_fiche
-        else "- If the retrieved content is too thin or contradictory, say that explicitly and name the gap."
-    )
+    # Source conflict / ambiguity posture (3 cases). The generic doc↔doc conflict
+    # rule (case 1) lives in the industrial answer policy (answer_policy_prompt)
+    # and the "too thin or contradictory ... name the gap" line below applies to
+    # every turn. When a validated expert fiche is present (flag-gated, see
+    # has_expert_fiche) the expert answer is given FIRST and any differing
+    # document is flagged as outdated / to verify (case 2); conflicting fiches
+    # from several experts carry equal weight and fall back to the same ambiguity
+    # handling (case 3). With no fiche the block is byte-for-byte the pre-change
+    # prompt (non-regression).
     answer_shaping_lines = [
         "Answer-shaping instructions:",
         "- Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".",
         "- Include useful evidence/citations after the answer when workspace sources exist.",
         "- For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.",
-        thin_or_contradictory_line,
+        "- If the retrieved content is too thin or contradictory, say that explicitly and name the gap.",
         "- Follow the active industrial answer profile: precise facts must stay short; summaries must be structured and complete; inventories must not be presented as exhaustive unless the evidence supports that.",
         "- Do not mention internal mechanics such as chunks, scores, vector search, model names, database names, RAG/LLM engines, confidence rates or retrieval methods in the user-facing answer.",
         "- Do not end with generic document boilerplate asking the user to contact Andritz or an Andritz representative for more information, unless the user explicitly asked for contact details.",
     ]
     if has_expert_fiche:
         answer_shaping_lines.append(
-            "- Une note validée par un expert (fiche experte) est présente : traite-la comme vérité de référence, "
-            "énonce son fait directement et ne mentionne pas qu'elle contredit ou remplace un autre document."
+            "- Une réponse validée par un expert (fiche experte, repérable au libellé "
+            "« (Fiche experte — validée) ») est présente : donne d'abord cette réponse en "
+            "précisant qu'elle provient d'un expert, puis, si un document du contexte donne "
+            "une autre valeur pour le même point, indique que cette documentation est "
+            "obsolète / à faire vérifier "
+            "(ex. : « La réponse est … (source : expert …). Par contre, la documentation "
+            "indique … qui est donc à faire vérifier. »)."
+        )
+        answer_shaping_lines.append(
+            "- Si plusieurs fiches expertes se contredisent sur le même point, elles ont le "
+            "même poids : n'en privilégie aucune arbitrairement, signale le désaccord entre "
+            "experts et cite chaque valeur avec sa source."
         )
     answer_shaping = "\n".join(answer_shaping_lines)
 

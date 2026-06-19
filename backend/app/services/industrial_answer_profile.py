@@ -238,6 +238,10 @@ def answer_policy_prompt(
         [
             "- Start with the answer itself; avoid documentary preambles such as \"I found\", \"the sources say\" or \"the documents mention\" unless provenance is the user's question.",
             "- Do not turn factual answers into source-by-source lists; synthesize the answer first and keep evidence secondary.",
+            # Source conflict / ambiguity (case 1): documents disagree on the asked
+            # fact. The model must answer AND surface the disagreement instead of
+            # silently picking one value or listing both flatly.
+            "- When the sources give conflicting values for the same asked fact or configuration, do not silently pick one and do not list them flatly: lead with the most precise value, then explicitly flag the disagreement and name each conflicting value with its source (e.g. \"≈ X selon [1], mais [2] indique Y pour la même configuration — à vérifier\").",
             "- Never mention internal mechanics such as document counts, chunk counts, relevance scores, vector search, databases, LLM/RAG engines, confidence rates or retrieval methods.",
             "- Never say no exploitable information is available and then continue with factual project/equipment claims.",
             "- Keep citations as numeric source ids when sources exist; do not expose raw retrieval diagnostics in the answer text.",

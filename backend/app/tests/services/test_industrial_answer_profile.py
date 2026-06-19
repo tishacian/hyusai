@@ -91,6 +91,49 @@ def test_answer_policy_prompt_prefers_direct_factual_answers():
     assert "source-by-source lists" in prompt
 
 
+def test_answer_policy_prompt_contains_source_conflict_instruction():
+    # Case 1: documents disagree on the asked fact. The policy prompt must tell
+    # the model to answer AND flag the disagreement, naming both values+sources,
+    # instead of silently picking one or listing them flatly.
+    prompt = answer_policy_prompt(
+        answer_policy=industrial_answer_policy(),
+        profile_decision={"profile": "precise_fact"},
+        language="fr",
+    )
+
+    assert "conflicting values for the same" in prompt
+    assert "name each conflicting value with its source" in prompt
+    assert "do not silently pick one" in prompt
+    assert "à vérifier" in prompt
+
+
+def test_conflict_and_expert_answers_survive_post_filter():
+    # The new answer shapes must not trip the existing guards (absence-then-answer,
+    # documentalist preamble, internal jargon), otherwise the post-filter would
+    # strip the very wording we are asking the model to produce.
+    policy = industrial_answer_policy()
+
+    conflict_answer = (
+        "≈ 5 500 daN selon [1], mais [2] indique ≈ 5 750 daN pour la même "
+        "configuration (arasement 3750) — à vérifier."
+    )
+    cleaned_conflict, violations_conflict = apply_answer_policy_to_text(
+        conflict_answer, answer_policy=policy, profile_decision={"profile": "precise_fact"}
+    )
+    assert cleaned_conflict == conflict_answer
+    assert violations_conflict == []
+
+    expert_answer = (
+        "La réponse est ≈ 5 750 daN (source : expert). Par contre, la "
+        "documentation indique ≈ 5 500 daN qui est donc à faire vérifier [1]."
+    )
+    cleaned_expert, violations_expert = apply_answer_policy_to_text(
+        expert_answer, answer_policy=policy, profile_decision={"profile": "precise_fact"}
+    )
+    assert cleaned_expert == expert_answer
+    assert violations_expert == []
+
+
 def test_answer_policy_removes_absence_then_answer_preamble():
     cleaned, violations = apply_answer_policy_to_text(
         "Je n'ai aucune information exploitable sur ce projet. Le projet AKK200 utilise une pompe Uraca KD724.",

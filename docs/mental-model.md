@@ -4142,16 +4142,30 @@ when present, else the global default).
   `metadata["expert_fiche_pinned"] = True`. OFF is byte-for-byte identical (the
   sort key reverts to `(policy_score, raw_score, -index)`). Recall of the fiche
   still relies on `_include_expert_fiche_collection` (scope inclusion).
-- **Answer posture — the expert's fact, no contradiction narration.** Gated by
-  the same `rag_expert_fiche_pin_enabled`, when a validated fiche is present in
-  the assembled context (`_is_expert_fiche_meta`, keyed on
-  `source_type=expert_fiche` / `origin=chat_correction`),
-  `_build_rag_user_prompt` (a) **drops** the "too thin **or contradictory** …
-  name the gap" invitation and (b) adds an instruction to treat the fiche as
-  **reference truth**, state its fact directly and **not** mention that it
-  contradicts/replaces another document; the matching context entry is labelled
-  `[n] … (Fiche experte — validée)`. With no fiche (or the flag OFF) the prompt
-  is strictly unchanged (non-regression).
+- **Answer posture — source conflict / ambiguity with expert priority (3 cases).**
+  The user-facing answer must surface disagreement instead of silently picking a
+  value:
+  - **Case 1 — documents disagree, no expert fiche.** The industrial answer
+    policy (`answer_policy_prompt`, always rendered into the prompt) instructs the
+    model to lead with the most precise value, then explicitly flag the
+    disagreement and name each conflicting value with its source
+    (e.g. *"≈ X selon [1], mais [2] indique Y pour la même configuration — à
+    vérifier"*). This is unconditional (not flag-gated).
+  - **Case 2 — a validated expert fiche is present.** Gated by
+    `rag_expert_fiche_pin_enabled` (so the fiche is pinned and labelled
+    `[n] … (Fiche experte — validée)`) via `has_expert_fiche` in
+    `_build_rag_user_prompt`: the answer is given **expert-first** ("la réponse
+    est … (source : expert …)"), states it comes from an expert, and flags any
+    differing document as **obsolète / à faire vérifier**. This **reverses** the
+    earlier "treat the fiche as reference truth, do not narrate the
+    contradiction" posture.
+  - **Case 3 — several expert fiches disagree.** They carry equal weight, so the
+    prompt tells the model not to pick one arbitrarily and to fall back to the
+    case-1 ambiguity handling (signal the disagreement between experts, cite each
+    value with its source).
+  - The "too thin **or contradictory** … name the gap" invitation is kept for
+    every turn. With no fiche (or the flag OFF) no expert-priority text is added;
+    the case-1 conflict instruction is present for all turns.
 - **Conversational acknowledgement.** After a chat correction the endpoint adds
   a sober assistant message to the thread — *"J'ai bien pris en compte votre
   correction : <synthèse thématique très courte>"* — **without** reformulating
