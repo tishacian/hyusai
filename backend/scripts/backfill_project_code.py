@@ -171,6 +171,35 @@ def _resolve_qdrant_code(codes: set[str]):
     return _CONFLICT
 
 
+def _iter_blank_batches(db, collection_id: str, batch: int):
+    """Yield blank rows in memory-bounded, resumable keyset batches.
+
+    Pages on the primary key (``id > last_id``) instead of loading every blank
+    row at once, so the working set stays at ``batch`` rows regardless of
+    collection size. Keyset paging advances correctly in both modes: filled
+    rows simply drop out of the blank predicate, and unresolved rows are stepped
+    over by the id cursor. The session is expunged after each batch to release
+    the ORM objects. Re-running after an interruption resumes naturally because
+    already-filled rows are no longer blank.
+    """
+    last_id = ""
+    while True:
+        rows = (
+            db.query(KnowledgeCollectionSource)
+            .filter(KnowledgeCollectionSource.collection_id == collection_id)
+            .filter(text(_BLANK_PREDICATE))
+            .filter(KnowledgeCollectionSource.id > last_id)
+            .order_by(KnowledgeCollectionSource.id.asc())
+            .limit(batch)
+            .all()
+        )
+        if not rows:
+            return
+        last_id = rows[-1].id
+        yield rows
+        db.expunge_all()
+
+
 def backfill_collection(db, client, collection: KnowledgeCollection, apply: bool) -> dict:
     base = collection.vector_collection_name
     try:
@@ -179,81 +208,72 @@ def backfill_collection(db, client, collection: KnowledgeCollection, apply: bool
         coll = base
     facet_codes = _qdrant_facet_codes(client, coll)
 
-    blank_rows = (
-        db.query(KnowledgeCollectionSource)
-        .filter(KnowledgeCollectionSource.collection_id == collection.id)
-        .filter(text(_BLANK_PREDICATE))
-        .all()
-    )
-
     stats = Counter()
     code_counter: Counter = Counter()
     path_corroborated = 0
     examples: dict[str, list] = {"qdrant": [], "path": [], "no_code": [], "conflict": [], "disagree": []}
-    pending = 0
 
-    for row in blank_rows:
-        stats["blank"] += 1
-        reference = _derive_reference(row)
-        derived_code = reference.get("project_code")
+    for rows in _iter_blank_batches(db, collection.id, _COMMIT_EVERY):
+        wrote = False
+        for row in rows:
+            stats["blank"] += 1
+            reference = _derive_reference(row)
+            derived_code = reference.get("project_code")
 
-        # Deduplicated rows were never indexed, so they have no own chunks; skip
-        # the (always-empty) Qdrant lookup and resolve from the derivation.
-        if str(row.status or "").lower() == "deduplicated":
-            qdrant_code = None
-        else:
-            try:
-                qdrant_code = _resolve_qdrant_code(_doc_project_codes(client, coll, row.normalized_name))
-            except Exception:
+            # Deduplicated rows were never indexed, so they have no own chunks;
+            # skip the (always-empty) Qdrant lookup and resolve from derivation.
+            if str(row.status or "").lower() == "deduplicated":
                 qdrant_code = None
+            else:
+                try:
+                    qdrant_code = _resolve_qdrant_code(_doc_project_codes(client, coll, row.normalized_name))
+                except Exception:
+                    qdrant_code = None
 
-        source = None
-        patch: dict = {}
-        if qdrant_code is _CONFLICT:
-            stats["conflict"] += 1
-            if len(examples["conflict"]) < _EXAMPLES_PER_BUCKET:
-                examples["conflict"].append((row.normalized_name, "<multiple>"))
-            continue
-        if qdrant_code:
-            if derived_code and derived_code != qdrant_code:
-                stats["disagree"] += 1
-                if len(examples["disagree"]) < _EXAMPLES_PER_BUCKET:
-                    examples["disagree"].append((row.normalized_name, f"qdrant={qdrant_code} derived={derived_code}"))
+            source = None
+            patch: dict = {}
+            if qdrant_code is _CONFLICT:
+                stats["conflict"] += 1
+                if len(examples["conflict"]) < _EXAMPLES_PER_BUCKET:
+                    examples["conflict"].append((row.normalized_name, "<multiple>"))
                 continue
-            source = "qdrant"
-            # Prefer the full reference (buyer/position) when the derivation
-            # agrees; otherwise persist just the authoritative code.
-            patch = dict(reference) if derived_code == qdrant_code else {"project_code": qdrant_code}
-            patch["project_code"] = qdrant_code
-        elif derived_code:
-            source = "path"
-            patch = {key: reference[key] for key in _REFERENCE_FIELDS if reference.get(key)}
-            if derived_code in facet_codes:
-                path_corroborated += 1
-        else:
-            stats["no_code"] += 1
-            if len(examples["no_code"]) < _EXAMPLES_PER_BUCKET:
-                examples["no_code"].append((row.normalized_name, "-"))
-            continue
+            if qdrant_code:
+                if derived_code and derived_code != qdrant_code:
+                    stats["disagree"] += 1
+                    if len(examples["disagree"]) < _EXAMPLES_PER_BUCKET:
+                        examples["disagree"].append((row.normalized_name, f"qdrant={qdrant_code} derived={derived_code}"))
+                    continue
+                source = "qdrant"
+                # Prefer the full reference (buyer/position) when the derivation
+                # agrees; otherwise persist just the authoritative code.
+                patch = dict(reference) if derived_code == qdrant_code else {"project_code": qdrant_code}
+                patch["project_code"] = qdrant_code
+            elif derived_code:
+                source = "path"
+                patch = {key: reference[key] for key in _REFERENCE_FIELDS if reference.get(key)}
+                if derived_code in facet_codes:
+                    path_corroborated += 1
+            else:
+                stats["no_code"] += 1
+                if len(examples["no_code"]) < _EXAMPLES_PER_BUCKET:
+                    examples["no_code"].append((row.normalized_name, "-"))
+                continue
 
-        final_code = patch["project_code"]
-        stats[f"fill_{source}"] += 1
-        code_counter[final_code] += 1
-        if len(examples[source]) < _EXAMPLES_PER_BUCKET:
-            examples[source].append((row.normalized_name, final_code))
+            final_code = patch["project_code"]
+            stats[f"fill_{source}"] += 1
+            code_counter[final_code] += 1
+            if len(examples[source]) < _EXAMPLES_PER_BUCKET:
+                examples[source].append((row.normalized_name, final_code))
 
-        if apply:
-            patch["project_code_source"] = source
-            merged = dict(row.source_metadata or {})
-            merged.update(patch)
-            row.source_metadata = merged
-            pending += 1
-            if pending >= _COMMIT_EVERY:
-                db.commit()
-                pending = 0
+            if apply:
+                patch["project_code_source"] = source
+                merged = dict(row.source_metadata or {})
+                merged.update(patch)
+                row.source_metadata = merged
+                wrote = True
 
-    if apply and pending:
-        db.commit()
+        if apply and wrote:
+            db.commit()
 
     blank_after = (
         db.query(KnowledgeCollectionSource)
