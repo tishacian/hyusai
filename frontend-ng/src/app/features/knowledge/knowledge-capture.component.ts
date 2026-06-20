@@ -5821,11 +5821,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   /**
    * Continuous capture transcript: committed expert speech is grouped into a
-   * single flowing paragraph per active section (plan mode) or one global stream
-   * (no-plan). The live partial appends to the tail of the current paragraph.
-   * No per-utterance bordered blocks, no successive re-correction display — we
-   * rely on text.final (Tier-1 corrected) as the single committed source.
-   * The only IA paroles interleaved are timeline relances ("terminé ? continuer ?").
+   * flowing paragraphs per active section (plan mode) or one global stream
+   * (no-plan). VAD turns stay useful as capture units, but they only become a
+   * visible paragraph break when the text itself looks like a real boundary.
+   * The live partial can attach to the current paragraph tail.
+   * No per-utterance bordered blocks, no successive re-correction display: we
+   * rely on text.final as the single committed source. The only IA paroles
+   * interleaved are timeline relances ("terminé ? continuer ?").
    */
   captureTranscriptRows(): Array<{
     key: string;
@@ -5835,7 +5837,17 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     /** True once the in-progress tail has been finalised (text.final / refined). */
     liveCommitted?: boolean;
   }> {
-    const expert = this.textEvents()
+    type ExpertTranscriptItem = {
+      order: number;
+      kind: 'expert';
+      id: string;
+      text: string;
+      topic: string | undefined;
+      round: string;
+      endpointReason: string | null;
+    };
+
+    const expert: ExpertTranscriptItem[] = this.textEvents()
       .filter(
         (event) =>
           (event.speaker || '').toLowerCase() === 'expert' &&
@@ -5847,12 +5859,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         id: event.id,
         text: this.eventDisplayText(event).trim(),
         topic: this.eventOutlineTitle(event),
-        // A "round" = one VAD speaking turn. Each committed turn (client_turn_id)
-        // is rendered on its own line/paragraph within the section flow.
+        // A "round" = one VAD speaking turn. It is a capture unit first; the
+        // renderer decides below whether it is also a visible paragraph break.
         round:
           event.metadata?.['client_turn_id'] != null
             ? `turn:${event.metadata['client_turn_id']}`
             : `evt:${event.id}`,
+        endpointReason: this.eventEndpointReason(event),
       }));
     const annotations = this.relanceAnnotations()
       .filter((item) => !this.isTrivialTranscriptSegment(item.text))
@@ -5863,6 +5876,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         text: item.text.trim(),
         topic: undefined as string | undefined,
         round: undefined as string | undefined,
+        endpointReason: null,
       }));
     const ordered = [...expert, ...annotations].sort((a, b) => a.order - b.order);
 
@@ -5875,10 +5889,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }> = [];
     let lastTopic: string | undefined;
     let lastExpertTextKey = '';
-    // Accumulated flowing paragraph for the CURRENT round (one VAD turn).
+    // Accumulated flowing paragraph. Multiple VAD turns may remain in the same
+    // paragraph when the cut is technical rather than linguistic.
     let buffer: string[] = [];
     let bufferKey = '';
     let lastRound: string | undefined;
+    let lastExpertItem: ExpertTranscriptItem | null = null;
     const flushBuffer = () => {
       if (!buffer.length) return;
       rows.push({ key: `flow-${bufferKey}`, kind: 'flow', text: buffer.join(' ') });
@@ -5893,22 +5909,31 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           rows.push({ key: `topic-${item.id}`, kind: 'topic', text: item.topic });
           lastTopic = item.topic;
           lastRound = undefined;
+          lastExpertItem = null;
         }
         const key = this.transcriptTextKey(item.text);
         // Drop exact successive duplicates (re-emitted finals).
         if (key && key !== lastExpertTextKey) {
-          // A new round starts on its own line/paragraph in the section flow.
-          if (buffer.length && item.round !== lastRound) flushBuffer();
+          const roundChanged = item.round !== lastRound;
+          if (
+            buffer.length &&
+            roundChanged &&
+            this.shouldStartNewTranscriptParagraph(lastExpertItem, item)
+          ) {
+            flushBuffer();
+          }
           if (!buffer.length) bufferKey = item.id;
           buffer.push(item.text);
           lastExpertTextKey = key;
           lastRound = item.round;
+          lastExpertItem = item;
         }
       } else {
         // Timeline relance: close the running paragraph then show the IA line.
         flushBuffer();
         lastExpertTextKey = '';
         lastRound = undefined;
+        lastExpertItem = null;
         rows.push({ key: `ia-${item.id}`, kind: 'ia', text: item.text });
       }
     }
@@ -5920,16 +5945,29 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     // of the live row they come from) so a new turn NEVER makes the previous
     // paragraph vanish while waiting for the event refresh.
     const committedKeys = new Set(expert.map((item) => this.transcriptTextKey(item.text)));
+    const appendLiveRow = (id: string, text: string, liveCommitted: boolean) => {
+      const lastRow = rows[rows.length - 1];
+      if (
+        lastRow?.kind === 'flow' &&
+        !lastRow.liveText &&
+        this.isTranscriptContinuation(lastRow.text, text)
+      ) {
+        lastRow.liveText = text;
+        lastRow.liveCommitted = liveCommitted;
+        return;
+      }
+      rows.push({
+        key: `live-${id}`,
+        kind: 'flow',
+        text: '',
+        liveText: text,
+        liveCommitted,
+      });
+    };
     for (const pending of this.pendingLiveCommits()) {
       const key = this.transcriptTextKey(pending.text);
       if (committedKeys.has(key) || key === lastExpertTextKey) continue;
-      rows.push({
-        key: `live-${pending.id}`,
-        kind: 'flow',
-        text: '',
-        liveText: pending.text,
-        liveCommitted: true,
-      });
+      appendLiveRow(pending.id, pending.text, true);
       lastExpertTextKey = key;
     }
 
@@ -5940,18 +5978,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       const isDuplicate =
         live!.status !== 'live' && (liveKey === lastExpertTextKey || committedKeys.has(liveKey));
       if (!isDuplicate) {
-        // The in-progress round is its own paragraph, so it always starts on a
-        // new line below the previously committed rounds. Once the tail is
-        // finalised (status 'refined'/'amended') it is styled as committed text
-        // (upright, high-contrast) even before the persisted event arrives, so
-        // the UI no longer looks like the analysis never finished.
-        rows.push({
-          key: `live-${live!.id}`,
-          kind: 'flow',
-          text: '',
-          liveText,
-          liveCommitted: live!.status !== 'live',
-        });
+        // When the live tail is clearly a continuation, keep the subtitle feel by
+        // attaching it to the previous paragraph instead of forcing a new line.
+        appendLiveRow(live!.id, liveText, live!.status !== 'live');
       }
     }
     return rows;
@@ -5967,6 +5996,41 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   private transcriptTextKey(text: string): string {
     return text.replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  private eventEndpointReason(event: CaptureEvent): string | null {
+    const meta = event.metadata || {};
+    const latency = meta['latency_ms'];
+    const latencyObject: Record<string, any> =
+      latency && typeof latency === 'object' && !Array.isArray(latency) ? latency : {};
+    const value =
+      meta['endpoint_reason'] ||
+      latencyObject['endpoint_reason'] ||
+      meta['reason'] ||
+      latencyObject['reason'];
+    const reason = String(value || '').trim().toLowerCase();
+    return reason || null;
+  }
+
+  private shouldStartNewTranscriptParagraph(
+    previous: { text: string } | null,
+    current: { text: string; endpointReason?: string | null },
+  ): boolean {
+    if (!previous) return false;
+    const reason = (current.endpointReason || '').toLowerCase();
+    if (['manual', 'stop', 'max_turn', 'no_speech', 'error'].includes(reason)) return true;
+    return !this.isTranscriptContinuation(previous.text, current.text);
+  }
+
+  private isTranscriptContinuation(previousText: string, nextText: string): boolean {
+    const previous = previousText.replace(/\s+/g, ' ').trim();
+    const next = nextText.replace(/\s+/g, ' ').trim();
+    if (!previous || !next) return false;
+    if (/^(?:\.{2,}|…|[,;:)\]\}]|\p{Ll})/u.test(next)) return true;
+    if (/[,:;]$/.test(previous)) return true;
+    if (/(?:\.{2,}|…)["')\]\}]?$/.test(previous)) return true;
+    if (!/[.!?]["')\]\}]?$/.test(previous)) return true;
+    return false;
   }
 
   /**
@@ -9252,9 +9316,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       // partial and never carry user-facing questions (open_questions stays 0
       // mid-capture). Flipping `voiceState` to `oracle_updating` + a notice on
       // each one produced a misleading "L'IA prépare une action…" status and
-      // churned the UI on every partial. The oracle's grounded questions are
-      // surfaced at section.finish / capture.finish instead. The snapshot was
-      // already ingested at the top of this handler, so nothing else to do.
+      // churned the UI on every partial. Grounded oracle questions are surfaced
+      // through oracle.questions / open_questions panels, never as transcript
+      // rows. The snapshot was already ingested at the top of this handler.
       return;
     }
     if (event.type === 'oracle.action') {

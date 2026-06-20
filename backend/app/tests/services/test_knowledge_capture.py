@@ -53,6 +53,9 @@ from app.services.skills_registry.wrappers import runtime_status
 from app.services.systems.bootstrap import ensure_expert_capture_system_default
 
 
+_WEBM_HEADER_CHUNK = b"\x1a\x45\xdf\xa3" + b"\x00" * 8
+
+
 def _approve(db_session, workspace: Workspace, session):
     return approve_capture_plan(
         db_session,
@@ -2051,7 +2054,7 @@ async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, m
     state.oracle = gw.VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
 
     frame_payload = {
-        "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+        "bytes_b64": base64.b64encode(_WEBM_HEADER_CHUNK).decode(),
         "turn_id": "seg-live-1",
         "question_id": question_id,
         "content_type": "audio/webm",
@@ -2157,7 +2160,7 @@ async def test_gateway_metrics_empty_incremental_stt(db_session, monkeypatch):
         event={
             "type": "audio.frame",
             "payload": {
-                "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+                "bytes_b64": base64.b64encode(_WEBM_HEADER_CHUNK).decode(),
                 "turn_id": "seg-empty-partial",
                 "content_type": "audio/webm",
             },
@@ -2231,7 +2234,7 @@ async def test_gateway_endpoint_stt_metric_excludes_capture_duration(db_session,
         event={
             "type": "audio.frame",
             "payload": {
-                "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+                "bytes_b64": base64.b64encode(_WEBM_HEADER_CHUNK).decode(),
                 "turn_id": "seg-metric-1",
                 "content_type": "audio/webm",
                 "incremental_transcription": False,
@@ -2247,17 +2250,32 @@ async def test_gateway_endpoint_stt_metric_excludes_capture_duration(db_session,
         user=user,
         workspace=workspace,
         state=state,
-        event={"type": "audio.endpoint", "payload": {"turn_id": "seg-metric-1"}},
+        event={
+            "type": "audio.endpoint.auto",
+            "payload": {
+                "turn_id": "seg-metric-1",
+                "reason": "silence",
+                "capture_mode": "robust",
+                "silence_ms": 2200,
+                "min_speech_ms": 700,
+                "endpoint_grace_ms": 650,
+                "rms_threshold": 0.012,
+            },
+        },
     )
 
     final = next(p for t, p in sent if t == "text.final")
     assert final["endpoint_stt_source"] == "provider"
     assert final["turn_audio_capture_ms"] >= 4900
     assert final["endpoint_stt_ms"] < final["text_final_total_ms"]
+    assert final["endpoint_reason"] == "silence"
+    assert final["capture_mode"] == "robust"
 
     endpoint_metric = next(p for t, p in sent if t == "runtime.metric" and p.get("metric") == "endpoint_stt")
     assert endpoint_metric["value_ms"] == final["endpoint_stt_ms"]
     assert endpoint_metric["turn_audio_capture_ms"] == final["turn_audio_capture_ms"]
+    assert endpoint_metric["endpoint_reason"] == "silence"
+    assert endpoint_metric["capture_mode"] == "robust"
 
     reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
     turn = next(item for item in reloaded.transcript or [] if item.get("client_turn_id") == "seg-metric-1")
@@ -2265,6 +2283,11 @@ async def test_gateway_endpoint_stt_metric_excludes_capture_duration(db_session,
     assert latency["endpoint_stt_source"] == "provider"
     assert latency["endpoint_stt_ms"] == final["endpoint_stt_ms"]
     assert latency["turn_audio_capture_ms"] == final["turn_audio_capture_ms"]
+    assert latency["endpoint_reason"] == "silence"
+    assert latency["capture_mode"] == "robust"
+    assert latency["silence_ms"] == 2200
+    assert latency["endpoint_grace_ms"] == 650
+    assert latency["rms_threshold"] == 0.012
     assert reloaded.metrics["voice_stream"]["last_latency_ms"]["endpoint_stt_ms"] == final["endpoint_stt_ms"]
 
 
@@ -2344,7 +2367,7 @@ async def test_gateway_live_questions_are_after_text_final_and_grounded(db_sessi
         event={
             "type": "audio.frame",
             "payload": {
-                "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+                "bytes_b64": base64.b64encode(_WEBM_HEADER_CHUNK).decode(),
                 "turn_id": "seg-live-q-1",
                 "content_type": "audio/webm",
                 "incremental_transcription": False,
@@ -2444,7 +2467,7 @@ async def test_gateway_live_questions_retrieval_timeout_emits_no_grounded_questi
         event={
             "type": "audio.frame",
             "payload": {
-                "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+                "bytes_b64": base64.b64encode(_WEBM_HEADER_CHUNK).decode(),
                 "turn_id": "seg-live-q-timeout-1",
                 "content_type": "audio/webm",
                 "incremental_transcription": False,
@@ -2525,7 +2548,7 @@ async def test_gateway_pause_flushes_segment_like_endpoint(db_session, monkeypat
     state.oracle = gw.VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
 
     frame_payload = {
-        "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+        "bytes_b64": base64.b64encode(_WEBM_HEADER_CHUNK).decode(),
         "turn_id": "seg-pause-1",
         "content_type": "audio/webm",
     }
@@ -2677,7 +2700,29 @@ async def test_gateway_drops_orphan_webm_frames_on_empty_buffer(db_session, monk
     assert state.audio_chunks[0][:4] == b"\x1a\x45\xdf\xa3"
     assert state.client_turn_id == "seg-orphan-2"
 
-    # Non-webm sessions (e.g. LiveKit wav/opus path) skip the magic check entirely.
+    # Browser fallback frames can still be WebM even if the transport envelope
+    # negotiated opus; payload content_type must therefore trigger the guard.
+    state_livekit_webm = gw.VoiceSessionState(session_id="capture-orphan-livekit-webm", tandem_oracle_enabled=False)
+    state_livekit_webm.codec = {"input": "opus"}
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state_livekit_webm,
+        event={
+            "type": "audio.frame",
+            "payload": {
+                "bytes_b64": base64.b64encode(continuation_chunk).decode(),
+                "turn_id": "seg-livekit-webm-1",
+                "content_type": "audio/webm",
+                "incremental_transcription": False,
+            },
+        },
+    )
+    assert state_livekit_webm.audio_chunks == []
+
+    # Non-webm payloads (e.g. LiveKit wav/opus endpoint blobs) skip the magic check entirely.
     state_other = gw.VoiceSessionState(session_id="capture-orphan-wav", tandem_oracle_enabled=False)
     state_other.codec = {"input": "wav"}
     await gateway._handle_event(
@@ -3060,7 +3105,7 @@ async def test_gateway_forwards_open_questions_and_retrieval_in_free_conversatio
     state.oracle = gw.VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
 
     frame_payload = {
-        "bytes_b64": base64.b64encode(b"\x00\x01\x02\x03").decode(),
+        "bytes_b64": base64.b64encode(_WEBM_HEADER_CHUNK).decode(),
         "turn_id": "seg-free-1",
         "content_type": "audio/webm",
     }

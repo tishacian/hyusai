@@ -738,13 +738,15 @@ class VoiceSessionGateway:
         # EVERY subsequent join would be an unparseable container (STT 400 for
         # the rest of the session). Drop headerless frames while the buffer is
         # empty — the next valid header chunk (from the resumed recorder)
-        # becomes chunk 0 automatically, so the session self-heals. Gated on the
-        # negotiated input codec being webm (the LiveKit path may negotiate
-        # opus/wav where this magic check does not apply).
+        # becomes chunk 0 automatically, so the session self-heals. Gate on the
+        # payload content type too: the browser fallback can send WebM chunks even
+        # when the LiveKit room negotiated opus for the transport envelope.
         negotiated_input_codec = str((state.codec or {}).get("input") or "").lower()
+        frame_content_type = str(payload.get("content_type") or payload.get("encoding") or "").lower()
+        frame_is_webm = negotiated_input_codec == "webm" or "webm" in frame_content_type
         if (
             not state.audio_chunks
-            and negotiated_input_codec == "webm"
+            and frame_is_webm
             and not _is_webm_header(chunk)
         ):
             now = time.perf_counter()
@@ -1270,6 +1272,27 @@ class VoiceSessionGateway:
         if not state.audio_chunks:
             await self._send_error(websocket, "empty_audio", "audio.endpoint received without audio frames", state=state)
             return
+        endpoint_reason_raw = payload.get("reason")
+        if not endpoint_reason_raw and payload.get("auto") is True:
+            endpoint_reason_raw = "auto"
+        endpoint_reason = str(endpoint_reason_raw or "manual").strip().lower()[:40] or "manual"
+        endpoint_capture_mode = str(payload.get("capture_mode") or "").strip().lower()[:40] or None
+        endpoint_vad_settings: Dict[str, Any] = {}
+        for key in (
+            "silence_ms",
+            "min_speech_ms",
+            "endpoint_grace_ms",
+            "vad_hangover_ms",
+            "vad_min_silence_frames_ms",
+            "since_voice_ms",
+        ):
+            value = payload.get(key)
+            if isinstance(value, (int, float)) and math.isfinite(float(value)):
+                endpoint_vad_settings[key] = int(round(float(value)))
+        rms_threshold = payload.get("rms_threshold")
+        if isinstance(rms_threshold, (int, float)) and math.isfinite(float(rms_threshold)):
+            endpoint_vad_settings["rms_threshold"] = float(rms_threshold)
+
         state.endpoint_at = time.perf_counter()
         chunk_count = len(state.audio_chunks)
         audio_bytes = b"".join(state.audio_chunks)
@@ -1350,6 +1373,9 @@ class VoiceSessionGateway:
             "turn_audio_capture_ms": turn_audio_capture_ms,
             "endpoint_stt_ms": endpoint_stt_ms,
             "endpoint_stt_source": endpoint_stt_source,
+            "endpoint_reason": endpoint_reason,
+            "capture_mode": endpoint_capture_mode,
+            **endpoint_vad_settings,
             "audio_bytes": len(audio_bytes),
             "runtime_provider": transcript.get("provider") or state.runtime,
             "runtime_requested_provider": transcript.get("requested_provider") or state.runtime,
@@ -1386,6 +1412,8 @@ class VoiceSessionGateway:
                     "text_final_total_ms": first_text_ms,
                     "endpoint_stt_ms": endpoint_stt_ms,
                     "endpoint_stt_source": endpoint_stt_source,
+                    "endpoint_reason": endpoint_reason,
+                    "capture_mode": endpoint_capture_mode,
                 },
             )
         # Raw-live contract (TASK 2 — "carde = final only"): the committed live
@@ -1428,6 +1456,8 @@ class VoiceSessionGateway:
                 "turn_audio_capture_ms": turn_audio_capture_ms,
                 "endpoint_stt_ms": endpoint_stt_ms,
                 "endpoint_stt_source": endpoint_stt_source,
+                "endpoint_reason": endpoint_reason,
+                "capture_mode": endpoint_capture_mode,
                 "source": f"{transcript.get('provider') or state.runtime}_stt",
                 "provider": transcript.get("provider") or state.runtime,
                 "requested_provider": transcript.get("requested_provider") or state.runtime,
@@ -1451,6 +1481,8 @@ class VoiceSessionGateway:
                 "turn_audio_capture_ms": turn_audio_capture_ms,
                 "endpoint_stt_ms": endpoint_stt_ms,
                 "endpoint_stt_source": endpoint_stt_source,
+                "endpoint_reason": endpoint_reason,
+                "capture_mode": endpoint_capture_mode,
             },
         )
         await self._send(
@@ -1466,6 +1498,8 @@ class VoiceSessionGateway:
                 "chunk_count": chunk_count,
                 "turn_audio_capture_ms": turn_audio_capture_ms,
                 "text_final_total_ms": first_text_ms,
+                "endpoint_reason": endpoint_reason,
+                "capture_mode": endpoint_capture_mode,
                 "provider": transcript.get("provider") or state.runtime,
                 "model": transcript.get("model") or state.model,
                 "transport": state.transport,
