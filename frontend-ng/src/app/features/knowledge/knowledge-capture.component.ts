@@ -637,20 +637,6 @@ interface ProposalFact {
         }
       </nav>
 
-      <!-- Expert review disabled: capture fiches can skip reviewer arbitration,
-           but publication still requires an explicit user action. -->
-      @if (expertReviewDisabled()) {
-        <div class="flex items-start gap-2.5 rounded-lg border border-emerald-400/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-          <app-icon name="check-circle" [size]="16" class="mt-0.5 shrink-0 text-emerald-300" />
-          <div>
-            <p class="font-semibold text-emerald-100">Revue désactivée — publication sur confirmation</p>
-            <p class="text-[12px] text-emerald-100/80 leading-relaxed">
-              Le rapport peut être validé sans second relecteur, mais la publication reste déclenchée explicitement.
-            </p>
-          </div>
-        </div>
-      }
-
       @if (activeSurface() === 'prep') {
         <section class="max-w-5xl mx-auto py-6 lg:py-8 space-y-6 min-h-[calc(100vh-15rem)] flex flex-col">
           <div>
@@ -3771,25 +3757,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   // the same simplified capture UI without changing workspace.mode to "demo".
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode() || this.isBusinessSurface());
   readonly isPilotMode = this.isDemoMode;
-  /**
-   * Per-workspace toggle: must a capture fiche pass expert review before going
-   * live? Read from ``source_policy.expert_review_required`` (root, then the
-   * ``chat`` fallback), mirroring how the chat panel reads its correction flag.
-   * Default-safe: an absent/undefined value means review is REQUIRED.
-   */
-  readonly expertReviewRequired = computed<boolean>(() => {
-    const settings = this.workspace.current()?.settings;
-    const rootPolicy = this.asRecord(settings?.['source_policy']);
-    const chatPolicy = this.asRecord(this.asRecord(settings?.['chat'])['source_policy']);
-    for (const policy of [rootPolicy, chatPolicy]) {
-      if ('expert_review_required' in policy) {
-        return policy['expert_review_required'] !== false;
-      }
-    }
-    return true;
-  });
-  /** Convenience inverse of {@link expertReviewRequired} for template gating. */
-  readonly expertReviewDisabled = computed(() => !this.expertReviewRequired());
   readonly workspaceVoiceLoopConfig = computed<WorkspaceVoiceLoopConfig>(() => {
     const settings = this.asRecord(this.workspace.current()?.settings);
     const voiceLoop = this.asRecord(settings['voice_loop']);
