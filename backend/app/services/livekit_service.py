@@ -677,6 +677,10 @@ class LiveKitService:
             "language": start.get("language") or start.get("input_language") or "fr",
             "api_base": settings.openai_realtime_api_base,
             "delay": settings.voice_realtime_stt_delay or "low",
+            # Sidecar silence-VAD tuning (gpt-realtime-whisper commits manually).
+            "silence_ms": settings.voice_realtime_stt_silence_ms,
+            "vad_threshold": settings.voice_realtime_stt_vad_threshold,
+            "max_turn_ms": settings.voice_realtime_stt_max_turn_ms,
         }
 
     async def _post_agent_dispatch(self, url: str, body: Dict[str, Any]) -> Dict[str, Any]:

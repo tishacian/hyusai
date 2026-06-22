@@ -104,6 +104,44 @@ test('realtime transcriber appends base64 pcm and commits only with enough audio
   assert.ok(socket.sent.find((m) => m.type === 'input_audio_buffer.commit'));
 });
 
+test('realtime transcriber auto-commits a turn on sidecar silence VAD', async () => {
+  const metrics = [];
+  const { transcriber, socket } = await connectTranscriber({
+    onMetric: (metric, extra) => metrics.push({ metric, extra }),
+    silenceMs: 150,
+    minSpeechMs: 200,
+    vadThreshold: 100,
+    silenceCheckMs: 25,
+  });
+  socket.sent.length = 0;
+
+  // 3 voiced frames (100 ms each, RMS ~257 > threshold) = 300 ms of speech,
+  // then no more audio: after the 150 ms silence window the watcher commits.
+  for (let i = 0; i < 3; i += 1) transcriber.appendPcm(Buffer.alloc(4800, 1));
+  assert.equal(socket.sent.find((m) => m.type === 'input_audio_buffer.commit'), undefined);
+
+  await new Promise((resolve) => setTimeout(resolve, 320));
+  const commits = socket.sent.filter((m) => m.type === 'input_audio_buffer.commit');
+  assert.equal(commits.length, 1);
+  assert.ok(metrics.find((m) => m.metric === 'realtime_stt_autocommit' && m.extra.reason === 'silence'));
+  transcriber.close();
+});
+
+test('silence watcher stays quiet when no speech crossed the VAD threshold', async () => {
+  const { transcriber, socket } = await connectTranscriber({
+    silenceMs: 100,
+    minSpeechMs: 200,
+    vadThreshold: 5000,
+    silenceCheckMs: 25,
+  });
+  socket.sent.length = 0;
+  // Low-energy frames (RMS ~257) never exceed the 5000 threshold -> no turn.
+  for (let i = 0; i < 4; i += 1) transcriber.appendPcm(Buffer.alloc(4800, 1));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(socket.sent.find((m) => m.type === 'input_audio_buffer.commit'), undefined);
+  transcriber.close();
+});
+
 test('realtime transcriber maps item ids to turns across delta/completed', async () => {
   const { transcriber, socket, partials, finals } = await connectTranscriber();
 

@@ -44,6 +44,24 @@ export class RealtimeTranscriber {
     this.appendedBytesSinceCommit = 0;
     this.turnStartedAt = 0;
     this.minCommitBytes = Math.floor(this.sampleRate * 2 * 0.1);
+
+    // Sidecar-side silence VAD. gpt-realtime-whisper does NOT support OpenAI
+    // turn_detection ("Turn detection is not supported for this transcription
+    // model"), so end-of-turn must be detected here from the continuous PCM and
+    // drive a manual input_audio_buffer.commit (which yields the per-turn
+    // `completed` transcript -> text.final -> oracle). A max-turn guard still
+    // commits if silence is never observed (constant background noise).
+    this.autoCommitOnSilence = options.autoCommitOnSilence !== false;
+    this.silenceMs = Number(options.silenceMs) || 700;
+    this.minSpeechMs = Number(options.minSpeechMs) || 250;
+    this.vadThreshold = Number(options.vadThreshold) || 300;
+    this.maxTurnMs = Number(options.maxTurnMs) || 15000;
+    this.silenceCheckMs = Number(options.silenceCheckMs) || 100;
+    this.lastVoiceAt = 0;
+    this.windowStartedAt = 0;
+    this.voicedMsSinceCommit = 0;
+    this.hadSpeechSinceCommit = false;
+    this.silenceTimer = null;
   }
 
   realtimeUrl() {
@@ -115,7 +133,49 @@ export class RealtimeTranscriber {
         { once: true },
       );
     });
+    this._startSilenceWatch();
     return this;
+  }
+
+  /** Periodic end-of-turn check driven by the sidecar-side silence VAD. */
+  _startSilenceWatch() {
+    if (!this.autoCommitOnSilence || this.silenceTimer) return;
+    this.silenceTimer = setInterval(() => {
+      if (!this.open || !this.hadSpeechSinceCommit) return;
+      if (this.appendedBytesSinceCommit < this.minCommitBytes) return;
+      const now = Date.now();
+      const silent =
+        this.voicedMsSinceCommit >= this.minSpeechMs && now - this.lastVoiceAt >= this.silenceMs;
+      const longTurn = this.windowStartedAt > 0 && now - this.windowStartedAt >= this.maxTurnMs;
+      if (!silent && !longTurn) return;
+      this.onMetric('realtime_stt_autocommit', {
+        reason: silent ? 'silence' : 'max_turn',
+        silence_ms: this.silenceMs,
+        voiced_ms: Math.round(this.voicedMsSinceCommit),
+      });
+      this.commit();
+    }, this.silenceCheckMs);
+    if (typeof this.silenceTimer.unref === 'function') this.silenceTimer.unref();
+  }
+
+  /** RMS energy of an Int16LE PCM frame feeds the silence VAD. */
+  _observeEnergy(buffer) {
+    if (!this.autoCommitOnSilence) return;
+    const samples = buffer.length >> 1;
+    if (!samples) return;
+    let sum = 0;
+    for (let i = 0; i + 1 < buffer.length; i += 2) {
+      const s = buffer.readInt16LE(i);
+      sum += s * s;
+    }
+    const rms = Math.sqrt(sum / samples);
+    if (rms >= this.vadThreshold) {
+      const nowTs = Date.now();
+      this.lastVoiceAt = nowTs;
+      if (!this.windowStartedAt) this.windowStartedAt = nowTs;
+      this.hadSpeechSinceCommit = true;
+      this.voicedMsSinceCommit += (samples / this.sampleRate) * 1000;
+    }
   }
 
   send(message) {
@@ -134,6 +194,7 @@ export class RealtimeTranscriber {
     if (!buffer || !buffer.length || !this.open) return false;
     if (!this.turnStartedAt) this.turnStartedAt = Date.now();
     this.appendedBytesSinceCommit += buffer.length;
+    this._observeEnergy(buffer);
     return this.send({
       type: 'input_audio_buffer.append',
       audio: buffer.toString('base64'),
@@ -154,6 +215,9 @@ export class RealtimeTranscriber {
       return false;
     }
     this.appendedBytesSinceCommit = 0;
+    this.hadSpeechSinceCommit = false;
+    this.voicedMsSinceCommit = 0;
+    this.windowStartedAt = 0;
     return this.send({ type: 'input_audio_buffer.commit' });
   }
 
@@ -164,6 +228,10 @@ export class RealtimeTranscriber {
     this.currentItemId = null;
     this.pendingTurnId = null;
     this.turnStartedAt = 0;
+    this.hadSpeechSinceCommit = false;
+    this.voicedMsSinceCommit = 0;
+    this.windowStartedAt = 0;
+    this.lastVoiceAt = 0;
     return this.send({ type: 'input_audio_buffer.clear' });
   }
 
@@ -220,6 +288,10 @@ export class RealtimeTranscriber {
   close() {
     this.closed = true;
     this.open = false;
+    if (this.silenceTimer) {
+      clearInterval(this.silenceTimer);
+      this.silenceTimer = null;
+    }
     try {
       this.socket?.close?.(1000, 'realtime-stt-close');
     } catch {

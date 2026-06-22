@@ -49,6 +49,11 @@ function realtimeSttConfigFromDispatch(dispatch) {
     apiBase: rt.api_base || 'https://api.openai.com/v1',
     delay: rt.delay || 'low',
     prompt: rt.prompt || '',
+    // Optional silence-VAD tuning (sidecar drives the manual commit). Undefined
+    // falls back to the RealtimeTranscriber defaults.
+    silenceMs: Number(rt.silence_ms) || undefined,
+    vadThreshold: Number(rt.vad_threshold) || undefined,
+    maxTurnMs: Number(rt.max_turn_ms) || undefined,
   };
 }
 
@@ -588,6 +593,9 @@ export async function maybeStartRealtimeStt(session, dispatch, options = {}) {
     apiBase: config.apiBase,
     delay: config.delay,
     prompt: config.prompt,
+    silenceMs: config.silenceMs,
+    vadThreshold: config.vadThreshold,
+    maxTurnMs: config.maxTurnMs,
     sampleRate: REALTIME_STT_SAMPLE_RATE,
     WebSocketClass: options.OpenAIWebSocketClass,
     onPartial: (turnId, text) => {
