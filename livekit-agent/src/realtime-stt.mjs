@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
-// TEMP DIAGNOSTIC: realtime STT internals to the container console (docker logs).
-// Gated off by default; enable with LIVEKIT_AGENT_DEBUG_RTSTT=1. Remove once the
-// "no realtime transcription" investigation is closed.
+// Optional realtime STT internals to the container console (docker logs).
+// Gated off by default; enable with LIVEKIT_AGENT_DEBUG_RTSTT=1.
 const DEBUG_RTSTT = String(process.env.LIVEKIT_AGENT_DEBUG_RTSTT || '') === '1';
 function dbgRt(stage, extra = {}) {
   if (!DEBUG_RTSTT) return;

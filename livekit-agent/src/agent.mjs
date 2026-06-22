@@ -124,9 +124,8 @@ function logSidecarWarning(code, error, extra = {}) {
   );
 }
 
-// TEMP DIAGNOSTIC: realtime STT lifecycle to the container console (docker logs).
-// Gated off by default; enable with LIVEKIT_AGENT_DEBUG_RTSTT=1. Remove once the
-// "no realtime transcription" investigation is closed.
+// Optional realtime STT lifecycle diagnostics to the container console
+// (docker logs). Gated off by default; enable with LIVEKIT_AGENT_DEBUG_RTSTT=1.
 const DEBUG_RTSTT = String(process.env.LIVEKIT_AGENT_DEBUG_RTSTT || '') === '1';
 function dbgRtStt(stage, extra = {}) {
   if (!DEBUG_RTSTT) return;
