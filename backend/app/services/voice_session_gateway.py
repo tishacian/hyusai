@@ -207,6 +207,12 @@ class VoiceSessionState:
     # hint pass is throttled per session to avoid a retrieval storm. Reset on
     # every turn so a fresh utterance grounds promptly.
     last_capture_hints_at: Optional[float] = None
+    # The grounded-hint retrieval (embeddings + vector search + reranker + sync
+    # contradiction post-processing) must NEVER run on the transcript-relay path:
+    # awaiting it inline per partial stalled the event loop and froze the live
+    # transcript on a fragment. It now runs fire-and-forget, guarded so at most
+    # one is in flight per session (it only feeds passive state.last_retrieval_*).
+    live_hints_in_flight: bool = False
     # Capture session resolution cache: the capture session id equals
     # ``session_id`` and only its ``plan`` is needed on the hot partial/turn path
     # (live section detection), so the growing capture row is loaded ONCE and its
@@ -1063,19 +1069,38 @@ class VoiceSessionGateway:
         if state.capture_plan is not None and text.strip() and not is_capture_text_noise(text):
             now = time.perf_counter()
             if (
-                state.last_capture_hints_at is None
-                or (now - state.last_capture_hints_at) >= _CAPTURE_HINTS_MIN_INTERVAL_S
+                not state.live_hints_in_flight
+                and (
+                    state.last_capture_hints_at is None
+                    or (now - state.last_capture_hints_at) >= _CAPTURE_HINTS_MIN_INTERVAL_S
+                )
             ):
                 state.last_capture_hints_at = now
-                await self._maybe_push_capture_hints(
-                    websocket,
-                    db,
-                    user=user,
-                    workspace=workspace,
-                    state=state,
-                    capture_session_id=state.session_id,
-                    partial_text=text,
-                )
+                state.live_hints_in_flight = True
+                hint_partial_text = text
+
+                async def _run_capture_hints() -> None:
+                    # Fire-and-forget: the grounded retrieval + sync contradiction
+                    # pass is slow and MUST NOT block the transcript relay (it only
+                    # accumulates passive state.last_retrieval_* / candidates).
+                    try:
+                        await self._maybe_push_capture_hints(
+                            websocket,
+                            db,
+                            user=user,
+                            workspace=workspace,
+                            state=state,
+                            capture_session_id=state.session_id,
+                            partial_text=hint_partial_text,
+                        )
+                    except Exception:  # noqa: BLE001 - never surface on the hot path.
+                        logger.debug("live capture hints task failed", exc_info=True)
+                    finally:
+                        state.live_hints_in_flight = False
+
+                hints_task = asyncio.create_task(_run_capture_hints())
+                state.live_questions_tasks.add(hints_task)
+                hints_task.add_done_callback(state.live_questions_tasks.discard)
             try:
                 await self._maybe_detect_and_emit_active_section(
                     websocket,
