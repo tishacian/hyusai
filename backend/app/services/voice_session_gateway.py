@@ -1068,8 +1068,13 @@ class VoiceSessionGateway:
         self._ensure_capture_plan(db, workspace.id, state)
         if state.capture_plan is not None and text.strip() and not is_capture_text_noise(text):
             now = time.perf_counter()
+            # Live hints retrieval is CPU-bound (embeddings + reranker) and runs
+            # WHILE the expert speaks -> starves the realtime transcript relay
+            # even off-thread (GIL). Gated off by default; section detection below
+            # stays on (cheap, in-memory).
             if (
-                not state.live_hints_in_flight
+                settings.voice_oracle_live_hints_enabled
+                and not state.live_hints_in_flight
                 and (
                     state.last_capture_hints_at is None
                     or (now - state.last_capture_hints_at) >= _CAPTURE_HINTS_MIN_INTERVAL_S
@@ -1869,6 +1874,12 @@ class VoiceSessionGateway:
                     )
                 if not chunks:
                     return
+                # Feed the passive "contexte retrouvé" panel from this turn-commit
+                # retrieval (runs at silence) so the panel survives even with the
+                # during-speech live hints disabled.
+                state.last_retrieval_chunks = list(chunks)
+                state.last_retrieval_metadatas = list(metadatas or [])
+                state.last_retrieval_scores = list(_scores or [])
                 if state.live_questions_generation != generation or state.committed_turns_section != section_key:
                     return
                 raw_questions = await generate_grounded_open_questions_async(

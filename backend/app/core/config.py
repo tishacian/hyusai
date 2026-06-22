@@ -273,6 +273,13 @@ class Settings(BaseSettings):
     voice_realtime_stt_silence_ms: int = 1200
     voice_realtime_stt_vad_threshold: int = 300
     voice_realtime_stt_max_turn_ms: int = 15000
+    # Live "contexte retrouvé" hints run a CPU-bound retrieval (embeddings +
+    # reranker) every few seconds WHILE the expert is still speaking. asyncio
+    # threads do not release the GIL for that Python CPU work, so it starves the
+    # realtime transcript relay (transcript freezes, then a big chunk lands right
+    # after the oracle questions). Off by default: the per-turn grounded
+    # questions (fired at silence, not during speech) carry the oracle value.
+    voice_oracle_live_hints_enabled: bool = False
     local_stt_endpoint_url: Optional[str] = None
     local_tts_endpoint_url: Optional[str] = None
     local_realtime_endpoint_url: Optional[str] = None
