@@ -9188,8 +9188,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       const text = String(payload['text'] || '').trim();
       if (text) {
         if (recording) {
+          // Only the immediate "stop" command may act on a PARTIAL. end_turn /
+          // end_section must wait for the FINAL transcript: acting on a transient
+          // partial (e.g. a common filler caught mid-utterance) force-commits the
+          // turn early and swallows the live subtitle row.
           const command = this.detectCaptureVoiceCommand(text);
-          if (command && this.handleCaptureVoiceCommand(command, text)) {
+          if (command === 'stop' && this.handleCaptureVoiceCommand(command, text)) {
             return;
           }
         }
@@ -11537,10 +11541,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   private isEndTurnCommand(commandText: string): boolean {
     if (!commandText) return false;
+    // NOTE: never add common discourse fillers here (e.g. "voila"): the detector
+    // also runs on the trailing FINAL transcript of every turn, so a frequent
+    // word would force-commit and skip the normal turn resume on most turns.
     return [
       /\btour suivant\b/,
       /\bpoint suivant\b/,
-      /\bvoila\b/,
       /\bj ai termine ce point\b/,
     ].some((pattern) => pattern.test(commandText));
   }
