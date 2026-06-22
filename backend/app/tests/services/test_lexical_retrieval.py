@@ -46,6 +46,37 @@ def test_query_analysis_does_not_treat_hyphenated_words_as_exact_identifiers():
     assert "PEUXTU" not in signals.exact_terms
 
 
+def test_query_analysis_recognizes_single_letter_dotted_equipment_code():
+    signals = analyze_query("Quelle est la quantité de graisse pour le palier D.60 ?")
+
+    assert "D60" in signals.exact_terms
+    assert signals.requires_exact_match is True
+    assert "D.60" in signals.identifier_variants
+
+
+def test_query_analysis_extracts_dotted_code_from_diameter_phrasing():
+    signals = analyze_query(
+        "Quelle quantité de graisse appliquer au graissage d'un palier moteur "
+        "de diamètre 60 (D.60) ?"
+    )
+
+    assert "D60" in signals.exact_terms
+
+
+def test_query_analysis_recognizes_compact_and_separated_short_codes():
+    assert "D60" in analyze_query("graissage du palier D60").exact_terms
+    assert "D40" in analyze_query("palier moteur D-40").exact_terms
+    assert "D60" in analyze_query("référence palier D_60").exact_terms
+
+
+def test_short_code_extraction_stays_code_like():
+    # A bare letter followed by whitespace + number is ordinary prose: the
+    # separator must be punctuation, not a space, so this is not a code.
+    assert analyze_query("Il y a 60 grammes de graisse par palier").exact_terms == ()
+    # A single trailing digit is too short to qualify as an identifier.
+    assert analyze_query("voir le point B5 du schéma").exact_terms == ()
+
+
 def test_metadata_sparse_text_enriches_filename_and_code_without_domain_terms():
     payload = {
         "content": "A generic chunk.",

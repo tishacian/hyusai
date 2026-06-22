@@ -42,6 +42,11 @@ DEFAULT_METADATA_FIELD_WEIGHTS: dict[str, int] = {
 DEFAULT_EXACT_IDENTIFIER_PATTERNS: tuple[str, ...] = (
     r"\b[A-Z]{2,}[A-Z0-9]*[\s_.-]?\d{2,}[A-Z0-9]*\b",
     r"\b(?=[A-Z0-9_-]*\d)[A-Z0-9]{2,}[-_][A-Z0-9]{2,}\b",
+    # Single-letter dotted/compact codes (e.g. "D.60", "D-60", "D60"). The
+    # 2+ digit run keeps this code-like and avoids ordinary words; a separator,
+    # when present, must be punctuation (no whitespace) to avoid matching
+    # incidental "<letter> <number>" phrasing.
+    r"\b[A-Z][._-]?\d{2,}[A-Z0-9]*\b",
 )
 
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]{2,}")
@@ -239,7 +244,9 @@ def analyze_query(query: str, config: LexicalRetrievalConfig | None = None) -> L
         for match in matches:
             raw = "".join(match) if isinstance(match, tuple) else str(match)
             compact = compact_identifier(raw)
-            if len(compact) < 4 or compact in exact_terms:
+            # Floor of 3 admits single-letter dotted codes (``D.60`` -> ``D60``)
+            # while the identifier patterns above never emit shorter compacts.
+            if len(compact) < 3 or compact in exact_terms:
                 continue
             exact_terms.append(compact)
             for variant in identifier_variants(compact):
