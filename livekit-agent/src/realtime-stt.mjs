@@ -75,10 +75,13 @@ export class RealtimeTranscriber {
     if (typeof this.WebSocketClass !== 'function') {
       throw new Error('Node runtime does not expose a WebSocket client');
     }
+    // GA Realtime API: the `OpenAI-Beta: realtime=v1` header selects the retired
+    // beta shape (server replies `beta_api_shape_disabled` and closes 4000), so
+    // it MUST be omitted. The GA `type: "transcription"` session.update shape is
+    // what `sessionConfig()` already sends.
     const socket = new this.WebSocketClass(this.realtimeUrl(), {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
-        'OpenAI-Beta': 'realtime=v1',
       },
     });
     this.socket = socket;
