@@ -3634,6 +3634,8 @@ interface ProposalFact {
       [open]="sourcePreviewOpen()"
       [previewUrl]="sourcePreviewUrl()"
       [title]="sourcePreviewTitle()"
+      [page]="sourcePreviewPage()"
+      [highlight]="sourcePreviewHighlight()"
       subtitle="Source documentaire"
       (closed)="closeSourcePreview()"
     />
@@ -4067,6 +4069,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   readonly sourcePreviewOpen = signal(false);
   readonly sourcePreviewUrl = signal<string | null>(null);
   readonly sourcePreviewTitle = signal('');
+  readonly sourcePreviewPage = signal<number | null>(null);
+  readonly sourcePreviewHighlight = signal<string | null>(null);
   // FINAL-phase gating: true between capture.finish and the proposal-ready
   // conversation.step. While true the report screen stays locked behind the
   // finalization loader, whose stage label follows the gateway's honest
@@ -4074,6 +4078,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   readonly captureFinalizing = signal(false);
   readonly captureFinalizeStage = signal<CaptureFinalizeStage | null>(null);
   private captureFinalizeTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Fallback armed when the heavy pass reports its terminal `done` stage: the
+  // proposal-bearing conversation.step normally lands within a couple of seconds
+  // and clears this, but a dropped/late terminal event would otherwise trap the
+  // user on a finished-looking loader until the 4-min safety valve. This shorter
+  // net fetches the persisted proposal and opens the report.
+  private captureFinalizeDoneTimeout: ReturnType<typeof setTimeout> | null = null;
   // Report screen: structured fiche by default, raw markdown on demand.
   readonly reportEditMode = signal(false);
   readonly reportFiche = computed(() => this.buildReportFiche(this.proposal()));
@@ -4866,6 +4876,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   openPublishedFichePreview(row: PublishedCaptureFiche): void {
+    // Whole-file browsing — no retrieved passage to highlight.
+    this.sourcePreviewPage.set(null);
+    this.sourcePreviewHighlight.set(null);
     const previewPath = row.preview_url;
     if (previewPath) {
       this.sourcePreviewTitle.set(row.title);
@@ -9264,13 +9277,20 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     if (event.type === 'capture.finalize.progress') {
       // Honest stage events from the heavy FINAL pass: drive the loader.
+      const stage = String(payload['stage'] || 'start');
       this.captureFinalizeStage.set({
-        stage: String(payload['stage'] || 'start'),
+        stage,
         label: String(payload['label'] || 'Synthèse finale en cours…'),
         section_label: payload['section_label'] ? String(payload['section_label']) : null,
         current: typeof payload['current'] === 'number' ? payload['current'] : null,
         total: typeof payload['total'] === 'number' ? payload['total'] : null,
       });
+      if (stage === 'done') {
+        // Report is persisted; the proposal-bearing conversation.step lands next.
+        // Arm a short fallback so a dropped/late terminal event still opens the
+        // report instead of leaving a completed-looking loader hanging.
+        this.armCaptureFinalizeDoneFallback();
+      }
       return;
     }
     if (event.type === 'conversation.step') {
@@ -9279,7 +9299,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.applyConversationStepEvent(payload as Partial<ConversationStepResponse>);
       if (captureFinished) {
         // The restructured report is persisted: release the gate and land on
-        // the report screen only now.
+        // the report screen. Set the proposal straight from this payload too —
+        // applyConversationStepEvent early-returns when the session payload is
+        // null, which would otherwise leave the gate releasing onto the session
+        // screen instead of the report.
+        if (payload['proposal']) {
+          this.setProposal(payload['proposal'] as CaptureProposal);
+        }
         this.endCaptureFinalizing(true);
       }
       this.finalizeDeferredStreamingStop();
@@ -10728,12 +10754,24 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (filename) url += `&filename=${encodeURIComponent(filename)}`;
     this.sourcePreviewTitle.set(this.retrievalChunkTitle(index) || 'Source retrouvée');
     this.sourcePreviewUrl.set(url);
+    this.sourcePreviewPage.set(this.coercePage(meta['page'] ?? meta['page_number']));
+    const chunkText = String(this.retrieval().chunks?.[index] || '').trim();
+    this.sourcePreviewHighlight.set(chunkText.length >= 8 ? chunkText : null);
     this.sourcePreviewOpen.set(true);
+  }
+
+  /** Parse a metadata page value into a positive 1-based page number, or null. */
+  private coercePage(raw: unknown): number | null {
+    if (raw === undefined || raw === null || `${raw}`.trim() === '') return null;
+    const value = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
   }
 
   closeSourcePreview(): void {
     this.sourcePreviewOpen.set(false);
     this.sourcePreviewUrl.set(null);
+    this.sourcePreviewPage.set(null);
+    this.sourcePreviewHighlight.set(null);
   }
 
   // --- FINAL-phase loader (capture.finish gating) ---------------------------
@@ -10743,6 +10781,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private beginCaptureFinalizing(): void {
     this.captureFinalizing.set(true);
     this.captureFinalizeStage.set({ stage: 'start', label: 'Préparation de la synthèse finale…' });
+    if (this.captureFinalizeDoneTimeout) {
+      clearTimeout(this.captureFinalizeDoneTimeout);
+      this.captureFinalizeDoneTimeout = null;
+    }
     if (this.captureFinalizeTimeout) clearTimeout(this.captureFinalizeTimeout);
     // Safety valve: if the proposal-ready step never lands (connection lost),
     // release the gate after 4 minutes instead of trapping the user.
@@ -10756,10 +10798,44 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }, 240000);
   }
 
+  /** Net for the terminal `done` stage: if the proposal-bearing
+   * conversation.step does not land shortly after, fetch the persisted proposal
+   * and open the report so the user is never stuck on a completed loader. */
+  private armCaptureFinalizeDoneFallback(): void {
+    if (this.captureFinalizeDoneTimeout) return;
+    this.captureFinalizeDoneTimeout = setTimeout(() => {
+      this.captureFinalizeDoneTimeout = null;
+      if (!this.captureFinalizing()) return;
+      const session = this.session();
+      if (this.proposal() || !session) {
+        this.endCaptureFinalizing(true);
+        return;
+      }
+      this.api
+        .listCaptureProposals(undefined, undefined, session.id)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (payload) => {
+            const proposals = (payload as { proposals?: CaptureProposal[] }).proposals || [];
+            const latest = proposals[0] || null;
+            if (latest && this.session()?.id === session.id) {
+              this.setProposal(latest);
+            }
+            this.endCaptureFinalizing(true);
+          },
+          error: () => this.endCaptureFinalizing(true),
+        });
+    }, 8000);
+  }
+
   private endCaptureFinalizing(navigateToReview: boolean): void {
     if (this.captureFinalizeTimeout) {
       clearTimeout(this.captureFinalizeTimeout);
       this.captureFinalizeTimeout = null;
+    }
+    if (this.captureFinalizeDoneTimeout) {
+      clearTimeout(this.captureFinalizeDoneTimeout);
+      this.captureFinalizeDoneTimeout = null;
     }
     const wasFinalizing = this.captureFinalizing();
     this.captureFinalizing.set(false);
@@ -10800,6 +10876,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       { label: 'Assemblage du rapport', stages: ['report', 'done'] },
     ];
     const current = this.captureFinalizeStage()?.stage || 'start';
+    // Terminal stage: every group is complete. Without this the last group
+    // (stages ['report','done']) kept spinning at `done` because its rank
+    // matched the current rank, so the loader never showed a finished state.
+    if (current === 'done') {
+      return grouping.map((group) => ({ label: group.label, state: 'done' as const }));
+    }
     const currentRank = Math.max(0, order.indexOf(current));
     return grouping.map((group) => {
       const ranks = group.stages.map((stage) => order.indexOf(stage));
@@ -11033,6 +11115,9 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (filename) url += `&filename=${encodeURIComponent(filename)}`;
     this.sourcePreviewTitle.set(this.reportSourceLabel(src));
     this.sourcePreviewUrl.set(url);
+    this.sourcePreviewPage.set(null);
+    const passage = String(src.preview || '').trim();
+    this.sourcePreviewHighlight.set(passage.length >= 8 ? passage : null);
     this.sourcePreviewOpen.set(true);
   }
 
