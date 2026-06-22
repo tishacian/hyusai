@@ -225,7 +225,7 @@ type CapturePlanSourceKind = 'manual' | 'pasted_text' | 'uploaded_file' | 'conve
 type CaptureSurfaceView = 'dashboard' | 'prep' | 'plan' | 'plan_build' | 'session' | 'review' | 'publish';
 type QualityTab = 'imprecisions' | 'contradictions' | 'open_questions';
 type PlanOutlineFormatAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down';
-type CaptureEndpointReason = 'manual' | 'silence' | 'max_turn' | 'no_speech' | 'stop' | 'error';
+type CaptureEndpointReason = 'manual' | 'silence' | 'max_turn' | 'no_speech' | 'stop' | 'voice_command' | 'error';
 
 const HTTP_BATCH_PARTIAL_MAX_AUDIO_BYTES = 512 * 1024;
 const HTTP_BATCH_PARTIAL_MIN_INTERVAL_MS = 1200;
@@ -4169,7 +4169,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private prefetchInFlight = false;
   private lastPrefetchText = '';
   private lastPrefetchAt = 0;
+  private eventsSessionId: string | null = null;
+  private lastEventSequence: number | null = null;
   private currentClientTurnId: string | null = null;
+  private commandHandledForTurn: string | null = null;
   private activeAudio: HTMLAudioElement | null = null;
   private voiceConnection: CaptureVoiceConnection | null = null;
   private readonly ttsPlayback = this.ttsPlaybackFactory.createController('knowledge_capture');
@@ -4351,6 +4354,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.closureSheetMarkdown.set(null);
     this.closurePanelDismissed.set(false);
     this.events.set([]);
+    this.eventsSessionId = null;
+    this.lastEventSequence = null;
     this.hintStack.set([]);
     this.activeSubtopicId.set(null);
     this.questionBankStatus.set('idle');
@@ -6374,14 +6379,32 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   refreshEvents(sessionId: string): void {
+    // Incremental refresh: once a session is loaded, ask only for the delta
+    // (events with sequence > last seen) and merge, instead of reloading the
+    // full — and ever-growing — event list on every call.
+    const incremental = this.eventsSessionId === sessionId && this.lastEventSequence !== null;
+    const afterSequence = incremental ? this.lastEventSequence ?? undefined : undefined;
     this.api
-      .listCaptureEvents(sessionId, undefined, true)
+      .listCaptureEvents(sessionId, afterSequence, true)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((payload) => {
-        const events = (payload as { events?: CaptureEvent[] }).events || [];
-        this.events.set(events);
-        this.prunePendingLiveCommits(events);
+        const incoming = (payload as { events?: CaptureEvent[] }).events || [];
+        const merged = incremental ? this.mergeCaptureEvents(this.events(), incoming) : incoming;
+        this.events.set(merged);
+        this.eventsSessionId = merged.length ? sessionId : null;
+        this.lastEventSequence = merged.length
+          ? merged.reduce((max, event) => Math.max(max, event.sequence ?? 0), 0)
+          : null;
+        this.prunePendingLiveCommits(merged);
       });
+  }
+
+  private mergeCaptureEvents(existing: CaptureEvent[], incoming: CaptureEvent[]): CaptureEvent[] {
+    if (!incoming.length) return existing;
+    const byId = new Map<string, CaptureEvent>();
+    for (const event of existing) byId.set(event.id, event);
+    for (const event of incoming) byId.set(event.id, event);
+    return Array.from(byId.values()).sort((a, b) => a.sequence - b.sequence);
   }
 
   voiceStateLabel(): string {
@@ -7567,6 +7590,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.dictationAudioLevel.set(0);
     this.resetHttpBatchRecordingBuffers();
     this.currentClientTurnId = this.newTurnId();
+    this.commandHandledForTurn = null;
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
     this.recordingPartialCallback = (text: string) => {
@@ -9233,6 +9257,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       }
       this.voiceState.set('listening');
       this.setVoiceNotice('Tour capturé. Le micro reste ouvert.', 'info');
+      // Refresh the event ledger on turn commit (incremental delta) instead of
+      // on every retrieval prefetch, which reloaded the full list per partial.
+      const committedSession = this.session();
+      if (committedSession) this.refreshEvents(committedSession.id);
       this.scheduleConversationResume(this.voiceLoopCooldownMs());
       return;
     }
@@ -9507,6 +9535,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     this.resetHttpBatchRecordingBuffers();
     this.currentClientTurnId = this.newTurnId();
+    this.commandHandledForTurn = null;
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
     this.startAudioRecorder('Micro ouvert. Arrêtez l’écoute quand la réponse expert est complète.');
@@ -10483,7 +10512,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
               this.recordingPartialCallback?.(text);
             } else if (session) {
               this.answer = text;
-              this.maybePrefetchRetrieval(session, text);
+              // Realtime STT already retrieves on partials server-side and feeds
+              // the panels via WS (evaluation.delta.retrieval / section.active /
+              // oracle.questions); skip the duplicate HTTP prefetch here. Keep it
+              // for non-realtime / dictation modes that have no server retrieval.
+              if (!this.realtimeSttActive) {
+                this.maybePrefetchRetrieval(session, text);
+              }
             }
           }
           if (this.recording()) {
@@ -10596,7 +10631,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             'prefetch',
           );
           this.prefetchInFlight = false;
-          this.refreshEvents(session.id);
           if (this.isTopicOnlyPlan(session)) this.refreshHintQueue(session.id, typed.active_subtopic_id || this.activeSubtopicId());
           if (this.recording()) {
             this.voiceState.set('listening');
@@ -11465,6 +11499,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const genericCommandsEnabled = this.voiceCommandPackEnabled(settings, ['generic', 'fr_basic', 'workspace']);
     if (this.isNaturalStopCommand(text, settings.stop_phrases, genericCommandsEnabled)) return 'stop';
     if (!genericCommandsEnabled) return null;
+    // Natural-phrase detection (regex, like isNaturalStopCommand) so multi-word
+    // turn/section closures stay detectable past the short-command guard below.
+    if (this.isEndSectionCommand(text)) return 'end_section';
+    if (this.isEndTurnCommand(text)) return 'end_turn';
     const words = text.split(/\s+/).filter(Boolean);
     if (!hasTrigger && words.length > 4) return null;
     if (['stop', 'arrete', 'arret', 'fin', 'termine'].includes(text)) return 'stop';
@@ -11472,12 +11510,48 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private handleCaptureVoiceCommand(command: string, transcript: string): boolean {
+    // A command can surface on both the partial and the trailing final event of
+    // the same turn; act on it once so end_turn/end_section never double-fire.
+    if (this.currentClientTurnId !== null && this.commandHandledForTurn === this.currentClientTurnId) {
+      return true;
+    }
+    this.commandHandledForTurn = this.currentClientTurnId;
     this.voiceConnection?.voiceCommand(command, transcript, { surface: 'knowledge_capture' });
     if (command === 'stop') {
       this.stopConversation();
       return true;
     }
+    if (command === 'end_turn') {
+      // Force-commit the current turn (endpoint -> sidecar commit); capture
+      // keeps running, so do NOT stopConversation.
+      void this.finishStreamingVoiceTurn('voice_command');
+      return true;
+    }
+    if (command === 'end_section') {
+      const session = this.session();
+      if (session) this.finishCurrentSection(session);
+      return true;
+    }
     return false;
+  }
+
+  private isEndTurnCommand(commandText: string): boolean {
+    if (!commandText) return false;
+    return [
+      /\btour suivant\b/,
+      /\bpoint suivant\b/,
+      /\bvoila\b/,
+      /\bj ai termine ce point\b/,
+    ].some((pattern) => pattern.test(commandText));
+  }
+
+  private isEndSectionCommand(commandText: string): boolean {
+    if (!commandText) return false;
+    return [
+      /\bsection suivante\b/,
+      /\bon passe a la suite\b/,
+      /\bfin de (?:la )?section\b/,
+    ].some((pattern) => pattern.test(commandText));
   }
 
   private isNaturalStopCommand(commandText: string, configuredPhrases: unknown = null, includeDefaultPhrases = true): boolean {
@@ -11622,6 +11696,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     this.resetHttpBatchRecordingBuffers();
     this.currentClientTurnId = this.newTurnId();
+    this.commandHandledForTurn = null;
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
     const session = this.session();

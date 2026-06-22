@@ -3602,7 +3602,7 @@ async def test_gateway_emits_section_active_on_partial(db_session, monkeypatch):
         db_session,
         workspace=workspace,
         state=state,
-        capture_session=capture_session,
+        plan=capture_session.plan,
         partial_text=partial,
         source="turn_commit",
     )
@@ -5572,3 +5572,98 @@ def test_create_update_proposal_free_conversation_materializes_session_topic(db_
     assert structure["topics"][0]["topic_id"] == "session"
     assert structure["topics"][0]["title"] == "Synthèse de la capture"
     assert structure["topics"][0]["facts"][0]["text"].startswith("La pompe de reprise")
+
+
+def test_silent_capture_defers_transcript_rewrite_but_readers_stay_complete(db_session):
+    """Etape 7 / Scope complet: a silent capture turn (``persist_transcript=False``)
+    must NOT rewrite the growing transcript column every turn. The append-only event
+    ledger is the source of truth and every reader still observes a complete,
+    correctly-ordered transcript with the same turn shape."""
+    import app.services.knowledge_capture as kc
+
+    workspace = Workspace(id="ws-silent-transcript", name="Silent Transcript", slug="silent-transcript")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Silent capture materialization",
+        objective="Capture tacit troubleshooting knowledge for the silent path.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    session_id = session.id
+    question_id = session.plan["questions"][0]["id"]
+
+    texts = [
+        "Quand la ligne dérive après redémarrage, je vérifie le rapport et les réglages.",
+        "Ensuite je contrôle la température du rouleau avant de valider la procédure terrain.",
+        "Enfin je consigne la décision dans le CRM pour tracer le contexte client.",
+    ]
+    for idx, text in enumerate(texts):
+        result = append_turn(
+            db_session,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            speaker="expert",
+            question_id=question_id if idx == 0 else None,
+            text=text,
+            compute_evaluation=False,
+            persist_transcript=False,
+        )
+        # The silent path skips the O(N) serialize/refresh — the caller discards it.
+        assert result["session"] is None
+        assert result["turn"]["text"] == text
+
+    # The committed column was NOT rewritten per turn: it is deferred and flagged
+    # dirty, while the per-turn counters were maintained incrementally.
+    deferred = get_session(db_session, workspace_id=workspace.id, session_id=session_id, materialize=False)
+    assert kc._transcript_is_dirty(deferred) is True
+    assert (deferred.transcript or []) == []
+    assert deferred.metrics["turns"] == len(texts)
+
+    # A materializing reader sees the full transcript rebuilt from the ledger.
+    materialized = get_session(db_session, workspace_id=workspace.id, session_id=session_id)
+    transcript = list(materialized.transcript)
+    assert [turn["text"] for turn in transcript] == texts
+    assert all(turn["speaker"] == "expert" for turn in transcript)
+    assert all(turn["source_event_id"] for turn in transcript)
+    assert transcript[0]["question_id"] == question_id
+
+    # An eager (persist_transcript=True) turn catches up the deferred column and the
+    # rebuilt turn shape matches exactly what the eager path materializes.
+    eager = append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session_id,
+        speaker="expert",
+        question_id=None,
+        text="Tour eager pour comparer la forme du tour.",
+        compute_evaluation=False,
+    )
+    assert set(eager["turn"].keys()) == set(transcript[0].keys())
+
+    # serialize_session observes the complete transcript and never leaks the internal
+    # deferred flag.
+    payload = serialize_session(get_session(db_session, workspace_id=workspace.id, session_id=session_id))
+    assert len(payload["transcript"]) == len(texts) + 1
+    assert "transcript_dirty" not in payload["metrics"]
+    assert payload["metrics"]["turns"] == len(texts) + 1
+
+    # Proposal building persists the ledger-derived transcript and clears the flag so
+    # the column and the source of truth agree again.
+    proposal = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session_id)
+    segment_texts = {
+        (segment.get("amended_segment") or segment.get("raw_segment") or "").strip()
+        for segment in proposal.proposal["transcript_segments"]
+    }
+    assert all(text in segment_texts for text in texts)
+    synced = get_session(db_session, workspace_id=workspace.id, session_id=session_id, materialize=False)
+    assert kc._transcript_is_dirty(synced) is False
+    assert len(synced.transcript) == len(texts) + 1

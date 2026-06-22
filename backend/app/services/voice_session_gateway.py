@@ -207,6 +207,16 @@ class VoiceSessionState:
     # hint pass is throttled per session to avoid a retrieval storm. Reset on
     # every turn so a fresh utterance grounds promptly.
     last_capture_hints_at: Optional[float] = None
+    # Capture session resolution cache: the capture session id equals
+    # ``session_id`` and only its ``plan`` is needed on the hot partial/turn path
+    # (live section detection), so the growing capture row is loaded ONCE and its
+    # plan cached here instead of being re-queried per partial and per turn.
+    capture_plan: Optional[dict] = None
+    capture_session_resolved: bool = False
+    # Total committed words at the last live-questions generation: the oracle
+    # questions are triggered by NEW-word accumulation (decoupled from the short
+    # realtime STT turns), reset when the active section changes.
+    last_questions_word_count: int = 0
 
 
 # Cadence of the server-side incremental transcription. The live preview
@@ -231,8 +241,12 @@ _PARTIAL_STT_TIMEOUT_S = 15.0
 # The generation is an LLM round-trip fired in the background after a committed
 # capture turn; throttling keeps it to at most one call every N seconds.
 _LIVE_QUESTIONS_MIN_INTERVAL_S = 20.0
-# How many of the most recent committed turn texts feed the question context.
-_LIVE_QUESTIONS_CONTEXT_TURNS = 10
+# Oracle context/trigger decoupled from the short realtime STT turns: the
+# question context is the last ~N committed WORDS (richer than a sliding window
+# of tiny VAD-sized turns) and a new generation only fires once enough NEW words
+# accumulated since the last one OR the time throttle elapsed.
+_LIVE_QUESTIONS_CONTEXT_WORDS = 1000
+_LIVE_QUESTIONS_MIN_NEW_WORDS = 60
 
 # Live plan-section detection: lightweight title overlap only (no LLM). Partial
 # emits are throttled; turn commits always run detection once.
@@ -992,15 +1006,15 @@ class VoiceSessionGateway:
             async with state.db_lock:
                 if state.partial_stt_generation != my_generation:
                     return
-                capture_session = self._capture_session(db, workspace.id, state.session_id)
-            if capture_session:
+                self._ensure_capture_plan(db, workspace.id, state)
+            if state.capture_plan is not None:
                 await self._maybe_push_capture_hints(
                     websocket,
                     db,
                     user=user,
                     workspace=workspace,
                     state=state,
-                    capture_session=capture_session,
+                    capture_session_id=state.session_id,
                     partial_text=text,
                     generation=my_generation,
                 )
@@ -1045,8 +1059,8 @@ class VoiceSessionGateway:
             duration_ms=int(payload.get("duration_ms") or payload.get("latency_ms") or 0),
         )
         await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
-        capture_session = self._capture_session(db, workspace.id, state.session_id)
-        if capture_session and text.strip() and not is_capture_text_noise(text):
+        self._ensure_capture_plan(db, workspace.id, state)
+        if state.capture_plan is not None and text.strip() and not is_capture_text_noise(text):
             now = time.perf_counter()
             if (
                 state.last_capture_hints_at is None
@@ -1059,7 +1073,7 @@ class VoiceSessionGateway:
                     user=user,
                     workspace=workspace,
                     state=state,
-                    capture_session=capture_session,
+                    capture_session_id=state.session_id,
                     partial_text=text,
                 )
             try:
@@ -1068,7 +1082,7 @@ class VoiceSessionGateway:
                     db,
                     workspace=workspace,
                     state=state,
-                    capture_session=capture_session,
+                    plan=state.capture_plan,
                     partial_text=text,
                     source="partial",
                 )
@@ -1087,7 +1101,7 @@ class VoiceSessionGateway:
         user: User,
         workspace: Workspace,
         state: VoiceSessionState,
-        capture_session: ExpertCaptureSession,
+        capture_session_id: str,
         partial_text: str,
         generation: Optional[int] = None,
     ) -> None:
@@ -1104,7 +1118,8 @@ class VoiceSessionGateway:
                 capture_snapshot = get_session(
                     hint_db,
                     workspace_id=workspace.id,
-                    session_id=capture_session.id,
+                    session_id=capture_session_id,
+                    materialize=False,
                 )
                 # Contextualize live retrieval with the current plan topic AND the
                 # active open_questions so retrieved chunks stay relevant to what
@@ -1140,7 +1155,7 @@ class VoiceSessionGateway:
                 result = process_capture_partial_hints(
                     hint_db,
                     workspace_id=workspace.id,
-                    session_id=capture_session.id,
+                    session_id=capture_session_id,
                     partial_text=partial_text,
                     retrieval_chunks=chunks,
                     retrieval_metadatas=metadatas,
@@ -1166,7 +1181,7 @@ class VoiceSessionGateway:
         *,
         workspace: Workspace,
         state: VoiceSessionState,
-        capture_session: ExpertCaptureSession,
+        plan: Optional[Dict[str, Any]],
         partial_text: str,
         source: str,
     ) -> Optional[Dict[str, Any]]:
@@ -1193,9 +1208,9 @@ class VoiceSessionGateway:
                 return None
         state.last_live_section_detect_at = now
 
-        plan = dict(capture_session.plan or {})
+        plan_dict = dict(plan or {})
         detected = detect_active_section_from_text(
-            plan.get("topics") or [],
+            plan_dict.get("topics") or [],
             text,
             fallback_subtopic_id=state.active_subtopic_id,
         )
@@ -1224,7 +1239,7 @@ class VoiceSessionGateway:
                 set_active_capture_section(
                     db,
                     workspace_id=workspace.id,
-                    session_id=capture_session.id,
+                    session_id=state.session_id,
                     topic_id=state.active_topic_id,
                     subtopic_id=state.active_subtopic_id,
                 )
@@ -1280,8 +1295,7 @@ class VoiceSessionGateway:
         )
         if text:
             state.text_partials.append(text)
-        async with state.db_lock:
-            capture_session = self._capture_session(db, workspace.id, state.session_id)
+        self._ensure_capture_plan(db, workspace.id, state)
         latency = {
             "first_text": duration_ms,
             "final_text": duration_ms,
@@ -1299,7 +1313,7 @@ class VoiceSessionGateway:
             user=user,
             workspace=workspace,
             state=state,
-            capture_session=capture_session,
+            capture_session_id=state.session_id if state.capture_plan is not None else None,
             text=text,
             latency=latency,
             oracle_final_duration_ms=duration_ms,
@@ -1484,6 +1498,9 @@ class VoiceSessionGateway:
         # still holding the lock before touching the session here.
         async with state.db_lock:
             capture_session = self._capture_session(db, workspace.id, state.session_id)
+        if capture_session is not None and not state.capture_session_resolved:
+            state.capture_plan = dict(capture_session.plan or {})
+            state.capture_session_resolved = True
         corrected_text = text
         if text:
             # The raw STT text is both the live partial and the committed final. No
@@ -1578,7 +1595,7 @@ class VoiceSessionGateway:
             user=user,
             workspace=workspace,
             state=state,
-            capture_session=capture_session,
+            capture_session_id=capture_session.id if capture_session else None,
             text=text,
             latency=latency,
             oracle_final_duration_ms=first_text_ms,
@@ -1592,7 +1609,7 @@ class VoiceSessionGateway:
         user: User,
         workspace: Workspace,
         state: VoiceSessionState,
-        capture_session: Optional[ExpertCaptureSession],
+        capture_session_id: Optional[str],
         text: str,
         latency: Dict[str, Any],
         oracle_final_duration_ms: int,
@@ -1615,13 +1632,16 @@ class VoiceSessionGateway:
         reformulation can map it to the plan hierarchy. Turn state is reset on
         exit so the next utterance starts clean.
         """
-        if capture_session and text:
+        if capture_session_id and text:
             turn_started = time.perf_counter()
             async with state.db_lock:
+                # Silent capture path: skip the evaluate/relance work (computed
+                # then thrown away here) and fold the per-turn voice_stream metrics
+                # into append_turn's single commit (no second get_session+commit).
                 append_turn(
                     db,
                     workspace_id=workspace.id,
-                    session_id=capture_session.id,
+                    session_id=capture_session_id,
                     speaker="expert",
                     text=text,
                     question_id=state.question_id,
@@ -1635,9 +1655,14 @@ class VoiceSessionGateway:
                     contradiction_candidates=state.last_contradiction_candidates,
                     topic_id=state.active_topic_id,
                     subtopic_id=state.active_subtopic_id,
+                    compute_evaluation=False,
+                    # Defer the growing transcript-column rewrite: the turn is on the
+                    # append-only ledger; the column is rematerialized lazily on read
+                    # and persisted at section.finish / capture.finish (no O(N^2)).
+                    persist_transcript=False,
+                    voice_stream_metrics={**latency},
                 )
                 turn_to_prompt_ms = int((time.perf_counter() - turn_started) * 1000)
-                self._merge_capture_metrics(db, workspace.id, capture_session.id, {**latency, "turn_end_to_prompt": turn_to_prompt_ms})
             # Accumulate the committed expert text for the live grounded-question
             # context, scoped to the active plan section: switching sections
             # resets the buffer (and the questions, which belong to the old one).
@@ -1647,6 +1672,7 @@ class VoiceSessionGateway:
                 state.committed_turn_texts = []
                 state.live_open_questions = []
                 state.live_questions_generation += 1
+                state.last_questions_word_count = 0
             state.committed_turn_texts.append(text)
             # Passive "contexte retrouvé" panel only — no content questions/relances.
             oracle_retrieval = {
@@ -1663,7 +1689,7 @@ class VoiceSessionGateway:
                     db,
                     workspace=workspace,
                     state=state,
-                    capture_session=capture_session,
+                    plan=state.capture_plan,
                     partial_text=text,
                     source="turn_commit",
                 )
@@ -1693,7 +1719,7 @@ class VoiceSessionGateway:
                 state,
                 workspace_id=str(workspace.id),
                 workspace_slug=workspace.slug,
-                capture_session_id=capture_session.id if capture_session else None,
+                capture_session_id=capture_session_id,
             )
             if state.tandem_oracle_enabled:
                 # Inner-monologue track only (oracle "thinking"); no pushed prompt.
@@ -1743,8 +1769,11 @@ class VoiceSessionGateway:
 
         Called right after a capture turn is committed. Guards: live questions
         enabled, some accumulated expert text, at most ONE generation in flight
-        per session, and at most one generation per
-        ``_LIVE_QUESTIONS_MIN_INTERVAL_S`` seconds. All inputs are snapshotted
+        per session, and generated either once enough NEW words accumulated since
+        the last generation (``_LIVE_QUESTIONS_MIN_NEW_WORDS``) or after the time
+        throttle (``_LIVE_QUESTIONS_MIN_INTERVAL_S``) elapsed. The context is the
+        last ``_LIVE_QUESTIONS_CONTEXT_WORDS`` committed words rather than a fixed
+        number of (short, VAD-sized) realtime turns. All inputs are snapshotted
         here because ``_handle_audio_endpoint`` clears ``last_retrieval_*`` and
         ``client_turn_id`` right after scheduling.
         """
@@ -1755,14 +1784,19 @@ class VoiceSessionGateway:
         if state.live_questions_in_flight:
             return
         now = time.monotonic()
-        if (
-            state.last_live_questions_at is not None
-            and (now - state.last_live_questions_at) < _LIVE_QUESTIONS_MIN_INTERVAL_S
-        ):
+        context_words = " ".join(state.committed_turn_texts).split()
+        total_words = len(context_words)
+        new_words = total_words - state.last_questions_word_count
+        time_ready = (
+            state.last_live_questions_at is None
+            or (now - state.last_live_questions_at) >= _LIVE_QUESTIONS_MIN_INTERVAL_S
+        )
+        if new_words < _LIVE_QUESTIONS_MIN_NEW_WORDS and not time_ready:
             return
         state.live_questions_in_flight = True
         state.last_live_questions_at = now
-        context = "\n".join(state.committed_turn_texts[-_LIVE_QUESTIONS_CONTEXT_TURNS:])
+        state.last_questions_word_count = total_words
+        context = " ".join(context_words[-_LIVE_QUESTIONS_CONTEXT_WORDS:])
         plan_section = {
             "topic_id": state.active_topic_id,
             "subtopic_id": state.active_subtopic_id,
@@ -1783,6 +1817,7 @@ class VoiceSessionGateway:
                         question_db,
                         workspace_id=workspace_id,
                         session_id=capture_session_id,
+                        materialize=False,
                     )
                     query_context = self._retrieval_query_context(capture_snapshot)
                     retrieval_query = f"{context} {query_context}".strip()
@@ -2160,28 +2195,6 @@ class VoiceSessionGateway:
                     return None
         return None
 
-    def _merge_capture_metrics(
-        self,
-        db: DBSession,
-        workspace_id: str,
-        session_id: str,
-        latency: Dict[str, Any],
-    ) -> None:
-        try:
-            session = get_session(db, workspace_id=workspace_id, session_id=session_id)
-            metrics = dict(session.metrics or {})
-            voice_metrics = dict(metrics.get("voice_stream") or {})
-            voice_metrics["last_latency_ms"] = latency
-            voice_metrics["turns"] = int(voice_metrics.get("turns") or 0) + 1
-            voice_metrics["runtime_provider"] = latency.get("runtime_provider")
-            voice_metrics["runtime_requested_provider"] = latency.get("runtime_requested_provider")
-            voice_metrics["fallback_used"] = latency.get("fallback_used")
-            metrics["voice_stream"] = voice_metrics
-            session.metrics = metrics
-            db.commit()
-        except Exception:
-            db.rollback()
-
     @staticmethod
     def _actor_label(user: User) -> str:
         return user.email or user.username or user.id
@@ -2290,6 +2303,8 @@ class VoiceSessionGateway:
         state.active_topic_id = str(topic_id) if topic_id else metrics.get("active_topic_id")
         state.active_subtopic_id = str(subtopic_id) if subtopic_id else metrics.get("active_subtopic_id")
         plan = capture_session.plan or {}
+        state.capture_plan = dict(plan)
+        state.capture_session_resolved = True
         live_questions = plan.get("live_open_questions") if isinstance(plan.get("live_open_questions"), list) else []
         if live_questions:
             state.live_open_questions = [dict(item) for item in live_questions if isinstance(item, dict)]
@@ -2348,6 +2363,27 @@ class VoiceSessionGateway:
             .filter(ExpertCaptureSession.id == session_id, ExpertCaptureSession.workspace_id == workspace_id)
             .first()
         )
+
+    def _ensure_capture_plan(
+        self,
+        db: DBSession,
+        workspace_id: str,
+        state: VoiceSessionState,
+    ) -> None:
+        """Resolve the capture session plan ONCE per connection and cache it.
+
+        The capture session id is ``state.session_id``; ``session.start`` already
+        caches the plan when a capture session exists, so this only does a DB hit
+        in the rare case the row is created after the WS handshake. After
+        resolution ``state.capture_plan is not None`` means a capture session
+        exists for this connection.
+        """
+        if state.capture_session_resolved:
+            return
+        state.capture_session_resolved = True
+        capture_session = self._capture_session(db, workspace_id, state.session_id)
+        if capture_session is not None:
+            state.capture_plan = dict(capture_session.plan or {})
 
     async def _send_error(
         self,

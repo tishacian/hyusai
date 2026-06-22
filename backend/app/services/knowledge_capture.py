@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import quote
 
-from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.orm.attributes import flag_modified, set_committed_value
 from sqlalchemy.orm import Session as DBSession
 
 from app.models.capability import Capability
@@ -2173,7 +2173,11 @@ def process_capture_partial_hints(
     client_turn_id: Optional[str] = None,
     actor_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    # Per-partial hot path: skip the ledger rematerialization. The live oracle's
+    # ``recent_transcript`` context is best-effort and must not pay an O(N) rebuild
+    # on every partial; it reads the cached column (slightly behind during silent
+    # capture, which is acceptable for contradiction-tracking heuristics).
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
     if is_capture_text_noise(partial_text):
         return {"hints": [], "active_subtopic_id": None, "session": session, "ignored_reason": "stt_noise"}
     plan = dict(session.plan or {})
@@ -2580,7 +2584,7 @@ def build_session_closure_sheet(
     if not facts:
         facts = [
             {"text": str(turn.get("text") or "").strip(), "topic_path": turn.get("topic_path")}
-            for turn in (session.transcript or [])
+            for turn in _read_transcript(session, events=events)
             if turn.get("speaker") == "expert" and str(turn.get("text") or "").strip()
         ]
     unresolved: List[Dict[str, Any]] = []
@@ -3678,7 +3682,7 @@ def structure_capture_payload(
     *,
     plan_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    transcript = session.transcript or []
+    transcript = _read_transcript(session, events=transcript_events)
     evaluations = session.evaluations or []
     expert_turns = [turn for turn in transcript if turn.get("speaker") == "expert"]
     captured = [_fact_from_turn(turn, evaluations) for turn in expert_turns]
@@ -4319,6 +4323,10 @@ def _backfill_turn_plan_tags(
 
     session.transcript = transcript
     flag_modified(session, "transcript")
+    # These plan-section tags live only on the materialized turns (not the ledger);
+    # clear the deferred flag so later readers use this tagged cache rather than
+    # rebuilding a less-tagged transcript from events.
+    _set_transcript_dirty(session, False)
     captured = list(session.captured_facts or [])
     for fact in captured:
         if fact.get("topic_id") or fact.get("subtopic_id"):
@@ -4867,8 +4875,14 @@ def append_turn(
     topic_id: Optional[str] = None,
     subtopic_id: Optional[str] = None,
     topic_path: Optional[str] = None,
+    compute_evaluation: bool = True,
+    persist_transcript: bool = True,
+    voice_stream_metrics: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    turn_started_at = time.perf_counter()
+    # The turn is recorded on the append-only event ledger regardless; ``materialize``
+    # is skipped here so the hot per-turn path never pays the ledger rebuild.
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
     if session.status == "planned" and _topic_plan_requires_approval(session.plan or {}):
         raise ValueError("Capture plan must be approved before the session starts")
     if session.status == "planned":
@@ -4958,14 +4972,32 @@ def append_turn(
             "text_partials": text_partials or [],
             "latency_ms": latency_ms or {},
             **question_meta,
+            # Persist the RESOLVED section tags (explicit section.select wins over
+            # question-derived tags) so the ledger alone can rebuild the turn.
+            "topic_id": turn["topic_id"],
+            "subtopic_id": turn["subtopic_id"],
+            "topic_path": turn["topic_path"],
         },
     )
     turn["source_event_id"] = event.id
     turn["text_raw"] = text
     turn["text_status"] = event.status
-    transcript = list(session.transcript or [])
-    transcript.append(turn)
-    session.transcript = transcript
+    if persist_transcript:
+        # Keep the materialized cache in sync. When prior silent turns deferred the
+        # rewrite, catch up from the ledger (the new turn's event is already
+        # flushed) instead of appending onto a stale list.
+        if _transcript_is_dirty(session):
+            session.transcript = _transcript_from_events(_list_turn_events(db, session.id))
+            flag_modified(session, "transcript")
+            _set_transcript_dirty(session, False)
+        else:
+            transcript = list(session.transcript or [])
+            transcript.append(turn)
+            session.transcript = transcript
+    else:
+        # Silent capture path: do NOT rewrite the growing transcript column every
+        # turn. The event ledger is the source of truth; readers rematerialize it.
+        _set_transcript_dirty(session, True)
 
     evaluation: Optional[Dict[str, Any]] = None
     relance: Dict[str, Optional[str]] = {"kind": None, "text": None}
@@ -4975,42 +5007,59 @@ def append_turn(
     next_question: Optional[Dict[str, Any]] = None
     system_prompt_event_id: Optional[str] = None
     if speaker == "expert":
-        question = _find_question(session.plan or {}, question_id)
-        gap = _find_gap(session.knowledge_gaps or [], (question or {}).get("target_gap_id"))
-        evaluation = evaluate_expert_answer(answer=text, question=question, gap=gap)
-        evaluation["id"] = evaluation.get("id") or str(uuid.uuid4())
-        evaluation["turn_id"] = turn["id"]
-        evaluation["retrieval_event_id"] = retrieval_event_id
-        evaluation["turn_kind"] = turn_kind
-        evaluation.update(question_meta)
+        # Silent capture path (compute_evaluation=False) skips the per-turn LLM
+        # evaluate/relance work — the realtime gateway discards that return and the
+        # finalize rebuilds the proposal from the event ledger. captured_facts and
+        # the metrics recompute are kept because the post-finalize re-synthesis
+        # (answer_proposal_open_question) reads live ``session.captured_facts``.
+        if compute_evaluation:
+            question = _find_question(session.plan or {}, question_id)
+            gap = _find_gap(session.knowledge_gaps or [], (question or {}).get("target_gap_id"))
+            evaluation = evaluate_expert_answer(answer=text, question=question, gap=gap)
+            evaluation["id"] = evaluation.get("id") or str(uuid.uuid4())
+            evaluation["turn_id"] = turn["id"]
+            evaluation["retrieval_event_id"] = retrieval_event_id
+            evaluation["turn_kind"] = turn_kind
+            evaluation.update(question_meta)
 
-        topic_label = (question or {}).get("title") or question_meta.get("topic_path")
-        # The relance is still computed for internal tracking, but it is delivered as a
-        # NON-BLOCKING, optional suggestion. The expert drives: we never force an answer
-        # and never auto-advance the outline. The plan is a passive reminder + retrieval
-        # frame, not a script.
-        relance = build_relance(
-            answer=text,
-            evaluation=evaluation,
-            question=question,
-            topic_label=topic_label,
-            contradiction_candidates=contradiction_candidates,
-        )
-        evaluation["relance"] = relance
-        evaluation["follow_up"] = relance.get("text")
+            topic_label = (question or {}).get("title") or question_meta.get("topic_path")
+            # The relance is still computed for internal tracking, but it is delivered as a
+            # NON-BLOCKING, optional suggestion. The expert drives: we never force an answer
+            # and never auto-advance the outline. The plan is a passive reminder + retrieval
+            # frame, not a script.
+            relance = build_relance(
+                answer=text,
+                evaluation=evaluation,
+                question=question,
+                topic_label=topic_label,
+                contradiction_candidates=contradiction_candidates,
+            )
+            evaluation["relance"] = relance
+            evaluation["follow_up"] = relance.get("text")
 
-        evaluations = list(session.evaluations or [])
-        evaluations.append(evaluation)
-        session.evaluations = evaluations
+            evaluations = list(session.evaluations or [])
+            evaluations.append(evaluation)
+            session.evaluations = evaluations
 
         # Record the expert's free expression regardless of verdict — the plan no
         # longer gates what is captured.
         if _has_substantive_answer_text(text):
             captured = list(session.captured_facts or [])
-            captured.append(_fact_from_turn(turn, evaluations))
+            captured.append(_fact_from_turn(turn, session.evaluations or []))
             session.captured_facts = captured
 
-        session.metrics = _metrics_for_session(session)
+        if persist_transcript:
+            session.metrics = _metrics_for_session(session)
+        else:
+            # Silent capture path: derive the per-turn counters cheaply instead of
+            # the O(N) ``_metrics_for_session`` recompute (which would read the
+            # deferred transcript). The full metrics are refreshed on the next read
+            # (``serialize_session``) and at finalize.
+            metrics = dict(session.metrics or {})
+            metrics["turns"] = int(metrics.get("turns") or 0) + 1
+            metrics["captured_facts"] = len(session.captured_facts or [])
+            session.metrics = metrics
+            flag_modified(session, "metrics")
         resolve_hints_from_expert_text(
             db,
             workspace_id=workspace_id,
@@ -5018,31 +5067,53 @@ def append_turn(
             text=text,
             actor_user_id=actor_user_id,
         )
-        session = get_session(db, workspace_id=workspace_id, session_id=session_id)
 
-        suggestions = relance_to_suggestions(relance)
-        open_questions = build_open_questions(
-            session,
-            contradiction_candidates=contradiction_candidates,
-        )
+        if compute_evaluation:
+            suggestions = relance_to_suggestions(relance)
+            open_questions = build_open_questions(
+                session,
+                contradiction_candidates=contradiction_candidates,
+            )
 
-        _record_capture_run(
-            db,
-            workspace_id=workspace_id,
-            capability_id=session.capability_id,
-            trigger="knowledge_capture_turn",
-            input_ref={"session_id": session.id, "turn": turn},
-            output_ref={"evaluation": evaluation, "suggestions": suggestions},
-            skill_slugs=["expert_answer_evaluator_v1"],
-            initiated_by_user_id=actor_user_id,
-        )
+            _record_capture_run(
+                db,
+                workspace_id=workspace_id,
+                capability_id=session.capability_id,
+                trigger="knowledge_capture_turn",
+                input_ref={"session_id": session.id, "turn": turn},
+                output_ref={"evaluation": evaluation, "suggestions": suggestions},
+                skill_slugs=["expert_answer_evaluator_v1"],
+                initiated_by_user_id=actor_user_id,
+            )
         # Intentionally no system prompt is prepared and no next_prompt is emitted:
         # the AI listens and tracks, it does not push the expert to a next outline item.
 
+    if voice_stream_metrics is not None:
+        # Fold the per-turn voice_stream metrics into this single write instead of
+        # a second get_session + commit (previously _merge_capture_metrics).
+        metrics = dict(session.metrics or {})
+        voice_metrics = dict(metrics.get("voice_stream") or {})
+        recorded_latency = dict(voice_stream_metrics)
+        recorded_latency.setdefault(
+            "turn_end_to_prompt", int((time.perf_counter() - turn_started_at) * 1000)
+        )
+        voice_metrics["last_latency_ms"] = recorded_latency
+        voice_metrics["turns"] = int(voice_metrics.get("turns") or 0) + 1
+        voice_metrics["runtime_provider"] = recorded_latency.get("runtime_provider")
+        voice_metrics["runtime_requested_provider"] = recorded_latency.get("runtime_requested_provider")
+        voice_metrics["fallback_used"] = recorded_latency.get("fallback_used")
+        metrics["voice_stream"] = voice_metrics
+        session.metrics = metrics
+
     db.commit()
-    db.refresh(session)
+    # The silent capture caller discards the return; skip the O(N) ``db.refresh`` +
+    # ``serialize_session`` (which would re-read the whole transcript every turn).
+    serialized_session = None
+    if persist_transcript:
+        db.refresh(session)
+        serialized_session = serialize_session(session)
     return {
-        "session": serialize_session(session),
+        "session": serialized_session,
         "turn": turn,
         "evaluation": evaluation,
         "relance": relance,
@@ -5063,9 +5134,12 @@ def create_update_proposal(
     created_by_user_id: Optional[str] = None,
     plan_snapshot: Optional[Dict[str, Any]] = None,
 ) -> KnowledgeUpdateProposal:
-    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
     db.refresh(session)
     events = list_capture_events(db, workspace_id=workspace_id, session_id=session_id)
+    # Rebuild + persist the transcript from the ledger (no-op when already in sync)
+    # so the proposal payload, closure sheet and segments see every committed turn.
+    _persist_materialized_transcript(db, session, events=events)
     payload = structure_capture_payload(
         session,
         events,
@@ -5716,7 +5790,7 @@ def _section_statements(
 ) -> List[str]:
     """Tier-1 corrected expert statements belonging to a section (or all if unscoped)."""
     statements: List[str] = []
-    for turn in session.transcript or []:
+    for turn in _read_transcript(session):
         if not isinstance(turn, dict) or turn.get("speaker") != "expert":
             continue
         text = str(turn.get("text") or turn.get("text_raw") or "").strip()
@@ -5962,7 +6036,7 @@ def set_active_capture_section(
     actor_user_id: Optional[str] = None,
 ) -> ExpertCaptureSession:
     """Set the active topic/subtopic for the session (section.select). No relance."""
-    session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
     metrics = dict(session.metrics or {})
     meta = _resolve_plan_section_meta(session.plan or {}, topic_id, subtopic_id)
     if topic_id is not None:
@@ -6399,6 +6473,9 @@ async def _ensure_final_thematic_plan(
     session.transcript = transcript
     flag_modified(session, "plan")
     flag_modified(session, "transcript")
+    # Theme tags live only on the materialized turns; clear the deferred flag so the
+    # downstream proposal build uses this tagged cache instead of rebuilding it.
+    _set_transcript_dirty(session, False)
     _record_capture_event(
         db,
         session=session,
@@ -7259,7 +7336,13 @@ def amend_capture_event(
     }
 
 
-def get_session(db: DBSession, *, workspace_id: str, session_id: str) -> ExpertCaptureSession:
+def get_session(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    materialize: bool = True,
+) -> ExpertCaptureSession:
     session = (
         db.query(ExpertCaptureSession)
         .filter(ExpertCaptureSession.id == session_id, ExpertCaptureSession.workspace_id == workspace_id)
@@ -7267,6 +7350,12 @@ def get_session(db: DBSession, *, workspace_id: str, session_id: str) -> ExpertC
     )
     if not session:
         raise ValueError("Expert capture session not found")
+    # Lazily rematerialize the transcript cache from the append-only ledger when a
+    # silent capture turn deferred the rewrite. ``materialize=False`` keeps the
+    # per-turn / per-partial hot paths from paying the rebuild (they do not need a
+    # complete transcript and must never trigger the O(N) column rewrite).
+    if materialize and _transcript_is_dirty(session):
+        _materialize_committed_transcript(session, events=_list_turn_events(db, session.id))
     return session
 
 
@@ -7374,6 +7463,11 @@ def _session_created_by_label(session: ExpertCaptureSession) -> Optional[str]:
 
 
 def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] = None) -> Dict[str, Any]:
+    # Sessions reached without ``get_session`` (e.g. list queries) may still carry a
+    # deferred transcript: rebuild it from the ledger so every downstream read in
+    # this serializer (summary, open-question count, turn_count, transcript) is exact.
+    if _transcript_is_dirty(session):
+        _materialize_committed_transcript(session)
     plan = dict(session.plan or {})
     if surface in {"plan_build", "plan"} or _is_plan_build_schema(plan):
         plan = _serialize_plan_for_ui(plan, surface=surface)
@@ -7406,7 +7500,7 @@ def serialize_session(session: ExpertCaptureSession, *, surface: Optional[str] =
         "evaluations": session.evaluations or [],
         "captured_facts": session.captured_facts or [],
         "metrics": {
-            **(session.metrics or {}),
+            **{k: v for k, v in (session.metrics or {}).items() if k != "transcript_dirty"},
             **timer_metrics,
             "summary_short": summary_short,
             "open_questions_count": open_questions_count,
@@ -7777,6 +7871,141 @@ def _next_event_sequence(db: DBSession, session_id: str) -> int:
     return int(last[0]) + 1 if last else 1
 
 
+# The append-only event ledger is the source of truth for the conversation turns.
+# These finalized rows carry everything ``append_turn`` needs to rematerialize the
+# ``session.transcript`` JSON column, so a committed capture turn no longer has to
+# rewrite the whole growing column every turn (the O(N^2) hot path).
+_TURN_EVENT_TYPES = ("expert_turn_finalized", "transcript_turn_recorded")
+
+
+def _transcript_is_dirty(session: ExpertCaptureSession) -> bool:
+    """True when a silent capture turn deferred the transcript rewrite — the column
+    is stale and must be rebuilt from the event ledger before it is read."""
+    return bool((session.metrics or {}).get("transcript_dirty"))
+
+
+def _set_transcript_dirty(session: ExpertCaptureSession, value: bool) -> None:
+    metrics = dict(session.metrics or {})
+    if value:
+        if metrics.get("transcript_dirty") is True:
+            return
+        metrics["transcript_dirty"] = True
+    else:
+        if "transcript_dirty" not in metrics:
+            return
+        metrics.pop("transcript_dirty", None)
+    session.metrics = metrics
+    flag_modified(session, "metrics")
+
+
+def _list_turn_events(db: DBSession, session_id: str) -> List[ExpertCaptureEvent]:
+    return (
+        db.query(ExpertCaptureEvent)
+        .filter(
+            ExpertCaptureEvent.session_id == session_id,
+            ExpertCaptureEvent.event_type.in_(_TURN_EVENT_TYPES),
+        )
+        .order_by(ExpertCaptureEvent.sequence.asc(), ExpertCaptureEvent.created_at.asc())
+        .all()
+    )
+
+
+def _transcript_from_events(events: Iterable[ExpertCaptureEvent]) -> List[Dict[str, Any]]:
+    """Rebuild the ordered transcript turn list from the capture event ledger.
+
+    The turn dict mirrors exactly what ``append_turn`` materializes (same keys,
+    same shape) so every reader observes an identical transcript whether the
+    column was written eagerly or rebuilt lazily. Amendments are reflected because
+    the finalized event itself carries ``text_amended`` once an operator edits it.
+    """
+    turns: List[Dict[str, Any]] = []
+    for event in events:
+        if event.event_type not in _TURN_EVENT_TYPES:
+            continue
+        meta = event.meta_data or {}
+        amended = event.text_amended
+        turn = {
+            "id": meta.get("turn_id") or event.id,
+            "speaker": event.speaker,
+            "text": (amended.strip() if amended else (event.text_raw or "")),
+            "question_id": event.question_id,
+            "topic_id": meta.get("topic_id"),
+            "subtopic_id": meta.get("subtopic_id"),
+            "topic_path": meta.get("topic_path"),
+            "audio_ref": event.audio_ref,
+            "client_turn_id": meta.get("client_turn_id"),
+            "retrieval_event_id": meta.get("retrieval_event_id"),
+            "retrieval_refs": meta.get("retrieval_refs") or [],
+            "interruption_of_event_id": meta.get("interruption_of_event_id"),
+            "turn_kind": meta.get("turn_kind") or "answer",
+            "text_partials": meta.get("text_partials") or [],
+            "latency_ms": meta.get("latency_ms") or {},
+            "created_at": event.created_at.isoformat() if event.created_at else None,
+            "source_event_id": event.id,
+            "text_raw": event.text_raw,
+            "text_status": event.status,
+        }
+        if amended:
+            turn["text_amended"] = amended
+        turns.append(turn)
+    return turns
+
+
+def _read_transcript(
+    session: ExpertCaptureSession,
+    *,
+    events: Optional[Iterable[ExpertCaptureEvent]] = None,
+) -> List[Dict[str, Any]]:
+    """Correct transcript for a reader without mutating the session. Cheap (the
+    cached column) unless a silent turn deferred the rewrite, in which case it is
+    rebuilt from the supplied/related event ledger."""
+    if not _transcript_is_dirty(session):
+        return session.transcript or []
+    rows = events
+    if rows is None:
+        try:
+            rows = session.events
+        except Exception:
+            return session.transcript or []
+    return _transcript_from_events(rows)
+
+
+def _materialize_committed_transcript(
+    session: ExpertCaptureSession,
+    *,
+    events: Optional[Iterable[ExpertCaptureEvent]] = None,
+) -> List[Dict[str, Any]]:
+    """Refresh the in-memory ``session.transcript`` from the ledger WITHOUT marking
+    it dirty for SQLAlchemy (no per-read write). Used by read seams (``get_session``,
+    ``serialize_session``) so raw ``session.transcript`` access is correct again."""
+    rows = events
+    if rows is None:
+        try:
+            rows = session.events
+        except Exception:
+            return session.transcript or []
+    turns = _transcript_from_events(rows)
+    set_committed_value(session, "transcript", turns)
+    return turns
+
+
+def _persist_materialized_transcript(
+    db: DBSession,
+    session: ExpertCaptureSession,
+    *,
+    events: Optional[Iterable[ExpertCaptureEvent]] = None,
+) -> None:
+    """Write the ledger-derived transcript back to the column and clear the deferred
+    flag so the cache and the source of truth agree again (at section/finalize
+    boundaries). No-op when the column is already in sync."""
+    if not _transcript_is_dirty(session):
+        return
+    rows = events if events is not None else _list_turn_events(db, session.id)
+    session.transcript = _transcript_from_events(rows)
+    flag_modified(session, "transcript")
+    _set_transcript_dirty(session, False)
+
+
 def _sync_session_transcript_from_event(
     session: ExpertCaptureSession,
     event: ExpertCaptureEvent,
@@ -7794,6 +8023,9 @@ def _sync_session_transcript_from_event(
         break
     session.transcript = transcript
     flag_modified(session, "transcript")
+    # ``transcript`` was materialized in full by ``get_session`` before this edit,
+    # so the cache now reflects every committed turn plus the amendment.
+    _set_transcript_dirty(session, False)
 
 
 def _sync_captured_fact(session: ExpertCaptureSession, turn: Dict[str, Any]) -> None:
