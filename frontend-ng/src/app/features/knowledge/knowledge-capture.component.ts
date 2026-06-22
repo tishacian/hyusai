@@ -9109,7 +9109,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private voiceSegmentId(payload: Record<string, any>): string {
-    return String(payload['segment_id'] || this.currentClientTurnId || 'live-turn');
+    // Prefer the server-authoritative turn id. In realtime STT the sidecar mints
+    // a fresh turn_id per OpenAI item (several turns per mic-open) and emits BOTH
+    // text.partial (turn_id only) and transcript.partial (segment_id == turn_id)
+    // for the same partial. Falling back to currentClientTurnId made those two
+    // events land under different ids and flip-flop the live row via
+    // promoteLiveToPending -> a stale partial paragraph stuck next to the live
+    // one (the duplicate rows). turn_id is identical to currentClientTurnId in
+    // the batch path, so this is safe there too.
+    return String(payload['turn_id'] || payload['segment_id'] || this.currentClientTurnId || 'live-turn');
   }
 
   private voiceEventTurnId(payload: Record<string, any>): string {
@@ -11675,6 +11683,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const session = this.session();
     if (session) {
       const connection = await this.ensureVoiceConnection(session);
+      // Realtime STT's audio source is the published LiveKit mic track, NOT the
+      // local WebM MediaRecorder. A prior pause disabled it (audioPause ->
+      // setMicrophoneEnabled(false)) and ensureVoiceConnection reuses the existing
+      // connection without re-publishing, so on resume the sidecar never
+      // re-subscribed and no audio reached realtime ("redémarrer, mais plus rien").
+      // Re-enable here (idempotent on the first turn) so the track is republished.
+      if (this.realtimeSttActive && connection && 'enableMicrophone' in connection) {
+        await connection.enableMicrophone(true);
+      }
       const captureConfig = this.resolvedVoiceCaptureConfig();
       connection?.loopArmed({
         surface: 'knowledge_capture',
