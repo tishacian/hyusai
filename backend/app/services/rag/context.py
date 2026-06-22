@@ -1687,7 +1687,6 @@ async def _retrieve_recall_floor_pass(
     *,
     retrieval_query: str,
     top_n: int,
-    guide_hint: str,
     retrieval_policy: "RetrievalPolicy",
     deadline_seconds: float,
     max_candidates: int,
@@ -1702,6 +1701,12 @@ async def _retrieve_recall_floor_pass(
     large collection is exactly what the dense guardrail forbids. Forcing dense
     keeps the floor fast and deterministic so the unioned candidate still ranks
     high even when the rerank cross-encoder later times out.
+
+    The floor embeds the RAW user query with NO guide-hint suffix on purpose.
+    Guide hints steer the primary scoped pass toward the workspace corpus, but
+    appended to a terse question they shift the embedding enough to push the
+    missed answer doc out of the unscoped top-N - exactly the chunk the floor
+    exists to recover. A pure raw-query vector match is what ranks it #1.
     """
     bounded_top_n = max(1, int(top_n or 0) or 10)
     return await retrieve_for_mode(
@@ -1711,7 +1716,7 @@ async def _retrieve_recall_floor_pass(
         top_k=bounded_top_n,
         use_hybrid=False,
         hah_chah_enabled=False,
-        query_hints=guide_hint,
+        query_hints="",
         retrieval_policy=retrieval_policy,
         filters=None,
         deadline_seconds=deadline_seconds,
@@ -2588,7 +2593,6 @@ async def retrieve_rag_context(
                         doc_svc,
                         retrieval_query=retrieval_query,
                         top_n=floor_top_n,
-                        guide_hint=guide_hint,
                         retrieval_policy=retrieval_policy,
                         deadline_seconds=floor_remaining,
                         max_candidates=max_candidates,
@@ -3066,7 +3070,6 @@ async def _retrieve_multi_collection_context(
                                 doc_svc,
                                 retrieval_query=retrieval_query,
                                 top_n=recall_floor_top_n or pool_top_k,
-                                guide_hint=guide_hint,
                                 retrieval_policy=retrieval_policy,
                                 deadline_seconds=floor_remaining,
                                 max_candidates=max_candidates,

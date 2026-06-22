@@ -1585,6 +1585,42 @@ async def test_recall_floor_keeps_tight_project_scope_on_large_collection(db_ses
     assert collection.slug in plan.recall_floor_collections
 
 
+async def test_recall_floor_pass_embeds_raw_query_without_guide_hint(monkeypatch):
+    # Regression: the UNSCOPED recall-floor pass must embed the RAW user query
+    # with NO guide-hint suffix. Appending the workspace guide hint dilutes a
+    # terse question's embedding enough to push the missed answer doc out of the
+    # unscoped top-N (live D.60 'palier D.60 ?' phrasing) — exactly the chunk the
+    # floor exists to recover. It must also stay dense-only and unscoped.
+    captured: dict = {}
+
+    async def fake_retrieve_for_mode(doc_svc, query, mode, **kwargs):  # noqa: ARG001
+        captured["query"] = query
+        captured["mode"] = mode
+        captured["use_hybrid"] = kwargs.get("use_hybrid")
+        captured["query_hints"] = kwargs.get("query_hints")
+        captured["filters"] = kwargs.get("filters")
+        return SimpleNamespace(chunks=[], scores=[], metadatas=[], pipeline="naive", label="recall_floor", detail={})
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", fake_retrieve_for_mode)
+
+    await rag_context._retrieve_recall_floor_pass(
+        object(),
+        retrieval_query="palier D.60 ?",
+        top_n=15,
+        retrieval_policy=None,
+        deadline_seconds=2.0,
+        max_candidates=40,
+        retrieval_profile="balanced",
+        latency_profile="balanced",
+    )
+
+    assert captured["query"] == "palier D.60 ?"
+    assert captured["query_hints"] == ""
+    assert captured["use_hybrid"] is False
+    assert captured["filters"] is None
+    assert captured["mode"] == "naive"
+
+
 async def test_dense_planner_uses_collection_totals_when_source_ledger_is_partial(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
