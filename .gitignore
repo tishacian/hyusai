@@ -91,3 +91,7 @@ demo-assets/**/*.pptx
 # PIH product doc build outputs (generators under docs/render/ are tracked).
 docs/render/out/*.docx
 docs/render/assets/diagrams/
+
+# Scala / SBT / Metals build & BSP artifacts (root)
+/target/
+/.bsp/

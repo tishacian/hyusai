@@ -18,6 +18,7 @@ import pih_diagrams as dg
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DIAG = os.path.join(HERE, "assets", "diagrams")
+SCREENS = os.path.join(HERE, "assets", "screens")
 LOGO = os.path.join(HERE, "assets", "logo_datategy.png")
 OUT = os.path.join(HERE, "out", "Agentium-Product-Overview-PIH.docx")
 
@@ -182,12 +183,12 @@ def bullet(doc, text_runs, size=10.5, before=1, after=1):
     return p
 
 
-def image(doc, name, width=16.5, caption=None):
+def image(doc, name, width=16.5, caption=None, base=None):
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before = Pt(6)
     p.paragraph_format.space_after = Pt(2)
-    p.add_run().add_picture(os.path.join(DIAG, name), width=Cm(width))
+    p.add_run().add_picture(os.path.join(base or DIAG, name), width=Cm(width))
     if caption:
         c = doc.add_paragraph()
         c.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -308,8 +309,11 @@ def build():
 
     p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before = Pt(28)
-    r = p.add_run("Prepared for PIH")
+    r = p.add_run("Prepared for PowerMind")
     _runfmt(r, 14, MUT, bold=True)
+    p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r = p.add_run("Sovereign AI for PIH, Qatar and the region")
+    _runfmt(r, 11, MUT)
 
     p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r = p.add_run("Datategy   ·   June 2026")
@@ -373,6 +377,24 @@ def build():
     ])
     image(doc, "d1_value_loop.png", width=16.5,
           caption="The Agentium value loop — objectives become measured, continuously improved systems.")
+    heading(doc, "One unified, sovereign platform", 3, color=INK)
+    para(doc,
+         "Agentium is a single, unified operating system — one platform, one deployment, one "
+         "sovereign boundary. Internally it is organised in capability layers: a data & "
+         "machine-learning layer that builds the AI assets (pipelines, models, verticalised models), "
+         "a knowledge layer that builds the enterprise memory (ingested, structured, governed "
+         "knowledge), and an agentic layer that turns those assets and that memory into governed "
+         "autonomous systems — with domain suites on top.")
+    image(doc, "d8_portfolio.png", width=13.4,
+          caption="One unified, sovereign platform — capability layers, not separate products to procure.")
+    para(doc,
+         "These are layers of one platform, deployed and operated as a single system — there is "
+         "nothing extra to procure or stitch together. (They build on Datategy's data-science and "
+         "knowledge technologies, which can also be offered standalone, but here form one integrated "
+         "whole.) Models built in the data & ML layer are consumed directly by agents; agents in "
+         "turn call data and knowledge services as tools — all inside the same boundary.",
+         color=MUT)
+
     heading(doc, "At a glance — against PIH's needs", 3, color=INK)
     bullet(doc, [("Sovereignty — ", True, NAVY), ("models and data run entirely inside the customer boundary.", False, MUT)])
     bullet(doc, [("Robustness — ", True, NAVY), ("stateful runs, checkpoints, replay and resubmission with full lineage.", False, MUT)])
@@ -541,12 +563,84 @@ def build():
             "sovereign and on-premise, with no external dependency required.",
             NAVY, "0B2545", TINT["NAVY"])
 
+    heading(doc, "4.3   Reference infrastructure for sovereign hosting", 2, color=BLUE)
+    lead(doc, [
+        ("The entire stack runs inside the customer's boundary. ", True, NAVY),
+        ("Orchestration, data plane and the models themselves run on a customer-controlled Kubernetes "
+         "cluster, with complete network and tenant isolation — air-gap-capable, with no outbound "
+         "calls. The figures below are an order-of-magnitude reference baseline; final sizing depends "
+         "on the model mix and concurrency, and a leaner minimal profile hosts the full stack, models "
+         "included, scaling to high availability without re-architecture.", False, INK),
+    ])
+
+    heading(doc, "Reference baseline (full stack, models included)", 3, color=INK)
+    feature_table(doc, NAVY, "0B2545", [
+        ("Accelerators", "7–9 GPUs, ~320–384 GB VRAM total (mix per the options below). Example with L40S + H100: 3× L40S 48G + 1× H100 80G + 4× L4 24G (8 GPUs, 320 GB)."),
+        ("Compute", "~272 CPU cores (Xeon Gold / EPYC)."),
+        ("Memory", "~1.85 TB ECC RAM."),
+        ("Storage", "~19 TB local NVMe (OS + model cache); ~11 TB persistent data; 16 TB raw object storage (~10 TB usable, expandable)."),
+        ("Network", "25 GbE, redundant."),
+        ("Footprint", "7 servers (4 GPU + 3 data) on Kubernetes — deployed and managed by Datategy."),
+    ], c0="Resource", c1="Reference", w0=3.4, w1=13.6)
+
+    heading(doc, "GPU options — matched to available stock", 3, color=INK)
+    gpu = [
+        ("1 — A100 / H100 mix (preferred)", "2× H100 80G + 1× A100 80G + 4× L4 24G (7 GPUs)", "Best latency; MIG-capable"),
+        ("2 — Ada only (no A100 / H100)", "5× L40S 48G + 4× L4 24G (9 GPUs)", "Wide availability; ECC"),
+        ("3 — Full HBM", "3× H100 80G (or 3× A100 80G) + MIG for small models (3 GPUs)", "Maximum density"),
+        ("4 — L40S only", "6× L40S 48G", "Homogeneous fleet"),
+        ("5 — RTX 5090", "12× RTX 5090 32G (3× 4-GPU servers)", "Lowest CAPEX; staggered workloads; datacenter licence to confirm"),
+    ]
+    t = doc.add_table(rows=1, cols=3)
+    t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    t.allow_autofit = False
+    _set_borders(t, LINE, 4)
+    for j, htxt in enumerate(["Option", "Configuration", "Profile"]):
+        _shade(t.cell(0, j), "0B2545"); _cell_margins(t.cell(0, j))
+        _cell_text(t.cell(0, j), htxt, size=9.5, color=WHITE, bold=True)
+    for i, (opt, cfg, prof) in enumerate(gpu):
+        r = t.add_row()
+        fill = "FFFFFF" if i % 2 == 0 else PANEL
+        for c in r.cells:
+            _shade(c, fill); _cell_margins(c)
+        _cell_text(r.cells[0], opt, size=9.5, color=INK, bold=True)
+        _cell_text(r.cells[1], cfg, size=9.5, color=INK)
+        _cell_text(r.cells[2], prof, size=9.5, color=MUT)
+    for r in t.rows:
+        r.cells[0].width = Cm(4.6); r.cells[1].width = Cm(7.2); r.cells[2].width = Cm(5.2)
+    doc.add_paragraph().paragraph_format.space_after = Pt(2)
+    para(doc,
+         "Substitutions (70B-class): 1× H100 / A100 80G ≈ 2× L40S ≈ 2× RTX 5090 (tensor-parallel); "
+         "A100 is accepted in place of H100. A 120B-class model typically needs 3× RTX 5090 or "
+         "1× H100 / A100.", size=9.5, color=MUT, italic=True)
+
+    heading(doc, "Data nodes (all GPU options)", 3, color=INK)
+    feature_table(doc, GREEN, "0E8F62", [
+        ("Services", "PostgreSQL HA · Qdrant ×2 · MinIO object store · Kubernetes control plane."),
+        ("Per tier", "~48 cores, ~320 GB RAM, ~11 TB persistent (object tier expandable)."),
+        ("Topology", "Lean: 2 data nodes · High-availability: 4 data nodes."),
+    ], c0="Aspect", c1="Reference", w0=3.4, w1=13.6)
+    callout(doc, "Entire stack inside the boundary — models included",
+            "Every tier — orchestration, data and inference — runs on the customer's own cluster, "
+            "air-gap-capable and with no outbound calls. The full stack fits a lean two-data-node "
+            "profile for pilots and scales to high availability without re-architecture.",
+            NAVY, "0B2545", TINT["NAVY"])
+
+    heading(doc, "4.4   Air-gapped metering & reconciliation", 2, color=BLUE)
+    para(doc,
+         "Because every run and every skill invocation is metered in the ledger, the platform "
+         "produces usage reports — counts of runs, tool-calls and tokens per workspace and "
+         "capability — entirely offline. In an air-gapped deployment these are exported as signed "
+         "files for reconciliation: there is no phone-home and no external telemetry, yet the figures "
+         "are tamper-evident and independently verifiable. This gives a clean, auditable basis for "
+         "licence and consumption reconciliation in a fully isolated environment.")
+
     # ===================================================== 5 Feature Catalog
     doc.add_page_break()
     heading(doc, "5   Feature Catalog", 1, color=NAVY, rule=True)
     para(doc,
          "The platform's capabilities, grouped by domain. Each capability is available in the "
-         "product today and maps to one or more of PIH's stated needs (see Section 5).",
+         "product today and maps to one or more of PIH's stated needs (see Section 10).",
          color=MUT)
 
     group(doc, "5.1   Agent Builder", BLUE, "2D6CDF",
@@ -556,6 +650,8 @@ def build():
            ("Versioning & rollback", "Every change is versioned; roll back to any prior version without rewriting history."),
            ("Export & import", "Portable JSON envelopes move a System between workspaces, re-binding skills by identifier."),
            ("Reusable capabilities", "A catalog of business capabilities bundles the right skills, pricing and quality thresholds.")])
+    image(doc, "ui-flow-builder.png", width=16.5, base=SCREENS,
+          caption="The flow builder — composing a System as a run-engine DAG of typed skills.")
 
     group(doc, "5.2   Orchestration & Execution", PURPLE, "6D28D9",
           "Stateful, governed execution of every agent run.",
@@ -565,6 +661,8 @@ def build():
            ("Adaptive policies", "Mid-run directives switch model, fall back, escalate to a human or stop — only within permitted bounds."),
            ("Skill registry", "Typed, versioned, metered skills with declared cost, latency and retry behaviour."),
            ("Tool-calling ledger", "Every skill invocation is recorded with input, output, status, cost and latency.")])
+    image(doc, "ui-steering.png", width=16.5, base=SCREENS,
+          caption="Steering — control and adaptive policies with live what-if projection.")
 
     group(doc, "5.3   Agent Evaluation", GREEN, "0E8F62",
           "Measure and improve agent quality continuously, under human control.",
@@ -575,6 +673,8 @@ def build():
            ("Component attribution", "Quality failures are attributed to the responsible pipeline component — retrieval, ranking or generation."),
            ("Canonical answers", "Approved replies answer matching questions deterministically, bypassing the model."),
            ("Proactive recommendations", "Aggregated quality trends surface recommended adjustments for human approval.")])
+    image(doc, "ui-evaluation-quality.png", width=16.5, base=SCREENS,
+          caption="The evaluation dashboard — composite score, component-level health, drift and a 12-dimension quality radar.")
 
     group(doc, "5.4   Security & Identity", AMBER, "B45309",
           "Enterprise identity, access control and guardrails for autonomous agents.",
@@ -602,7 +702,7 @@ def build():
            ("Cross-encoder reranking", "A budgeted cross-encoder reorders candidates for precision within a latency ceiling."),
            ("Context compression & diversity", "Compression and diversity selection keep the context window tight and non-redundant.")])
 
-    group(doc, "5.7   Document Center", GREEN, "0E8F62",
+    group(doc, "5.7   Document Intelligence", GREEN, "0E8F62",
           "Turn enterprise documents into governed, retrievable knowledge — entirely on-premise.",
           [("Multi-format ingestion", "PDF, Office, text and image ingestion, with batch upload and incremental sync."),
            ("Sovereign OCR", "Provider-neutral OCR — a self-hosted engine with a local fallback; documents never leave the boundary."),
@@ -612,6 +712,8 @@ def build():
            ("Chunk & index audit", "Every indexed chunk is browsable with its source, position and payload; per-collection inventory and diagnostics give full transparency over coverage."),
            ("Hybrid retrieval", "Dense and sparse retrieval with adaptive fusion, reranking and grounded, cited answers (see Section 3)."),
            ("Knowledge-base isolation", "Strict per-collection isolation; cross-scope leakage is prevented at query time.")])
+    image(doc, "ui-news-lab-charts.png", width=16.5, base=SCREENS,
+          caption="Intelligence over a monitored feed — sentiment mix and top-entity analytics synthesised from ingested sources.")
 
     group(doc, "5.8   Connectors & Knowledge Capture", PURPLE, "6D28D9",
           "Bring knowledge in securely, with provenance and human review.",
@@ -631,10 +733,224 @@ def build():
          "Four operating roles share this cockpit: an Executive monitors the portfolio, an Operator "
          "runs and tunes systems, a Governance officer enforces policy and audit, and a Builder "
          "composes and tests new agents.", color=MUT, italic=True)
+    image(doc, "ui-hypervisor.png", width=16.5, base=SCREENS,
+          caption="The Hypervisor — portfolio cost, value, ROI and signals, live per capability.")
+
+    # ===================================================== 6 Data, ML & Model Verticalisation
+    doc.add_page_break()
+    heading(doc, "6   Data, ML & Model Verticalisation", 1, color=NAVY, rule=True)
+    lead(doc, [
+        ("Agents are only as good as the models and data behind them. ", True, NAVY),
+        ("The platform's data and machine-learning layer trains, tunes, fine-tunes and operates the "
+         "models the agentic layer orchestrates. Generic models become domain models — verticalised "
+         "on the customer's own data, in the customer's own environment, and governed end to end.", False, INK),
+    ])
+    image(doc, "d10_ml_verticalization.png", width=16.5,
+          caption="From the customer's data to a verticalised sovereign model, served on-prem and orchestrated by Agentium.")
+
+    heading(doc, "6.1   Machine-learning capabilities", 2, color=BLUE)
+    para(doc, "A full data-science and machine-learning workbench, on a Spark-based data engine.",
+         color=MUT, italic=True, before=0)
+    feature_table(doc, BLUE, "2D6CDF", [
+        ("DataOps & preparation", "Spark-based ingestion, cleaning, feature engineering and time-series preparation across enterprise sources."),
+        ("Model families", "Classification, regression, clustering, survival and time-series forecasting; NLP — named-entity recognition, relation extraction and text classification; computer vision — image classification; and pre-trained tabular transformers (e.g. TabPFN)."),
+        ("AutoML & tuning", "Automated model search and hyper-parameter optimisation (e.g. Tree-structured Parzen Estimator)."),
+        ("Fine-tuning & verticalisation", "Train and fine-tune models on the customer's domain data — tabular, time-series, text and vision — to specialise generic models to the business. For sovereign language-model specialisation, the approach centres on retrieval and knowledge (RAG/CAG), complemented by parameter-efficient fine-tuning (e.g. LoRA, and proprietary layer-augmentation methods) for deeper domain adaptation."),
+        ("Explainability & fairness", "SHAP, LIME and counterfactual explanations, feature importance, error analysis and fairness analysis."),
+        ("Interpretable reporting", "Auto-generated model reports with evaluation metrics and interpretability."),
+    ], c0="Capability", c1="What it does")
+    image(doc, "papai-features.png", width=16.5, base=SCREENS,
+          caption="Feature engineering — per-feature imputation, transformation, statistics and data quality on the customer's data.")
+    image(doc, "papai-models.png", width=16.5, base=SCREENS,
+          caption="Model selection and configuration — from classic ML to pre-trained tabular transformers (TabPFN).")
+    image(doc, "papai-debug.png", width=16.5, base=SCREENS,
+          caption="Explainability — error analysis and silent failure detection.")
+
+    heading(doc, "6.2   MLOps lifecycle", 2, color=BLUE)
+    para(doc, "Industrialise every model from training to monitored production.",
+         color=MUT, italic=True, before=0)
+    feature_table(doc, GREEN, "0E8F62", [
+        ("Model registry & artefacts", "Versioned models with signatures, environment pinning and metadata lineage."),
+        ("Deployment & serving", "Containerised model build and an inference gateway with multi-model routing, batch scoring for high-throughput offline inference, and workflow orchestration for multi-step ML pipelines."),
+        ("Monitoring & drift", "Data- and performance-drift detection, prediction logging and feedback capture."),
+        ("Champion / challenger", "Multi-model routing supports comparison and progressive rollout."),
+        ("Governed retraining", "Feedback and new data flow back to retraining under human control."),
+    ], c0="Capability", c1="What it does")
+    image(doc, "papai-interpret.png", width=16.5, base=SCREENS,
+          caption="Explainability — per-feature impact and partial dependence on the model's predictions.")
+    image(doc, "papai-deployment.png", width=13.0, base=SCREENS,
+          caption="Model serving — a trained model exposed as a secured, token-authenticated REST endpoint.")
+
+    heading(doc, "6.3   How verticalised models feed the agents", 2, color=BLUE)
+    para(doc,
+         "A model trained or fine-tuned in the data & ML layer is registered, served inside the "
+         "boundary and consumed by a System as a skill — a prediction, a classification, a forecast "
+         "or a domain-adapted language capability. Conversely, a System can invoke data and ML "
+         "services as tools within a workflow. Runs, evaluations and new data flow back into "
+         "training, closing a governed improvement loop in which models and agents sharpen together "
+         "on the customer's data — all within one platform and one sovereign boundary.")
+
+    # ===================================================== 7 Enterprise Integration & Connectivity
+    doc.add_page_break()
+    heading(doc, "7   Enterprise Integration & Connectivity", 1, color=NAVY, rule=True)
+    lead(doc, [
+        ("Agentium connects to the systems where enterprise data and processes already live. ", True, NAVY),
+        ("A proven, Spark-based connector framework — extensible to any source — lets agents and "
+         "pipelines read from, and write back to, databases, warehouses, object stores, collaboration "
+         "platforms and ERP systems, all from within the sovereign boundary.", False, INK),
+    ])
+
+    heading(doc, "7.1   Connector framework", 2, color=BLUE)
+    para(doc, "A generalized, extensible framework. The connectors below are available today; the "
+              "list is illustrative, not a closed catalogue — any further source is added through the "
+              "same framework and then reused as a typed skill.",
+         color=MUT, italic=True, before=0)
+    feature_table(doc, BLUE, "2D6CDF", [
+        ("Relational & warehouse", "PostgreSQL, Oracle, SQL Server, MySQL, Snowflake, BigQuery (JDBC and native)."),
+        ("NoSQL & search", "MongoDB, Cassandra, Elasticsearch / OpenSearch."),
+        ("Object & file storage", "S3, Google Cloud Storage, Azure, MinIO; Excel, CSV and document formats."),
+        ("Collaboration & intake", "SharePoint (OAuth and guest-link), secure SFTP deposit."),
+        ("Extensible by design", "Any further source — databases, APIs, message buses, line-of-business and ERP systems — is added through the generalized framework, then reused platform-wide."),
+    ], c0="Category", c1="Available today (illustrative, not exhaustive)")
+    image(doc, "ui-connectors.png", width=16.5, base=SCREENS,
+          caption="The connections catalogue — relational, NoSQL, search, file-transfer and cloud-storage sources, extensible on demand.")
+
+    heading(doc, "7.2   SAP interoperability", 2, color=BLUE)
+    para(doc,
+         "SAP is a first-class integration target. The connector framework speaks to SAP through its "
+         "standard, supported interfaces — so SAP data and processes can be brought into agents, "
+         "retrieval and ML without bespoke middleware, and without data leaving the boundary.")
+    image(doc, "d9_sap_integration.png", width=16.5,
+          caption="SAP and enterprise interoperability through standard interfaces, inside the sovereign boundary.")
+    feature_table(doc, AMBER, "B45309", [
+        ("SAP HANA — SQL / JDBC", "Direct, high-throughput read (and write) against HANA and S/4HANA data."),
+        ("CDS views", "Consume SAP's semantic data models, preserving business meaning."),
+        ("OData / SAP Gateway", "Read and write business objects over standard OData services."),
+        ("BAPI / RFC", "Invoke transactional business functions through the standard RFC bridge."),
+        ("IDoc", "Exchange business documents in SAP's native interchange format."),
+        ("SLT / CDC & events", "Near-real-time replication and change-data-capture for event-driven flows."),
+    ], c0="Interface", c1="Capability", w0=4.4, w1=12.6)
+    para(doc,
+         "The right mix is chosen per use case — direct SQL/CDS for analytical access, OData/BAPI for "
+         "transactional read-write, SLT/CDC for streaming. A connector can be deployed inside the "
+         "air-gapped boundary so SAP credentials and data never traverse an external network.",
+         color=MUT)
+
+    heading(doc, "7.3   APIs, skills & MCP", 2, color=BLUE)
+    para(doc,
+         "Every Agentium capability is exposed through a documented REST API, and every tool an agent "
+         "uses is a typed, versioned skill in a shared registry — built once and factorised across "
+         "all Systems, never re-implemented per project. New connectors and tools are added as skills "
+         "and immediately reusable. The platform is designed to interoperate over the Model Context "
+         "Protocol (MCP) for connecting external tools and data sources to agents.")
+    feature_table(doc, PURPLE, "6D28D9", [
+        ("Systems & runs", "Create, version, execute and replay Systems; browse the run ledger."),
+        ("Skills & capabilities", "Discover the typed skill registry and business-capability catalogue."),
+        ("Chat & retrieval", "Streaming chat with citations; document search and retrieval."),
+        ("Documents & knowledge", "Upload, collections, chunks, diagnostics and metadata."),
+        ("Evaluation & governance", "Scores, review queue, presets, decisions and audit export."),
+        ("Control plane & hypervisor", "Policies, what-if simulation and portfolio aggregates."),
+        ("Connectors & voice", "SharePoint and deposit intake; real-time voice gateway."),
+    ], c0="API surface", c1="Endpoints", w0=4.6, w1=12.4)
+    para(doc,
+         "New APIs and connectors developed for a customer are built on this surface and factorised "
+         "into the shared registry, so each integration enriches the reusable platform rather than a "
+         "one-off silo.", color=MUT)
+
+    # ===================================================== 8 Reference — Andritz
+    doc.add_page_break()
+    heading(doc, "8   Reference — Andritz", 1, color=NAVY, rule=True)
+    lead(doc, [
+        ("An industrial knowledge and AI program for a global heavy-industry equipment manufacturer. ", True, NAVY),
+        ("Datategy is delivering a multi-domain program — expert knowledge capture, technical document "
+         "intelligence, AI-assisted reporting and diagnostics, and ERP-integrated service intelligence "
+         "— on a sovereign, on-premise-capable platform, operating alongside the customer's ERP and "
+         "maintenance systems.", False, INK),
+    ])
+    para(doc, "Specific project, site, equipment and system details are covered by NDA and available "
+              "on request; the account below is generalised accordingly.", size=9.5, color=MUT, italic=True)
+
+    heading(doc, "8.1   Capabilities", 2, color=BLUE)
+    feature_table(doc, BLUE, "2D6CDF", [
+        ("Expert knowledge capture", "Guided, voice-enabled interviews with field-service experts; tacit reasoning structured into reviewable knowledge proposals."),
+        ("Technical document intelligence", "A large multi-source technical corpus indexed for grounded, cited semantic search, scoped per project."),
+        ("Secure ingestion", "A secure-deposit pipeline with operator-controlled staging, validation and promotion before any content is indexed."),
+        ("Multilingual retrieval", "Grounded, cited answers across multiple languages, with strict per-scope isolation."),
+    ], c0="Capability", c1="Demonstrated on a live system")
+    para(doc, "The broader program extends to AI-assisted intervention reporting, troubleshooting and "
+              "diagnostics support, and ERP-integrated customer and service intelligence.", color=MUT)
+
+    heading(doc, "8.2   ERP & maintenance (SAP) context", 2, color=BLUE)
+    para(doc,
+         "The program operates alongside the customer's ERP and maintenance systems, including SAP. "
+         "Agents cross-reference maintenance work orders and intervention records, and spare-parts "
+         "knowledge is linked to ERP master data, so an expert's escalation reasoning is grounded in "
+         "the maintenance record rather than informal report. It is a concrete demonstration of "
+         "Agentium operating in an ERP-adjacent, maintenance-critical setting — the pattern that the "
+         "SAP integration in Section 7 formalises.")
+
+    heading(doc, "8.3   Outcomes & learnings", 2, color=BLUE)
+    bullet(doc, [("Retrieval quality — ", True, INK), ("a validated question set passes end-to-end on the live system, with correct project scoping.", False, MUT)])
+    bullet(doc, [("Multilingual coverage — ", True, INK), ("questions asked in one language reliably resolve against documents in another.", False, MUT)])
+    bullet(doc, [("Provenance discipline — ", True, INK), ("answers cite project, document and section; proof sources (maintenance records, sensor exports) are treated as authoritative over informal report.", False, MUT)])
+    bullet(doc, [("Operating learning — ", True, INK), ("operator-controlled promotion and human review of captured knowledge proved essential to trust; the workflow makes that gate explicit.", False, MUT)])
+
+    # ===================================================== 9 Delivery & Operations
+    doc.add_page_break()
+    heading(doc, "9   Delivery & Operations", 1, color=NAVY, rule=True)
+
+    heading(doc, "9.1   Building agents — complexity tiers", 2, color=BLUE)
+    para(doc,
+         "Agent build effort scales with complexity, not with platform friction: the Builder, the "
+         "skill registry and reusable connectors mean most of the work is configuration and "
+         "evaluation rather than bespoke code. The tiers below are indicative, order-of-magnitude "
+         "guidance to map resources; actual effort depends on data readiness and integration depth.")
+    tiers = [
+        ("Simple", "One capability, existing skills and a ready knowledge source; light evaluation.", "~1–3 person-days"),
+        ("Medium", "Several skills, a custom flow, one or two integrations, tuned retrieval and evaluation thresholds.", "~1–2 person-weeks"),
+        ("Complex", "Heavy integration (e.g. SAP), multi-step or multi-agent orchestration, custom skills and rigorous evaluation.", "~3–6 person-weeks"),
+    ]
+    t = doc.add_table(rows=1, cols=3)
+    t.alignment = WD_TABLE_ALIGNMENT.CENTER
+    t.allow_autofit = False
+    _set_borders(t, LINE, 4)
+    for j, htxt in enumerate(["Tier", "What it involves", "Indicative effort"]):
+        _shade(t.cell(0, j), "0B2545"); _cell_margins(t.cell(0, j))
+        _cell_text(t.cell(0, j), htxt, size=9.5, color=WHITE, bold=True)
+    for i, (tier, inv, eff) in enumerate(tiers):
+        r = t.add_row()
+        fill = "FFFFFF" if i % 2 == 0 else PANEL
+        for c in r.cells:
+            _shade(c, fill); _cell_margins(c)
+        _cell_text(r.cells[0], tier, size=9.5, color=INK, bold=True)
+        _cell_text(r.cells[1], inv, size=9.5, color=MUT)
+        _cell_text(r.cells[2], eff, size=9.5, color=INK, bold=True)
+    for r in t.rows:
+        r.cells[0].width = Cm(2.6); r.cells[1].width = Cm(10.4); r.cells[2].width = Cm(4.0)
+    doc.add_paragraph().paragraph_format.space_after = Pt(2)
+    para(doc,
+         "Effort falls over time as the registry of skills and connectors grows: the second SAP-heavy "
+         "agent is far faster than the first. Delivery runs as a joint team — a Datategy solution "
+         "architect leads as the Agentium expert, with the customer's architects building alongside "
+         "and progressively taking ownership.", color=MUT)
+
+    heading(doc, "9.2   Operating the platform locally", 2, color=BLUE)
+    para(doc, "Day-to-day administration needs a small local team; the platform's own surfaces keep "
+              "that footprint lean.", color=MUT, italic=True, before=0)
+    feature_table(doc, GREEN, "0E8F62", [
+        ("Platform / SRE", "Operates the Kubernetes cluster and Agentium services; uses built-in health checks and a cluster dashboard."),
+        ("Security / IAM admin", "Manages identity, roles and policies through the identity provider and the governance surfaces."),
+        ("Knowledge / data steward", "Curates collections, ingestion and quality presets; reviews captured knowledge."),
+        ("ML engineer (optional)", "Runs model training and MLOps when model verticalisation is in scope."),
+    ], c0="Local role", c1="Responsibility & platform support")
+    para(doc,
+         "Observability, audit and evaluation are built in, so the operating team supervises and "
+         "governs rather than firefights. Datategy operates and manages the Kubernetes layer under an "
+         "agreed model, with the customer's team progressively self-sufficient.", color=MUT)
 
     # ===================================================== 5 Alignment to PIH
     doc.add_page_break()
-    heading(doc, "6   Alignment to PIH Requirements", 1, color=NAVY, rule=True)
+    heading(doc, "10   Alignment to PIH Requirements", 1, color=NAVY, rule=True)
     para(doc,
          "PIH expressed five needs. Each maps directly onto capabilities that exist in the product "
          "today. The distinction Agentium offers is not that it ticks these boxes — several "
@@ -699,7 +1015,7 @@ def build():
 
     # ===================================================== 7 Competitive Positioning
     doc.add_page_break()
-    heading(doc, "7   Competitive Positioning", 1, color=NAVY, rule=True)
+    heading(doc, "11   Competitive Positioning", 1, color=NAVY, rule=True)
     para(doc,
          "The comparison below is based on publicly available information as of June 2026 and focuses "
          "on the dimensions PIH prioritised. It is offered in good faith; where a capability is not "
@@ -802,9 +1118,33 @@ def build():
         bullet(doc, [(q, False, MUT)])
     lead(doc, [("Agentium answers yes to each.", True, NAVY)], before=4, after=2)
 
-    # ===================================================== 8 Why Agentium
+    # ===================================================== 12 Value Model
     doc.add_page_break()
-    heading(doc, "8   Why Agentium for PIH", 1, color=NAVY, rule=True)
+    heading(doc, "12   Value Model", 1, color=NAVY, rule=True)
+    lead(doc, [
+        ("Agentium is adopted along five value dimensions. ", True, NAVY),
+        ("They describe how value is structured — so capacity, knowledge, expertise and infrastructure "
+         "can scale independently to match the customer's pace. Commercial terms for each are set out "
+         "separately, in the accompanying proposal.", False, INK),
+    ])
+    image(doc, "d11_value_model.png", width=15.5,
+          caption="Five value dimensions that scale independently.")
+    feature_table(doc, NAVY, "0B2545", [
+        ("Agentium Platform", "The right to run the Agentium operating system — the orchestration, builder, evaluation and governance core."),
+        ("System Capacity", "The number of autonomous business capabilities (Systems) deployed and run."),
+        ("Knowledge Capacity", "The exploitable enterprise memory — document volume and the knowledge bases agents draw on."),
+        ("Center of Excellence", "Datategy expertise to design, build and industrialise Systems, delivered as a joint team."),
+        ("Sovereign Infrastructure", "The sovereign execution layer — run as the customer's own capacity or as a managed sovereign service (optional)."),
+    ], c0="Dimension", c1="What it represents", w0=4.4, w1=12.6)
+    para(doc,
+         "Because the dimensions are independent, a customer can grow System Capacity without growing "
+         "Knowledge Capacity, draw on the Center of Excellence only while ramping, and choose whether "
+         "sovereign infrastructure is owned or managed — adapting the platform to the mission rather "
+         "than the reverse.", color=MUT)
+
+    # ===================================================== 13 Why Agentium
+    doc.add_page_break()
+    heading(doc, "13   Why Agentium for PIH", 1, color=NAVY, rule=True)
     para(doc,
          "The capabilities PIH asked for are, individually, available across the market. What is not "
          "available elsewhere is delivering them on a stack the customer fully owns. Because "
@@ -832,6 +1172,18 @@ def build():
         ("Cross-encoder", "A precision reranking model that scores a query against each candidate passage."),
         ("Grounding", "Requiring an answer to be supported by a retrieved source, or else declining to answer."),
         ("Composite score", "A weighted aggregate quality score produced by the evaluation layer for each run."),
+        ("MLOps", "The discipline and tooling for deploying, versioning, monitoring and retraining machine-learning models in production."),
+        ("Fine-tuning", "Adapting a pre-trained model to a specific domain or task using the customer's own data."),
+        ("NER / RE", "Named-Entity Recognition / Relation Extraction — NLP tasks that identify entities and the relations between them."),
+        ("RAG / CAG", "Retrieval- and Cache-Augmented Generation — grounding answers in retrieved or cached enterprise knowledge."),
+        ("LoRA", "Low-Rank Adaptation — a parameter-efficient method to adapt a language model to a domain without full retraining."),
+        ("Drift", "A measurable shift in input data or model performance over time, signalling that retraining may be needed."),
+        ("SAP PM", "SAP Plant Maintenance — the SAP module for maintenance work orders, intervention records and equipment data."),
+        ("BAPI / RFC", "SAP's standard interfaces for invoking business functions and remote calls programmatically."),
+        ("OData", "A standard REST protocol used by SAP Gateway to read and write business objects."),
+        ("CDS views", "SAP Core Data Services — semantic data models exposing SAP data with business meaning."),
+        ("SLT / CDC", "SAP Landscape Transformation / change-data-capture — near-real-time replication of changing data."),
+        ("MCP", "Model Context Protocol — an open standard for connecting external tools and data sources to AI agents."),
     ]
     feature_table(doc, MUT, "596371", gloss, c0="Term", c1="Meaning", w0=4.0, w1=13.0)
 

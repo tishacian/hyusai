@@ -338,8 +338,133 @@ def d7_foundation():
     return _save(fig, "d7_foundation.png")
 
 
+# ============================================================ D8 — platform portfolio
+def d8_portfolio():
+    fig, ax = _fig(13, 6.2)
+    cont = FancyBboxPatch((6, 9), 118, 45, boxstyle="round,pad=0,rounding_size=3",
+                          linewidth=1.8, edgecolor=NAVY, facecolor="#F4F7FB", zorder=0)
+    ax.add_patch(cont)
+    ax.text(65, 57.8, "One unified, sovereign platform — the Agentium operating system",
+            ha="center", fontsize=11, color=NAVY, fontweight="bold")
+    layers = [
+        ("Domain suites", "translation · narration · authoring", AMBER, 48.5, 7.0),
+        ("Agentic intelligence", "orchestration · evaluation · governance", PURPLE, 38.5, 8.5),
+        ("Knowledge intelligence", "ingest · structure · serve the enterprise memory", GREEN, 28, 8.5),
+        ("Data & ML intelligence", "pipelines · models · verticalisation", BLUE, 17.5, 8.5),
+    ]
+    for name, sub, c, cy, h in layers:
+        _box(ax, 65, cy, 104, h, [(name, True, 12, c), (sub, False, 8.8, MUT)],
+             fill=LIGHT[c], edge=c, accent=c, round_r=2.0)
+    for y1, y2 in [(21.9, 23.6), (32.4, 34.1), (42.8, 44.7)]:
+        _arrow(ax, 65, y1, 65, y2, color=MUT, lw=1.3)
+    ax.text(65, 4.6, "one platform · one deployment · one sovereign boundary",
+            ha="center", fontsize=9.2, color=MUT, style="italic")
+    return _save(fig, "d8_portfolio.png")
+
+
+# ============================================================ D9 — SAP / enterprise integration
+def d9_sap_integration():
+    fig, ax = _fig(13, 5.8)
+    bound = FancyBboxPatch((3, 3), 124, 50, boxstyle="round,pad=0,rounding_size=3",
+                           linewidth=1.6, edgecolor=NAVY, facecolor="#FAFBFD",
+                           linestyle=(0, (6, 4)), zorder=0)
+    ax.add_patch(bound)
+    ax.text(65, 50.6, "Enterprise & SAP interoperability — inside the sovereign boundary",
+            ha="center", fontsize=10, color=NAVY, fontweight="bold")
+    # left — SAP & enterprise systems
+    _box(ax, 21, 27, 30, 30,
+         [("SAP & enterprise", True, 11, NAVY), ("", False, 3, MUT),
+          ("S/4HANA · SAP HANA", False, 9.3, INK),
+          ("SAP PM · other ERP", False, 9.3, INK),
+          ("Databases · warehouses", False, 9.3, INK),
+          ("Files · object stores", False, 9.3, INK)],
+         fill=LIGHT[NAVY], edge=NAVY, accent=NAVY, round_r=2.2)
+    # middle — connector framework
+    _box(ax, 65, 27, 38, 34,
+         [("Connector framework", True, 11, PURPLE), ("", False, 2, MUT),
+          ("SAP HANA — SQL / JDBC", False, 9, INK),
+          ("CDS views · OData / Gateway", False, 9, INK),
+          ("BAPI / RFC · IDoc", False, 9, INK),
+          ("SLT / CDC · event-driven", False, 9, INK), ("", False, 2, MUT),
+          ("generalized & extensible", True, 8.3, MUT)],
+         fill=LIGHT[PURPLE], edge=PURPLE, accent=PURPLE, round_r=2.2)
+    # right — consumers (functional, one platform)
+    _box(ax, 109, 37, 30, 11, [("Agents & skills", True, 9.8, BLUE), ("orchestration", False, 8.4, MUT)],
+         fill=LIGHT[BLUE], edge=BLUE, accent=BLUE, round_r=2.0)
+    _box(ax, 109, 18, 30, 11, [("ML & analytics", True, 9.8, GREEN), ("data science", False, 8.4, MUT)],
+         fill=LIGHT[GREEN], edge=GREEN, accent=GREEN, round_r=2.0)
+    _arrow(ax, 36, 27, 45.5, 27, color=MUT, lw=1.8)
+    _arrow(ax, 84.5, 30, 93.5, 36, color=MUT, lw=1.6, rad=-0.12)
+    _arrow(ax, 84.5, 24, 93.5, 18, color=MUT, lw=1.6, rad=0.12)
+    return _save(fig, "d9_sap_integration.png")
+
+
+# ============================================================ D10 — ML verticalization loop
+def d10_ml_verticalization():
+    fig, ax = _fig(13, 4.8)
+    bound = FancyBboxPatch((3, 8), 124, 36, boxstyle="round,pad=0,rounding_size=3",
+                           linewidth=1.4, edgecolor=NAVY, facecolor="#FAFBFD",
+                           linestyle=(0, (6, 4)), zorder=0)
+    ax.add_patch(bound)
+    stages = [("Data", "DataOps · Spark", GREEN),
+              ("Train & fine-tune", "AutoML · ML / NLP / vision", BLUE),
+              ("MLOps", "registry · deploy · monitor", PURPLE),
+              ("Verticalised model", "sovereign, on-prem", AMBER),
+              ("Agentium System", "model as skill / tool", NAVY)]
+    n = len(stages)
+    w, h = 21, 14
+    gap = (118 - n * w) / (n - 1)
+    y = 30
+    xs = []
+    for i, (t, sub, c) in enumerate(stages):
+        cx = 6 + w / 2 + i * (w + gap)
+        xs.append(cx)
+        _box(ax, cx, y, w, h, [(t, True, 10.5, c), (sub, False, 8.6, MUT)],
+             fill=LIGHT[c], edge=c, accent=c, round_r=2.0)
+        if i:
+            _arrow(ax, xs[i - 1] + w / 2 + 0.5, y, cx - w / 2 - 0.5, y, color=MUT, lw=1.7)
+    _arrow(ax, xs[-1], y - h / 2 - 0.5, xs[0], y - h / 2 - 0.5, color=AMBER, lw=1.6, rad=-0.22)
+    ax.text((xs[0] + xs[-1]) / 2, 13.2, "runs, feedback and new data flow back to papAI",
+            ha="center", fontsize=9, color=AMBER, style="italic")
+    return _save(fig, "d10_ml_verticalization.png")
+
+
+# ============================================================ D11 — value model
+def d11_value_model():
+    fig, ax = _fig(13, 5.0)
+    # usage pillars (top)
+    _box(ax, 30, 38, 40, 11, [("System Capacity", True, 12, GREEN),
+                              ("autonomous capabilities deployed", False, 8.8, MUT)],
+         fill=LIGHT[GREEN], edge=GREEN, accent=GREEN, round_r=2.2)
+    _box(ax, 74, 38, 40, 11, [("Knowledge Capacity", True, 12, PURPLE),
+                              ("exploitable enterprise memory", False, 8.8, MUT)],
+         fill=LIGHT[PURPLE], edge=PURPLE, accent=PURPLE, round_r=2.2)
+    # platform (middle)
+    _box(ax, 52, 24, 84, 9, [("Agentium Platform", True, 12.5, BLUE),
+                             ("the agent operating system", False, 8.8, MUT)],
+         fill=LIGHT[BLUE], edge=BLUE, accent=BLUE, round_r=2.2)
+    # sovereign infrastructure (foundation)
+    _box(ax, 52, 12, 84, 9, [("Sovereign Infrastructure", True, 12, NAVY),
+                             ("owned capacity or managed service · optional", False, 8.8, MUT)],
+         fill=LIGHT[NAVY], edge=NAVY, accent=NAVY, round_r=2.2)
+    # CoE — enablement band on the right
+    _box(ax, 113, 25, 24, 39, [("Center of", True, 11, AMBER), ("Excellence", True, 11, AMBER),
+                               ("", False, 3, MUT),
+                               ("Datategy expertise", False, 8.5, MUT),
+                               ("to build &", False, 8.5, MUT),
+                               ("industrialise", False, 8.5, MUT)],
+         fill=LIGHT[AMBER], edge=AMBER, accent=AMBER, round_r=2.2)
+    _arrow(ax, 52, 16.6, 52, 19.3, color=MUT, lw=1.4)
+    _arrow(ax, 40, 28.6, 33, 32.3, color=MUT, lw=1.3, rad=0.1)
+    _arrow(ax, 64, 28.6, 71, 32.3, color=MUT, lw=1.3, rad=-0.1)
+    ax.text(52, 4.6, "Five value dimensions that scale independently",
+            ha="center", fontsize=9.2, color=MUT, style="italic")
+    return _save(fig, "d11_value_model.png")
+
+
 ALL = [d1_value_loop, d2_chain, d3_lifecycle, d4_pipeline, d5_deployment,
-       d6_alignment, d7_foundation]
+       d6_alignment, d7_foundation, d8_portfolio, d9_sap_integration,
+       d10_ml_verticalization, d11_value_model]
 
 
 def render_all():
