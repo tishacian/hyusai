@@ -77,15 +77,21 @@ async function readJson(req) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-function isAudioTrack(track, publication) {
-  const values = [
-    track?.kind,
-    track?.source,
-    publication?.kind,
-    publication?.source,
-    publication?.trackInfo?.type,
-    publication?.trackInfo?.source,
-  ]
+// @livekit/rtc-node exposes track kind/source as NUMERIC protobuf enums
+// (TrackKind.KIND_AUDIO = 1, TrackSource.SOURCE_MICROPHONE = 2), not strings.
+// Stringifying a numeric enum ("1") never contains "audio"/"microphone", so the
+// realtime mic track was misclassified as non-audio and monitorAudioStream was
+// never started -> zero audio reached the realtime STT. Accept the numeric enum
+// (preferring the SDK constants when available) AND keep string fallbacks for
+// other transport shapes.
+export function isAudioTrack(track, publication, livekitModule) {
+  const audioKind = livekitModule?.TrackKind?.KIND_AUDIO ?? 1;
+  const micSource = livekitModule?.TrackSource?.SOURCE_MICROPHONE ?? 2;
+  const kinds = [track?.kind, publication?.kind, publication?.trackInfo?.type];
+  if (kinds.some((value) => value === audioKind)) return true;
+  const sources = [track?.source, publication?.source, publication?.trackInfo?.source];
+  if (sources.some((value) => value === micSource)) return true;
+  const values = [...kinds, ...sources]
     .filter((value) => value !== undefined && value !== null)
     .map((value) => String(value).toLowerCase());
   return values.some((value) => value.includes('audio') || value.includes('microphone'));
@@ -768,9 +774,10 @@ export async function startSession(dispatch, options = {}) {
       );
     })
     .on(livekit.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      const trackIsAudio = isAudioTrack(track, publication, livekit);
       dbgRtStt('track_subscribed', {
         participant: participant?.identity || null,
-        is_audio: isAudioTrack(track, publication),
+        is_audio: trackIsAudio,
         track_kind: track?.kind ?? null,
         track_source: track?.source ?? null,
         pub_kind: publication?.kind ?? null,
@@ -784,11 +791,11 @@ export async function startSession(dispatch, options = {}) {
           participant_identity: participant?.identity || null,
           track_sid: publication?.trackSid || publication?.sid || null,
           track_name: publication?.trackName || publication?.name || null,
-          is_audio: isAudioTrack(track, publication),
+          is_audio: trackIsAudio,
         },
         { topic: topics.metrics },
       );
-      if (isAudioTrack(track, publication)) {
+      if (trackIsAudio) {
         void monitorAudioStream(livekit, session, track, participant?.identity || null);
       }
     })

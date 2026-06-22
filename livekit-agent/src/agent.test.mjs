@@ -1,7 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import { createAgentiumLiveKitAgentServer, handleControlEvent, startSession } from './agent.mjs';
+import { createAgentiumLiveKitAgentServer, handleControlEvent, isAudioTrack, startSession } from './agent.mjs';
+
+test('isAudioTrack recognizes the numeric @livekit/rtc-node enum (KIND_AUDIO=1)', () => {
+  // Regression: rtc-node delivers kind/source as numeric protobuf enums; the mic
+  // track arrived as { kind: 1, source: 2 } and was misclassified as non-audio,
+  // so the realtime audio stream never started.
+  assert.equal(isAudioTrack({ kind: 1, source: 2 }, { kind: 1, source: 2 }), true);
+  assert.equal(isAudioTrack({ kind: 1 }, {}), true);
+  // Video track (KIND_VIDEO=2 / SOURCE_CAMERA=1) must stay false.
+  assert.equal(isAudioTrack({ kind: 2, source: 1 }, { kind: 2, source: 1 }), false);
+  // String-shaped fallback still works.
+  assert.equal(isAudioTrack({ kind: 'audio' }, {}), true);
+  assert.equal(isAudioTrack({ kind: 'video' }, { source: 'camera' }), false);
+  // Honors SDK constants when provided.
+  assert.equal(
+    isAudioTrack({ kind: 7 }, {}, { TrackKind: { KIND_AUDIO: 7 }, TrackSource: { SOURCE_MICROPHONE: 9 } }),
+    true,
+  );
+});
 
 function request(server, method, url, body = null) {
   return new Promise((resolve, reject) => {
