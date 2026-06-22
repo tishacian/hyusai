@@ -288,6 +288,66 @@ def test_free_conversation_plan_starts_without_questions(db_session):
     assert turn_result["next_question_id"] is None
 
 
+def test_written_capture_turn_keeps_document_context_off_the_stt_path(db_session):
+    workspace = Workspace(id="ws-text-doc-capture", name="Text Doc Capture", slug="text-doc-capture")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Capture écrite documentée",
+        objective="Capturer les observations d'un expert sur une page de manuel.",
+        expert_profile="Responsable maintenance",
+        duration_minutes=30,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+    visual_context = {
+        "document_id": "manual-pdf",
+        "collection": "capture-session-text-doc",
+        "filename": "manuel.pdf",
+        "title": "Manuel ligne BBA",
+        "page": 7,
+        "association_mode": "active_view",
+    }
+
+    result = append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=None,
+        text="Sur cette page, le schéma montre que le capteur doit rester avant la vanne de bypass.",
+        input_modality="text",
+        document_refs=[visual_context],
+        visual_context=visual_context,
+        compute_evaluation=False,
+    )
+
+    assert result["turn"]["input_modality"] == "text"
+    assert result["turn"]["document_refs"][0]["document_id"] == "manual-pdf"
+    assert result["turn"]["document_refs"][0]["page"] == 7
+
+    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert not any(event.event_type == "stt_final" for event in events)
+    finalized = next(event for event in events if event.event_type == "expert_turn_finalized")
+    assert finalized.source == "expert_text"
+    assert finalized.meta_data["document_refs"][0]["filename"] == "manuel.pdf"
+
+    loaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    payload = structure_capture_payload(loaded, events)
+    fact = payload["captured_facts"][0]
+    assert fact["input_modality"] == "text"
+    assert fact["document_refs"][0]["page"] == 7
+    topic = payload["plan_structure"]["topics"][0]
+    assert topic["title"] == "Synthèse de la capture"
+    assert topic["sources"][0]["kind"] == "capture_document_ref"
+    assert topic["sources"][0]["page"] == 7
+
+
 def test_capture_plan_turn_and_review_proposal(db_session):
     workspace = Workspace(id="ws-capture", name="Capture", slug="capture")
     db_session.add(workspace)
@@ -1080,6 +1140,141 @@ async def test_publish_persists_export_urls(db_session, monkeypatch):
     assert reviewed.proposal["publication"]["published_at"]
     assert reviewed.proposal["recommended_ingestion"]["metadata"]["proposal_id"] == reviewed.id
     assert reviewed.proposal["recommended_ingestion"]["metadata"]["capture_session_id"] == session.id
+
+
+@pytest.mark.asyncio
+async def test_publish_promotes_referenced_capture_documents(db_session, monkeypatch):
+    from app.services.knowledge_collections import (
+        create_or_get_collection,
+        get_collection_or_404,
+        original_key,
+        update_collection_status,
+        upsert_collection_source,
+    )
+    from app.services.object_store import get_object_store
+
+    workspace = Workspace(id="ws-capture-publish-docs", name="Capture Publish Docs", slug="capture-publish-docs")
+    context = Context(
+        id="ctx-capture-publish-docs",
+        workspace_id=workspace.id,
+        name="Capture docs export",
+        environment_state={"collection": "capture-export-knowledge"},
+    )
+    db_session.add_all([workspace, context])
+    seed_skills_and_capabilities(db_session)
+
+    source_collection = create_or_get_collection(
+        db_session,
+        workspace=workspace,
+        slug="capture-session-source",
+        name="Capture session source",
+    )
+    store = get_object_store()
+    source_filename = "support-technique.pdf"
+    content = b"%PDF-1.4\ncapture support\n"
+    store.write_bytes(original_key(source_collection, source_filename), content)
+    upsert_collection_source(
+        db_session,
+        collection=source_collection,
+        filename=source_filename,
+        status="ready",
+        origin="capture_session_upload",
+        size_bytes=len(content),
+        source_metadata={"document_id": source_filename},
+    )
+    update_collection_status(
+        db_session,
+        source_collection.id,
+        status="ready",
+        document_names=[source_filename],
+        document_count=1,
+    )
+    db_session.commit()
+
+    class FakeDocumentService:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        async def ingest_document(self, *_: object, **__: object) -> dict:
+            return {"document_id": "published-fiche", "chunks_processed": 1, "status": "success"}
+
+    dispatched: list[tuple[str, bool]] = []
+
+    def fake_dispatch(db, job, *, allow_inline_fallback=True):  # noqa: ANN001
+        dispatched.append((job.id, allow_inline_fallback))
+        return f"task-{job.id}"
+
+    monkeypatch.setattr("app.services.rag.document_service.DocumentService", FakeDocumentService)
+    monkeypatch.setattr("app.services.worker_dispatch.dispatch_worker_job", fake_dispatch)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Publication avec support",
+        objective="Capturer une règle liée à un support documentaire.",
+        expert_profile="Responsable maintenance",
+        duration_minutes=20,
+        context_id=context.id,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="Sur cette page, la procédure impose de purger avant redémarrage.",
+        input_modality="text",
+        document_refs=[
+            {
+                "kind": "capture_document_ref",
+                "document_id": source_filename,
+                "collection": source_collection.slug,
+                "filename": source_filename,
+                "title": "Support technique",
+                "page": 4,
+            }
+        ],
+        compute_evaluation=False,
+    )
+    proposal = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session.id)
+    reviewed = review_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        status="accepted",
+        reviewer="operator@datategy.local",
+        review_notes="Validé.",
+    )
+
+    result = await publish_proposal_to_knowledge(
+        db_session,
+        workspace=workspace,
+        proposal_id=reviewed.id,
+        actor_label="operator@datategy.local",
+        destination="capture-export-knowledge",
+    )
+
+    promoted = result["promoted_documents"]
+    assert promoted
+    assert promoted[0]["collection"] == "capture-export-knowledge"
+    assert promoted[0]["page"] == 4
+    assert dispatched
+    assert dispatched[0][1] is False
+
+    destination_collection = get_collection_or_404(
+        db_session,
+        workspace_id=workspace.id,
+        collection_ref="capture-export-knowledge",
+    )
+    assert store.exists(original_key(destination_collection, promoted[0]["filename"]))
+    db_session.refresh(reviewed)
+    publication = reviewed.proposal["publication"]
+    assert publication["promoted_documents"][0]["filename"] == promoted[0]["filename"]
+    report_source = reviewed.proposal["plan_structure"]["topics"][0]["sources"][0]
+    assert report_source["collection"] == "capture-export-knowledge"
+    assert report_source["publication_promoted"] is True
 
 
 @pytest.mark.asyncio

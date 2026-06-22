@@ -4,6 +4,7 @@ import asyncio
 import mimetypes
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 from collections import Counter
@@ -896,6 +897,36 @@ async def _document_filename_for_id(
     return doc.get("filename") or doc.get("document_filename") or ""
 
 
+_OFFICE_PREVIEW_EXTENSIONS = {".doc", ".docx", ".pptx"}
+
+
+def _office_preview_pdf_bytes(original: bytes, filename: str) -> bytes:
+    suffix = Path(filename).suffix.lower() or ".pptx"
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        source_path = Path(tmp_dir) / Path(filename).name
+        source_path.write_bytes(original)
+        cmd = [
+            "soffice",
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            tmp_dir,
+            str(source_path),
+        ]
+        completed = subprocess.run(cmd, capture_output=True, timeout=45, check=False)
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or b"").decode("utf-8", errors="ignore")[:300]
+            raise RuntimeError(f"office_preview_conversion_failed:{detail}")
+        pdf_path = source_path.with_suffix(".pdf")
+        if not pdf_path.exists():
+            candidates = list(Path(tmp_dir).glob("*.pdf"))
+            pdf_path = candidates[0] if candidates else pdf_path
+        if not pdf_path.exists():
+            raise RuntimeError(f"office_preview_conversion_missing:{suffix}")
+        return pdf_path.read_bytes()
+
+
 @router.get("/{document_id}/metadata")
 async def get_document_metadata(
     document_id: str,
@@ -1071,12 +1102,27 @@ async def rich_preview_document(
             f"/api/v1/documents/{quote(document_id)}/raw"
             f"?collection_name={quote(collection_name)}&filename={quote(resolved_name)}"
         )
+        ext = Path(resolved_name).suffix.lower()
 
         exists, size = _resolve_original_meta(
             db, workspace, collection_name, document_id, resolved_name
         )
         if not exists:
             raise HTTPException(status_code=404, detail="Source file not found")
+
+        if ext in _OFFICE_PREVIEW_EXTENSIONS:
+            converted_url = (
+                f"/api/v1/documents/{quote(document_id)}/converted-preview"
+                f"?collection_name={quote(collection_name)}&filename={quote(resolved_name)}"
+            )
+            return {
+                "kind": "pdf",
+                "filename": f"{Path(resolved_name).stem}.pdf",
+                "content_type": "application/pdf",
+                "size_bytes": size,
+                "download_url": converted_url,
+                "source_filename": resolved_name,
+            }
 
         if not preview_needs_file_bytes(resolved_name, media_type, size):
             # PDF / image / binary: only size + media type are needed.
@@ -1158,6 +1204,50 @@ async def serve_document_raw(
         raise
     except Exception as e:
         logger.error(f"Error serving raw document: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{document_id}/converted-preview")
+async def converted_preview_document(
+    document_id: str,
+    collection_name: str = Query("documents"),
+    disposition: str = Query("inline"),
+    filename: Optional[str] = Query(
+        None, description="Filename hint; skips the collection scan when provided."
+    ),
+    db: DBSession = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    try:
+        resolved_name = filename
+        if not resolved_name:
+            resolved_name = await _document_filename_for_id(
+                db,
+                workspace,
+                collection_name,
+                document_id,
+            )
+        if not resolved_name:
+            raise HTTPException(status_code=404, detail="Document not found")
+        if Path(resolved_name).suffix.lower() not in _OFFICE_PREVIEW_EXTENSIONS:
+            raise HTTPException(status_code=415, detail="Converted preview is not available for this file type")
+        data = _resolve_original_bytes(db, workspace, collection_name, document_id, resolved_name)
+        if data is None:
+            raise HTTPException(status_code=404, detail="Source file not found")
+        pdf = _office_preview_pdf_bytes(data, resolved_name)
+        safe_disposition = "attachment" if disposition == "attachment" else "inline"
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'{safe_disposition}; filename="{Path(resolved_name).stem}.pdf"',
+                "Cache-Control": "private, max-age=300",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error converting document preview: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

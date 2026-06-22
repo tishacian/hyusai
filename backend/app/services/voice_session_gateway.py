@@ -13,7 +13,7 @@ import math
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session as DBSession
@@ -1361,6 +1361,8 @@ class VoiceSessionGateway:
             text=text,
             latency=latency,
             oracle_final_duration_ms=duration_ms,
+            document_refs=payload.get("document_refs") if isinstance(payload.get("document_refs"), list) else [],
+            visual_context=payload.get("visual_context") if isinstance(payload.get("visual_context"), dict) else None,
         )
 
     async def _handle_audio_endpoint(
@@ -1391,6 +1393,8 @@ class VoiceSessionGateway:
             endpoint_reason_raw = "auto"
         endpoint_reason = str(endpoint_reason_raw or "manual").strip().lower()[:40] or "manual"
         endpoint_capture_mode = str(payload.get("capture_mode") or "").strip().lower()[:40] or None
+        endpoint_document_refs = payload.get("document_refs") if isinstance(payload.get("document_refs"), list) else []
+        endpoint_visual_context = payload.get("visual_context") if isinstance(payload.get("visual_context"), dict) else None
         endpoint_vad_settings: Dict[str, Any] = {}
         for key in (
             "silence_ms",
@@ -1643,6 +1647,8 @@ class VoiceSessionGateway:
             text=text,
             latency=latency,
             oracle_final_duration_ms=first_text_ms,
+            document_refs=endpoint_document_refs,
+            visual_context=endpoint_visual_context,
         )
 
     async def _persist_capture_turn(
@@ -1657,6 +1663,8 @@ class VoiceSessionGateway:
         text: str,
         latency: Dict[str, Any],
         oracle_final_duration_ms: int,
+        document_refs: Optional[List[Dict[str, Any]]] = None,
+        visual_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Persist one committed expert turn and run the silent live oracle.
 
@@ -1699,6 +1707,9 @@ class VoiceSessionGateway:
                     contradiction_candidates=state.last_contradiction_candidates,
                     topic_id=state.active_topic_id,
                     subtopic_id=state.active_subtopic_id,
+                    input_modality="voice",
+                    document_refs=document_refs or [],
+                    visual_context=visual_context,
                     compute_evaluation=False,
                     # Defer the growing transcript-column rewrite: the turn is on the
                     # append-only ledger; the column is rematerialized lazily on read

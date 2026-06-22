@@ -49,6 +49,23 @@ export interface CaptureTurnRequest {
   retrieval_event_id?: string | null;
   interruption_of_event_id?: string | null;
   turn_kind?: 'answer' | 'correction' | 'complement';
+  input_modality?: 'voice' | 'text';
+  document_refs?: Record<string, unknown>[];
+  visual_context?: Record<string, unknown> | null;
+}
+
+export interface CaptureDocumentViewRequest {
+  document_id?: string | null;
+  collection?: string | null;
+  collection_name?: string | null;
+  filename?: string | null;
+  title?: string | null;
+  page?: number | null;
+  page_number?: number | null;
+  slide?: number | null;
+  image_index?: number | null;
+  preview?: string | null;
+  association_mode?: string;
 }
 
 export interface RetrievalPrefetchRequest {
@@ -641,6 +658,20 @@ export class ApiService {
 
   addCaptureTurn(sessionId: string, body: CaptureTurnRequest): Observable<unknown> {
     return this.post(`/knowledge-capture/sessions/${sessionId}/turns`, body);
+  }
+
+  listCaptureDocuments(sessionId: string): Observable<unknown> {
+    return this.get(`/knowledge-capture/sessions/${sessionId}/documents`);
+  }
+
+  uploadCaptureDocuments(sessionId: string, files: FileList | File[]): Observable<unknown> {
+    const formData = new FormData();
+    Array.from(files).forEach((file) => formData.append('files', file));
+    return this.post(`/knowledge-capture/sessions/${sessionId}/documents`, formData);
+  }
+
+  recordCaptureDocumentView(sessionId: string, body: CaptureDocumentViewRequest): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/documents/view`, body);
   }
 
   listCaptureEvents(sessionId: string, afterSequence?: number, businessOnly = false): Observable<unknown> {

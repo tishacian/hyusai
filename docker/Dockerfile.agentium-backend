@@ -9,6 +9,9 @@ RUN : "${PIP_INDEX_URL:?PIP_INDEX_URL is required}"
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
+        fonts-dejavu \
+        libreoffice-impress \
+        libreoffice-writer \
         tesseract-ocr \
         tesseract-ocr-eng \
         tesseract-ocr-fra \

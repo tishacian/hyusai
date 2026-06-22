@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import binascii
 import os
+import shutil
 import tempfile
 import uuid
 from collections.abc import Mapping
@@ -21,7 +22,9 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.config import settings
 from app.core.logging import get_logger
+from app.core.settings_manager import get_resolved_settings
 from app.core.iam.dependencies import current_membership, enforce_permission
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, normalize_role_template
 from app.services.iam.manifest import REVIEW_ROLES
@@ -40,6 +43,7 @@ from app.services.knowledge_capture import (
     answer_proposal_open_question,
     append_turn,
     archive_capture_session,
+    capture_document_collection_slug,
     create_chat_correction_proposal,
     delete_capture_session,
     session_is_archived,
@@ -72,6 +76,8 @@ from app.services.knowledge_capture import (
     process_plan_dialogue_turn,
     publish_proposal_to_knowledge,
     resume_capture_session,
+    record_capture_document_view,
+    register_capture_documents,
     review_proposal,
     serialize_event,
     serialize_proposal,
@@ -87,6 +93,19 @@ from app.services.knowledge_capture import (
     update_plan_topics,
     validate_plan_topics,
 )
+from app.services.knowledge_collections import (
+    collection_source_rows,
+    create_or_get_collection,
+    create_worker_job,
+    get_collection_or_404,
+    original_key,
+    record_ingested_sources,
+    update_collection_status,
+    upsert_collection_source,
+)
+from app.services.rag.document_service import DocumentService
+from app.services.rag.vector_store_config import resolve_vector_db_type
+from app.services.worker_dispatch import dispatch_worker_job
 from app.services.voice_runtime import list_voice_runtime_providers
 
 router = APIRouter()
@@ -444,6 +463,23 @@ class CaptureTurnRequest(BaseModel):
     retrieval_event_id: Optional[str] = None
     interruption_of_event_id: Optional[str] = None
     turn_kind: Literal["answer", "correction", "complement"] = "answer"
+    input_modality: Literal["voice", "text"] = "text"
+    document_refs: List[Dict[str, Any]] = Field(default_factory=list)
+    visual_context: Optional[Dict[str, Any]] = None
+
+
+class CaptureDocumentViewRequest(BaseModel):
+    document_id: Optional[str] = None
+    collection: Optional[str] = None
+    collection_name: Optional[str] = None
+    filename: Optional[str] = None
+    title: Optional[str] = None
+    page: Optional[int] = Field(default=None, ge=1)
+    page_number: Optional[int] = Field(default=None, ge=1)
+    slide: Optional[int] = Field(default=None, ge=1)
+    image_index: Optional[int] = Field(default=None, ge=1)
+    preview: Optional[str] = None
+    association_mode: str = "active_view"
 
 
 class CapturePlanUpdateRequest(BaseModel):
@@ -900,6 +936,288 @@ async def add_capture_turn(
             retrieval_event_id=body.retrieval_event_id,
             interruption_of_event_id=body.interruption_of_event_id,
             turn_kind=body.turn_kind,
+            actor_user_id=user.id,
+            input_modality=body.input_modality,
+            document_refs=body.document_refs,
+            visual_context=body.visual_context,
+            # Text notes entered during live capture must follow the same hot-path
+            # contract as voice turns: persist the business statement, but leave
+            # evaluation/relance/oracle work to the async/final pipelines.
+            compute_evaluation=body.input_modality != "text",
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+
+
+@router.get("/sessions/{session_id}/documents")
+async def list_capture_session_documents(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        session = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="read",
+            resource_attrs=_session_attrs(session),
+            audit_prefix="kc",
+        )
+        state = dict((session.metrics or {}).get("capture_documents") or {})
+        collection = state.get("collection") or capture_document_collection_slug(session_id)
+        documents = list(state.get("documents") or [])
+        try:
+            collection_row = get_collection_or_404(
+                db,
+                workspace_id=workspace.id,
+                collection_ref=str(collection),
+            )
+            state_by_name = {
+                str(item.get("filename") or item.get("document_id") or "").lower(): dict(item)
+                for item in documents
+                if isinstance(item, dict) and (item.get("filename") or item.get("document_id"))
+            }
+            ledger_documents: List[Dict[str, Any]] = []
+            for row in collection_source_rows(db, collection=collection_row):
+                metadata = dict(row.source_metadata or {})
+                document_id = metadata.get("document_id") or row.normalized_name or row.filename or row.id
+                previous = state_by_name.get(str(row.filename or row.normalized_name or "").lower()) or {}
+                ledger_documents.append(
+                    {
+                        **previous,
+                        "document_id": str(document_id),
+                        "filename": row.filename,
+                        "title": previous.get("title") or row.filename,
+                        "collection": collection_row.slug,
+                        "collection_name": collection_row.slug,
+                        "status": row.status,
+                        "chunks_processed": int(row.chunk_count or 0),
+                        "mime_type": row.mime_type,
+                        "source_kind": row.source_kind,
+                        "source_id": row.id,
+                    }
+                )
+            if ledger_documents:
+                documents = ledger_documents
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+        return {
+            "collection": collection,
+            "collection_name": collection,
+            "documents": documents,
+            "active_view": state.get("active_view"),
+        }
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/documents")
+async def upload_capture_session_documents(
+    session_id: str,
+    files: List[UploadFile] = File(...),
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    if not files:
+        raise HTTPException(status_code=422, detail="At least one file is required")
+    temp_dirs: List[str] = []
+    try:
+        session = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="update",
+            resource_attrs=_session_attrs(session),
+            audit_prefix="kc",
+        )
+        collection_slug = capture_document_collection_slug(session_id)
+        collection = create_or_get_collection(
+            db,
+            workspace=workspace,
+            name=f"Capture session {session.title[:80]}",
+            description="Draft documents uploaded during an expert capture session",
+            created_by_user_id=user.id,
+            slug=collection_slug,
+        )
+        documents: List[Dict[str, Any]] = []
+        if settings.document_ingest_async_enabled:
+            store = get_object_store()
+            existing_names = list(collection.document_names or [])
+            uploaded_names: List[str] = []
+            for file in files:
+                safe_name = Path(file.filename or "upload").name.replace("/", "_").replace("\\", "_")
+                content = await file.read()
+                store.write_bytes(original_key(collection, safe_name), content)
+                upsert_collection_source(
+                    db,
+                    collection=collection,
+                    filename=safe_name,
+                    status="queued",
+                    mime_type=file.content_type,
+                    origin="capture_session_upload",
+                    size_bytes=len(content),
+                    source_metadata={
+                        "capture_session_id": session_id,
+                        "uploaded_by_user_id": user.id,
+                        "source": "capture_session_upload",
+                    },
+                )
+                if safe_name not in existing_names:
+                    existing_names.append(safe_name)
+                uploaded_names.append(safe_name)
+            update_collection_status(
+                db,
+                collection.id,
+                status="queued",
+                document_names=existing_names,
+                document_count=len(existing_names),
+            )
+            job = create_worker_job(db, workspace_id=workspace.id, collection_id=collection.id, kind="document_ingest_index")
+            job.result = {
+                "ingest_options": {
+                    "mode": "incremental",
+                    "document_names": uploaded_names,
+                    "capture_session_id": session_id,
+                }
+            }
+            db.commit()
+            dispatch_worker_job(db, job)
+            db.commit()
+            documents = [
+                {
+                    "document_id": None,
+                    "filename": filename,
+                    "status": "queued",
+                    "chunks_processed": 0,
+                    "job_id": job.id,
+                }
+                for filename in uploaded_names
+            ]
+        else:
+            store = get_object_store()
+            file_paths: List[str] = []
+            document_names: List[str] = []
+            for file in files:
+                safe_name = Path(file.filename or "upload").name.replace("/", "_").replace("\\", "_")
+                tmp_dir = tempfile.mkdtemp()
+                temp_dirs.append(tmp_dir)
+                tmp_path = os.path.join(tmp_dir, safe_name)
+                with open(tmp_path, "wb") as out:
+                    shutil.copyfileobj(file.file, out)
+                store.write_bytes(original_key(collection, safe_name), Path(tmp_path).read_bytes())
+                file_paths.append(tmp_path)
+                document_names.append(safe_name)
+            app_settings = get_resolved_settings(workspace_id=workspace.id)
+            doc_service = DocumentService(
+                collection_name=collection.slug,
+                vector_db_type=resolve_vector_db_type(app_settings),
+                workspace_slug=workspace.slug,
+            )
+            result = await doc_service.ingest_documents_batch(file_paths)
+            documents = [
+                {
+                    "document_id": row.get("document_id"),
+                    "filename": row.get("filename") or (document_names[index] if index < len(document_names) else None),
+                    "status": row.get("status"),
+                    "chunks_processed": row.get("chunks_processed") or 0,
+                }
+                for index, row in enumerate(result.get("results") or [])
+                if isinstance(row, dict)
+            ]
+            existing_names = list(collection.document_names or [])
+            for name in document_names:
+                if name not in existing_names:
+                    existing_names.append(name)
+            update_collection_status(
+                db,
+                collection.id,
+                status="ready" if not result.get("failed") else "error",
+                document_names=existing_names,
+                document_count=len(existing_names),
+                chunk_count=sum(int(item.get("chunks_processed") or 0) for item in documents),
+            )
+            record_ingested_sources(
+                db,
+                collection=collection,
+                ingest_result=result,
+                document_names=document_names,
+                origin="capture_session_upload",
+            )
+            for doc in documents:
+                if doc.get("filename"):
+                    upsert_collection_source(
+                        db,
+                        collection=collection,
+                        filename=str(doc["filename"]),
+                        status="ready" if doc.get("status") == "success" else str(doc.get("status") or "error"),
+                        origin="capture_session_upload",
+                        chunk_count=int(doc.get("chunks_processed") or 0),
+                        source_metadata={
+                            "document_id": doc.get("document_id"),
+                            "capture_session_id": session_id,
+                            "uploaded_by_user_id": user.id,
+                            "source": "capture_session_upload",
+                        },
+                    )
+            db.commit()
+        registered = register_capture_documents(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            collection=collection.slug,
+            documents=documents,
+            actor_user_id=user.id,
+        )
+        return {
+            "collection": collection.slug,
+            "collection_name": collection.slug,
+            "documents": registered.get("documents") or documents,
+            "session": registered.get("session"),
+        }
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.error("capture document upload failed", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        for tmp_dir in temp_dirs:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@router.post("/sessions/{session_id}/documents/view")
+async def record_capture_session_document_view(
+    session_id: str,
+    body: CaptureDocumentViewRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    try:
+        session = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="execute",
+            resource_attrs=_session_attrs(session),
+            audit_prefix="kc",
+        )
+        payload = body.model_dump(exclude_none=True)
+        payload.setdefault("collection", capture_document_collection_slug(session_id))
+        return record_capture_document_view(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            view=payload,
             actor_user_id=user.id,
         )
     except ValueError as exc:

@@ -3,13 +3,17 @@ from app.services.document_parser.parsers.text_parser import TextParser
 from app.services.document_parser.parsers.markdown_parser import MarkdownParser
 from app.services.document_parser.parsers.spreadsheet_parser import SpreadsheetParser
 from app.services.document_parser.parsers.docx_parser import DocxParser
+from app.services.document_parser.parsers.office_doc_parser import OfficeDocParser
+from app.services.document_parser.parsers.pptx_parser import PptxParser
 from app.services.document_parser.parsers.image_parser import ImageParser
 from app.services.document_parser.base import DocumentType
 from app.services.document_parser.factory import DocumentParserFactory
 
 # Register parsers
 DocumentParserFactory.register_parser(DocumentType.TEXT, TextParser)
+DocumentParserFactory.register_parser(DocumentType.DOC, OfficeDocParser)
 DocumentParserFactory.register_parser(DocumentType.DOCX, DocxParser)
+DocumentParserFactory.register_parser(DocumentType.PPTX, PptxParser)
 DocumentParserFactory.register_parser(DocumentType.MARKDOWN, MarkdownParser)
 DocumentParserFactory.register_parser(DocumentType.LOG, TextParser)  # Logs use text parser
 DocumentParserFactory.register_parser(DocumentType.SPREADSHEET, SpreadsheetParser)
@@ -28,4 +32,4 @@ except ImportError:
     except ImportError:
         pass  # PDF parser requires pdfplumber/PyPDF2
 
-__all__ = ["TextParser", "DocxParser", "MarkdownParser", "SpreadsheetParser", "ImageParser", "PDFParser"]
+__all__ = ["TextParser", "OfficeDocParser", "DocxParser", "PptxParser", "MarkdownParser", "SpreadsheetParser", "ImageParser", "PDFParser"]

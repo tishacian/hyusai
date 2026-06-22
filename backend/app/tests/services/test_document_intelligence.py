@@ -14,6 +14,9 @@ from app.services.document_intelligence import (
     resolve_document_profile,
 )
 from app.services.document_parser.parsers.docx_parser import DocxParser
+from app.services.document_parser.parsers.office_doc_parser import OfficeDocParser
+from app.services.document_parser.parsers.pptx_parser import PptxParser
+from app.services.document_parser.factory import DocumentParserFactory
 
 
 def _seed_collection(db_session) -> tuple[Workspace, KnowledgeCollection]:
@@ -170,6 +173,47 @@ async def test_docx_parser_extracts_headings_paragraphs_and_tables(tmp_path):
     assert parsed.structured_content["table_count"] == 1
     assert parsed.structured_content["paragraphs"][1]["text"] == "WARNING: verify guards before start."
     assert parsed.tables[0]["rows"][1] == ["Speed", "42 m/min"]
+
+
+@pytest.mark.asyncio
+async def test_pptx_parser_extracts_slide_level_chunks(tmp_path):
+    path = tmp_path / "capture-support.pptx"
+    slide_template = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+       xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld>
+    <p:spTree>
+      <p:sp><p:txBody><a:p><a:r><a:t>{title}</a:t></a:r></a:p></p:txBody></p:sp>
+      <p:sp><p:txBody><a:p><a:r><a:t>{body}</a:t></a:r></a:p></p:txBody></p:sp>
+    </p:spTree>
+  </p:cSld>
+</p:sld>
+"""
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "ppt/slides/slide1.xml",
+            slide_template.format(title="Pompe principale", body="Le capteur est visible avant la vanne."),
+        )
+        archive.writestr(
+            "ppt/slides/slide2.xml",
+            slide_template.format(title="Séquence arrêt", body="La consigne impose une purge de 30 secondes."),
+        )
+
+    parsed = await PptxParser().parse(str(path))
+
+    assert parsed.document_type.value == "pptx"
+    assert parsed.metadata["slides"] == 2
+    assert len(parsed.chunks) == 2
+    assert parsed.chunks[0]["slide"] == 1
+    assert parsed.chunks[0]["page"] == 1
+    assert "Pompe principale" in parsed.chunks[0]["content"]
+    assert parsed.chunks[1]["slide_title"] == "Séquence arrêt"
+
+
+def test_legacy_doc_uses_office_parser():
+    parser = DocumentParserFactory.get_parser("legacy-manual.doc")
+
+    assert isinstance(parser, OfficeDocParser)
 
 
 def test_document_profile_resolution_falls_back_to_global(db_session):

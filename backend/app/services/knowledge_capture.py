@@ -73,6 +73,9 @@ RETRIEVAL_PREFETCH_TIMEOUT_SECONDS = 2.5
 CAPTURE_RETRIEVAL_WARM_CACHE_TTL_SECONDS = 300
 CAPTURE_RETRIEVAL_WARM_CACHE_MAX_ENTRIES = 128
 ORACLE_QUESTION_STATUSES = frozenset({"open", "active", "answered", "dismissed", "deferred", "addressed"})
+CAPTURE_INPUT_MODALITIES = frozenset({"voice", "text"})
+CAPTURE_DOCUMENT_SOURCE_KIND = "capture_document_ref"
+CAPTURE_DOCUMENT_COLLECTION_PREFIX = "capture-session"
 # Unified proposal open-question lifecycle. ``invalid`` is the delete/exclude
 # status (replaces the legacy ``dismissed``); ``answered`` marks a question that
 # was resolved via the targeted answer endpoint; ``deferred`` keeps it open for
@@ -2955,7 +2958,11 @@ async def publish_proposal_to_knowledge(
         publication_meta["expert_user_id"] = expert_user_id
         metadata["captured_by_user_id"] = expert_user_id
     unresolved_count = _count_open_questions(proposal_payload)
+    related_documents = _related_capture_documents_from_payload(proposal_payload)
     publication_meta["open_questions_count"] = unresolved_count
+    if related_documents:
+        publication_meta["related_documents"] = related_documents
+        metadata["related_documents"] = related_documents
     metadata["proposal_id"] = proposal.id
     metadata["capture_session_id"] = session.id
     if publication_category:
@@ -2999,6 +3006,27 @@ async def publish_proposal_to_knowledge(
         description="Expert capture publications",
     )
     db.flush()
+    promoted_documents = _promote_capture_documents_for_publication(
+        db,
+        workspace=workspace,
+        destination_collection=collection,
+        related_documents=related_documents,
+    )
+    if promoted_documents:
+        proposal_payload = _rewrite_capture_document_sources_to_publication(proposal_payload, promoted_documents)
+        related_documents = _related_capture_documents_from_payload(proposal_payload)
+        publication_meta = dict(proposal_payload.get("publication") or publication_meta)
+        recommended = dict(proposal_payload.get("recommended_ingestion") or recommended)
+        metadata = dict(recommended.get("metadata") or metadata)
+        publication_meta["related_documents"] = related_documents
+        publication_meta["promoted_documents"] = promoted_documents
+        metadata["related_documents"] = related_documents
+        metadata["promoted_documents"] = promoted_documents
+        recommended["metadata"] = metadata
+        proposal_payload["recommended_ingestion"] = recommended
+        proposal_payload["publication"] = publication_meta
+        proposal.proposal = proposal_payload
+        flag_modified(proposal, "proposal")
     filename = f"capture-{session.id[:8]}.md"
     store = get_object_store()
     store.write_text(original_key(collection, filename), content)
@@ -3033,6 +3061,7 @@ async def publish_proposal_to_knowledge(
                 "source_type": metadata.get("source_type") or "expert_fiche",
                 "origin": metadata.get("origin"),
                 "input_modality": metadata.get("input_modality"),
+                "related_documents": metadata.get("related_documents"),
             }.items()
             if value
         }
@@ -3079,9 +3108,26 @@ async def publish_proposal_to_knowledge(
             "expert_name": expert_name,
             "open_questions_count": unresolved_count,
             "export_urls": export_urls,
+            "promoted_documents": promoted_documents,
         },
     )
     db.commit()
+    promotion_job_ids = sorted(
+        {
+            str(item.get("job_id"))
+            for item in promoted_documents
+            if isinstance(item, dict) and item.get("job_id")
+        }
+    )
+    if promotion_job_ids:
+        from app.models.knowledge_collection import WorkerJob
+        from app.services.worker_dispatch import dispatch_worker_job
+
+        for job_id in promotion_job_ids:
+            job = db.query(WorkerJob).filter(WorkerJob.id == job_id).first()
+            if job:
+                dispatch_worker_job(db, job, allow_inline_fallback=False)
+        db.commit()
     return {
         "proposal_id": proposal.id,
         "expert_name": expert_name,
@@ -3095,6 +3141,7 @@ async def publish_proposal_to_knowledge(
         "destination_scope": publication_destination,
         "final_title": publication_title,
         "export_urls": export_urls,
+        "promoted_documents": promoted_documents,
     }
 
 
@@ -3988,10 +4035,540 @@ def _apply_publication_defaults(
     return payload
 
 
+def _normalize_input_modality(value: Optional[str], *, audio_ref: Optional[str] = None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in CAPTURE_INPUT_MODALITIES:
+        return normalized
+    return "voice" if audio_ref else "text"
+
+
+def _positive_int(value: Any) -> Optional[int]:
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _capture_timecode_ms(session: ExpertCaptureSession, at: Optional[datetime] = None) -> Optional[int]:
+    start = session.started_at or session.created_at
+    if not start:
+        return None
+    current = at or datetime.utcnow()
+    try:
+        return max(0, int((current - start).total_seconds() * 1000))
+    except Exception:
+        return None
+
+
+def _normalize_capture_document_ref(value: Any, *, default_timecode_ms: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    if not isinstance(value, Mapping):
+        return None
+    document_id = str(value.get("document_id") or value.get("doc_id") or "").strip()
+    collection = str(value.get("collection") or value.get("collection_name") or "").strip()
+    filename = str(value.get("filename") or value.get("document_filename") or "").strip()
+    title = str(value.get("title") or value.get("document_title") or filename or "").strip()
+    if not (document_id or filename or title):
+        return None
+    page = _positive_int(value.get("page") or value.get("page_number"))
+    slide = _positive_int(value.get("slide") or value.get("slide_number"))
+    image_index = _positive_int(value.get("image_index"))
+    ref: Dict[str, Any] = {
+        "kind": CAPTURE_DOCUMENT_SOURCE_KIND,
+        "document_id": document_id or None,
+        "collection": collection or None,
+        "collection_name": collection or None,
+        "filename": filename or None,
+        "title": title or filename or document_id or None,
+        "page": page,
+        "page_number": page,
+        "slide": slide,
+        "image_index": image_index,
+        "anchor_id": value.get("anchor_id") or value.get("anchor"),
+        "preview": str(value.get("preview") or value.get("excerpt") or "").strip() or None,
+        "association_mode": str(value.get("association_mode") or "active_view").strip() or "active_view",
+        "timecode_ms": _positive_int(value.get("timecode_ms")) or default_timecode_ms,
+    }
+    for key in ("event_id", "turn_id", "source_event_id"):
+        if value.get(key):
+            ref[key] = str(value.get(key))
+    return {key: val for key, val in ref.items() if val is not None and val != ""}
+
+
+def _normalize_capture_document_refs(
+    refs: Optional[Iterable[Any]],
+    visual_context: Optional[Mapping[str, Any]] = None,
+    *,
+    default_timecode_ms: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    candidates: List[Any] = list(refs or [])
+    if visual_context:
+        candidates.append(dict(visual_context))
+    for item in candidates:
+        ref = _normalize_capture_document_ref(item, default_timecode_ms=default_timecode_ms)
+        if not ref:
+            continue
+        key = "|".join(
+            str(ref.get(part) or "")
+            for part in ("collection", "document_id", "filename", "page", "slide", "image_index", "anchor_id")
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(ref)
+    return normalized
+
+
+def _source_key(source: Dict[str, Any]) -> str:
+    return "|".join(
+        str(source.get(part) or "").strip().lower()
+        for part in ("kind", "collection", "document_id", "filename", "page", "slide", "source")
+    )
+
+
+def _report_source_from_document_ref(ref: Dict[str, Any], rank: int) -> Dict[str, Any]:
+    page = _positive_int(ref.get("page") or ref.get("page_number"))
+    slide = _positive_int(ref.get("slide") or ref.get("slide_number"))
+    label_parts = [str(ref.get("title") or ref.get("filename") or ref.get("document_id") or "Document").strip()]
+    if slide:
+        label_parts.append(f"slide {slide}")
+    elif page:
+        label_parts.append(f"page {page}")
+    return {
+        "rank": rank,
+        "kind": CAPTURE_DOCUMENT_SOURCE_KIND,
+        "document_id": ref.get("document_id"),
+        "source_id": ref.get("source_id") or ref.get("document_id"),
+        "source": " - ".join(part for part in label_parts if part),
+        "title": ref.get("title") or ref.get("filename"),
+        "filename": ref.get("filename"),
+        "collection": ref.get("collection") or ref.get("collection_name"),
+        "page": page,
+        "page_number": page,
+        "slide": slide,
+        "image_index": ref.get("image_index"),
+        "preview": ref.get("preview"),
+        "turn_id": ref.get("turn_id"),
+        "event_id": ref.get("event_id") or ref.get("source_event_id"),
+        "timecode_ms": ref.get("timecode_ms"),
+        "association_mode": ref.get("association_mode"),
+    }
+
+
+def _document_sources_from_facts(facts: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    sources: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for fact in facts or []:
+        if not isinstance(fact, dict):
+            continue
+        for ref in fact.get("document_refs") or []:
+            if not isinstance(ref, dict):
+                continue
+            source = _report_source_from_document_ref(ref, len(sources) + 1)
+            key = _source_key(source)
+            if key in seen:
+                continue
+            seen.add(key)
+            sources.append(source)
+    return sources
+
+
+def _merge_report_sources(*groups: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in groups:
+        for source in group or []:
+            if not isinstance(source, dict):
+                continue
+            item = dict(source)
+            key = _source_key(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            item["rank"] = len(merged) + 1
+            merged.append(item)
+    return merged
+
+
+def _iter_plan_structure_sources(plan_structure: Any) -> Iterable[Dict[str, Any]]:
+    if not isinstance(plan_structure, Mapping):
+        return
+    for source in plan_structure.get("sources") or []:
+        if isinstance(source, dict):
+            yield source
+    for topic in plan_structure.get("topics") or []:
+        if not isinstance(topic, Mapping):
+            continue
+        yield from _iter_plan_structure_sources(topic)
+        for subtopic in topic.get("subtopics") or []:
+            if isinstance(subtopic, Mapping):
+                yield from _iter_plan_structure_sources(subtopic)
+
+
+def _related_capture_documents_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    for source in _iter_plan_structure_sources(payload.get("plan_structure") or {}):
+        if source.get("kind") == CAPTURE_DOCUMENT_SOURCE_KIND:
+            candidates.append(source)
+    for fact in payload.get("captured_facts") or []:
+        if isinstance(fact, dict):
+            candidates.extend(_document_sources_from_facts([fact]))
+    related: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in candidates:
+        if not isinstance(source, dict):
+            continue
+        key = _source_key(source)
+        if key in seen:
+            continue
+        seen.add(key)
+        related.append(
+            {
+                key_name: source.get(key_name)
+                for key_name in (
+                    "kind",
+                    "document_id",
+                    "collection",
+                    "filename",
+                    "title",
+                    "page",
+                    "page_number",
+                    "slide",
+                    "image_index",
+                    "preview",
+                    "turn_id",
+                    "event_id",
+                    "timecode_ms",
+                    "association_mode",
+                )
+                if source.get(key_name) is not None
+            }
+        )
+    return related
+
+
+def _capture_document_promotion_key(ref: Mapping[str, Any]) -> str:
+    collection = str(ref.get("collection") or ref.get("collection_name") or "").strip().lower()
+    filename = str(ref.get("filename") or "").strip().lower()
+    document_id = str(ref.get("document_id") or ref.get("source_id") or "").strip().lower()
+    return f"{collection}|{filename or document_id}"
+
+
+def _rewrite_capture_document_sources_to_publication(value: Any, promotions: List[Dict[str, Any]]) -> Any:
+    if not promotions:
+        return value
+    by_key = {
+        str(item.get("source_key") or ""): item
+        for item in promotions
+        if item.get("source_key")
+    }
+    if isinstance(value, list):
+        return [_rewrite_capture_document_sources_to_publication(item, promotions) for item in value]
+    if not isinstance(value, dict):
+        return value
+    rewritten = {
+        key: _rewrite_capture_document_sources_to_publication(item, promotions)
+        for key, item in value.items()
+    }
+    if rewritten.get("kind") == CAPTURE_DOCUMENT_SOURCE_KIND:
+        promotion = by_key.get(_capture_document_promotion_key(rewritten))
+        if promotion:
+            rewritten["published_from_collection"] = rewritten.get("collection") or rewritten.get("collection_name")
+            rewritten["published_from_filename"] = rewritten.get("filename")
+            rewritten["collection"] = promotion.get("collection")
+            rewritten["collection_name"] = promotion.get("collection_name")
+            rewritten["filename"] = promotion.get("filename")
+            rewritten["document_id"] = promotion.get("document_id")
+            rewritten["source_id"] = promotion.get("document_id")
+            rewritten["publication_promoted"] = True
+    return rewritten
+
+
+def _promote_capture_documents_for_publication(
+    db: DBSession,
+    *,
+    workspace: Any,
+    destination_collection: Any,
+    related_documents: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if not related_documents:
+        return []
+
+    from app.services.knowledge_collections import (
+        create_worker_job,
+        get_collection_or_404,
+        original_key,
+        resolve_original_key,
+        update_collection_status,
+        upsert_collection_source,
+    )
+    from app.services.object_store import get_object_store
+
+    store = get_object_store()
+    existing_names = list(destination_collection.document_names or [])
+    promoted_names: List[str] = []
+    promotions: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for ref in related_documents:
+        if not isinstance(ref, dict):
+            continue
+        source_collection_ref = str(ref.get("collection") or ref.get("collection_name") or "").strip()
+        source_filename = Path(str(ref.get("filename") or "")).name
+        source_key = _capture_document_promotion_key(ref)
+        if not source_collection_ref or not source_filename or source_key in seen:
+            continue
+        seen.add(source_key)
+        try:
+            source_collection = get_collection_or_404(
+                db,
+                workspace_id=workspace.id,
+                collection_ref=source_collection_ref,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning(
+                "capture document promotion skipped: source collection missing",
+                extra={
+                    "workspace_id": workspace.id,
+                    "collection": source_collection_ref,
+                    "source_filename": source_filename,
+                    "error": str(exc),
+                },
+            )
+            continue
+
+        original_source_key = resolve_original_key(source_collection, source_filename, store=store)
+        if not store.exists(original_source_key):
+            _logger.warning(
+                "capture document promotion skipped: original missing",
+                extra={
+                    "workspace_id": workspace.id,
+                    "collection": source_collection.slug,
+                    "source_filename": source_filename,
+                },
+            )
+            continue
+
+        destination_name = source_filename
+        if destination_name in existing_names and source_collection.slug != destination_collection.slug:
+            prefix = re.sub(r"[^a-zA-Z0-9_.-]+", "-", source_collection.slug)[:48].strip("-")
+            destination_name = f"{prefix}-{source_filename}" if prefix else source_filename
+        content = store.read_bytes(original_source_key)
+        store.write_bytes(original_key(destination_collection, destination_name), content)
+        upsert_collection_source(
+            db,
+            collection=destination_collection,
+            filename=destination_name,
+            status="queued",
+            origin="capture_publication_ref",
+            size_bytes=len(content),
+            source_metadata={
+                "document_id": destination_name,
+                "source": CAPTURE_DOCUMENT_SOURCE_KIND,
+                "source_collection": source_collection.slug,
+                "source_filename": source_filename,
+                "capture_timecode_ms": ref.get("timecode_ms"),
+                "association_mode": ref.get("association_mode"),
+            },
+        )
+        if destination_name not in existing_names:
+            existing_names.append(destination_name)
+        promoted_names.append(destination_name)
+        promotions.append(
+            {
+                "source_key": source_key,
+                "kind": CAPTURE_DOCUMENT_SOURCE_KIND,
+                "document_id": destination_name,
+                "collection": destination_collection.slug,
+                "collection_name": destination_collection.slug,
+                "filename": destination_name,
+                "title": ref.get("title") or source_filename,
+                "source_collection": source_collection.slug,
+                "source_filename": source_filename,
+                "page": ref.get("page"),
+                "page_number": ref.get("page_number"),
+                "slide": ref.get("slide"),
+                "image_index": ref.get("image_index"),
+                "timecode_ms": ref.get("timecode_ms"),
+                "association_mode": ref.get("association_mode"),
+                "status": "queued",
+            }
+        )
+
+    if promoted_names:
+        update_collection_status(
+            db,
+            destination_collection.id,
+            status="queued",
+            document_names=existing_names,
+            document_count=len(existing_names),
+        )
+        job = create_worker_job(
+            db,
+            workspace_id=workspace.id,
+            collection_id=destination_collection.id,
+            kind="document_ingest_index",
+        )
+        job.result = {
+            "ingest_options": {
+                "mode": "incremental",
+                "document_names": promoted_names,
+                "source": "capture_publication_documents",
+            }
+        }
+        db.flush()
+        for promotion in promotions:
+            promotion["job_id"] = job.id
+
+    return promotions
+
+
+def capture_document_collection_slug(session_id: str) -> str:
+    clean = re.sub(r"[^a-zA-Z0-9-]+", "-", str(session_id or "")).strip("-").lower()
+    return f"{CAPTURE_DOCUMENT_COLLECTION_PREFIX}-{clean}"[:120]
+
+
+def _capture_documents_state(session: ExpertCaptureSession) -> Dict[str, Any]:
+    metrics = dict(session.metrics or {})
+    state = dict(metrics.get("capture_documents") or {})
+    state.setdefault("collection", capture_document_collection_slug(session.id))
+    state.setdefault("documents", [])
+    return state
+
+
+def _upsert_capture_document_state(
+    session: ExpertCaptureSession,
+    *,
+    collection: str,
+    documents: Iterable[Dict[str, Any]],
+    active_view: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    metrics = dict(session.metrics or {})
+    state = _capture_documents_state(session)
+    state["collection"] = collection
+    existing = [
+        dict(item)
+        for item in (state.get("documents") or [])
+        if isinstance(item, dict)
+    ]
+    by_key = {
+        str(item.get("document_id") or item.get("filename") or "").lower(): item
+        for item in existing
+        if item.get("document_id") or item.get("filename")
+    }
+    for item in documents or []:
+        if not isinstance(item, dict):
+            continue
+        entry = dict(item)
+        key = str(entry.get("document_id") or entry.get("filename") or "").lower()
+        if not key:
+            continue
+        previous = dict(by_key.get(key) or {})
+        previous.update(entry)
+        previous.setdefault("collection", collection)
+        previous.setdefault("collection_name", collection)
+        by_key[key] = previous
+    state["documents"] = list(by_key.values())
+    if active_view:
+        state["active_view"] = active_view
+    metrics["capture_documents"] = state
+    session.metrics = metrics
+    flag_modified(session, "metrics")
+    return state
+
+
+def register_capture_documents(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    collection: str,
+    documents: Iterable[Dict[str, Any]],
+    actor_user_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
+    now = datetime.utcnow().isoformat()
+    normalized_docs: List[Dict[str, Any]] = []
+    for item in documents or []:
+        if not isinstance(item, dict):
+            continue
+        filename = str(item.get("filename") or "").strip()
+        document_id = str(item.get("document_id") or "").strip()
+        if not (filename or document_id):
+            continue
+        doc = {
+            "document_id": document_id or None,
+            "filename": filename or None,
+            "title": item.get("title") or filename or document_id,
+            "collection": collection,
+            "collection_name": collection,
+            "status": item.get("status") or "queued",
+            "chunks_processed": item.get("chunks_processed") or 0,
+            "job_id": item.get("job_id"),
+            "uploaded_at": item.get("uploaded_at") or now,
+            "uploaded_by_user_id": actor_user_id,
+        }
+        normalized_docs.append({key: value for key, value in doc.items() if value is not None})
+    state = _upsert_capture_document_state(session, collection=collection, documents=normalized_docs)
+    for doc in normalized_docs:
+        _record_capture_event(
+            db,
+            session=session,
+            event_type="capture_document_uploaded",
+            source="capture_document",
+            status=str(doc.get("status") or "queued"),
+            created_by=actor_user_id,
+            meta_data=doc,
+        )
+    db.commit()
+    db.refresh(session)
+    return {"session": serialize_session(session), "collection": collection, "documents": state.get("documents") or []}
+
+
+def record_capture_document_view(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    view: Dict[str, Any],
+    actor_user_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
+    ref = _normalize_capture_document_ref(
+        view,
+        default_timecode_ms=_capture_timecode_ms(session, datetime.utcnow()),
+    )
+    if not ref:
+        raise ValueError("Document view must include at least a document id, filename or title")
+    collection = str(ref.get("collection") or ref.get("collection_name") or capture_document_collection_slug(session.id))
+    _upsert_capture_document_state(session, collection=collection, documents=[], active_view=ref)
+    event = _record_capture_event(
+        db,
+        session=session,
+        event_type="capture_document_viewed",
+        source="capture_document",
+        status="accepted",
+        created_by=actor_user_id,
+        meta_data=ref,
+    )
+    db.commit()
+    db.refresh(session)
+    return {"session": serialize_session(session), "event": serialize_event(event), "active_view": ref}
+
+
 def _fact_from_turn(turn: Dict[str, Any], evaluations: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     related = next((ev for ev in evaluations if ev.get("turn_id") == turn.get("id")), None)
     turn_kind = turn.get("turn_kind") or "answer"
     text = turn.get("text", "")
+    document_refs = _normalize_capture_document_refs(
+        turn.get("document_refs") or [],
+        turn.get("visual_context") if isinstance(turn.get("visual_context"), Mapping) else None,
+        default_timecode_ms=_positive_int(turn.get("timecode_ms")),
+    )
     return {
         "id": f"fact-{turn.get('id')}",
         "type": _proposal_fact_type(turn_kind, bool(turn.get("text_amended"))),
@@ -4004,6 +4581,10 @@ def _fact_from_turn(turn: Dict[str, Any], evaluations: Iterable[Dict[str, Any]])
         "retrieval_refs": turn.get("retrieval_refs") or [],
         "interruption_of_event_id": turn.get("interruption_of_event_id"),
         "turn_kind": turn_kind,
+        "input_modality": turn.get("input_modality") or "voice",
+        "document_refs": document_refs,
+        "visual_context": turn.get("visual_context"),
+        "timecode_ms": turn.get("timecode_ms"),
         "topic_id": turn.get("topic_id") or (related or {}).get("topic_id"),
         "subtopic_id": turn.get("subtopic_id") or (related or {}).get("subtopic_id"),
         "topic_path": turn.get("topic_path") or (related or {}).get("topic_path"),
@@ -4426,7 +5007,7 @@ def _attach_section_synthesis(plan_structure: Dict[str, Any], plan: Dict[str, An
         if entry.get("synthesis"):
             node["synthesis"] = entry.get("synthesis")
         if entry.get("sources"):
-            node["sources"] = entry.get("sources")
+            node["sources"] = _merge_report_sources(node.get("sources") or [], entry.get("sources") or [])
         if entry.get("open_questions"):
             node["open_questions"] = entry.get("open_questions")
 
@@ -4478,10 +5059,10 @@ def _ensure_free_conversation_report_topic(
     for fact in facts:
         if not isinstance(fact, dict):
             continue
-        for ref in fact.get("retrieval_refs") or []:
+        for ref in [*(fact.get("retrieval_refs") or []), *(_document_sources_from_facts([fact]) or [])]:
             if not isinstance(ref, dict):
                 continue
-            key = str(ref.get("document_id") or ref.get("source") or ref.get("title") or ref)
+            key = _source_key(ref) or str(ref.get("document_id") or ref.get("source") or ref.get("title") or ref)
             if key in seen_sources:
                 continue
             seen_sources.add(key)
@@ -4530,6 +5111,7 @@ def _structure_facts_by_plan(
                     "title": subtopic.get("title"),
                     "prompt": subtopic.get("prompt"),
                     "facts": sub_facts,
+                    "sources": _document_sources_from_facts(sub_facts),
                 }
             )
         topic_facts = [
@@ -4545,6 +5127,7 @@ def _structure_facts_by_plan(
                 "title": topic.get("title"),
                 "prompt": topic.get("prompt"),
                 "facts": topic_facts,
+                "sources": _document_sources_from_facts(topic_facts),
                 "subtopics": subtopic_nodes,
             }
         )
@@ -4946,6 +5529,9 @@ def append_turn(
     compute_evaluation: bool = True,
     persist_transcript: bool = True,
     voice_stream_metrics: Optional[Dict[str, Any]] = None,
+    input_modality: Optional[str] = None,
+    document_refs: Optional[List[Dict[str, Any]]] = None,
+    visual_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     turn_started_at = time.perf_counter()
     # The turn is recorded on the append-only event ledger regardless; ``materialize``
@@ -4962,6 +5548,19 @@ def append_turn(
         topic_id = topic_id or active_topic_id
         subtopic_id = subtopic_id if subtopic_id is not None else active_subtopic_id
 
+    normalized_modality = _normalize_input_modality(input_modality, audio_ref=audio_ref)
+    turn_created_at = datetime.utcnow()
+    timecode_ms = _capture_timecode_ms(session, turn_created_at)
+    normalized_document_refs = _normalize_capture_document_refs(
+        document_refs or [],
+        visual_context if isinstance(visual_context, Mapping) else None,
+        default_timecode_ms=timecode_ms,
+    )
+    normalized_visual_context = (
+        _normalize_capture_document_ref(visual_context, default_timecode_ms=timecode_ms)
+        if isinstance(visual_context, Mapping)
+        else None
+    )
     question_meta = _question_trace_metadata(session.plan or {}, question_id)
     retrieval_refs = _retrieval_refs_for_event(
         db,
@@ -4980,9 +5579,15 @@ def append_turn(
             status="accepted",
             parent_event_id=interruption_of_event_id,
             created_by=actor_user_id,
-            meta_data={"client_turn_id": client_turn_id, "turn_kind": turn_kind, **question_meta},
+            meta_data={
+                "client_turn_id": client_turn_id,
+                "turn_kind": turn_kind,
+                "input_modality": normalized_modality,
+                "timecode_ms": timecode_ms,
+                **question_meta,
+            },
         )
-    if speaker == "expert":
+    if speaker == "expert" and normalized_modality == "voice":
         _record_capture_event(
             db,
             session=session,
@@ -4995,7 +5600,15 @@ def append_turn(
             status="accepted",
             parent_event_id=retrieval_event_id,
             created_by=actor_user_id,
-            meta_data={"client_turn_id": client_turn_id, "turn_kind": turn_kind, **question_meta},
+            meta_data={
+                "client_turn_id": client_turn_id,
+                "turn_kind": turn_kind,
+                "input_modality": normalized_modality,
+                "document_refs": normalized_document_refs,
+                "visual_context": normalized_visual_context,
+                "timecode_ms": timecode_ms,
+                **question_meta,
+            },
         )
 
     turn = {
@@ -5014,10 +5627,15 @@ def append_turn(
         "retrieval_refs": retrieval_refs,
         "interruption_of_event_id": interruption_of_event_id,
         "turn_kind": turn_kind,
+        "input_modality": normalized_modality,
+        "document_refs": normalized_document_refs,
+        "visual_context": normalized_visual_context,
+        "timecode_ms": timecode_ms,
         "text_partials": text_partials or [],
         "latency_ms": latency_ms or {},
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": turn_created_at.isoformat(),
     }
+    turn_source = "expert_voice" if normalized_modality == "voice" else "expert_text"
     event = _record_capture_event(
         db,
         session=session,
@@ -5026,7 +5644,7 @@ def append_turn(
         question_id=question_id,
         audio_ref=audio_ref,
         text_raw=text,
-        source="expert_live" if speaker == "expert" else "operator_edit",
+        source=turn_source if speaker == "expert" else "operator_edit",
         status="accepted",
         parent_event_id=interruption_of_event_id,
         created_by=actor_user_id,
@@ -5037,6 +5655,10 @@ def append_turn(
             "retrieval_refs": retrieval_refs,
             "interruption_of_event_id": interruption_of_event_id,
             "turn_kind": turn_kind,
+            "input_modality": normalized_modality,
+            "document_refs": normalized_document_refs,
+            "visual_context": normalized_visual_context,
+            "timecode_ms": timecode_ms,
             "text_partials": text_partials or [],
             "latency_ms": latency_ms or {},
             **question_meta,
@@ -5882,6 +6504,33 @@ def _section_statements(
     return statements
 
 
+def _fact_belongs_to_section(
+    fact: Dict[str, Any],
+    topic_id: Optional[str],
+    subtopic_id: Optional[str],
+) -> bool:
+    if subtopic_id:
+        return fact.get("subtopic_id") == subtopic_id or (
+            bool(topic_id) and fact.get("topic_id") == topic_id and not fact.get("subtopic_id")
+        )
+    if topic_id:
+        return fact.get("topic_id") == topic_id
+    return True
+
+
+def _section_document_sources(
+    session: ExpertCaptureSession,
+    topic_id: Optional[str],
+    subtopic_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    facts = [
+        fact
+        for fact in (session.captured_facts or [])
+        if isinstance(fact, dict) and _fact_belongs_to_section(fact, topic_id, subtopic_id)
+    ]
+    return _document_sources_from_facts(facts)
+
+
 def _resolve_capture_report_source_min_score() -> float:
     from app.core.config import settings as cfg
 
@@ -6153,7 +6802,11 @@ def _section_sources(
         document_id = md.get("document_id") or md.get("doc_id") or md.get("id")
         filename = _source_display_filename(md)
         title = _source_display_title(md)
+        page = _positive_int(md.get("page") or md.get("page_number"))
+        slide = _positive_int(md.get("slide") or md.get("slide_number"))
         key = str(document_id or title or text[:80]).strip().lower()
+        if page or slide:
+            key = f"{key}|p:{page or ''}|s:{slide or ''}"
         if not key or key in seen:
             continue
         seen.add(key)
@@ -6166,6 +6819,9 @@ def _section_sources(
                 "title": title,
                 "filename": filename,
                 "collection": md.get("collection") or md.get("collection_name"),
+                "page": page,
+                "page_number": page,
+                "slide": slide,
                 "preview": text[:360],
             }
         )
@@ -6234,6 +6890,7 @@ def _prepare_section_finalize(
     meta = _resolve_plan_section_meta(plan, topic_id, subtopic_id)
     section_key = _section_key(meta.get("topic_id"), meta.get("subtopic_id"))
     raw_statements = _section_statements(session, meta.get("topic_id"), meta.get("subtopic_id"))
+    document_sources = _section_document_sources(session, meta.get("topic_id"), meta.get("subtopic_id"))
     label = (
         meta.get("topic_path")
         or " / ".join(part for part in [meta.get("topic_title"), meta.get("subtopic_title")] if part)
@@ -6255,6 +6912,7 @@ def _prepare_section_finalize(
         "section_key": section_key,
         "label": label,
         "raw_statements": raw_statements,
+        "document_sources": document_sources,
         "static_context": static_context,
         "collection_name": _resolve_collection_name(ctx),
         "session_ref": SimpleNamespace(
@@ -6369,7 +7027,7 @@ async def _compute_section_finalize_async(
         "section_label": label,
         "synthesis": synthesis,
         "open_questions": grounded,
-        "sources": _section_sources(chunks, metadatas),
+        "sources": _merge_report_sources(_section_sources(chunks, metadatas), prep.get("document_sources") or []),
         "statement_count": len(statements),
         "raw_statement_count": len(raw_statements),
         "dedup_removed": dedup_removed,
@@ -6386,7 +7044,7 @@ def _skipped_section_entry(prep: Dict[str, Any]) -> Dict[str, Any]:
         "subtopic_id": meta.get("subtopic_id"),
         "synthesis": "",
         "open_questions": [],
-        "sources": [],
+        "sources": list(prep.get("document_sources") or []),
         "statement_count": 0,
         "skipped": True,
     }
@@ -8006,6 +8664,10 @@ def _transcript_from_events(events: Iterable[ExpertCaptureEvent]) -> List[Dict[s
             "retrieval_refs": meta.get("retrieval_refs") or [],
             "interruption_of_event_id": meta.get("interruption_of_event_id"),
             "turn_kind": meta.get("turn_kind") or "answer",
+            "input_modality": meta.get("input_modality") or "voice",
+            "document_refs": meta.get("document_refs") or [],
+            "visual_context": meta.get("visual_context"),
+            "timecode_ms": meta.get("timecode_ms"),
             "text_partials": meta.get("text_partials") or [],
             "latency_ms": meta.get("latency_ms") or {},
             "created_at": event.created_at.isoformat() if event.created_at else None,

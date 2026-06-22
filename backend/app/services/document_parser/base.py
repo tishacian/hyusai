@@ -11,7 +11,9 @@ from datetime import datetime
 class DocumentType(Enum):
     """Supported document types"""
     PDF = "pdf"
+    DOC = "doc"
     DOCX = "docx"
+    PPTX = "pptx"
     MARKDOWN = "md"
     TEXT = "txt"
     LOG = "log"

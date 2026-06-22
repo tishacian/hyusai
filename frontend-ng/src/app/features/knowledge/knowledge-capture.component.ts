@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom, Subscription } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { ApiService, PublishedCaptureFiche } from '@app/core/api.service';
+import { ApiService, CaptureDocumentViewRequest, PublishedCaptureFiche } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { LiveKitConversationConnection, LiveKitConversationService } from '@app/core/livekit-conversation.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
@@ -20,7 +20,7 @@ import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-play
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { ZoomContextService } from '@app/core/zoom-context.service';
-import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
+import { DocumentPreviewComponent, DocumentPreviewViewChange } from '@app/shared/document-preview/document-preview.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 
 type CaptureVoiceConnection = VoiceSessionConnection | LiveKitConversationConnection;
@@ -338,12 +338,19 @@ interface ConversationStepResponse {
 /** Section-level KB source attached by the FINAL pass (chat-style display). */
 interface CaptureReportSource {
   rank?: number;
+  kind?: string | null;
   document_id?: string | null;
   source_id?: string | null;
   source?: string | null;
   title?: string | null;
   filename?: string | null;
   collection?: string | null;
+  page?: number | string | null;
+  page_number?: number | string | null;
+  slide?: number | string | null;
+  image_index?: number | string | null;
+  timecode_ms?: number | string | null;
+  association_mode?: string | null;
   preview?: string | null;
 }
 
@@ -356,6 +363,25 @@ interface CaptureReportStructureNode {
   sources?: CaptureReportSource[];
   open_questions?: ProposalOpenQuestion[];
   subtopics?: CaptureReportStructureNode[];
+}
+
+interface CaptureSessionDocument {
+  document_id?: string | null;
+  filename?: string | null;
+  title?: string | null;
+  collection?: string | null;
+  collection_name?: string | null;
+  status?: string | null;
+  chunks_processed?: number | null;
+  job_id?: string | null;
+}
+
+interface CaptureDocumentsResponse {
+  collection?: string | null;
+  collection_name?: string | null;
+  documents?: CaptureSessionDocument[];
+  active_view?: Record<string, unknown> | null;
+  session?: CaptureSession;
 }
 
 /** Nested bullet in a section synthesis list. */
@@ -1807,6 +1833,70 @@ interface ProposalFact {
                       </article>
                     }
                   </div>
+                  }
+                  @if (sessionHasStarted(s)) {
+                    <section class="rounded border border-white/10 bg-white/[0.03] p-3">
+                      <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">Documents de capture</p>
+                          @if (activeCaptureDocumentView(); as view) {
+                            <p class="mt-1 text-xs text-cyan-100">
+                              Vue active : {{ captureDocumentViewLabel(view) }}
+                            </p>
+                          } @else {
+                            <p class="mt-1 text-xs text-gray-500">Associez une page, une slide ou une image au fil de capture.</p>
+                          }
+                        </div>
+                        <input
+                          #captureDocumentInput
+                          type="file"
+                          class="hidden"
+                          multiple
+                          accept=".pdf,.pptx,.doc,.docx,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"
+                          (change)="onCaptureDocumentFileSelect(s, $event)"
+                        />
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-2 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-100 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-50"
+                          [disabled]="captureDocumentsUploading() || !canCaptureUpdate(s)"
+                          (click)="captureDocumentInput.click()"
+                        >
+                          <app-icon [name]="captureDocumentsUploading() ? 'loader-2' : 'upload'" [size]="13" [class.animate-spin]="captureDocumentsUploading()" />
+                          Ajouter
+                        </button>
+                      </div>
+                      @if (captureDocuments().length) {
+                        <div class="mt-3 flex flex-wrap gap-2">
+                          @for (doc of captureDocuments(); track captureDocumentTrack(doc, $index)) {
+                            <button
+                              type="button"
+                              class="inline-flex max-w-full items-center gap-2 rounded bg-black/20 px-2.5 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                              (click)="previewCaptureDocument(doc)"
+                            >
+                              <app-icon name="file-text" [size]="13" class="text-cyan-200" />
+                              <span class="truncate">{{ captureDocumentLabel(doc) }}</span>
+                              <span class="text-[10px] text-gray-500">{{ doc.status || 'ready' }}</span>
+                            </button>
+                          }
+                        </div>
+                      }
+                      <div class="mt-3 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                        <textarea
+                          class="min-h-16 rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-white leading-relaxed"
+                          [(ngModel)]="writtenCaptureDraft"
+                          placeholder="Note écrite liée au tour ou à la vue active..."
+                        ></textarea>
+                        <button
+                          type="button"
+                          class="inline-flex items-center justify-center gap-2 rounded bg-cyan-500/20 px-3 py-2 text-xs font-semibold text-cyan-100 ring-1 ring-cyan-300/20 hover:bg-cyan-500/30 disabled:opacity-50"
+                          [disabled]="!writtenCaptureDraft.trim() || !canCaptureUpdate(s)"
+                          (click)="sendWrittenCaptureNote(s)"
+                        >
+                          <app-icon name="send" [size]="13" />
+                          Ajouter la note
+                        </button>
+                      </div>
+                    </section>
                   }
                   @if (showAnswerComposer(s)) {
                     <textarea
@@ -3637,6 +3727,7 @@ interface ProposalFact {
       [page]="sourcePreviewPage()"
       [highlight]="sourcePreviewHighlight()"
       subtitle="Source documentaire"
+      (viewChanged)="onSourcePreviewViewChanged($event)"
       (closed)="closeSourcePreview()"
     />
   `,
@@ -3821,6 +3912,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   contextId = '';
   systemId = '';
   answer = '';
+  writtenCaptureDraft = '';
   selectedKnowledgeCollection = '';
   newContextName = '';
   selectedDomain = 'technical';
@@ -4071,6 +4163,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   readonly sourcePreviewTitle = signal('');
   readonly sourcePreviewPage = signal<number | null>(null);
   readonly sourcePreviewHighlight = signal<string | null>(null);
+  readonly captureDocuments = signal<CaptureSessionDocument[]>([]);
+  readonly captureDocumentsCollection = signal<string | null>(null);
+  readonly captureDocumentsUploading = signal(false);
+  readonly activeCaptureDocumentView = signal<Record<string, unknown> | null>(null);
+  readonly sourcePreviewCaptureDocument = signal<CaptureSessionDocument | null>(null);
   // FINAL-phase gating: true between capture.finish and the proposal-ready
   // conversation.step. While true the report screen stays locked behind the
   // finalization loader, whose stage label follows the gateway's honest
@@ -4269,6 +4366,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.sessionTitle = '';
     this.objective = '';
     this.answer = '';
+    this.writtenCaptureDraft = '';
     this.expertProfile = 'Expert métier';
     this.durationMinutes = 20;
     this.durationUnlimited.set(false);
@@ -4335,6 +4433,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.lastEventSequence = null;
     this.hintStack.set([]);
     this.activeSubtopicId.set(null);
+    this.writtenCaptureDraft = '';
+    this.captureDocuments.set([]);
+    this.captureDocumentsCollection.set(null);
+    this.activeCaptureDocumentView.set(null);
+    this.sourcePreviewCaptureDocument.set(null);
     this.questionBankStatus.set('idle');
     this.planNotice.set(null);
     this.planDialogueReadyFlag.set(false);
@@ -4360,6 +4463,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.pendingLiveCommits.set([]);
     this.relanceAnnotations.set([]);
     this.answer = '';
+    this.writtenCaptureDraft = '';
     this.currentClientTurnId = null;
     this.transcriptAtBottom.set(true);
   }
@@ -4405,6 +4509,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.zoom.setCurrentSystem(typed.system_id || null, this.systemLabel(typed.system_id));
           this.zoom.setCurrentContext(typed.context_id || null, this.contextLabel(typed.context_id));
           this.selectedQuestionId.set(this.planQuestions(typed)[0]?.id || null);
+          this.loadCaptureDocuments(typed.id);
           this.planNotice.set({
             tone: 'info',
             text: this.isFreeConversationSession(typed)
@@ -4729,6 +4834,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
               : questions[0]?.id || null,
           );
           this.refreshEvents(typed.id);
+          this.loadCaptureDocuments(typed.id);
           this.refreshQualityBacklog(typed.id);
           this.refreshDashboard();
           this.activeSurface.set('session');
@@ -4877,6 +4983,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   openPublishedFichePreview(row: PublishedCaptureFiche): void {
     // Whole-file browsing — no retrieved passage to highlight.
+    this.sourcePreviewCaptureDocument.set(null);
     this.sourcePreviewPage.set(null);
     this.sourcePreviewHighlight.set(null);
     const previewPath = row.preview_url;
@@ -5033,6 +5140,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         : questions[0]?.id || null,
     );
     this.refreshEvents(row.id);
+    this.loadCaptureDocuments(row.id);
     this.activeSurface.set(row.status === 'completed' ? 'review' : 'session');
   }
 
@@ -5722,6 +5830,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       this.setVoiceNotice('Votre rôle ne permet pas de modifier cette session de capture.', 'error');
       return;
     }
+    const documentFields = this.activeCaptureDocumentFields();
     this.voiceState.set('thinking');
     this.api
       .addCaptureTurn(session.id, {
@@ -5732,6 +5841,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         retrieval_event_id: this.retrieval().event_id || null,
         interruption_of_event_id: this.interruptionOfEventId(),
         turn_kind: this.interruptionOfEventId() ? 'correction' : 'answer',
+        input_modality: 'text',
+        ...documentFields,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((res) => {
@@ -5752,6 +5863,41 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         } else {
           this.voiceState.set('idle');
         }
+      });
+  }
+
+  sendWrittenCaptureNote(session: CaptureSession): void {
+    const text = this.writtenCaptureDraft.trim();
+    if (!text) return;
+    if (!this.canCaptureUpdate(session)) {
+      this.setVoiceNotice('Votre rôle ne permet pas de modifier cette session de capture.', 'error');
+      return;
+    }
+    const documentFields = this.activeCaptureDocumentFields();
+    this.api
+      .addCaptureTurn(session.id, {
+        speaker: 'expert',
+        text,
+        question_id: this.selectedQuestionId(),
+        client_turn_id: null,
+        retrieval_event_id: null,
+        interruption_of_event_id: this.interruptionOfEventId(),
+        turn_kind: this.interruptionOfEventId() ? 'correction' : 'complement',
+        input_modality: 'text',
+        ...documentFields,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          const typed = res as TurnResponse;
+          this.session.set(typed.session);
+          this.writtenCaptureDraft = '';
+          this.refreshEvents(typed.session.id);
+          this.setVoiceNotice('Note écrite ajoutée à la capture.', 'info');
+        },
+        error: () => {
+          this.setVoiceNotice('Impossible d’ajouter la note écrite.', 'error');
+        },
       });
   }
 
@@ -7624,6 +7770,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       .subscribe((payload) => {
         const typed = payload as CaptureSession;
         this.session.set(typed);
+        this.loadCaptureDocuments(typed.id);
         void this.startGuidedSession(typed);
       });
   }
@@ -8332,6 +8479,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         });
       return;
     }
+    const documentFields = this.activeCaptureDocumentFields();
     this.voiceState.set('thinking');
     this.api
       .addCaptureTurn(session.id, {
@@ -8342,6 +8490,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         retrieval_event_id: this.retrieval().event_id || null,
         interruption_of_event_id: this.interruptionOfEventId(),
         turn_kind: this.interruptionOfEventId() ? 'correction' : 'answer',
+        input_modality: 'text',
+        ...documentFields,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((res) => {
@@ -9525,9 +9675,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     min_speech_ms?: number;
     rms_threshold?: number;
     endpoint_grace_ms?: number;
+    visual_context?: Record<string, unknown> | null;
+    document_refs?: Record<string, unknown>[];
   } {
     const autoEndpoint = reason != null && reason !== 'manual';
     const captureConfig = this.resolvedVoiceCaptureConfig();
+    const documentFields = this.activeCaptureDocumentFields();
     return {
       turn_id: this.currentClientTurnId,
       question_id: this.selectedQuestionId(),
@@ -9541,6 +9694,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       min_speech_ms: captureConfig.min_speech_ms,
       rms_threshold: captureConfig.rms_threshold,
       endpoint_grace_ms: captureConfig.endpoint_grace_ms,
+      ...documentFields,
     };
   }
 
@@ -10743,6 +10897,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   previewRetrievalChunk(index: number): void {
+    this.sourcePreviewCaptureDocument.set(null);
     const documentId = this.retrievalChunkDocumentId(index);
     const collection = this.retrievalChunkCollection(index);
     if (!documentId || !collection) return;
@@ -10772,6 +10927,145 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.sourcePreviewUrl.set(null);
     this.sourcePreviewPage.set(null);
     this.sourcePreviewHighlight.set(null);
+    this.sourcePreviewCaptureDocument.set(null);
+  }
+
+  loadCaptureDocuments(sessionId: string): void {
+    this.api
+      .listCaptureDocuments(sessionId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => this.applyCaptureDocuments(payload as CaptureDocumentsResponse),
+        error: () => {
+          // Non-critical: document support must never disturb voice capture.
+        },
+      });
+  }
+
+  private applyCaptureDocuments(payload: CaptureDocumentsResponse): void {
+    const collection = String(payload.collection || payload.collection_name || '').trim();
+    if (collection) this.captureDocumentsCollection.set(collection);
+    this.captureDocuments.set((payload.documents || []).filter((doc) => Boolean(doc)));
+    this.activeCaptureDocumentView.set(payload.active_view || null);
+    if (payload.session) {
+      this.session.set(payload.session);
+    }
+  }
+
+  onCaptureDocumentFileSelect(session: CaptureSession, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = input.files;
+    if (!files || !files.length) return;
+    this.captureDocumentsUploading.set(true);
+    this.api
+      .uploadCaptureDocuments(session.id, files)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          this.captureDocumentsUploading.set(false);
+          this.applyCaptureDocuments(payload as CaptureDocumentsResponse);
+          input.value = '';
+        },
+        error: () => {
+          this.captureDocumentsUploading.set(false);
+          input.value = '';
+          this.setVoiceNotice('Chargement document impossible pour cette capture.', 'error');
+        },
+      });
+  }
+
+  captureDocumentTrack(doc: CaptureSessionDocument, index: number): string {
+    return String(doc.document_id || doc.filename || index);
+  }
+
+  captureDocumentLabel(doc: CaptureSessionDocument): string {
+    return String(doc.title || doc.filename || doc.document_id || 'Document').trim();
+  }
+
+  captureDocumentViewLabel(view: Record<string, unknown>): string {
+    const title = String(view['title'] || view['filename'] || view['document_id'] || 'Document').trim();
+    const slide = this.coercePage(view['slide']);
+    if (slide) return `${title} · slide ${slide}`;
+    const page = this.coercePage(view['page'] ?? view['page_number']);
+    return page ? `${title} · page ${page}` : title;
+  }
+
+  previewCaptureDocument(doc: CaptureSessionDocument): void {
+    const documentId = String(doc.document_id || '').trim();
+    const collection = String(doc.collection || doc.collection_name || this.captureDocumentsCollection() || '').trim();
+    if (!documentId || !collection) {
+      this.setVoiceNotice('Ce document est encore en indexation; la preview sera disponible ensuite.', 'warning');
+      return;
+    }
+    let url =
+      `${this.api.base}/documents/${encodeURIComponent(documentId)}/rich-preview` +
+      `?collection_name=${encodeURIComponent(collection)}`;
+    const filename = String(doc.filename || '').trim();
+    if (filename) url += `&filename=${encodeURIComponent(filename)}`;
+    this.sourcePreviewCaptureDocument.set(doc);
+    this.sourcePreviewTitle.set(this.captureDocumentLabel(doc));
+    this.sourcePreviewUrl.set(url);
+    this.sourcePreviewPage.set(1);
+    this.sourcePreviewHighlight.set(null);
+    this.sourcePreviewOpen.set(true);
+    this.persistCaptureDocumentView(doc, { page: 1, association_mode: 'active_view' });
+  }
+
+  onSourcePreviewViewChanged(change: DocumentPreviewViewChange): void {
+    const doc = this.sourcePreviewCaptureDocument();
+    if (!doc) return;
+    this.persistCaptureDocumentView(doc, {
+      page: change.page || undefined,
+      association_mode: 'active_view',
+    });
+  }
+
+  private persistCaptureDocumentView(doc: CaptureSessionDocument, patch: Partial<CaptureDocumentViewRequest>): void {
+    const session = this.session();
+    if (!session) return;
+    const collection = String(doc.collection || doc.collection_name || this.captureDocumentsCollection() || '').trim();
+    const body: CaptureDocumentViewRequest = {
+      document_id: doc.document_id || null,
+      collection: collection || null,
+      collection_name: collection || null,
+      filename: doc.filename || null,
+      title: doc.title || doc.filename || doc.document_id || null,
+      ...patch,
+    };
+    this.activeCaptureDocumentView.set(body as Record<string, unknown>);
+    this.api
+      .recordCaptureDocumentView(session.id, body)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => {
+          const typed = payload as CaptureDocumentsResponse;
+          if (typed.active_view) this.activeCaptureDocumentView.set(typed.active_view);
+          if (typed.session) this.session.set(typed.session);
+        },
+        error: () => {
+          // View logging is useful audit metadata, but must not interrupt capture.
+        },
+      });
+  }
+
+  private activeCaptureDocumentRef(): Record<string, unknown> | null {
+    const view = this.activeCaptureDocumentView();
+    if (!view) return null;
+    return {
+      ...view,
+      association_mode: String(view['association_mode'] || 'active_view'),
+    };
+  }
+
+  private activeCaptureDocumentFields(): {
+    document_refs: Record<string, unknown>[];
+    visual_context: Record<string, unknown> | null;
+  } {
+    const ref = this.activeCaptureDocumentRef();
+    return {
+      document_refs: ref ? [ref] : [],
+      visual_context: ref,
+    };
   }
 
   // --- FINAL-phase loader (capture.finish gating) ---------------------------
@@ -11096,7 +11390,11 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   reportSourceLabel(src: CaptureReportSource): string {
-    return String(src.title || src.filename || src.source || src.document_id || 'Source').trim();
+    const base = String(src.title || src.filename || src.source || src.document_id || 'Source').trim();
+    const slide = this.coercePage(src.slide);
+    if (slide) return `${base} · slide ${slide}`;
+    const page = this.coercePage(src.page ?? src.page_number);
+    return page ? `${base} · page ${page}` : base;
   }
 
   canPreviewReportSource(src: CaptureReportSource): boolean {
@@ -11105,6 +11403,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
 
   /** Chat-style source preview (same rich-preview endpoint as the chat chips). */
   previewReportSource(src: CaptureReportSource): void {
+    this.sourcePreviewCaptureDocument.set(null);
     const documentId = String(src.document_id || '');
     const collection = String(src.collection || '');
     if (!documentId || !collection) return;
@@ -11115,7 +11414,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     if (filename) url += `&filename=${encodeURIComponent(filename)}`;
     this.sourcePreviewTitle.set(this.reportSourceLabel(src));
     this.sourcePreviewUrl.set(url);
-    this.sourcePreviewPage.set(null);
+    this.sourcePreviewPage.set(this.coercePage(src.page ?? src.page_number ?? src.slide));
     const passage = String(src.preview || '').trim();
     this.sourcePreviewHighlight.set(passage.length >= 8 ? passage : null);
     this.sourcePreviewOpen.set(true);

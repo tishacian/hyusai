@@ -26,6 +26,12 @@ interface RichDocumentPreview {
   reason?: string;
 }
 
+export interface DocumentPreviewViewChange {
+  kind: 'text' | 'html' | 'spreadsheet' | 'image' | 'pdf' | 'binary';
+  filename: string;
+  page: number | null;
+}
+
 const RICH_PREVIEW_CACHE_LIMIT = 50;
 
 @Component({
@@ -168,6 +174,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                     [showTextEditor]="false"
                     [showHighlightEditor]="false"
                     (pdfLoaded)="onPdfLoaded()"
+                    (pageChange)="onPdfPageChange($event)"
                     (textLayerRendered)="onPdfTextLayer()"
                   />
                 } @else {
@@ -231,6 +238,7 @@ export class DocumentPreviewComponent {
   /** Chunk/snippet text to locate and highlight inside the rendered preview. */
   readonly highlight = input<string | null>(null);
   readonly closed = output<void>();
+  readonly viewChanged = output<DocumentPreviewViewChange>();
 
   /** Exposed to the template for the spreadsheet scroll anchor. */
   readonly hlAnchorId = HIGHLIGHT_ANCHOR_ID;
@@ -575,6 +583,20 @@ export class DocumentPreviewComponent {
   private pdfObjectUrl(url: string): string {
     const page = this.normalizedPage();
     return page ? `${url}#page=${page}` : url;
+  }
+
+  protected onPdfPageChange(page: unknown): void {
+    const doc = this.preview();
+    if (!doc) return;
+    const pageNo =
+      typeof page === 'number'
+        ? page
+        : Number.parseInt(String((page as { pageNumber?: unknown })?.pageNumber ?? page), 10);
+    this.viewChanged.emit({
+      kind: doc.kind,
+      filename: doc.filename,
+      page: Number.isFinite(pageNo) && pageNo > 0 ? pageNo : this.normalizedPage(),
+    });
   }
 
   private errorMessage(err: unknown): string {
