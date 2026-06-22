@@ -983,13 +983,24 @@ def test_large_collection_balanced_scopes_project_code_from_document_names(db_se
     assert "R__RCZ100__RCZ100__fichiers__users manual__conveyor.pdf" not in scoped
 
 
-def test_balanced_fact_scope_bounded_to_non_large_collections(db_session, monkeypatch):
-    """Contract for the bounded balanced fact-scope restoration (follow-up to 42d8226).
+def test_balanced_fact_scope_soft_boost_on_large_collections(db_session, monkeypatch):
+    """Contract for the balanced fact-scope SOFT BOOST on large collections.
 
-    Balanced (interactive) chats regained fact-table scope inference, but only on
-    NON-LARGE collections. Large ledger-backed corpora keep fact-scope deep-only:
-    the sequential fact-table ILIKE there cost ~tens of seconds on the chat hot
-    path. Deep always runs it regardless of collection size.
+    Supersedes the earlier "deep-only on large collections" gate (b7a6646d
+    hunk #2). That gate left balanced fact queries in the unscoped dense
+    fallback, which is guardrailed against a global chunk search on large
+    ledger-backed collections (``notices``) — so fact-backed answers living only
+    there (the Ø1500 tambour weight) were never retrieved.
+
+    New behaviour:
+      - Small balanced collection: fact-scope is the precise HARD
+        ``document_filename`` filter (unchanged).
+      - Large balanced collection: fact-scope is ADDITIVE — ``filters`` stays
+        empty (the unscoped fast_sparse_direct path is preserved so non-fact
+        answers are not starved) and the fact docs are exposed as
+        ``soft_scope_filters`` for an extra payload-filtered pass that retrieval
+        unions in. The bounded scan is index-backed (pg_trgm GIN, migration 045).
+      - Deep runs the precise HARD filter regardless of collection size.
     """
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
@@ -1049,17 +1060,22 @@ def test_balanced_fact_scope_bounded_to_non_large_collections(db_session, monkey
             query=fact_query,
         )
 
-    # Small collection: balanced regains the fact-table scope.
+    # Small collection: balanced keeps the precise HARD fact-table scope.
     small_balanced = _plan(small, "balanced")
     assert small_balanced.filters.get("document_filename") == [fact_filename]
+    assert not small_balanced.soft_scope_filters
 
-    # Large collection: balanced must NOT run the fact-table scan — deep-only.
+    # Large collection: balanced must NOT hard-restrict the query (the unscoped
+    # path stays alive for non-fact answers) but DOES expose the fact docs as an
+    # additive soft scope so the guardrailed large collection still gets touched.
     large_balanced = _plan(large, "balanced")
     assert "document_filename" not in large_balanced.filters
+    assert large_balanced.soft_scope_filters.get("document_filename") == [fact_filename]
 
-    # Deep runs the fact-table scope regardless of collection size.
+    # Deep runs the precise HARD fact-table scope regardless of collection size.
     large_deep = _plan(large, "deep")
     assert large_deep.filters.get("document_filename") == [fact_filename]
+    assert not large_deep.soft_scope_filters
 
 
 def test_deep_planner_bounds_large_collection_ledger_load(db_session, monkeypatch):
@@ -1212,10 +1228,15 @@ async def test_system_collection_scope_is_not_sent_as_payload_filter(db_session)
     assert svc.calls[0]["filters"] == {"source_kind": "markup"}
 
 
-async def test_dense_collection_balanced_unscoped_uses_coarse_inventory_without_global_search(
+async def test_dense_collection_balanced_unscoped_runs_real_bounded_dense(
     db_session,
     monkeypatch,
 ):
+    # Post-4fe46c0 contract: balanced on an unscoped dense collection runs the
+    # SAME real bounded vector/sparse search as fast (fast_sparse_direct) and
+    # queues deep refinement, instead of the former coarse-inventory guardrail
+    # that returned only a synthetic inventory (strictly worse than fast). This
+    # supersedes the old "uses_coarse_inventory_without_global_search" assertion.
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
     workspace = Workspace(id="ws-dense-balanced-policy", name="Dense Balanced", slug="dense-balanced")
@@ -1247,13 +1268,87 @@ async def test_dense_collection_balanced_unscoped_uses_coarse_inventory_without_
         doc_svc=svc,
     )
 
-    assert result["dense_policy"] == "fast_scoped_dense_auto"
-    assert result["pipeline"] == "dense_coarse_inventory"
+    assert result["dense_policy"] == "fast_sparse_direct"
     assert result["deep_retrieval_recommended"] is True
     assert result["retrieval_plan"]["guardrails"]["user_scope_required"] is False
     assert result["retrieval_plan"]["guardrails"]["global_chunk_search_allowed"] is False
-    assert result["metrics"]["dense_global_search_skipped"] is True
-    assert not svc.calls
+    assert result["retrieval_plan"]["layers"]["sparse"]["enabled"] is True
+    assert result["retrieval_plan"]["layers"]["deep_async"]["enabled"] is True
+    assert svc.calls
+
+
+async def test_dense_collection_balanced_large_runs_additive_soft_fact_scope(
+    db_session,
+    monkeypatch,
+):
+    """Balanced + large ledger-backed corpus: fact-scope is ADDITIVE.
+
+    The query keeps the unscoped fast_sparse_direct path (so non-fact answers are
+    not starved) AND retrieval runs one extra payload-filtered pass over the
+    fact-matched documents, so the guardrailed large collection (`notices`) gets
+    touched and the fact-backed answer is unioned in. Replaces the b7a6646d
+    hunk #2 hard-gate that left these queries unscoped (Ø1500 tambour regression).
+    """
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-soft-boost", name="Soft Boost", slug="soft-boost")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Soft Boost SPL")
+    fact_filename = "A__ACJ100__manuel_chapitre_0.html"
+    for index in range(3):
+        upsert_collection_source(
+            db_session,
+            collection=collection,
+            filename=f"A__ACJ100__manuel_chapitre_{index}.html",
+            status="ready",
+            chunk_count=120,
+        )
+    # Genuinely large: above both ledger-targeting thresholds.
+    collection.document_count = 99481
+    collection.chunk_count = 1489764
+    db_session.add(
+        KnowledgeDocumentFact(
+            workspace_id=workspace.id,
+            collection_id=collection.id,
+            collection_slug=collection.slug,
+            document_id="doc-calibration",
+            document_filename=fact_filename,
+            semantic_type="document_procedure_step",
+            subject="calibration thermique",
+            predicate="procedure_step",
+            content="Procédure de calibration thermique du palier: vérifier la sonde.",
+            confidence=0.9,
+        )
+    )
+    db_session.commit()
+    svc = RecordingDenseService(count=360)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "Explique la calibration thermique du palier",
+            "context_collection": collection.slug,
+            "workspace_id": workspace.id,
+            "workspace_slug": workspace.slug,
+            "latency_profile": "balanced",
+            "rag_pipeline_mode": "chah",
+        },
+        doc_svc=svc,
+    )
+
+    # Unscoped path preserved: no hard filter, but the fact docs are a soft scope.
+    assert result["dense_policy"] == "fast_sparse_direct"
+    assert result["retrieval_scope"]["filters"] == {}
+    assert result["retrieval_scope"]["soft_scope_filters"] == {"document_filename": [fact_filename]}
+    # The additive scoped pass actually ran against the fact documents.
+    assert any(
+        call["filters"] == {"document_filename": [fact_filename]} for call in svc.calls
+    )
+    # And an unscoped (no document_filename) pass ran too — the union, not a swap.
+    assert any(
+        not (call["filters"] or {}).get("document_filename") for call in svc.calls
+    )
+    assert result["metrics"]["soft_scope_boost"]["applied"] is True
 
 
 async def test_dense_planner_uses_collection_totals_when_source_ledger_is_partial(db_session, monkeypatch):

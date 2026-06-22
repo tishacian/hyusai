@@ -150,6 +150,16 @@ class CorpusPlan:
     max_candidates: int = 80
     fallback_reason: str | None = None
     deep_retrieval_recommended: bool = False
+    # Additive ("soft boost") document scope. Unlike ``filters`` this never
+    # restricts the main query: retrieval runs the unscoped path AND, in
+    # addition, a scope-searched pass over these documents, then unions the
+    # results. Used for balanced fact-scope on large ledger-backed collections,
+    # where a hard document_filename filter would starve answers living in
+    # unstructured chunks (D.60) but the large `notices` collection still needs
+    # *some* scope to be touched at all (guardrailed against unscoped global
+    # search) so fact-backed answers (the Ø1500 tambour weight) are retrieved.
+    soft_scope_filters: dict[str, Any] = field(default_factory=dict)
+    soft_scope_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1594,21 +1604,35 @@ def plan_corpus(
     # terms, so on a large corpus it silently drops documents whose answer lives
     # in unstructured chunks that were never lifted into the fact ledger (e.g.
     # the D.60 motor-bearing greasing values in the BCX200 structure notice).
-    # That hard document_filename filter then starves the dense search of the
-    # answer chunk. Deep (async) can afford the broader hierarchical retrieval
-    # that compensates; interactive balanced only runs fact-scope when the scoped
-    # collections are small enough that the bounded scan stays cheap. On large
-    # ledger-backed collections balanced falls through to the bounded
-    # summary-artifact / unscoped dense path (same as fast) and queues deep
-    # refinement, preserving recall of answers that are not structured facts.
+    # A HARD document_filename filter then starves the dense search of those
+    # answer chunks.
+    #
+    # On large ledger-backed collections the answer is NOT to gate fact-scope off
+    # for balanced (the previous hard-gate): that left fact queries in the
+    # unscoped dense fallback, which is guardrailed against running a global
+    # chunk search on the huge `notices` collection (~1.57M chunks). Fact-backed
+    # answers that only live in `notices` (the Ø1500 tambour weight, ~4 500 daN)
+    # were then never retrieved.
+    #
+    # Instead fact-scope becomes ADDITIVE ("soft boost") for balanced + large:
+    #   (a) the query keeps the unscoped fast_sparse_direct path, so non-fact
+    #       answers whose chunks are not in the fact ledger (D.60) are NOT
+    #       starved; AND
+    #   (b) the fact-matched documents are scope-searched IN ADDITION, which is
+    #       the only way the guardrailed `notices` collection gets touched for
+    #       fact-backed answers — and the results are unioned in retrieval.
+    # The bounded fact scan is index-backed (pg_trgm GIN, migration 045) and
+    # demotes ubiquitous terms, so it stays interactive (single-digit seconds).
+    # Deep and balanced+small keep the precise hard document_filename filter.
     large_collection_scope = any(
         int(getattr(c, "document_count", 0) or 0) > _LEDGER_TARGETING_MIN_SOURCES
         or int(getattr(c, "chunk_count", 0) or 0) > _LEDGER_TARGETING_MIN_CHUNKS
         for c in collection_rows
     )
-    run_fact_scope = latency_profile == "deep" or (
-        latency_profile == "balanced" and not large_collection_scope
-    )
+    run_fact_scope = latency_profile in {"deep", "balanced"}
+    soft_fact_scope = latency_profile == "balanced" and large_collection_scope
+    soft_scope_filters: dict[str, Any] = {}
+    soft_scope_reason = ""
     if explicit_filters:
         confidence = max(confidence, 0.95)
         reason = f"System/agent retrieval filters supplied: {', '.join(sorted(explicit_filters))}."
@@ -1619,7 +1643,13 @@ def plan_corpus(
             query=query,
             intent=intent,
         )
-        if fact_filters:
+        if fact_filters and soft_fact_scope:
+            # Additive soft boost: leave ``filters`` empty so the unscoped
+            # fast_sparse_direct path still runs; retrieval additionally
+            # scope-searches these documents and unions the results.
+            soft_scope_filters = fact_filters
+            soft_scope_reason = fact_reason
+        elif fact_filters:
             filters = fact_filters
             confidence = max(confidence, fact_confidence)
             reason = fact_reason
@@ -1732,6 +1762,7 @@ def plan_corpus(
         "confidence": round(float(confidence), 3),
         "reason": reason,
         "corpus_version": _corpus_version(rows, collection_rows),
+        "soft_scope_filters": soft_scope_filters,
         "planner_ms": int((time.time() - started) * 1000),
     }
     retrieval_plan = _build_retrieval_plan(
@@ -1775,4 +1806,6 @@ def plan_corpus(
         max_candidates=max_candidates,
         fallback_reason=fallback_reason,
         deep_retrieval_recommended=deep_retrieval_recommended,
+        soft_scope_filters=soft_scope_filters,
+        soft_scope_reason=soft_scope_reason,
     )
