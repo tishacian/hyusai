@@ -202,6 +202,11 @@ class VoiceSessionState:
     # with the hot audio path. Unknown metrics are ignored and accepted metrics
     # are lightly throttled per connection.
     last_client_metric_at: Optional[float] = None
+    # Realtime lane: live partials (gpt-realtime-whisper deltas) arrive far more
+    # often than the batch incremental STT cadence, so the grounded retrieval
+    # hint pass is throttled per session to avoid a retrieval storm. Reset on
+    # every turn so a fresh utterance grounds promptly.
+    last_capture_hints_at: Optional[float] = None
 
 
 # Cadence of the server-side incremental transcription. The live preview
@@ -233,6 +238,10 @@ _LIVE_QUESTIONS_CONTEXT_TURNS = 10
 # emits are throttled; turn commits always run detection once.
 _LIVE_SECTION_DETECT_PARTIAL_INTERVAL_S = 30.0
 _MANUAL_SECTION_OVERRIDE_COOLDOWN_S = 60.0
+# Minimum interval between two grounded retrieval hint passes driven by live
+# partials (realtime lane). The batch incremental STT already throttles itself
+# to ``_PARTIAL_STT_MIN_INTERVAL_MS``; this guards the direct text.partial path.
+_CAPTURE_HINTS_MIN_INTERVAL_S = 3.0
 _CLIENT_METRIC_MIN_INTERVAL_S = 0.15
 _CLIENT_CAPTURE_METRICS = {
     "chunk_gap_ms",
@@ -693,6 +702,7 @@ class VoiceSessionGateway:
         state.last_partial_text = ""
         state.last_partial_chunk_count = 0
         state.last_partial_text_chunk_count = 0
+        state.last_capture_hints_at = None
         # Invalidate any offloaded incremental STT still in flight: when it
         # completes it compares its captured generation against this counter and
         # drops its (now stale) result.
@@ -1037,15 +1047,21 @@ class VoiceSessionGateway:
         await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
         capture_session = self._capture_session(db, workspace.id, state.session_id)
         if capture_session and text.strip() and not is_capture_text_noise(text):
-            await self._maybe_push_capture_hints(
-                websocket,
-                db,
-                user=user,
-                workspace=workspace,
-                state=state,
-                capture_session=capture_session,
-                partial_text=text,
-            )
+            now = time.perf_counter()
+            if (
+                state.last_capture_hints_at is None
+                or (now - state.last_capture_hints_at) >= _CAPTURE_HINTS_MIN_INTERVAL_S
+            ):
+                state.last_capture_hints_at = now
+                await self._maybe_push_capture_hints(
+                    websocket,
+                    db,
+                    user=user,
+                    workspace=workspace,
+                    state=state,
+                    capture_session=capture_session,
+                    partial_text=text,
+                )
             try:
                 await self._maybe_detect_and_emit_active_section(
                     websocket,
@@ -1238,16 +1254,56 @@ class VoiceSessionGateway:
     ) -> None:
         turn_id = str(payload.get("turn_id") or state.client_turn_id or uuid.uuid4())
         state.client_turn_id = turn_id
-        text = str(payload.get("text") or "")
-        await self._send(websocket, state, "text.final", {**payload, "turn_id": turn_id})
-        if not state.tandem_oracle_enabled:
-            return
-        events = state.oracle.commit_final(
-            text,
-            turn_id=turn_id,
-            duration_ms=int(payload.get("duration_ms") or payload.get("latency_ms") or 0),
+        text = str(payload.get("text") or "").strip()
+        ignored_reason = "stt_noise" if text and is_capture_text_noise(text) else None
+        if ignored_reason:
+            text = ""
+        duration_ms = int(payload.get("duration_ms") or payload.get("latency_ms") or 0)
+        # Realtime lane: the LiveKit sidecar already streamed the live partials
+        # (text.partial -> retrieval hints + section detection) and now commits
+        # the turn's final text. Echo it to the UI, then run the SAME persistence
+        # seam as the batch endpoint STT (append_turn + section tagging + live
+        # questions + silent oracle). No relance / conversation.step / TTS here:
+        # heavy work stays deferred to section.finish / capture.finish.
+        await self._send(
+            websocket,
+            state,
+            "text.final",
+            {
+                **payload,
+                "turn_id": turn_id,
+                "speaker": payload.get("speaker") or "expert",
+                "text": text,
+                "empty": not bool(text),
+                "reason": payload.get("reason") if text else (ignored_reason or payload.get("reason") or "empty_transcript"),
+            },
         )
-        await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=events)
+        if text:
+            state.text_partials.append(text)
+        async with state.db_lock:
+            capture_session = self._capture_session(db, workspace.id, state.session_id)
+        latency = {
+            "first_text": duration_ms,
+            "final_text": duration_ms,
+            "text_final_total_ms": duration_ms,
+            "endpoint_stt_ms": duration_ms,
+            "endpoint_stt_source": "realtime_stream",
+            "endpoint_reason": str(payload.get("reason") or "realtime"),
+            "runtime_provider": payload.get("provider") or state.runtime,
+            "runtime_model": payload.get("model") or state.model,
+            "transport": state.transport,
+        }
+        await self._persist_capture_turn(
+            websocket,
+            db,
+            user=user,
+            workspace=workspace,
+            state=state,
+            capture_session=capture_session,
+            text=text,
+            latency=latency,
+            oracle_final_duration_ms=duration_ms,
+        )
 
     async def _handle_audio_endpoint(
         self,
@@ -1516,21 +1572,58 @@ class VoiceSessionGateway:
                 events=endpoint_oracle_events,
             )
 
+        await self._persist_capture_turn(
+            websocket,
+            db,
+            user=user,
+            workspace=workspace,
+            state=state,
+            capture_session=capture_session,
+            text=text,
+            latency=latency,
+            oracle_final_duration_ms=first_text_ms,
+        )
+
+    async def _persist_capture_turn(
+        self,
+        websocket: WebSocket,
+        db: DBSession,
+        *,
+        user: User,
+        workspace: Workspace,
+        state: VoiceSessionState,
+        capture_session: Optional[ExpertCaptureSession],
+        text: str,
+        latency: Dict[str, Any],
+        oracle_final_duration_ms: int,
+    ) -> None:
+        """Persist one committed expert turn and run the silent live oracle.
+
+        Shared seam between the two STT lanes that both arrive with an already
+        committed final ``text``:
+
+        - the batch endpoint lane (``_handle_audio_endpoint``) after full-buffer
+          STT, and
+        - the realtime lane (``_handle_text_final``) where the LiveKit sidecar
+          streamed ``gpt-realtime-whisper`` deltas and committed the turn.
+
+        PENDANT la capture = fast capture + timeline only: the turn is persisted
+        SILENTLY (no process_conversation_step, no relance, no next_prompt, no
+        TTS, no proposal). All heavy work (reformulation, grounded questions,
+        proposal synthesis) is deferred to section.finish / capture.finish. The
+        turn is tagged with the active plan section so the FINAL per-section
+        reformulation can map it to the plan hierarchy. Turn state is reset on
+        exit so the next utterance starts clean.
+        """
         if capture_session and text:
             turn_started = time.perf_counter()
-            # PENDANT la capture = fast capture + timeline only. We persist the turn
-            # SILENTLY (no process_conversation_step, no relance, no next_prompt, no
-            # TTS, no proposal). All heavy work (reformulation, grounded questions,
-            # proposal synthesis) is deferred to section.finish / capture.finish. The
-            # turn is tagged with the active plan section so the FINAL per-section
-            # reformulation can map it to the plan hierarchy.
             async with state.db_lock:
                 append_turn(
                     db,
                     workspace_id=workspace.id,
                     session_id=capture_session.id,
                     speaker="expert",
-                    text=corrected_text,
+                    text=text,
                     question_id=state.question_id,
                     client_turn_id=state.client_turn_id,
                     retrieval_event_id=state.retrieval_event_id,
@@ -1554,7 +1647,7 @@ class VoiceSessionGateway:
                 state.committed_turn_texts = []
                 state.live_open_questions = []
                 state.live_questions_generation += 1
-            state.committed_turn_texts.append(corrected_text)
+            state.committed_turn_texts.append(text)
             # Passive "contexte retrouvé" panel only — no content questions/relances.
             oracle_retrieval = {
                 "chunks": format_retrieval_chunks(
@@ -1571,7 +1664,7 @@ class VoiceSessionGateway:
                     workspace=workspace,
                     state=state,
                     capture_session=capture_session,
-                    partial_text=corrected_text,
+                    partial_text=text,
                     source="turn_commit",
                 )
             except Exception:
@@ -1621,7 +1714,7 @@ class VoiceSessionGateway:
             oracle_events = state.oracle.commit_final(
                 text,
                 turn_id=state.client_turn_id or str(uuid.uuid4()),
-                duration_ms=first_text_ms,
+                duration_ms=oracle_final_duration_ms,
             )
             await self._emit_oracle_events(websocket, db, user=user, workspace=workspace, state=state, events=oracle_events)
 

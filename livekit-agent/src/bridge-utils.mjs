@@ -95,6 +95,56 @@ export function frameChannels(frame, fallback = 1) {
   );
 }
 
+function clampInt16(value) {
+  if (value > 32767) return 32767;
+  if (value < -32768) return -32768;
+  return value;
+}
+
+/**
+ * Downmix interleaved 16-bit LE PCM to mono and linearly resample it to
+ * `outputRate`. Returns a Buffer of mono Int16LE samples. This is the bridge
+ * between LiveKit audio frames (typically 48 kHz) and the OpenAI realtime
+ * transcription input format (24 kHz mono PCM). A fast path returns the input
+ * untouched when it is already mono at the target rate.
+ */
+export function resamplePcm16ToMono(pcmBuffer, inputRate, channels = 1, outputRate = 24000) {
+  if (!pcmBuffer || pcmBuffer.length < 2) return Buffer.alloc(0);
+  const inRate = Number(inputRate) || outputRate;
+  const ch = Math.max(1, Number(channels) || 1);
+  const totalSamples = Math.floor(pcmBuffer.length / 2);
+  const frames = Math.floor(totalSamples / ch);
+  if (frames <= 0) return Buffer.alloc(0);
+  if (ch === 1 && inRate === outputRate) {
+    return pcmBuffer.subarray(0, frames * 2);
+  }
+  const monoAt = (frameIndex) => {
+    const base = frameIndex * ch * 2;
+    let sum = 0;
+    for (let c = 0; c < ch; c += 1) {
+      sum += pcmBuffer.readInt16LE(base + c * 2);
+    }
+    return sum / ch;
+  };
+  if (inRate === outputRate) {
+    const out = Buffer.alloc(frames * 2);
+    for (let i = 0; i < frames; i += 1) out.writeInt16LE(clampInt16(Math.round(monoAt(i))), i * 2);
+    return out;
+  }
+  const ratio = outputRate / inRate;
+  const outFrames = Math.max(0, Math.floor(frames * ratio));
+  const out = Buffer.alloc(outFrames * 2);
+  for (let i = 0; i < outFrames; i += 1) {
+    const srcPos = i / ratio;
+    const idx = Math.floor(srcPos);
+    const frac = srcPos - idx;
+    const s0 = monoAt(Math.min(idx, frames - 1));
+    const s1 = monoAt(Math.min(idx + 1, frames - 1));
+    out.writeInt16LE(clampInt16(Math.round(s0 + (s1 - s0) * frac)), i * 2);
+  }
+  return out;
+}
+
 export function wavFromPcm(chunks, sampleRate, channels) {
   const pcm = Buffer.concat(chunks);
   const header = Buffer.alloc(44);

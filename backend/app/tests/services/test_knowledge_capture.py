@@ -2610,6 +2610,109 @@ async def test_gateway_pause_flushes_segment_like_endpoint(db_session, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_gateway_realtime_text_final_persists_turn(db_session, monkeypatch):
+    """Realtime lane (LiveKit sidecar + gpt-realtime-whisper): a text.final event
+    persists the expert turn via the SAME append_turn seam as the batch endpoint
+    STT, emits text.final + evaluation.delta and resets turn state — with NO
+    audio.frame / audio.endpoint round-trip and no relance / conversation.step."""
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-rt", name="GW RT", slug="gw-rt")
+    user = User(id="user-gw-rt", username="gwrt@datategy.local", email="gwrt@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Realtime capture",
+        objective="Capturer les réglages de vitesse sur la ligne.",
+        expert_profile="Senior field engineer",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    session = start_session(db_session, workspace_id=workspace.id, session_id=session.id)
+
+    monkeypatch.setattr(gw, "_retrieve_context_chunks", lambda *a, **k: ([], [], []))
+
+    async def _fake_async_retrieve(*a, **k):
+        return ([], [], [])
+
+    monkeypatch.setattr(gw, "_retrieve_context_chunks_async", _fake_async_retrieve)
+    monkeypatch.setattr(gw, "_CAPTURE_HINTS_MIN_INTERVAL_S", 0)
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(
+        session_id=session.id,
+        mode="conversation_only",
+        transport="livekit",
+        tandem_oracle_enabled=True,
+    )
+    state.oracle = gw.VoiceTandemOracle(min_interval_ms=0, min_delta_chars=0)
+
+    # Streaming partial deltas (gpt-realtime-whisper) drive live retrieval/section,
+    # the committed final persists the turn.
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "text.partial", "payload": {"turn_id": "rt-1", "text": "je règle la vitesse de la ligne"}},
+    )
+    await asyncio.gather(*list(state.partial_stt_tasks))
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={
+            "type": "text.final",
+            "payload": {
+                "turn_id": "rt-1",
+                "text": "je règle la vitesse de la ligne à trois mètres par seconde",
+                "commit": True,
+                "provider": "openai_realtime",
+                "model": "gpt-realtime-whisper",
+                "duration_ms": 1200,
+            },
+        },
+    )
+    await asyncio.gather(*list(state.live_questions_tasks))
+
+    types = [t for t, _ in sent]
+    assert "text.final" in types
+    final = next(p for t, p in sent if t == "text.final")
+    assert final.get("turn_id") == "rt-1"
+    assert final.get("empty") is False
+    assert "evaluation.delta" in types
+    # PENDANT la capture: no relance / conversation step / TTS on the live path.
+    assert "conversation.step" not in types
+    assert "prompt.next" not in types
+    assert "audio.out" not in types
+    # Persisted via the same append_turn seam as the endpoint STT.
+    reloaded = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
+    expert_turns = [turn for turn in (reloaded.transcript or []) if turn.get("speaker") == "expert"]
+    assert expert_turns
+    assert "trois mètres par seconde" in expert_turns[-1].get("text", "")
+    # Turn state reset so the next utterance starts clean.
+    assert state.client_turn_id is None
+
+
+@pytest.mark.asyncio
 async def test_gateway_drops_orphan_webm_frames_on_empty_buffer(db_session, monkeypatch):
     """Header-validated buffer start (fix 24a345): when the negotiated input
     codec is webm, a frame WITHOUT the EBML magic arriving on an EMPTY buffer is

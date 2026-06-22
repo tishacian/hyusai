@@ -618,6 +618,7 @@ class LiveKitService:
                 ),
                 "workspace_slug": metadata.get("workspace_slug"),
                 "session_start": session_start,
+                "realtime_stt": self.realtime_stt_payload(session_start, metadata),
             }
         try:
             payload = await self._post_agent_dispatch(settings.livekit_agent_dispatch_url, body)
@@ -635,6 +636,48 @@ class LiveKitService:
                 response={},
                 fallback_reason=str(exc),
             )
+
+    def realtime_stt_enabled(self, workspace_slug: Optional[str]) -> bool:
+        """Whether the LiveKit sidecar should stream STT via gpt-realtime-whisper.
+
+        Gated by the dedicated master switch and an optional workspace allowlist.
+        An empty allowlist means every LiveKit-capable workspace is eligible once
+        the master switch is on.
+        """
+        if not settings.voice_realtime_stt_enabled:
+            return False
+        allow = _csv_slugs(settings.voice_realtime_stt_workspace_slugs)
+        if allow and str(workspace_slug or "").strip().lower() not in allow:
+            return False
+        return True
+
+    def realtime_stt_payload(
+        self,
+        session_start: Optional[Dict[str, Any]],
+        metadata: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Realtime STT config carried to the sidecar in the dispatch body.
+
+        A per-session ``session_start.realtime_stt`` boolean overrides the
+        settings-derived default (so a workspace can force it on/off without an
+        env change); otherwise the master switch + allowlist decide.
+        """
+        start = session_start if isinstance(session_start, dict) else {}
+        meta = metadata if isinstance(metadata, dict) else {}
+        requested = start.get("realtime_stt")
+        if isinstance(requested, bool):
+            enabled = requested
+        else:
+            enabled = self.realtime_stt_enabled(meta.get("workspace_slug"))
+        if not enabled:
+            return {"enabled": False}
+        return {
+            "enabled": True,
+            "model": settings.openai_realtime_transcribe_model,
+            "language": start.get("language") or start.get("input_language") or "fr",
+            "api_base": settings.openai_realtime_api_base,
+            "delay": settings.voice_realtime_stt_delay or "low",
+        }
 
     async def _post_agent_dispatch(self, url: str, body: Dict[str, Any]) -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=settings.livekit_http_timeout_seconds) as client:

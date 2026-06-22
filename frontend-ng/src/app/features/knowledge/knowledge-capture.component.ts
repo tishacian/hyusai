@@ -4150,6 +4150,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   });
 
   private recorder: MediaRecorder | null = null;
+  // Realtime lane: when the LiveKit sidecar streams the published mic track to
+  // gpt-realtime-whisper, the browser must NOT also push WebM frames over the
+  // data channel (the sidecar ignores them and they would waste bandwidth). The
+  // mic track + client VAD endpoint stay; only the WebM frame send is skipped.
+  // Set from the sidecar session.ready (stt_mode === 'realtime').
+  private realtimeSttActive = false;
   private chunks: BlobPart[] = [];
   private recordedAudioBytes = 0;
   private stream: MediaStream | null = null;
@@ -9053,6 +9059,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   private closeVoiceConnection(): void {
     this.voiceConnection?.close();
     this.voiceConnection = null;
+    this.realtimeSttActive = false;
   }
 
   private finalizeDeferredStreamingStop(): void {
@@ -9134,7 +9141,13 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       return;
     }
     if (event.type === 'session.ready') {
-      this.setVoiceNotice('Session vocale streaming prête.', 'info');
+      this.realtimeSttActive = payload['stt_mode'] === 'realtime' || payload['realtime_stt'] === true;
+      this.setVoiceNotice(
+        this.realtimeSttActive
+          ? 'Session vocale realtime prête (transcription gpt-realtime-whisper en direct).'
+          : 'Session vocale streaming prête.',
+        'info',
+      );
       return;
     }
     if (event.type === 'text.partial' || event.type === 'transcript.partial') {
@@ -11545,6 +11558,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           chunk_size: event.data.size,
         });
         this.recordedAudioBytes += event.data.size;
+        if (this.realtimeSttActive) {
+          // Realtime lane: the LiveKit PCM mic track is transcribed by the
+          // sidecar (gpt-realtime-whisper). Do not buffer or push WebM frames —
+          // the client VAD endpoint drives the realtime commit instead.
+          return;
+        }
         this.chunks.push(event.data);
         if (this.voiceConnection && this.conversationMode() === 'conversation_only') {
           const sendStartedAt = performance.now();

@@ -254,6 +254,15 @@ class Settings(BaseSettings):
     openai_realtime_translate_model: str = "gpt-realtime-translate"
     openai_realtime_api_base: str = "https://api.openai.com/v1"
     openai_realtime_ephemeral_ttl_seconds: int = 600
+    # Realtime streaming STT for Knowledge Capture via the LiveKit sidecar
+    # (gpt-realtime-whisper on the LiveKit PCM track). Master switch separate
+    # from the WebRTC speech-to-speech lane (openai_realtime_enabled). When the
+    # allowlist is empty every LiveKit-capable workspace gets it once the master
+    # switch is on; delay tunes the latency/accuracy tradeoff
+    # (minimal|low|medium|high|xhigh).
+    voice_realtime_stt_enabled: bool = False
+    voice_realtime_stt_workspace_slugs: str = ""
+    voice_realtime_stt_delay: str = "low"
     local_stt_endpoint_url: Optional[str] = None
     local_tts_endpoint_url: Optional[str] = None
     local_realtime_endpoint_url: Optional[str] = None

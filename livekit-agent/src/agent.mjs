@@ -9,10 +9,12 @@ import {
   frameSampleRate,
   frameToPcmBuffer,
   messageDataToString,
+  resamplePcm16ToMono,
   topicForEvent,
   topicSet,
   wavFromPcm,
 } from './bridge-utils.mjs';
+import { RealtimeTranscriber } from './realtime-stt.mjs';
 
 function parseInteger(value, fallback, minimum = 0) {
   const parsed = Number(value);
@@ -29,7 +31,26 @@ const CONNECT_MAX_RETRY_MS = Math.max(
   CONNECT_RETRY_MS,
   parseInteger(process.env.LIVEKIT_AGENT_CONNECT_MAX_RETRY_MS, 3000, 0),
 );
+const REALTIME_STT_SAMPLE_RATE = parseInteger(process.env.LIVEKIT_AGENT_REALTIME_STT_SAMPLE_RATE, 24000, 8000);
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const sessions = new Map();
+
+/**
+ * Realtime STT config carried by the backend dispatch (voice_gateway.realtime_stt).
+ * Returns null when disabled so the sidecar keeps the buffered-WAV fallback.
+ */
+function realtimeSttConfigFromDispatch(dispatch) {
+  const rt = dispatch?.voice_gateway?.realtime_stt;
+  if (!rt || rt.enabled !== true) return null;
+  const sessionStart = dispatch?.voice_gateway?.session_start || {};
+  return {
+    model: rt.model || 'gpt-realtime-whisper',
+    language: rt.language || sessionStart.language || 'fr',
+    apiBase: rt.api_base || 'https://api.openai.com/v1',
+    delay: rt.delay || 'low',
+    prompt: rt.prompt || '',
+  };
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -255,6 +276,18 @@ function appendAudioFrame(session, frame) {
   return true;
 }
 
+function appendRealtimeFrame(session, frame) {
+  const transcriber = session.realtimeTranscriber;
+  if (!transcriber || !transcriber.open) return false;
+  const pcm = frameToPcmBuffer(frame);
+  if (!pcm?.length) return false;
+  const inputRate = frameSampleRate(frame, 48000);
+  const channels = frameChannels(frame, 1);
+  const mono24k = resamplePcm16ToMono(pcm, inputRate, channels, transcriber.sampleRate);
+  if (!mono24k.length) return false;
+  return transcriber.appendPcm(mono24k);
+}
+
 function resetAudio(session) {
   session.audio = {
     chunks: [],
@@ -352,6 +385,43 @@ export async function handleControlEvent(session, event, participant, kind) {
     { topic: session.topics.metrics },
   );
   if (!session.voiceGateway) return;
+  if (session.realtimeSttConfig) {
+    // Realtime lane owns the audio path: the LiveKit PCM track is streamed
+    // straight to OpenAI, so browser WebM frames are ignored and the client VAD
+    // endpoint becomes a manual commit. audio.frame / audio.endpoint are NOT
+    // forwarded to the gateway (no buffered audio there -> empty_audio).
+    if (type === 'audio.frame') {
+      return;
+    }
+    if (type === 'audio.endpoint' || type === 'audio.endpoint.auto') {
+      const committed = session.realtimeTranscriber?.commit?.();
+      await publishSafely(
+        session,
+        'runtime.metric',
+        {
+          metric: 'realtime_stt_commit',
+          committed: Boolean(committed),
+          reason: event?.payload?.reason || null,
+          from_identity: participant?.identity || null,
+        },
+        { topic: session.topics.metrics },
+      );
+      return;
+    }
+    if (type === 'loop.start' || type === 'loop.armed' || type === 'barge_in') {
+      session.realtimeTranscriber?.clear?.();
+      // barge_in / loop control still needs to reach the gateway (oracle reset,
+      // audit), so fall through to the generic forward below.
+    }
+    if (type === 'session.close') {
+      session.realtimeTranscriber?.close?.();
+    }
+    sendVoiceGatewayEvent(session.voiceGateway, type, event.payload || {});
+    if (type === 'session.close') {
+      await disconnectRoomSafely(session.room);
+    }
+    return;
+  }
   if (type === 'audio.frame') {
     const forwarded = forwardBrowserAudioFrameToVoiceGateway(session, event);
     if (
@@ -439,6 +509,30 @@ async function monitorAudioStream(livekit, session, track, participantIdentity) 
   const stream = new livekit.AudioStream(track);
   try {
     for await (const frame of stream) {
+      if (session.realtimeSttConfig) {
+        // Realtime lane: stream the LiveKit PCM track straight into the OpenAI
+        // gpt-realtime-whisper session (resampled to 24 kHz mono). No buffering,
+        // no WAV, no per-turn re-transcription of a growing WebM blob.
+        const appended = appendRealtimeFrame(session, frame);
+        if (appended) {
+          session.audio.frameCount += 1;
+          if (session.audio.frameCount === 1 || session.audio.frameCount % 250 === 0) {
+            await publishSafely(
+              session,
+              'runtime.metric',
+              {
+                metric: 'livekit_realtime_audio_frames_streamed',
+                participant_identity: participantIdentity,
+                frame_count: session.audio.frameCount,
+                elapsed_ms: Date.now() - startedAt,
+                audio_bridge: 'realtime_stt',
+              },
+              { topic: session.topics.metrics },
+            );
+          }
+        }
+        continue;
+      }
       const appended = appendAudioFrame(session, frame);
       if (appended && (session.audio.frameCount === 1 || session.audio.frameCount % 100 === 0)) {
         await publishSafely(
@@ -468,6 +562,91 @@ async function monitorAudioStream(livekit, session, track, participantIdentity) 
       },
       { topic: session.topics.events },
     );
+  }
+}
+
+export async function maybeStartRealtimeStt(session, dispatch, options = {}) {
+  const config = realtimeSttConfigFromDispatch(dispatch);
+  if (!config) return null;
+  const apiKey = options.openaiApiKey || OPENAI_API_KEY;
+  if (!apiKey) {
+    await publishSafely(
+      session,
+      'runtime.metric',
+      { metric: 'realtime_stt_unavailable', reason: 'missing_openai_api_key' },
+      { topic: session.topics.metrics },
+    );
+    return null;
+  }
+  const factory =
+    options.realtimeTranscriberFactory ||
+    ((opts) => new RealtimeTranscriber(opts));
+  const transcriber = factory({
+    apiKey,
+    model: config.model,
+    language: config.language,
+    apiBase: config.apiBase,
+    delay: config.delay,
+    prompt: config.prompt,
+    sampleRate: REALTIME_STT_SAMPLE_RATE,
+    WebSocketClass: options.OpenAIWebSocketClass,
+    onPartial: (turnId, text) => {
+      if (!text) return;
+      sendVoiceGatewayEvent(session.voiceGateway, 'text.partial', {
+        turn_id: turnId,
+        text,
+        transcript_state: 'partial',
+        provider: 'openai_realtime',
+        model: config.model,
+        transport: 'livekit',
+        incremental_transcription: true,
+      });
+    },
+    onFinal: (turnId, text, durationMs) => {
+      sendVoiceGatewayEvent(session.voiceGateway, 'text.final', {
+        turn_id: turnId,
+        text,
+        transcript_state: 'final',
+        commit: true,
+        duration_ms: durationMs,
+        provider: 'openai_realtime',
+        model: config.model,
+        transport: 'livekit',
+      });
+    },
+    onError: (error) => {
+      void publishSafely(session, 'session.error', {
+        code: 'realtime_stt_error',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    },
+    onMetric: (metric, extra = {}) => {
+      void publishSafely(session, 'runtime.metric', { metric, ...extra }, { topic: session.topics.metrics });
+    },
+  });
+  try {
+    await transcriber.connect();
+    session.realtimeSttConfig = config;
+    session.realtimeTranscriber = transcriber;
+    await publishSafely(
+      session,
+      'runtime.metric',
+      { metric: 'realtime_stt_ready', model: config.model, language: config.language },
+      { topic: session.topics.metrics },
+    );
+    return transcriber;
+  } catch (error) {
+    try {
+      transcriber.close();
+    } catch {
+      // best-effort
+    }
+    await publishSafely(session, 'session.error', {
+      code: 'realtime_stt_connect_failed',
+      message: error instanceof Error ? error.message : String(error),
+      fallback_mode: 'buffered_stt',
+    });
+    return null;
   }
 }
 
@@ -501,6 +680,8 @@ export async function startSession(dispatch, options = {}) {
     info,
     destinationIdentity: dispatch.destination_identity || null,
     voiceGateway: null,
+    realtimeSttConfig: null,
+    realtimeTranscriber: null,
     audio: {
       chunks: [],
       bytes: 0,
@@ -545,6 +726,7 @@ export async function startSession(dispatch, options = {}) {
       }
     })
     .on(livekit.RoomEvent.Disconnected, () => {
+      session.realtimeTranscriber?.close?.();
       if (session.voiceGateway?.socket && session.voiceGateway.open) {
         session.voiceGateway.socket.close(1000, 'livekit-disconnected');
       }
@@ -577,11 +759,17 @@ export async function startSession(dispatch, options = {}) {
       fallback_mode: 'media_observer',
     });
   }
+  if (session.voiceGateway) {
+    await maybeStartRealtimeStt(session, dispatch, options);
+  }
+  info.stt_mode = session.realtimeSttConfig ? 'realtime' : 'batch';
   await publishSafely(session, 'session.ready', {
     agent_identity: info.agent_identity,
     room_name: roomName,
     mode: info.mode,
     audio_bridge: session.voiceGateway ? 'voice_gateway_ready' : 'media_observer_ready',
+    stt_mode: info.stt_mode,
+    realtime_stt: Boolean(session.realtimeSttConfig),
     connect_attempts: info.connect_attempts,
   });
   await publishSafely(
@@ -618,6 +806,7 @@ export function createAgentiumLiveKitAgentServer() {
         const sessionId = String(body.session_id || '');
         const session = sessions.get(sessionId);
         if (session) {
+          session.realtimeTranscriber?.close?.();
           if (session.voiceGateway?.socket && session.voiceGateway.open) {
             session.voiceGateway.socket.close(1000, 'shutdown-session');
           }
@@ -648,6 +837,7 @@ export function startAgentiumLiveKitAgentServer({ port = PORT, host = HOST } = {
 async function shutdown(server) {
   for (const [sessionId, session] of sessions) {
     try {
+      session.realtimeTranscriber?.close?.();
       if (session.voiceGateway?.socket && session.voiceGateway.open) {
         session.voiceGateway.socket.close(1000, 'shutdown');
       }
