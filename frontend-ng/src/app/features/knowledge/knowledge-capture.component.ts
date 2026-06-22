@@ -9150,6 +9150,25 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       return;
     }
     if (event.type === 'text.partial' || event.type === 'transcript.partial') {
+      // Realtime STT: the sidecar owns turn segmentation and streams partials
+      // continuously, with its own server turn_id. The frontend's per-turn
+      // `recording` flag flips on its own (client VAD / loop rearm) and never
+      // matches that server turn_id, so the legacy "!recording -> drop" path
+      // froze the live row on a fragment while the SAME server turn kept growing
+      // to completion. In realtime, always render the partial; only an explicit
+      // `stop` may pre-empt it, and a pending stop/finish still wins.
+      if (this.realtimeSttActive) {
+        const liveText = String(payload['text'] || '').trim();
+        if (!liveText || this.closeVoiceAfterStreamingTurn) return;
+        if (this.recording()) {
+          const cmd = this.detectCaptureVoiceCommand(liveText);
+          if (cmd === 'stop' && this.handleCaptureVoiceCommand(cmd, liveText)) return;
+        }
+        this.answer = liveText;
+        this.setLivePartial(this.voiceSegmentId(payload), liveText);
+        this.voiceState.set('partial_transcribing');
+        return;
+      }
       const recording = this.recording();
       const finalizingSameTurn = !recording && this.transcribing() && this.voiceEventMatchesCurrentTurn(payload);
       // Render partials during active speech, plus late same-turn partials while
@@ -9539,6 +9558,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const connection = session ? await this.ensureVoiceConnection(session) : null;
     const captureConfig = this.resolvedVoiceCaptureConfig();
     this.conversationSessionActive.set(true);
+    // Realtime: re-enable/publish the LiveKit mic before ensureAudioStream() grabs
+    // its own getUserMedia, so a resume after pause restores real audio (not a
+    // muted/silent track) — same device order as the initial connect.
+    if (this.realtimeSttActive && connection && 'enableMicrophone' in connection) {
+      await connection.enableMicrophone(true);
+    }
     connection?.loopStart({
       surface: 'knowledge_capture',
       mode: 'conversation_loop',
@@ -11412,6 +11437,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             threshold: Number(speechThreshold.toFixed(5)),
           });
         }
+        // Realtime STT: the sidecar's silence VAD owns turn segmentation. Firing
+        // a client-side endpoint here chopped the turn at frontend boundaries
+        // that do not match the sidecar's, set recording=false mid-turn and
+        // dropped every later partial of the same server turn (live row froze on
+        // a fragment). Keep the RMS meter/metrics above, but never auto-endpoint.
+        if (this.realtimeSttActive) {
+          this.captureEndpointRaf = requestAnimationFrame(tick);
+          return;
+        }
         const silenceStable =
           this.captureSilenceBelowSince > 0 && now - this.captureSilenceBelowSince >= minSilenceFramesMs;
         const reachedSilence =
@@ -11669,6 +11703,20 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       return;
     }
     this.clearAutoResumeTimer();
+    const session = this.session();
+    // Realtime STT's audio source is the published LiveKit mic track, NOT the
+    // local WebM MediaRecorder (whose output is dropped). A prior pause disabled
+    // it (audioPause -> setMicrophoneEnabled(false)). Re-enable/publish it HERE,
+    // BEFORE ensureAudioStream() grabs its own getUserMedia for the recorder:
+    // acquiring the device for the recorder first contended with LiveKit and left
+    // the republished track silent on resume ("redémarrer, mais plus rien").
+    // Mirrors the initial-connect order (LiveKit mic first), which works.
+    if (this.realtimeSttActive && session) {
+      const liveConn = await this.ensureVoiceConnection(session);
+      if (liveConn && 'enableMicrophone' in liveConn) {
+        await liveConn.enableMicrophone(true);
+      }
+    }
     const armed = await this.ensureAudioStream();
     if (!armed) {
       this.conversationSessionActive.set(false);
@@ -11680,18 +11728,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.commandHandledForTurn = null;
     this.lastPrefetchText = '';
     this.lastPrefetchAt = 0;
-    const session = this.session();
     if (session) {
       const connection = await this.ensureVoiceConnection(session);
-      // Realtime STT's audio source is the published LiveKit mic track, NOT the
-      // local WebM MediaRecorder. A prior pause disabled it (audioPause ->
-      // setMicrophoneEnabled(false)) and ensureVoiceConnection reuses the existing
-      // connection without re-publishing, so on resume the sidecar never
-      // re-subscribed and no audio reached realtime ("redémarrer, mais plus rien").
-      // Re-enable here (idempotent on the first turn) so the track is republished.
-      if (this.realtimeSttActive && connection && 'enableMicrophone' in connection) {
-        await connection.enableMicrophone(true);
-      }
       const captureConfig = this.resolvedVoiceCaptureConfig();
       connection?.loopArmed({
         surface: 'knowledge_capture',
