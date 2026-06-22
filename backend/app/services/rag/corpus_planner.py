@@ -900,12 +900,28 @@ def _infer_ledger_document_scope(
         # project-code base): scope the dense search to the whole project so
         # ranking can surface content-bearing documents the filename allowlist
         # would otherwise drop.
-        confidence = min(0.85, 0.62 + min(top_score, 16.0) / 40.0)
-        reason = (
-            f"project scope for {', '.join(project_codes[:3])} "
-            f"({len(filenames)} filename candidates, top_score={top_score:.1f} below strong-match)"
-        )
-        return {"project_code": project_codes}, confidence, reason, collection_refs
+        #
+        # Only emit a project_code filter for codes that are actually indexed as
+        # a ``project_code`` payload value among the matched rows. A query
+        # identifier that merely appears inside filenames (e.g. a sub-component
+        # code like CU250S, whose documents carry parent-project codes such as
+        # ACJ100/AKI300/AMM100) is never a project_code value, so the Qdrant
+        # project_code filter would match zero chunks, collapse retrieval and
+        # trip the exact-match guardrail. In that case fall through to the
+        # precise document_filename allowlist below instead.
+        indexed_project_codes = {
+            _compact_text(_source_metadata(row).get("project_code")).upper()
+            for *_unused, row in ranked
+        }
+        indexed_project_codes.discard("")
+        scoped_codes = [code for code in project_codes if code in indexed_project_codes]
+        if scoped_codes:
+            confidence = min(0.85, 0.62 + min(top_score, 16.0) / 40.0)
+            reason = (
+                f"project scope for {', '.join(scoped_codes[:3])} "
+                f"({len(filenames)} filename candidates, top_score={top_score:.1f} below strong-match)"
+            )
+            return {"project_code": scoped_codes}, confidence, reason, collection_refs
     confidence = min(0.94, 0.66 + min(top_score, 12.0) / 35.0)
     reason = f"ledger source scope matched {len(filenames)} candidate document(s)"
     if project_codes:
@@ -1572,14 +1588,27 @@ def plan_corpus(
         confidence = max(confidence, ledger_confidence)
         reason = ledger_reason
     filters = {**inferred_filters, **explicit_filters}
-    # Fact-scope inference scopes retrieval to the documents whose facts carry the
-    # query's discriminating terms. It is backed by GIN pg_trgm indexes on the
-    # fact columns (migration 045) and demotes ubiquitous terms, so the bounded
-    # candidate scan is interactive (single-digit seconds) instead of the former
-    # ~tens-of-seconds sequential scan that forced large corpora to be deep-only.
-    # Deep (async) and balanced (interactive, 16s budget) both run it; fast keeps
-    # its snappy 8s budget and falls through to the bounded summary-artifact scope.
-    run_fact_scope = latency_profile in ("deep", "balanced")
+    # Fact-scope inference scopes retrieval to the documents whose facts carry
+    # the query's discriminating terms (GIN pg_trgm indexes, migration 045).
+    # Crucially it only admits documents that have *extracted facts* matching the
+    # terms, so on a large corpus it silently drops documents whose answer lives
+    # in unstructured chunks that were never lifted into the fact ledger (e.g.
+    # the D.60 motor-bearing greasing values in the BCX200 structure notice).
+    # That hard document_filename filter then starves the dense search of the
+    # answer chunk. Deep (async) can afford the broader hierarchical retrieval
+    # that compensates; interactive balanced only runs fact-scope when the scoped
+    # collections are small enough that the bounded scan stays cheap. On large
+    # ledger-backed collections balanced falls through to the bounded
+    # summary-artifact / unscoped dense path (same as fast) and queues deep
+    # refinement, preserving recall of answers that are not structured facts.
+    large_collection_scope = any(
+        int(getattr(c, "document_count", 0) or 0) > _LEDGER_TARGETING_MIN_SOURCES
+        or int(getattr(c, "chunk_count", 0) or 0) > _LEDGER_TARGETING_MIN_CHUNKS
+        for c in collection_rows
+    )
+    run_fact_scope = latency_profile == "deep" or (
+        latency_profile == "balanced" and not large_collection_scope
+    )
     if explicit_filters:
         confidence = max(confidence, 0.95)
         reason = f"System/agent retrieval filters supplied: {', '.join(sorted(explicit_filters))}."

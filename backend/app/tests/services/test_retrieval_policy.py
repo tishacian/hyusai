@@ -13,7 +13,10 @@ from app.services.rag.retrieval_policy import (
     retrieval_policy_from_guides,
     score_result_with_policy,
 )
-from app.services.rag.corpus_planner import _fast_ledger_candidate_rows
+from app.services.rag.corpus_planner import (
+    _fast_ledger_candidate_rows,
+    _infer_ledger_document_scope,
+)
 from app.services.rag.source_facets import score_source_family_match
 
 POLICY_GUIDE = SimpleNamespace(
@@ -173,6 +176,52 @@ def test_fast_ledger_candidates_keep_cleaning_procedure_in_noisy_spare_scope():
 
     assert rows[0].filename == procedure_row.filename
     assert any(row.filename == procedure_row.filename for row in rows)
+
+
+def _ledger_row(filename: str, project_code: str):
+    return SimpleNamespace(
+        filename=filename,
+        normalized_name=filename,
+        source_kind="pdf",
+        extension="pdf",
+        mime_type="application/pdf",
+        chunk_count=50,
+        source_metadata={"project_code": project_code},
+    )
+
+
+def test_broad_project_scope_falls_back_when_code_not_an_indexed_project_code():
+    # Regression guard (CU250S-2): the query code appears only inside filenames;
+    # the documents carry a *parent* project_code in metadata. A project_code
+    # filter built from the query code would match zero chunks in Qdrant and trip
+    # the exact-match guardrail, so the planner must keep the document_filename
+    # allowlist instead.
+    query = "Configuration generale du systeme AKK200"
+    rows = [
+        _ledger_row(f"A__AKK200__Notice technique AKK200 doc{i}.pdf", project_code="ACJ100")
+        for i in range(3)
+    ]
+
+    filters, confidence, _reason, _refs = _infer_ledger_document_scope(query, rows, policy=None)
+
+    assert "document_filename" in filters
+    assert "project_code" not in filters
+    assert confidence > 0.0
+
+
+def test_broad_project_scope_keeps_real_indexed_project_code():
+    # A genuine project question (AKK200 is itself an indexed project_code) keeps
+    # the broad project_code scope so dense ranking can surface content-bearing
+    # documents the filename allowlist would otherwise drop.
+    query = "Configuration generale du systeme AKK200"
+    rows = [
+        _ledger_row(f"A__AKK200__Notice technique AKK200 doc{i}.pdf", project_code="AKK200")
+        for i in range(3)
+    ]
+
+    filters, _confidence, _reason, _refs = _infer_ledger_document_scope(query, rows, policy=None)
+
+    assert filters.get("project_code") == ["AKK200"]
 
 
 def test_policy_adds_dynamic_project_reference_variants():
