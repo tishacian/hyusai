@@ -139,6 +139,9 @@ services:
       # PCM track to OpenAI directly, so it needs the key. Without it the sidecar
       # falls back to batch STT. Interpolated from the compose --env-file.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # TEMP DIAGNOSTIC: realtime STT lifecycle logging to docker logs. Remove
+      # once the "no realtime transcription" investigation is closed.
+      LIVEKIT_AGENT_DEBUG_RTSTT: ${LIVEKIT_AGENT_DEBUG_RTSTT:-1}
     depends_on:
       - agentium-livekit
     healthcheck:

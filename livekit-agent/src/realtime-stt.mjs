@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
+// TEMP DIAGNOSTIC: realtime STT internals to the container console (docker logs).
+// Gated off by default; enable with LIVEKIT_AGENT_DEBUG_RTSTT=1. Remove once the
+// "no realtime transcription" investigation is closed.
+const DEBUG_RTSTT = String(process.env.LIVEKIT_AGENT_DEBUG_RTSTT || '') === '1';
+function dbgRt(stage, extra = {}) {
+  if (!DEBUG_RTSTT) return;
+  console.log(JSON.stringify({ dbg: 'rtstt-core', stage, ...extra }));
+}
+
 /**
  * Streaming speech-to-text over the OpenAI Realtime transcription session.
  *
@@ -169,6 +178,21 @@ export class RealtimeTranscriber {
       sum += s * s;
     }
     const rms = Math.sqrt(sum / samples);
+    if (DEBUG_RTSTT) {
+      this._dbgFrames = (this._dbgFrames || 0) + 1;
+      this._dbgMaxRms = Math.max(this._dbgMaxRms || 0, rms);
+      if (this._dbgFrames === 1 || this._dbgFrames % 100 === 0) {
+        dbgRt('energy', {
+          frames: this._dbgFrames,
+          rms: Math.round(rms),
+          max_rms: Math.round(this._dbgMaxRms),
+          threshold: this.vadThreshold,
+          had_speech: this.hadSpeechSinceCommit,
+          voiced_ms: Math.round(this.voicedMsSinceCommit),
+          appended_bytes: this.appendedBytesSinceCommit,
+        });
+      }
+    }
     if (rms >= this.vadThreshold) {
       const nowTs = Date.now();
       this.lastVoiceAt = nowTs;
@@ -203,6 +227,13 @@ export class RealtimeTranscriber {
 
   /** Close the current turn (client VAD endpoint -> manual commit). */
   commit() {
+    dbgRt('commit_called', {
+      open: this.open,
+      appended_bytes: this.appendedBytesSinceCommit,
+      min_commit_bytes: this.minCommitBytes,
+      had_speech: this.hadSpeechSinceCommit,
+      voiced_ms: Math.round(this.voicedMsSinceCommit),
+    });
     if (!this.open) return false;
     if (this.appendedBytesSinceCommit < this.minCommitBytes) {
       // Not enough audio for OpenAI to accept the commit; drop silently so an
@@ -254,6 +285,11 @@ export class RealtimeTranscriber {
       return;
     }
     const type = String(event?.type || '');
+    if (DEBUG_RTSTT && type !== 'conversation.item.input_audio_transcription.delta') {
+      // Log every non-delta OpenAI event (delta is high-volume); surfaces
+      // committed/created/error/speech_started events that explain a silent turn.
+      dbgRt('openai_event', { type, sample: JSON.stringify(event).slice(0, 240) });
+    }
     if (type === 'conversation.item.input_audio_transcription.delta') {
       const itemId = event.item_id || this.currentItemId || 'pending';
       if (itemId !== this.currentItemId) {

@@ -118,6 +118,15 @@ function logSidecarWarning(code, error, extra = {}) {
   );
 }
 
+// TEMP DIAGNOSTIC: realtime STT lifecycle to the container console (docker logs).
+// Gated off by default; enable with LIVEKIT_AGENT_DEBUG_RTSTT=1. Remove once the
+// "no realtime transcription" investigation is closed.
+const DEBUG_RTSTT = String(process.env.LIVEKIT_AGENT_DEBUG_RTSTT || '') === '1';
+function dbgRtStt(stage, extra = {}) {
+  if (!DEBUG_RTSTT) return;
+  console.log(JSON.stringify({ dbg: 'rtstt', stage, ...extra }));
+}
+
 async function publishSafely(session, type, payload = {}, options = {}) {
   try {
     await publish(session, type, payload, options);
@@ -283,7 +292,19 @@ function appendAudioFrame(session, frame) {
 
 function appendRealtimeFrame(session, frame) {
   const transcriber = session.realtimeTranscriber;
-  if (!transcriber || !transcriber.open) return false;
+  if (!transcriber || !transcriber.open) {
+    if (DEBUG_RTSTT) {
+      session._dbgDroppedFrames = (session._dbgDroppedFrames || 0) + 1;
+      if (session._dbgDroppedFrames === 1 || session._dbgDroppedFrames % 100 === 0) {
+        dbgRtStt('frame_dropped_no_open_transcriber', {
+          has_transcriber: Boolean(transcriber),
+          open: Boolean(transcriber?.open),
+          dropped: session._dbgDroppedFrames,
+        });
+      }
+    }
+    return false;
+  }
   const pcm = frameToPcmBuffer(frame);
   if (!pcm?.length) return false;
   const inputRate = frameSampleRate(frame, 48000);
@@ -572,6 +593,14 @@ async function monitorAudioStream(livekit, session, track, participantIdentity) 
 
 export async function maybeStartRealtimeStt(session, dispatch, options = {}) {
   const config = realtimeSttConfigFromDispatch(dispatch);
+  dbgRtStt('config_resolved', {
+    enabled: Boolean(config),
+    model: config?.model,
+    language: config?.language,
+    silence_ms: config?.silenceMs,
+    vad_threshold: config?.vadThreshold,
+    max_turn_ms: config?.maxTurnMs,
+  });
   if (!config) return null;
   const apiKey = options.openaiApiKey || OPENAI_API_KEY;
   if (!apiKey) {
@@ -600,6 +629,7 @@ export async function maybeStartRealtimeStt(session, dispatch, options = {}) {
     WebSocketClass: options.OpenAIWebSocketClass,
     onPartial: (turnId, text) => {
       if (!text) return;
+      dbgRtStt('partial', { turn_id: turnId, len: text.length, sample: text.slice(0, 60) });
       sendVoiceGatewayEvent(session.voiceGateway, 'text.partial', {
         turn_id: turnId,
         text,
@@ -611,6 +641,7 @@ export async function maybeStartRealtimeStt(session, dispatch, options = {}) {
       });
     },
     onFinal: (turnId, text, durationMs) => {
+      dbgRtStt('final', { turn_id: turnId, len: (text || '').length, duration_ms: durationMs, sample: (text || '').slice(0, 60) });
       sendVoiceGatewayEvent(session.voiceGateway, 'text.final', {
         turn_id: turnId,
         text,
@@ -623,12 +654,14 @@ export async function maybeStartRealtimeStt(session, dispatch, options = {}) {
       });
     },
     onError: (error) => {
+      dbgRtStt('error', { message: error instanceof Error ? error.message : String(error) });
       void publishSafely(session, 'session.error', {
         code: 'realtime_stt_error',
         message: error instanceof Error ? error.message : String(error),
       });
     },
     onMetric: (metric, extra = {}) => {
+      dbgRtStt('metric', { metric, ...extra });
       void publishSafely(session, 'runtime.metric', { metric, ...extra }, { topic: session.topics.metrics });
     },
   });
@@ -636,6 +669,7 @@ export async function maybeStartRealtimeStt(session, dispatch, options = {}) {
     await transcriber.connect();
     session.realtimeSttConfig = config;
     session.realtimeTranscriber = transcriber;
+    dbgRtStt('connected', { model: config.model });
     await publishSafely(
       session,
       'runtime.metric',
@@ -644,6 +678,7 @@ export async function maybeStartRealtimeStt(session, dispatch, options = {}) {
     );
     return transcriber;
   } catch (error) {
+    dbgRtStt('connect_failed', { message: error instanceof Error ? error.message : String(error) });
     try {
       transcriber.close();
     } catch {
