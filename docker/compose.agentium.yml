@@ -135,6 +135,10 @@ services:
       LIVEKIT_AGENT_CONNECT_ATTEMPTS: ${LIVEKIT_AGENT_CONNECT_ATTEMPTS:-6}
       LIVEKIT_AGENT_CONNECT_RETRY_MS: ${LIVEKIT_AGENT_CONNECT_RETRY_MS:-500}
       LIVEKIT_AGENT_CONNECT_MAX_RETRY_MS: ${LIVEKIT_AGENT_CONNECT_MAX_RETRY_MS:-3000}
+      # Realtime STT (gpt-realtime-whisper): the sidecar streams the published mic
+      # PCM track to OpenAI directly, so it needs the key. Without it the sidecar
+      # falls back to batch STT. Interpolated from the compose --env-file.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       - agentium-livekit
     healthcheck:
