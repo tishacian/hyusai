@@ -280,6 +280,12 @@ class Settings(BaseSettings):
     # after the oracle questions). Off by default: the per-turn grounded
     # questions (fired at silence, not during speech) carry the oracle value.
     voice_oracle_live_hints_enabled: bool = False
+    # Per-turn live questions also run a CPU-bound KB retrieval before the LLM
+    # call. Even fired at silence it holds the GIL long enough to freeze the NEXT
+    # turn's transcript relay ("first turn fine, then questions appear, then
+    # nothing"). Off by default: questions are generated from the expert's own
+    # statements (pure async LLM, no local retrieval, never blocks the loop).
+    voice_oracle_live_questions_retrieval_enabled: bool = False
     local_stt_endpoint_url: Optional[str] = None
     local_tts_endpoint_url: Optional[str] = None
     local_realtime_endpoint_url: Optional[str] = None

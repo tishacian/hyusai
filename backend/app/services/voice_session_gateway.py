@@ -1850,42 +1850,48 @@ class VoiceSessionGateway:
                 )
                 from app.db.base import SessionLocal
 
-                with SessionLocal() as question_db:
-                    # Synchronous DB read -> offload so the question pipeline never
-                    # blocks the transcript relay (the symptom: a big chunk of
-                    # transcript landing only AFTER the questions appear).
-                    capture_snapshot = await asyncio.to_thread(
-                        get_session,
-                        question_db,
-                        workspace_id=workspace_id,
-                        session_id=capture_session_id,
-                        materialize=False,
-                    )
-                    query_context = self._retrieval_query_context(capture_snapshot)
-                    retrieval_query = f"{context} {query_context}".strip()
-                    chunks, metadatas, _scores = await _retrieve_context_chunks_async(
-                        question_db,
-                        workspace_id=workspace_id,
-                        workspace_slug=workspace_slug,
-                        session=capture_snapshot,
-                        query=retrieval_query,
-                        top_k=6,
-                        retrieval_profile="oracle_grounded_async",
-                    )
-                if not chunks:
-                    return
-                # Feed the passive "contexte retrouvé" panel from this turn-commit
-                # retrieval (runs at silence) so the panel survives even with the
-                # during-speech live hints disabled.
-                state.last_retrieval_chunks = list(chunks)
-                state.last_retrieval_metadatas = list(metadatas or [])
-                state.last_retrieval_scores = list(_scores or [])
+                chunks: list = []
+                metadatas: list = []
+                if settings.voice_oracle_live_questions_retrieval_enabled:
+                    with SessionLocal() as question_db:
+                        # Synchronous DB read -> offload so the question pipeline never
+                        # blocks the transcript relay (the symptom: a big chunk of
+                        # transcript landing only AFTER the questions appear).
+                        capture_snapshot = await asyncio.to_thread(
+                            get_session,
+                            question_db,
+                            workspace_id=workspace_id,
+                            session_id=capture_session_id,
+                            materialize=False,
+                        )
+                        query_context = self._retrieval_query_context(capture_snapshot)
+                        retrieval_query = f"{context} {query_context}".strip()
+                        chunks, metadatas, _scores = await _retrieve_context_chunks_async(
+                            question_db,
+                            workspace_id=workspace_id,
+                            workspace_slug=workspace_slug,
+                            session=capture_snapshot,
+                            query=retrieval_query,
+                            top_k=6,
+                            retrieval_profile="oracle_grounded_async",
+                        )
+                    if not chunks:
+                        return
+                    # Feed the passive "contexte retrouvé" panel from this turn-commit
+                    # retrieval (runs at silence) so the panel survives even with the
+                    # during-speech live hints disabled.
+                    state.last_retrieval_chunks = list(chunks)
+                    state.last_retrieval_metadatas = list(metadatas or [])
+                    state.last_retrieval_scores = list(_scores or [])
                 if state.live_questions_generation != generation or state.committed_turns_section != section_key:
                     return
+                # chunks=None -> grounded on the expert's own statements only
+                # (expert_statement_grounded). Pure async LLM call, no local
+                # retrieval, so it never holds the GIL / freezes the next turn.
                 raw_questions = await generate_grounded_open_questions_async(
                     context,
-                    chunks,
-                    metadatas,
+                    chunks or None,
+                    metadatas or None,
                     plan_section,
                     workspace_id=workspace_id,
                     max_questions=4,
