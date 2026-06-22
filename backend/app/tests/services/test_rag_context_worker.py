@@ -1071,11 +1071,14 @@ def test_balanced_fact_scope_soft_boost_on_large_collections(db_session, monkeyp
     large_balanced = _plan(large, "balanced")
     assert "document_filename" not in large_balanced.filters
     assert large_balanced.soft_scope_filters.get("document_filename") == [fact_filename]
+    # The large collection is flagged for the scoped (soft) retrieval pass.
+    assert large.slug in large_balanced.soft_scope_collections
 
     # Deep runs the precise HARD fact-table scope regardless of collection size.
     large_deep = _plan(large, "deep")
     assert large_deep.filters.get("document_filename") == [fact_filename]
     assert not large_deep.soft_scope_filters
+    assert not large_deep.soft_scope_collections
 
 
 def test_deep_planner_bounds_large_collection_ledger_load(db_session, monkeypatch):
@@ -1277,16 +1280,21 @@ async def test_dense_collection_balanced_unscoped_runs_real_bounded_dense(
     assert svc.calls
 
 
-async def test_dense_collection_balanced_large_runs_additive_soft_fact_scope(
+async def test_dense_collection_balanced_large_runs_scoped_soft_fact_scope(
     db_session,
     monkeypatch,
 ):
-    """Balanced + large ledger-backed corpus: fact-scope is ADDITIVE.
+    """Balanced + large ledger-backed corpus: fact-scope becomes a SOFT scope.
 
-    The query keeps the unscoped fast_sparse_direct path (so non-fact answers are
-    not starved) AND retrieval runs one extra payload-filtered pass over the
-    fact-matched documents, so the guardrailed large collection (`notices`) gets
-    touched and the fact-backed answer is unioned in. Replaces the b7a6646d
+    The planner does NOT hard-restrict the query (``filters`` stays empty, so the
+    query is not gated to the fact docs — D.60 stays answerable). Instead it
+    exposes the fact-matched documents as ``soft_scope_filters`` and flags the
+    large collection in ``soft_scope_collections``. Retrieval then searches that
+    large collection WITH the scoped filter rather than an unscoped global chunk
+    search (which is guardrailed/too slow on it and would time out, starving the
+    Ø1500 tambour weight that only lives there). Small collections in a
+    multi-collection scope keep the unscoped pass and the results are unioned;
+    here a single large collection is searched scoped. Replaces the b7a6646d
     hunk #2 hard-gate that left these queries unscoped (Ø1500 tambour regression).
     """
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
@@ -1336,19 +1344,22 @@ async def test_dense_collection_balanced_large_runs_additive_soft_fact_scope(
         doc_svc=svc,
     )
 
-    # Unscoped path preserved: no hard filter, but the fact docs are a soft scope.
+    # Query is NOT hard-restricted (no HARD filter); fact docs are a soft scope,
+    # and the large collection is flagged for the scoped pass.
     assert result["dense_policy"] == "fast_sparse_direct"
     assert result["retrieval_scope"]["filters"] == {}
     assert result["retrieval_scope"]["soft_scope_filters"] == {"document_filename": [fact_filename]}
-    # The additive scoped pass actually ran against the fact documents.
-    assert any(
-        call["filters"] == {"document_filename": [fact_filename]} for call in svc.calls
-    )
-    # And an unscoped (no document_filename) pass ran too — the union, not a swap.
-    assert any(
-        not (call["filters"] or {}).get("document_filename") for call in svc.calls
+    assert collection.slug in result["retrieval_scope"]["soft_scope_collections"]
+    # The large collection was searched WITH the scoped filter (not unscoped):
+    # every real retrieval call carried the fact-doc filter, and the soft boost
+    # metric records that the collection was scoped.
+    assert svc.calls
+    assert all(
+        (call["filters"] or {}).get("document_filename") == [fact_filename]
+        for call in svc.calls
     )
     assert result["metrics"]["soft_scope_boost"]["applied"] is True
+    assert collection.slug in result["metrics"]["soft_scope_boost"]["scoped_collections"]
 
 
 async def test_dense_planner_uses_collection_totals_when_source_ledger_is_partial(db_session, monkeypatch):

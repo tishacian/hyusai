@@ -2040,6 +2040,7 @@ async def retrieve_rag_context(
         profile["_corpus_plan_max_variants"] = corpus_plan.max_variants
         profile["_corpus_plan_max_candidates"] = corpus_plan.max_candidates
         profile["_corpus_plan_soft_scope_filters"] = dict(corpus_plan.soft_scope_filters or {})
+        profile["_corpus_plan_soft_scope_collections"] = list(corpus_plan.soft_scope_collections or [])
     retrieval_filters = dict(profile.get("retrieval_filters") or {})
     metrics: dict[str, Any] = {
         "query": query,
@@ -2085,6 +2086,7 @@ async def retrieve_rag_context(
         "dense_policy": corpus_plan.dense_policy if corpus_plan else "standard",
         "deep_retrieval_recommended": corpus_plan.deep_retrieval_recommended if corpus_plan else False,
         "soft_scope_filters": dict(corpus_plan.soft_scope_filters or {}) if corpus_plan else {},
+        "soft_scope_collections": list(corpus_plan.soft_scope_collections or []) if corpus_plan else [],
     }
     cache_key = _retrieval_context_cache_key(
         profile=profile,
@@ -2266,6 +2268,26 @@ async def retrieve_rag_context(
     )
     synthesis_k = profile["synthesis_k"]
 
+    # Soft fact-scope: a large ledger-backed single collection is searched with
+    # the planner's fact-doc filter instead of an unscoped global chunk search
+    # (which is too slow on it and times out, starving the answer). Small
+    # collections keep the unscoped pass. See the planner note on the additive
+    # soft boost. retrieval_filters (explicit/hard scope) always wins.
+    soft_scope_filters = dict(profile.get("_corpus_plan_soft_scope_filters") or {})
+    soft_scope_collections = set(profile.get("_corpus_plan_soft_scope_collections") or [])
+    use_soft_single = bool(
+        soft_scope_filters
+        and not retrieval_filters
+        and str(profile["collection"]) in soft_scope_collections
+    )
+    primary_filters = soft_scope_filters if use_soft_single else retrieval_filters
+    if use_soft_single:
+        metrics["soft_scope_boost"] = {
+            "applied": True,
+            "scoped_collections": [str(profile["collection"])],
+            "filter_keys": sorted(soft_scope_filters),
+        }
+
     def _retrieve_coro(call_filters: dict[str, Any] | None, call_deadline: float, query_override: str | None = None):
         return retrieve_for_mode(
             doc_svc,
@@ -2289,7 +2311,7 @@ async def retrieve_rag_context(
     try:
         retrieval_started_perf = time.perf_counter()
         result = await asyncio.wait_for(
-            _retrieve_coro(retrieval_filters, deadline_seconds),
+            _retrieve_coro(primary_filters, deadline_seconds),
             timeout=deadline_seconds,
         )
         retrieval_elapsed_ms = int((time.perf_counter() - retrieval_started_perf) * 1000)
@@ -2398,51 +2420,6 @@ async def retrieve_rag_context(
                     dropped=scope_miss_recovery["scope_miss_dropped_filters"],
                 )
 
-    # Additive soft fact-scope boost (balanced + large ledger-backed corpora).
-    # The unscoped fast_sparse_direct pass above is guardrailed away from a
-    # global chunk search on the huge `notices` collection, so fact-backed
-    # answers that only live there (the Ø1500 tambour weight, ~4 500 daN) are
-    # never retrieved. The planner exposes the fact-matched documents as a SOFT
-    # scope: run one extra payload-filtered pass over them and UNION the chunks,
-    # without hard-restricting the query (so D.60 stays answerable from the
-    # unscoped pass). Best-effort and deadline-bounded: never blocks chat.
-    soft_scope_filters = dict(profile.get("_corpus_plan_soft_scope_filters") or {})
-    if soft_scope_filters and not retrieval_filters:
-        soft_remaining = deadline_seconds - (time.perf_counter() - retrieval_started_perf)
-        if soft_remaining >= 1.0:
-            try:
-                soft_result = await asyncio.wait_for(
-                    _retrieve_coro(soft_scope_filters, soft_remaining),
-                    timeout=soft_remaining,
-                )
-            except (TimeoutError, asyncio.TimeoutError):
-                soft_result = None
-            except Exception as exc:  # noqa: BLE001 - soft boost must never break chat.
-                logger.warning("rag_context: soft fact-scope boost failed", error=str(exc))
-                soft_result = None
-            if soft_result is not None and soft_result.chunks:
-                if result.metadatas is None:
-                    result.metadatas = []
-                seen_soft = set(result.chunks)
-                soft_metas = soft_result.metadatas or []
-                soft_added = 0
-                for index, chunk in enumerate(soft_result.chunks):
-                    if chunk in seen_soft:
-                        continue
-                    result.chunks.append(chunk)
-                    result.scores.append(
-                        soft_result.scores[index] if index < len(soft_result.scores) else 0.0
-                    )
-                    result.metadatas.append(soft_metas[index] if index < len(soft_metas) else {})
-                    seen_soft.add(chunk)
-                    soft_added += 1
-                retrieval_elapsed_ms = int((time.perf_counter() - retrieval_started_perf) * 1000)
-                metrics["soft_scope_boost"] = {
-                    "applied": True,
-                    "added_chunks": soft_added,
-                    "filter_keys": sorted(soft_scope_filters),
-                }
-
     duration_ms = int((time.time() - started) * 1000)
     raw_chunk_count = len(result.chunks)
     if scope_miss_recovery:
@@ -2462,7 +2439,7 @@ async def retrieve_rag_context(
         if comparative_remaining >= 0.5:
             async def _comparative_subretrieve(subquery: str, sub_deadline: float):
                 return await _retrieve_coro(
-                    retrieval_filters,
+                    primary_filters,
                     min(sub_deadline, comparative_remaining),
                     query_override=subquery,
                 )
@@ -2810,11 +2787,25 @@ async def _retrieve_multi_collection_context(
     planned_use_hybrid = profile.get("_corpus_plan_use_hybrid")
     max_variants = int(profile.get("_corpus_plan_max_variants") or 3)
     max_candidates = int(profile.get("_corpus_plan_max_candidates") or profile["candidate_pool_k"])
+    # Soft fact-scope: large ledger-backed collections (`notices`) are searched
+    # with the planner's fact-doc filter instead of an unscoped global chunk
+    # search (which is too slow/low-value on them and would time out, starving
+    # the answer). Small collections keep the unscoped pass; the per-collection
+    # results are unioned by the fuse below. A user/hard scope always wins.
+    soft_scope_filters = dict(profile.get("_corpus_plan_soft_scope_filters") or {})
+    soft_scope_collections = set(profile.get("_corpus_plan_soft_scope_collections") or [])
+    soft_scope_used: list[str] = []
 
     retrieval_loop_started_perf = time.perf_counter()
     retrieval_loop_deadline_perf = retrieval_loop_started_perf + max(deadline_seconds, 0.01)
     deadline_exceeded = False
     for collection in profile.get("collections") or []:
+        use_soft_scope = bool(
+            soft_scope_filters
+            and not retrieval_filters
+            and str(collection) in soft_scope_collections
+        )
+        call_filters = soft_scope_filters if use_soft_scope else retrieval_filters
         remaining_seconds = retrieval_loop_deadline_perf - time.perf_counter()
         if remaining_seconds <= 0:
             deadline_exceeded = True
@@ -2862,7 +2853,7 @@ async def _retrieve_multi_collection_context(
                     hah_chah_enabled=allow_hah_chah,
                     query_hints=guide_hint,
                     retrieval_policy=retrieval_policy,
-                    filters=retrieval_filters,
+                    filters=call_filters,
                     deadline_seconds=remaining_seconds,
                     max_variants=max_variants,
                     max_candidates=max_candidates,
@@ -2872,11 +2863,15 @@ async def _retrieve_multi_collection_context(
                 ),
                 timeout=remaining_seconds,
             )
+            if use_soft_scope:
+                soft_scope_used.append(collection)
             metadatas = []
             for meta in result.metadatas or []:
                 annotated = dict(meta or {})
                 annotated["collection"] = collection
                 annotated["collection_name"] = collection
+                if use_soft_scope:
+                    annotated["soft_scope_boost"] = True
                 metadatas.append(annotated)
             collection_results.append(
                 {
@@ -2908,108 +2903,10 @@ async def _retrieve_multi_collection_context(
                 error=str(exc),
             )
             collection_errors.append({"collection": collection, "error": str(exc)})
-    # Additive soft fact-scope boost: the unscoped per-collection loop above is
-    # guardrailed away from a global chunk search on large ledger-backed
-    # collections (`notices`), so fact-backed answers that only live there (the
-    # Ø1500 tambour weight) are never retrieved. The planner exposes the
-    # fact-matched documents as a SOFT scope; run one extra payload-filtered pass
-    # per collection and let the fuse/dedupe below UNION it with the unscoped
-    # pool. Best-effort and deadline-bounded; never hard-restricts the query, so
-    # non-fact answers (D.60) stay covered by the unscoped pass.
-    soft_scope_filters = dict(profile.get("_corpus_plan_soft_scope_filters") or {})
-    soft_scope_added = 0
-    if soft_scope_filters and not retrieval_filters and not deadline_exceeded:
-        _HAH_MODES = {"hah", "hah_rag", "hah rag", "chah", "c-hah", "c_hah", "hahcomposite", "hah_composite"}
-        for collection in profile.get("collections") or []:
-            remaining_seconds = retrieval_loop_deadline_perf - time.perf_counter()
-            if remaining_seconds <= 0.5:
-                break
-            try:
-                doc_svc = _document_service_for_profile(profile, collection)
-                use_hybrid, mode_label, mode_reason = await resolve_retrieval_mode(
-                    doc_svc,
-                    retrieval_query,
-                    profile["rag_mode"],
-                    latency_profile=profile.get("latency_profile"),
-                )
-                effective_mode = profile["rag_mode"]
-                soft_allow_legacy = allow_legacy_hybrid
-                if planned_use_hybrid is not None:
-                    use_hybrid = bool(planned_use_hybrid)
-                if not allow_hah_chah and str(effective_mode or "").lower() in _HAH_MODES:
-                    effective_mode = "naive"
-                    if planned_use_hybrid is None:
-                        use_hybrid = False
-                if (
-                    _native_qdrant_sparse_hybrid_available()
-                    and not _mode_requests_dense_only(profile.get("rag_mode"))
-                    and planned_use_hybrid is not False
-                ):
-                    use_hybrid = True
-                    soft_allow_legacy = False
-                soft_result = await asyncio.wait_for(
-                    retrieve_for_mode(
-                        doc_svc,
-                        retrieval_query,
-                        effective_mode,
-                        top_k=pool_top_k,
-                        use_hybrid=use_hybrid,
-                        hah_chah_enabled=allow_hah_chah,
-                        query_hints=guide_hint,
-                        retrieval_policy=retrieval_policy,
-                        filters=soft_scope_filters,
-                        deadline_seconds=remaining_seconds,
-                        max_variants=max_variants,
-                        max_candidates=max_candidates,
-                        allow_legacy_hybrid=soft_allow_legacy,
-                        retrieval_profile=profile.get("retrieval_profile"),
-                        extra_variants=_deep_rewrite_variants(request, profile),
-                    ),
-                    timeout=remaining_seconds,
-                )
-            except (TimeoutError, asyncio.TimeoutError):
-                break
-            except Exception as exc:  # noqa: BLE001 - soft boost is best-effort.
-                logger.warning(
-                    "rag_context: soft fact-scope boost failed",
-                    collection=collection,
-                    error=str(exc),
-                )
-                continue
-            if not soft_result.chunks:
-                continue
-            soft_metadatas = []
-            for meta in soft_result.metadatas or []:
-                annotated = dict(meta or {})
-                annotated["collection"] = collection
-                annotated["collection_name"] = collection
-                annotated["soft_scope_boost"] = True
-                soft_metadatas.append(annotated)
-            collection_results.append(
-                {
-                    "collection": collection,
-                    "chunks": soft_result.chunks,
-                    "scores": soft_result.scores,
-                    "metadatas": soft_metadatas,
-                    "pipeline": soft_result.pipeline,
-                    "label": soft_result.label,
-                    "mode_label": mode_label,
-                    "mode_reason": mode_reason,
-                    "detail": soft_result.detail,
-                    "chunks_retrieved": len(soft_result.chunks),
-                    "soft_scope": True,
-                    "diagnostics": {
-                        key: value
-                        for key, value in (getattr(soft_result, "diagnostics", {}) or {}).items()
-                        if value is not None
-                    },
-                }
-            )
-            soft_scope_added += len(soft_result.chunks)
-    if soft_scope_added:
+    if soft_scope_used:
         metrics["soft_scope_boost"] = {
             "applied": True,
-            "added_chunks": soft_scope_added,
+            "scoped_collections": soft_scope_used,
             "filter_keys": sorted(soft_scope_filters),
         }
     retrieval_loop_ms = int((time.perf_counter() - retrieval_loop_started_perf) * 1000)

@@ -160,6 +160,11 @@ class CorpusPlan:
     # search) so fact-backed answers (the Ø1500 tambour weight) are retrieved.
     soft_scope_filters: dict[str, Any] = field(default_factory=dict)
     soft_scope_reason: str = ""
+    # Scope collections that retrieval should search with ``soft_scope_filters``
+    # (the large ledger-backed ones) instead of an unscoped global chunk search
+    # that is too slow/low-value on them. Small collections in the scope keep the
+    # unscoped pass; the per-collection results are unioned.
+    soft_scope_collections: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1624,15 +1629,26 @@ def plan_corpus(
     # The bounded fact scan is index-backed (pg_trgm GIN, migration 045) and
     # demotes ubiquitous terms, so it stays interactive (single-digit seconds).
     # Deep and balanced+small keep the precise hard document_filename filter.
-    large_collection_scope = any(
-        int(getattr(c, "document_count", 0) or 0) > _LEDGER_TARGETING_MIN_SOURCES
-        or int(getattr(c, "chunk_count", 0) or 0) > _LEDGER_TARGETING_MIN_CHUNKS
-        for c in collection_rows
-    )
+    large_collection_slugs: list[str] = []
+    for c in collection_rows:
+        if (
+            int(getattr(c, "document_count", 0) or 0) > _LEDGER_TARGETING_MIN_SOURCES
+            or int(getattr(c, "chunk_count", 0) or 0) > _LEDGER_TARGETING_MIN_CHUNKS
+        ):
+            # Emit both slug and id so retrieval matches whichever identifier the
+            # emitted ``collections`` list ends up carrying.
+            large_collection_slugs.extend(
+                str(ref)
+                for ref in (getattr(c, "slug", ""), getattr(c, "id", ""))
+                if str(ref or "").strip()
+            )
+    large_collection_slugs = list(dict.fromkeys(large_collection_slugs))
+    large_collection_scope = bool(large_collection_slugs)
     run_fact_scope = latency_profile in {"deep", "balanced"}
     soft_fact_scope = latency_profile == "balanced" and large_collection_scope
     soft_scope_filters: dict[str, Any] = {}
     soft_scope_reason = ""
+    soft_scope_collections: list[str] = []
     if explicit_filters:
         confidence = max(confidence, 0.95)
         reason = f"System/agent retrieval filters supplied: {', '.join(sorted(explicit_filters))}."
@@ -1645,10 +1661,13 @@ def plan_corpus(
         )
         if fact_filters and soft_fact_scope:
             # Additive soft boost: leave ``filters`` empty so the unscoped
-            # fast_sparse_direct path still runs; retrieval additionally
-            # scope-searches these documents and unions the results.
+            # fast_sparse_direct path still runs over the SMALL scope
+            # collections; retrieval searches the LARGE collection(s) with this
+            # scoped filter instead (an unscoped global chunk search there is too
+            # slow/low-value) and unions the per-collection results.
             soft_scope_filters = fact_filters
             soft_scope_reason = fact_reason
+            soft_scope_collections = list(large_collection_slugs)
         elif fact_filters:
             filters = fact_filters
             confidence = max(confidence, fact_confidence)
@@ -1763,6 +1782,7 @@ def plan_corpus(
         "reason": reason,
         "corpus_version": _corpus_version(rows, collection_rows),
         "soft_scope_filters": soft_scope_filters,
+        "soft_scope_collections": soft_scope_collections,
         "planner_ms": int((time.time() - started) * 1000),
     }
     retrieval_plan = _build_retrieval_plan(
@@ -1808,4 +1828,5 @@ def plan_corpus(
         deep_retrieval_recommended=deep_retrieval_recommended,
         soft_scope_filters=soft_scope_filters,
         soft_scope_reason=soft_scope_reason,
+        soft_scope_collections=soft_scope_collections,
     )
