@@ -2033,6 +2033,7 @@ const STEP_ICONS: Record<string, string> = {
       [previewUrl]="sourcePreviewUrl()"
       [title]="sourcePreviewTitle()"
       [page]="sourcePreviewPage()"
+      [highlight]="sourcePreviewHighlight()"
       subtitle="Retrieval source"
       (closed)="closeSourcePreview()"
     />
@@ -3478,6 +3479,7 @@ export class ChatPanelComponent implements AfterViewInit {
   readonly sourcePreviewUrl = signal<string | null>(null);
   readonly sourcePreviewTitle = signal('');
   readonly sourcePreviewPage = signal<number | null>(null);
+  readonly sourcePreviewHighlight = signal<string | null>(null);
   readonly deepSearchLaunchingId = signal<string | null>(null);
   /**
    * Expanded evaluation steps, keyed by ``"${messageId}:${stepId}"``. Kept
@@ -4847,14 +4849,32 @@ export class ChatPanelComponent implements AfterViewInit {
     this.sourcePreviewTitle.set(this.sourceTitle(src));
     this.sourcePreviewUrl.set(url);
     this.sourcePreviewPage.set(this.sourcePageNumber(src));
+    this.sourcePreviewHighlight.set(this.sourceHighlightText(src));
     this.sourcePreviewOpen.set(true);
     this.cdr.markForCheck();
+  }
+
+  /**
+   * Full chunk text used to locate + highlight the passage inside the preview.
+   * Unlike {@link sourceSnippet} (a 240-char display teaser), this returns the
+   * complete snippet/content so the in-document matcher has the most to work
+   * with.
+   */
+  private sourceHighlightText(src: Source): string | null {
+    const raw =
+      (src.snippet as string | undefined) ||
+      (src.content as string | undefined) ||
+      (src.text as string | undefined) ||
+      '';
+    const trimmed = raw.trim();
+    return trimmed.length >= 8 ? trimmed : null;
   }
 
   closeSourcePreview(): void {
     this.sourcePreviewOpen.set(false);
     this.sourcePreviewUrl.set(null);
     this.sourcePreviewPage.set(null);
+    this.sourcePreviewHighlight.set(null);
     this.cdr.markForCheck();
   }
 

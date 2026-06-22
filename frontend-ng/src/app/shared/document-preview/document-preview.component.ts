@@ -1,11 +1,17 @@
 import { HttpClient } from '@angular/common/http';
 import { NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewEncapsulation, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Subscription } from 'rxjs';
 
+import { NgxExtendedPdfViewerModule, NgxExtendedPdfViewerService, pdfDefaultOptions } from 'ngx-extended-pdf-viewer';
+
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { HIGHLIGHT_ANCHOR_ID, cellMatchesNeedle, escapeText, highlightPlainText, markRangeInDom, normalizeNeedleForCells, pdfFindPhrase } from './highlight-text.util';
+
+// pdf.js runtime assets are copied to /assets/pdfjs by angular.json.
+pdfDefaultOptions.assetsFolder = 'assets/pdfjs';
 
 interface RichDocumentPreview {
   kind: 'text' | 'html' | 'spreadsheet' | 'image' | 'pdf' | 'binary';
@@ -25,8 +31,28 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
 @Component({
   selector: 'app-document-preview',
   standalone: true,
-  imports: [IconComponent, NgTemplateOutlet],
+  imports: [IconComponent, NgTemplateOutlet, NgxExtendedPdfViewerModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // Global so the highlight rules reach <mark> nodes injected via innerHTML.
+  encapsulation: ViewEncapsulation.None,
+  styles: [
+    `
+      .omnirag-hl {
+        background: rgba(250, 204, 21, 0.92);
+        color: #111827;
+        border-radius: 2px;
+        padding: 0 0.1em;
+        box-shadow: 0 0 0 1px rgba(202, 138, 4, 0.55);
+        scroll-margin: 25vh;
+      }
+      .omnirag-cell-hl {
+        outline: 2px solid rgba(250, 204, 21, 0.95);
+        outline-offset: -2px;
+        background: rgba(250, 204, 21, 0.22) !important;
+        scroll-margin: 25vh;
+      }
+    `,
+  ],
   template: `
     @if (open()) {
       <div class="fixed inset-0 z-[80] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4">
@@ -61,7 +87,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
               </button>
             </div>
           </header>
-          <div class="h-[72vh] overflow-auto bg-gray-900">
+          <div #scrollHost class="h-[72vh] overflow-auto bg-gray-900">
             @if (loading()) {
               <div class="flex h-full items-center justify-center gap-2 text-sm text-gray-300">
                 <app-icon name="loader-2" [size]="16" class="animate-spin text-cyan-300" />
@@ -74,20 +100,20 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                 </div>
               </div>
             } @else if (preview(); as doc) {
-              @if (htmlSrcdoc()) {
+              @if (htmlDoc(); as html) {
                 <div class="relative h-full">
                   @if (doc.truncated) {
                     <span class="absolute right-3 top-3 z-10 rounded bg-yellow-500/90 px-2 py-0.5 text-[10px] font-semibold text-black shadow ring-1 ring-yellow-600/40">Truncated preview</span>
                   }
                   <iframe
                     class="block h-full w-full bg-white"
-                    sandbox=""
-                    [srcdoc]="htmlSrcdoc()!"
+                    [attr.sandbox]="html.sandbox"
+                    [srcdoc]="html.srcdoc"
                     title="HTML document preview"
                   ></iframe>
                 </div>
               } @else if (doc.kind === 'text') {
-                <pre class="min-h-full whitespace-pre-wrap p-4 font-mono text-xs leading-relaxed text-gray-100">{{ doc.content || '' }}</pre>
+                <pre class="min-h-full whitespace-pre-wrap p-4 font-mono text-xs leading-relaxed text-gray-100" [innerHTML]="textHtml()"></pre>
               } @else if (doc.kind === 'spreadsheet') {
                 <div class="p-4">
                   <div class="mb-3 flex flex-wrap items-center gap-2 text-xs text-gray-400">
@@ -99,10 +125,14 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                   <div class="overflow-auto rounded bg-black/20 ring-1 ring-white/10">
                     <table class="min-w-full border-collapse text-left text-xs text-gray-100">
                       <tbody>
-                        @for (row of doc.rows || []; track $index) {
+                        @for (row of doc.rows || []; track $index; let ri = $index) {
                           <tr class="border-b border-white/10 last:border-b-0">
                             @for (cell of row; track $index) {
-                              <td class="max-w-[320px] border-r border-white/10 px-3 py-2 align-top last:border-r-0">{{ cell }}</td>
+                              <td
+                                class="max-w-[320px] border-r border-white/10 px-3 py-2 align-top last:border-r-0"
+                                [class.omnirag-cell-hl]="sheetHl().hits.has(ri + ':' + $index)"
+                                [attr.id]="sheetHl().first === ri + ':' + $index ? hlAnchorId : null"
+                              >{{ cell }}</td>
                             }
                           </tr>
                         }
@@ -119,12 +149,27 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                   <ng-container *ngTemplateOutlet="mediaPending"></ng-container>
                 }
               } @else if (doc.kind === 'pdf') {
-                @if (safeObjectUrl()) {
-                  <iframe
-                    class="block h-full w-full bg-white"
-                    [src]="safeObjectUrl()!"
-                    title="Document preview"
-                  ></iframe>
+                @if (objectUrl(); as pdfUrl) {
+                  <ngx-extended-pdf-viewer
+                    [src]="pdfUrl"
+                    [page]="normalizedPage() || 1"
+                    [textLayer]="true"
+                    [height]="'100%'"
+                    backgroundColor="#0b1220"
+                    [showSidebarButton]="false"
+                    [showOpenFileButton]="false"
+                    [showPrintButton]="false"
+                    [showDownloadButton]="false"
+                    [showPropertiesButton]="false"
+                    [showSecondaryToolbarButton]="false"
+                    [showEditorButtons]="false"
+                    [showStampEditor]="false"
+                    [showDrawEditor]="false"
+                    [showTextEditor]="false"
+                    [showHighlightEditor]="false"
+                    (pdfLoaded)="onPdfLoaded()"
+                    (textLayerRendered)="onPdfTextLayer()"
+                  />
                 } @else {
                   <ng-container *ngTemplateOutlet="mediaPending"></ng-container>
                 }
@@ -170,17 +215,26 @@ export class DocumentPreviewComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly http = inject(HttpClient);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly pdfFind = inject(NgxExtendedPdfViewerService);
   private loadSeq = 0;
   private currentPreviewUrl: string | null = null;
   private previewRequestSub: Subscription | null = null;
   private mediaRequestSub: Subscription | null = null;
+  private pdfReady = false;
+  private pdfLastFind = '';
 
   readonly open = input(false);
   readonly previewUrl = input<string | null>(null);
   readonly title = input('');
   readonly subtitle = input('');
   readonly page = input<number | null>(null);
+  /** Chunk/snippet text to locate and highlight inside the rendered preview. */
+  readonly highlight = input<string | null>(null);
   readonly closed = output<void>();
+
+  /** Exposed to the template for the spreadsheet scroll anchor. */
+  readonly hlAnchorId = HIGHLIGHT_ANCHOR_ID;
+  private readonly scrollHost = viewChild<ElementRef<HTMLElement>>('scrollHost');
 
   readonly loading = signal(false);
   readonly openingExternal = signal(false);
@@ -189,17 +243,53 @@ export class DocumentPreviewComponent {
   readonly mediaError = signal<string | null>(null);
   readonly preview = signal<RichDocumentPreview | null>(null);
   readonly objectUrl = signal<string | null>(null);
-  readonly safeObjectUrl = signal<SafeResourceUrl | null>(null);
-  readonly htmlSrcdoc = computed(() => {
-    const doc = this.preview();
-    if (!doc || !this.isHtmlPreview(doc)) return null;
-    return this.buildHtmlSrcdoc(doc);
-  });
+
   readonly normalizedPage = computed(() => {
     const raw = this.page();
     if (raw === null || raw === undefined) return null;
     const value = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
     return Number.isFinite(value) && value > 0 ? value : null;
+  });
+
+  /** Escaped text content for the ``text`` preview, with the chunk marked. */
+  readonly textHtml = computed<SafeHtml>(() => {
+    const doc = this.preview();
+    const content = doc?.kind === 'text' ? doc.content || '' : '';
+    const marked = highlightPlainText(content, this.highlight());
+    return this.sanitizer.bypassSecurityTrustHtml(marked ?? escapeText(content));
+  });
+
+  /** srcdoc + sandbox for the HTML preview, with the chunk marked + scrolled to. */
+  readonly htmlDoc = computed<{ srcdoc: SafeHtml; sandbox: string } | null>(() => {
+    const doc = this.preview();
+    if (!doc || !this.isHtmlPreview(doc)) return null;
+    const built = this.buildHtmlSrcdoc(doc, this.highlight());
+    return {
+      srcdoc: this.sanitizer.bypassSecurityTrustHtml(built.html),
+      sandbox: built.scripted ? 'allow-scripts' : '',
+    };
+  });
+
+  /** Spreadsheet cells (``row:col`` keys) that match the chunk, plus the first hit. */
+  readonly sheetHl = computed<{ hits: Set<string>; first: string | null }>(() => {
+    const doc = this.preview();
+    const needle = normalizeNeedleForCells(this.highlight());
+    const hits = new Set<string>();
+    let first: string | null = null;
+    if (doc?.kind === 'spreadsheet' && needle) {
+      const rows = doc.rows || [];
+      for (let r = 0; r < rows.length; r++) {
+        const row = rows[r] || [];
+        for (let c = 0; c < row.length; c++) {
+          if (cellMatchesNeedle(row[c], needle)) {
+            const key = r + ':' + c;
+            hits.add(key);
+            if (!first) first = key;
+          }
+        }
+      }
+    }
+    return { hits, first };
   });
 
   readonly displayName = computed(() => this.preview()?.filename || this.title() || 'document');
@@ -209,13 +299,73 @@ export class DocumentPreviewComponent {
     effect(() => {
       const url = this.previewUrl();
       this.normalizedPage();
+      this.highlight();
       if (!this.open() || !url) {
         this.clearPreview();
         return;
       }
       this.loadPreview(url);
-      this.applyPdfPageAnchor();
     });
+    // Scroll the highlighted passage into view once the preview DOM is painted.
+    // (HTML previews self-scroll from inside their sandboxed iframe instead.)
+    effect(() => {
+      this.textHtml();
+      this.htmlDoc();
+      this.objectUrl();
+      const sheetHit = this.sheetHl().first;
+      if (this.open() && (this.preview() || sheetHit)) {
+        setTimeout(() => this.scrollToHighlight(), 80);
+      }
+    });
+  }
+
+  private scrollToHighlight(): void {
+    const host = this.scrollHost()?.nativeElement;
+    if (!host) return;
+    const target = host.querySelector('#' + HIGHLIGHT_ANCHOR_ID) as HTMLElement | null;
+    target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  /** pdf.js has parsed the document — page nav is honoured, kick off the find. */
+  onPdfLoaded(): void {
+    this.pdfReady = true;
+    this.pdfLastFind = '';
+    this.runPdfFind();
+  }
+
+  /** A page text layer is ready — (re)run the find so the highlight overlay shows. */
+  onPdfTextLayer(): void {
+    if (this.pdfReady) this.runPdfFind();
+  }
+
+  /**
+   * Highlight the chunk inside the PDF via the pdf.js find controller. It both
+   * marks every occurrence and scrolls the first one into view. Guarded by the
+   * last phrase so repeated text-layer renders don't re-trigger the same search.
+   */
+  private runPdfFind(): void {
+    if (!this.pdfReady) return;
+    const phrase = pdfFindPhrase(this.highlight());
+    if (!phrase || phrase === this.pdfLastFind) return;
+    this.pdfLastFind = phrase;
+    setTimeout(() => {
+      try {
+        this.pdfFind.find(phrase, { highlightAll: true, matchCase: false, findMultiple: false });
+      } catch {
+        /* viewer not ready yet — a later textLayerRendered will retry */
+        this.pdfLastFind = '';
+      }
+    }, 120);
+  }
+
+  private makeNonce(): string {
+    const c = (globalThis as { crypto?: Crypto }).crypto;
+    if (c?.randomUUID) return c.randomUUID().replace(/-/g, '');
+    if (c?.getRandomValues) {
+      const bytes = c.getRandomValues(new Uint8Array(16));
+      return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    }
+    return 'hl' + this.loadSeq.toString(36);
   }
 
   openExternal(): void {
@@ -244,6 +394,8 @@ export class DocumentPreviewComponent {
     if (this.currentPreviewUrl === url && (this.loading() || this.preview())) return;
     const seq = ++this.loadSeq;
     this.currentPreviewUrl = url;
+    this.pdfReady = false;
+    this.pdfLastFind = '';
     this.revokeObjectUrl();
     this.cancelInFlightRequests();
     this.loading.set(true);
@@ -281,13 +433,6 @@ export class DocumentPreviewComponent {
       });
   }
 
-  private applyPdfPageAnchor(): void {
-    const preview = this.preview();
-    const objectUrl = this.objectUrl();
-    if (!preview || preview.kind !== 'pdf' || !objectUrl) return;
-    this.safeObjectUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(this.pdfObjectUrl(objectUrl)));
-  }
-
   private loadPreviewBlob(preview: RichDocumentPreview, seq: number): void {
     this.mediaRequestSub?.unsubscribe();
     this.mediaLoading.set(true);
@@ -300,7 +445,6 @@ export class DocumentPreviewComponent {
           if (seq !== this.loadSeq) return;
           const url = URL.createObjectURL(blob);
           this.objectUrl.set(url);
-          this.safeObjectUrl.set(preview.kind === 'pdf' ? this.sanitizer.bypassSecurityTrustResourceUrl(this.pdfObjectUrl(url)) : null);
           this.mediaLoading.set(false);
         },
         error: (err) => {
@@ -314,6 +458,8 @@ export class DocumentPreviewComponent {
   private clearPreview(): void {
     ++this.loadSeq;
     this.currentPreviewUrl = null;
+    this.pdfReady = false;
+    this.pdfLastFind = '';
     this.cancelInFlightRequests();
     this.loading.set(false);
     this.mediaLoading.set(false);
@@ -335,7 +481,6 @@ export class DocumentPreviewComponent {
     const url = this.objectUrl();
     if (url) URL.revokeObjectURL(url);
     this.objectUrl.set(null);
-    this.safeObjectUrl.set(null);
   }
 
   private rememberPreview(url: string, preview: RichDocumentPreview): void {
@@ -356,11 +501,14 @@ export class DocumentPreviewComponent {
     );
   }
 
-  private buildHtmlSrcdoc(doc: RichDocumentPreview): string {
-    const raw = doc.content || '';
-    const chrome = `
+  private cspContent(scriptSrc: string): string {
+    return `default-src 'none'; img-src data: blob: http: https:; style-src 'unsafe-inline'; font-src data:; script-src ${scriptSrc}; connect-src 'none';`;
+  }
+
+  private htmlChrome(scriptSrc: string): string {
+    return `
       <meta charset="utf-8">
-      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob: http: https:; style-src 'unsafe-inline'; font-src data:; script-src 'none'; connect-src 'none';">
+      <meta http-equiv="Content-Security-Policy" content="${this.cspContent(scriptSrc)}">
       <style>
         html, body { margin: 0; min-height: 100%; background: #f8fafc; color: #111827; font: 14px/1.55 Arial, Helvetica, sans-serif; }
         body { padding: 24px; box-sizing: border-box; }
@@ -372,8 +520,13 @@ export class DocumentPreviewComponent {
         a { color: #0369a1; }
         img { max-width: 100%; height: auto; }
         p { margin: 0 0 12px; }
+        mark.omnirag-hl { background: #fde68a; color: #111827; border-radius: 2px; padding: 0 0.1em; box-shadow: 0 0 0 2px #fde68a; scroll-margin: 25vh; }
       </style>
     `;
+  }
+
+  private wrapHtml(raw: string, scriptSrc: string): string {
+    const chrome = this.htmlChrome(scriptSrc);
     if (/<html[\s>]/i.test(raw)) {
       if (/<head[\s>]/i.test(raw)) {
         return raw.replace(/<head([^>]*)>/i, `<head$1>${chrome}`);
@@ -381,6 +534,37 @@ export class DocumentPreviewComponent {
       return raw.replace(/<html([^>]*)>/i, `<html$1><head>${chrome}</head>`);
     }
     return `<!doctype html><html><head>${chrome}</head><body>${raw}</body></html>`;
+  }
+
+  /**
+   * Build the sandboxed HTML srcdoc. With no highlight (or no match) the
+   * document stays fully locked down (``script-src 'none'``). When the chunk is
+   * located we mark it, relax the CSP to a single nonce so ONLY our scroll
+   * script may run (the document's own scripts still cannot), and report
+   * ``scripted`` so the caller can grant the iframe ``allow-scripts``.
+   */
+  private buildHtmlSrcdoc(doc: RichDocumentPreview, highlight: string | null): { html: string; scripted: boolean } {
+    const raw = doc.content || '';
+    const locked = this.wrapHtml(raw, "'none'");
+    if (!highlight) return { html: locked, scripted: false };
+
+    try {
+      const parsed = new DOMParser().parseFromString(locked, 'text/html');
+      const body = parsed.body;
+      if (!body || !markRangeInDom(body, highlight, parsed)) {
+        return { html: locked, scripted: false };
+      }
+      const nonce = this.makeNonce();
+      const meta = parsed.querySelector('meta[http-equiv="Content-Security-Policy" i]');
+      meta?.setAttribute('content', this.cspContent(`'nonce-${nonce}'`));
+      const script = parsed.createElement('script');
+      script.setAttribute('nonce', nonce);
+      script.textContent = `(function(){function g(){var e=document.getElementById('${HIGHLIGHT_ANCHOR_ID}');if(e){e.scrollIntoView({block:'center'});}}if(document.readyState!=='loading'){g();}else{document.addEventListener('DOMContentLoaded',g);}})();`;
+      body.appendChild(script);
+      return { html: '<!doctype html>' + parsed.documentElement.outerHTML, scripted: true };
+    } catch {
+      return { html: locked, scripted: false };
+    }
   }
 
   private withDisposition(url: string, disposition: 'inline' | 'attachment'): string {

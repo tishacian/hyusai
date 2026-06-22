@@ -18,7 +18,8 @@
             "polyfills": [],
             "tsConfig": "tsconfig.app.json",
             "assets": [
-              { "glob": "**/*", "input": "src/assets", "output": "/assets" }
+              { "glob": "**/*", "input": "src/assets", "output": "/assets" },
+              { "glob": "**/*", "input": "node_modules/ngx-extended-pdf-viewer/assets/", "output": "/assets/pdfjs/" }
             ],
             "styles": [
               "node_modules/ngx-toastr/toastr.css",
