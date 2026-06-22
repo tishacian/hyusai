@@ -1662,6 +1662,106 @@ def _dedupe_aligned_results(
     return deduped_chunks, deduped_scores, deduped_metadatas, removed
 
 
+def _recall_floor_active(
+    profile: Mapping[str, Any],
+    collection: Any,
+    retrieval_filters: Mapping[str, Any] | None,
+) -> bool:
+    """Whether the bounded unscoped recall-floor pass should run for ``collection``.
+
+    Armed by the planner only when a hard ``document_filename`` allowlist is in
+    effect on a large collection (see CorpusPlan.recall_floor_*). It requires the
+    hard filter to actually be present (so it never broadens an unscoped query)
+    and ``collection`` to be one the planner flagged; a no-op otherwise.
+    """
+    recall_floor_collections = profile.get("_corpus_plan_recall_floor_collections") or []
+    if not recall_floor_collections:
+        return False
+    if str(collection) not in {str(ref) for ref in recall_floor_collections}:
+        return False
+    return bool((retrieval_filters or {}).get("document_filename"))
+
+
+async def _retrieve_recall_floor_pass(
+    doc_svc: Any,
+    *,
+    retrieval_query: str,
+    top_n: int,
+    guide_hint: str,
+    retrieval_policy: "RetrievalPolicy",
+    deadline_seconds: float,
+    max_candidates: int,
+    retrieval_profile: str | None,
+    latency_profile: str | None,
+) -> Any:
+    """Run one bounded UNSCOPED dense recall-floor pass over a scoped collection.
+
+    Dense-only by design: the answer chunk the filename allowlist missed is, by
+    construction, a high-similarity dense hit, and a pure vector (HNSW) search is
+    sub-second on any corpus size, whereas an unscoped sparse/global search on a
+    large collection is exactly what the dense guardrail forbids. Forcing dense
+    keeps the floor fast and deterministic so the unioned candidate still ranks
+    high even when the rerank cross-encoder later times out.
+    """
+    bounded_top_n = max(1, int(top_n or 0) or 10)
+    return await retrieve_for_mode(
+        doc_svc,
+        retrieval_query,
+        "naive",
+        top_k=bounded_top_n,
+        use_hybrid=False,
+        hah_chah_enabled=False,
+        query_hints=guide_hint,
+        retrieval_policy=retrieval_policy,
+        filters=None,
+        deadline_seconds=deadline_seconds,
+        max_variants=1,
+        max_candidates=max_candidates,
+        allow_legacy_hybrid=False,
+        retrieval_profile=retrieval_profile,
+        latency_profile=latency_profile,
+    )
+
+
+def _union_recall_floor(
+    chunks: list[str],
+    scores: list[float],
+    metadatas: list[dict[str, Any]],
+    floor_result: Any,
+) -> tuple[list[str], list[float], list[dict[str, Any]], int]:
+    """Append recall-floor candidates not already in the pool, marking provenance.
+
+    Duplicates (content the scoped pass already retrieved) are skipped, so the
+    floor only ever ADDS documents the hard filter missed. Final ordering is left
+    to the existing rerank/fusion pipeline; the floor chunk carries its own dense
+    score so it survives even when the cross-encoder is skipped.
+    """
+    seen = {_chunk_exact_key(str(chunk or "")) for chunk in chunks}
+    floor_chunks = list(getattr(floor_result, "chunks", []) or [])
+    floor_scores = list(getattr(floor_result, "scores", []) or [])
+    floor_metas = list(getattr(floor_result, "metadatas", []) or [])
+    added = 0
+    for index, chunk in enumerate(floor_chunks):
+        text = str(chunk or "")
+        if not text.strip():
+            continue
+        key = _chunk_exact_key(text)
+        if key in seen:
+            continue
+        seen.add(key)
+        meta = (
+            dict(floor_metas[index])
+            if index < len(floor_metas) and isinstance(floor_metas[index], Mapping)
+            else {}
+        )
+        meta["recall_floor"] = True
+        chunks.append(text)
+        scores.append(float(floor_scores[index]) if index < len(floor_scores) else 0.0)
+        metadatas.append(meta)
+        added += 1
+    return chunks, scores, metadatas, added
+
+
 def _document_diversity_key(metadata: Mapping[str, Any], index: int) -> str:
     for key in ("document_id", "source_id", "document_filename", "filename", "source_path", "object_key"):
         value = str(metadata.get(key) or "").strip()
@@ -2041,6 +2141,8 @@ async def retrieve_rag_context(
         profile["_corpus_plan_max_candidates"] = corpus_plan.max_candidates
         profile["_corpus_plan_soft_scope_filters"] = dict(corpus_plan.soft_scope_filters or {})
         profile["_corpus_plan_soft_scope_collections"] = list(corpus_plan.soft_scope_collections or [])
+        profile["_corpus_plan_recall_floor_collections"] = list(corpus_plan.recall_floor_collections or [])
+        profile["_corpus_plan_recall_floor_top_n"] = int(corpus_plan.recall_floor_top_n or 0)
     retrieval_filters = dict(profile.get("retrieval_filters") or {})
     metrics: dict[str, Any] = {
         "query": query,
@@ -2087,6 +2189,8 @@ async def retrieve_rag_context(
         "deep_retrieval_recommended": corpus_plan.deep_retrieval_recommended if corpus_plan else False,
         "soft_scope_filters": dict(corpus_plan.soft_scope_filters or {}) if corpus_plan else {},
         "soft_scope_collections": list(corpus_plan.soft_scope_collections or []) if corpus_plan else [],
+        "recall_floor_collections": list(corpus_plan.recall_floor_collections or []) if corpus_plan else [],
+        "recall_floor_top_n": int(corpus_plan.recall_floor_top_n or 0) if corpus_plan else 0,
     }
     cache_key = _retrieval_context_cache_key(
         profile=profile,
@@ -2467,6 +2571,60 @@ async def retrieve_rag_context(
             metrics.update({"comparative_decompose": False, "comparative_skipped_reason": "deadline"})
     elif comparative_plan is not None:
         metrics.update({"comparative_decompose": False, "comparative_skipped_reason": "no_primary_hits"})
+
+    # Recall floor: the hard document_filename allowlist is a filename-keyword
+    # guess and can omit the real answer doc. Add a bounded UNSCOPED dense pass
+    # over the same large collection and union it into the pre-rerank pool so a
+    # missed-but-high-relevance answer doc still gets a chance. Strictly gated by
+    # the planner (large collection + hard document_filename filter); a no-op
+    # otherwise, and the scoped pass remains the primary precision layer.
+    if _recall_floor_active(profile, str(profile["collection"]), retrieval_filters):
+        floor_remaining = deadline_seconds - (time.perf_counter() - retrieval_started_perf)
+        floor_top_n = int(profile.get("_corpus_plan_recall_floor_top_n") or 0) or pool_top_k
+        if floor_remaining >= 0.3:
+            try:
+                floor_result = await asyncio.wait_for(
+                    _retrieve_recall_floor_pass(
+                        doc_svc,
+                        retrieval_query=retrieval_query,
+                        top_n=floor_top_n,
+                        guide_hint=guide_hint,
+                        retrieval_policy=retrieval_policy,
+                        deadline_seconds=floor_remaining,
+                        max_candidates=max_candidates,
+                        retrieval_profile=profile.get("retrieval_profile"),
+                        latency_profile=profile.get("latency_profile"),
+                    ),
+                    timeout=floor_remaining,
+                )
+            except (TimeoutError, asyncio.TimeoutError):
+                floor_result = None
+            except Exception as exc:  # noqa: BLE001 - floor must never break retrieval.
+                logger.warning("recall floor pass failed", error=str(exc))
+                floor_result = None
+            if floor_result is not None and getattr(floor_result, "chunks", None):
+                (
+                    result.chunks,
+                    result.scores,
+                    result.metadatas,
+                    floor_added,
+                ) = _union_recall_floor(
+                    list(result.chunks),
+                    list(result.scores),
+                    list(result.metadatas),
+                    floor_result,
+                )
+                metrics["recall_floor"] = {
+                    "applied": True,
+                    "collection": str(profile["collection"]),
+                    "top_n": floor_top_n,
+                    "candidates_added": floor_added,
+                }
+            else:
+                metrics["recall_floor"] = {"applied": False, "reason": "no_floor_candidates"}
+        else:
+            metrics["recall_floor"] = {"applied": False, "reason": "deadline"}
+
     retrieval_diagnostics = {
         key: value for key, value in (getattr(result, "diagnostics", {}) or {}).items() if value is not None
     }
@@ -2795,6 +2953,8 @@ async def _retrieve_multi_collection_context(
     soft_scope_filters = dict(profile.get("_corpus_plan_soft_scope_filters") or {})
     soft_scope_collections = set(profile.get("_corpus_plan_soft_scope_collections") or [])
     soft_scope_used: list[str] = []
+    recall_floor_top_n = int(profile.get("_corpus_plan_recall_floor_top_n") or 0)
+    recall_floor_added: dict[str, int] = {}
 
     retrieval_loop_started_perf = time.perf_counter()
     retrieval_loop_deadline_perf = retrieval_loop_started_perf + max(deadline_seconds, 0.01)
@@ -2892,6 +3052,58 @@ async def _retrieve_multi_collection_context(
                     },
                 }
             )
+            # Recall floor: union a bounded UNSCOPED dense pass over the same
+            # large scoped collection so an answer doc the hard document_filename
+            # allowlist missed still reaches the fused pool. Appended as its own
+            # fuse entry; RRF keeps its top hit high even if the cross-encoder is
+            # later skipped. Strictly gated by the planner (a no-op otherwise).
+            if _recall_floor_active(profile, collection, retrieval_filters):
+                floor_remaining = max(retrieval_loop_deadline_perf - time.perf_counter(), 0.0)
+                if floor_remaining >= 0.3:
+                    try:
+                        floor_result = await asyncio.wait_for(
+                            _retrieve_recall_floor_pass(
+                                doc_svc,
+                                retrieval_query=retrieval_query,
+                                top_n=recall_floor_top_n or pool_top_k,
+                                guide_hint=guide_hint,
+                                retrieval_policy=retrieval_policy,
+                                deadline_seconds=floor_remaining,
+                                max_candidates=max_candidates,
+                                retrieval_profile=profile.get("retrieval_profile"),
+                                latency_profile=profile.get("latency_profile"),
+                            ),
+                            timeout=floor_remaining,
+                        )
+                    except (TimeoutError, asyncio.TimeoutError):
+                        floor_result = None
+                    except Exception as exc:  # noqa: BLE001 - floor must never break retrieval.
+                        logger.warning("recall floor pass failed", collection=collection, error=str(exc))
+                        floor_result = None
+                    if floor_result is not None and getattr(floor_result, "chunks", None):
+                        floor_metas = []
+                        for meta in floor_result.metadatas or []:
+                            annotated = dict(meta or {})
+                            annotated["collection"] = collection
+                            annotated["collection_name"] = collection
+                            annotated["recall_floor"] = True
+                            floor_metas.append(annotated)
+                        collection_results.append(
+                            {
+                                "collection": collection,
+                                "chunks": list(floor_result.chunks),
+                                "scores": list(floor_result.scores),
+                                "metadatas": floor_metas,
+                                "pipeline": floor_result.pipeline,
+                                "label": floor_result.label,
+                                "mode_label": "recall_floor",
+                                "mode_reason": "unscoped dense recall floor",
+                                "detail": floor_result.detail,
+                                "chunks_retrieved": len(floor_result.chunks),
+                                "diagnostics": {},
+                            }
+                        )
+                        recall_floor_added[str(collection)] = len(floor_result.chunks)
         except TimeoutError:
             deadline_exceeded = True
             collection_errors.append({"collection": collection, "error": "retrieval_deadline_exceeded"})
@@ -2908,6 +3120,13 @@ async def _retrieve_multi_collection_context(
             "applied": True,
             "scoped_collections": soft_scope_used,
             "filter_keys": sorted(soft_scope_filters),
+        }
+    if recall_floor_added:
+        metrics["recall_floor"] = {
+            "applied": True,
+            "collections": sorted(recall_floor_added),
+            "candidates_added": sum(recall_floor_added.values()),
+            "top_n": recall_floor_top_n,
         }
     retrieval_loop_ms = int((time.perf_counter() - retrieval_loop_started_perf) * 1000)
 

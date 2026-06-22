@@ -1362,6 +1362,229 @@ async def test_dense_collection_balanced_large_runs_scoped_soft_fact_scope(
     assert collection.slug in result["metrics"]["soft_scope_boost"]["scoped_collections"]
 
 
+class RecallFloorAnswerService:
+    """Returns a generic chunk for the scoped pass and the *missed* answer doc
+    only for the UNSCOPED recall-floor pass (filters is None). It models the
+    live bug: the answer chunk is reachable by unscoped dense search but its
+    filename is absent from the hard document_filename allowlist.
+    """
+
+    def __init__(self, count: int = 360):
+        self.count = count
+        self.calls: list[dict] = []
+
+    async def get_document_count(self) -> int:
+        return self.count
+
+    async def search(self, query: str, top_k: int = 10, filters=None, use_hybrid=None):
+        self.calls.append({"query": query, "top_k": top_k, "filters": filters, "use_hybrid": use_hybrid})
+        if filters and (filters or {}).get("document_filename"):
+            return [
+                {
+                    "id": "scoped-generic",
+                    "content": "Generic scoped passage without the greasing quantity.",
+                    "score": 0.55,
+                    "metadata": {"document_filename": "A__ACJ100__manuel_chapitre_0.html"},
+                }
+            ][:top_k]
+        return [
+            {
+                "id": "recall-floor-answer",
+                "content": "GRAISSE POUR LUBRIFICATION palier moteur 40 g puis 125 g.",
+                "score": 0.68,
+                "metadata": {"document_filename": "A__ACJ100__structure_notice_section7.pdf"},
+            }
+        ][:top_k]
+
+
+def _large_ledger_collection(db_session, *, workspace, name):
+    collection = create_collection(db_session, workspace=workspace, name=name)
+    for index in range(3):
+        upsert_collection_source(
+            db_session,
+            collection=collection,
+            filename=f"A__ACJ100__manuel_chapitre_{index}.html",
+            status="ready",
+            chunk_count=120,
+        )
+    # Above both ledger-targeting thresholds: a genuinely large collection.
+    collection.document_count = 99481
+    collection.chunk_count = 1489764
+    db_session.commit()
+    return collection
+
+
+async def test_recall_floor_activates_on_large_hard_document_scope(db_session, monkeypatch):
+    # Req 1: a HARD document_filename ledger scope on a LARGE collection arms the
+    # additive recall floor — the hard filter stays the primary scope AND the
+    # planner flags the large collection for a bounded unscoped dense pass.
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-recall-floor", name="Recall Floor", slug="recall-floor")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = _large_ledger_collection(db_session, workspace=workspace, name="Recall Floor SPL")
+
+    plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "balanced",
+            "rag_mode": "chah",
+        },
+        query="Peux-tu retrouver la Spare Parts List du projet ACJ100 ?",
+    )
+
+    # Hard scope still present (precision layer unchanged).
+    assert "document_filename" in plan.filters
+    # Recall floor armed and bounded to N in [10, 20].
+    assert plan.recall_floor_collections
+    assert collection.slug in plan.recall_floor_collections
+    assert 10 <= plan.recall_floor_top_n <= 20
+    assert plan.retrieval_scope["recall_floor_collections"]
+    # Soft fact-scope is mutually exclusive with the recall floor (hard filter present).
+    assert plan.soft_scope_filters == {}
+
+
+async def test_recall_floor_unions_missed_answer_doc_on_large_collection(db_session, monkeypatch):
+    # Req 4: the answer doc whose filename misses the query surface terms is NOT
+    # in the hard allowlist, yet the bounded UNSCOPED dense pass surfaces it and
+    # the union puts it into the final context.
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-recall-union", name="Recall Union", slug="recall-union")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = _large_ledger_collection(db_session, workspace=workspace, name="Recall Union SPL")
+    svc = RecallFloorAnswerService()
+
+    result = await retrieve_rag_context(
+        {
+            "query": "Quelle quantité de graisse pour le palier moteur du projet ACJ100 ?",
+            "context_collection": collection.slug,
+            "workspace_id": workspace.id,
+            "workspace_slug": workspace.slug,
+            "latency_profile": "balanced",
+            "rag_pipeline_mode": "chah",
+        },
+        doc_svc=svc,
+    )
+
+    # The hard scope was applied AND an UNSCOPED (filters=None) pass also ran.
+    assert any((call["filters"] or {}).get("document_filename") for call in svc.calls)
+    assert any(call["filters"] in (None, {}) for call in svc.calls)
+    # The missed answer doc reached the final context via the recall floor.
+    assert result["metrics"]["recall_floor"]["applied"] is True
+    assert result["metrics"]["recall_floor"]["candidates_added"] >= 1
+    assert any(
+        "structure_notice_section7.pdf" in str((meta or {}).get("document_filename") or "")
+        for meta in result["metadatas"]
+    )
+    assert any("GRAISSE POUR LUBRIFICATION" in str(chunk) for chunk in result["chunks"])
+    assert any(bool((meta or {}).get("recall_floor")) for meta in result["metadatas"])
+
+
+async def test_recall_floor_noop_on_small_collection(db_session, monkeypatch):
+    # Req 3 (strict gate) + Etachrom-style scoped non-regression: the SAME hard
+    # document_filename scope on a SMALL collection is a no-op — no recall floor
+    # is armed and retrieval never runs an extra unscoped pass.
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-recall-noop", name="Recall Noop", slug="recall-noop")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Recall Noop SPL")
+    for index in range(3):
+        upsert_collection_source(
+            db_session,
+            collection=collection,
+            filename=f"A__ACJ100__manuel_chapitre_{index}.html",
+            status="ready",
+            chunk_count=150,
+        )
+    db_session.commit()
+
+    plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "balanced",
+            "rag_mode": "chah",
+        },
+        query="Peux-tu retrouver la Spare Parts List du projet ACJ100 ?",
+    )
+    assert "document_filename" in plan.filters
+    assert plan.recall_floor_collections == []
+    assert plan.recall_floor_top_n == 0
+
+    svc = RecallFloorAnswerService(count=4)
+    result = await retrieve_rag_context(
+        {
+            "query": "Peux-tu retrouver la Spare Parts List du projet ACJ100 ?",
+            "context_collection": collection.slug,
+            "workspace_id": workspace.id,
+            "workspace_slug": workspace.slug,
+            "latency_profile": "balanced",
+            "rag_pipeline_mode": "chah",
+        },
+        doc_svc=svc,
+    )
+    # No unscoped recall-floor pass: every retrieval call carried the hard scope.
+    assert svc.calls
+    assert all((call["filters"] or {}).get("document_filename") for call in svc.calls)
+    assert "recall_floor" not in result["metrics"]
+
+
+async def test_recall_floor_keeps_tight_project_scope_on_large_collection(db_session, monkeypatch):
+    # Req 2 (CU250S-2 non-regression): when the query code lives only inside
+    # filenames (documents carry a parent project_code in metadata), the planner
+    # keeps the precise document_filename allowlist instead of a broad
+    # project_code filter. The recall floor stays purely additive: it never
+    # rewrites the hard scope, so the tight project scope stays tight.
+    monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-recall-tight", name="Recall Tight", slug="recall-tight")
+    db_session.add(workspace)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=workspace, name="Recall Tight SPL")
+    for index in range(3):
+        upsert_collection_source(
+            db_session,
+            collection=collection,
+            filename=f"A__CU250S__Notice technique CU250S doc{index}.pdf",
+            status="ready",
+            chunk_count=120,
+            source_metadata={"project_code": "ACJ100"},
+        )
+    collection.document_count = 99481
+    collection.chunk_count = 1489764
+    db_session.commit()
+
+    plan = plan_corpus(
+        db=db_session,
+        profile={
+            "collection": collection.slug,
+            "collections": [collection.slug],
+            "workspace_id": workspace.id,
+            "latency_profile": "balanced",
+            "rag_mode": "chah",
+        },
+        query="Configuration generale du systeme CU250S",
+    )
+
+    # Tight scope preserved: document_filename allowlist, NOT a broad project_code.
+    assert "document_filename" in plan.filters
+    assert "project_code" not in plan.filters
+    # Recall floor is armed (large + hard document scope) but purely additive —
+    # the hard filters are unchanged by it.
+    assert plan.recall_floor_collections
+    assert collection.slug in plan.recall_floor_collections
+
+
 async def test_dense_planner_uses_collection_totals_when_source_ledger_is_partial(db_session, monkeypatch):
     monkeypatch.setattr(rag_context.settings, "rag_dense_chunk_threshold", 100)
     monkeypatch.setattr(rag_context.settings, "rag_dense_source_threshold", 2)

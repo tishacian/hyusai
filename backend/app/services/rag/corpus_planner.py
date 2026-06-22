@@ -155,9 +155,9 @@ class CorpusPlan:
     # addition, a scope-searched pass over these documents, then unions the
     # results. Used for balanced fact-scope on large ledger-backed collections,
     # where a hard document_filename filter would starve answers living in
-    # unstructured chunks (D.60) but the large `notices` collection still needs
-    # *some* scope to be touched at all (guardrailed against unscoped global
-    # search) so fact-backed answers (the Ø1500 tambour weight) are retrieved.
+    # unstructured chunks the fact ledger never lifted, but the large collection
+    # still needs *some* scope to be touched at all (guardrailed against unscoped
+    # global search) so fact-backed answers that only live there are retrieved.
     soft_scope_filters: dict[str, Any] = field(default_factory=dict)
     soft_scope_reason: str = ""
     # Scope collections that retrieval should search with ``soft_scope_filters``
@@ -165,6 +165,20 @@ class CorpusPlan:
     # that is too slow/low-value on them. Small collections in the scope keep the
     # unscoped pass; the per-collection results are unioned.
     soft_scope_collections: list[str] = field(default_factory=list)
+    # Recall floor (additive, strictly gated). When a HARD ``document_filename``
+    # allowlist was emitted by the ledger scope on a LARGE collection, the
+    # filename-keyword targeting can miss an answer document whose name lacks the
+    # query's surface terms; the hard filter then excludes that answer chunk
+    # before retrieval ever runs. To keep the hard scope's precision while
+    # restoring recall, retrieval ALSO runs a bounded UNSCOPED dense pass
+    # (``recall_floor_top_n`` results) over the SAME large collection(s) and
+    # unions it into the candidate pool before rerank. Purely additive; a no-op
+    # unless a hard document_filename filter is in effect on a large collection.
+    # Cross-project contamination is removed downstream by the
+    # require_project_code_match policy filter.
+    recall_floor_collections: list[str] = field(default_factory=list)
+    recall_floor_top_n: int = 0
+    recall_floor_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -1607,24 +1621,21 @@ def plan_corpus(
     # the query's discriminating terms (GIN pg_trgm indexes, migration 045).
     # Crucially it only admits documents that have *extracted facts* matching the
     # terms, so on a large corpus it silently drops documents whose answer lives
-    # in unstructured chunks that were never lifted into the fact ledger (e.g.
-    # the D.60 motor-bearing greasing values in the BCX200 structure notice).
-    # A HARD document_filename filter then starves the dense search of those
-    # answer chunks.
+    # in unstructured chunks that were never lifted into the fact ledger. A HARD
+    # document_filename filter then starves the dense search of those answer
+    # chunks.
     #
     # On large ledger-backed collections the answer is NOT to gate fact-scope off
     # for balanced (the previous hard-gate): that left fact queries in the
     # unscoped dense fallback, which is guardrailed against running a global
-    # chunk search on the huge `notices` collection (~1.57M chunks). Fact-backed
-    # answers that only live in `notices` (the Ø1500 tambour weight, ~4 500 daN)
-    # were then never retrieved.
+    # chunk search on the huge collection. Fact-backed answers that only live in
+    # that collection were then never retrieved.
     #
     # Instead fact-scope becomes ADDITIVE ("soft boost") for balanced + large:
     #   (a) the query keeps the unscoped fast_sparse_direct path, so non-fact
-    #       answers whose chunks are not in the fact ledger (D.60) are NOT
-    #       starved; AND
+    #       answers whose chunks are not in the fact ledger are NOT starved; AND
     #   (b) the fact-matched documents are scope-searched IN ADDITION, which is
-    #       the only way the guardrailed `notices` collection gets touched for
+    #       the only way the guardrailed large collection gets touched for
     #       fact-backed answers — and the results are unioned in retrieval.
     # The bounded fact scan is index-backed (pg_trgm GIN, migration 045) and
     # demotes ubiquitous terms, so it stays interactive (single-digit seconds).
@@ -1728,6 +1739,34 @@ def plan_corpus(
     if latency_profile != "fast":
         source_display_k = min(max(int(profile.get("source_display_k") or top_k), 1), 24)
 
+    # Recall floor (see CorpusPlan.recall_floor_*). A hard ``document_filename``
+    # allowlist from the ledger scope is a filename-keyword guess: it is precise
+    # but can omit the actual answer document when that document's filename does
+    # not advertise the query's surface terms. On a LARGE collection the missed
+    # document is unreachable (the hard filter excludes it before retrieval). We
+    # keep the hard scope as the primary precision layer and, in addition, flag
+    # the large scoped collection(s) for a bounded UNSCOPED dense recall-floor
+    # pass that retrieval unions into the candidate pool. Strictly gated: only a
+    # hard document_filename filter on a large collection arms it; small
+    # collections and non-document-filename scopes are a no-op (unchanged).
+    recall_floor_collections: list[str] = []
+    recall_floor_top_n = 0
+    recall_floor_reason = ""
+    hard_document_filename_scope = bool(
+        not explicit_filters
+        and isinstance(ledger_filters, Mapping)
+        and ledger_filters.get("document_filename")
+        and filters.get("document_filename")
+    )
+    if dense and large_collection_scope and hard_document_filename_scope:
+        recall_floor_collections = list(large_collection_slugs)
+        recall_floor_top_n = max(10, min(int(candidate_pool_k or 0) or 20, 20))
+        recall_floor_reason = (
+            "recall floor: bounded unscoped dense pass over "
+            f"{len(recall_floor_collections)} large collection(s) unioned with the hard "
+            "document_filename scope so a filename-keyword miss cannot starve the answer doc"
+        )
+
     allow_hah_chah = True
     allow_legacy_hybrid = True
     use_hybrid: bool | None = None
@@ -1783,6 +1822,8 @@ def plan_corpus(
         "corpus_version": _corpus_version(rows, collection_rows),
         "soft_scope_filters": soft_scope_filters,
         "soft_scope_collections": soft_scope_collections,
+        "recall_floor_collections": recall_floor_collections,
+        "recall_floor_top_n": recall_floor_top_n,
         "planner_ms": int((time.time() - started) * 1000),
     }
     retrieval_plan = _build_retrieval_plan(
@@ -1829,4 +1870,7 @@ def plan_corpus(
         soft_scope_filters=soft_scope_filters,
         soft_scope_reason=soft_scope_reason,
         soft_scope_collections=soft_scope_collections,
+        recall_floor_collections=recall_floor_collections,
+        recall_floor_top_n=recall_floor_top_n,
+        recall_floor_reason=recall_floor_reason,
     )
