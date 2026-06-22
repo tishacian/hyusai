@@ -1382,6 +1382,37 @@ def _is_plan_build_schema(plan: Dict[str, Any]) -> bool:
     }
 
 
+def _build_retrieval_request(
+    *,
+    text: str,
+    workspace_id: str,
+    workspace_slug: Optional[str],
+    session: Any,
+    collection_name: Optional[str],
+    profile: str,
+    latency_profile: str,
+    top_k: int,
+) -> Dict[str, Any]:
+    """Single source of truth for the retrieval request dict.
+
+    Shared by the in-process and worker retrieval paths so the two can't drift.
+    """
+    return {
+        "query": text,
+        "workspace_id": workspace_id,
+        "workspace_slug": workspace_slug,
+        "capability_id": session.capability_id,
+        "system_id": session.system_id,
+        "context_collection": collection_name,
+        "retrieval_profile": profile,
+        "latency_profile": latency_profile,
+        "rag_pipeline_mode": "auto",
+        "top_k": max(1, min(top_k, 8)),
+        "source_display_k": max(1, min(top_k, 8)),
+        "candidate_pool_k": 20,
+    }
+
+
 async def _retrieve_context_chunks_async(
     db: Optional[DBSession],
     *,
@@ -1408,6 +1439,47 @@ async def _retrieve_context_chunks_async(
         return [], [], []
     profile = (retrieval_profile or "oracle_fast").strip() or "oracle_fast"
     latency_profile = "balanced" if profile == "chat" else "fast"
+
+    from app.core.config import settings as cfg
+
+    # Worker path: when enabled and the collection is already resolved, run the
+    # retrieval in the Celery worker process (its own GIL). The realtime event
+    # loop only enqueues (off-loop via to_thread) and awaits loop-free, so the
+    # CPU-bound retrieval can never block the transcript relay. We never touch
+    # the DB here; a missing collection falls through to the in-process path.
+    if cfg.voice_oracle_retrieval_via_worker and collection_name is not None:
+        try:
+            from app.services.rag.context import (
+                await_rag_retrieval_task,
+                dispatch_rag_retrieval_task,
+            )
+
+            request = _build_retrieval_request(
+                text=text,
+                workspace_id=workspace_id,
+                workspace_slug=workspace_slug,
+                session=session,
+                collection_name=collection_name,
+                profile=profile,
+                latency_profile=latency_profile,
+                top_k=top_k,
+            )
+            async_result = await asyncio.to_thread(
+                dispatch_rag_retrieval_task,
+                request,
+                queue=cfg.voice_oracle_retrieval_queue,
+            )
+            result = await await_rag_retrieval_task(
+                async_result, cfg.voice_oracle_retrieval_timeout_seconds
+            )
+            return (
+                list(result.get("chunks") or []),
+                list(result.get("metadatas") or []),
+                list(result.get("scores") or []),
+            )
+        except Exception:
+            return [], [], []
+
     try:
         if collection_name is None:
             ctx = _load_context(db, workspace_id, session.context_id)
@@ -1415,20 +1487,16 @@ async def _retrieve_context_chunks_async(
         from app.services.rag.context import retrieve_rag_context
 
         result = await retrieve_rag_context(
-            {
-                "query": text,
-                "workspace_id": workspace_id,
-                "workspace_slug": workspace_slug,
-                "capability_id": session.capability_id,
-                "system_id": session.system_id,
-                "context_collection": collection_name,
-                "retrieval_profile": profile,
-                "latency_profile": latency_profile,
-                "rag_pipeline_mode": "auto",
-                "top_k": max(1, min(top_k, 8)),
-                "source_display_k": max(1, min(top_k, 8)),
-                "candidate_pool_k": 20,
-            }
+            _build_retrieval_request(
+                text=text,
+                workspace_id=workspace_id,
+                workspace_slug=workspace_slug,
+                session=session,
+                collection_name=collection_name,
+                profile=profile,
+                latency_profile=latency_profile,
+                top_k=top_k,
+            )
         )
         return (
             list(result.get("chunks") or []),

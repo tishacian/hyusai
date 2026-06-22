@@ -27,6 +27,8 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.audit_logger import emit_audit_event
 from app.services.knowledge_capture import (
+    _load_context,
+    _resolve_collection_name,
     _retrieve_context_chunks,
     _retrieve_context_chunks_async,
     append_turn,
@@ -219,6 +221,10 @@ class VoiceSessionState:
     # plan cached here instead of being re-queried per partial and per turn.
     capture_plan: Optional[dict] = None
     capture_session_resolved: bool = False
+    # RAG collection for the oracle's per-turn retrieval, resolved lazily ONCE
+    # per session (DB context lookup off-loop via to_thread) and reused so the
+    # worker-backed retrieval never re-hits the DB on the realtime loop.
+    retrieval_collection_name: Optional[str] = None
     # Total committed words at the last live-questions generation: the oracle
     # questions are triggered by NEW-word accumulation (decoupled from the short
     # realtime STT turns), reset when the active section changes.
@@ -1864,8 +1870,25 @@ class VoiceSessionGateway:
                             session_id=capture_session_id,
                             materialize=False,
                         )
+                        # Resolve the RAG collection once per session (off-loop) so
+                        # the worker retrieval gets a pre-resolved collection and
+                        # never re-hits the DB on the realtime loop.
+                        if state.retrieval_collection_name is None:
+                            state.retrieval_collection_name = await asyncio.to_thread(
+                                lambda: _resolve_collection_name(
+                                    _load_context(
+                                        question_db,
+                                        workspace_id,
+                                        getattr(capture_snapshot, "context_id", None),
+                                    )
+                                )
+                            )
                         query_context = self._retrieval_query_context(capture_snapshot)
                         retrieval_query = f"{context} {query_context}".strip()
+                        # Worker-backed retrieval (separate GIL): fully fire-and-forget
+                        # (already inside create_task). On timeout/empty it returns
+                        # ([], [], []) and we fall back to statement-grounded questions
+                        # below, so questions always appear.
                         chunks, metadatas, _scores = await _retrieve_context_chunks_async(
                             question_db,
                             workspace_id=workspace_id,
@@ -1874,15 +1897,15 @@ class VoiceSessionGateway:
                             query=retrieval_query,
                             top_k=6,
                             retrieval_profile="oracle_grounded_async",
+                            collection_name=state.retrieval_collection_name,
                         )
-                    if not chunks:
-                        return
-                    # Feed the passive "contexte retrouvé" panel from this turn-commit
-                    # retrieval (runs at silence) so the panel survives even with the
-                    # during-speech live hints disabled.
-                    state.last_retrieval_chunks = list(chunks)
-                    state.last_retrieval_metadatas = list(metadatas or [])
-                    state.last_retrieval_scores = list(_scores or [])
+                    if chunks:
+                        # Feed the passive "contexte retrouvé" panel from this turn-commit
+                        # retrieval (runs at silence) so the panel survives even with the
+                        # during-speech live hints disabled.
+                        state.last_retrieval_chunks = list(chunks)
+                        state.last_retrieval_metadatas = list(metadatas or [])
+                        state.last_retrieval_scores = list(_scores or [])
                 if state.live_questions_generation != generation or state.committed_turns_section != section_key:
                     return
                 # chunks=None -> grounded on the expert's own statements only

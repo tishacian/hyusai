@@ -3117,12 +3117,12 @@ def run_rag_retrieve_context(request: dict[str, Any]) -> dict[str, Any]:
     return asyncio.run(retrieve_rag_context(request))
 
 
-def dispatch_rag_retrieval_task(request: dict[str, Any]):
+def dispatch_rag_retrieval_task(request: dict[str, Any], queue: str | None = None):
     from app.workers.tasks import rag_retrieve_context
 
     return rag_retrieve_context.apply_async(
         args=(_jsonable(request),),
-        queue=settings.celery_task_default_queue,
+        queue=(queue or "").strip() or settings.celery_task_default_queue,
     )
 
 

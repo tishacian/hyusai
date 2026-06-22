@@ -280,12 +280,23 @@ class Settings(BaseSettings):
     # after the oracle questions). Off by default: the per-turn grounded
     # questions (fired at silence, not during speech) carry the oracle value.
     voice_oracle_live_hints_enabled: bool = False
-    # Per-turn live questions also run a CPU-bound KB retrieval before the LLM
-    # call. Even fired at silence it holds the GIL long enough to freeze the NEXT
-    # turn's transcript relay ("first turn fine, then questions appear, then
-    # nothing"). Off by default: questions are generated from the expert's own
-    # statements (pure async LLM, no local retrieval, never blocks the loop).
-    voice_oracle_live_questions_retrieval_enabled: bool = False
+    # Per-turn live questions ground their gaps on a KB retrieval before the LLM
+    # call. In-process that retrieval holds the GIL long enough to freeze the
+    # NEXT turn's transcript relay. Re-enabled now that the retrieval runs in the
+    # Celery worker process (separate GIL) via voice_oracle_retrieval_via_worker:
+    # the backend loop only enqueues + awaits loop-free, so the relay is never
+    # blocked. On worker timeout/empty the caller falls back to statement-grounded
+    # questions, so questions always appear.
+    voice_oracle_live_questions_retrieval_enabled: bool = True
+    # Route the oracle's per-turn KB retrieval through the Celery worker (its own
+    # GIL) instead of running it in-process on the realtime event loop.
+    voice_oracle_retrieval_via_worker: bool = True
+    # Short oracle-retrieval deadline (NOT rag_retrieval_worker_timeout_seconds,
+    # which is the 120s chat budget). Past this the caller falls back.
+    voice_oracle_retrieval_timeout_seconds: float = 2.5
+    # Queue for oracle retrieval tasks. Empty => celery_task_default_queue (cpu);
+    # set to a dedicated queue (e.g. "oracle") to avoid ingest/deep contention.
+    voice_oracle_retrieval_queue: str = ""
     local_stt_endpoint_url: Optional[str] = None
     local_tts_endpoint_url: Optional[str] = None
     local_realtime_endpoint_url: Optional[str] = None
