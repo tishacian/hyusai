@@ -1140,7 +1140,12 @@ class VoiceSessionGateway:
             from app.db.base import SessionLocal
 
             with SessionLocal() as hint_db:
-                capture_snapshot = get_session(
+                # get_session is a synchronous DB read; running it inline (even
+                # inside this create_task'd coroutine) blocks the event loop and
+                # stalls the transcript relay. Offload to a thread so the loop
+                # stays free to ship text.partial/text.final.
+                capture_snapshot = await asyncio.to_thread(
+                    get_session,
                     hint_db,
                     workspace_id=workspace.id,
                     session_id=capture_session_id,
@@ -1177,7 +1182,10 @@ class VoiceSessionGateway:
                 state.last_retrieval_chunks = list(chunks)
                 state.last_retrieval_metadatas = list(metadatas or [])
                 state.last_retrieval_scores = list(scores or [])
-                result = process_capture_partial_hints(
+                # Contradiction tracking does embedding/DB work synchronously;
+                # keep it off the event loop too.
+                result = await asyncio.to_thread(
+                    process_capture_partial_hints,
                     hint_db,
                     workspace_id=workspace.id,
                     session_id=capture_session_id,
@@ -1838,7 +1846,11 @@ class VoiceSessionGateway:
                 from app.db.base import SessionLocal
 
                 with SessionLocal() as question_db:
-                    capture_snapshot = get_session(
+                    # Synchronous DB read -> offload so the question pipeline never
+                    # blocks the transcript relay (the symptom: a big chunk of
+                    # transcript landing only AFTER the questions appear).
+                    capture_snapshot = await asyncio.to_thread(
+                        get_session,
                         question_db,
                         workspace_id=workspace_id,
                         session_id=capture_session_id,
@@ -1902,7 +1914,8 @@ class VoiceSessionGateway:
                         from app.services.knowledge_capture import merge_live_open_questions_into_plan
 
                         with SessionLocal() as persist_db:
-                            merge_live_open_questions_into_plan(
+                            await asyncio.to_thread(
+                                merge_live_open_questions_into_plan,
                                 persist_db,
                                 workspace_id=workspace_id,
                                 session_id=capture_session_id,

@@ -266,7 +266,11 @@ class Settings(BaseSettings):
     # gpt-realtime-whisper has no OpenAI turn_detection, so the sidecar detects
     # end-of-turn from the PCM and commits manually. These tune that silence VAD
     # (env-tunable so a restart suffices, no sidecar rebuild).
-    voice_realtime_stt_silence_ms: int = 700
+    # silence_ms = how long the PCM must stay below vad_threshold before a turn is
+    # committed. 700 ms cut turns on natural mid-sentence pauses ("passage à la
+    # ligne" too eager, keyword-sized utterances becoming their own turn); 1200 ms
+    # keeps related speech in one turn so the oracle sees fuller context.
+    voice_realtime_stt_silence_ms: int = 1200
     voice_realtime_stt_vad_threshold: int = 300
     voice_realtime_stt_max_turn_ms: int = 15000
     local_stt_endpoint_url: Optional[str] = None

@@ -61,7 +61,7 @@ export class RealtimeTranscriber {
     // `completed` transcript -> text.final -> oracle). A max-turn guard still
     // commits if silence is never observed (constant background noise).
     this.autoCommitOnSilence = options.autoCommitOnSilence !== false;
-    this.silenceMs = Number(options.silenceMs) || 700;
+    this.silenceMs = Number(options.silenceMs) || 1200;
     this.minSpeechMs = Number(options.minSpeechMs) || 250;
     this.vadThreshold = Number(options.vadThreshold) || 300;
     this.maxTurnMs = Number(options.maxTurnMs) || 15000;
