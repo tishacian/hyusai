@@ -517,6 +517,11 @@ export async function handleControlEvent(session, event, participant, kind) {
 }
 
 async function monitorAudioStream(livekit, session, track, participantIdentity) {
+  dbgRtStt('monitor_audio_enter', {
+    participant: participantIdentity,
+    has_audio_stream_api: Boolean(livekit.AudioStream),
+    realtime_active: Boolean(session.realtimeSttConfig),
+  });
   if (!livekit.AudioStream) {
     await publishSafely(
       session,
@@ -533,8 +538,19 @@ async function monitorAudioStream(livekit, session, track, participantIdentity) 
 
   const startedAt = Date.now();
   const stream = new livekit.AudioStream(track);
+  let dbgFrameSeen = 0;
   try {
     for await (const frame of stream) {
+      if (DEBUG_RTSTT) {
+        dbgFrameSeen += 1;
+        if (dbgFrameSeen === 1 || dbgFrameSeen % 250 === 0) {
+          dbgRtStt('monitor_frame', {
+            seen: dbgFrameSeen,
+            realtime_active: Boolean(session.realtimeSttConfig),
+            transcriber_open: Boolean(session.realtimeTranscriber?.open),
+          });
+        }
+      }
       if (session.realtimeSttConfig) {
         // Realtime lane: stream the LiveKit PCM track straight into the OpenAI
         // gpt-realtime-whisper session (resampled to 24 kHz mono). No buffering,
@@ -752,6 +768,14 @@ export async function startSession(dispatch, options = {}) {
       );
     })
     .on(livekit.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      dbgRtStt('track_subscribed', {
+        participant: participant?.identity || null,
+        is_audio: isAudioTrack(track, publication),
+        track_kind: track?.kind ?? null,
+        track_source: track?.source ?? null,
+        pub_kind: publication?.kind ?? null,
+        pub_source: publication?.source ?? null,
+      });
       void publishSafely(
         session,
         'runtime.metric',
