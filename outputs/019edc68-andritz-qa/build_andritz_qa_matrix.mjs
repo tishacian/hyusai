@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J15", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I41", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F36", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I45", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F40", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -161,6 +161,7 @@ const features = [
       { type: "Regression", scenario: "Detach one of multiple session docs keeps remaining scope", steps: "Attach two synthetic session docs, remove one, then ask and inspect mocked request payload.", expected: "Context PATCH keeps only the remaining filename in data_refs; the remaining doc stays visible and the next request keeps context_id/context_mode for the still-attached session doc.", severityIfFails: "High" },
       { type: "Regression", scenario: "Re-upload after last detach recreates context", steps: "Attach a synthetic session doc, detach it, attach a different synthetic doc, then ask and inspect mocked request payload.", expected: "The second upload creates a fresh ephemeral context payload with only the new filename, and the next request uses the recreated session-doc context without stale data_refs.", severityIfFails: "High" },
       { type: "Error path", scenario: "Context creation failure does not fake attachment", steps: "Attach a synthetic session doc while POST /contexts fails, then ask and inspect mocked request payload.", expected: "A recoverable error is visible, the doc is removed from the session-doc UI, Persist is unavailable, and final /sessions and /chat/stream payloads use context_id=null/context_mode=null with workspace scope.", severityIfFails: "High" },
+      { type: "Error path", scenario: "Append context update failure rolls back only new doc", steps: "Attach a first synthetic session doc, then attach a second doc while PATCH /contexts/{id} fails; ask and inspect mocked request payload.", expected: "The failed second doc is removed from the session-doc UI, the first doc remains attached, Persist stays available, and final /sessions and /chat/stream payloads keep the existing context_id/context_mode for the first doc only.", severityIfFails: "High" },
     ],
   },
   {
@@ -2456,6 +2457,62 @@ const executionEvidence = [
     notes:
       "Adds browser-level coverage and remediation for Chat context creation failure: failed ephemeral context creation no longer leaves a false attached session doc in the UI.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-029",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "31 passed, 0 failed",
+    duration: "33.9s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the append-update-failure case uses synthetic in-memory text files, creates one mocked ephemeral context, makes the second upload succeed, returns a mocked 500 for /contexts/{id} PATCH, and verifies only the newly added doc is rolled back while the first doc remains scoped for /sessions and /chat/stream. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat append-to-existing-context failure handling: a failed PATCH rolls back only the newly added temporary doc and preserves the existing session-doc scope.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-030",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "32 passed, 0 failed",
+    duration: "34.8s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the source-preview case streams a synthetic answer with one cited source, opens the source preview button, serves a mocked /documents/{id}/rich-preview text payload, verifies collection_name and filename query params, and confirms the preview text/highlight render. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat source citations and preview drawer: a cited source can open a document preview with the expected scoped request and highlighted snippet.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-031",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "33 passed, 0 failed",
+    duration: "36.1s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the unavailable-source-preview case streams a synthetic answer with one cited source, opens the preview button, returns a mocked 404 from /documents/{id}/rich-preview, verifies collection_name and filename query params, and confirms the drawer shows a recoverable error while the chat composer remains available. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat source preview fallback: a missing preview asset is visible and recoverable without breaking the chat surface.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-032",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "34 passed, 0 failed",
+    duration: "36.2s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the forbidden-source-preview case streams a synthetic answer with one cited source, opens the preview button, returns a mocked 403 from /documents/{id}/rich-preview, verifies collection_name and filename query params, confirms the drawer shows a permission-denied error, and checks no preview text/highlight is rendered while chat remains usable. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat source preview authorization failure: denied previews do not leak source content and leave the chat surface usable.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2581,8 +2638,12 @@ const executedTestResults = new Map([
   pass("CHT-006-T09", "Mapped to local Playwright mocked multi-doc detach smoke proving removing one session doc keeps the remaining filename in data_refs and preserves context_id/context_mode.", 37),
   pass("CHT-006-T10", "Mapped to local Playwright mocked recreate-after-final-detach smoke proving a later upload creates a fresh context payload with only the new filename.", 38),
   pass("CHT-006-T11", "Mapped to local Playwright mocked context-create failure smoke proving failed ephemeral context creation removes the doc from session UI and the next chat has null context_id/context_mode.", 39),
+  pass("CHT-006-T12", "Mapped to local Playwright mocked append PATCH failure smoke proving a failed second upload is rolled back while the first session doc and context scope remain active.", 40),
   pass("CHT-007-T01", "Mapped to stable SSE retrieval/text/final lifecycle tests.", 2),
   pass("CHT-007-T02", "Mapped to timeout/error lifecycle tests; browser network interruption remains pending.", 2),
+  pass("CHT-008-T01", "Mapped to local Playwright mocked source-preview smoke proving a cited source opens /documents/{id}/rich-preview with collection_name/filename scope and renders highlighted preview content.", 41),
+  pass("CHT-008-T02", "Mapped to local Playwright mocked unavailable-source-preview smoke proving a failed /documents/{id}/rich-preview request renders a recoverable error and leaves chat usable.", 42),
+  pass("CHT-008-T03", "Mapped to local Playwright mocked forbidden-source-preview smoke proving a denied /documents/{id}/rich-preview request renders a permission error without leaking preview content.", 43),
   pass("CHT-009-T01", "Mapped to deep retrieval job queueing and auto fast refinement tests.", 2),
   pass("CHT-009-T02", "Mapped to worker dispatch queue-only/deep retrieval failure-path tests.", 2),
   pass("CHT-009-T03", "Mapped to auto-deep degraded retrieval and explicit filter merge tests.", 2),
@@ -3432,10 +3493,42 @@ const phaseRows = [
     executionEvidence[39].safetyScope,
     "Continue with safe local mocks for context update failure on append and later read-only real-backend source-scope checks.",
   ],
+  [
+    executionEvidence[40].date,
+    "Phase 3 Chat append PATCH-failure smoke",
+    "Extended the local Playwright Andritz smoke with an existing drop-and-ask context followed by a second upload whose context PATCH fails, proving the UI rolls back only the newly-added document and preserves the first document scope.",
+    `${executionEvidence[40].result}; ${mappedPassedCountForEvidence(executionEvidence[40].id)} workbook test case mapped as Pass.`,
+    executionEvidence[40].safetyScope,
+    "Continue with safe local mocks for remaining Chat source preview and read-only real-backend source-scope checks.",
+  ],
+  [
+    executionEvidence[41].date,
+    "Phase 3 Chat source preview smoke",
+    "Extended the local Playwright Andritz smoke to open a cited Recherche source preview, verifying the rich-preview request is scoped by collection_name and filename and the preview drawer renders highlighted source text.",
+    `${executionEvidence[41].result}; ${mappedPassedCountForEvidence(executionEvidence[41].id)} workbook test case mapped as Pass.`,
+    executionEvidence[41].safetyScope,
+    "Continue with safe local mocks for missing preview/unauthorized preview fallbacks and later read-only real-backend source-scope checks.",
+  ],
+  [
+    executionEvidence[42].date,
+    "Phase 3 Chat source preview error smoke",
+    "Extended the local Playwright Andritz smoke to open a cited Recherche source whose rich-preview request returns a mocked 404, proving the preview drawer renders a recoverable error and leaves the chat surface usable.",
+    `${executionEvidence[42].result}; ${mappedPassedCountForEvidence(executionEvidence[42].id)} workbook test case mapped as Pass.`,
+    executionEvidence[42].safetyScope,
+    "Continue with safe local mocks for unauthorized preview and then read-only real-backend source-scope checks.",
+  ],
+  [
+    executionEvidence[43].date,
+    "Phase 3 Chat source preview forbidden smoke",
+    "Extended the local Playwright Andritz smoke to open a cited Recherche source whose rich-preview request returns a mocked 403, proving the preview drawer renders a permission error without rendering source content.",
+    `${executionEvidence[43].result}; ${mappedPassedCountForEvidence(executionEvidence[43].id)} workbook test case mapped as Pass.`,
+    executionEvidence[43].safetyScope,
+    "Continue with read-only real-backend source-scope checks and broader regression execution.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F35"));
+styleBody(phase.getRange("A2:F39"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

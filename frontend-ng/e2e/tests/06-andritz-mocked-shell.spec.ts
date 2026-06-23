@@ -224,6 +224,9 @@ async function installAndritzMocks(
     chatStreamRequests?: unknown[];
     chatSessionCreateRequests?: unknown[];
     chatUploadRequests?: string[];
+    sourcePreviewRequests?: string[];
+    sourcePreviewShouldFail?: boolean;
+    sourcePreviewForbidden?: boolean;
     contextCreateRequests?: unknown[];
     contextCreateShouldFail?: boolean;
     contextUpdateRequests?: unknown[];
@@ -249,6 +252,9 @@ async function installAndritzMocks(
   const chatStreamRequests = options.chatStreamRequests;
   const chatSessionCreateRequests = options.chatSessionCreateRequests;
   const chatUploadRequests = options.chatUploadRequests;
+  const sourcePreviewRequests = options.sourcePreviewRequests;
+  const sourcePreviewShouldFail = options.sourcePreviewShouldFail ?? false;
+  const sourcePreviewForbidden = options.sourcePreviewForbidden ?? false;
   const contextCreateRequests = options.contextCreateRequests;
   const contextCreateShouldFail = options.contextCreateShouldFail ?? false;
   const contextUpdateRequests = options.contextUpdateRequests;
@@ -572,6 +578,26 @@ async function installAndritzMocks(
           chunks_count: 1,
           document_extracted_keywords: ['andritz', 'qa', 'return'],
         },
+      });
+    }
+    if (path === '/documents/doc-andritz-qa/rich-preview') {
+      sourcePreviewRequests?.push(url.search);
+      if (sourcePreviewShouldFail) {
+        return json(route, { detail: 'Mocked source preview unavailable' }, 404);
+      }
+      if (sourcePreviewForbidden) {
+        return json(route, { detail: 'Mocked source preview permission denied' }, 403);
+      }
+      return json(route, {
+        kind: 'text',
+        filename: 'andritz-qa-safe.pdf',
+        content_type: 'text/plain',
+        size_bytes: 96,
+        download_url: '/api/v1/documents/doc-andritz-qa/download?collection_name=andritz-qa',
+        content: [
+          'Synthetic Andritz QA source preview full text.',
+          'Synthetic Andritz QA source snippet.',
+        ].join('\n'),
       });
     }
 
@@ -1206,6 +1232,89 @@ test.describe('Andritz mocked browser smoke', () => {
     });
   });
 
+  test('opens a mocked Recherche source preview without real backend data', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const sourcePreviewRequests: string[] = [];
+    await installAndritzMocks(page, { chatStreamRequests, sourcePreviewRequests });
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Montre la source Andritz QA.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    const sourcesToggle = page.getByRole('button', { name: /Sources · 1|1 sources/i }).first();
+    await sourcesToggle.click();
+    await page.getByTitle('Preview source document').first().click();
+
+    await expect.poll(() => sourcePreviewRequests.length).toBe(1);
+    const params = new URLSearchParams(sourcePreviewRequests[0].replace(/^\?/, ''));
+    expect(params.get('collection_name')).toBe('andritz-qa');
+    expect(params.get('filename')).toBe('andritz-qa-safe.pdf');
+    await expect(page.getByRole('heading', { name: /Andritz QA safe document/i })).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA source preview full text.')).toBeVisible();
+    await expect(page.locator('#omnirag-hl-anchor')).toContainText('Synthetic Andritz QA source snippet.');
+    expect(chatStreamRequests).toHaveLength(1);
+  });
+
+  test('shows a recoverable error when a mocked Recherche source preview is unavailable', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const sourcePreviewRequests: string[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      sourcePreviewRequests,
+      sourcePreviewShouldFail: true,
+    });
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Ouvre une source indisponible Andritz QA.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    await page.getByRole('button', { name: /Sources · 1|1 sources/i }).first().click();
+    await page.getByTitle('Preview source document').first().click();
+
+    await expect.poll(() => sourcePreviewRequests.length).toBe(1);
+    const params = new URLSearchParams(sourcePreviewRequests[0].replace(/^\?/, ''));
+    expect(params.get('collection_name')).toBe('andritz-qa');
+    expect(params.get('filename')).toBe('andritz-qa-safe.pdf');
+    await expect(page.getByRole('heading', { name: /Andritz QA safe document/i })).toBeVisible();
+    await expect(page.getByText('Mocked source preview unavailable')).toBeVisible();
+    await expect(page.locator('app-chat-panel textarea[name="userInput"]').first()).toBeVisible();
+    expect(chatStreamRequests).toHaveLength(1);
+  });
+
+  test('does not leak content when a mocked Recherche source preview is forbidden', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const sourcePreviewRequests: string[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      sourcePreviewRequests,
+      sourcePreviewForbidden: true,
+    });
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Ouvre une source interdite Andritz QA.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    await page.getByRole('button', { name: /Sources · 1|1 sources/i }).first().click();
+    await page.getByTitle('Preview source document').first().click();
+
+    await expect.poll(() => sourcePreviewRequests.length).toBe(1);
+    const params = new URLSearchParams(sourcePreviewRequests[0].replace(/^\?/, ''));
+    expect(params.get('collection_name')).toBe('andritz-qa');
+    expect(params.get('filename')).toBe('andritz-qa-safe.pdf');
+    await expect(page.getByRole('heading', { name: /Andritz QA safe document/i })).toBeVisible();
+    await expect(page.getByText('Mocked source preview permission denied')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA source preview full text.')).toHaveCount(0);
+    await expect(page.locator('#omnirag-hl-anchor')).toHaveCount(0);
+    await expect(page.locator('app-chat-panel textarea[name="userInput"]').first()).toBeVisible();
+    expect(chatStreamRequests).toHaveLength(1);
+  });
+
   test('keeps drop-and-ask session docs in the chat stream contract without real upload', async ({ page }) => {
     const chatStreamRequests: unknown[] = [];
     const chatSessionCreateRequests: unknown[] = [];
@@ -1692,6 +1801,77 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(chatStreamRequests).toHaveLength(1);
     expect(chatStreamRequests[0]).toMatchObject({
       query: 'Réponds après échec de retrait du document.',
+      context_id: 'ctx-chat-drop-and-ask',
+      context_mode: 'replace',
+      knowledge_scope: null,
+      stream: true,
+      include_sources: true,
+    });
+  });
+
+  test('rolls back only the newly added drop-and-ask doc when append context update fails', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    const contextUpdateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatUploadRequests,
+      contextCreateRequests,
+      contextUpdateRequests,
+      contextUpdateShouldFail: true,
+    });
+
+    await page.goto('/chat');
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-drop.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Synthetic Andritz initial append evidence.'),
+    });
+
+    await expect.poll(() => chatUploadRequests.length).toBe(1);
+    await expect.poll(() => contextCreateRequests.length).toBe(1);
+    await expect(page.getByText(/Andritz chat drop note|andritz-chat-drop\.txt/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Persist$/i })).toBeVisible();
+
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-return.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Synthetic Andritz failed append evidence.'),
+    });
+
+    await expect.poll(() => chatUploadRequests.length).toBe(2);
+    await expect.poll(() => contextUpdateRequests.length).toBe(1);
+    expect(contextUpdateRequests[0]).toMatchObject({
+      data_refs: ['andritz-chat-drop.txt', 'andritz-chat-return.txt'],
+      environment_state: { collection: 'documents' },
+      business_constraints: { source: 'drop_and_ask' },
+    });
+    await expect(page.getByRole('alert', { name: /Could not attach the file to this chat session/i })).toBeVisible();
+    await expect(page.getByText(/Andritz chat drop note|andritz-chat-drop\.txt/i).first()).toBeVisible();
+    await expect(page.getByText(/Andritz chat return note|andritz-chat-return\.txt/i)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Persist$/i })).toBeVisible();
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Réponds avec le premier document seulement après échec append.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Réponds avec le premier document seulement après échec append.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        context_id: 'ctx-chat-drop-and-ask',
+        context_mode: 'replace',
+        knowledge_scope: null,
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Réponds avec le premier document seulement après échec append.',
       context_id: 'ctx-chat-drop-and-ask',
       context_mode: 'replace',
       knowledge_scope: null,
