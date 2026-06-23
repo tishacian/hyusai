@@ -1,6 +1,12 @@
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.api.v1.endpoints import auth as auth_endpoint
 from app.models.capability import Capability
 from app.models.system import System
-from app.models.workspace import Workspace
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
+from app.core.iam.roles import WORKSPACE_CONTRIBUTOR
 from app.api.v1.endpoints.chat import ChatRequest, _apply_workspace_chat_flow_defaults
 from app.services.chains.dag_validator import validate_flow
 from app.services.skills_registry.seed import seed_skills_and_capabilities
@@ -205,6 +211,81 @@ def _set_workspace_source_policy(db_session, workspace, policy):
     workspace.settings = {**(workspace.settings or {}), "source_policy": policy}
     db_session.commit()
     db_session.refresh(workspace)
+
+
+def _workspace_auth_client(db_session, user):
+    app = FastAPI()
+    app.include_router(auth_endpoint.router, prefix="/api/v1/auth")
+    app.dependency_overrides[auth_endpoint.get_current_user] = lambda: user
+    app.dependency_overrides[auth_endpoint.get_db] = lambda: db_session
+    return TestClient(app)
+
+
+def test_workspace_member_cannot_edit_chat_source_policy_settings(db_session, monkeypatch):
+    workspace = Workspace(
+        id="ws-member-settings-denied",
+        name="Member Settings Denied",
+        slug="member-settings-denied",
+        settings={
+            "chat": {"title": "Stable chat settings"},
+            "source_policy": {
+                "expert_fiche_correction_enabled": False,
+                "expert_review_required": True,
+            },
+        },
+    )
+    contributor = User(
+        id="user-member-settings-denied",
+        username="member-settings-denied",
+        email="member-settings-denied@example.test",
+    )
+    db_session.add_all(
+        [
+            workspace,
+            contributor,
+            WorkspaceMember(
+                user_id=contributor.id,
+                workspace_id=workspace.id,
+                role="member",
+                role_template=WORKSPACE_CONTRIBUTOR,
+            ),
+        ]
+    )
+    seed_skills_and_capabilities(db_session)
+    system = ensure_workspace_chat_system_default(db_session, workspace.id)
+    before_workspace_settings = dict(workspace.settings or {})
+    before_system_settings = dict(system.settings or {})
+    db_session.commit()
+
+    def _unexpected_sync(*args, **kwargs):  # noqa: ARG001
+        raise AssertionError("workspace settings sync must not run for denied members")
+
+    monkeypatch.setattr(
+        "app.services.systems.bootstrap.sync_chat_system_expert_correction_policy",
+        _unexpected_sync,
+    )
+
+    response = _workspace_auth_client(db_session, contributor).patch(
+        f"/api/v1/auth/workspaces/{workspace.slug}",
+        json={
+            "settings": {
+                "source_policy": {
+                    "expert_fiche_correction_enabled": True,
+                    "expert_review_required": False,
+                }
+            }
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Admin access required"
+    db_session.refresh(workspace)
+    db_session.refresh(system)
+    assert workspace.settings == before_workspace_settings
+    assert system.settings == before_system_settings
+    resolved = resolve_workspace_chat_source_policy(db_session, workspace)
+    assert resolved.get("expert_fiche_correction_enabled") is False
+    assert resolved.get("expert_review_required") is True
 
 
 def test_expert_correction_toggle_is_authoritative_through_resolver(db_session):

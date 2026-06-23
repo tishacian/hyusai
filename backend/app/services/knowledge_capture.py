@@ -6150,6 +6150,9 @@ def create_chat_correction_proposal(
     Volet 3 can boost it once published, and its publication destination
     defaults to :func:`resolve_expert_fiche_collection`.
     """
+    correction_text = str(correction_text or "").strip()
+    if not correction_text:
+        raise ValueError("Chat correction cannot be empty")
     workspace_id = getattr(workspace, "id", None) or (
         workspace.get("id") if isinstance(workspace, Mapping) else None
     )

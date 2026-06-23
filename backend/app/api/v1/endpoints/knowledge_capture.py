@@ -2326,6 +2326,10 @@ async def submit_chat_correction(
             detail="Expert fiche correction is disabled for this workspace.",
         )
 
+    correction_text = body.correction.strip()
+    if not correction_text:
+        raise HTTPException(status_code=400, detail="Chat correction cannot be empty.")
+
     collection_slug = resolve_expert_fiche_collection(workspace, source_policy)
 
     audio_ref = (body.audio_ref or "").strip() or None
@@ -2356,7 +2360,7 @@ async def submit_chat_correction(
             user=user,
             query=body.query,
             assistant_answer=body.answer,
-            correction_text=body.correction,
+            correction_text=correction_text,
             sources=body.sources,
             transcript_raw=body.transcript_raw,
             audio_ref=audio_ref,
@@ -2417,7 +2421,7 @@ async def submit_chat_correction(
 
     theme = await summarize_chat_correction_theme(
         body.query,
-        body.correction,
+        correction_text,
         workspace_id=workspace.id,
     )
     acknowledgement = build_chat_correction_acknowledgement(

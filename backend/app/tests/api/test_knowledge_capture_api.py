@@ -249,6 +249,56 @@ def test_free_conversation_api_conversation_step_records_turn_and_closure(db_ses
     assert closure_body["session"]["metrics"]["session_end_pending"] is True
 
 
+def test_resume_completed_free_conversation_session_returns_error_without_mutation(db_session, monkeypatch):
+    workspace = Workspace(
+        id="ws-kc-api-resume-completed",
+        name="KC API Resume Completed",
+        slug="kc-api-resume-completed",
+    )
+    user = User(
+        id="user-kc-api-resume-completed",
+        username="operator",
+        email="operator@example.test",
+    )
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture libre terminée",
+            "objective": "Vérifier qu'une session terminée ne peut pas reprendre.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    assert created.status_code == 200
+    session_id = created.json()["id"]
+    assert client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start").status_code == 200
+
+    finished = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/closure",
+        json={"action": "finish"},
+    )
+    assert finished.status_code == 200
+    assert finished.json()["session"]["status"] == "completed"
+
+    resumed = client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/resume")
+
+    assert resumed.status_code == 400
+    assert resumed.json()["detail"] == "Session is not paused"
+    session = db_session.query(ExpertCaptureSession).filter_by(id=session_id).one()
+    assert session.status == "completed"
+    resumed_events = (
+        db_session.query(ExpertCaptureEvent)
+        .filter_by(session_id=session_id, event_type="capture_session_resumed")
+        .count()
+    )
+    assert resumed_events == 0
+
+
 def test_capture_document_view_api_records_active_view(db_session, monkeypatch):
     workspace = Workspace(id="ws-kc-api-doc-view", name="KC API Doc View", slug="kc-api-doc-view")
     user = User(id="user-kc-api-doc-view", username="operator", email="operator@example.test")

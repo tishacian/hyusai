@@ -3895,6 +3895,62 @@ const executionEvidence = [
     notes:
       "Adds Knowledge Capture current-proposal export, empty free-conversation closure, published-fiche missing-preview, session-flag unknown-key, proposal-export missing-proposal and blank report-content coverage: current proposal Markdown preserves sections, sources and open questions without publishing, finishing a no-material no-plan session creates no proposal/finalization, a published fiche without document_id exposes no preview/raw URL, unsupported flags are not persisted, export without a proposal returns a recoverable error, and blank content edits are rejected without publishing or mutating proposal/session state.",
   },
+  {
+    id: "EXEC-2026-06-24-BE-038",
+    date: "2026-06-24",
+    command:
+      "poetry run pytest app/tests/services/test_chat_correction_proposal.py",
+    result: "6 passed, 0 failed",
+    duration: "7.17s",
+    warnings:
+      "Deprecation warnings from datetime.utcnow in audit logging/SQLAlchemy schema defaults.",
+    safetyScope:
+      "Local Chat correction service/API tests only. The new blank-correction case uses a synthetic workspace/user, FastAPI dependency overrides, an in-memory object-store fake and the in-memory test DB; it rejects a whitespace voice correction before audio storage, proposal/session creation or publication, and performs no Andritz/SFTP production-data, collection, vector or object-store mutation.",
+    notes:
+      "Adds Chat Recherche correction validation coverage: whitespace-only expert corrections are rejected with a clear 400 response before audio bytes are persisted, before any chat-correction capture session/proposal is created and before any publication path can run.",
+  },
+  {
+    id: "EXEC-2026-06-24-BE-039",
+    date: "2026-06-24",
+    command:
+      "poetry run pytest app/tests/services/test_workspace_chat_system.py",
+    result: "8 passed, 0 failed",
+    duration: "7.46s",
+    warnings:
+      "Deprecation warnings from datetime.utcnow in skills seeding/audit logging/SQLAlchemy schema defaults.",
+    safetyScope:
+      "Local workspace chat system/API tests only. The new member-settings case uses a synthetic workspace/user/member, FastAPI dependency overrides and the in-memory test DB; it attempts only a denied PATCH against synthetic workspace settings, verifies no chat System sync runs and performs no Andritz/SFTP production-data, collection, vector or object-store mutation.",
+    notes:
+      "Adds Chat Recherche admin-setting permission coverage: a workspace_contributor receives 403 when attempting to edit workspace settings.source_policy, while workspace settings, chat System settings and resolved expert-correction policy remain unchanged.",
+  },
+  {
+    id: "EXEC-2026-06-24-BE-040",
+    date: "2026-06-24",
+    command:
+      "poetry run pytest app/tests/api/test_knowledge_capture_api.py",
+    result: "36 passed, 0 failed",
+    duration: "22.17s",
+    warnings:
+      "Deprecation warnings from datetime.utcnow in skills seeding/audit logging/SQLAlchemy schema defaults; qdrant client compatibility warning from local test fixture setup.",
+    safetyScope:
+      "Local Knowledge Capture API tests only. The new resume-completed-session case uses a synthetic workspace/user/session and FastAPI dependency overrides in the in-memory test DB; it exercises only a denied resume on a completed free-conversation session and performs no Andritz/SFTP production-data, collection, vector or object-store mutation.",
+    notes:
+      "Adds Knowledge Capture stale-resume coverage: a completed free-conversation session returns a clear 400 'Session is not paused' on resume, remains completed and records no capture_session_resumed event.",
+  },
+  {
+    id: "EXEC-2026-06-24-BE-041",
+    date: "2026-06-24",
+    command:
+      "poetry run pytest app/tests/services/test_knowledge_capture.py",
+    result: "107 passed, 0 failed",
+    duration: "6.60s",
+    warnings:
+      "Deprecation warnings from datetime.utcnow in skills seeding/audit logging/SQLAlchemy schema defaults; qdrant client compatibility warning from local test fixture setup.",
+    safetyScope:
+      "Local Knowledge Capture service tests only. The new LiveKit/WebM MIME case uses a synthetic workspace/user, a fake WebSocket, a fake STT provider and in-memory test DB fixtures; it sends no real audio, contacts no backend network service or VM, and performs no Andritz/SFTP production-data, collection, vector or object-store mutation.",
+    notes:
+      "Adds Knowledge Capture WebM/LiveKit MIME regression coverage: a valid browser MediaRecorder audio/webm frame is accepted even when the LiveKit transport codec negotiated opus, endpoint STT receives content_type=audio/webm exactly once, fallback_used remains false and no duplicate/fallback transcription path is invoked.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3913,6 +3969,7 @@ function pass(testId, note, evidenceIndex = 0) {
 const executedTestResults = new Map([
   pass("CHT-013-T01", "Mapped to chat correction proposal creation tests with provenance and audio handling."),
   pass("CHT-013-T02", "Mapped to reviewer permission tests for chat correction."),
+  pass("CHT-013-T03", "Mapped to local Chat correction endpoint test proving whitespace-only expert corrections are rejected before audio storage, proposal/session creation or publication.", 141),
   pass("CHT-019-T01", "Mapped to LiveKit config/room/token service and API tests."),
   pass("CHT-019-T02", "Mapped to LiveKit agent dispatch fallback/bridge tests."),
   pass("CHT-019-T03", "Mapped to LiveKit webhook authorization rejection tests."),
@@ -4135,6 +4192,7 @@ const executedTestResults = new Map([
   pass("CHT-014-T03", "Mapped to archive/delete session API visibility tests.", 2),
   pass("CHT-015-T01", "Mapped to workspace chat system/source policy seed and resolver tests.", 2),
   pass("CHT-015-T02", "Mapped to missing/settings inheritance and sync-only-present policy tests.", 2),
+  pass("CHT-015-T03", "Mapped to local workspace chat API test proving a workspace_contributor cannot edit settings.source_policy and the chat System policy remains unchanged.", 142),
   pass("CHT-016-T01", "Mapped to non-streaming completion degraded metadata and normal completion hardening tests.", 2),
   pass("CHT-016-T02", "Mapped to completion degraded retrieval fallback and timeout/deep queue behavior tests.", 2),
   pass("CHT-016-T03", "Mapped to unknown/inaccessible context controlled-error tests.", 2),
@@ -4143,6 +4201,7 @@ const executedTestResults = new Map([
   pass("CHT-020-T03", "Mapped to local Playwright mocked long-keyword metadata smoke proving only four keyword chips render, later keywords stay hidden and context-scoped chat still works.", 33),
   pass("KCAP-009-T01", "Mapped to voice runtime provider resolution/catalog tests; live audio remains pending.", 2),
   pass("KCAP-009-T02", "Mapped to unsupported provider/fallback capability tests.", 2),
+  pass("KCAP-009-T03", "Mapped to local VoiceSessionGateway test proving LiveKit transport accepts valid browser audio/webm frames without MIME fallback or duplicate STT.", 144),
   pass("COL-008-T03", "Mapped to retrieval scope isolation and dense/scoped guardrail tests.", 2),
   pass("COL-011-T01", "Mapped to knowledge guide policy parsing/query variant tests.", 2),
   pass("COL-021-T01", "Mapped to knowledge scope inclusion/default resolution service tests.", 2),
@@ -4174,6 +4233,7 @@ const executedTestResults = new Map([
   pass("KCAP-006-T01", "Mapped to topic plan edit/approval and topic validation service tests.", 8),
   pass("KCAP-006-T02", "Mapped to topic validation/normalization tests for missing or invalid topic structures.", 8),
   pass("KCAP-006-T03", "Mapped to local Playwright mocked nested-plan reorder smoke proving selected subtopics can be reordered before validation and persisted in the topics payload.", 138),
+  pass("KCAP-007-T03", "Mapped to local Knowledge Capture API test proving a completed free-conversation session cannot be resumed, remains completed and records no resumed event.", 143),
   pass("KCAP-008-T01", "Mapped to written capture turn service test preserving document context while staying off the STT path.", 8),
   pass("KCAP-008-T02", "Mapped to local Playwright mocked written-note while transcribing smoke proving text input stays available during voice STT finalization.", 137),
   pass("KCAP-008-T03", "Mapped to local Playwright mocked blank written-note validation smoke proving empty/whitespace notes are disabled and no turn mutation is sent.", 137),
@@ -4268,6 +4328,23 @@ const defectRecords = [
     ownerNotes:
       "Fixed by preserving the persisted session_end_pending flag for unlimited sessions. Verified by EXEC-2026-06-23-BE-004.",
     updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-24-CHT-013",
+    featureIds: ["CHT-013"],
+    reproduction:
+      "POST /api/v1/knowledge-capture/chat-correction with expert_fiche_correction_enabled=true, input_modality=voice, audio_base64 and correction containing only whitespace.",
+    expected:
+      "Whitespace-only expert corrections are rejected before audio persistence, chat-correction session/proposal creation, acknowledgement persistence or publication.",
+    actual:
+      "The request model only enforced min_length before trimming, so a whitespace correction could pass validation and reach the proposal creation path.",
+    severity: "Medium",
+    rootCause:
+      "Chat correction validation checked raw string length but did not require non-empty content after strip, and the endpoint validated after the potential audio path.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by validating stripped correction text in the endpoint before audio storage and again in create_chat_correction_proposal. Verified by EXEC-2026-06-24-BE-038.",
+    updated: "2026-06-24",
   },
   {
     id: "DEF-2026-06-23-SFTP-003",
@@ -4838,8 +4915,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser + voice transport/capture contract smoke: ${executionEvidence[99].result}; latest Collections clear-safety API lot: ${executionEvidence[100].result}; latest Secure Deposit workspace/extension policy lot: ${executionEvidence[101].result}; latest Secure Deposit critical access-control lot: ${executionEvidence[102].result}; latest Knowledge Capture publication-safety lot: ${executionEvidence[103].result}; latest SFTP/SPL explicit-execute guard lot: ${executionEvidence[104].result}; latest Knowledge Capture permission/content lot: ${executionEvidence[105].result}; latest Collections permission/scope lot: ${executionEvidence[106].result}; latest Collections hidden-binding UI smoke: ${executionEvidence[107].result}; latest Collections inventory input-validation lot: ${executionEvidence[108].result}; latest Collections unsupported upload guard lot: ${executionEvidence[122].result}; latest Collections large-list lot: ${executionEvidence[123].result}; latest Collections large dry-run reindex lot: ${executionEvidence[124].result}; latest Collections OCR duplicate UI smoke: ${executionEvidence[125].result}; latest SFTP catalogue navigation smoke: ${executionEvidence[126].result}; latest SFTP stale-id bulk promotion guard lot: ${executionEvidence[127].result}; latest SFTP default target visibility smoke: ${executionEvidence[128].result}; latest Chat disabled-drop command guard: ${executionEvidence[129].result}; latest Chat answer feedback smoke: ${executionEvidence[130].result}; latest Chat feedback audit-failure smoke: ${executionEvidence[131].result}; latest Chat deep-answer feedback smoke: ${executionEvidence[132].result}; latest Knowledge Capture empty-dashboard smoke: ${executionEvidence[133].result}; latest Knowledge Capture preparation validation/error smoke: ${executionEvidence[134].result}; latest Knowledge Capture plan-source import smoke: ${executionEvidence[135].result}; latest Knowledge Capture plan co-construction timeout smoke: ${executionEvidence[136].result}; latest Knowledge Capture written-note validation/transcribing smoke: ${executionEvidence[137].result}; latest Knowledge Capture nested plan reorder smoke: ${executionEvidence[138].result}; latest Knowledge Capture service safety lot: ${executionEvidence[139].result}; latest Knowledge Capture API safety lot: ${executionEvidence[140].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "91/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, capture preview page-change synchronization, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, written-note blank validation and written-note availability during STT finalization, nested plan topic reorder safety, report instruction blank-input and LLM-fallback safety, quality backlog empty-state/stale-id safety, current proposal export safety, published fiche missing-preview safety, client capture metric burst throttling, open-question unknown-id safety, capture flag unknown-key safety, export missing-proposal safety, blank report edit safety, voice active-document transport, late same-turn partial rendering, adaptive VAD endpoint candidate cancellation/flush, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, Knowledge Capture dashboard empty-state safety, Knowledge Capture preparation validation/error recovery, Knowledge Capture plan-source import/rejection/large-paste safety, Knowledge Capture plan co-construction timeout retryability, Knowledge Capture proposal/session permission denials and contributor proposal-scope filtering, accepted-proposal content editing without implicit publication, collections worker/indexing ledger behavior, collection inventory input bounds, large collection-list isolation, large retrieval-artifact dry-run read-only assessment, OCR duplicate-fact UI dedupe, global document clear admin/confirmation safety, knowledge guide/scope admin gates, collection metadata patch admin gates, cross-workspace table-query and legacy list isolation, collection hidden-system binding non-leak and Bindings action UX, secure deposit workspace enablement/extension policy, secure deposit token/rotate-revoke/download/SFTP upload-only access gates, stale-id bulk promotion atomicity, SFTP default-target visibility, Chat disabled-drop command guard, Chat answer feedback audit, Chat feedback audit-failure resilience, Chat deep-answer feedback audit, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, SPL CLI dry-run-by-default execution guard, frontend navigation guard coverage and SFTP connector catalogue navigation for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser + voice transport/capture contract smoke: ${executionEvidence[99].result}; latest Collections clear-safety API lot: ${executionEvidence[100].result}; latest Secure Deposit workspace/extension policy lot: ${executionEvidence[101].result}; latest Secure Deposit critical access-control lot: ${executionEvidence[102].result}; latest Knowledge Capture publication-safety lot: ${executionEvidence[103].result}; latest SFTP/SPL explicit-execute guard lot: ${executionEvidence[104].result}; latest Knowledge Capture permission/content lot: ${executionEvidence[105].result}; latest Collections permission/scope lot: ${executionEvidence[106].result}; latest Collections hidden-binding UI smoke: ${executionEvidence[107].result}; latest Collections inventory input-validation lot: ${executionEvidence[108].result}; latest Collections unsupported upload guard lot: ${executionEvidence[122].result}; latest Collections large-list lot: ${executionEvidence[123].result}; latest Collections large dry-run reindex lot: ${executionEvidence[124].result}; latest Collections OCR duplicate UI smoke: ${executionEvidence[125].result}; latest SFTP catalogue navigation smoke: ${executionEvidence[126].result}; latest SFTP stale-id bulk promotion guard lot: ${executionEvidence[127].result}; latest SFTP default target visibility smoke: ${executionEvidence[128].result}; latest Chat disabled-drop command guard: ${executionEvidence[129].result}; latest Chat answer feedback smoke: ${executionEvidence[130].result}; latest Chat feedback audit-failure smoke: ${executionEvidence[131].result}; latest Chat deep-answer feedback smoke: ${executionEvidence[132].result}; latest Knowledge Capture empty-dashboard smoke: ${executionEvidence[133].result}; latest Knowledge Capture preparation validation/error smoke: ${executionEvidence[134].result}; latest Knowledge Capture plan-source import smoke: ${executionEvidence[135].result}; latest Knowledge Capture plan co-construction timeout smoke: ${executionEvidence[136].result}; latest Knowledge Capture written-note validation/transcribing smoke: ${executionEvidence[137].result}; latest Knowledge Capture nested plan reorder smoke: ${executionEvidence[138].result}; latest Knowledge Capture service safety lot: ${executionEvidence[139].result}; latest Knowledge Capture API safety lot: ${executionEvidence[140].result}; latest Chat correction blank guard lot: ${executionEvidence[141].result}; latest Chat admin-setting permission lot: ${executionEvidence[142].result}; latest Knowledge Capture stale resume API lot: ${executionEvidence[143].result}; latest Knowledge Capture LiveKit/WebM MIME lot: ${executionEvidence[144].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "91/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, capture preview page-change synchronization, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, written-note blank validation and written-note availability during STT finalization, nested plan topic reorder safety, stale resume denial, LiveKit/WebM MIME safety, report instruction blank-input and LLM-fallback safety, quality backlog empty-state/stale-id safety, current proposal export safety, published fiche missing-preview safety, client capture metric burst throttling, open-question unknown-id safety, capture flag unknown-key safety, export missing-proposal safety, blank report edit safety, voice active-document transport, late same-turn partial rendering, adaptive VAD endpoint candidate cancellation/flush, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, Knowledge Capture dashboard empty-state safety, Knowledge Capture preparation validation/error recovery, Knowledge Capture plan-source import/rejection/large-paste safety, Knowledge Capture plan co-construction timeout retryability, Knowledge Capture proposal/session permission denials and contributor proposal-scope filtering, accepted-proposal content editing without implicit publication, collections worker/indexing ledger behavior, collection inventory input bounds, large collection-list isolation, large retrieval-artifact dry-run read-only assessment, OCR duplicate-fact UI dedupe, global document clear admin/confirmation safety, knowledge guide/scope admin gates, collection metadata patch admin gates, cross-workspace table-query and legacy list isolation, collection hidden-system binding non-leak and Bindings action UX, secure deposit workspace enablement/extension policy, secure deposit token/rotate-revoke/download/SFTP upload-only access gates, stale-id bulk promotion atomicity, SFTP default-target visibility, Chat correction blank-input guard, Chat admin source-policy edit denial, Chat disabled-drop command guard, Chat answer feedback audit, Chat feedback audit-failure resilience, Chat deep-answer feedback audit, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, SPL CLI dry-run-by-default execution guard, frontend navigation guard coverage and SFTP connector catalogue navigation for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -6081,6 +6158,38 @@ const phaseRows = [
     `${executionEvidence[140].result}; ${mappedPassedCountForEvidence(executionEvidence[140].id)} workbook test cases mapped as Pass.`,
     executionEvidence[140].safetyScope,
     "Continue with remaining Knowledge Capture voice-loop, VAD and runtime-provider validation using mocks/read-only checks only.",
+  ],
+  [
+    executionEvidence[141].date,
+    "Phase 5 Chat correction validation smoke",
+    "Added local service/API coverage proving whitespace-only chat corrections are rejected before audio storage, proposal/session creation, acknowledgement persistence or publication.",
+    `${executionEvidence[141].result}; ${mappedPassedCountForEvidence(executionEvidence[141].id)} workbook test case mapped as Pass; DEF-2026-06-24-CHT-013 fixed.`,
+    executionEvidence[141].safetyScope,
+    "Continue with remaining Chat voice loop and Knowledge Capture voice/runtime validation using mocks/read-only checks only.",
+  ],
+  [
+    executionEvidence[142].date,
+    "Phase 5 Chat admin-setting permission smoke",
+    "Added local API coverage proving workspace contributors cannot edit chat/source-policy admin settings and denied attempts leave both workspace and chat System settings unchanged.",
+    `${executionEvidence[142].result}; ${mappedPassedCountForEvidence(executionEvidence[142].id)} workbook test case mapped as Pass; no defect opened because the existing guard behaved correctly.`,
+    executionEvidence[142].safetyScope,
+    "Continue with remaining high-risk Chat/KCAP voice-loop validation using mocks/read-only checks only.",
+  ],
+  [
+    executionEvidence[143].date,
+    "Phase 5 Knowledge Capture stale-resume smoke",
+    "Added local API coverage proving a completed free-conversation capture cannot be resumed and the failed resume attempt leaves status and event history unchanged.",
+    `${executionEvidence[143].result}; ${mappedPassedCountForEvidence(executionEvidence[143].id)} workbook test case mapped as Pass; no defect opened because the existing service guard behaved correctly.`,
+    executionEvidence[143].safetyScope,
+    "Continue with remaining high-risk Chat/KCAP voice-loop, MIME and finalization-timeout validation using mocks/read-only checks only.",
+  ],
+  [
+    executionEvidence[144].date,
+    "Phase 5 Knowledge Capture LiveKit/WebM MIME smoke",
+    "Added local gateway coverage proving a browser MediaRecorder audio/webm frame is accepted under a LiveKit opus transport envelope and sent once to endpoint STT as audio/webm without fallback.",
+    `${executionEvidence[144].result}; ${mappedPassedCountForEvidence(executionEvidence[144].id)} workbook test case mapped as Pass; no defect opened because the existing MIME guard behaved correctly.`,
+    executionEvidence[144].safetyScope,
+    "Continue with remaining high-risk Chat/KCAP voice-loop, interruption and finalization-timeout validation using mocks/read-only checks only.",
   ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);

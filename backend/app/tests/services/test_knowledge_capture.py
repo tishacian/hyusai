@@ -3280,6 +3280,106 @@ async def test_gateway_skips_incremental_stt_for_livekit_endpoint_only_wav(db_se
     assert state.audio_chunks == []
 
 
+@pytest.mark.asyncio
+async def test_gateway_accepts_livekit_transport_browser_webm_without_mime_fallback(db_session, monkeypatch):
+    """Browser fallback can send MediaRecorder WebM frames while the LiveKit
+    transport envelope negotiated opus. The payload content_type is authoritative
+    for STT so a valid WebM header must be accepted and transcribed once as WebM."""
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-lk-webm", name="GW LiveKit WebM", slug="gw-lk-webm")
+    user = User(id="user-gw-lk-webm", username="gwlw@datategy.local", email="gwlw@datategy.local")
+    db_session.add_all([workspace, user])
+
+    class FakeProvider:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        async def transcribe(self, audio_bytes, *, filename=None, content_type=None, language=None):
+            self.calls.append(
+                {
+                    "audio_bytes": audio_bytes,
+                    "filename": filename,
+                    "content_type": content_type,
+                    "language": language,
+                }
+            )
+            return {
+                "text": "segment media recorder webm valide",
+                "provider": "fake-stt",
+                "model": "fake-stt",
+            }
+
+    fake_provider = FakeProvider()
+    monkeypatch.setattr(gw, "get_voice_runtime_provider", lambda *a, **k: fake_provider)
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    websocket = FakeWebSocket()
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(
+        session_id="livekit-webm-session",
+        mode="conversation_only",
+        transport="livekit",
+        live_partial_stt_enabled=True,
+    )
+    # This mirrors the mismatch that used to be risky: transport says opus, but
+    # the browser fallback payload is an actual WebM MediaRecorder blob.
+    state.codec = {"input": "opus"}
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={
+            "type": "audio.frame",
+            "payload": {
+                "bytes_b64": base64.b64encode(_WEBM_HEADER_CHUNK + b"webm-payload").decode(),
+                "turn_id": "seg-livekit-webm-valid",
+                "content_type": "audio/webm",
+                "incremental_transcription": False,
+            },
+        },
+    )
+
+    assert state.audio_chunks
+    assert state.audio_chunks[0].startswith(_WEBM_HEADER_CHUNK)
+    assert state.content_type == "audio/webm"
+    assert fake_provider.calls == []
+
+    await gateway._handle_event(
+        websocket,
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={"type": "audio.endpoint", "payload": {"turn_id": "seg-livekit-webm-valid"}},
+    )
+
+    assert len(fake_provider.calls) == 1
+    assert fake_provider.calls[0]["content_type"] == "audio/webm"
+    assert fake_provider.calls[0]["filename"] == "seg-livekit-webm-valid.webm"
+    assert fake_provider.calls[0]["audio_bytes"].startswith(_WEBM_HEADER_CHUNK)
+    final = next(payload for event_type, payload in sent if event_type == "text.final")
+    assert final["text"] == "segment media recorder webm valide"
+    assert final["endpoint_stt_source"] == "provider"
+    assert final["requested_provider"] == "cascade_openai"
+    assert final["provider"] == "fake-stt"
+    assert final["fallback_used"] is False
+    endpoint_metric = next(
+        payload for event_type, payload in sent if event_type == "runtime.metric" and payload.get("metric") == "endpoint_stt"
+    )
+    assert endpoint_metric["provider"] == "fake-stt"
+    assert endpoint_metric["fallback_used"] is False
+    assert state.audio_chunks == []
+
+
 def test_oracle_detects_generalized_numeric_contradiction():
     from app.services.capture_knowledge_oracle import (
         CaptureSessionContext,

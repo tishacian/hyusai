@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import knowledge_capture as kc_endpoint
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, WORKSPACE_REVIEWER
-from app.models.expert_capture import KnowledgeUpdateProposal
+from app.models.expert_capture import ExpertCaptureSession, KnowledgeUpdateProposal
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.iam.engine import AuthorizationEngine
@@ -186,6 +186,50 @@ def test_chat_correction_endpoint_403_when_feature_flag_off(db_session, monkeypa
 
     assert response.status_code == 403
     assert "disabled" in response.json()["detail"].lower()
+
+
+def test_chat_correction_endpoint_rejects_blank_correction_without_side_effects(db_session, monkeypatch):
+    workspace, user = _seed_workspace_user(
+        db_session, ws_id="ws-cc-blank", slug="andritz", user_id="user-cc-blank"
+    )
+    monkeypatch.setattr(
+        kc_endpoint,
+        "_resolve_chat_source_policy",
+        lambda db, ws: {"expert_fiche_correction_enabled": True},
+    )
+    fake_store = _FakeStore()
+    monkeypatch.setattr(kc_endpoint, "get_object_store", lambda: fake_store)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    audio_b64 = base64.b64encode(b"fake-webm-audio").decode("ascii")
+    response = client.post(
+        "/api/v1/knowledge-capture/chat-correction",
+        json={
+            "query": "Quelle pression ?",
+            "answer": "5 bar",
+            "correction": " \n\t ",
+            "input_modality": "voice",
+            "transcript_raw": "silence transcrit",
+            "audio_base64": audio_b64,
+            "audio_content_type": "audio/webm",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Chat correction cannot be empty."
+    assert fake_store.writes == {}
+    assert (
+        db_session.query(KnowledgeUpdateProposal)
+        .filter(KnowledgeUpdateProposal.workspace_id == workspace.id)
+        .count()
+        == 0
+    )
+    assert (
+        db_session.query(ExpertCaptureSession)
+        .filter(ExpertCaptureSession.workspace_id == workspace.id)
+        .count()
+        == 0
+    )
 
 
 def test_chat_correction_endpoint_happy_path_stores_audio(db_session, monkeypatch):
