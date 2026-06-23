@@ -1939,6 +1939,66 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(sftpOperationsReconcileRequests).toHaveLength(0);
   });
 
+  test('shows the default SFTP target collection before any promotion action', async ({ page }) => {
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      sftpDepositFiles: syntheticSftpDepositFiles(),
+      sftpIndexingAssist: emptySftpIndexingAssist(),
+      sftpLinkMutationRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+      sftpOperationsReconcileRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    const targetCard = page.locator('section').filter({ hasText: 'Knowledge destination' }).first();
+    await expect(targetCard.getByText('Target collection', { exact: true })).toBeVisible();
+    await expect(targetCard.getByText('Knowledge destination')).toBeVisible();
+    const collectionPicker = targetCard.locator('select[name="collectionPicker"]');
+    await expect(collectionPicker).toHaveValue('andritz-qa');
+    await expect(collectionPicker).toContainText('andritz-qa · ready · 12 chunks');
+    await expect(targetCard.locator('input[name="collection"]')).toHaveValue('andritz-qa');
+    await expect(targetCard.getByText('Andritz QA · ready · 2 docs')).toBeVisible();
+    await expect(targetCard.getByRole('link', { name: 'Open', exact: true })).toHaveAttribute('href', '/knowledge/andritz-qa');
+
+    const targetState = await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+          targetCollectionSlug?: () => string;
+          collectionSlug?: string;
+          selectedKnowledgeCollection?: () => { slug?: string; name?: string; status?: string } | null;
+        }
+        | undefined;
+      return {
+        targetCollectionSlug: component?.targetCollectionSlug?.(),
+        collectionSlug: component?.collectionSlug,
+        selectedKnowledgeCollection: component?.selectedKnowledgeCollection?.(),
+      };
+    });
+    expect(targetState).toMatchObject({
+      targetCollectionSlug: 'andritz-qa',
+      collectionSlug: 'andritz-qa',
+      selectedKnowledgeCollection: {
+        slug: 'andritz-qa',
+        name: 'Andritz QA',
+        status: 'ready',
+      },
+    });
+    expect(sftpLinkMutationRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+  });
+
   test('keeps direct SFTP page read-only when Secure Deposit is disabled', async ({ page }) => {
     const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
     const sftpPromoteRequests: unknown[] = [];
@@ -2955,6 +3015,46 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(chatStreamRequests).toHaveLength(1);
     expect(chatStreamRequests[0]).toMatchObject({
       query: 'La recherche reste disponible sans upload.',
+      context_id: null,
+      context_mode: null,
+      stream: true,
+      include_sources: true,
+    });
+  });
+
+  test('ignores direct Chat drop mode when document upload is disabled', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    await installAndritzMocks(page, {
+      chatDocumentUploadEnabled: false,
+      chatStreamRequests,
+      chatUploadRequests,
+    });
+
+    await page.goto('/workspace/andritz/chat?mode=drop');
+    await expect(page.getByRole('heading', { name: /Andritz QA Assistant/i })).toBeVisible();
+    await expect(page.getByText(/Drop files/i)).toHaveCount(0);
+    await expect(page.locator('input[type="file"]')).toHaveCount(0);
+
+    const dataTransfer = await page.evaluateHandle(() => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File(['synthetic disabled upload'], 'disabled-chat-upload.pdf', { type: 'application/pdf' }));
+      return transfer;
+    });
+    await page.locator('app-chat-workspace').dispatchEvent('drop', { dataTransfer });
+    await page.waitForTimeout(100);
+    expect(chatUploadRequests).toHaveLength(0);
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Le mode drop désactivé doit rester une recherche texte.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Le mode drop désactivé doit rester une recherche texte.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatUploadRequests).toHaveLength(0);
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Le mode drop désactivé doit rester une recherche texte.',
       context_id: null,
       context_mode: null,
       stream: true,

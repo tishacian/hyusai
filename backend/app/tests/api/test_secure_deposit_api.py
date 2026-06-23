@@ -567,6 +567,71 @@ def test_bulk_promote_supported_documents_uses_one_worker_job(db_session, monkey
     assert len({file["worker_job_id"] for file in body["files"]}) == 1
 
 
+def test_bulk_promote_with_missing_id_is_atomic_and_read_only(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+
+    workspace = Workspace(id="ws-bulk-missing", name="Bulk Missing", slug="andritz")
+    user = User(id="user-bulk-missing", email="bulk-missing@datategy.net", username="bulk-missing")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Synthetic stale-id upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+
+    rows = []
+    for index in range(2):
+        source = tmp_path / f"bulk-missing-{index}.pdf"
+        source.write_bytes(b"%PDF-1.4\n% synthetic")
+        rows.append(
+            record_staged_file_from_path(
+                db_session,
+                link=link,
+                source_path=source,
+                filename=f"1-NON-WOVENS/FRANCE/GEOTEX/bulk-missing-{index}.pdf",
+                content_type="application/pdf",
+                actor=f"sftp:{link.access_id}",
+                transport="sftp",
+            )
+        )
+    db_session.commit()
+
+    def fail_batch_promote(*_args, **_kwargs):
+        raise AssertionError("missing-id validation must happen before batch promotion")
+
+    monkeypatch.setattr(secure_deposit, "promote_files_to_collection_batch", fail_batch_promote)
+
+    response = _client(db_session, workspace, user).post(
+        "/sftp/deposits/promote-bulk",
+        json={
+            "collection_slug": "andritz-non-wovens-france-excel-pilot",
+            "file_ids": [rows[0].id, "stale-missing-file-id", rows[1].id],
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "message": "Some deposit files were not found",
+        "file_ids": ["stale-missing-file-id"],
+    }
+    for row in rows:
+        db_session.refresh(row)
+        assert row.status == "received"
+        assert row.promoted_at is None
+        assert row.promoted_by_user_id is None
+        assert row.promoted_collection_slug is None
+        assert row.worker_job_id is None
+        assert row.promotion_result is None
+
+
 def test_deposit_indexing_assist_recommends_and_summarizes_collection(db_session, monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
     monkeypatch.setattr(settings, "object_store_backend", "local")
