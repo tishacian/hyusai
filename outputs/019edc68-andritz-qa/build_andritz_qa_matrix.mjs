@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J8", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I12", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F14", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I13", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F15", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -1987,6 +1987,20 @@ const executionEvidence = [
     notes:
       "Collections API + worker execution covering ledger listing, inventory, previews, search, diagnostics, uploads, worker jobs, delete on synthetic collection, BM25 artifact/rebuild behavior, deduplication, materialization error handling and SPL wave ledger finalization.",
   },
+  {
+    id: "EXEC-2026-06-23-BE-009",
+    date: "2026-06-23",
+    command:
+      "poetry run pytest app/tests/api/test_secure_deposit_api.py app/tests/services/test_secure_deposit.py app/tests/services/test_spl_wave_importer.py -q",
+    result: "60 passed, 1 skipped, 0 failed",
+    duration: "9.15s",
+    warnings:
+      "392 warnings, mostly datetime.utcnow deprecations and dependency warnings; no product test failures.",
+    safetyScope:
+      "Local backend pytest using test DB, tmp_path/local secure-deposit storage, fake dispatch and monkeypatched services only. Includes synthetic upload/promote/reconcile/quarantine/wave-plan flows; no VM mutation, no real Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Secure Deposit/SFTP synthetic execution covering link/session auth, allowed-extension policy, staged upload path safety, previews/downloads/archive browsing, promotion queue payloads, indexing assist, operations/reconciliation quarantine, SPL wave planning, namespace collision guards and archive reindexing.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2053,6 +2067,25 @@ const executedTestResults = new Map([
   pass("SFTP-009-T01", "Mapped to bulk promote supported documents using one worker job."),
   pass("SFTP-010-T01", "Mapped to SFTP operations active sidecar upload snapshot tests."),
   pass("SFTP-010-T03", "Mapped to reconciliation dry-run/quarantine safety tests."),
+  pass("SFTP-001-T01", "Mapped to secure-deposit link/session service test creating a synthetic link and limiting password reveal/session scope.", 10),
+  pass("SFTP-002-T01", "Mapped to refreshed deposit link password/session authentication tests.", 10),
+  pass("SFTP-002-T02", "Mapped to refreshed bad password rejection tests.", 10),
+  pass("SFTP-004-T01", "Mapped to synthetic SFTP staged upload path recording and safe root alias/longname behavior; no real SFTP server was mutated.", 10),
+  pass("SFTP-004-T03", "Mapped to sidecar reconciliation/quarantine tests for interrupted or stale partial uploads in local tmp storage.", 10),
+  pass("SFTP-006-T01", "Mapped to refreshed staged-file preview tests for text/PDF/HTML/DOCX/spreadsheet variants.", 10),
+  pass("SFTP-006-T02", "Mapped to refreshed ZIP archive folder/member browsing plus member preview/download tests.", 10),
+  pass("SFTP-006-T03", "Mapped to refreshed ZIP member path traversal rejection tests.", 10),
+  pass("SFTP-007-T01", "Mapped to deposit indexing-assist recommendation and collection summary API test.", 10),
+  pass("SFTP-008-T01", "Mapped to refreshed single ZIP/spreadsheet promote queueing worker payload tests on synthetic deposits.", 10),
+  pass("SFTP-008-T03", "Mapped to refreshed invalid ZIP/path traversal/too-many-supported-files promotion safety tests preserving source state.", 10),
+  pass("SFTP-009-T01", "Mapped to refreshed bulk promote supported documents using one worker job on synthetic deposits.", 10),
+  pass("SFTP-010-T01", "Mapped to refreshed SFTP operations active sidecar upload snapshot tests.", 10),
+  pass("SFTP-010-T03", "Mapped to refreshed reconciliation dry-run/quarantine safety tests with explicit local fixture mutation only.", 10),
+  pass("SFTP-011-T01", "Mapped to deposit archive creation and ZIP member preview/download tests with safe synthetic files.", 10),
+  pass("SFTP-012-T01", "Mapped to SPL wave dry-run planning tests for synthetic deposits and archive groups.", 10),
+  pass("SFTP-012-T02", "Mapped to SPL wave archive/document limit tests isolating large archives and bounded member reads.", 10),
+  pass("SFTP-013-T01", "Mapped to promote payload tests proving selected collection slug is carried into worker queueing.", 10),
+  pass("SFTP-014-T03", "Mapped to allowed-extension policy tests including empty policy accepting any synthetic file type.", 10),
   pass("CHT-002-T01", "Mapped to chat stream hardening happy-path answer tests.", 2),
   pass("CHT-002-T02", "Mapped to controlled chat stream timeout/error tests.", 2),
   pass("CHT-006-T01", "Mapped to selected context collection stream tests.", 2),
@@ -2280,8 +2313,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; authenticated browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "54/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, and collections worker/indexing ledger behavior; authenticated browser journeys, mobile/UX, real audio/VAD field behavior, and safe synthetic end-to-end mutation tests remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; authenticated browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "58/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, collections worker/indexing ledger behavior, and synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning. Authenticated browser journeys, mobile/UX, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -2540,10 +2573,18 @@ const phaseRows = [
     executionEvidence[9].safetyScope,
     "Continue with authenticated browser/e2e checks on safe synthetic collections and avoid any real Andritz/SFTP mutation unless explicitly approved.",
   ],
+  [
+    executionEvidence[10].date,
+    "Phase 3 SFTP/Secure Deposit synthetic execution",
+    "Executed local Secure Deposit API/service and SPL wave importer pytest files covering synthetic link/session auth, previews, downloads, promotion payloads, sidecar reconciliation/quarantine, wave planning and namespace/collision guards.",
+    `${executionEvidence[10].result}; ${mappedPassedCountForEvidence(executionEvidence[10].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[10].safetyScope,
+    "Continue with authenticated browser/e2e checks and read-only VM validation; do not mutate real Andritz SFTP deposits or collections without explicit approval.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F13"));
+styleBody(phase.getRange("A2:F14"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
