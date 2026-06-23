@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J16", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A69:I86", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A64:F80", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A71:I88", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A66:F82", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -3104,6 +3104,34 @@ const executionEvidence = [
     notes:
       "Adds browser-level error-path coverage for Chat Recherche expired drop-and-ask context persistence while keeping ingestion synthetic and isolated.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-074",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "78 passed, 0 failed",
+    duration: "1.0m",
+    warnings:
+      "Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new no-session-doc Quick ask case sends a question without uploading any file, verifies no upload/context creation request occurs, no session-doc mode control is shown, and proves /sessions plus /chat/stream carry context_id=null and context_mode=null with the selected workspace knowledge scope. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level boundary coverage for Chat Recherche source-scope behavior when no drop-and-ask session documents are attached.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-075",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "79 passed, 0 failed",
+    duration: "1.0m",
+    warnings:
+      "Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new long-prompt Quick ask case sends a synthetic near-limit text question without uploading any file, verifies the composer remains usable, and proves /sessions plus /chat/stream carry the full query with context_id=null/context_mode=null and the selected workspace knowledge scope. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level boundary coverage for Chat Recherche long prompt handling while keeping all retrieval and session persistence mocked.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3246,8 +3274,10 @@ const executedTestResults = new Map([
   pass("KCAP-002-T04", "Mapped to IAM-enforced Knowledge Capture API test where a workspace_reviewer creates and starts a free-conversation capture session.", 14),
   pass("KCAP-001-T06", "Mapped to /iam/matrix API test proving workspace_reviewer receives capture_session create plus owner-scoped update/execute as allowed_for_subject.", 15),
   pass("KCAP-001-T07", "Mapped to local Playwright mocked reviewer IAM matrix smoke proving the New/Nouvelle capture action is enabled on /knowledge/capture.", 16),
+  pass("CHT-001-T01", "Mapped to local Playwright mocked route smoke opening /chat and proving the Recherche shell/chat panel render without contacting real backend data.", 12),
   pass("CHT-002-T01", "Mapped to chat stream hardening happy-path answer tests.", 2),
   pass("CHT-002-T02", "Mapped to controlled chat stream timeout/error tests.", 2),
+  pass("CHT-002-T03", "Mapped to local Playwright mocked long-prompt smoke proving Quick ask sends the complete synthetic prompt with null session-doc context while the UI remains usable.", 86),
   pass("CHT-002-T04", "Mapped to local Playwright mocked Recherche quick-ask SSE smoke proving the stream payload, answer rendering and source panel are visible without real backend data.", 24),
   pass("CHT-003-T01", "Mapped to local Playwright mocked Recherche system-scope smoke proving a selected workspace_chat system switches the UI to System chat and sends system_id/agent_id in session and stream payloads.", 78),
   pass("CHT-003-T02", "Mapped to local Playwright mocked stale-system smoke proving a deleted preselected systemId falls back to Quick ask and sends null system_id/agent_id instead of leaking the stale scope.", 79),
@@ -3264,6 +3294,7 @@ const executedTestResults = new Map([
   pass("CHT-005-T04", "Mapped to local Playwright mocked persist-context smoke proving drop-and-ask persistence calls /contexts/{id}/persist only after the explicit Persist click.", 28),
   pass("CHT-005-T05", "Mapped to local Playwright mocked persist-failure smoke proving a /contexts/{id}/persist failure shows a recoverable error, re-enables Persist and sends no duplicate request.", 29),
   pass("CHT-006-T01", "Mapped to selected context collection stream tests.", 2),
+  pass("CHT-006-T02", "Mapped to local Playwright mocked no-session-doc Quick ask smoke proving no upload/context request occurs and /sessions plus /chat/stream keep context_id/context_mode null while preserving workspace knowledge scope.", 85),
   pass("CHT-006-T04", "Mapped to local Playwright mocked drop-and-ask combine-mode smoke proving a synthetic session doc creates an ephemeral context and /chat/stream carries context_id, context_mode=combine, knowledge_scope and include_sources without real upload.", 25),
   pass("CHT-006-T05", "Mapped to local Playwright mocked drop-and-ask Only-mode smoke proving a synthetic session doc keeps /chat/stream scoped to context_mode=replace with knowledge_scope=null and no real upload.", 26),
   pass("CHT-006-T06", "Mapped to local Playwright mocked source-mode toggle smoke proving returning from + Sources to Only sends context_mode=replace and knowledge_scope=null.", 34),
@@ -3732,8 +3763,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[84].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[86].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -4528,10 +4559,26 @@ const phaseRows = [
     executionEvidence[84].safetyScope,
     "Continue with read-only real-backend checks when safe; do not upload real Andritz documents unless explicitly approved.",
   ],
+  [
+    executionEvidence[85].date,
+    "Phase 3 Chat no-session-doc scope smoke",
+    "Extended the local Playwright Andritz smoke so Quick ask without uploaded session documents keeps context_id/context_mode null while preserving the selected workspace knowledge scope.",
+    `${executionEvidence[85].result}; ${mappedPassedCountForEvidence(executionEvidence[85].id)} workbook test case mapped as Pass.`,
+    executionEvidence[85].safetyScope,
+    "Continue with read-only real-backend checks when safe; do not upload real Andritz documents unless explicitly approved.",
+  ],
+  [
+    executionEvidence[86].date,
+    "Phase 3 Chat long-prompt boundary smoke",
+    "Extended the local Playwright Andritz smoke so Quick ask accepts a long synthetic prompt, keeps the composer usable, and sends the full prompt with null session-doc context.",
+    `${executionEvidence[86].result}; ${mappedPassedCountForEvidence(executionEvidence[86].id)} workbook test case mapped as Pass.`,
+    executionEvidence[86].safetyScope,
+    "Continue with read-only real-backend checks when safe; do not upload real Andritz documents unless explicitly approved.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F80"));
+styleBody(phase.getRange("A2:F82"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

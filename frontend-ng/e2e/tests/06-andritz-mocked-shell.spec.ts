@@ -4017,6 +4017,56 @@ test.describe('Andritz mocked browser smoke', () => {
     });
   });
 
+  test('keeps Recherche Quick ask responsive with a long prompt', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+    const longPrompt = Array.from(
+      { length: 90 },
+      (_, index) =>
+        `Segment ${index + 1}: explique la procedure Andritz QA, les contraintes source et les exceptions de validation sans ajouter de document temporaire.`,
+    ).join(' ');
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill(longPrompt);
+    await input.press('Enter');
+
+    await expect(page.getByText('Segment 1: explique la procedure Andritz QA').first()).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    await expect(input).toBeVisible();
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        context_id: null,
+        context_mode: null,
+        knowledge_scope: 'andritz-qa',
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: longPrompt,
+      context_id: null,
+      context_mode: null,
+      knowledge_scope: 'andritz-qa',
+      stream: true,
+      include_sources: true,
+      include_reasoning: true,
+    });
+  });
+
   test('sends the selected Recherche system scope in the chat payload', async ({ page }) => {
     const chatStreamRequests: unknown[] = [];
     const chatSessionCreateRequests: unknown[] = [];
@@ -4264,6 +4314,61 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.locator('#omnirag-hl-anchor')).toHaveCount(0);
     await expect(page.locator('app-chat-panel textarea[name="userInput"]').first()).toBeVisible();
     expect(chatStreamRequests).toHaveLength(1);
+  });
+
+  test('keeps Quick ask unscoped when no drop-and-ask session docs are attached', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatUploadRequests,
+      contextCreateRequests,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+
+    await page.goto('/chat');
+    await expect(page.getByText('Quick ask').first()).toBeVisible();
+    await expect(page.getByText(/No docs yet/i)).toBeVisible();
+    await expect(page.getByText(/Andritz chat drop note|andritz-chat-drop\.txt/i)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Only$/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /\+ Sources/i })).toHaveCount(0);
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Réponds sans document de session ajouté.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Réponds sans document de session ajouté.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatUploadRequests).toHaveLength(0);
+    expect(contextCreateRequests).toHaveLength(0);
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        context_id: null,
+        context_mode: null,
+        knowledge_scope: 'andritz-qa',
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Réponds sans document de session ajouté.',
+      context_id: null,
+      context_mode: null,
+      knowledge_scope: 'andritz-qa',
+      stream: true,
+      include_sources: true,
+    });
   });
 
   test('keeps drop-and-ask session docs in the chat stream contract without real upload', async ({ page }) => {
