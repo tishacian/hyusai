@@ -1005,6 +1005,46 @@ def test_flags_update_denied_keeps_session_metrics(db_session, monkeypatch):
     assert session.metrics["capture_domain"] == "technical"
 
 
+def test_unknown_flag_update_keeps_session_metrics_clean(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-flags-unknown", name="KC API Flags Unknown", slug="kc-api-flags-unknown")
+    user = User(id="user-kc-api-flags-unknown", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-flags-unknown",
+        workspace_id=workspace.id,
+        title="Flags unknown capture",
+        objective="Ignore unsupported flags.",
+        created_by_user_id=user.id,
+        status="active",
+        metrics={
+            "suppress_oracle_questions": False,
+            "capture_domain": "technical",
+            "voice_stream": {"last_latency_ms": {"endpoint_stt_ms": 120}},
+        },
+        transcript=[{"id": "turn-flags-unknown", "text": "Texte capture inchangé"}],
+    )
+    db_session.add_all([workspace, user, session])
+    db_session.commit()
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    response = client.patch(
+        f"/api/v1/knowledge-capture/sessions/{session.id}/flags",
+        json={"unsupported_capture_flag": True},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "unsupported_capture_flag" not in body["metrics"]
+    assert body["metrics"]["suppress_oracle_questions"] is False
+    assert body["metrics"]["capture_domain"] == "technical"
+    assert body["metrics"]["voice_stream"]["last_latency_ms"]["endpoint_stt_ms"] == 120
+    assert body["transcript"][0]["text"] == "Texte capture inchangé"
+    db_session.refresh(session)
+    assert "unsupported_capture_flag" not in session.metrics
+    assert session.metrics["suppress_oracle_questions"] is False
+    assert session.metrics["capture_domain"] == "technical"
+    assert session.transcript[0]["text"] == "Texte capture inchangé"
+
+
 def test_edit_accepted_proposal_updates_content_without_publishing(db_session, monkeypatch):
     workspace = Workspace(id="ws-kc-api-edit-accepted", name="KC API Edit Accepted", slug="kc-api-edit-accepted")
     user = User(id="user-kc-api-edit-accepted", username="operator", email="operator@example.test")
@@ -1056,6 +1096,58 @@ def test_edit_accepted_proposal_updates_content_without_publishing(db_session, m
     assert "published_at" not in proposal.proposal["publication"]
 
 
+def test_blank_proposal_content_update_is_rejected_without_mutation(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-edit-blank", name="KC API Edit Blank", slug="kc-api-edit-blank")
+    user = User(id="user-kc-api-edit-blank", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-edit-blank",
+        workspace_id=workspace.id,
+        title="Blank edit capture",
+        objective="Do not blank report content.",
+        created_by_user_id=user.id,
+        status="completed",
+    )
+    proposal = KnowledgeUpdateProposal(
+        id="proposal-kc-api-edit-blank",
+        workspace_id=workspace.id,
+        session_id=session.id,
+        status="accepted",
+        created_by_user_id=user.id,
+        proposal={
+            "report_markdown": "# Rapport conservé",
+            "publication": {"category": "technical"},
+            "recommended_ingestion": {
+                "title": "Rapport conservé",
+                "content": "# Rapport conservé",
+                "metadata": {"proposal_id": "proposal-kc-api-edit-blank"},
+            },
+        },
+    )
+    db_session.add_all([workspace, user, session, proposal])
+    db_session.commit()
+
+    async def _fail_publish(*args, **kwargs):  # noqa: ARG001
+        raise AssertionError("blank content edit must not publish")
+
+    monkeypatch.setattr(knowledge_capture, "publish_proposal_to_knowledge", _fail_publish)
+    client = _client(db_session, workspace, user, monkeypatch)
+    response = client.patch(
+        f"/api/v1/knowledge-capture/proposals/{proposal.id}/content",
+        json={"content": "   \n\t  "},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Proposal report content cannot be empty"
+    db_session.refresh(proposal)
+    assert proposal.status == "accepted"
+    assert proposal.proposal["report_markdown"] == "# Rapport conservé"
+    assert proposal.proposal["recommended_ingestion"]["content"] == "# Rapport conservé"
+    assert proposal.proposal["recommended_ingestion"]["metadata"] == {"proposal_id": proposal.id}
+    assert proposal.proposal["publication"] == {"category": "technical"}
+    assert "published_at" not in proposal.proposal["publication"]
+    assert db_session.query(ExpertCaptureEvent).filter_by(session_id=session.id).count() == 0
+
+
 def test_export_accepted_proposal_does_not_publish(db_session, monkeypatch):
     workspace = Workspace(id="ws-kc-api-export-readonly", name="KC API Export Readonly", slug="kc-api-export-readonly")
     user = User(id="user-kc-api-export-readonly", username="operator", email="operator@example.test")
@@ -1105,6 +1197,41 @@ def test_export_accepted_proposal_does_not_publish(db_session, monkeypatch):
     assert proposal.proposal["executive_summary"] == "Résumé exporté"
     assert proposal.proposal["publication"] == {"category": "technical"}
     assert "published_at" not in proposal.proposal["publication"]
+
+
+def test_export_without_proposal_returns_recoverable_error(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-export-missing", name="KC API Export Missing", slug="kc-api-export-missing")
+    user = User(id="user-kc-api-export-missing", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-export-missing",
+        workspace_id=workspace.id,
+        title="Export missing proposal",
+        objective="Exporter sans proposition.",
+        created_by_user_id=user.id,
+        status="completed",
+        metrics={"voice_stream": {"last_latency_ms": {"endpoint_stt_ms": 90}}},
+        transcript=[{"id": "turn-export-missing", "text": "Transcript déjà capturé"}],
+    )
+    db_session.add_all([workspace, user, session])
+    db_session.commit()
+
+    async def _fail_publish(*args, **kwargs):  # noqa: ARG001
+        raise AssertionError("export without proposal must not publish")
+
+    monkeypatch.setattr(knowledge_capture, "publish_proposal_to_knowledge", _fail_publish)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    response = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session.id}/proposal/export",
+        json={"executive_summary": "Résumé qui ne doit pas être persisté"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "No proposal available for export"
+    db_session.refresh(session)
+    assert session.metrics["voice_stream"]["last_latency_ms"]["endpoint_stt_ms"] == 90
+    assert session.transcript[0]["text"] == "Transcript déjà capturé"
+    assert db_session.query(KnowledgeUpdateProposal).filter_by(session_id=session.id).count() == 0
 
 
 def test_list_published_fiches_returns_workspace_outputs(db_session, monkeypatch):

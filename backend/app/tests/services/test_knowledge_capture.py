@@ -2192,6 +2192,83 @@ async def test_voice_gateway_client_metric_is_sanitized_and_reemitted(db_session
 
 
 @pytest.mark.asyncio
+async def test_voice_gateway_client_metric_burst_is_throttled(db_session, monkeypatch):
+    from app.services import voice_session_gateway as gw
+
+    workspace = Workspace(id="ws-gw-client-metric-burst", name="GW Client Metric Burst", slug="gw-client-metric-burst")
+    user = User(
+        id="user-gw-client-metric-burst",
+        username="metric-burst@datategy.local",
+        email="metric-burst@datategy.local",
+    )
+    db_session.add_all([workspace, user])
+
+    sent: list[tuple] = []
+
+    class FakeWebSocket:
+        async def send_json(self, message):
+            sent.append((message.get("type"), message.get("payload")))
+
+    gateway = gw.VoiceSessionGateway()
+    state = gw.VoiceSessionState(session_id="capture-client-metric-burst", transport="backend_ws")
+    state.client_turn_id = "turn-client-metric-burst"
+    clock = {"now": 100.0}
+    monkeypatch.setattr(gw.time, "perf_counter", lambda: clock["now"])
+
+    for index in range(8):
+        await gateway._handle_event(
+            FakeWebSocket(),
+            db_session,
+            user=user,
+            workspace=workspace,
+            state=state,
+            event={
+                "type": "client.metric",
+                "payload": {
+                    "metric": "chunk_gap_ms",
+                    "chunk_gap_ms": 40 + index,
+                    "capture_mode": "robust",
+                },
+            },
+        )
+        clock["now"] += gw._CLIENT_METRIC_MIN_INTERVAL_S / 10
+
+    forwarded = [payload for event_type, payload in sent if event_type == "runtime.metric"]
+    assert len(forwarded) == 1
+    assert forwarded[0]["metric"] == "chunk_gap_ms"
+    assert forwarded[0]["chunk_gap_ms"] == 40
+
+    clock["now"] += gw._CLIENT_METRIC_MIN_INTERVAL_S
+    await gateway._handle_event(
+        FakeWebSocket(),
+        db_session,
+        user=user,
+        workspace=workspace,
+        state=state,
+        event={
+            "type": "client.metric",
+            "payload": {
+                "metric": "chunk_gap_ms",
+                "chunk_gap_ms": 120,
+                "capture_mode": "robust",
+            },
+        },
+    )
+
+    forwarded = [payload for event_type, payload in sent if event_type == "runtime.metric"]
+    assert len(forwarded) == 2
+    assert forwarded[1]["chunk_gap_ms"] == 120
+    audits = (
+        db_session.query(AuditLog)
+        .filter_by(event_type="voice.client_metric", workspace_id=workspace.id)
+        .order_by(AuditLog.timestamp.asc())
+        .all()
+    )
+    assert len(audits) == 2
+    assert [audit.details["chunk_gap_ms"] for audit in audits] == [40, 120]
+
+
+@pytest.mark.asyncio
 async def test_gateway_streams_partials_and_oracle_before_endpoint(db_session, monkeypatch):
     """Server-side incremental transcription: several audio.frame messages must emit
     live transcript.partial + oracle analysis BEFORE any audio.endpoint, while
@@ -5109,6 +5186,66 @@ async def test_answer_proposal_open_question_resynthesizes_only_that_section(db_
     content = updated.proposal["recommended_ingestion"]["content"]
     assert "180 par minute" in content
     assert updated.proposal.get("plan_structure")
+
+
+@pytest.mark.asyncio
+async def test_answer_proposal_open_question_unknown_id_does_not_mutate(db_session):
+    workspace = Workspace(id="ws-answer-unknown", name="Answer Unknown", slug="answer-unknown")
+    user = User(id="user-answer-unknown", username="answer-unknown@datategy.local", email="answer-unknown@datategy.local")
+    db_session.add_all([workspace, user])
+    seed_skills_and_capabilities(db_session)
+
+    session, topic_id, subtopic_id = _final_phase_session(db_session, workspace, user)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        text="La vitesse nominale est de 120 par minute.",
+        topic_id=topic_id,
+        subtopic_id=subtopic_id,
+        actor_user_id=user.id,
+    )
+    proposal = create_update_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        created_by_user_id=user.id,
+    )
+    payload_before = dict(proposal.proposal or {})
+    payload_before["open_questions"] = [
+        {
+            "gap_id": "speed-exception",
+            "follow_up": "Quelle vitesse en exception terrain ?",
+            "text": "Quelle vitesse en exception terrain ?",
+            "topic_id": topic_id,
+            "subtopic_id": subtopic_id,
+            "status": "open",
+        }
+    ]
+    proposal.proposal = payload_before
+    db_session.commit()
+    transcript_before = list(session.transcript or [])
+
+    with pytest.raises(ValueError, match="Open question not found"):
+        await answer_proposal_open_question(
+            db_session,
+            workspace_id=workspace.id,
+            proposal_id=proposal.id,
+            question_id="missing-question",
+            text="En exception terrain on monte à 180 par minute.",
+            actor_user_id=user.id,
+            actor_label=user.email,
+            workspace_slug=workspace.slug,
+        )
+
+    db_session.refresh(session)
+    db_session.refresh(proposal)
+    assert session.transcript == transcript_before
+    question = proposal.proposal["open_questions"][0]
+    assert question["status"] == "open"
+    assert "answer_text" not in question
+    assert proposal.proposal["recommended_ingestion"]["content"] == payload_before["recommended_ingestion"]["content"]
 
 
 @pytest.mark.asyncio
