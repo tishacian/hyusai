@@ -516,6 +516,86 @@ function createdFreeConversationSession(title = 'Andritz QA free conversation sm
   };
 }
 
+function createdPlannedCaptureSession(title = 'Andritz QA guided plan smoke', status = 'planned') {
+  return {
+    id: 'session-andritz-free-smoke',
+    title,
+    objective: 'Capture synthetic Andritz QA knowledge with a guided plan.',
+    status,
+    plan: {
+      schema_version: 'plan_build_v2',
+      mode: 'plan_build',
+      question_bank_status: 'ready',
+      dialogue: { turns: [], ready_to_finalize: true, status: 'ready' },
+      review: { status: 'topics_validated', revision: 1 },
+      topics: [
+        {
+          id: 'topic-maintenance',
+          title: 'Maintenance Andritz',
+          objective: 'Structurer les constats de maintenance Andritz.',
+          subtopics: [
+            {
+              id: 'subtopic-alignment',
+              title: 'Alignement convoyeur',
+              objective: 'Capturer les repères terrain sur l alignement du convoyeur.',
+              questions: [
+                {
+                  id: 'q-alignment',
+                  question: 'Quels repères confirment l alignement du convoyeur Andritz ?',
+                  topic_id: 'topic-maintenance',
+                  subtopic_id: 'subtopic-alignment',
+                  path_label: 'Maintenance Andritz › Alignement convoyeur',
+                  estimated_minutes: 3,
+                },
+              ],
+            },
+            {
+              id: 'subtopic-safety-stop',
+              title: 'Sécurité arrêt machine',
+              objective: 'Capturer les conditions de sécurité avant arrêt machine.',
+              questions: [
+                {
+                  id: 'q-safety-stop',
+                  question: 'Quelles sécurités doivent être vérifiées avant l arrêt machine ?',
+                  topic_id: 'topic-maintenance',
+                  subtopic_id: 'subtopic-safety-stop',
+                  path_label: 'Maintenance Andritz › Sécurité arrêt machine',
+                  estimated_minutes: 4,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    transcript:
+      status === 'active'
+        ? [
+            {
+              id: 'turn-guided-plan-note',
+              speaker: 'expert',
+              text: 'Synthetic guided plan note.',
+              input_modality: 'text',
+              topic_id: 'topic-maintenance',
+              subtopic_id: 'subtopic-alignment',
+            },
+          ]
+        : [],
+    metrics:
+      status === 'active'
+        ? {
+            active_topic_id: 'topic-maintenance',
+            active_subtopic_id: 'subtopic-alignment',
+          }
+        : {},
+    open_questions_count: 0,
+    created_by_user_id: user.id,
+    created_by_label: user.email,
+    started_at: status === 'active' ? '2026-06-23T00:00:00Z' : null,
+    last_activity: '2026-06-23T00:00:00Z',
+  };
+}
+
 async function installAndritzMocks(
   page: Page,
   options: {
@@ -547,6 +627,10 @@ async function installAndritzMocks(
     chatMetadataLongKeywords?: boolean;
     acceptedProposal?: boolean;
     capturePlanRequests?: unknown[];
+    capturePlanTopicsRequests?: unknown[];
+    capturePlanValidationRequests?: string[];
+    captureStartRequests?: string[];
+    capturePlannedSession?: boolean;
     chatStreamRequests?: unknown[];
     chatStreamDelayMs?: number;
     chatStreamAbort?: boolean;
@@ -644,6 +728,10 @@ async function installAndritzMocks(
   const chatMetadataLongKeywords = options.chatMetadataLongKeywords ?? false;
   const includeAcceptedProposal = options.acceptedProposal ?? false;
   const capturePlanRequests = options.capturePlanRequests;
+  const capturePlanTopicsRequests = options.capturePlanTopicsRequests;
+  const capturePlanValidationRequests = options.capturePlanValidationRequests;
+  const captureStartRequests = options.captureStartRequests;
+  const capturePlannedSession = options.capturePlannedSession ?? false;
   const chatStreamRequests = options.chatStreamRequests;
   const chatStreamDelayMs = options.chatStreamDelayMs ?? 0;
   const chatStreamAbort = options.chatStreamAbort ?? false;
@@ -1198,14 +1286,41 @@ async function installAndritzMocks(
       currentCaptureSessionTitle = String(body['title'] || currentCaptureSessionTitle);
       return json(
         route,
-        createdFreeConversationSession(
-          currentCaptureSessionTitle,
-          captureSessionStartsActive ? 'active' : 'draft',
-        ),
+        capturePlannedSession
+          ? createdPlannedCaptureSession(
+              currentCaptureSessionTitle,
+              captureSessionStartsActive ? 'active' : 'planned',
+            )
+          : createdFreeConversationSession(
+              currentCaptureSessionTitle,
+              captureSessionStartsActive ? 'active' : 'draft',
+            ),
       );
     }
     if (path === '/knowledge-capture/sessions') {
       return json(route, { sessions: includeAcceptedProposal ? [acceptedCaptureSession()] : [] });
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/plan/topics' && method === 'PATCH') {
+      capturePlanTopicsRequests?.push(request.postDataJSON());
+      return json(route, createdPlannedCaptureSession(currentCaptureSessionTitle, 'planned'));
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/plan/topics' && method === 'GET') {
+      const session = createdPlannedCaptureSession(currentCaptureSessionTitle, 'planned');
+      return json(route, {
+        topics: session.plan.topics,
+        question_bank_status: session.plan.question_bank_status,
+      });
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/plan/validate-topics' && method === 'POST') {
+      capturePlanValidationRequests?.push(path);
+      return json(route, createdPlannedCaptureSession(currentCaptureSessionTitle, 'planned'));
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/start' && method === 'POST') {
+      captureStartRequests?.push(path);
+      return json(route, createdPlannedCaptureSession(currentCaptureSessionTitle, 'active'));
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/hint-queue') {
+      return json(route, { subtopic_id: url.searchParams.get('subtopic_id') || null, hints: [] });
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/documents') {
       if (method === 'POST') {
@@ -1267,9 +1382,14 @@ async function installAndritzMocks(
       const body = request.postDataJSON() as Record<string, unknown>;
       captureTurnRequests?.push(body);
       const noteText = String(body['text'] || 'Synthetic written capture note.');
+      const plannedQuestionId = String(body['question_id'] || '');
+      const plannedSubtopicId =
+        plannedQuestionId === 'q-safety-stop' ? 'subtopic-safety-stop' : 'subtopic-alignment';
       return json(route, {
         session: {
-          ...createdFreeConversationSession(currentCaptureSessionTitle, 'active'),
+          ...(capturePlannedSession
+            ? createdPlannedCaptureSession(currentCaptureSessionTitle, 'active')
+            : createdFreeConversationSession(currentCaptureSessionTitle, 'active')),
           transcript: [
             {
               id: 'turn-written-capture-doc',
@@ -1278,6 +1398,12 @@ async function installAndritzMocks(
               input_modality: 'text',
               document_refs: body['document_refs'] || [],
               visual_context: body['visual_context'] || null,
+              ...(capturePlannedSession
+                ? {
+                    topic_id: 'topic-maintenance',
+                    subtopic_id: plannedSubtopicId,
+                  }
+                : {}),
             },
           ],
         },
@@ -3670,6 +3796,124 @@ test.describe('Andritz mocked browser smoke', () => {
       plan_mode: 'free_conversation',
       voice_runtime: 'cascade_openai',
     });
+  });
+
+  test('keeps written capture anchored to the active guided plan section', async ({ page }) => {
+    const capturePlanRequests: unknown[] = [];
+    const capturePlanTopicsRequests: unknown[] = [];
+    const capturePlanValidationRequests: string[] = [];
+    const captureStartRequests: string[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      capturePlanRequests,
+      capturePlanTopicsRequests,
+      capturePlanValidationRequests,
+      captureStartRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA guided plan smoke');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA guided plan smoke' })).toBeVisible();
+    const planOutline = page.locator('textarea').first();
+    await expect(planOutline).toHaveValue(/Maintenance Andritz/);
+    await expect(planOutline).toHaveValue(/Alignement convoyeur/);
+    expect(capturePlanRequests).toHaveLength(1);
+    expect(capturePlanRequests[0]).toMatchObject({
+      title: 'Andritz QA guided plan smoke',
+      plan_mode: 'plan_build',
+      voice_runtime: 'cascade_openai',
+    });
+
+    await page.getByRole('button', { name: /Valider le plan|Validate plan/i }).click();
+    await expect.poll(() => capturePlanTopicsRequests.length).toBe(1);
+    await expect.poll(() => capturePlanValidationRequests.length).toBe(1);
+    await expect(page.locator('body')).toContainText(/Position/i);
+    await expect(page.locator('body')).toContainText(/Maintenance Andritz/);
+    await expect(page.locator('body')).toContainText(/Alignement convoyeur/);
+
+    await page.getByRole('button', { name: /Parler|Speak/i }).click();
+    await expect.poll(() => captureStartRequests.length).toBe(1);
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('Le repère d alignement doit rester rattaché à la section convoyeur.');
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'Le repère d alignement doit rester rattaché à la section convoyeur.',
+      question_id: 'q-alignment',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [],
+      visual_context: null,
+    });
+    await expect(page.getByText('Note écrite ajoutée à la capture.')).toBeVisible();
+    await expect(noteInput).toHaveValue('');
+  });
+
+  test('keeps written capture anchored after switching guided plan section', async ({ page }) => {
+    const capturePlanTopicsRequests: unknown[] = [];
+    const capturePlanValidationRequests: string[] = [];
+    const captureStartRequests: string[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      capturePlanTopicsRequests,
+      capturePlanValidationRequests,
+      captureStartRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA guided section switch smoke');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA guided section switch smoke' })).toBeVisible();
+
+    await page.getByRole('button', { name: /Valider le plan|Validate plan/i }).click();
+    await expect.poll(() => capturePlanTopicsRequests.length).toBe(1);
+    await expect.poll(() => capturePlanValidationRequests.length).toBe(1);
+
+    await page.getByRole('button', { name: /Parler|Speak/i }).click();
+    await expect.poll(() => captureStartRequests.length).toBe(1);
+    const safetySection = page.getByRole('button', { name: /Sécurité arrêt machine/i }).first();
+    await expect(safetySection).toBeVisible();
+    await safetySection.click();
+    await expect(safetySection).toHaveClass(/text-brand-100/);
+
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('La consignation doit être confirmée avant l arrêt machine.');
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'La consignation doit être confirmée avant l arrêt machine.',
+      question_id: 'q-safety-stop',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [],
+      visual_context: null,
+    });
+    expect(JSON.stringify(captureTurnRequests[0])).not.toContain('q-alignment');
+    await expect(page.getByText('Note écrite ajoutée à la capture.')).toBeVisible();
+    await expect(noteInput).toHaveValue('');
   });
 
   test('attaches a written capture note to the active document view without real upload', async ({ page }) => {

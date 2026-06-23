@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J16", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A74:I93", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A69:F87", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A74:I95", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A69:F89", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -477,6 +477,8 @@ const features = [
       { type: "Happy path", scenario: "Add typed note", steps: "Type note during active capture and submit.", expected: "Note appears as transcript turn and report fact." },
       { type: "Boundary", scenario: "Submit while voice is transcribing", steps: "Speak then submit typed note before final.", expected: "Both turns are persisted in correct order." },
       { type: "Validation", scenario: "Blank note", steps: "Submit whitespace.", expected: "Submit is blocked or ignored without event pollution." },
+      { type: "Regression", scenario: "Add typed note in guided plan section", steps: "Create a synthetic guided-plan capture, validate the plan, start the session, then submit a typed note.", expected: "The browser keeps the active plan question/section context and posts the note as a text complement without document refs.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Switch guided plan section before typed note", steps: "Create a guided-plan capture, validate and start it, select another subtopic from the plan rail, then submit a typed note.", expected: "The browser sends the note as a text complement tied to the selected section question, not the previous/default section.", severityIfFails: "High" },
     ],
   },
   {
@@ -3204,6 +3206,34 @@ const executionEvidence = [
     notes:
       "Adds browser-level boundary coverage for Knowledge Capture empty no-plan finish behavior so an empty capture cannot create a bogus proposal or implicit publication.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-081",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "85 passed, 0 failed",
+    duration: "1.2m",
+    warnings:
+      "Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new guided-plan written capture case creates a synthetic plan-build session, validates mocked topics, starts the session in guided/manual mode, submits a typed complement tied to question q-alignment, and proves no real backend call, upload, VM mutation, Andritz collection mutation, SFTP production-data mutation or publish request occurs.",
+    notes:
+      "Adds browser-level regression coverage for mixed written capture in a planned session so typed notes keep the active plan breadcrumb/question context.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-082",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium --reporter=line",
+    result: "86 passed, 0 failed",
+    duration: "1.2m",
+    warnings:
+      "Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new guided-plan section-switch written capture case creates a synthetic plan-build session, validates mocked topics, starts the session, switches the active plan rail subtopic, submits a typed complement tied to question q-safety-stop, and proves no real backend call, upload, VM mutation, Andritz collection mutation, SFTP production-data mutation or publish request occurs.",
+    notes:
+      "Adds browser-level regression coverage for mixed written capture after plan-section switching so typed notes follow the selected plan breadcrumb/question instead of a stale/default section.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3425,6 +3455,8 @@ const executedTestResults = new Map([
   pass("KCAP-006-T01", "Mapped to topic plan edit/approval and topic validation service tests.", 8),
   pass("KCAP-006-T02", "Mapped to topic validation/normalization tests for missing or invalid topic structures.", 8),
   pass("KCAP-008-T01", "Mapped to written capture turn service test preserving document context while staying off the STT path.", 8),
+  pass("KCAP-008-T04", "Mapped to local Playwright mocked guided-plan written note smoke proving a typed complement keeps question_id=q-alignment and the active plan context while staying off real backend/data paths.", 92),
+  pass("KCAP-008-T05", "Mapped to local Playwright mocked guided-plan section-switch written note smoke proving a typed complement follows the selected plan section question_id=q-safety-stop instead of the default q-alignment.", 93),
   pass("KCAP-012-T01", "Mapped to VoiceSessionGateway partial-then-final tests with live transcript.partial and reused partial finalization.", 8),
   pass("KCAP-012-T03", "Mapped to partial_stt and endpoint_stt runtime metric tests for empty partials, provider/reused_partial source, and separated endpoint_stt_ms.", 8),
   pass("KCAP-013-T03", "Mapped to free-conversation weak-evidence prefetch test proving retrieval remains passive and does not push grounded questions/hints.", 8),
@@ -3839,8 +3871,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[91].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[93].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, guided-plan written note anchoring, guided-plan section-switch anchoring, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -4691,10 +4723,26 @@ const phaseRows = [
     executionEvidence[91].safetyScope,
     "Continue with real-backend read-only validation when safe; keep empty-session finish checks synthetic unless explicitly approved.",
   ],
+  [
+    executionEvidence[92].date,
+    "Phase 3 Knowledge Capture guided-plan written note smoke",
+    "Extended the local Playwright Andritz smoke so a synthetic plan-build session validates topics, starts in guided/manual mode, and submits a typed complement tied to the active plan question.",
+    `${executionEvidence[92].result}; ${mappedPassedCountForEvidence(executionEvidence[92].id)} workbook test case mapped as Pass.`,
+    executionEvidence[92].safetyScope,
+    "Continue with real-backend read-only validation when safe; keep guided-plan browser capture checks mocked unless explicitly approved.",
+  ],
+  [
+    executionEvidence[93].date,
+    "Phase 3 Knowledge Capture guided-plan section switch smoke",
+    "Extended the local Playwright Andritz smoke so a synthetic guided-plan session switches to another plan rail subtopic before submitting a typed complement tied to the newly selected question.",
+    `${executionEvidence[93].result}; ${mappedPassedCountForEvidence(executionEvidence[93].id)} workbook test case mapped as Pass.`,
+    executionEvidence[93].safetyScope,
+    "Continue with real-backend read-only validation when safe; keep guided-plan browser capture checks mocked unless explicitly approved.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F87"));
+styleBody(phase.getRange("A2:F89"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
