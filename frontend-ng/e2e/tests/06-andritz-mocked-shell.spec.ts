@@ -48,6 +48,20 @@ type MockKnowledgeCollectionItem = {
   chunk_count?: number | null;
   updated_at?: string | null;
 };
+type MockSftpDepositLink = {
+  id: string;
+  label: string;
+  access_id: string;
+  public_url: string;
+  generated_password?: string | null;
+  status: 'active' | 'revoked' | string;
+  expires_at: string | null;
+  max_file_size_mb: number;
+  allowed_extensions: string[];
+  created_at: string;
+  created_by_user_id: string;
+  created_by: string;
+};
 type MockSftpDepositFile = {
   id: string;
   access_link_id: string;
@@ -68,6 +82,22 @@ type MockSftpIndexingAssist = {
   recommendations: Array<Record<string, unknown>>;
   collection: Record<string, unknown>;
 };
+
+function defaultSftpDepositLink(activeUser = user): MockSftpDepositLink {
+  return {
+    id: 'link-andritz-qa',
+    label: 'Andritz QA external upload',
+    access_id: 'andritz-qa',
+    public_url: 'https://example.test/deposit/andritz-qa',
+    status: 'active',
+    expires_at: null,
+    max_file_size_mb: 250,
+    allowed_extensions: ['.pdf', '.docx', '.pptx', '.xlsx'],
+    created_at: '2026-06-23T00:00:00Z',
+    created_by_user_id: activeUser.id,
+    created_by: activeUser.email,
+  };
+}
 
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({
@@ -527,6 +557,7 @@ async function installAndritzMocks(
     contextPersistShouldFail?: boolean;
     knowledgeScopes?: MockKnowledgeScope[];
     knowledgeCollectionItems?: MockKnowledgeCollectionItem[];
+    sftpLinks?: MockSftpDepositLink[];
     sftpDepositFiles?: MockSftpDepositFile[];
     sftpOperations?: unknown;
     sftpIndexingAssist?: MockSftpIndexingAssist;
@@ -540,6 +571,7 @@ async function installAndritzMocks(
     sftpArchiveMemberPreviewRequests?: string[];
     sftpFileDownloadRequests?: string[];
     sftpArchiveMemberDownloadRequests?: string[];
+    sftpLinkMutationRequests?: Array<{ path: string; body?: unknown }>;
   } = {},
 ) {
   const roleTemplate = options.roleTemplate ?? 'workspace_admin';
@@ -605,6 +637,7 @@ async function installAndritzMocks(
   const sftpArchiveMemberPreviewRequests = options.sftpArchiveMemberPreviewRequests;
   const sftpFileDownloadRequests = options.sftpFileDownloadRequests;
   const sftpArchiveMemberDownloadRequests = options.sftpArchiveMemberDownloadRequests;
+  const sftpLinkMutationRequests = options.sftpLinkMutationRequests;
   let collectionDeleted = false;
   const createdCollections: string[] = [];
   let collectionPreviewRequestCount = 0;
@@ -640,6 +673,7 @@ async function installAndritzMocks(
       },
     ],
   };
+  const sftpLinks = options.sftpLinks ?? [defaultSftpDepositLink(activeUser)];
 
   await page.addInitScript(() => {
     localStorage.setItem('agentium_token', 'Bearer mocked-andritz-token');
@@ -1178,23 +1212,48 @@ async function installAndritzMocks(
         default_allowed_extensions: ['.pdf', '.docx', '.pptx', '.xlsx', '.png', '.jpg'],
       });
     }
-    if (path === '/sftp/links') {
+    if (path === '/sftp/links' && method === 'GET') {
       return json(route, {
-        links: [
-          {
-            id: 'link-andritz-qa',
-            label: 'Andritz QA external upload',
-            access_id: 'andritz-qa',
-            public_url: 'https://example.test/deposit/andritz-qa',
-            status: 'active',
-            expires_at: null,
-            max_file_size_mb: 250,
-            allowed_extensions: ['.pdf', '.docx', '.pptx', '.xlsx'],
-            created_at: '2026-06-23T00:00:00Z',
-            created_by_user_id: activeUser.id,
-            created_by: activeUser.email,
-          },
-        ],
+        links: sftpLinks,
+      });
+    }
+    if (path === '/sftp/links' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      sftpLinkMutationRequests?.push({ path, body });
+      return json(route, {
+        link: {
+          id: 'link-andritz-new',
+          label: body['label'] || 'External deposit',
+          access_id: 'andritz-new',
+          public_url: 'https://example.test/deposit/andritz-new',
+          generated_password: 'temporary-secret-visible-once',
+          status: 'active',
+          expires_at: body['expires_at'] || null,
+          max_file_size_mb: body['max_file_size_mb'] || 100,
+          allowed_extensions: body['allowed_extensions'] || ['.pdf'],
+          created_at: '2026-06-23T00:45:00Z',
+          created_by_user_id: activeUser.id,
+          created_by: activeUser.email,
+        },
+      });
+    }
+    if (/^\/sftp\/links\/[^/]+\/(rotate|revoke)$/.test(path) && method === 'POST') {
+      sftpLinkMutationRequests?.push({ path, body: request.postDataJSON() });
+      return json(route, {
+        link: {
+          id: 'link-andritz-qa',
+          label: 'Andritz QA external upload',
+          access_id: 'andritz-qa',
+          public_url: 'https://example.test/deposit/andritz-qa',
+          generated_password: path.endsWith('/rotate') ? 'rotated-secret-visible-once' : null,
+          status: path.endsWith('/revoke') ? 'revoked' : 'active',
+          expires_at: null,
+          max_file_size_mb: 250,
+          allowed_extensions: ['.pdf', '.docx', '.pptx', '.xlsx'],
+          created_at: '2026-06-23T00:00:00Z',
+          created_by_user_id: activeUser.id,
+          created_by: activeUser.email,
+        },
       });
     }
     if (path === '/sftp/deposits' && method === 'GET') {
@@ -1414,6 +1473,87 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(sftpCard).not.toContainText(/configured|Config saved/i);
   });
 
+  test('copies an existing SFTP deposit URL without exposing a stored password or mutating links', async ({ page }) => {
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => {
+            window.localStorage.setItem('andritz_mock_clipboard', value);
+          },
+        },
+      });
+    });
+    await installAndritzMocks(page, {
+      sftpLinkMutationRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpOperationsReconcileRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    const depositLinks = page.locator('section').filter({ hasText: 'Deposit links' }).first();
+    await expect(depositLinks).toContainText('Andritz QA external upload');
+    await expect(depositLinks).toContainText('https://example.test/deposit/andritz-qa');
+    await expect(depositLinks.getByText(/Password:/i)).toHaveCount(0);
+
+    await depositLinks.getByRole('button', { name: /Copy URL/i }).click();
+    await expect(page.getByText('URL copied').first()).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem('andritz_mock_clipboard'))).toBe(
+      'https://example.test/deposit/andritz-qa',
+    );
+
+    expect(sftpLinkMutationRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+  });
+
+  test('shows a recoverable SFTP deposit URL copy error without mutating links', async ({ page }) => {
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async () => {
+            throw new Error('clipboard denied');
+          },
+        },
+      });
+    });
+    await installAndritzMocks(page, {
+      sftpLinkMutationRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpOperationsReconcileRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    const depositLinks = page.locator('section').filter({ hasText: 'Deposit links' }).first();
+    await expect(depositLinks).toContainText('Andritz QA external upload');
+    await depositLinks.getByRole('button', { name: /Copy URL/i }).click();
+
+    await expect(page.getByText('Copy failed').first()).toBeVisible();
+    await expect(page.getByText('URL copied')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem('andritz_mock_clipboard'))).toBeNull();
+
+    expect(sftpLinkMutationRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+  });
+
   test('loads and filters the SFTP staging queue without promoting synthetic files', async ({ page }) => {
     const sftpPromoteRequests: unknown[] = [];
     const sftpBulkPromoteRequests: unknown[] = [];
@@ -1462,6 +1602,120 @@ test.describe('Andritz mocked browser smoke', () => {
         path: '1-NON-WOVENS/FRANCE/andritz-promoted-manual.docx',
       }),
     ]);
+
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
+  });
+
+  test('filters the SFTP staging queue by deposit link and shows an empty search without mutating files', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    const secondaryLink: MockSftpDepositLink = {
+      ...defaultSftpDepositLink(),
+      id: 'link-andritz-maintenance',
+      label: 'Andritz maintenance upload',
+      access_id: 'andritz-maintenance',
+      public_url: 'https://example.test/deposit/andritz-maintenance',
+    };
+    await installAndritzMocks(page, {
+      sftpLinks: [defaultSftpDepositLink(), secondaryLink],
+      sftpDepositFiles: [
+        ...syntheticSftpDepositFiles(),
+        {
+          id: 'deposit-andritz-maintenance-1',
+          access_link_id: secondaryLink.id,
+          filename: '3-MAINTENANCE/andritz-maintenance-note.pdf',
+          content_type: 'application/pdf',
+          size_bytes: 48_000,
+          sha256: 'sha-maintenance-note',
+          status: 'received',
+          uploaded_at: '2026-06-23T00:18:00Z',
+          promoted_at: null,
+          worker_job_id: null,
+          promotion_result: null,
+        },
+      ],
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await page.getByText('Workspace staging queue', { exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.locator('select[name="queueFilter"]')).toContainText('Andritz maintenance upload');
+    await page.locator('select[name="queueFilter"]').selectOption(secondaryLink.id);
+    await expect(page.locator('select[name="queueFilter"]')).toHaveValue(secondaryLink.id);
+
+    const linkedQueueState = await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+          selectedLinkId?: () => string;
+          filteredFiles?: () => Array<{ filename?: string; access_link_id?: string; status?: string }>;
+          queueItems?: () => Array<{ kind?: string; name?: string; path?: string }>;
+          queueSearch?: () => string;
+        }
+        | undefined;
+      return {
+        selectedLinkId: component?.selectedLinkId?.(),
+        queueSearch: component?.queueSearch?.(),
+        filteredFiles: component?.filteredFiles?.() || [],
+        queueItems: component?.queueItems?.() || [],
+      };
+    });
+    expect(linkedQueueState).toMatchObject({
+      selectedLinkId: secondaryLink.id,
+      queueSearch: '',
+      filteredFiles: [
+        expect.objectContaining({
+          access_link_id: secondaryLink.id,
+          filename: '3-MAINTENANCE/andritz-maintenance-note.pdf',
+          status: 'received',
+        }),
+      ],
+    });
+    expect(linkedQueueState.queueItems).toEqual([
+      expect.objectContaining({
+        kind: 'folder',
+        name: '3-MAINTENANCE',
+        path: '3-MAINTENANCE',
+      }),
+    ]);
+
+    await page.locator('input[name="queueSearch"]').fill('no-maintenance-match');
+    await expect(page.getByText('No files match this search.')).toBeVisible();
+    const emptySearchState = await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+          selectedLinkId?: () => string;
+          filteredFiles?: () => Array<{ filename?: string; access_link_id?: string; status?: string }>;
+          queueItems?: () => Array<{ kind?: string; name?: string; path?: string }>;
+          queueSearch?: () => string;
+        }
+        | undefined;
+      return {
+        selectedLinkId: component?.selectedLinkId?.(),
+        queueSearch: component?.queueSearch?.(),
+        filteredFiles: component?.filteredFiles?.() || [],
+        queueItems: component?.queueItems?.() || [],
+      };
+    });
+    expect(emptySearchState).toMatchObject({
+      selectedLinkId: secondaryLink.id,
+      queueSearch: 'no-maintenance-match',
+      filteredFiles: [
+        expect.objectContaining({
+          access_link_id: secondaryLink.id,
+          filename: '3-MAINTENANCE/andritz-maintenance-note.pdf',
+        }),
+      ],
+      queueItems: [],
+    });
 
     expect(sftpPromoteRequests).toHaveLength(0);
     expect(sftpBulkPromoteRequests).toHaveLength(0);
