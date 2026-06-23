@@ -43,6 +43,7 @@ from app.services.knowledge_collections import (
     resolve_original_key,
     serialize_collection,
     serialize_job,
+    update_job,
     update_collection_status,
     upsert_collection_source,
 )
@@ -230,6 +231,9 @@ async def _queue_collection_ingest(
             mime_type=update["mime_type"],
             origin="upload",
             size_bytes=update["size_bytes"],
+            chunk_count=0,
+            source_metadata={},
+            replace_source_metadata=True,
         )
 
     update_collection_status(
@@ -249,7 +253,25 @@ async def _queue_collection_ingest(
     db.refresh(job)
     db.refresh(collection)
 
-    dispatch_worker_job(db, job)
+    try:
+        dispatch_worker_job(db, job)
+    except Exception as exc:  # noqa: BLE001 - persist a visible failed job before surfacing the API error.
+        update_job(
+            db,
+            job.id,
+            status="failed",
+            progress=100,
+            error=str(exc),
+            stage="dispatch_failed",
+        )
+        update_collection_status(
+            db,
+            collection.id,
+            status="error",
+            last_error=f"Worker dispatch failed: {exc}",
+        )
+        db.commit()
+        raise HTTPException(status_code=503, detail="Worker dispatch failed") from exc
     db.commit()
 
     db.refresh(job)

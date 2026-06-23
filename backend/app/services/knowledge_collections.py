@@ -163,6 +163,7 @@ def upsert_collection_source(
     size_bytes: int | None = None,
     chunk_count: int | None = None,
     source_metadata: dict[str, Any] | None = None,
+    replace_source_metadata: bool = False,
     last_error: str | None = None,
 ) -> KnowledgeCollectionSource:
     normalized = normalize_source_name(filename)
@@ -201,7 +202,9 @@ def upsert_collection_source(
     row.updated_at = now
     if status in {"indexed", "ready"}:
         row.indexed_at = now
-    if source_metadata:
+    if replace_source_metadata:
+        row.source_metadata = dict(source_metadata or {})
+    elif source_metadata:
         merged = dict(row.source_metadata or {})
         merged.update(source_metadata)
         row.source_metadata = merged

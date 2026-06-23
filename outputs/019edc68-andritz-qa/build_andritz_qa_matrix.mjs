@@ -10,9 +10,9 @@ const sheetPreviewRanges = [
   ["Coverage Summary", "A1:D21", "andritz_qa_matrix_summary.png"],
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
-  ["Defect Register", "A1:J24", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A88:I118", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A83:F112", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Defect Register", "A1:J26", "andritz_qa_matrix_defect_register_preview.png"],
+  ["Execution Log", "A88:I123", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A83:F117", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -3559,6 +3559,76 @@ const executionEvidence = [
     notes:
       "Adds synthetic collection batch-upload coverage: /documents/collections/{id}/documents returns the queued job, stores all originals, updates document_names/document_count, creates one source per uploaded file, and keeps inventory by_kind coherent.",
   },
+  {
+    id: "EXEC-2026-06-23-BE-027",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py::test_list_documents_caps_large_vector_page_and_rejects_oversized_limit -q",
+    result: "1 passed, 0 failed",
+    duration: "1.61s",
+    warnings:
+      "5 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API test only. The new large document-list case uses a synthetic workspace and fake in-memory DocumentService returning 1505 documents, verifies limit/offset pagination and FastAPI rejection of limit=1001, and performs no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, upload, or vector/object-store mutation.",
+    notes:
+      "Adds large vector document-list coverage: /documents/list can page 1000 items from a larger vector-only result set, preserves total/has_more metadata, and rejects oversized limits before instantiating the document service.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-028",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py -q",
+    result: "36 passed, 0 failed",
+    duration: "2.33s",
+    warnings:
+      "221 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new existing-collection upload cases use synthetic workspaces/collections, tmp_path local object stores and mocked worker dispatch, verify manifest extension plus same-name requeue cleanup, and perform no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, or vector/object-store mutation outside tmp_path.",
+    notes:
+      "Adds existing-collection upload coverage and verifies the fix for stale source ledger metadata: adding a new file preserves prior sources, while reuploading an existing filename leaves one manifest entry, rewrites the original object, resets chunk_count to 0, clears stale document_id metadata, and queues the source for reindexing.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-029",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py -q",
+    result: "37 passed, 0 failed",
+    duration: "2.27s",
+    warnings:
+      "230 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new worker-enqueue failure case uses a synthetic workspace/collection, tmp_path local object store and mocked dispatch_worker_job raising RuntimeError, verifies visible API failure plus persisted failed job/errored collection/source ledger, and performs no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, or vector/object-store mutation outside tmp_path.",
+    notes:
+      "Adds existing-collection worker-dispatch failure coverage and verifies the fix for false queued states: dispatch errors now return 503 while persisting job.status=failed, collection.status=error, collection.last_error and traceable original/source rows.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-030",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py -q",
+    result: "38 passed, 0 failed",
+    duration: "2.32s",
+    warnings:
+      "277 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new large batch case uses a synthetic workspace, /documents/upload-batch, 40 tiny in-memory text files, tmp_path local object store and mocked worker dispatch, and performs no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, or vector/object-store mutation outside tmp_path.",
+    notes:
+      "Adds large synthetic upload-batch coverage: one request creates the target collection, one queued job, 40 traceable source rows/original objects, stable document_names/document_count, and queued per-file response rows without invoking real ingestion.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-031",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py -q",
+    result: "39 passed, 0 failed",
+    duration: "2.30s",
+    warnings:
+      "287 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new diagnostics failure case uses a synthetic workspace/collection and a fake DocumentService that raises on get_document_count, verifying SQL ledger diagnostics remain visible without backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, or vector/object-store mutation.",
+    notes:
+      "Adds diagnostics degradation coverage: /documents/collections/{id}/diagnostics returns 200 when vector diagnostics fail, keeps ledger source/document/chunk counts plus fact coverage visible, and marks vector drift as unknown.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3598,6 +3668,7 @@ const executedTestResults = new Map([
   pass("COL-005-T02", "Mapped to collection inventory filtering/sorting/global aggregate tests."),
   pass("COL-005-T03", "Mapped to local Collections API test proving invalid inventory source_offset/source_limit are rejected with 422 before source rows are returned.", 108),
   pass("COL-006-T01", "Mapped to collection diagnostics coverage tests."),
+  pass("COL-006-T02", "Mapped to local Collections API test proving diagnostics returns ledger counts/fact coverage with drift_status=unknown when the vector service raises.", 121),
   pass("COL-006-T03", "Mapped to local Collections API test proving empty collection inventory and diagnostics stay coherent with zero counts, empty fact states and disabled graph status even when vector diagnostics are unavailable.", 109),
   pass("COL-007-T01", "Mapped to document preview/rich-preview resolution tests."),
   pass("COL-008-T01", "Mapped to dense scoped collection search tests."),
@@ -3639,8 +3710,13 @@ const executedTestResults = new Map([
   pass("COL-011-T02", "Mapped to local Knowledge Guides API test proving draft guides are ignored by effective guide resolution until patched to published, after which the published version becomes effective.", 114),
   pass("COL-016-T03", "Mapped to local Documents API test proving a non-admin workspace member receives 403 on collection metadata patch and name/description remain unchanged.", 106),
   pass("COL-017-T01", "Mapped to local Documents API test proving /documents/list returns current-workspace vector documents with pagination and filters hidden/temp/missing-id rows.", 110),
+  pass("COL-017-T02", "Mapped to local Collections API test proving /documents/list pages a large synthetic vector-only document set at limit=1000 and rejects oversized limit=1001 without invoking the service.", 117),
   pass("COL-017-T03", "Mapped to local Documents API test proving /documents/list for a collection slug that exists only in another workspace returns no documents and instantiates the vector fallback with the current workspace slug.", 106),
   pass("COL-019-T01", "Mapped to local Collections API test proving synthetic multi-file collection upload returns a queued job, stores all originals and creates coherent source rows/inventory for every file.", 116),
+  pass("COL-019-T03", "Mapped to local Collections API test proving /documents/upload-batch handles a 40-file synthetic batch with one job, traceable source rows, original objects and stable manifest counts.", 120),
+  pass("COL-020-T01", "Mapped to local Collections API test proving adding a synthetic file to an existing collection extends document_names/source rows without overwriting the prior ready source.", 118),
+  pass("COL-020-T02", "Mapped to local Collections API test proving reuploading an existing filename keeps one manifest entry and requeues a clean source row without stale chunk/document metadata.", 118),
+  pass("COL-020-T03", "Mapped to local Collections API test proving a worker dispatch failure returns a visible 503 while persisting a failed job, errored collection status, and traceable source/original file.", 119),
   pass("COL-021-T02", "Mapped to local Knowledge Scopes API test proving invalid scope patches are rejected with 422 without mutating existing workspace knowledge_scopes or refreshing chat defaults.", 113),
   pass("COL-021-T03", "Mapped to local Knowledge API test proving a workspace_contributor receives 403 on PATCH /knowledge/scopes and workspace settings remain unchanged.", 106),
   pass("COL-022-T01", "Mapped to local Playwright mocked collection-detail smoke proving the Knowledge detail Bindings action renders the visible system whose flow_definition.collections includes andritz-qa.", 107),
@@ -4145,6 +4221,40 @@ const defectRecords = [
     status: "Fixed",
     ownerNotes:
       "Fixed by grouping collection source updates by normalize_source_name within the request and applying one upsert per normalized filename after object writes. Verified by EXEC-2026-06-23-BE-021.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-COL-026",
+    featureIds: ["COL-020"],
+    reproduction:
+      "POST a file whose normalized filename already exists in a synthetic /documents/collections/{id}/documents collection. Before the fix, the source row status moved back to queued but retained the old chunk_count and source_metadata.document_id from the prior indexed version.",
+    expected:
+      "Reuploading an existing filename keeps a single manifest/source entry, overwrites the stored original, queues the source for reindexing, and clears stale chunk/document metadata until the worker writes fresh results.",
+    actual:
+      "The targeted test initially failed because chunk_count stayed at 2 after requeue; source metadata would also continue pointing at the previous document id until worker completion.",
+    severity: "High",
+    rootCause:
+      "The collection upload path called upsert_collection_source with status=queued and size bytes only, while upsert_collection_source preserved existing chunk_count and merged metadata unless fresh metadata was supplied.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by adding an explicit replace_source_metadata option to upsert_collection_source and using it only when upload requeues a source, together with chunk_count=0. Verified by EXEC-2026-06-23-BE-028.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-COL-027",
+    featureIds: ["COL-020"],
+    reproduction:
+      "Mock dispatch_worker_job to raise during POST /documents/collections/{id}/documents on a synthetic collection. Before the fix, the source, collection and job were already committed as queued, then the API surfaced an unstructured 500 without marking the failed dispatch in the ledger.",
+    expected:
+      "A worker dispatch failure is visible to the caller and leaves an auditable state: job failed, collection error with last_error, source/original file still traceable for retry or investigation.",
+    actual:
+      "The upload path committed queued state before dispatch and had no dispatch exception handling, leaving operators with a false queued/in-progress state even though no worker task was launched.",
+    severity: "High",
+    rootCause:
+      "_queue_collection_ingest committed the collection/source/job ledger before dispatch_worker_job but did not catch dispatch exceptions to update job or collection status.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by catching dispatch exceptions, persisting update_job(status=failed, stage=dispatch_failed), setting collection.status=error/last_error, committing that state, then returning HTTP 503. Verified by EXEC-2026-06-23-BE-029.",
     updated: "2026-06-23",
   },
   {
@@ -5428,10 +5538,50 @@ const phaseRows = [
     executionEvidence[116].safetyScope,
     "Continue with mocked/synthetic validation for mixed unsupported uploads, large batch limits and worker enqueue failures; do not upload into real Andritz collections without explicit approval.",
   ],
+  [
+    executionEvidence[117].date,
+    "Phase 5 Collections large document-list regression",
+    "Added local Collections API coverage proving vector-only document listing remains paginated and bounded for a large synthetic result set.",
+    `${executionEvidence[117].result}; ${mappedPassedCountForEvidence(executionEvidence[117].id)} workbook test case mapped as Pass.`,
+    executionEvidence[117].safetyScope,
+    "Continue with mocked/synthetic validation for mixed unsupported uploads, large batch limits and worker enqueue failures; do not query or mutate real Andritz large collections without explicit approval.",
+  ],
+  [
+    executionEvidence[118].date,
+    "Phase 4/5 Collections existing-upload remediation",
+    "Added local Collections API coverage for adding to an existing collection and reuploading an existing filename, then fixed stale source-ledger metadata on requeue.",
+    `${executionEvidence[118].result}; ${mappedPassedCountForEvidence(executionEvidence[118].id)} workbook test cases mapped as Pass; DEF-2026-06-23-COL-026 fixed.`,
+    executionEvidence[118].safetyScope,
+    "Continue with mocked/synthetic validation for mixed unsupported uploads, large batch limits and worker enqueue failures; keep real Andritz collection uploads behind explicit approval.",
+  ],
+  [
+    executionEvidence[119].date,
+    "Phase 4/5 Collections dispatch-failure remediation",
+    "Added local Collections API coverage for worker enqueue failure on collection upload, then fixed false queued states by persisting failed job and errored collection status.",
+    `${executionEvidence[119].result}; ${mappedPassedCountForEvidence(executionEvidence[119].id)} workbook test case mapped as Pass; DEF-2026-06-23-COL-027 fixed.`,
+    executionEvidence[119].safetyScope,
+    "Continue with mocked/synthetic validation for mixed unsupported uploads and large batch limits; keep real Andritz collection uploads behind explicit approval.",
+  ],
+  [
+    executionEvidence[120].date,
+    "Phase 5 Collections large upload-batch regression",
+    "Added local Collections API coverage proving /documents/upload-batch can queue a 40-file synthetic batch with one job and coherent source/original ledgers.",
+    `${executionEvidence[120].result}; ${mappedPassedCountForEvidence(executionEvidence[120].id)} workbook test case mapped as Pass.`,
+    executionEvidence[120].safetyScope,
+    "Continue with mocked/synthetic validation for mixed unsupported uploads; keep real Andritz collection uploads behind explicit approval.",
+  ],
+  [
+    executionEvidence[121].date,
+    "Phase 5 Collections diagnostics failure regression",
+    "Added local Collections API coverage proving diagnostics remains useful when vector diagnostics fail, by returning SQL ledger counts and fact coverage with unknown drift.",
+    `${executionEvidence[121].result}; ${mappedPassedCountForEvidence(executionEvidence[121].id)} workbook test case mapped as Pass.`,
+    executionEvidence[121].safetyScope,
+    "Continue with mocked/synthetic validation for OCR duplicate facts, mixed unsupported uploads and read-only reindex assessment.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F112"));
+styleBody(phase.getRange("A2:F117"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

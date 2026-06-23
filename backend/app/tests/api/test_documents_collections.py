@@ -436,6 +436,56 @@ def test_list_documents_returns_workspace_vector_documents_with_pagination(
     assert "missing-id.pdf" not in str(body)
 
 
+def test_list_documents_caps_large_vector_page_and_rejects_oversized_limit(
+    db_session,
+    monkeypatch,
+):
+    ws = Workspace(id="ws-list-vector-large", name="List Vector Large", slug="list-vector-large")
+    db_session.add(ws)
+    db_session.commit()
+    calls: list[dict[str, str | None]] = []
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            calls.append(
+                {
+                    "collection_name": kwargs.get("collection_name"),
+                    "workspace_slug": kwargs.get("workspace_slug"),
+                }
+            )
+
+        async def list_documents(self):
+            return [
+                {"document_id": f"doc-{index:04d}", "filename": f"manual-{index:04d}.pdf"}
+                for index in range(1505)
+            ]
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+
+    response = _client(db_session, ws).get("/documents/list?limit=1000&offset=250")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "vector"
+    assert body["total"] == 1505
+    assert body["limit"] == 1000
+    assert body["offset"] == 250
+    assert body["has_more"] is True
+    assert len(body["documents"]) == 1000
+    assert body["documents"][0]["document_id"] == "doc-0250"
+    assert body["documents"][-1]["document_id"] == "doc-1249"
+    assert calls == [
+        {
+            "collection_name": "documents",
+            "workspace_slug": ws.slug,
+        }
+    ]
+
+    invalid = _client(db_session, ws).get("/documents/list?limit=1001")
+    assert invalid.status_code == 422
+    assert len(calls) == 1
+
+
 def test_list_chunks_returns_exact_ledger_total_for_document(db_session, monkeypatch):
     ws = Workspace(id="ws-chunks", name="Chunks", slug="chunks")
     db_session.add(ws)
@@ -924,6 +974,85 @@ def test_collection_diagnostics_reports_drift_and_fact_coverage(db_session, monk
     assert body["feature_status"]["offline_clustering"]["state"] == "not_needed"
 
 
+def test_collection_diagnostics_keeps_ledger_visible_when_vector_service_fails(
+    db_session,
+    monkeypatch,
+):
+    ws = Workspace(id="ws-diagnostics-vector-fails", name="Diagnostics Vector Fails", slug="diagnostics-vector-fails")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    collection.document_count = 2
+    collection.chunk_count = 14
+    db_session.add_all(
+        [
+            KnowledgeCollectionSource(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                filename="manual-a.pdf",
+                normalized_name="manual-a.pdf",
+                source_kind="pdf",
+                extension="pdf",
+                mime_type="application/pdf",
+                origin="upload",
+                chunk_count=6,
+                status="ready",
+            ),
+            KnowledgeCollectionSource(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                filename="manual-b.pdf",
+                normalized_name="manual-b.pdf",
+                source_kind="pdf",
+                extension="pdf",
+                mime_type="application/pdf",
+                origin="upload",
+                chunk_count=8,
+                status="ready",
+            ),
+            KnowledgeDocumentFact(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                collection_slug=collection.slug,
+                document_id="doc-warning",
+                document_filename="manual-a.pdf",
+                document_type="pdf",
+                semantic_type="document_warning",
+                content="warning",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    class FailingDocumentService:
+        def __init__(self, *args, **kwargs):
+            self.vector_db = object()
+
+        async def get_document_count(self):
+            raise RuntimeError("qdrant unavailable")
+
+    monkeypatch.setattr(documents, "DocumentService", FailingDocumentService)
+
+    response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.slug}/diagnostics"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["vector_points"] is None
+    assert body["vector_dim"] is None
+    assert body["drift"] is None
+    assert body["drift_status"] == "unknown"
+    assert body["ledger_source_count"] == 2
+    assert body["ledger_document_count"] == 2
+    assert body["ledger_chunk_sum"] == 14
+    assert body["by_kind"] == {"pdf": 2}
+    assert body["by_status"] == {"ready": 2}
+    assert body["document_facts"]["by_type"] == {"document_warning": 1}
+    assert body["feature_status"]["document_facts"]["state"] == "available"
+    assert body["feature_status"]["ocr"]["state"] == "empty"
+
+
 def test_embedding_graph_caps_dense_sample_and_hides_raw_vectors(db_session, monkeypatch):
     documents._GRAPH_CACHE.clear()
     ws = Workspace(id="ws-graph", name="Graph", slug="graph")
@@ -1158,6 +1287,262 @@ def test_collection_document_upload_batch_creates_sources_for_all_files(
     assert inventory["document_count"] == 3
     assert inventory["sources_returned"] == 3
     assert inventory["by_kind"] == {"image": 1, "spreadsheet": 1, "text": 1}
+
+
+def test_upload_batch_handles_large_synthetic_batch_with_one_job(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "document_ingest_async_enabled", True)
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-upload-global-large", name="Upload Global Large", slug="upload-global-large")
+    db_session.add(ws)
+    db_session.commit()
+    filenames = [f"manual-{index:02d}.txt" for index in range(40)]
+
+    def fake_dispatch(db, job):
+        job.celery_task_id = "task-large-batch"
+        return "task-large-batch"
+
+    monkeypatch.setattr(documents, "dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, ws).post(
+        "/documents/upload-batch",
+        data={"collection_name": "large-batch"},
+        files=[
+            ("files", (filename, f"payload {filename}".encode(), "text/plain"))
+            for filename in filenames
+        ],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "queued"
+    assert body["collection_name"] == "large-batch"
+    assert body["total"] == len(filenames)
+    assert body["successful"] == 0
+    assert body["failed"] == 0
+    assert len(body["documents"]) == len(filenames)
+    assert {item["filename"] for item in body["documents"]} == set(filenames)
+    assert {item["status"] for item in body["documents"]} == {"queued"}
+
+    collection = (
+        db_session.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.workspace_id == ws.id, KnowledgeCollection.slug == "large-batch")
+        .one()
+    )
+    assert collection.status == "queued"
+    assert collection.document_names == filenames
+    assert collection.document_count == len(filenames)
+
+    jobs = db_session.query(WorkerJob).filter(WorkerJob.collection_id == collection.id).all()
+    assert len(jobs) == 1
+    assert jobs[0].celery_task_id == "task-large-batch"
+
+    sources = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .order_by(KnowledgeCollectionSource.filename.asc())
+        .all()
+    )
+    assert [source.filename for source in sources] == filenames
+    assert {source.status for source in sources} == {"queued"}
+    assert all(source.chunk_count == 0 for source in sources)
+    assert all(
+        (tmp_path / "objects" / collection.artifact_prefix / "original" / filename).read_bytes()
+        == f"payload {filename}".encode()
+        for filename in filenames
+    )
+
+
+def test_collection_document_upload_extends_existing_manifest_without_overwriting_sources(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-upload-extend", name="Upload Extend", slug="upload-extend")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    collection.document_names = ["existing.pdf"]
+    collection.document_count = 1
+    db_session.add(
+        KnowledgeCollectionSource(
+            workspace_id=ws.id,
+            collection_id=collection.id,
+            filename="existing.pdf",
+            normalized_name="existing.pdf",
+            source_kind="pdf",
+            extension="pdf",
+            mime_type="application/pdf",
+            origin="upload",
+            size_bytes=17,
+            chunk_count=4,
+            status="ready",
+            source_metadata={"document_id": "doc-existing"},
+        )
+    )
+    db_session.commit()
+
+    def fake_dispatch(db, job):
+        job.celery_task_id = "task-extend"
+        return "task-extend"
+
+    monkeypatch.setattr(documents, "dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, ws).post(
+        f"/documents/collections/{collection.id}/documents",
+        files=[("files", ("new-note.txt", b"new note", "text/plain"))],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["files"] == ["new-note.txt"]
+    assert body["celery_task_id"] == "task-extend"
+
+    db_session.refresh(collection)
+    assert collection.document_names == ["existing.pdf", "new-note.txt"]
+    assert collection.document_count == 2
+
+    sources = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .order_by(KnowledgeCollectionSource.filename.asc())
+        .all()
+    )
+    assert [(source.filename, source.status, source.chunk_count) for source in sources] == [
+        ("existing.pdf", "ready", 4),
+        ("new-note.txt", "queued", 0),
+    ]
+    assert (
+        tmp_path / "objects" / collection.artifact_prefix / "original" / "new-note.txt"
+    ).read_bytes() == b"new note"
+
+
+def test_collection_document_upload_existing_filename_updates_source_without_manifest_dup(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-upload-existing-name", name="Upload Existing Name", slug="upload-existing-name")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    collection.document_names = ["manual.txt"]
+    collection.document_count = 1
+    db_session.add(
+        KnowledgeCollectionSource(
+            workspace_id=ws.id,
+            collection_id=collection.id,
+            filename="manual.txt",
+            normalized_name="manual.txt",
+            source_kind="text",
+            extension="txt",
+            mime_type="text/plain",
+            origin="upload",
+            size_bytes=3,
+            chunk_count=2,
+            status="ready",
+            source_metadata={"document_id": "doc-existing-manual"},
+        )
+    )
+    db_session.commit()
+
+    def fake_dispatch(db, job):
+        job.celery_task_id = "task-existing-name"
+        return "task-existing-name"
+
+    monkeypatch.setattr(documents, "dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, ws).post(
+        f"/documents/collections/{collection.id}/documents",
+        files=[("files", ("manual.txt", b"new", "text/plain"))],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["files"] == ["manual.txt"]
+
+    db_session.refresh(collection)
+    assert collection.document_names == ["manual.txt"]
+    assert collection.document_count == 1
+
+    sources = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .all()
+    )
+    assert len(sources) == 1
+    assert sources[0].filename == "manual.txt"
+    assert sources[0].size_bytes == 3
+    assert sources[0].chunk_count == 0
+    assert sources[0].status == "queued"
+    assert sources[0].source_metadata == {}
+    assert (
+        tmp_path / "objects" / collection.artifact_prefix / "original" / "manual.txt"
+    ).read_bytes() == b"new"
+
+
+def test_collection_document_upload_worker_enqueue_failure_is_persisted(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-upload-dispatch-fails", name="Upload Dispatch Fails", slug="upload-dispatch-fails")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    db_session.commit()
+
+    def failing_dispatch(db, job):
+        raise RuntimeError("broker offline")
+
+    monkeypatch.setattr(documents, "dispatch_worker_job", failing_dispatch)
+
+    response = _client(db_session, ws).post(
+        f"/documents/collections/{collection.id}/documents",
+        files=[("files", ("manual.txt", b"manual", "text/plain"))],
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Worker dispatch failed"
+
+    db_session.refresh(collection)
+    assert collection.status == "error"
+    assert collection.last_error == "Worker dispatch failed: broker offline"
+    assert collection.document_names == ["manual.txt"]
+    assert collection.document_count == 1
+    assert (
+        tmp_path / "objects" / collection.artifact_prefix / "original" / "manual.txt"
+    ).read_bytes() == b"manual"
+
+    job = (
+        db_session.query(WorkerJob)
+        .filter(WorkerJob.collection_id == collection.id)
+        .one()
+    )
+    assert job.status == "failed"
+    assert job.progress == 100
+    assert job.error == "broker offline"
+    assert job.result["stage"] == "dispatch_failed"
+
+    source = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .one()
+    )
+    assert source.filename == "manual.txt"
+    assert source.status == "queued"
+    assert source.chunk_count == 0
+    assert source.source_metadata == {}
 
 
 def test_collection_document_upload_duplicate_filename_keeps_inventory_coherent(
