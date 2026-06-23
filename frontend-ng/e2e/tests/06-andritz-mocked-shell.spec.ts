@@ -650,6 +650,8 @@ async function installAndritzMocks(
     chatStreamAbortDelayMs?: number;
     chatStreamDeepQueued?: boolean;
     chatSessionCreateRequests?: unknown[];
+    auditRequests?: unknown[];
+    auditShouldFail?: boolean;
     workspaceJobRequests?: string[];
     chatUploadRequests?: string[];
     sourcePreviewRequests?: string[];
@@ -753,6 +755,8 @@ async function installAndritzMocks(
   const chatStreamAbortDelayMs = options.chatStreamAbortDelayMs ?? 0;
   const chatStreamDeepQueued = options.chatStreamDeepQueued ?? false;
   const chatSessionCreateRequests = options.chatSessionCreateRequests;
+  const auditRequests = options.auditRequests;
+  const auditShouldFail = options.auditShouldFail ?? false;
   const workspaceJobRequests = options.workspaceJobRequests;
   const chatUploadRequests = options.chatUploadRequests;
   const sourcePreviewRequests = options.sourcePreviewRequests;
@@ -1854,6 +1858,13 @@ async function installAndritzMocks(
     }
     if (path === '/actions/effective') {
       return json(route, { actions: [] });
+    }
+    if (path === '/audit' && method === 'POST') {
+      auditRequests?.push(request.postDataJSON());
+      if (auditShouldFail) {
+        return json(route, { detail: 'Mocked audit unavailable' }, 500);
+      }
+      return json(route, { status: 'ok' });
     }
     if (path === '/voice/runtimes') {
       return json(route, {
@@ -4981,6 +4992,81 @@ test.describe('Andritz mocked browser smoke', () => {
       include_sources: true,
       include_reasoning: true,
     });
+  });
+
+  test('records Recherche answer feedback without changing the answer or source scope', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const auditRequests: unknown[] = [];
+    await installAndritzMocks(page, { chatStreamRequests, auditRequests });
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Cette réponse Andritz QA est-elle vérifiable ?');
+    await input.press('Enter');
+
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    const helpful = page.getByTitle('Helpful').first();
+    const notHelpful = page.getByTitle('Not helpful').first();
+    await expect(helpful).toBeVisible();
+    await expect(notHelpful).toBeVisible();
+
+    await helpful.click();
+    await expect(helpful).toHaveClass(/text-emerald-400/);
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+
+    await notHelpful.click();
+    await expect(notHelpful).toHaveClass(/text-red-400/);
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Sources · 1|1 sources/i }).first()).toBeVisible();
+
+    expect(chatStreamRequests).toHaveLength(1);
+    await expect.poll(() => auditRequests.filter((entry) => (entry as { event_type?: string }).event_type === 'chat_feedback').length).toBe(2);
+    const feedbackAuditRequests = auditRequests.filter(
+      (entry) => (entry as { event_type?: string }).event_type === 'chat_feedback',
+    );
+    expect(feedbackAuditRequests).toEqual([
+      expect.objectContaining({
+        event_type: 'chat_feedback',
+        actor: 'user',
+        severity: 'info',
+        details: expect.objectContaining({ verdict: 'up' }),
+      }),
+      expect.objectContaining({
+        event_type: 'chat_feedback',
+        actor: 'user',
+        severity: 'info',
+        details: expect.objectContaining({ verdict: 'down' }),
+      }),
+    ]);
+  });
+
+  test('keeps Recherche answer feedback local when audit logging fails', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const auditRequests: unknown[] = [];
+    await installAndritzMocks(page, { chatStreamRequests, auditRequests, auditShouldFail: true });
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Le retour utilisateur doit rester non bloquant.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    const helpful = page.getByTitle('Helpful').first();
+    await helpful.click();
+
+    await expect(helpful).toHaveClass(/text-emerald-400/);
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Sources · 1|1 sources/i }).first()).toBeVisible();
+    await expect(input).toBeEnabled();
+
+    expect(chatStreamRequests).toHaveLength(1);
+    await expect.poll(() => auditRequests.filter((entry) => (entry as { event_type?: string }).event_type === 'chat_feedback').length).toBe(1);
+    expect(auditRequests).toContainEqual(
+      expect.objectContaining({
+        event_type: 'chat_feedback',
+        details: expect.objectContaining({ verdict: 'up' }),
+      }),
+    );
   });
 
   test('keeps Recherche Quick ask responsive with a long prompt', async ({ page }) => {
