@@ -3802,6 +3802,45 @@ test.describe('Andritz mocked browser smoke', () => {
     });
   });
 
+  test('renders a late same-turn voice partial while endpoint STT is finalizing', async ({ page }) => {
+    await installAndritzMocks(page, { captureSessionStartsActive: true });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA late partial smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA late partial smoke' })).toBeVisible();
+
+    await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      component.currentClientTurnId = 'turn-late-partial';
+      component.recording.set(false);
+      component.transcribing.set(true);
+      component.closeVoiceAfterStreamingTurn = false;
+      component.realtimeSttActive = false;
+      component.handleVoiceSessionEvent({
+        type: 'transcript.partial',
+        payload: {
+          turn_id: 'turn-late-partial',
+          segment_id: 'turn-late-partial',
+          text: 'Le convoyeur Andritz reste audible pendant la finalisation STT.',
+        },
+      });
+      ng?.applyChanges?.(component);
+    });
+
+    const partial = page
+      .locator('span')
+      .filter({ hasText: 'Le convoyeur Andritz reste audible pendant la finalisation STT.' });
+    await expect(partial).toBeVisible();
+    await expect(partial).toHaveClass(/italic/);
+  });
+
   test('keeps written capture anchored to the active guided plan section', async ({ page }) => {
     const capturePlanRequests: unknown[] = [];
     const capturePlanTopicsRequests: unknown[] = [];
