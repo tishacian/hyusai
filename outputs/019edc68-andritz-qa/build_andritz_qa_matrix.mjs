@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J8", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I13", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F15", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I14", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F16", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -1841,6 +1841,7 @@ const features = [
       { type: "Happy path", scenario: "Open SFTP from connectors catalogue", steps: "Open /connectors and click secure deposit.", expected: "User lands on /connectors/sftp and connector loads health state." },
       { type: "Boundary", scenario: "Connector disabled in workspace settings", steps: "Use workspace settings with secure_deposit and sftp disabled.", expected: "SFTP card is hidden/disabled and no misleading active state is shown." },
       { type: "Permission/security", scenario: "Direct route while card hidden", steps: "Navigate directly to /connectors/sftp as a user without intended access.", expected: "Backend actions remain denied and no data is exposed.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Connector navigation i18n key coverage", steps: "Run npm run check:i18n after parsing navigation.catalog.ts.", expected: "Every cockpit verb/section key, including connectors, has a dictionary entry and the guard fails if zero keys are parsed.", severityIfFails: "Medium" },
     ],
   },
 ];
@@ -2001,6 +2002,20 @@ const executionEvidence = [
     notes:
       "Secure Deposit/SFTP synthetic execution covering link/session auth, allowed-extension policy, staged upload path safety, previews/downloads/archive browsing, promotion queue payloads, indexing assist, operations/reconciliation quarantine, SPL wave planning, namespace collision guards and archive reindexing.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-002",
+    date: "2026-06-23",
+    command:
+      "npm run check:i18n; npm run check:ui-chrome; /Users/thib/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node ./node_modules/@angular/cli/bin/ng.js build -c production",
+    result: "Navigation i18n coverage OK (26 catalog keys checked); Agentium UI chrome guard OK; Frontend production build passed",
+    duration: "0.17s + 0.17s + 12.150s",
+    warnings:
+      "Production build warnings unchanged from prior frontend evidence: initial bundle budget exceeded by 198.68 kB; mission-room component CSS and drawflow CSS budgets exceeded; maplibre-gl and earcut CommonJS optimization bailouts; one optional-chain warning in mission-room/vp-map-preview.",
+    safetyScope:
+      "Local frontend static guards and compile/build only. No backend calls, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Initial i18n guard reported OK while checking 0 catalog keys. Guard was fixed to parse navigation.catalog.ts; it then exposed missing nav.connectors. Added FR/EN nav.connectors and reran i18n guard, UI chrome guard and production build successfully.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2086,6 +2101,7 @@ const executedTestResults = new Map([
   pass("SFTP-012-T02", "Mapped to SPL wave archive/document limit tests isolating large archives and bounded member reads.", 10),
   pass("SFTP-013-T01", "Mapped to promote payload tests proving selected collection slug is carried into worker queueing.", 10),
   pass("SFTP-014-T03", "Mapped to allowed-extension policy tests including empty policy accepting any synthetic file type.", 10),
+  pass("SFTP-018-T04", "Mapped to fixed navigation i18n guard parsing navigation.catalog.ts, checking 26 catalog keys and proving nav.connectors exists in FR/EN dictionaries.", 11),
   pass("CHT-002-T01", "Mapped to chat stream hardening happy-path answer tests.", 2),
   pass("CHT-002-T02", "Mapped to controlled chat stream timeout/error tests.", 2),
   pass("CHT-006-T01", "Mapped to selected context collection stream tests.", 2),
@@ -2184,6 +2200,23 @@ const defectRecords = [
     status: "Fixed",
     ownerNotes:
       "Fixed by preserving the persisted session_end_pending flag for unlimited sessions. Verified by EXEC-2026-06-23-BE-004.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-SFTP-003",
+    featureIds: ["SFTP-018"],
+    reproduction:
+      "Run npm run check:i18n before the fix. The script printed Navigation i18n coverage OK (0 catalog keys checked), so the guard no longer inspected the moved navigation catalog. After fixing the parser, it failed on missing nav.connectors.",
+    expected:
+      "The navigation i18n guard parses the cockpit navigation catalog, fails if it checks zero keys, and verifies every verb/section key used by the side rail and mini rail has dictionary coverage.",
+    actual:
+      "The stale guard only searched side-rail component literals and passed while checking zero keys; nav.connectors was absent from both FR and EN dictionaries.",
+    severity: "Medium",
+    rootCause:
+      "Navigation keys moved to navigation.catalog.ts, but scripts/check-i18n-nav.mjs still parsed side-rail.component.ts for literal key definitions.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by parsing CockpitLens and CockpitSectionKey from navigation.catalog.ts, failing on empty parse, checking side-rail direct i18n keys, and adding nav.connectors to FR/EN dictionaries. Verified by EXEC-2026-06-23-FE-002.",
     updated: "2026-06-23",
   },
 ];
@@ -2308,13 +2341,13 @@ const summaryRows = [
   ["Test cases drafted", allTests.length, "", "", "", "", "", ""],
   ["Mapped backend tests passed", mappedPassedCount, "", "", "", "", "", ""],
   ["Features with partial backend pass", executedFeatureIds.size, "", "", "", "", "", ""],
-  ["Frontend production build", `${executionEvidence[1].result} (${executionEvidence[1].duration}); warnings logged in Execution Log.`, "", "", "", "", "", ""],
+  ["Frontend production build", `${executionEvidence[1].result} (${executionEvidence[1].duration}); FE-002 static guards and rebuild also passed.`, "", "", "", "", "", ""],
   ["VM read-only smoke", "Drift audit passed; backend/frontend health 200; critical SPA routes served; KC/SFTP protected APIs rejected unauthenticated access.", "", "", "", "", "", ""],
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; authenticated browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "58/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, collections worker/indexing ledger behavior, and synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning. Authenticated browser journeys, mobile/UX, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; authenticated browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "59/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, and frontend navigation guard coverage for the SFTP connector entry. Authenticated browser journeys, mobile/UX, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -2581,10 +2614,18 @@ const phaseRows = [
     executionEvidence[10].safetyScope,
     "Continue with authenticated browser/e2e checks and read-only VM validation; do not mutate real Andritz SFTP deposits or collections without explicit approval.",
   ],
+  [
+    executionEvidence[11].date,
+    "Phase 4 frontend navigation guard remediation",
+    "Fixed stale navigation i18n guard that passed while checking zero keys, added missing FR/EN nav.connectors dictionary entries, and reran i18n guard, UI chrome guard, and production build.",
+    `${executionEvidence[11].result}; ${mappedPassedCountForEvidence(executionEvidence[11].id)} workbook test case mapped as Pass; DEF-2026-06-23-SFTP-003 fixed.`,
+    executionEvidence[11].safetyScope,
+    "Continue with authenticated browser/e2e checks for actual connector-card visibility, direct-route permission behavior, and SFTP connector UX.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F14"));
+styleBody(phase.getRange("A2:F15"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

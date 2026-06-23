@@ -85,6 +85,7 @@ export const FR_DICT = {
   'nav.audit': 'Gouvernance',
   'nav.apps': 'Apps',
   'nav.resources': 'Ressources',
+  'nav.connectors': 'Connecteurs',
   'nav.palette': 'Aller à…',
   'nav.palette.hint': '⌘K palette',
 
@@ -576,6 +577,7 @@ export const EN_DICT: Partial<Record<I18nKey, string>> & Record<string, string> 
   'nav.audit': 'Governance',
   'nav.apps': 'Apps',
   'nav.resources': 'Resources',
+  'nav.connectors': 'Connectors',
   'nav.palette': 'Jump to…',
   'nav.palette.hint': '⌘K palette',
 
