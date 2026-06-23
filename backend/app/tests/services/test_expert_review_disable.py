@@ -328,6 +328,14 @@ def test_capture_proposal_review_off_auto_accepts_without_publishing(db_session,
     data = response.json()
     assert data["status"] == "accepted"
     assert _FakeDocumentService.captured == {}
+    proposal = (
+        db_session.query(KnowledgeUpdateProposal)
+        .filter(KnowledgeUpdateProposal.id == data["id"])
+        .first()
+    )
+    assert proposal is not None
+    assert proposal.status == "accepted"
+    assert not ((proposal.proposal or {}).get("publication") or {}).get("published_at")
 
 
 def test_capture_proposal_review_on_stays_pending(db_session, monkeypatch):

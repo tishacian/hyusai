@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import knowledge_capture
 from app.api.v1.endpoints.knowledge_capture import ProposalPublishRequest
+from app.models.expert_capture import ExpertCaptureEvent, ExpertCaptureSession, KnowledgeUpdateProposal
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.skills_registry.seed import seed_skills_and_capabilities
@@ -764,6 +765,346 @@ def test_list_proposals_filters_by_session_id(db_session, monkeypatch):
 
     none = client.get("/api/v1/knowledge-capture/proposals", params={"session_id": "missing-session"}).json()["proposals"]
     assert none == []
+
+
+def test_contributor_proposal_list_hides_foreign_legacy_authorless_proposals(db_session):
+    workspace = Workspace(
+        id="ws-kc-api-prop-scope",
+        name="KC API Prop Scope",
+        slug="kc-api-prop-scope",
+        settings={"features": {"iam_enforced": True}},
+    )
+    user = User(id="user-kc-api-prop-scope", username="owner", email="owner@example.test")
+    other = User(id="user-kc-api-prop-scope-other", username="other", email="other@example.test")
+    db_session.add_all([workspace, user, other])
+    db_session.add(
+        WorkspaceMember(
+            user_id=user.id,
+            workspace_id=workspace.id,
+            role="member",
+            role_template="workspace_contributor",
+        )
+    )
+    own_session = ExpertCaptureSession(
+        id="session-kc-api-prop-scope-own",
+        workspace_id=workspace.id,
+        title="Own capture",
+        objective="Own material",
+        created_by_user_id=user.id,
+        status="completed",
+    )
+    foreign_session = ExpertCaptureSession(
+        id="session-kc-api-prop-scope-foreign",
+        workspace_id=workspace.id,
+        title="Foreign capture",
+        objective="Foreign material",
+        created_by_user_id=other.id,
+        status="completed",
+    )
+    own_proposal = KnowledgeUpdateProposal(
+        id="proposal-kc-api-prop-scope-own",
+        workspace_id=workspace.id,
+        session_id=own_session.id,
+        status="pending_review",
+        created_by_user_id=None,
+        proposal={"recommended_ingestion": {"title": "Own", "content": "Own content"}},
+    )
+    foreign_proposal = KnowledgeUpdateProposal(
+        id="proposal-kc-api-prop-scope-foreign",
+        workspace_id=workspace.id,
+        session_id=foreign_session.id,
+        status="pending_review",
+        created_by_user_id=None,
+        proposal={"recommended_ingestion": {"title": "Foreign", "content": "Foreign content"}},
+    )
+    db_session.add_all([own_session, foreign_session, own_proposal, foreign_proposal])
+    db_session.commit()
+
+    client = _client_with_permissions(db_session, workspace, user)
+    response = client.get("/api/v1/knowledge-capture/proposals")
+
+    assert response.status_code == 200
+    ids = {row["id"] for row in response.json()["proposals"]}
+    assert own_proposal.id in ids
+    assert foreign_proposal.id not in ids
+
+
+def test_non_owner_contributor_cannot_open_capture_session(db_session):
+    workspace = Workspace(
+        id="ws-kc-api-session-scope",
+        name="KC API Session Scope",
+        slug="kc-api-session-scope",
+        settings={"features": {"iam_enforced": True}},
+    )
+    user = User(id="user-kc-api-session-scope", username="viewer", email="viewer@example.test")
+    other = User(id="user-kc-api-session-scope-other", username="other", email="other@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-session-scope-foreign",
+        workspace_id=workspace.id,
+        title="Foreign capture",
+        objective="Foreign material",
+        created_by_user_id=other.id,
+        status="completed",
+    )
+    db_session.add_all([workspace, user, other, session])
+    db_session.add(
+        WorkspaceMember(
+            user_id=user.id,
+            workspace_id=workspace.id,
+            role="member",
+            role_template="workspace_contributor",
+        )
+    )
+    db_session.commit()
+
+    client = _client_with_permissions(db_session, workspace, user)
+    response = client.get(f"/api/v1/knowledge-capture/sessions/{session.id}")
+
+    assert response.status_code == 403
+
+
+def test_review_denied_keeps_proposal_pending(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-review-deny", name="KC API Review Deny", slug="kc-api-review-deny")
+    user = User(id="user-kc-api-review-deny", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-review-deny",
+        workspace_id=workspace.id,
+        title="Review denied capture",
+        objective="Do not mutate review state.",
+        created_by_user_id=user.id,
+        status="completed",
+    )
+    proposal = KnowledgeUpdateProposal(
+        id="proposal-kc-api-review-deny",
+        workspace_id=workspace.id,
+        session_id=session.id,
+        status="pending_review",
+        created_by_user_id=user.id,
+        proposal={"recommended_ingestion": {"title": "Pending", "content": "Pending content"}},
+    )
+    db_session.add_all([workspace, user, session, proposal])
+    db_session.commit()
+
+    def _deny_review(*_args, **kwargs):
+        if kwargs.get("resource_kind") == "knowledge_proposal" and kwargs.get("action") == "review_decide":
+            raise HTTPException(status_code=403, detail="WORKSPACE_PERMISSION_DENIED")
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    monkeypatch.setattr(knowledge_capture, "enforce_permission", _deny_review)
+    response = client.patch(
+        f"/api/v1/knowledge-capture/proposals/{proposal.id}/review",
+        json={"status": "accepted", "review_notes": "Tentative non autorisée"},
+    )
+
+    assert response.status_code == 403
+    db_session.refresh(proposal)
+    assert proposal.status == "pending_review"
+    assert proposal.reviewer is None
+    assert proposal.reviewed_at is None
+
+
+def test_delete_denied_keeps_capture_session(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-delete-deny", name="KC API Delete Deny", slug="kc-api-delete-deny")
+    user = User(id="user-kc-api-delete-deny", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-delete-deny",
+        workspace_id=workspace.id,
+        title="Delete denied capture",
+        objective="Do not delete.",
+        created_by_user_id="someone-else",
+        status="completed",
+    )
+    db_session.add_all([workspace, user, session])
+    db_session.commit()
+
+    def _deny_update(*_args, **kwargs):
+        if kwargs.get("resource_kind") == "capture_session" and kwargs.get("action") == "update":
+            raise HTTPException(status_code=403, detail="WORKSPACE_PERMISSION_DENIED")
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    monkeypatch.setattr(knowledge_capture, "enforce_permission", _deny_update)
+    response = client.delete(f"/api/v1/knowledge-capture/sessions/{session.id}")
+
+    assert response.status_code == 403
+    assert db_session.query(ExpertCaptureSession).filter_by(id=session.id).one().status == "completed"
+
+
+def test_event_amend_denied_keeps_event_text(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-amend-deny", name="KC API Amend Deny", slug="kc-api-amend-deny")
+    user = User(id="user-kc-api-amend-deny", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-amend-deny",
+        workspace_id=workspace.id,
+        title="Amend denied capture",
+        objective="Do not amend.",
+        created_by_user_id="someone-else",
+        status="completed",
+        transcript=[{"id": "event-kc-api-amend-deny", "text": "Texte original"}],
+    )
+    event = ExpertCaptureEvent(
+        id="event-kc-api-amend-deny",
+        workspace_id=workspace.id,
+        session_id=session.id,
+        event_type="transcript_turn",
+        sequence=1,
+        text_raw="Texte original",
+        source="capture_engine",
+        status="accepted",
+    )
+    db_session.add_all([workspace, user, session, event])
+    db_session.commit()
+
+    def _deny_update(*_args, **kwargs):
+        if kwargs.get("resource_kind") == "capture_session" and kwargs.get("action") == "update":
+            raise HTTPException(status_code=403, detail="WORKSPACE_PERMISSION_DENIED")
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    monkeypatch.setattr(knowledge_capture, "enforce_permission", _deny_update)
+    response = client.patch(
+        f"/api/v1/knowledge-capture/sessions/{session.id}/events/{event.id}/amend",
+        json={"text_amended": "Texte modifié sans droit"},
+    )
+
+    assert response.status_code == 403
+    db_session.refresh(event)
+    db_session.refresh(session)
+    assert event.text_amended is None
+    assert event.status == "accepted"
+    assert session.transcript[0]["text"] == "Texte original"
+
+
+def test_flags_update_denied_keeps_session_metrics(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-flags-deny", name="KC API Flags Deny", slug="kc-api-flags-deny")
+    user = User(id="user-kc-api-flags-deny", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-flags-deny",
+        workspace_id=workspace.id,
+        title="Flags denied capture",
+        objective="Do not update flags.",
+        created_by_user_id="someone-else",
+        status="active",
+        metrics={"suppress_oracle_questions": False, "capture_domain": "technical"},
+    )
+    db_session.add_all([workspace, user, session])
+    db_session.commit()
+
+    def _deny_update(*_args, **kwargs):
+        if kwargs.get("resource_kind") == "capture_session" and kwargs.get("action") == "update":
+            raise HTTPException(status_code=403, detail="WORKSPACE_PERMISSION_DENIED")
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    monkeypatch.setattr(knowledge_capture, "enforce_permission", _deny_update)
+    response = client.patch(
+        f"/api/v1/knowledge-capture/sessions/{session.id}/flags",
+        json={"suppress_oracle_questions": True, "capture_domain": "commercial"},
+    )
+
+    assert response.status_code == 403
+    db_session.refresh(session)
+    assert session.metrics["suppress_oracle_questions"] is False
+    assert session.metrics["capture_domain"] == "technical"
+
+
+def test_edit_accepted_proposal_updates_content_without_publishing(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-edit-accepted", name="KC API Edit Accepted", slug="kc-api-edit-accepted")
+    user = User(id="user-kc-api-edit-accepted", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-edit-accepted",
+        workspace_id=workspace.id,
+        title="Edit accepted capture",
+        objective="Edit accepted proposal without publication.",
+        created_by_user_id=user.id,
+        status="completed",
+    )
+    proposal = KnowledgeUpdateProposal(
+        id="proposal-kc-api-edit-accepted",
+        workspace_id=workspace.id,
+        session_id=session.id,
+        status="accepted",
+        created_by_user_id=user.id,
+        proposal={
+            "report_markdown": "# Rapport initial",
+            "publication": {"category": "technical"},
+            "recommended_ingestion": {
+                "title": "Rapport initial",
+                "content": "# Rapport initial",
+                "metadata": {"proposal_id": "proposal-kc-api-edit-accepted"},
+            },
+        },
+    )
+    db_session.add_all([workspace, user, session, proposal])
+    db_session.commit()
+
+    async def _fail_publish(*args, **kwargs):  # noqa: ARG001
+        raise AssertionError("content edit must not publish accepted proposals")
+
+    monkeypatch.setattr(knowledge_capture, "publish_proposal_to_knowledge", _fail_publish)
+    client = _client(db_session, workspace, user, monkeypatch)
+    response = client.patch(
+        f"/api/v1/knowledge-capture/proposals/{proposal.id}/content",
+        json={"content": "# Rapport accepté édité\n\nLa décision est clarifiée."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "accepted"
+    assert body["proposal"]["report_markdown"].startswith("# Rapport accepté édité")
+    db_session.refresh(proposal)
+    assert proposal.status == "accepted"
+    assert proposal.proposal["recommended_ingestion"]["content"].startswith("# Rapport accepté édité")
+    assert proposal.proposal["publication"] == {"category": "technical"}
+    assert "published_at" not in proposal.proposal["publication"]
+
+
+def test_export_accepted_proposal_does_not_publish(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-export-readonly", name="KC API Export Readonly", slug="kc-api-export-readonly")
+    user = User(id="user-kc-api-export-readonly", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-export-readonly",
+        workspace_id=workspace.id,
+        title="Export readonly capture",
+        objective="Exporter sans publier.",
+        created_by_user_id=user.id,
+        status="completed",
+    )
+    proposal = KnowledgeUpdateProposal(
+        id="proposal-kc-api-export-readonly",
+        workspace_id=workspace.id,
+        session_id=session.id,
+        status="accepted",
+        created_by_user_id=user.id,
+        proposal={
+            "executive_summary": "Résumé initial",
+            "report_markdown": "# Rapport validé\n\nLa procédure reste en revue métier.",
+            "publication": {"category": "technical"},
+            "recommended_ingestion": {
+                "title": "Rapport validé",
+                "content": "# Rapport validé\n\nLa procédure reste en revue métier.",
+            },
+        },
+    )
+    db_session.add_all([workspace, user, session, proposal])
+    db_session.commit()
+
+    async def _fail_publish(*args, **kwargs):  # noqa: ARG001
+        raise AssertionError("export must not call publish_proposal_to_knowledge")
+
+    monkeypatch.setattr(knowledge_capture, "publish_proposal_to_knowledge", _fail_publish)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    response = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session.id}/proposal/export",
+        json={"proposal_id": proposal.id, "executive_summary": "Résumé exporté"},
+    )
+
+    assert response.status_code == 200
+    assert "Résumé exporté" in response.json()["markdown"]
+    assert "La procédure reste en revue métier." in response.json()["markdown"]
+    db_session.refresh(proposal)
+    assert proposal.status == "accepted"
+    assert proposal.proposal["executive_summary"] == "Résumé exporté"
+    assert proposal.proposal["publication"] == {"category": "technical"}
+    assert "published_at" not in proposal.proposal["publication"]
 
 
 def test_list_published_fiches_returns_workspace_outputs(db_session, monkeypatch):

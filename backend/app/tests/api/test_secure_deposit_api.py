@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.models.audit import AuditLog
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
 from app.services.secure_deposit import create_link, record_staged_file_from_path
 from app.services.secure_deposit_operations import write_sftp_upload_sidecar
@@ -22,6 +22,13 @@ def _client(db_session, workspace: Workspace, user: User) -> TestClient:
     app.include_router(secure_deposit.internal_router, prefix="/sftp")
     app.dependency_overrides[secure_deposit.get_current_workspace] = lambda: workspace
     app.dependency_overrides[secure_deposit.get_current_user] = lambda: user
+    app.dependency_overrides[secure_deposit.get_db] = lambda: db_session
+    return TestClient(app)
+
+
+def _public_client(db_session) -> TestClient:
+    app = FastAPI()
+    app.include_router(secure_deposit.public_router, prefix="/deposit")
     app.dependency_overrides[secure_deposit.get_db] = lambda: db_session
     return TestClient(app)
 
@@ -40,6 +47,156 @@ def _touch_now(path) -> None:
 
     now = time.time()
     os.utime(path, (now, now))
+
+
+def test_public_deposit_session_token_cannot_list_another_access_id(db_session):
+    workspace = Workspace(id="ws-public-session", name="Public Session", slug="andritz")
+    user = User(id="user-public-session", email="owner@datategy.net", username="owner")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    first_link, password = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="First supplier",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    second_link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Second supplier",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    db_session.commit()
+
+    client = _public_client(db_session)
+    session = client.post(f"/deposit/{first_link.access_id}/session", json={"password": password})
+    assert session.status_code == 200
+    token = session.json()["token"]
+
+    response = client.get(
+        f"/deposit/{second_link.access_id}/files",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_non_owner_contributor_cannot_download_deposit_file(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    workspace = Workspace(
+        id="ws-download-denied",
+        name="Download Denied",
+        slug="andritz",
+        settings={"features": {"secure_deposit": True, "iam_enforced": True}},
+    )
+    owner = User(id="user-owner-download", email="owner@datategy.net", username="owner")
+    other = User(id="user-other-download", email="other@datategy.net", username="other")
+    db_session.add_all([workspace, owner, other])
+    db_session.flush()
+    db_session.add_all(
+        [
+            WorkspaceMember(
+                user_id=owner.id,
+                workspace_id=workspace.id,
+                role="member",
+                role_template="workspace_contributor",
+            ),
+            WorkspaceMember(
+                user_id=other.id,
+                workspace_id=workspace.id,
+                role="member",
+                role_template="workspace_contributor",
+            ),
+        ]
+    )
+    db_session.flush()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=owner,
+        label="Owner supplier upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    source = tmp_path / "manual.pdf"
+    source.write_bytes(b"%PDF owner only")
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=source,
+        filename="Manuals/private.pdf",
+        content_type="application/pdf",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+    db_session.commit()
+
+    response = _client(db_session, workspace, other).get(f"/sftp/deposits/{row.id}/download")
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "WORKSPACE_PERMISSION_DENIED"
+
+
+def test_owner_can_rotate_then_revoke_link_and_credentials_follow_state(db_session):
+    workspace = Workspace(
+        id="ws-link-rotate-revoke",
+        name="Rotate Revoke",
+        slug="andritz",
+        settings={"features": {"secure_deposit": True, "iam_enforced": True}},
+    )
+    owner = User(id="user-link-owner", email="owner@datategy.net", username="owner")
+    db_session.add_all([workspace, owner])
+    db_session.flush()
+    db_session.add(
+        WorkspaceMember(
+            user_id=owner.id,
+            workspace_id=workspace.id,
+            role="member",
+            role_template="workspace_contributor",
+        )
+    )
+    db_session.flush()
+    link, original_password = create_link(
+        db_session,
+        workspace=workspace,
+        user=owner,
+        label="Supplier upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    db_session.commit()
+
+    internal = _client(db_session, workspace, owner)
+    public = _public_client(db_session)
+
+    rotated = internal.post(f"/sftp/links/{link.id}/rotate")
+    assert rotated.status_code == 200
+    rotated_link = rotated.json()["link"]
+    rotated_password = rotated_link["generated_password"]
+    assert rotated_link["status"] == "active"
+    assert rotated_link["access_id"] == link.access_id
+    assert rotated_password
+    assert rotated_password != original_password
+
+    old_session = public.post(f"/deposit/{link.access_id}/session", json={"password": original_password})
+    assert old_session.status_code == 401
+    new_session = public.post(f"/deposit/{link.access_id}/session", json={"password": rotated_password})
+    assert new_session.status_code == 200
+
+    revoked = internal.post(f"/sftp/links/{link.id}/revoke")
+    assert revoked.status_code == 200
+    assert revoked.json()["link"]["status"] == "revoked"
+
+    revoked_session = public.post(f"/deposit/{link.access_id}/session", json={"password": rotated_password})
+    assert revoked_session.status_code == 403
 
 
 def test_promote_deposit_zip_returns_queued_worker_payload(db_session, monkeypatch, tmp_path):

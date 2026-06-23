@@ -1518,7 +1518,6 @@ async def list_capture_proposals(
             or_(
                 KnowledgeUpdateProposal.created_by_user_id == user.id,
                 ExpertCaptureSession.created_by_user_id == user.id,
-                KnowledgeUpdateProposal.created_by_user_id.is_(None),
             )
         )
     if system_id:

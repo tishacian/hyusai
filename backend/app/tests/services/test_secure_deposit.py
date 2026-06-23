@@ -32,6 +32,7 @@ from app.services.secure_deposit import (
     verify_session_token,
 )
 from app.services.secure_deposit_sftp import (
+    _build_asyncssh_components,
     _is_root_path,
     _remote_dir_path,
     _remote_relative_path,
@@ -80,6 +81,39 @@ def test_deposit_link_password_is_one_time_and_session_scoped(db_session):
     assert authed_link.id == link.id
     assert payload["sub"] == link.access_id
     assert payload["workspace_id"] == workspace.id
+
+
+def test_deposit_session_token_is_bound_to_access_id(db_session):
+    workspace, user = _workspace_user(db_session)
+    first_link, password = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="First supplier upload",
+        expires_at=None,
+        max_file_size_mb=20,
+        allowed_extensions=["pdf"],
+    )
+    second_link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Second supplier upload",
+        expires_at=None,
+        max_file_size_mb=20,
+        allowed_extensions=["pdf"],
+    )
+
+    _authed_link, token, _ = authenticate_link(
+        db_session,
+        access_id=first_link.access_id,
+        password=password,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        verify_session_token(token, second_link.access_id)
+
+    assert exc.value.status_code == 401
 
 
 def test_deposit_link_rejects_bad_password(db_session):
@@ -222,6 +256,48 @@ async def test_allowed_extension_policy_is_case_insensitive_for_public_and_sftp_
     assert sftp_row.filename == "Line A/manual.pdf"
     assert exc.value.status_code == 415
     assert blocked.exists()
+
+
+def test_sftp_server_rejects_read_and_delete_operations():
+    class PermissionDenied(Exception):
+        pass
+
+    class FakeAsyncSSH:
+        class SSHServer:
+            pass
+
+        class SFTPServer:
+            def __init__(self, _chan):
+                pass
+
+        class SFTPAttrs:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        class SFTPName:
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+
+        class SFTPError(Exception):
+            pass
+
+        class SFTPNoSuchFile(Exception):
+            pass
+
+        class SFTPFailure(Exception):
+            pass
+
+        SFTPPermissionDenied = PermissionDenied
+
+    _ssh_server, sftp_server = _build_asyncssh_components(FakeAsyncSSH)
+    chan = SimpleNamespace(get_extra_info=lambda key: "access-1" if key == "username" else None)
+    server = sftp_server(chan)
+
+    with pytest.raises(PermissionDenied):
+        server.open(b"existing.pdf", 0x00000001, None)
+    with pytest.raises(PermissionDenied):
+        server.remove(b"existing.pdf")
 
 
 def test_record_staged_file_from_path_moves_sftp_upload(db_session, monkeypatch, tmp_path):

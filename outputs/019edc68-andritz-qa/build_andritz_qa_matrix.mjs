@@ -10,9 +10,9 @@ const sheetPreviewRanges = [
   ["Coverage Summary", "A1:D21", "andritz_qa_matrix_summary.png"],
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
-  ["Defect Register", "A1:J18", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A74:I103", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A69:F97", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Defect Register", "A1:J20", "andritz_qa_matrix_defect_register_preview.png"],
+  ["Execution Log", "A77:I107", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A72:F101", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -3349,6 +3349,62 @@ const executionEvidence = [
     notes:
       "Verifies disabled workspaces block link creation and existing-link authentication, and proves extension allow-lists apply case-insensitively across public upload plus SFTP staging while rejected disallowed files remain unmoved.",
   },
+  {
+    id: "EXEC-2026-06-23-BE-013",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_secure_deposit_api.py app/tests/services/test_secure_deposit.py",
+    result: "50 passed, 1 skipped, 0 failed",
+    duration: "14.15s",
+    warnings:
+      "380 warnings, mostly datetime.utcnow/utcfromtimestamp deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Secure Deposit API/service tests only. The new cases use synthetic workspaces, users, memberships, access links, JWT sessions, tmp_path secure_deposit storage, and a fake asyncssh SFTP facade; no real SFTP server, no VM, no Andritz/SFTP production-data mutation, and no real collection mutation.",
+    notes:
+      "Adds critical access-control coverage: a public deposit session token cannot be reused against another access_id, owner-scoped rotate/revoke makes old credentials fail and revoked links unusable, a non-owner contributor is denied staged-file download by real IAM enforcement, and the SFTP facade rejects read/delete operations as upload-only.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-014",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/services/test_expert_review_disable.py app/tests/api/test_knowledge_capture_api.py",
+    result: "33 passed, 0 failed",
+    duration: "25.14s",
+    warnings:
+      "4641 warnings, mostly datetime.utcnow deprecations plus local Qdrant/SWIG warnings from optional native dependencies.",
+    safetyScope:
+      "Local Knowledge Capture backend/API tests only. The new critical cases use synthetic workspace/session/proposal rows and fake publish/DocumentService guards; the broader lot uses test DB, tmp_path and monkeypatch fixtures. No backend network call, no VM, no Andritz collection, no SFTP production-data mutation, and no unintended ingestion/publication side effect.",
+    notes:
+      "Adds critical publication-safety coverage: review-disabled capture proposal finalization persists accepted status without publication metadata or ingestion, and exporting an accepted proposal returns Markdown while keeping proposal.status=accepted and publication.published_at absent.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-015",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_secure_deposit_api.py app/tests/services/test_secure_deposit.py app/tests/services/test_spl_wave_importer.py app/tests/scripts/test_promote_spl_wave_cli.py",
+    result: "71 passed, 1 skipped, 0 failed",
+    duration: "14.67s",
+    warnings:
+      "461 warnings, mostly datetime.utcnow/utcfromtimestamp deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local SFTP/Secure Deposit/SPL backend tests only. The new CLI cases use fake SessionLocal/workspace/user/plan objects and monkeypatched build/execute functions; the broader lot uses synthetic database rows and tmp_path fixtures. No Docker, no network, no VM, no real SFTP server, no Andritz/SFTP production-data mutation, and no real collection promotion.",
+    notes:
+      "Adds explicit SPL promotion safety coverage: promote_spl_wave_v1/v2/v3 default to dry-run when --execute is absent, close their DB session, print the dry-run plan, and do not call copy_collection_documents or execute_* promotion functions.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-016",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_knowledge_capture_api.py app/tests/services/test_expert_review_disable.py app/tests/services/test_knowledge_capture.py",
+    result: "139 passed, 0 failed",
+    duration: "22.26s",
+    warnings:
+      "18910 warnings, mostly datetime.utcnow deprecations plus local Qdrant/SWIG warnings from optional native dependencies.",
+    safetyScope:
+      "Local Knowledge Capture API/service tests only. The new cases use synthetic workspace/user/session/proposal/event rows, IAM-enforced test workspace settings, and monkeypatched permission denials/publish guards. No backend network call, no VM, no real upload, no Andritz collection, no SFTP production-data mutation, and no implicit ingestion/publication side effect.",
+    notes:
+      "Adds Knowledge Capture permission and accepted-proposal content coverage: contributor proposal listing hides foreign authorless legacy proposals, non-owner contributors cannot open foreign sessions, denied review/delete/amend/flags leave persisted state unchanged, and editing an accepted proposal updates content without publishing.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3430,9 +3486,12 @@ const executedTestResults = new Map([
   pass("SFTP-010-T01", "Mapped to SFTP operations active sidecar upload snapshot tests."),
   pass("SFTP-010-T03", "Mapped to reconciliation dry-run/quarantine safety tests."),
   pass("SFTP-001-T01", "Mapped to secure-deposit link/session service test creating a synthetic link and limiting password reveal/session scope.", 10),
+  pass("SFTP-001-T02", "Mapped to local internal/public Secure Deposit API test proving owner-scoped rotate invalidates the old password, the rotated password works, revoke marks the link revoked, and the rotated password then receives 403.", 102),
   pass("SFTP-002-T01", "Mapped to refreshed deposit link password/session authentication tests.", 10),
   pass("SFTP-002-T02", "Mapped to refreshed bad password rejection tests.", 10),
+  pass("SFTP-002-T03", "Mapped to local public Secure Deposit API/service tests proving a valid session token for one access_id is rejected with 401 when reused against another access_id.", 102),
   pass("SFTP-004-T01", "Mapped to synthetic SFTP staged upload path recording and safe root alias/longname behavior; no real SFTP server was mutated.", 10),
+  pass("SFTP-004-T02", "Mapped to local fake-asyncssh SFTP facade test proving read-open and remove operations are denied because Secure Deposit SFTP is upload-only.", 102),
   pass("SFTP-004-T03", "Mapped to sidecar reconciliation/quarantine tests for interrupted or stale partial uploads in local tmp storage.", 10),
   pass("SFTP-006-T01", "Mapped to refreshed staged-file preview tests for text/PDF/HTML/DOCX/spreadsheet variants.", 10),
   pass("SFTP-006-T02", "Mapped to refreshed ZIP archive folder/member browsing plus member preview/download tests.", 10),
@@ -3444,8 +3503,10 @@ const executedTestResults = new Map([
   pass("SFTP-010-T01", "Mapped to refreshed SFTP operations active sidecar upload snapshot tests.", 10),
   pass("SFTP-010-T03", "Mapped to refreshed reconciliation dry-run/quarantine safety tests with explicit local fixture mutation only.", 10),
   pass("SFTP-011-T01", "Mapped to deposit archive creation and ZIP member preview/download tests with safe synthetic files.", 10),
+  pass("SFTP-011-T02", "Mapped to local internal Secure Deposit API test proving a contributor who does not own the link receives 403 on staged-file download under real IAM enforcement.", 102),
   pass("SFTP-012-T01", "Mapped to SPL wave dry-run planning tests for synthetic deposits and archive groups.", 10),
   pass("SFTP-012-T02", "Mapped to SPL wave archive/document limit tests isolating large archives and bounded member reads.", 10),
+  pass("SFTP-012-T03", "Mapped to local CLI guard tests proving SPL promotion scripts require explicit --execute before any copy/execute mutation path can run.", 104),
   pass("SFTP-013-T01", "Mapped to promote payload tests proving selected collection slug is carried into worker queueing.", 10),
   pass("SFTP-014-T01", "Mapped to full local Secure Deposit service execution proving enabled Andritz-style workspaces keep link/session behavior working while disabled workspaces are denied.", 101),
   pass("SFTP-014-T02", "Mapped to local service tests proving a disabled workspace blocks both new link creation and authentication of an existing synthetic link.", 101),
@@ -3600,16 +3661,26 @@ const executedTestResults = new Map([
   pass("KCAP-023-T01", "Mapped to answer_proposal_open_question service test resynthesizing only the targeted section and marking the question answered.", 8),
   pass("KCAP-023-T02", "Mapped to open-question status tests for defer/restore/invalidate with proposal metrics and audit events.", 8),
   pass("KCAP-024-T01", "Mapped to capture plan turn/review proposal service tests that accept a proposal through review state.", 8),
+  pass("KCAP-024-T02", "Mapped to local Knowledge Capture API denial test proving review_decide=403 leaves proposal.status=pending_review with no reviewer/reviewed_at mutation.", 105),
+  pass("KCAP-024-T03", "Mapped to local Knowledge Capture review-disabled regression test proving the proposal response and persisted row become accepted while ingestion is not called and publication.published_at remains absent.", 103),
   pass("KCAP-025-T01", "Mapped to publish_proposal_to_knowledge service tests that publish an accepted proposal and persist export URLs.", 8),
   pass("KCAP-025-T01", "Mapped to local Playwright mocked accepted-proposal flow proving the Publish step requires an explicit final click before /publish is called.", 22),
   pass("KCAP-025-T02", "Mapped to local Playwright mocked accepted-proposal flow proving opening Review and Continue to publication do not send /publish.", 22),
   pass("KCAP-025-T03", "Mapped to capture-document publication promotion tests rewriting report sources to the publication collection.", 8),
   pass("KCAP-029-T01", "Mapped to defer voice/quality-item and oracle backlog status tests.", 8),
   pass("KCAP-030-T01", "Mapped to amend_capture_event service test proving effective transcript text changes are auditable.", 8),
+  pass("KCAP-030-T02", "Mapped to local Knowledge Capture API denial test proving a forbidden event amendment leaves event text/status and session transcript unchanged.", 105),
   pass("KCAP-030-T03", "Mapped to amendment-before-proposal test proving generated proposal facts use amended text instead of raw transcript.", 8),
   pass("KCAP-031-T01", "Mapped to capture session flags service test toggling suppress_oracle_questions without transcript mutation.", 8),
+  pass("KCAP-031-T03", "Mapped to local Knowledge Capture API denial test proving forbidden session flag updates leave metrics unchanged.", 105),
   pass("KCAP-032-T01", "Mapped to plan-build hint queue tests returning relevant hints for active subtopic after grounded partial processing.", 8),
   pass("KCAP-032-T02", "Mapped to resolve_hints_from_expert_text service test hiding hints organically answered by expert text.", 8),
+  pass("KCAP-034-T03", "Mapped to local Knowledge Capture API regression test proving editing an accepted proposal updates report content while keeping status=accepted and publication.published_at absent.", 105),
+  pass("KCAP-035-T03", "Mapped to real-IAM local API test proving a workspace_contributor receives 403 when directly opening another user's capture session id.", 105),
+  pass("KCAP-033-T03", "Mapped to local Knowledge Capture export regression test proving POST /sessions/{id}/proposal/export returns Markdown for an accepted proposal while keeping proposal.status=accepted and published_at absent.", 103),
+  pass("KCAP-027-T02", "Mapped to local Knowledge Capture API denial test proving forbidden delete returns 403 and leaves the capture session persisted.", 105),
+  pass("KCAP-028-T03", "Mapped to local Knowledge Capture API direct-open permission test proving non-owner contributors cannot open foreign capture session ids.", 105),
+  pass("KCAP-038-T03", "Mapped to real-IAM local API test proving contributor proposal listing hides foreign authorless legacy proposals while keeping own legacy proposal visible.", 105),
   pass("KCAP-037-T01", "Mapped to VoiceSessionGateway client.metric test sanitizing and re-emitting endpoint_candidate as runtime.metric source=client_capture.", 8),
   pass("KCAP-037-T03", "Mapped to endpoint STT latency audit test persisting endpoint_stt_ms separately from turn_audio_capture_ms in turn/session metrics.", 8),
 ]);
@@ -3732,6 +3803,23 @@ const defectRecords = [
     status: "Fixed",
     ownerNotes:
       "Fixed by synchronizing sourcePreviewPage in onSourcePreviewViewChanged before persisting the capture document view. Verified by EXEC-2026-06-23-FE-086.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-KCAP-044",
+    featureIds: ["KCAP-038", "KCAP-035"],
+    reproduction:
+      "In an IAM-enforced workspace, create a workspace_contributor user and a foreign capture proposal whose created_by_user_id is null but whose session belongs to another user, then call GET /knowledge-capture/proposals as the contributor.",
+    expected:
+      "Contributor proposal listing returns only proposals owned by the contributor or attached to contributor-owned sessions; legacy authorless proposals must not bypass the session owner boundary.",
+    actual:
+      "Before the fix, list_capture_proposals included all authorless proposals through KnowledgeUpdateProposal.created_by_user_id.is_(None), even when the joined ExpertCaptureSession belonged to another user.",
+    severity: "High",
+    rootCause:
+      "The contributor-only proposal filter treated null proposal authors as globally visible instead of resolving legacy ownership through the proposal's capture session.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by removing the authorless-proposal visibility shortcut so the existing session-owner branch remains the legacy fallback. Verified by EXEC-2026-06-23-BE-016.",
     updated: "2026-06-23",
   },
   {
@@ -4048,8 +4136,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser + voice transport/capture contract smoke: ${executionEvidence[99].result}; latest Collections clear-safety API lot: ${executionEvidence[100].result}; latest Secure Deposit workspace/extension policy lot: ${executionEvidence[101].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, capture preview page-change synchronization, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, voice active-document transport, late same-turn partial rendering, adaptive VAD endpoint candidate cancellation/flush, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, global document clear admin/confirmation safety, secure deposit workspace enablement/extension policy, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser + voice transport/capture contract smoke: ${executionEvidence[99].result}; latest Collections clear-safety API lot: ${executionEvidence[100].result}; latest Secure Deposit workspace/extension policy lot: ${executionEvidence[101].result}; latest Secure Deposit critical access-control lot: ${executionEvidence[102].result}; latest Knowledge Capture publication-safety lot: ${executionEvidence[103].result}; latest SFTP/SPL explicit-execute guard lot: ${executionEvidence[104].result}; latest Knowledge Capture permission/content lot: ${executionEvidence[105].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, capture preview page-change synchronization, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, voice active-document transport, late same-turn partial rendering, adaptive VAD endpoint candidate cancellation/flush, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, Knowledge Capture proposal/session permission denials and contributor proposal-scope filtering, accepted-proposal content editing without implicit publication, collections worker/indexing ledger behavior, global document clear admin/confirmation safety, secure deposit workspace enablement/extension policy, secure deposit token/rotate-revoke/download/SFTP upload-only access gates, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, SPL CLI dry-run-by-default execution guard, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -4980,10 +5068,42 @@ const phaseRows = [
     executionEvidence[101].safetyScope,
     "Continue with read-only/mocked validation for remaining SFTP link/download/connector gates; keep real SFTP server and production deposits untouched unless explicitly approved.",
   ],
+  [
+    executionEvidence[102].date,
+    "Phase 5 SFTP critical access-control regression",
+    "Added local Secure Deposit API/service coverage for access_id-bound public sessions, owner-scoped rotate/revoke credential invalidation, IAM-denied non-owner staged-file downloads, and upload-only SFTP read/delete rejection.",
+    `${executionEvidence[102].result}; ${mappedPassedCountForEvidence(executionEvidence[102].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[102].safetyScope,
+    "Continue with SPL execution confirmation tests using mocked/local data only; keep real SFTP server and production deposits untouched unless explicitly approved.",
+  ],
+  [
+    executionEvidence[103].date,
+    "Phase 5 Knowledge Capture publication-safety regression",
+    "Added local Knowledge Capture API/service coverage for review-disabled auto-accept without publication and Markdown export of an accepted proposal without changing published state.",
+    `${executionEvidence[103].result}; ${mappedPassedCountForEvidence(executionEvidence[103].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[103].safetyScope,
+    "Continue with real-backend read-only capture validation when safe; keep publish/ingestion actions explicit and synthetic unless the user approves production mutation.",
+  ],
+  [
+    executionEvidence[104].date,
+    "Phase 5 SFTP SPL explicit-execute guard regression",
+    "Added local CLI regression coverage proving promote_spl_wave_v1/v2/v3 default to dry-run and never call copy/execute mutation functions unless --execute is explicitly supplied.",
+    `${executionEvidence[104].result}; ${mappedPassedCountForEvidence(executionEvidence[104].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[104].safetyScope,
+    "Continue with authenticated read-only SFTP validation when safe; keep all SPL promotion/nightly-runner execution against real Andritz data behind explicit operator approval.",
+  ],
+  [
+    executionEvidence[105].date,
+    "Phase 5 Knowledge Capture permission/content regression",
+    "Added local Knowledge Capture API coverage for proposal/session permission denial, contributor proposal-scope filtering, and accepted-proposal content editing without implicit publication.",
+    `${executionEvidence[105].result}; ${mappedPassedCountForEvidence(executionEvidence[105].id)} workbook test cases mapped as Pass; DEF-2026-06-23-KCAP-044 fixed.`,
+    executionEvidence[105].safetyScope,
+    "Continue with authenticated browser and real-backend read-only capture validation when safe; keep destructive session/proposal actions synthetic unless explicitly approved.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F97"));
+styleBody(phase.getRange("A2:F101"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
