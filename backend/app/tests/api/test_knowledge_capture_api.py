@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.api.v1.endpoints import knowledge_capture
 from app.api.v1.endpoints.knowledge_capture import ProposalPublishRequest
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.skills_registry.seed import seed_skills_and_capabilities
 
 
@@ -19,6 +19,15 @@ def _client(db_session, workspace: Workspace, user: User, monkeypatch) -> TestCl
     app.dependency_overrides[knowledge_capture.get_db] = lambda: db_session
     monkeypatch.setattr(knowledge_capture, "enforce_permission", lambda *args, **kwargs: None)
     monkeypatch.setattr(knowledge_capture, "_allow_immature_ai_plan", lambda *args, **kwargs: True)
+    return TestClient(app)
+
+
+def _client_with_permissions(db_session, workspace: Workspace, user: User) -> TestClient:
+    app = FastAPI()
+    app.include_router(knowledge_capture.router, prefix="/api/v1/knowledge-capture")
+    app.dependency_overrides[knowledge_capture.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[knowledge_capture.get_current_user] = lambda: user
+    app.dependency_overrides[knowledge_capture.get_db] = lambda: db_session
     return TestClient(app)
 
 
@@ -110,6 +119,63 @@ def test_free_conversation_plan_via_api(db_session, monkeypatch):
     assert body["plan"]["schema_version"] == "free_conversation_v1"
     assert body["metrics"]["unlimited_duration"] is True
     assert body["metrics"]["capture_domain"] == "technical"
+
+
+def test_reviewer_can_create_and_start_capture_when_iam_enforced(db_session, monkeypatch):
+    workspace = Workspace(
+        id="ws-kc-api-reviewer-create",
+        name="KC API Reviewer Create",
+        slug="kc-api-reviewer-create",
+        settings={"features": {"iam_enforced": True}},
+    )
+    reviewer = User(
+        id="user-kc-api-reviewer-create",
+        username="reviewer-create",
+        email="reviewer-create@example.test",
+    )
+    db_session.add_all(
+        [
+            workspace,
+            reviewer,
+            WorkspaceMember(
+                user_id=reviewer.id,
+                workspace_id=workspace.id,
+                role="member",
+                role_template="workspace_reviewer",
+            ),
+        ]
+    )
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    async def _noop_warm_cache(*args, **kwargs):  # noqa: ARG001
+        return {"status": "skipped", "reason": "unit-test"}
+
+    def _noop_background_warm_cache(*args, **kwargs):  # noqa: ARG001
+        return None
+
+    monkeypatch.setattr(knowledge_capture, "warm_capture_context_cache", _noop_warm_cache)
+    monkeypatch.setattr(knowledge_capture, "_run_warm_capture_context_cache", _noop_background_warm_cache)
+
+    client = _client_with_permissions(db_session, workspace, reviewer)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture reviewer",
+            "objective": "Capturer une observation terrain en mode reviewer.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+
+    assert created.status_code == 200
+    body = created.json()
+    assert body["created_by_user_id"] == reviewer.id
+    assert body["plan"]["schema_version"] == "free_conversation_v1"
+
+    started = client.post(f"/api/v1/knowledge-capture/sessions/{body['id']}/start")
+    assert started.status_code == 200
+    assert started.json()["status"] == "active"
 
 
 def test_free_conversation_api_conversation_step_records_turn_and_closure(db_session, monkeypatch):

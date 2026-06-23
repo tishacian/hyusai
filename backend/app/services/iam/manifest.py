@@ -46,6 +46,8 @@ ALL_CAPTURE_ROLES = (
 REVIEW_ROLES = (WORKSPACE_REVIEWER, WORKSPACE_ADMIN, WORKSPACE_OWNER)
 ADMIN_ROLES = (WORKSPACE_ADMIN, WORKSPACE_OWNER)
 CONTRIBUTOR_OR_ADMIN = (WORKSPACE_CONTRIBUTOR, WORKSPACE_ADMIN, WORKSPACE_OWNER)
+CAPTURE_OPERATOR_OR_ADMIN = (WORKSPACE_CONTRIBUTOR, WORKSPACE_REVIEWER, WORKSPACE_ADMIN, WORKSPACE_OWNER)
+CAPTURE_OWNER_SCOPED_ROLES = (WORKSPACE_CONTRIBUTOR, WORKSPACE_REVIEWER)
 SECURE_DEPOSIT_ALL_MEMBERS = (
     WORKSPACE_VIEWER,
     WORKSPACE_CONTRIBUTOR,
@@ -59,12 +61,12 @@ CAPTURE_MANIFEST = CapabilityIAMManifest(
     capability_id="expert_knowledge_capture",
     permissions=(
         PermissionRule("voice_runtime", "read", ALL_CAPTURE_ROLES),
-        PermissionRule("capture_session", "create", CONTRIBUTOR_OR_ADMIN),
+        PermissionRule("capture_session", "create", CAPTURE_OPERATOR_OR_ADMIN),
         PermissionRule("capture_session", "read", (WORKSPACE_CONTRIBUTOR,), ("owner_match",)),
         PermissionRule("capture_session", "read", REVIEW_ROLES),
-        PermissionRule("capture_session", "update", (WORKSPACE_CONTRIBUTOR,), ("owner_match",)),
+        PermissionRule("capture_session", "update", CAPTURE_OWNER_SCOPED_ROLES, ("owner_match",)),
         PermissionRule("capture_session", "update", ADMIN_ROLES),
-        PermissionRule("capture_session", "execute", (WORKSPACE_CONTRIBUTOR,), ("owner_match",)),
+        PermissionRule("capture_session", "execute", CAPTURE_OWNER_SCOPED_ROLES, ("owner_match",)),
         PermissionRule("capture_session", "execute", ADMIN_ROLES),
         PermissionRule("knowledge_proposal", "read", (WORKSPACE_CONTRIBUTOR,), ("owner_match",)),
         PermissionRule("knowledge_proposal", "read", REVIEW_ROLES),

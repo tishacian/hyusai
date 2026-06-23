@@ -102,6 +102,68 @@ def test_reviewer_can_decide_proposals_but_viewer_is_deny_by_default(db_session)
     assert voice.allowed is True
 
 
+def test_reviewer_can_create_and_operate_owned_capture_without_contributor_flag(db_session):
+    workspace, reviewer, membership = _subject(db_session, WORKSPACE_REVIEWER)
+    engine = AuthorizationEngine()
+
+    create = engine.evaluate(
+        db_session,
+        user=reviewer,
+        workspace=workspace,
+        membership=membership,
+        resource_kind="capture_session",
+        action="create",
+        resource_attrs={},
+        audit_denials=False,
+    )
+    execute_own = engine.evaluate(
+        db_session,
+        user=reviewer,
+        workspace=workspace,
+        membership=membership,
+        resource_kind="capture_session",
+        action="execute",
+        resource_attrs={"owner_user_id": reviewer.id},
+        audit_denials=False,
+    )
+    update_own = engine.evaluate(
+        db_session,
+        user=reviewer,
+        workspace=workspace,
+        membership=membership,
+        resource_kind="capture_session",
+        action="update",
+        resource_attrs={"owner_user_id": reviewer.id},
+        audit_denials=False,
+    )
+    execute_other = engine.evaluate(
+        db_session,
+        user=reviewer,
+        workspace=workspace,
+        membership=membership,
+        resource_kind="capture_session",
+        action="execute",
+        resource_attrs={"owner_user_id": "another-user"},
+        audit_denials=False,
+    )
+    update_other = engine.evaluate(
+        db_session,
+        user=reviewer,
+        workspace=workspace,
+        membership=membership,
+        resource_kind="capture_session",
+        action="update",
+        resource_attrs={"owner_user_id": "another-user"},
+        audit_denials=False,
+    )
+
+    assert create.allowed is True
+    assert execute_own.allowed is True
+    assert update_own.allowed is True
+    assert execute_other.allowed is False
+    assert update_other.allowed is False
+
+
 def test_second_eye_flag_blocks_author_ingestion(db_session):
     workspace, user, membership = _subject(db_session, WORKSPACE_REVIEWER)
     db_session.add(

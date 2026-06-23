@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J8", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I16", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F18", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I17", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F19", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -348,6 +348,7 @@ const features = [
       { type: "Happy path", scenario: "Create capture session", steps: "Fill title/domain/context, continue.", expected: "Session is created and next stage opens." },
       { type: "Validation", scenario: "Blank title", steps: "Clear title.", expected: "Continue button disabled." },
       { type: "Error path", scenario: "Plan creation fails", steps: "Simulate 500/timeout.", expected: "Error is visible and form state is preserved." },
+      { type: "Permission/security", scenario: "Reviewer creates and starts capture under IAM", steps: "Use an IAM-enforced workspace and a workspace_reviewer membership to create a free-conversation capture then start it.", expected: "Reviewer can create and start their own capture session without inheriting broad admin rights.", severityIfFails: "High" },
     ],
   },
   {
@@ -2051,6 +2052,20 @@ const executionEvidence = [
     notes:
       "Added mobile viewport smoke for /connectors, /connectors/sftp, /knowledge, /knowledge/capture and /chat while retaining the desktop mocked Andritz route smoke.",
   },
+  {
+    id: "EXEC-2026-06-23-BE-010",
+    date: "2026-06-23",
+    command:
+      "poetry run pytest app/tests/services/test_iam_engine.py app/tests/api/test_knowledge_capture_api.py -q",
+    result: "28 passed, 0 failed",
+    duration: "19.23s",
+    warnings:
+      "4174 warnings, mostly datetime.utcnow deprecations and local Qdrant compatibility warnings; no product test failures.",
+    safetyScope:
+      "Local backend pytest using test DB, FastAPI TestClient fixtures, workspace-local IAM enforcement and monkeypatched cache warmup only. No VM mutation, no real Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Reviewer capture IAM remediation: service test proves reviewers can create/update/execute only their own capture sessions, and API test proves an IAM-enforced reviewer can create and start a free-conversation capture through /knowledge-capture/plans and /sessions/{id}/start.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2145,6 +2160,8 @@ const executedTestResults = new Map([
   pass("KCAP-001-T05", "Mapped to local Playwright mocked Andritz mobile viewport smoke opening /knowledge/capture.", 13),
   pass("COL-001-T05", "Mapped to local Playwright mocked Andritz mobile viewport smoke opening /knowledge.", 13),
   pass("SFTP-018-T06", "Mapped to local Playwright mocked Andritz mobile viewport smoke opening /connectors and /connectors/sftp.", 13),
+  pass("KCAP-001-T03", "Mapped to IAM engine tests proving reviewer capture permissions are explicit while non-owner operations remain denied.", 14),
+  pass("KCAP-002-T04", "Mapped to IAM-enforced Knowledge Capture API test where a workspace_reviewer creates and starts a free-conversation capture session.", 14),
   pass("CHT-002-T01", "Mapped to chat stream hardening happy-path answer tests.", 2),
   pass("CHT-002-T02", "Mapped to controlled chat stream timeout/error tests.", 2),
   pass("CHT-006-T01", "Mapped to selected context collection stream tests.", 2),
@@ -2260,6 +2277,23 @@ const defectRecords = [
     status: "Fixed",
     ownerNotes:
       "Fixed by parsing CockpitLens and CockpitSectionKey from navigation.catalog.ts, failing on empty parse, checking side-rail direct i18n keys, and adding nav.connectors to FR/EN dictionaries. Verified by EXEC-2026-06-23-FE-002.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-KCAP-040",
+    featureIds: ["KCAP-001", "KCAP-002"],
+    reproduction:
+      "In an IAM-enforced workspace, a workspace_reviewer membership evaluated capture_session.create/execute/update before the fix. The manifest only granted capture creation to contributors/admins and owner-scoped execution/update to contributors.",
+    expected:
+      "Reviewers can open the Capture dashboard, create a new capture session, and operate their own capture without requiring broad admin rights or mutating another user's session.",
+    actual:
+      "Reviewer capture creation was denied by default unless the separate reviewers_inherit_contributor flag was enabled, leaving users like Eric blocked on 'Nouvelle capture'.",
+    severity: "High",
+    rootCause:
+      "CAPTURE_MANIFEST used CONTRIBUTOR_OR_ADMIN for capture_session.create and contributor-only owner-scoped rules for update/execute, despite reviewer being an intended capture-capable business role.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by adding reviewer to capture operator roles for create and owner-scoped update/execute. Verified by EXEC-2026-06-23-BE-010.",
     updated: "2026-06-23",
   },
 ];
@@ -2389,8 +2423,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "64/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "66/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -2681,10 +2715,18 @@ const phaseRows = [
     executionEvidence[13].safetyScope,
     "Continue with authenticated mobile UX checks against a safe real test account and real audio/VAD field validation; do not mutate real Andritz SFTP deposits or collections without explicit approval.",
   ],
+  [
+    executionEvidence[14].date,
+    "Phase 4 reviewer capture IAM remediation",
+    "Fixed the Knowledge Capture IAM manifest so workspace reviewers can create capture sessions and operate only their own sessions, then verified the true enforced API path without bypassing permissions.",
+    `${executionEvidence[14].result}; ${mappedPassedCountForEvidence(executionEvidence[14].id)} workbook test cases mapped as Pass; DEF-2026-06-23-KCAP-040 fixed.`,
+    executionEvidence[14].safetyScope,
+    "Continue with authenticated browser validation that the reviewer UI button is enabled and the full capture flow works against a safe test account.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F17"));
+styleBody(phase.getRange("A2:F18"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
