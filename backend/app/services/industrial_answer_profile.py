@@ -299,7 +299,10 @@ def apply_answer_policy_to_text(
                 continue
             if re.search(rf"\b{re.escape(term)}\b", out, flags=re.IGNORECASE):
                 violations.append(f"internal_term:{term.lower()}")
-                out = re.sub(rf"\b{re.escape(term)}s?\b", "source", out, flags=re.IGNORECASE)
+                if term.lower() == "retrieval":
+                    out = re.sub(r"\bretrievals?\b(?!\s*:)", "source", out, flags=re.IGNORECASE)
+                else:
+                    out = re.sub(rf"\b{re.escape(term)}s?\b", "source", out, flags=re.IGNORECASE)
     if _DOCUMENTALIST_FIRST_SENTENCE_RE.search(out):
         violations.append("documentalist_preamble")
         out = _DOCUMENTALIST_FIRST_SENTENCE_RE.sub("", out, count=1)

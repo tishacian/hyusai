@@ -1050,7 +1050,20 @@ def _grounding_degraded_reply(
             "I will not answer without documentary evidence."
         )
     reason = str(_retrieval_fallback_reason(state) or "no_grounded_context")
-    return f"{disclaimer} (retrieval: {reason})"
+    return f"{disclaimer} retrieval: {reason}"
+
+
+def _deep_refinement_preview_text(
+    *,
+    content: str,
+    state: Dict[str, Any],
+    grounding_policy: Optional[Dict[str, Any]],
+) -> str:
+    if state.get("grounding_state") != "no_grounded_context":
+        return content
+    policy = grounding_policy if isinstance(grounding_policy, dict) else {}
+    fallback = str(policy.get("fallback_disclaimer") or "").strip()
+    return fallback or content
 
 
 _SYSTEM_RETRIEVAL_FILTER_KEYS = {
@@ -1964,7 +1977,8 @@ async def chat_completion(
             pipeline_total_time = None
         
         # Combine chunks
-        content = "".join(full_content)
+        raw_content = "".join(full_content)
+        content = raw_content
         content, answer_policy_violations = apply_answer_policy_to_text(
             content,
             answer_policy=request_dict.get("answer_policy") if isinstance(request_dict.get("answer_policy"), dict) else None,
@@ -1992,7 +2006,11 @@ async def chat_completion(
                 user=user,
                 request_dict=request_dict,
                 state=chunk_state,
-                partial_answer=content,
+                partial_answer=_deep_refinement_preview_text(
+                    content=raw_content,
+                    state=chunk_state,
+                    grounding_policy=grounding_policy,
+                ),
                 partial_sources=chunk_state.get("sources"),
             )
         except Exception as exc:  # noqa: BLE001 - deep refinement must never break chat.
@@ -3311,9 +3329,16 @@ async def chat_stream(
             fallback_reason = _retrieval_fallback_reason(chunk_state)
             deep_job_payload = None
             assistant_message_id = None
+            deep_partial_answer = "".join(full_content)
             if full_content:
+                raw_stream_content = "".join(full_content)
+                deep_partial_answer = _deep_refinement_preview_text(
+                    content=raw_stream_content,
+                    state=chunk_state,
+                    grounding_policy=grounding_policy,
+                )
                 sanitized_content, answer_policy_violations = apply_answer_policy_to_text(
-                    "".join(full_content),
+                    raw_stream_content,
                     answer_policy=request_dict.get("answer_policy")
                     if isinstance(request_dict.get("answer_policy"), dict)
                     else None,
@@ -3417,7 +3442,7 @@ async def chat_stream(
                         user=user,
                         request_dict=request_dict,
                         state=chunk_state,
-                        partial_answer="".join(full_content),
+                        partial_answer=deep_partial_answer,
                         partial_sources=chunk_state.get("sources"),
                         parent_message_id=assistant_message.id,
                     )
