@@ -84,6 +84,8 @@ export interface VoiceFrameMeta {
   retrieval_event_id?: string | null;
   interruption_of_event_id?: string | null;
   content_type?: string | null;
+  document_refs?: Record<string, unknown>[];
+  visual_context?: Record<string, unknown> | null;
   auto?: boolean;
   reason?: string | null;
   capture_mode?: VoiceCaptureMode;
@@ -158,6 +160,8 @@ export class VoiceSessionConnection {
       question_id: meta.question_id,
       retrieval_event_id: meta.retrieval_event_id,
       interruption_of_event_id: meta.interruption_of_event_id,
+      document_refs: meta.document_refs || [],
+      visual_context: meta.visual_context || null,
       content_type: meta.content_type || blob.type || 'audio/webm',
       encoding: blob.type || 'audio/webm',
       duration_ms: 0,
@@ -170,6 +174,8 @@ export class VoiceSessionConnection {
       question_id: meta.question_id,
       retrieval_event_id: meta.retrieval_event_id,
       interruption_of_event_id: meta.interruption_of_event_id,
+      document_refs: meta.document_refs || [],
+      visual_context: meta.visual_context || null,
       auto: Boolean(meta.auto),
       reason: meta.reason || null,
       capture_mode: meta.capture_mode || null,

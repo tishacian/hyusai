@@ -10,9 +10,9 @@ const sheetPreviewRanges = [
   ["Coverage Summary", "A1:D21", "andritz_qa_matrix_summary.png"],
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
-  ["Defect Register", "A1:J16", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A74:I95", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A69:F89", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Defect Register", "A1:J17", "andritz_qa_matrix_defect_register_preview.png"],
+  ["Execution Log", "A74:I97", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A69:F91", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -645,6 +645,8 @@ const features = [
       { type: "Happy path", scenario: "Typed reference active slide", steps: "Open slide, type note.", expected: "Typed turn carries same doc ref." },
       { type: "Boundary", scenario: "Switch page during long turn", steps: "Speak while changing page.", expected: "Document ref behavior is deterministic and documented.", severityIfFails: "Medium" },
       { type: "Regression", scenario: "Typed note after switching active document", steps: "Upload two synthetic capture documents, preview the first then the second, and submit a written note.", expected: "The written turn references only the latest active document and carries the correct collection/page metadata.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Guided typed note keeps plan and active document reference", steps: "Create a guided-plan capture, switch to another plan subtopic, preview an uploaded document, then submit a typed note.", expected: "The turn payload keeps the selected plan question and carries document_refs plus visual_context for the active document view.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Voice turn keeps active document reference", steps: "Preview an uploaded capture document, then send audio.frame/audio.endpoint metadata for a voice turn.", expected: "The voice transport forwards document_refs plus visual_context through both WebSocket and LiveKit paths so the backend can attach the active page to the finalized transcript turn.", severityIfFails: "High" },
     ],
   },
   {
@@ -3234,6 +3236,34 @@ const executionEvidence = [
     notes:
       "Adds browser-level regression coverage for mixed written capture after plan-section switching so typed notes follow the selected plan breadcrumb/question instead of a stale/default section.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-083",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium --reporter=line",
+    result: "87 passed, 0 failed",
+    duration: "1.2m",
+    warnings:
+      "Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new guided-plan active-document written capture case creates a synthetic plan-build session, validates mocked topics, starts the session, switches the active plan rail subtopic, uploads and previews a synthetic capture document, records page 1 as active view, submits a typed complement tied to question q-safety-stop with document_refs plus visual_context, and proves no real backend call, upload, VM mutation, Andritz collection mutation, SFTP production-data mutation or publish request occurs.",
+    notes:
+      "Adds browser-level regression coverage for the combined mixed-input contract: guided plan breadcrumb plus active document/page reference on one written capture turn.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-084",
+    date: "2026-06-23",
+    command:
+      "/Users/thib/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node ./node_modules/@angular/cli/bin/ng.js build",
+    result: "Frontend build passed",
+    duration: "11.666s",
+    warnings:
+      "Known Angular build warnings remained unchanged: optional chain NG8107 in mission-room/vp-map-preview.component.ts, initial bundle budget, mission-room CSS budget, drawflow CSS budget, and CommonJS warnings for maplibre-gl/earcut.",
+    safetyScope:
+      "Local frontend build plus source guard for the Knowledge Capture voice document-reference transport fix. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Verifies voice-session and LiveKit transport serializers now forward document_refs and visual_context from active capture document metadata on audio.frame and audio.endpoint.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3450,6 +3480,8 @@ const executedTestResults = new Map([
   pass("KCAP-016-T05", "Mapped to local Playwright mocked capture-document-view-logging-failure smoke proving failed /documents/view does not block a written turn with optimistic document_refs.", 47),
   pass("KCAP-017-T02", "Mapped to typed capture turn API test preserving document_refs and visual_context for an active slide.", 6),
   pass("KCAP-017-T04", "Mapped to local Playwright mocked multi-document active-view smoke proving a written note after switching documents references only the latest active document.", 46),
+  pass("KCAP-017-T05", "Mapped to local Playwright mocked guided-plan active-document written capture smoke proving a typed complement keeps question_id=q-safety-stop while carrying document_refs and visual_context for the active document page.", 94),
+  pass("KCAP-017-T06", "Mapped to frontend transport source guard and build proving audio.frame/audio.endpoint now carry active document_refs plus visual_context over both backend WebSocket and LiveKit paths.", 95),
   pass("KCAP-005-T01", "Mapped to plan-build dialogue service tests that create grounded topics, preserve dialogue-built plan topics, finalize, generate question bank, and start the session.", 8),
   pass("KCAP-005-T03", "Mapped to plan-build validation/readiness tests proving topics are required/validated before the capture start path.", 8),
   pass("KCAP-006-T01", "Mapped to topic plan edit/approval and topic validation service tests.", 8),
@@ -3572,6 +3604,23 @@ const defectRecords = [
     status: "Fixed",
     ownerNotes:
       "Fixed by routing capture-document upload errors through apiErrorMessage with the generic text as fallback. Verified by EXEC-2026-06-23-FE-037.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-KCAP-042",
+    featureIds: ["KCAP-017"],
+    reproduction:
+      "Open a capture document preview so voiceFrameMeta contains document_refs/visual_context, then inspect audio.frame or audio.endpoint payloads sent by VoiceSessionConnection or LiveKitConversationConnection before the fix.",
+    expected:
+      "Voice capture payloads forward active document_refs and visual_context just like written capture turns, allowing the backend to attach the referenced page/slide/photo to the finalized transcript turn.",
+    actual:
+      "The component produced the active document metadata, but both frontend voice transports dropped document_refs and visual_context while serializing audio.frame/audio.endpoint.",
+    severity: "High",
+    rootCause:
+      "The new active-document metadata contract was added at the Knowledge Capture component/backend boundary, but the intermediate WebSocket and LiveKit voice serializers were not extended.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by adding document_refs and visual_context to VoiceFrameMeta and forwarding them in both voice-session and LiveKit audio.frame/audio.endpoint payloads. Verified by EXEC-2026-06-23-FE-084.",
     updated: "2026-06-23",
   },
   {
@@ -3871,8 +3920,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[93].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, guided-plan written note anchoring, guided-plan section-switch anchoring, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[94].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, voice active-document transport, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -4739,10 +4788,26 @@ const phaseRows = [
     executionEvidence[93].safetyScope,
     "Continue with real-backend read-only validation when safe; keep guided-plan browser capture checks mocked unless explicitly approved.",
   ],
+  [
+    executionEvidence[94].date,
+    "Phase 3 Knowledge Capture guided-plan active-document smoke",
+    "Extended the local Playwright Andritz smoke so a synthetic guided-plan session switches section, previews an uploaded capture document, records the active page view, and submits a typed complement carrying both plan and document context.",
+    `${executionEvidence[94].result}; ${mappedPassedCountForEvidence(executionEvidence[94].id)} workbook test case mapped as Pass.`,
+    executionEvidence[94].safetyScope,
+    "Continue with real-backend read-only validation when safe; keep guided-plan document-reference checks mocked unless explicitly approved.",
+  ],
+  [
+    executionEvidence[95].date,
+    "Phase 4 Knowledge Capture voice active-document transport fix",
+    "Fixed the voice WebSocket and LiveKit serializers so active document_refs and visual_context produced by Knowledge Capture are carried on audio.frame and audio.endpoint for voice turns.",
+    `${executionEvidence[95].result}; ${mappedPassedCountForEvidence(executionEvidence[95].id)} workbook test case mapped as Pass; DEF-2026-06-23-KCAP-042 fixed.`,
+    executionEvidence[95].safetyScope,
+    "Continue with real-backend voice validation when safe; keep document-reference transport assertions non-destructive.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F89"));
+styleBody(phase.getRange("A2:F91"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

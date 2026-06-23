@@ -1357,7 +1357,9 @@ async function installAndritzMocks(
           collection: 'capture-session-session-andritz-free-smoke',
           collection_name: 'capture-session-session-andritz-free-smoke',
           documents,
-          session: createdFreeConversationSession('Andritz QA document capture smoke', 'active'),
+          session: capturePlannedSession
+            ? createdPlannedCaptureSession(currentCaptureSessionTitle, 'active')
+            : createdFreeConversationSession('Andritz QA document capture smoke', 'active'),
         });
       }
       return json(route, {
@@ -1375,7 +1377,9 @@ async function installAndritzMocks(
       }
       return json(route, {
         active_view: body,
-        session: createdFreeConversationSession('Andritz QA document capture smoke', 'active'),
+        session: capturePlannedSession
+          ? createdPlannedCaptureSession(currentCaptureSessionTitle, 'active')
+          : createdFreeConversationSession('Andritz QA document capture smoke', 'active'),
       });
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/turns' && method === 'POST') {
@@ -3913,6 +3917,108 @@ test.describe('Andritz mocked browser smoke', () => {
     });
     expect(JSON.stringify(captureTurnRequests[0])).not.toContain('q-alignment');
     await expect(page.getByText('Note écrite ajoutée à la capture.')).toBeVisible();
+    await expect(noteInput).toHaveValue('');
+  });
+
+  test('keeps guided written capture anchored to the selected section and active document view', async ({ page }) => {
+    const capturePlanTopicsRequests: unknown[] = [];
+    const capturePlanValidationRequests: string[] = [];
+    const captureStartRequests: string[] = [];
+    const captureDocumentUploadRequests: string[] = [];
+    const captureDocumentPreviewRequests: string[] = [];
+    const captureDocumentViewRequests: unknown[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      capturePlanTopicsRequests,
+      capturePlanValidationRequests,
+      captureStartRequests,
+      captureDocumentUploadRequests,
+      captureDocumentPreviewRequests,
+      captureDocumentViewRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA guided document section smoke');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA guided document section smoke' })).toBeVisible();
+
+    await page.getByRole('button', { name: /Valider le plan|Validate plan/i }).click();
+    await expect.poll(() => capturePlanTopicsRequests.length).toBe(1);
+    await expect.poll(() => capturePlanValidationRequests.length).toBe(1);
+
+    await page.getByRole('button', { name: /Parler|Speak/i }).click();
+    await expect.poll(() => captureStartRequests.length).toBe(1);
+    const safetySection = page.getByRole('button', { name: /Sécurité arrêt machine/i }).first();
+    await expect(safetySection).toBeVisible();
+    await safetySection.click();
+    await expect(safetySection).toHaveClass(/text-brand-100/);
+
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+    await captureDocuments.locator('input[type="file"]').setInputFiles({
+      name: 'andritz-capture-reference.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('Synthetic Andritz guided capture reference PDF content.'),
+    });
+
+    await expect.poll(() => captureDocumentUploadRequests.length).toBe(1);
+    const referenceDocument = page.getByRole('button', { name: /Andritz capture reference/i });
+    await expect(referenceDocument).toBeVisible();
+    await referenceDocument.focus();
+    await page.keyboard.press('Enter');
+
+    await expect.poll(() => captureDocumentPreviewRequests.length).toBe(1);
+    const previewParams = new URLSearchParams(captureDocumentPreviewRequests[0].replace(/^\?/, ''));
+    expect(previewParams.get('collection_name')).toBe('capture-session-session-andritz-free-smoke');
+    expect(previewParams.get('filename')).toBe('andritz-capture-reference.pdf');
+    await expect.poll(() => captureDocumentViewRequests.length).toBe(1);
+    expect(captureDocumentViewRequests[0]).toMatchObject({
+      document_id: 'doc-capture-reference',
+      collection: 'capture-session-session-andritz-free-smoke',
+      collection_name: 'capture-session-session-andritz-free-smoke',
+      filename: 'andritz-capture-reference.pdf',
+      title: 'Andritz capture reference',
+      page: 1,
+      association_mode: 'active_view',
+    });
+    await expect(page.getByRole('heading', { name: /Andritz capture reference/i })).toBeVisible();
+    await page.getByRole('button', { name: /Close preview/i }).click();
+    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 1/i)).toBeVisible();
+    await expect(safetySection).toHaveClass(/text-brand-100/);
+
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('Sur cette page, la consignation avant arrêt machine est visible.');
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'Sur cette page, la consignation avant arrêt machine est visible.',
+      question_id: 'q-safety-stop',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [
+        expect.objectContaining({
+          document_id: 'doc-capture-reference',
+          filename: 'andritz-capture-reference.pdf',
+          page: 1,
+          association_mode: 'active_view',
+        }),
+      ],
+      visual_context: expect.objectContaining({
+        document_id: 'doc-capture-reference',
+        filename: 'andritz-capture-reference.pdf',
+        page: 1,
+        association_mode: 'active_view',
+      }),
+    });
+    expect(JSON.stringify(captureTurnRequests[0])).not.toContain('q-alignment');
     await expect(noteInput).toHaveValue('');
   });
 
