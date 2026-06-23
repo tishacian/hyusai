@@ -40,6 +40,14 @@ type MockKnowledgeScope = {
   is_default?: boolean;
   collection_slugs?: string[];
 };
+type MockKnowledgeCollectionItem = {
+  slug: string;
+  name?: string | null;
+  status?: string | null;
+  document_count?: number | null;
+  chunk_count?: number | null;
+  updated_at?: string | null;
+};
 type MockSftpDepositFile = {
   id: string;
   access_link_id: string;
@@ -54,6 +62,11 @@ type MockSftpDepositFile = {
   worker_job_id: string | null;
   promotion_result?: Record<string, unknown> | null;
   rejection_reason?: string | null;
+};
+type MockSftpIndexingAssist = {
+  summary: Record<string, unknown>;
+  recommendations: Array<Record<string, unknown>>;
+  collection: Record<string, unknown>;
 };
 
 function json(route: Route, body: unknown, status = 200) {
@@ -114,6 +127,182 @@ function emptyOperations() {
   };
 }
 
+function syntheticSftpOperations() {
+  return {
+    stale_after_hours: 24,
+    poll_interval_seconds: 5,
+    active_uploads: [
+      {
+        id: 'upload-andritz-live-1',
+        temp_name: 'andritz-live-upload.tmp',
+        filename: '1-NON-WOVENS/FRANCE/andritz-live-upload.pdf',
+        access_id: 'andritz-qa',
+        link_id: 'link-andritz-qa',
+        link_label: 'Andritz QA external upload',
+        workspace_id: workspace.id,
+        size_bytes: 4_096,
+        max_bytes: 262_144_000,
+        created_at: '2026-06-23T00:30:00Z',
+        modified_at: '2026-06-23T00:30:04Z',
+        age_seconds: 34,
+        idle_seconds: 2,
+        status: 'receiving',
+        attributed: true,
+        actionable: false,
+      },
+    ],
+    stale_partials: [],
+    storage_summary: {
+      active_count: 1,
+      idle_count: 0,
+      stale_count: 1,
+      temporary_count: 2,
+      temporary_size_bytes: 4_096,
+      unattributed_partial_count: 1,
+      unattributed_partial_size_bytes: 2_048,
+      last_received_at: '2026-06-23T00:29:00Z',
+      last_received_filename: '1-NON-WOVENS/FRANCE/andritz-last-received.pdf',
+      link_count: 1,
+      deposit_counts: {
+        received: { count: 1, size_bytes: 128_000 },
+        promoted: { count: 1, size_bytes: 64_000 },
+        rejected: { count: 1, size_bytes: 512 },
+      },
+    },
+    reconciliation_summary: {
+      mode: 'dry_run',
+      status: 'completed',
+      stale_after_hours: 24,
+      stale_partials: 1,
+      orphan_files: 1,
+      missing_db_files: 0,
+      pending_rows: 0,
+      unattributed_partials: 1,
+      stale_partial_bytes: 2_048,
+      orphan_file_bytes: 4_096,
+      generated_at: '2026-06-23T00:31:00Z',
+      confirm_from_job_id: 'job-sftp-dry-run',
+    },
+    last_jobs: [
+      {
+        id: 'job-sftp-dry-run',
+        kind: 'sftp_reconciliation',
+        title: 'Synthetic SFTP reconciliation dry run',
+        status: 'completed',
+        progress: 100,
+        stage: 'dry_run',
+        error: null,
+        input_ref: { mode: 'dry_run' },
+        result: {
+          counts: { stale_partials: 1, orphan_files: 1, missing_db_files: 0, pending_rows: 0 },
+          sizes: { stale_partial_bytes: 2_048, orphan_file_bytes: 4_096 },
+        },
+        created_at: '2026-06-23T00:31:00Z',
+        updated_at: '2026-06-23T00:31:05Z',
+        completed_at: '2026-06-23T00:31:05Z',
+      },
+    ],
+  };
+}
+
+function emptySftpIndexingAssist(): MockSftpIndexingAssist {
+  return {
+    summary: {
+      total_files: 0,
+      found_files: 0,
+      promote_now_count: 0,
+      inspect_archive_count: 0,
+      unsupported_count: 0,
+      already_promoted_count: 0,
+      needs_target_count: 0,
+      recommended_count: 0,
+      recommended_bytes: 0,
+      zip_count: 0,
+      missing_count: 0,
+      recommended_file_ids: [],
+      target_collection_slug: 'andritz-qa',
+    },
+    recommendations: [],
+    collection: {
+      slug: 'andritz-qa',
+      name: 'Andritz QA',
+      exists: true,
+      status: 'ready',
+      source_count: 2,
+      document_count: 2,
+      chunk_count: 12,
+      zero_chunk_sources: 0,
+      error_sources: 0,
+      job_counts: { queued: 0, running: 0, completed: 3, failed: 0 },
+      latest_job: null,
+      jobs: [],
+    },
+  };
+}
+
+function syntheticSftpIndexingAssist(): MockSftpIndexingAssist {
+  const runningJob = {
+    id: 'job-sftp-indexing-running',
+    kind: 'knowledge_indexing',
+    title: 'Synthetic Andritz indexing',
+    status: 'running',
+    progress: 45,
+    stage: 'Embedding synthetic SFTP files',
+    error: null,
+    input_ref: { source: 'secure_deposit', collection_slug: 'andritz-qa' },
+    result: null,
+    created_at: '2026-06-23T00:32:00Z',
+    started_at: '2026-06-23T00:32:05Z',
+    updated_at: '2026-06-23T00:32:20Z',
+    completed_at: null,
+  };
+  return {
+    summary: {
+      total_files: 1,
+      found_files: 1,
+      promote_now_count: 1,
+      inspect_archive_count: 0,
+      unsupported_count: 0,
+      already_promoted_count: 0,
+      needs_target_count: 0,
+      recommended_count: 1,
+      recommended_bytes: 128_000,
+      zip_count: 0,
+      missing_count: 0,
+      recommended_file_ids: ['deposit-andritz-received-1'],
+      target_collection_slug: 'andritz-qa',
+    },
+    recommendations: [
+      {
+        file_id: 'deposit-andritz-received-1',
+        filename: '1-NON-WOVENS/FRANCE/andritz-pump-check.pdf',
+        status: 'received',
+        extension: '.pdf',
+        recommendation: 'promote_now',
+        label: 'Promote now',
+        reason: 'Synthetic supported PDF in the current SFTP queue view.',
+        eligible_for_batch: true,
+        size_bytes: 128_000,
+        target_collection_slug: 'andritz-qa',
+      },
+    ],
+    collection: {
+      slug: 'andritz-qa',
+      name: 'Andritz QA',
+      exists: true,
+      status: 'ready',
+      source_count: 2,
+      document_count: 2,
+      chunk_count: 12,
+      zero_chunk_sources: 0,
+      error_sources: 0,
+      job_counts: { queued: 0, running: 1, completed: 3, failed: 0 },
+      latest_job: runningJob,
+      jobs: [runningJob],
+    },
+  };
+}
+
 function syntheticSftpDepositFiles(): MockSftpDepositFile[] {
   return [
     {
@@ -156,6 +345,25 @@ function syntheticSftpDepositFiles(): MockSftpDepositFile[] {
       worker_job_id: null,
       promotion_result: null,
       rejection_reason: 'Unsupported synthetic extension.',
+    },
+  ];
+}
+
+function syntheticSftpPreviewDepositFiles(): MockSftpDepositFile[] {
+  return [
+    ...syntheticSftpDepositFiles(),
+    {
+      id: 'deposit-andritz-archive-1',
+      access_link_id: 'link-andritz-qa',
+      filename: '1-NON-WOVENS/FRANCE/andritz-archive-bundle.zip',
+      content_type: 'application/zip',
+      size_bytes: 256_000,
+      sha256: 'sha-archive-bundle',
+      status: 'received',
+      uploaded_at: '2026-06-23T00:16:00Z',
+      promoted_at: null,
+      worker_job_id: null,
+      promotion_result: null,
     },
   ];
 }
@@ -318,10 +526,20 @@ async function installAndritzMocks(
     contextPersistRequests?: unknown[];
     contextPersistShouldFail?: boolean;
     knowledgeScopes?: MockKnowledgeScope[];
+    knowledgeCollectionItems?: MockKnowledgeCollectionItem[];
     sftpDepositFiles?: MockSftpDepositFile[];
+    sftpOperations?: unknown;
+    sftpIndexingAssist?: MockSftpIndexingAssist;
+    sftpIndexingAssistRequests?: unknown[];
+    sftpOperationsReconcileRequests?: unknown[];
     sftpPromoteRequests?: unknown[];
     sftpBulkPromoteRequests?: unknown[];
     sftpArchiveDownloadRequests?: string[];
+    sftpPreviewRequests?: string[];
+    sftpArchiveBrowseRequests?: string[];
+    sftpArchiveMemberPreviewRequests?: string[];
+    sftpFileDownloadRequests?: string[];
+    sftpArchiveMemberDownloadRequests?: string[];
   } = {},
 ) {
   const roleTemplate = options.roleTemplate ?? 'workspace_admin';
@@ -373,10 +591,20 @@ async function installAndritzMocks(
   const contextUpdateShouldFail = options.contextUpdateShouldFail ?? false;
   const contextPersistRequests = options.contextPersistRequests;
   const contextPersistShouldFail = options.contextPersistShouldFail ?? false;
+  const knowledgeCollectionItems = options.knowledgeCollectionItems ?? [];
   const sftpDepositFiles = options.sftpDepositFiles ?? [];
+  const sftpOperations = options.sftpOperations ?? emptyOperations();
+  const sftpIndexingAssist = options.sftpIndexingAssist;
+  const sftpIndexingAssistRequests = options.sftpIndexingAssistRequests;
+  const sftpOperationsReconcileRequests = options.sftpOperationsReconcileRequests;
   const sftpPromoteRequests = options.sftpPromoteRequests;
   const sftpBulkPromoteRequests = options.sftpBulkPromoteRequests;
   const sftpArchiveDownloadRequests = options.sftpArchiveDownloadRequests;
+  const sftpPreviewRequests = options.sftpPreviewRequests;
+  const sftpArchiveBrowseRequests = options.sftpArchiveBrowseRequests;
+  const sftpArchiveMemberPreviewRequests = options.sftpArchiveMemberPreviewRequests;
+  const sftpFileDownloadRequests = options.sftpFileDownloadRequests;
+  const sftpArchiveMemberDownloadRequests = options.sftpArchiveMemberDownloadRequests;
   let collectionDeleted = false;
   const createdCollections: string[] = [];
   let collectionPreviewRequestCount = 0;
@@ -511,19 +739,27 @@ async function installAndritzMocks(
         return json(route, { detail: 'Collections service unavailable' }, 500);
       }
       const baseCollections = collectionDeleted ? [] : ['andritz-qa'];
-      const collectionNames = [...baseCollections, ...createdCollections];
-      return json(route, {
-        collections: collectionNames,
-        default: collectionNames[0] ?? null,
-        items: [
-          ...(!collectionDeleted ? [{
+      const collectionNames = Array.from(new Set([
+        ...baseCollections,
+        ...knowledgeCollectionItems.map((item) => item.slug).filter(Boolean),
+        ...createdCollections,
+      ]));
+      const baseItems: MockKnowledgeCollectionItem[] = !collectionDeleted
+        ? [{
             slug: 'andritz-qa',
             name: 'Andritz QA',
             document_count: 2,
             chunk_count: 12,
             updated_at: '2026-06-23T00:00:00Z',
             status: 'ready',
-          }] : []),
+          }]
+        : [];
+      return json(route, {
+        collections: collectionNames,
+        default: collectionNames[0] ?? null,
+        items: [
+          ...baseItems,
+          ...knowledgeCollectionItems.filter((item) => item.slug !== 'andritz-qa'),
           ...createdCollections.map((name) => ({
             slug: name,
             name,
@@ -976,15 +1212,87 @@ async function installAndritzMocks(
       sftpArchiveDownloadRequests?.push(url.search);
       return json(route, { detail: 'Mocked archive download should not be called in this smoke' }, 500);
     }
-    if (path === '/sftp/operations') {
-      return json(route, emptyOperations());
-    }
-    if (path === '/sftp/deposits/indexing-assist') {
+    if (/^\/sftp\/deposits\/[^/]+\/preview$/.test(path) && method === 'GET') {
+      sftpPreviewRequests?.push(path);
       return json(route, {
-        collection: { slug: 'andritz-qa', name: 'Andritz QA', jobs: [] },
-        files: [],
-        summary: { recommended: 0, needs_review: 0, blocked: 0 },
+        kind: 'text',
+        filename: 'andritz-pump-check.pdf',
+        content_type: 'text/plain',
+        size_bytes: 128_000,
+        download_url: '/api/v1/sftp/deposits/deposit-andritz-received-1/download',
+        content: 'Synthetic SFTP text preview for pump check.',
       });
+    }
+    if (/^\/sftp\/deposits\/[^/]+\/download$/.test(path) && method === 'GET') {
+      sftpFileDownloadRequests?.push(path);
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Mocked file download should not be called in this smoke' }),
+      });
+    }
+    if (/^\/sftp\/deposits\/[^/]+\/archive$/.test(path) && method === 'GET') {
+      sftpArchiveBrowseRequests?.push(`${path}${url.search}`);
+      return json(route, {
+        file_id: 'deposit-andritz-archive-1',
+        filename: '1-NON-WOVENS/FRANCE/andritz-archive-bundle.zip',
+        path: url.searchParams.get('path') || '',
+        truncated: false,
+        max_entries: 100,
+        total_files: 1,
+        total_size_bytes: 2_048,
+        items: [
+          {
+            kind: 'file',
+            name: 'qa-summary.txt',
+            path: 'manuals/qa-summary.txt',
+            extension: '.txt',
+            content_type: 'text/plain',
+            size_bytes: 2_048,
+            compressed_size_bytes: 1_024,
+            previewable: true,
+          },
+        ],
+      });
+    }
+    if (/^\/sftp\/deposits\/[^/]+\/archive\/member\/preview$/.test(path) && method === 'GET') {
+      sftpArchiveMemberPreviewRequests?.push(`${path}${url.search}`);
+      return json(route, {
+        kind: 'text',
+        filename: 'qa-summary.txt',
+        content_type: 'text/plain',
+        size_bytes: 2_048,
+        download_url:
+          '/api/v1/sftp/deposits/deposit-andritz-archive-1/archive/member/download?path=manuals%2Fqa-summary.txt',
+        archive_path: 'manuals/qa-summary.txt',
+        content: 'Synthetic ZIP member preview from SFTP archive.',
+      });
+    }
+    if (/^\/sftp\/deposits\/[^/]+\/archive\/member\/download$/.test(path) && method === 'GET') {
+      sftpArchiveMemberDownloadRequests?.push(`${path}${url.search}`);
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Mocked archive member download should not be called in this smoke' }),
+      });
+    }
+    if (path === '/sftp/operations' && method === 'GET') {
+      return json(route, sftpOperations);
+    }
+    if (path === '/sftp/operations/reconcile' && method === 'POST') {
+      sftpOperationsReconcileRequests?.push(request.postDataJSON());
+      return json(route, { detail: 'Mocked reconciliation mutation should not be called in this smoke' }, 500);
+    }
+    if (path === '/sftp/deposits/indexing-assist' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      sftpIndexingAssistRequests?.push(body);
+      const fileIds = Array.isArray(body['file_ids']) ? body['file_ids'] : [];
+      return json(route, fileIds.length > 0 && sftpIndexingAssist ? sftpIndexingAssist : emptySftpIndexingAssist());
+    }
+    if (path === '/documents/jobs' && method === 'GET') {
+      const assist = sftpIndexingAssist || emptySftpIndexingAssist();
+      const collection = assist.collection as { jobs?: unknown[] };
+      return json(route, { items: collection.jobs || [] });
     }
 
     if (path === '/sessions' && method === 'GET') {
@@ -1158,6 +1466,241 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(sftpPromoteRequests).toHaveLength(0);
     expect(sftpBulkPromoteRequests).toHaveLength(0);
     expect(sftpArchiveDownloadRequests).toHaveLength(0);
+  });
+
+  test('shows SFTP operations and indexing assist without mutating synthetic files', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    const sftpIndexingAssistRequests: unknown[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      sftpDepositFiles: syntheticSftpDepositFiles(),
+      sftpOperations: syntheticSftpOperations(),
+      sftpIndexingAssist: syntheticSftpIndexingAssist(),
+      sftpIndexingAssistRequests,
+      sftpOperationsReconcileRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await expect(page.getByText('1 active transfer')).toBeVisible();
+    await expect(page.getByText('andritz-live-upload.pdf')).toBeVisible();
+    await expect(page.getByText('Dry-run completed')).toBeVisible();
+    await expect(page.getByText(/2 quarantine candidates/i)).toBeVisible();
+
+    await page.locator('input[name="queueSearch"]').fill('pump');
+    await page.getByRole('button', { name: /Analyze current view/i }).click();
+    await expect(page.getByText('Promote now').first()).toBeVisible();
+    await expect(page.getByText('Synthetic supported PDF in the current SFTP queue view.').first()).toBeVisible();
+    await expect(page.getByText('Embedding synthetic SFTP files').first()).toBeVisible();
+
+    const sftpState = await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+          liveUploads?: () => Array<{ filename?: string }>;
+          operationsSummary?: () => { active_count?: number; last_received_filename?: string } | null;
+          quarantineCandidateCount?: () => number;
+          indexingAssist?: () => { summary?: { recommended_count?: number } } | null;
+          recommendedBatchFiles?: () => Array<{ id?: string; filename?: string }>;
+        }
+        | undefined;
+      return {
+        liveUploadFilenames: component?.liveUploads?.().map((item) => item.filename) || [],
+        operationsSummary: component?.operationsSummary?.(),
+        quarantineCandidateCount: component?.quarantineCandidateCount?.(),
+        recommendedCount: component?.indexingAssist?.()?.summary?.recommended_count,
+        recommendedBatchFiles: component?.recommendedBatchFiles?.() || [],
+      };
+    });
+    expect(sftpState).toMatchObject({
+      liveUploadFilenames: ['1-NON-WOVENS/FRANCE/andritz-live-upload.pdf'],
+      operationsSummary: {
+        active_count: 1,
+        last_received_filename: '1-NON-WOVENS/FRANCE/andritz-last-received.pdf',
+      },
+      quarantineCandidateCount: 2,
+      recommendedCount: 1,
+    });
+    expect(sftpState.recommendedBatchFiles).toEqual([
+      expect.objectContaining({
+        id: 'deposit-andritz-received-1',
+        filename: '1-NON-WOVENS/FRANCE/andritz-pump-check.pdf',
+      }),
+    ]);
+
+    expect(sftpIndexingAssistRequests.at(-1)).toMatchObject({
+      collection_slug: 'andritz-qa',
+      file_ids: ['deposit-andritz-received-1'],
+    });
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+  });
+
+  test('uses the selected SFTP target collection for indexing assist without promoting files', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    const sftpIndexingAssistRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      knowledgeCollectionItems: [
+        {
+          slug: 'maintenance-qa',
+          name: 'Maintenance QA',
+          status: 'ready',
+          document_count: 3,
+          chunk_count: 33,
+          updated_at: '2026-06-23T00:40:00Z',
+        },
+      ],
+      sftpDepositFiles: syntheticSftpDepositFiles(),
+      sftpIndexingAssist: syntheticSftpIndexingAssist(),
+      sftpIndexingAssistRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    const collectionPicker = page.locator('select[name="collectionPicker"]');
+    await expect(collectionPicker).toContainText('maintenance-qa');
+    await expect(page.locator('input[name="collection"]')).toHaveValue('andritz-qa');
+
+    await collectionPicker.selectOption('maintenance-qa');
+    await expect(collectionPicker).toHaveValue('maintenance-qa');
+    await expect(page.locator('input[name="collection"]')).toHaveValue('maintenance-qa');
+
+    await page.locator('input[name="queueSearch"]').fill('pump');
+    await page.getByRole('button', { name: /Analyze current view/i }).click();
+    await expect(page.getByText('Promote now').first()).toBeVisible();
+
+    const targetState = await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+          targetCollectionSlug?: () => string;
+          collectionSlug?: string;
+          recommendedBatchFiles?: () => Array<{ id?: string; filename?: string }>;
+        }
+        | undefined;
+      return {
+        targetCollectionSlug: component?.targetCollectionSlug?.(),
+        collectionSlug: component?.collectionSlug,
+        recommendedBatchFiles: component?.recommendedBatchFiles?.() || [],
+      };
+    });
+    expect(targetState).toMatchObject({
+      targetCollectionSlug: 'maintenance-qa',
+      collectionSlug: 'maintenance-qa',
+    });
+    expect(targetState.recommendedBatchFiles).toEqual([
+      expect.objectContaining({
+        id: 'deposit-andritz-received-1',
+        filename: '1-NON-WOVENS/FRANCE/andritz-pump-check.pdf',
+      }),
+    ]);
+    expect(sftpIndexingAssistRequests.at(-1)).toMatchObject({
+      collection_slug: 'maintenance-qa',
+      file_ids: ['deposit-andritz-received-1'],
+    });
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
+  });
+
+  test('previews SFTP files and ZIP members without downloading or promoting synthetic files', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    const sftpPreviewRequests: string[] = [];
+    const sftpArchiveBrowseRequests: string[] = [];
+    const sftpArchiveMemberPreviewRequests: string[] = [];
+    const sftpFileDownloadRequests: string[] = [];
+    const sftpArchiveMemberDownloadRequests: string[] = [];
+    await installAndritzMocks(page, {
+      sftpDepositFiles: syntheticSftpPreviewDepositFiles(),
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+      sftpPreviewRequests,
+      sftpArchiveBrowseRequests,
+      sftpArchiveMemberPreviewRequests,
+      sftpFileDownloadRequests,
+      sftpArchiveMemberDownloadRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await page.locator('input[name="queueSearch"]').fill('pump');
+    await page.getByTitle('Preview file').click();
+    await expect(page.getByText('andritz-pump-check.pdf').first()).toBeVisible();
+    await expect(page.getByText('Synthetic SFTP text preview for pump check.')).toBeVisible();
+
+    await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as { closePreview?: () => void } | undefined;
+      component?.closePreview?.();
+    });
+
+    await page.locator('input[name="queueSearch"]').fill('archive');
+    await page.getByTitle('Browse ZIP archive').click();
+    await expect(page.getByText('andritz-archive-bundle.zip').first()).toBeVisible();
+    await expect(page.getByText('qa-summary.txt').first()).toBeVisible();
+    await expect(page.getByText('Select a previewable file in the archive.')).toBeVisible();
+
+    await page.getByTitle('Preview archive member').click();
+    await expect(page.getByText('Synthetic ZIP member preview from SFTP archive.')).toBeVisible();
+
+    const previewState = await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+          archiveMode?: () => boolean;
+          archivePreviewPath?: () => string | null;
+          previewData?: () => { filename?: string; content?: string } | null;
+          previewFileTarget?: () => { id?: string; filename?: string } | null;
+        }
+        | undefined;
+      return {
+        archiveMode: component?.archiveMode?.(),
+        archivePreviewPath: component?.archivePreviewPath?.(),
+        previewData: component?.previewData?.(),
+        previewFileTarget: component?.previewFileTarget?.(),
+      };
+    });
+    expect(previewState).toMatchObject({
+      archiveMode: true,
+      archivePreviewPath: 'manuals/qa-summary.txt',
+      previewData: {
+        filename: 'qa-summary.txt',
+        content: 'Synthetic ZIP member preview from SFTP archive.',
+      },
+      previewFileTarget: {
+        id: 'deposit-andritz-archive-1',
+        filename: '1-NON-WOVENS/FRANCE/andritz-archive-bundle.zip',
+      },
+    });
+
+    expect(sftpPreviewRequests).toEqual(['/sftp/deposits/deposit-andritz-received-1/preview']);
+    expect(sftpArchiveBrowseRequests).toEqual(['/sftp/deposits/deposit-andritz-archive-1/archive?path=']);
+    expect(sftpArchiveMemberPreviewRequests).toEqual([
+      '/sftp/deposits/deposit-andritz-archive-1/archive/member/preview?path=manuals/qa-summary.txt',
+    ]);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
+    expect(sftpFileDownloadRequests).toHaveLength(0);
+    expect(sftpArchiveMemberDownloadRequests).toHaveLength(0);
   });
 
   test('hides Chat drop-and-ask upload controls when the workspace flag is disabled', async ({ page }) => {
