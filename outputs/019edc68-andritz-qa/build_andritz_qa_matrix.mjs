@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J16", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I55", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F50", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I56", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F51", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -995,7 +995,7 @@ const features = [
     name: "Document rich/raw/converted preview",
     story: "As a user, I can preview indexed documents and inspect raw or converted forms where available.",
     expected: "Endpoints serve metadata, preview, file, rich-preview, raw, converted-preview and chunks by document id/collection.",
-    edges: "Unsupported file, missing object, image/PDF differences, page parameter, HTML sanitization.",
+    edges: "Unsupported file, missing object, image/PDF differences, page parameter, HTML sanitization, permission denied.",
     validation: "Preview respects permissions and content type; no unsafe HTML execution; download names are safe.",
     dependencies: "DocumentPreviewComponent, documents endpoints, object store.",
     assumptions: "Object store paths are valid for Andritz indexed docs.",
@@ -1006,6 +1006,7 @@ const features = [
       { type: "Happy path", scenario: "Preview PDF", steps: "Open a PDF source from collection.", expected: "Preview renders with correct content type." },
       { type: "Error path", scenario: "Missing converted preview", steps: "Open doc lacking conversion.", expected: "Fallback raw/download path works." },
       { type: "Security", scenario: "HTML preview sanitization", steps: "Preview document with script-like content.", expected: "No script execution.", severityIfFails: "Critical" },
+      { type: "Permission/security", scenario: "Forbidden collection preview", steps: "Open a collection document preview with preview permission denied.", expected: "Permission error renders without stale content or download link.", severityIfFails: "High" },
     ],
   },
   {
@@ -2657,6 +2658,20 @@ const executionEvidence = [
     notes:
       "Adds browser-level security coverage for Knowledge collection preview sanitization: HTML/script-like preview content is displayed as text rather than executed.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-043",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "45 passed, 0 failed",
+    duration: "36.3s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the forbidden-collection-preview case opens a synthetic collection inventory, first renders a scoped download fallback from /documents/preview/{id}, then makes the next preview call return HTTP 403 with a permission detail, verifies both requests are scoped to collection_name=andritz-qa, and confirms the second preview drawer shows only the permission error without stale text content, binary fallback copy or an Open file action. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level permission coverage for Knowledge collection preview: forbidden previews after a prior successful preview surface a clear error and do not leak stale document content or download links.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2706,6 +2721,7 @@ const executedTestResults = new Map([
   pass("COL-015-T02", "Mapped to worker ingest error and failed job detail tests."),
   pass("COL-007-T02", "Mapped to local Playwright mocked collection-preview-fallback smoke proving /documents/preview/{id} is scoped to andritz-qa and renders the Open file download fallback without real data.", 52),
   pass("COL-007-T03", "Mapped to local Playwright mocked unsafe-collection-preview smoke proving script-like preview content is rendered inertly and does not execute in the Collections preview drawer.", 53),
+  pass("COL-007-T04", "Mapped to local Playwright mocked forbidden-collection-preview smoke proving /documents/preview/{id} 403 after a prior successful preview renders a permission error without stale content or download links.", 54),
   pass("COL-023-T01", "Mapped to local Playwright mocked collection-document-inventory smoke proving the Knowledge page opens a successful /documents/list drawer scoped to andritz-qa before any preview/delete action.", 50),
   pass("COL-023-T03", "Mapped to local Playwright mocked empty-collection-inventory smoke proving a successful empty /documents/list response shows Empty collection without load-error or preview/delete actions.", 51),
   pass("COL-002-T01", "Mapped to collection detail API test exposing storage/vector/BM25 diagnostics for a collection.", 9),
@@ -3228,8 +3244,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "79/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings, Collections API-failure, successful document-browse drawer, empty document-browse drawer, document preview download fallback, document preview sanitization, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[54].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "80/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings, Collections API-failure, successful document-browse drawer, empty document-browse drawer, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -3776,10 +3792,18 @@ const phaseRows = [
     executionEvidence[53].safetyScope,
     "Continue with unauthorized collection preview fallback and read-only real-backend browser checks.",
   ],
+  [
+    executionEvidence[54].date,
+    "Phase 3 Collections forbidden preview smoke",
+    "Extended the local Playwright Andritz smoke so a denied collection preview after a prior successful preview returns a permission error without rendering stale document content, binary fallback copy or a download action.",
+    `${executionEvidence[54].result}; ${mappedPassedCountForEvidence(executionEvidence[54].id)} workbook test case mapped as Pass.`,
+    executionEvidence[54].safetyScope,
+    "Continue with read-only real-backend browser checks for collection preview permissions and inventory scoping.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F49"));
+styleBody(phase.getRange("A2:F50"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

@@ -217,6 +217,8 @@ async function installAndritzMocks(
     documentListRequests?: string[];
     collectionPreviewRequests?: string[];
     collectionPreviewUnsafeContent?: boolean;
+    collectionPreviewForbidden?: boolean;
+    collectionPreviewForbiddenAfterFirstSuccess?: boolean;
     searchShouldFail?: boolean;
     chatUploadShouldFail?: boolean;
     chatUploadPartialFailure?: boolean;
@@ -260,6 +262,8 @@ async function installAndritzMocks(
   const documentListRequests = options.documentListRequests;
   const collectionPreviewRequests = options.collectionPreviewRequests;
   const collectionPreviewUnsafeContent = options.collectionPreviewUnsafeContent ?? false;
+  const collectionPreviewForbidden = options.collectionPreviewForbidden ?? false;
+  const collectionPreviewForbiddenAfterFirstSuccess = options.collectionPreviewForbiddenAfterFirstSuccess ?? false;
   const searchShouldFail = options.searchShouldFail ?? false;
   const chatUploadShouldFail = options.chatUploadShouldFail ?? false;
   const chatUploadPartialFailure = options.chatUploadPartialFailure ?? false;
@@ -292,6 +296,7 @@ async function installAndritzMocks(
   const contextUpdateShouldFail = options.contextUpdateShouldFail ?? false;
   const contextPersistRequests = options.contextPersistRequests;
   const contextPersistShouldFail = options.contextPersistShouldFail ?? false;
+  let collectionPreviewRequestCount = 0;
   const legacyRole = roleTemplate === 'workspace_reviewer' ? 'member' : 'admin';
   const activeWorkspace = {
     ...workspace,
@@ -482,6 +487,10 @@ async function installAndritzMocks(
     }
     if (path === '/documents/preview/doc-andritz-qa') {
       collectionPreviewRequests?.push(url.search);
+      collectionPreviewRequestCount += 1;
+      if (collectionPreviewForbidden || (collectionPreviewForbiddenAfterFirstSuccess && collectionPreviewRequestCount > 1)) {
+        return json(route, { detail: 'Mocked collection preview permission denied' }, 403);
+      }
       if (collectionPreviewUnsafeContent) {
         return json(route, {
           content_type: 'text/html',
@@ -1326,6 +1335,48 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(previewDrawer.getByText('window.__andritzPreviewXss = true')).toBeVisible();
     await expect(previewDrawer.getByRole('link', { name: /Open file/i })).toHaveCount(0);
     await expect.poll(async () => page.evaluate(() => Boolean((window as Window & { __andritzPreviewXss?: boolean }).__andritzPreviewXss))).toBe(false);
+  });
+
+  test('does not leak stale collection preview content when preview is forbidden', async ({ page }) => {
+    const collectionPreviewRequests: string[] = [];
+    await installAndritzMocks(page, {
+      collectionPreviewRequests,
+      collectionPreviewForbiddenAfterFirstSuccess: true,
+    });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await page.locator('[title="Browse documents"]').first().click();
+
+    const documentsDrawer = page.locator('app-drawer').filter({ hasText: 'andritz-qa-safe.pdf' });
+    await expect(documentsDrawer.getByText('andritz-qa-safe.pdf')).toBeVisible();
+    await documentsDrawer.locator('[title="Preview"]').click();
+
+    await expect.poll(() => collectionPreviewRequests.length).toBe(1);
+    const firstPreviewParams = new URLSearchParams(collectionPreviewRequests[0].replace(/^\?/, ''));
+    expect(firstPreviewParams.get('collection_name')).toBe('andritz-qa');
+
+    const firstPreviewDrawer = page.locator('app-drawer').filter({ hasText: 'Document preview' }).filter({ hasText: 'Open file' });
+    await expect(firstPreviewDrawer.getByRole('heading', { name: 'andritz-qa-safe.pdf' })).toBeVisible();
+    await expect(firstPreviewDrawer.getByRole('link', { name: /Open file/i })).toHaveAttribute(
+      'href',
+      /\/api\/v1\/documents\/doc-andritz-qa\/download\?collection_name=andritz-qa$/,
+    );
+    await firstPreviewDrawer.getByRole('button', { name: 'Close' }).click();
+    await expect(firstPreviewDrawer).toHaveCount(0);
+
+    await documentsDrawer.locator('[title="Preview"]').click();
+
+    await expect.poll(() => collectionPreviewRequests.length).toBe(2);
+    const secondPreviewParams = new URLSearchParams(collectionPreviewRequests[1].replace(/^\?/, ''));
+    expect(secondPreviewParams.get('collection_name')).toBe('andritz-qa');
+
+    const previewDrawer = page.locator('app-drawer').filter({ hasText: 'Mocked collection preview permission denied' });
+    await expect(previewDrawer.getByRole('heading', { name: 'andritz-qa-safe.pdf' })).toBeVisible();
+    await expect(previewDrawer.getByText('Mocked collection preview permission denied')).toBeVisible();
+    await expect(previewDrawer.getByRole('link', { name: /Open file/i })).toHaveCount(0);
+    await expect(previewDrawer.getByText('This document is a binary file. Open or download it to view.')).toHaveCount(0);
+    await expect(previewDrawer.getByText('Unsafe Andritz preview')).toHaveCount(0);
   });
 
   test('shows an empty collection state only after a successful empty inventory load', async ({ page }) => {
