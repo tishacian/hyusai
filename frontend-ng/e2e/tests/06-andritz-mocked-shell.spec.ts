@@ -82,10 +82,19 @@ function emptyOperations() {
 
 async function installAndritzMocks(
   page: Page,
-  options: { roleTemplate?: MockRoleTemplate; secureDepositEnabled?: boolean } = {},
+  options: {
+    roleTemplate?: MockRoleTemplate;
+    secureDepositEnabled?: boolean;
+    collectionsShouldFail?: boolean;
+    documentListShouldFail?: boolean;
+    searchShouldFail?: boolean;
+  } = {},
 ) {
   const roleTemplate = options.roleTemplate ?? 'workspace_admin';
   const secureDepositEnabled = options.secureDepositEnabled ?? true;
+  const collectionsShouldFail = options.collectionsShouldFail ?? false;
+  const documentListShouldFail = options.documentListShouldFail ?? false;
+  const searchShouldFail = options.searchShouldFail ?? false;
   const legacyRole = roleTemplate === 'workspace_reviewer' ? 'member' : 'admin';
   const activeWorkspace = {
     ...workspace,
@@ -161,6 +170,9 @@ async function installAndritzMocks(
     }
 
     if (path === '/documents/collections') {
+      if (collectionsShouldFail) {
+        return json(route, { detail: 'Collections service unavailable' }, 500);
+      }
       return json(route, {
         collections: ['andritz-qa'],
         default: 'andritz-qa',
@@ -172,6 +184,39 @@ async function installAndritzMocks(
             chunk_count: 12,
             updated_at: '2026-06-23T00:00:00Z',
             status: 'ready',
+          },
+        ],
+      });
+    }
+    if (path === '/documents/list') {
+      if (documentListShouldFail) {
+        return json(route, { detail: 'Document inventory unavailable' }, 500);
+      }
+      return json(route, {
+        documents: [
+          {
+            document_id: 'doc-andritz-qa',
+            filename: 'andritz-qa-safe.pdf',
+            chunk_count: 3,
+            mime_type: 'application/pdf',
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 100,
+        has_more: false,
+      });
+    }
+    if (path === '/documents/search') {
+      if (searchShouldFail) {
+        return json(route, { detail: 'Search service unavailable' }, 500);
+      }
+      return json(route, {
+        results: [
+          {
+            score: 0.91,
+            content: 'Synthetic Andritz QA result',
+            metadata: { filename: 'andritz-qa-safe.pdf', document_id: 'doc-andritz-qa' },
           },
         ],
       });
@@ -289,6 +334,65 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(sftpCard).toBeVisible();
     await expect(sftpCard).toContainText(/ready/i);
     await expect(sftpCard).not.toContainText(/configured|Config saved/i);
+  });
+
+  test('shows a non-destructive error state when Collections cannot load', async ({ page }) => {
+    await installAndritzMocks(page, { collectionsShouldFail: true });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await expect(page.getByText('Unable to load collections')).toBeVisible();
+    await expect(page.getByText('Collections service unavailable')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Retry/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /New collection/i })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /Upload/i })).toBeDisabled();
+    await expect(page.locator('a[href="/knowledge/andritz-qa"]')).toHaveCount(0);
+    await expect(page.locator('[title="Delete collection"]')).toHaveCount(0);
+  });
+
+  test('shows a non-destructive error state when collection documents cannot load', async ({ page }) => {
+    await installAndritzMocks(page, { documentListShouldFail: true });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await page.locator('[title="Browse documents"]').first().click();
+
+    await expect(page.getByText('Unable to load documents')).toBeVisible();
+    await expect(page.getByText('Document inventory unavailable')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Retry/i })).toBeVisible();
+    await expect(page.locator('[title="Delete document"]')).toHaveCount(0);
+  });
+
+  test('shows an inline error state when collection search fails', async ({ page }) => {
+    await installAndritzMocks(page, { searchShouldFail: true });
+
+    await page.goto('/knowledge');
+    await page.getByRole('button', { name: /^Search$/ }).first().click();
+    await page.getByPlaceholder('Ask semantic question…').fill('pump maintenance');
+    await page.getByRole('button', { name: /^Search$/ }).last().click();
+
+    await expect(page.getByText('Unable to search knowledge')).toBeVisible();
+    await expect(
+      page.locator('app-empty-state').filter({ hasText: 'Unable to search knowledge' }).filter({ hasText: 'Search service unavailable' }),
+    ).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA result')).toHaveCount(0);
+  });
+
+  test('clears stale search results when opening a new search context', async ({ page }) => {
+    await installAndritzMocks(page);
+
+    await page.goto('/knowledge');
+    await page.getByRole('button', { name: /^Search$/ }).first().click();
+    await page.getByPlaceholder('Ask semantic question…').fill('pump maintenance');
+    await page.getByRole('button', { name: /^Search$/ }).last().click();
+    await expect(page.getByText('Synthetic Andritz QA result')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.locator('[title="Search in this collection"]').first().click();
+
+    await expect(page.getByPlaceholder('Ask semantic question…')).toHaveValue('');
+    await expect(page.getByText('Synthetic Andritz QA result')).toHaveCount(0);
+    await expect(page.locator('app-empty-state').filter({ hasText: /No results|Unable to search knowledge/ })).toHaveCount(0);
   });
 
   test('keeps primary Andritz surfaces reachable on mobile viewport', async ({ page }) => {

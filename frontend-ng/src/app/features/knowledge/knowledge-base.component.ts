@@ -91,7 +91,7 @@ interface SearchResult {
         actions
         type="button"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-        (click)="searchOpen.set(true)"
+        (click)="openGlobalSearch()"
       >
         <app-icon name="search" [size]="14" /> Search
       </button>
@@ -107,14 +107,20 @@ interface SearchResult {
         actions
         type="button"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
-        (click)="newCollectionDraft.set(''); createOpen.set(true)"
+        [class.opacity-50]="collectionsError()"
+        [class.cursor-not-allowed]="collectionsError()"
+        [disabled]="!!collectionsError()"
+        (click)="openCreateCollection()"
       >
         <app-icon name="folder-plus" [size]="14" /> New collection
       </button>
       <button
         actions
         type="button"
-        (click)="fileInput.click()"
+        (click)="openFilePicker(fileInput)"
+        [class.opacity-50]="collectionsError()"
+        [class.cursor-not-allowed]="collectionsError()"
+        [disabled]="!!collectionsError()"
         class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
       >
         <app-icon name="cloud-upload" [size]="14" /> Upload
@@ -123,22 +129,26 @@ interface SearchResult {
 
     <!-- Dropzone -->
     <div
-      class="relative rounded-md p-8 text-center mb-6 transition-colors cursor-pointer group"
+      class="relative rounded-md p-8 text-center mb-6 transition-colors group"
       [class.border-2]="true"
       [class.border-dashed]="true"
       [class.border-white\\/10]="!dragging()"
       [class.border-brand-500\\/60]="dragging()"
       [class.bg-brand-500\\/5]="dragging()"
+      [class.cursor-pointer]="!collectionsError()"
+      [class.cursor-not-allowed]="collectionsError()"
+      [class.opacity-60]="collectionsError()"
       (dragover)="onDragOver($event)"
       (dragleave)="onDragLeave($event)"
       (drop)="onDrop($event)"
-      (click)="fileInput.click()"
+      (click)="openFilePicker(fileInput)"
     >
       <input
         #fileInput
         type="file"
         multiple
         class="hidden"
+        [disabled]="!!collectionsError()"
         (change)="onFileSelect($event)"
         accept=".pdf,.txt,.md,.docx,.csv,.json,.png,.jpg,.jpeg,.tif,.tiff,.webp"
       />
@@ -156,6 +166,7 @@ interface SearchResult {
             <select
               class="knowledge-select knowledge-select-inline ml-1"
               [(ngModel)]="uploadTarget"
+              [disabled]="!!collectionsError()"
               (click)="$event.stopPropagation()"
             >
               <option value="documents">documents</option>
@@ -212,6 +223,22 @@ interface SearchResult {
             <div class="h-3 w-20 bg-white/5 rounded"></div>
           </div>
         }
+      </div>
+    } @else if (collectionsError()) {
+      <div class="t-card t-elevated rounded-md">
+        <app-empty-state
+          icon="circle-alert"
+          title="Unable to load collections"
+          [description]="collectionsError()!"
+        >
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+            (click)="loadCollections()"
+          >
+            <app-icon name="refresh-cw" [size]="14" /> Retry
+          </button>
+        </app-empty-state>
       </div>
     } @else if (collections().length === 0) {
       <div class="t-card t-elevated rounded-md">
@@ -327,7 +354,13 @@ interface SearchResult {
         </label>
       </form>
 
-      @if (searchResults().length === 0 && !searching() && searchAttempted()) {
+      @if (searchError() && !searching()) {
+        <app-empty-state
+          icon="circle-alert"
+          title="Unable to search knowledge"
+          [description]="searchError()!"
+        />
+      } @else if (searchResults().length === 0 && !searching() && searchAttempted()) {
         <app-empty-state icon="search" title="No results" description="Try a different query or disable hybrid." />
       }
 
@@ -369,6 +402,20 @@ interface SearchResult {
             <div class="h-10 rounded bg-white/5 animate-pulse"></div>
           }
         </div>
+      } @else if (browseError()) {
+        <app-empty-state
+          icon="circle-alert"
+          title="Unable to load documents"
+          [description]="browseError()!"
+        >
+          <button
+            type="button"
+            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+            (click)="loadBrowsePage(browseOffset())"
+          >
+            <app-icon name="refresh-cw" [size]="14" /> Retry
+          </button>
+        </app-empty-state>
       } @else if (browseDocs().length === 0) {
         <app-empty-state icon="file-text" title="Empty collection" description="Upload documents to this collection." />
       } @else {
@@ -589,6 +636,7 @@ export class KnowledgeBaseComponent implements OnInit {
   // Collections
   collections = signal<CollectionInfo[]>([]);
   loadingCollections = signal(false);
+  collectionsError = signal<string | null>(null);
   vectorDbType = signal<string>('');
 
   uploading = signal(false);
@@ -610,6 +658,7 @@ export class KnowledgeBaseComponent implements OnInit {
   browseCollection = signal<string>('');
   browseDocs = signal<DocItem[]>([]);
   browseLoading = signal(false);
+  browseError = signal<string | null>(null);
   browseTotal = signal(0);
   browseOffset = signal(0);
   browseHasMore = signal(false);
@@ -634,6 +683,7 @@ export class KnowledgeBaseComponent implements OnInit {
   useHybrid = true;
   searching = signal(false);
   searchAttempted = signal(false);
+  searchError = signal<string | null>(null);
   searchResults = signal<SearchResult[]>([]);
 
   readonly totalDocs = computed(() =>
@@ -685,6 +735,7 @@ export class KnowledgeBaseComponent implements OnInit {
       )
       .subscribe({
         next: (res) => {
+          this.collectionsError.set(null);
           const names = res?.collections ?? [];
           this.vectorDbType.set(res?.vector_db_type ?? '');
           const items = res?.items ?? [];
@@ -707,8 +758,12 @@ export class KnowledgeBaseComponent implements OnInit {
           this.collections.set(infos);
           this.loadingCollections.set(false);
         },
-        error: () => {
+        error: (err) => {
           this.collections.set([]);
+          this.vectorDbType.set('');
+          this.collectionsError.set(
+            err?.error?.detail || 'Collections could not be loaded. Retry before creating, deleting or uploading documents.',
+          );
           this.loadingCollections.set(false);
         },
       });
@@ -738,6 +793,10 @@ export class KnowledgeBaseComponent implements OnInit {
   }
 
   private uploadFiles(files: FileList): void {
+    if (this.collectionsError()) {
+      this.toast.error('Retry loading collections before uploading documents.', 'Knowledge');
+      return;
+    }
     this.uploading.set(true);
     this.uploadCount.set(files.length);
     const formData = new FormData();
@@ -768,6 +827,10 @@ export class KnowledgeBaseComponent implements OnInit {
   }
 
   createCollection(): void {
+    if (this.collectionsError()) {
+      this.toast.error('Retry loading collections before creating a collection.', 'Knowledge');
+      return;
+    }
     const name = this.newCollectionDraftValue.trim();
     if (!name) return;
     this.creating.set(true);
@@ -789,6 +852,23 @@ export class KnowledgeBaseComponent implements OnInit {
           this.creating.set(false);
         },
       });
+  }
+
+  openCreateCollection(): void {
+    if (this.collectionsError()) {
+      this.toast.error('Retry loading collections before creating a collection.', 'Knowledge');
+      return;
+    }
+    this.newCollectionDraft.set('');
+    this.createOpen.set(true);
+  }
+
+  openFilePicker(input: HTMLInputElement): void {
+    if (this.collectionsError()) {
+      this.toast.error('Retry loading collections before uploading documents.', 'Knowledge');
+      return;
+    }
+    input.click();
   }
 
   requestDeleteCollection(name: string): void {
@@ -817,6 +897,7 @@ export class KnowledgeBaseComponent implements OnInit {
     this.browseCollection.set(name);
     this.browseOpen.set(true);
     this.browseDocs.set([]);
+    this.browseError.set(null);
     this.browseTotal.set(0);
     this.browseOffset.set(0);
     this.browseHasMore.set(false);
@@ -828,23 +909,28 @@ export class KnowledgeBaseComponent implements OnInit {
     if (!name) return;
     const safeOffset = Math.max(0, offset);
     this.browseLoading.set(true);
+    this.browseError.set(null);
     this.http
       .get<DocumentListPayload>(
         `${this.base}/list?collection_name=${encodeURIComponent(name)}&limit=${this.browsePageSize}&offset=${safeOffset}`,
       )
       .subscribe({
         next: (res) => {
+          this.browseError.set(null);
           this.browseDocs.set(res?.documents ?? []);
           this.browseTotal.set(res?.total ?? 0);
           this.browseOffset.set(res?.offset ?? safeOffset);
           this.browseHasMore.set(!!res?.has_more);
           this.browseLoading.set(false);
         },
-        error: () => {
+        error: (err) => {
           this.browseDocs.set([]);
           this.browseTotal.set(0);
           this.browseOffset.set(safeOffset);
           this.browseHasMore.set(false);
+          this.browseError.set(
+            err?.error?.detail || 'Documents could not be loaded. Retry before previewing or deleting files.',
+          );
           this.browseLoading.set(false);
         },
       });
@@ -902,14 +988,31 @@ export class KnowledgeBaseComponent implements OnInit {
   }
 
   openSearchIn(name: string): void {
+    this.resetSearchState();
     this.searchCollection.set(name);
     this.searchCollectionDraft = name;
+    this.searchOpen.set(true);
+  }
+
+  openGlobalSearch(): void {
+    this.resetSearchState();
+    this.searchCollection.set('');
+    this.searchCollectionDraft = '';
     this.searchOpen.set(true);
   }
 
   closeSearch(): void {
     this.searchOpen.set(false);
     this.searchCollection.set('');
+    this.searchCollectionDraft = '';
+  }
+
+  private resetSearchState(): void {
+    this.searchQuery = '';
+    this.searching.set(false);
+    this.searchAttempted.set(false);
+    this.searchError.set(null);
+    this.searchResults.set([]);
   }
 
   runSearch(): void {
@@ -917,6 +1020,8 @@ export class KnowledgeBaseComponent implements OnInit {
     if (!q) return;
     this.searching.set(true);
     this.searchAttempted.set(true);
+    this.searchError.set(null);
+    this.searchResults.set([]);
     const col = this.searchCollectionDraft || this.searchCollection() || 'documents';
     this.http
       .post<{ results: SearchResult[] }>(`${this.base}/search`, {
@@ -927,11 +1032,15 @@ export class KnowledgeBaseComponent implements OnInit {
       })
       .subscribe({
         next: (res) => {
+          this.searchError.set(null);
           this.searchResults.set(res?.results ?? []);
           this.searching.set(false);
         },
         error: (err) => {
-          this.toast.error(err?.error?.detail || 'Search failed', 'Knowledge');
+          const message = err?.error?.detail || 'Search failed. Retry before using results.';
+          this.searchResults.set([]);
+          this.searchError.set(message);
+          this.toast.error(message, 'Knowledge');
           this.searching.set(false);
         },
       });

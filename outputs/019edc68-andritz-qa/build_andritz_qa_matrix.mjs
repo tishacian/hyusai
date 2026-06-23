@@ -10,9 +10,9 @@ const sheetPreviewRanges = [
   ["Coverage Summary", "A1:D21", "andritz_qa_matrix_summary.png"],
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
-  ["Defect Register", "A1:J8", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I20", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F22", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Defect Register", "A1:J11", "andritz_qa_matrix_defect_register_preview.png"],
+  ["Execution Log", "A1:I24", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F26", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -993,8 +993,8 @@ const features = [
     name: "Search inside collection",
     story: "As a user, I can search within a specific collection from the knowledge UI.",
     expected: "Search modal calls /documents/search or RAG endpoints scoped to collection and displays matching chunks/sources.",
-    edges: "Empty query, no results, large query, collection missing.",
-    validation: "Search is scoped to selected collection; no cross-collection leak.",
+    edges: "Empty query, no results, large query, collection missing, search API failure.",
+    validation: "Search is scoped to selected collection; no cross-collection leak; failed search is not confused with no results or stale results.",
     dependencies: "KnowledgeBaseComponent runSearch, documents search endpoint/vector store.",
     assumptions: "Collection has vector/sparse indexes built.",
     notes: "Read-only, safe for Andritz.",
@@ -1004,6 +1004,8 @@ const features = [
       { type: "Happy path", scenario: "Search known term", steps: "Search term expected in collection.", expected: "Relevant chunks returned with source info." },
       { type: "Boundary", scenario: "No results", steps: "Search nonsense term.", expected: "Empty state, not error." },
       { type: "Permission/security", scenario: "Cross-collection isolation", steps: "Search collection as limited user.", expected: "Only permitted collection results appear.", severityIfFails: "High" },
+      { type: "Error path", scenario: "Search API fails", steps: "Force /documents/search to return 500 from the Knowledge search drawer.", expected: "Inline error state is visible and no stale results are displayed.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Open a new search context after previous results", steps: "Run a successful search, close the drawer, then open Search in this collection.", expected: "The new drawer context starts with an empty query and no stale result/error state.", severityIfFails: "High" },
     ],
   },
   {
@@ -1782,6 +1784,24 @@ const features = [
     ],
   },
   {
+    id: "COL-023",
+    name: "Knowledge page document browse drawer",
+    story: "As a user, I can inspect the document inventory for a collection directly from the Knowledge page before previewing or deleting any file.",
+    expected: "The Knowledge page Browse documents action opens a drawer backed by /documents/list with paginated documents, preview actions, and delete actions only after inventory loads successfully.",
+    edges: "Document inventory API failure, empty collection, large collection, stale document id, permission denied, retry after transient failure.",
+    validation: "A failed inventory load must not be shown as a legitimate empty collection and must not expose stale preview/delete actions.",
+    dependencies: "KnowledgeBaseComponent openBrowse/loadBrowsePage, /documents/list, document preview/delete endpoints.",
+    assumptions: "Andritz document inventories can include SFTP-ingested content, so browse failures must be explicit and non-destructive.",
+    notes: "Discovered while hardening Collections error handling; distinct from the collection detail inventory route.",
+    source: src("frontend-ng/src/app/features/knowledge/knowledge-base.component.ts", "backend/app/api/v1/endpoints/documents.py"),
+    scope: "Collections",
+    tests: [
+      { type: "Happy path", scenario: "Open document browse drawer", steps: "Open /knowledge, click Browse documents for a collection.", expected: "The drawer shows document rows, totals and preview/delete actions for loaded documents." },
+      { type: "Error path", scenario: "Document list API fails", steps: "Force /documents/list to return 500 and click Browse documents.", expected: "The drawer shows a retryable error state and no document delete action.", severityIfFails: "High" },
+      { type: "Boundary", scenario: "Empty loaded collection", steps: "Return a successful empty document list.", expected: "The drawer shows Empty collection only after a successful response." },
+    ],
+  },
+  {
     id: "SFTP-015",
     name: "Secure deposit health",
     story: "As an operator, I can confirm whether secure deposit/SFTP is enabled and healthy for the current workspace.",
@@ -2113,6 +2133,62 @@ const executionEvidence = [
     notes:
       "Adds no-token browser guard tests proving the protected Recherche, Collections, Knowledge Capture and Secure Deposit routes redirect to /auth/signin with redirectURL preserved instead of exposing protected shells to unauthenticated users. Adds a disabled SFTP workspace-settings case proving the catalogue card stays visible as ready but is not marked configured/Config saved.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-007",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "9 passed, 0 failed",
+    duration: "19.1s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the Collections error case forces /documents/collections to return 500 and asserts an error/retry state, disabled create/upload mutation controls, and no collection-card destructive action. No VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds a mocked Collections API failure smoke covering the non-destructive load-error state, retry control, disabled mutation buttons and hidden collection delete actions. Verifies DEF-2026-06-23-COL-001 after the frontend error-state fix.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-008",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "10 passed, 0 failed",
+    duration: "17.9s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the document browse error case forces /documents/list to return 500 and asserts an error/retry state with no document delete action. No VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds a mocked Knowledge page document-inventory failure smoke and verifies DEF-2026-06-23-COL-023 after the browse drawer error-state fix.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-009",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "11 passed, 0 failed",
+    duration: "20.0s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the search error case forces /documents/search to return 500 and asserts an inline error with no stale result row. No VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds a mocked Knowledge search failure smoke and verifies DEF-2026-06-23-COL-008 after the search drawer error-state fix.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-010",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "12 passed, 0 failed",
+    duration: "19.6s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the search-context case runs a synthetic successful search, closes the drawer, opens collection search and asserts no stale query/result/error state. No VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds a mocked Knowledge search context-reset smoke and verifies DEF-2026-06-23-COL-008B after the search drawer stale-state fix.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2210,6 +2286,10 @@ const executedTestResults = new Map([
   pass("SFTP-018-T06", "Mapped to local Playwright mocked Andritz mobile viewport smoke opening /connectors and /connectors/sftp.", 13),
   pass("KCAP-001-T08", "Mapped to local Playwright no-token guard smoke proving /knowledge/capture redirects to /auth/signin with redirectURL preserved.", 17),
   pass("COL-001-T06", "Mapped to local Playwright no-token guard smoke proving /knowledge redirects to /auth/signin with redirectURL preserved.", 17),
+  pass("COL-001-T03", "Mapped to local Playwright mocked 500 response for /documents/collections proving the Knowledge page shows an error/retry state, disables create/upload mutation buttons and exposes no collection-card destructive action.", 18),
+  pass("COL-023-T02", "Mapped to local Playwright mocked 500 response for /documents/list proving the Knowledge page browse drawer shows an error/retry state and exposes no document delete action.", 19),
+  pass("COL-008-T04", "Mapped to local Playwright mocked 500 response for /documents/search proving the Knowledge search drawer shows an inline error and no stale result row.", 20),
+  pass("COL-008-T05", "Mapped to local Playwright search context-reset smoke proving a new Knowledge search context opens with an empty query and no stale result/error state.", 21),
   pass("SFTP-018-T07", "Mapped to local Playwright no-token guard smoke proving /connectors/sftp redirects to /auth/signin with redirectURL preserved.", 17),
   pass("SFTP-018-T02", "Mapped to local Playwright disabled connector-settings smoke proving the SFTP card remains ready but not configured/Config saved.", 17),
   pass("KCAP-001-T03", "Mapped to IAM engine tests proving reviewer capture permissions are explicit while non-owner operations remain denied.", 14),
@@ -2350,6 +2430,74 @@ const defectRecords = [
       "Fixed by adding reviewer to capture operator roles for create and owner-scoped update/execute. Verified by EXEC-2026-06-23-BE-010.",
     updated: "2026-06-23",
   },
+  {
+    id: "DEF-2026-06-23-COL-001",
+    featureIds: ["COL-001"],
+    reproduction:
+      "Force /documents/collections to return HTTP 500 in the mocked Andritz browser smoke. Before the fix, KnowledgeBaseComponent cleared collections and rendered the same 'No collections yet' empty state used for a legitimate empty workspace.",
+    expected:
+      "A failed Collections load shows an explicit non-destructive error state with a Retry action, disables create/upload mutation controls, and does not render stale collection cards or delete actions.",
+    actual:
+      "Initial implementation silently treated the API failure as an empty collection list, which could mislead an operator into thinking Andritz had no collections.",
+    severity: "Medium",
+    rootCause:
+      "KnowledgeBaseComponent had loading and data signals but no collections-load error signal or template branch.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by adding collectionsError state, a retryable error empty-state branch, disabled create/upload controls while the list is failed, clearing vector DB summary on failure, and a mocked Playwright 500 case. Verified by EXEC-2026-06-23-FE-007.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-COL-023",
+    featureIds: ["COL-023"],
+    reproduction:
+      "Force /documents/list to return HTTP 500 and open the Knowledge page Browse documents drawer for a mocked Andritz collection. Before the fix, KnowledgeBaseComponent cleared browseDocs and rendered the same 'Empty collection' state used for a legitimate successful empty response.",
+    expected:
+      "A failed document inventory load shows an explicit retryable error state and does not expose stale preview/delete actions.",
+    actual:
+      "Initial implementation silently treated the failed inventory call as an empty collection, making an operational failure look like a true absence of documents.",
+    severity: "High",
+    rootCause:
+      "The browse drawer tracked loading and documents but had no browseError signal or error template branch.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by adding browseError state, clearing it on new/successful loads, rendering a retryable document-load error state, and adding a mocked Playwright 500 case. Verified by EXEC-2026-06-23-FE-008.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-COL-008",
+    featureIds: ["COL-008"],
+    reproduction:
+      "Force /documents/search to return HTTP 500 from the Knowledge search drawer. Before the fix, the UI only emitted a toast and kept the drawer body in a no-results or previous-results state.",
+    expected:
+      "A failed search shows an inline error state and clears stale result rows so operators do not confuse a backend failure with valid evidence.",
+    actual:
+      "Initial implementation only used a transient toast and did not track searchError, which could leave stale result rows visible after a failed query.",
+    severity: "High",
+    rootCause:
+      "KnowledgeBaseComponent tracked searchAttempted/searching/results but had no searchError signal or error branch in the search drawer.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by adding searchError state, clearing it on new/successful searches, clearing searchResults on failure, rendering an inline error state, and adding a mocked Playwright 500 case. Verified by EXEC-2026-06-23-FE-009.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-COL-008B",
+    featureIds: ["COL-008"],
+    reproduction:
+      "Run a successful Knowledge search, close the drawer, then open Search in this collection. Before the fix, the drawer reused the previous query/result state when entering a new search context.",
+    expected:
+      "Opening a new global or collection-scoped search context starts clean: empty query, no old results, no previous error and no stale no-results state.",
+    actual:
+      "Initial implementation opened the drawer directly with searchOpen.set(true) or openSearchIn without resetting searchQuery/searchResults/searchAttempted/searchError.",
+    severity: "High",
+    rootCause:
+      "Search drawer lifecycle did not centralize state reset between global search and collection-scoped search.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by routing global search through openGlobalSearch, resetting search state on new context, clearing collection draft on close, and clearing stale results when a new search starts. Verified by EXEC-2026-06-23-FE-010.",
+    updated: "2026-06-23",
+  },
 ];
 
 const allTests = features.flatMap((feature) => tests(feature.id, feature.tests));
@@ -2477,8 +2625,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "71/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard plus disabled-SFTP-settings browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "75/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings, Collections API-failure, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -2801,10 +2949,42 @@ const phaseRows = [
     executionEvidence[17].safetyScope,
     "Continue with authenticated real-backend browser journeys when a safe test account is available.",
   ],
+  [
+    executionEvidence[18].date,
+    "Phase 3 Collections error-state smoke",
+    "Extended the local Playwright Andritz smoke with a mocked /documents/collections 500 response and fixed the Knowledge page to show an explicit retryable error state with mutation controls disabled instead of the legitimate empty-collections state.",
+    `${executionEvidence[18].result}; ${mappedPassedCountForEvidence(executionEvidence[18].id)} workbook test case mapped as Pass; DEF-2026-06-23-COL-001 fixed.`,
+    executionEvidence[18].safetyScope,
+    "Continue with a safe authenticated real-backend browser check for transient collection-load failures; do not mutate real Andritz collections.",
+  ],
+  [
+    executionEvidence[19].date,
+    "Phase 3 document browse error-state smoke",
+    "Extended the local Playwright Andritz smoke with a mocked /documents/list 500 response and fixed the Knowledge page browse drawer to show an explicit retryable document-load error instead of the legitimate empty-collection state.",
+    `${executionEvidence[19].result}; ${mappedPassedCountForEvidence(executionEvidence[19].id)} workbook test case mapped as Pass; DEF-2026-06-23-COL-023 fixed.`,
+    executionEvidence[19].safetyScope,
+    "Continue with safe authenticated real-backend browser checks for read-only inventory browsing; do not mutate real Andritz documents or collections.",
+  ],
+  [
+    executionEvidence[20].date,
+    "Phase 3 Knowledge search error-state smoke",
+    "Extended the local Playwright Andritz smoke with a mocked /documents/search 500 response and fixed the Knowledge search drawer to show an inline error while clearing stale result rows.",
+    `${executionEvidence[20].result}; ${mappedPassedCountForEvidence(executionEvidence[20].id)} workbook test case mapped as Pass; DEF-2026-06-23-COL-008 fixed.`,
+    executionEvidence[20].safetyScope,
+    "Continue with safe authenticated real-backend browser checks for read-only search behaviour and source scoping.",
+  ],
+  [
+    executionEvidence[21].date,
+    "Phase 3 Knowledge search context-reset smoke",
+    "Extended the local Playwright Andritz smoke with a successful search followed by a new collection-scoped search context, and fixed the drawer lifecycle to clear stale query/result/error state.",
+    `${executionEvidence[21].result}; ${mappedPassedCountForEvidence(executionEvidence[21].id)} workbook test case mapped as Pass; DEF-2026-06-23-COL-008B fixed.`,
+    executionEvidence[21].safetyScope,
+    "Continue with safe authenticated real-backend browser checks for read-only search behaviour and source scoping.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F21"));
+styleBody(phase.getRange("A2:F25"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
