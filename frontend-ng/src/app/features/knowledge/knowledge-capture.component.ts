@@ -2738,6 +2738,11 @@ interface ProposalFact {
                   }
                 </p>
               </div>
+              @if (planNotice(); as notice) {
+                <div [class]="planNoticeClass(notice.tone)">
+                  {{ notice.text }}
+                </div>
+              }
               @if (planSourceSummary(s); as source) {
                 <section class="rounded border border-brand-300/25 bg-brand-500/10 p-4 space-y-3">
                   <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2791,6 +2796,20 @@ interface ProposalFact {
                       <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10" title="Descendre la sélection" aria-label="Descendre la sélection" (click)="applyPlanOutlineFormatFrom('plan_build', s, 'move_down')">
                         <app-icon name="arrow-down" [size]="15" />
                       </button>
+                      <label
+                        class="inline-flex h-9 cursor-pointer items-center gap-2 rounded bg-white/5 px-3 text-xs font-semibold text-gray-300 ring-1 ring-white/10 hover:bg-white/10 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
+                        title="Importer un fichier de plan"
+                      >
+                        <app-icon [name]="extractingPlanSource() ? 'loader-2' : 'upload'" [size]="14" [class]="extractingPlanSource() ? 'animate-spin' : ''" />
+                        Importer
+                        <input
+                          type="file"
+                          class="hidden"
+                          accept=".txt,.text,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.rtf,.html,.htm,.xml,.log,.pdf,.docx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                          [disabled]="extractingPlanSource()"
+                          (change)="onPlanOutlineImportFile($event, s)"
+                        />
+                      </label>
                     </div>
                   }
                 </div>
@@ -7568,7 +7587,17 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.extractingPlanSource.set(false);
           this.applyImportedPlanInstruction(session, String(payload.text || ''), file.name);
         },
-        error: () => this.readPlanInstructionImportFileLocally(file, session),
+        error: (err) => {
+          if (this.canReadPlanSourceLocally(file)) {
+            this.readPlanInstructionImportFileLocally(file, session);
+            return;
+          }
+          this.extractingPlanSource.set(false);
+          this.planDialogueNotice.set({
+            tone: 'error',
+            text: this.apiErrorMessage(err, this.i18n.t('capture.plan.import_failed')),
+          });
+        },
       });
   }
 
@@ -7616,7 +7645,17 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.applyImportedPlanOutline(session, String(payload.text || ''), file.name);
           this.extractingPlanSource.set(false);
         },
-        error: () => this.readPlanOutlineImportFileLocally(file, session),
+        error: (err) => {
+          if (this.canReadPlanSourceLocally(file)) {
+            this.readPlanOutlineImportFileLocally(file, session);
+            return;
+          }
+          this.extractingPlanSource.set(false);
+          this.planNotice.set({
+            tone: 'error',
+            text: this.apiErrorMessage(err, "Impossible d'importer ce fichier de plan."),
+          });
+        },
       });
   }
 
@@ -7632,8 +7671,27 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.providedPlanText = String(payload.text || '').slice(0, 20000);
           this.extractingPlanSource.set(false);
         },
-        error: () => this.readProvidedPlanFileLocally(file),
+        error: (err) => {
+          if (this.canReadPlanSourceLocally(file)) {
+            this.readProvidedPlanFileLocally(file);
+            return;
+          }
+          this.extractingPlanSource.set(false);
+          this.setVoiceNotice(
+            this.apiErrorMessage(err, "Impossible d'extraire le texte du fichier sélectionné."),
+            'error',
+          );
+        },
       });
+  }
+
+  private canReadPlanSourceLocally(file: File): boolean {
+    const type = String(file.type || '').toLowerCase();
+    const name = String(file.name || '').toLowerCase();
+    return (
+      type.startsWith('text/') ||
+      /\.(txt|text|md|markdown|csv|tsv|json|ya?ml|rtf|html?|xml|log)$/.test(name)
+    );
   }
 
   private readProvidedPlanFileLocally(file: File): void {

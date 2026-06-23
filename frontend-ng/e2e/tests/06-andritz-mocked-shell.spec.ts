@@ -643,6 +643,15 @@ async function installAndritzMocks(
     capturePlanShouldFail?: boolean;
     capturePlanFailureStatus?: number;
     capturePlanFailureDetail?: string;
+    planSourceExtractRequests?: string[];
+    planSourceExtractShouldFail?: boolean;
+    planSourceExtractFailureStatus?: number;
+    planSourceExtractFailureDetail?: string;
+    planSourceExtractText?: string;
+    capturePlanDialogueRequests?: unknown[];
+    capturePlanDialogueShouldFail?: boolean;
+    capturePlanDialogueFailureStatus?: number;
+    capturePlanDialogueFailureDetail?: string;
     capturePlanTopicsRequests?: unknown[];
     capturePlanValidationRequests?: string[];
     captureStartRequests?: string[];
@@ -751,6 +760,18 @@ async function installAndritzMocks(
   const capturePlanShouldFail = options.capturePlanShouldFail ?? false;
   const capturePlanFailureStatus = options.capturePlanFailureStatus ?? 500;
   const capturePlanFailureDetail = options.capturePlanFailureDetail ?? 'Mocked capture plan creation failed';
+  const planSourceExtractRequests = options.planSourceExtractRequests;
+  const planSourceExtractShouldFail = options.planSourceExtractShouldFail ?? false;
+  const planSourceExtractFailureStatus = options.planSourceExtractFailureStatus ?? 400;
+  const planSourceExtractFailureDetail =
+    options.planSourceExtractFailureDetail ?? 'Format de fichier non supporté pour une source de plan.';
+  const planSourceExtractText =
+    options.planSourceExtractText ??
+    ['# Inspection machine Andritz', '## Sécurité inspection', '- Vérifier arrêt machine'].join('\n');
+  const capturePlanDialogueRequests = options.capturePlanDialogueRequests;
+  const capturePlanDialogueShouldFail = options.capturePlanDialogueShouldFail ?? false;
+  const capturePlanDialogueFailureStatus = options.capturePlanDialogueFailureStatus ?? 504;
+  const capturePlanDialogueFailureDetail = options.capturePlanDialogueFailureDetail ?? 'Plan oracle timeout';
   const capturePlanTopicsRequests = options.capturePlanTopicsRequests;
   const capturePlanValidationRequests = options.capturePlanValidationRequests;
   const captureStartRequests = options.captureStartRequests;
@@ -1360,8 +1381,23 @@ async function installAndritzMocks(
           : createdFreeConversationSession(
               currentCaptureSessionTitle,
               captureSessionStartsActive ? 'active' : 'draft',
-            ),
+          ),
       );
+    }
+    if (path === '/knowledge-capture/plan-source/extract' && method === 'POST') {
+      const body = request.postData() || '';
+      planSourceExtractRequests?.push(body);
+      if (planSourceExtractShouldFail) {
+        return json(route, { detail: planSourceExtractFailureDetail }, planSourceExtractFailureStatus);
+      }
+      return json(route, {
+        filename: 'andritz-imported-plan.md',
+        content_type: 'text/markdown',
+        document_type: 'text',
+        chars: planSourceExtractText.length,
+        truncated: false,
+        text: planSourceExtractText,
+      });
     }
     if (path === '/knowledge-capture/sessions') {
       return json(route, { sessions: includeAcceptedProposal ? [acceptedCaptureSession()] : [] });
@@ -1375,6 +1411,18 @@ async function installAndritzMocks(
       return json(route, {
         topics: session.plan.topics,
         question_bank_status: session.plan.question_bank_status,
+      });
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/plan/dialogue-turn' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      capturePlanDialogueRequests?.push(body);
+      if (capturePlanDialogueShouldFail) {
+        return json(route, { detail: capturePlanDialogueFailureDetail }, capturePlanDialogueFailureStatus);
+      }
+      return json(route, {
+        session: createdPlannedCaptureSession(currentCaptureSessionTitle, 'planned'),
+        next_prompt: 'Quels autres points Andritz doivent être ajoutés au plan ?',
+        ready_to_finalize: true,
       });
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/plan/validate-topics' && method === 'POST') {
@@ -4207,6 +4255,298 @@ test.describe('Andritz mocked browser smoke', () => {
       .filter({ hasText: 'Le convoyeur Andritz reste audible pendant la finalisation STT.' });
     await expect(partial).toBeVisible();
     await expect(partial).toHaveClass(/italic/);
+  });
+
+  test('imports a Knowledge Capture plan source file before validating the guided plan', async ({ page }) => {
+    const planSourceExtractRequests: string[] = [];
+    const capturePlanTopicsRequests: unknown[] = [];
+    const capturePlanValidationRequests: string[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      planSourceExtractRequests,
+      planSourceExtractText: [
+        '# Inspection machine Andritz',
+        '## Sécurité inspection',
+        '- Vérifier arrêt machine',
+        '## Vitesse de ligne',
+        '- Contrôler la consigne vitesse',
+      ].join('\n'),
+      capturePlanTopicsRequests,
+      capturePlanValidationRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA imported plan source');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    const planEditor = page.locator('textarea').first();
+    await expect(planEditor).toHaveValue(/Maintenance Andritz/);
+    const importInput = page.getByTitle('Importer un fichier de plan').locator('input[type="file"]').first();
+    await importInput.setInputFiles({
+      name: 'andritz-plan-source.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from('# Client-side content ignored by extractor mock'),
+    });
+
+    await expect.poll(() => planSourceExtractRequests.length).toBe(1);
+    expect(planSourceExtractRequests[0]).toContain('andritz-plan-source.md');
+    await expect(planEditor).toHaveValue(/Inspection machine Andritz/);
+    await expect(planEditor).toHaveValue(/Vitesse de ligne/);
+    await expect(page.locator('body')).toContainText(/Plan importé depuis andritz-plan-source.md/i);
+
+    await page.getByRole('button', { name: /Valider le plan|Validate plan/i }).click();
+    await expect.poll(() => capturePlanTopicsRequests.length).toBe(1);
+    await expect.poll(() => capturePlanValidationRequests.length).toBe(1);
+    expect(JSON.stringify(capturePlanTopicsRequests[0])).toContain('Inspection machine Andritz');
+    expect(JSON.stringify(capturePlanTopicsRequests[0])).toContain('Vitesse de ligne');
+  });
+
+  test('rejects an unsupported Knowledge Capture plan source without corrupting the draft plan', async ({ page }) => {
+    const planSourceExtractRequests: string[] = [];
+    const capturePlanTopicsRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      planSourceExtractRequests,
+      planSourceExtractShouldFail: true,
+      planSourceExtractFailureDetail: 'Format de fichier non supporté pour une source de plan.',
+      capturePlanTopicsRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA unsupported plan source');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    const planEditor = page.locator('textarea').first();
+    await expect(planEditor).toHaveValue(/Maintenance Andritz/);
+    await page.getByTitle('Importer un fichier de plan').locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-plan-source.exe',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from('This binary-looking payload must not replace the plan draft.'),
+    });
+
+    await expect.poll(() => planSourceExtractRequests.length).toBe(1);
+    await expect(page.locator('body')).toContainText(/Format de fichier non supporté/i);
+    await expect(planEditor).toHaveValue(/Maintenance Andritz/);
+    await expect(planEditor).not.toHaveValue(/binary-looking payload/);
+    expect(capturePlanTopicsRequests).toEqual([]);
+  });
+
+  test('keeps a large pasted Knowledge Capture plan editable and validatable', async ({ page }) => {
+    const capturePlanTopicsRequests: unknown[] = [];
+    const capturePlanValidationRequests: string[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      capturePlanTopicsRequests,
+      capturePlanValidationRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA large pasted plan');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    const largePlan = Array.from({ length: 180 }, (_, index) => {
+      const n = index + 1;
+      return `${n}. Sujet Andritz ${n.toString().padStart(3, '0')}\n   - Point terrain ${n} avec contexte maintenance, sécurité et qualité ligne.`;
+    }).join('\n');
+    const planEditor = page.locator('textarea').first();
+    await planEditor.fill(largePlan);
+    await expect(planEditor).toHaveValue(/Sujet Andritz 180/);
+
+    await page.getByRole('button', { name: /Valider le plan|Validate plan/i }).click();
+    await expect.poll(() => capturePlanTopicsRequests.length).toBe(1);
+    await expect.poll(() => capturePlanValidationRequests.length).toBe(1);
+    expect(JSON.stringify(capturePlanTopicsRequests[0])).toContain('Sujet Andritz 180');
+  });
+
+  test('keeps Knowledge Capture plan co-construction retryable when dialogue generation times out', async ({ page }) => {
+    const capturePlanDialogueRequests: unknown[] = [];
+    const capturePlanTopicsRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      capturePlanDialogueRequests,
+      capturePlanDialogueShouldFail: true,
+      capturePlanDialogueFailureDetail: 'Plan oracle timeout',
+      capturePlanTopicsRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA plan dialogue timeout');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    const planEditor = page.locator('textarea').first();
+    await expect(planEditor).toHaveValue(/Maintenance Andritz/);
+    const instruction = page.getByPlaceholder(/Ajoutez un point|fusionnez deux sections|simplifiez les titres/i);
+    await instruction.fill('Ajoute une rubrique sur les alarmes de vitesse Andritz.');
+    await page.getByRole('button', { name: /^Appliquer$|^Apply$/i }).click();
+
+    await expect.poll(() => capturePlanTopicsRequests.length).toBe(1);
+    await expect.poll(() => capturePlanDialogueRequests.length).toBe(1);
+    expect(capturePlanDialogueRequests[0]).toMatchObject({
+      text: 'Ajoute une rubrique sur les alarmes de vitesse Andritz.',
+    });
+    await expect(page.locator('body')).toContainText(/Plan oracle timeout/i);
+    await expect(instruction).toHaveValue('Ajoute une rubrique sur les alarmes de vitesse Andritz.');
+    await expect(page.getByRole('button', { name: /^Appliquer$|^Apply$/i })).toBeEnabled();
+    await expect(planEditor).toHaveValue(/Maintenance Andritz/);
+  });
+
+  test('reorders nested Knowledge Capture plan topics before validation', async ({ page }) => {
+    const capturePlanTopicsRequests: unknown[] = [];
+    const capturePlanValidationRequests: string[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      capturePlanTopicsRequests,
+      capturePlanValidationRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA reordered nested plan');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    const planEditor = page.locator('textarea').first();
+    await expect(planEditor).toHaveValue(/Alignement convoyeur/);
+    await expect(planEditor).toHaveValue(/Sécurité arrêt machine/);
+    await planEditor.evaluate((element) => {
+      const textarea = element as HTMLTextAreaElement;
+      const start = textarea.value.indexOf('Alignement convoyeur');
+      if (start < 0) throw new Error('subtopic not found');
+      textarea.focus();
+      textarea.setSelectionRange(start, start + 'Alignement convoyeur'.length);
+      textarea.dispatchEvent(new Event('select', { bubbles: true }));
+    });
+    await page.getByRole('button', { name: /Descendre la sélection/i }).click();
+    await expect(planEditor).toHaveValue(/Sécurité arrêt machine[\s\S]*Alignement convoyeur/);
+
+    await page.getByRole('button', { name: /Valider le plan|Validate plan/i }).click();
+    await expect.poll(() => capturePlanTopicsRequests.length).toBe(1);
+    await expect.poll(() => capturePlanValidationRequests.length).toBe(1);
+
+    const payload = capturePlanTopicsRequests[0] as {
+      topics?: Array<{ title?: string; subtopics?: Array<{ title?: string }> }>;
+    };
+    expect(payload.topics?.[0]?.subtopics?.map((item) => item.title)).toEqual([
+      'Sécurité arrêt machine',
+      'Alignement convoyeur',
+    ]);
+  });
+
+  test('keeps written capture note submission disabled while the note is blank', async ({ page }) => {
+    const capturePlanTopicsRequests: unknown[] = [];
+    const capturePlanValidationRequests: string[] = [];
+    const captureStartRequests: string[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      capturePlanTopicsRequests,
+      capturePlanValidationRequests,
+      captureStartRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA blank written note');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await page.getByRole('button', { name: /Valider le plan|Validate plan/i }).click();
+    await expect.poll(() => capturePlanTopicsRequests.length).toBe(1);
+    await expect.poll(() => capturePlanValidationRequests.length).toBe(1);
+    await page.getByRole('button', { name: /Parler|Speak/i }).click();
+    await expect.poll(() => captureStartRequests.length).toBe(1);
+
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    const addNoteButton = captureDocuments.getByRole('button', { name: /Ajouter la note/i });
+    await expect(addNoteButton).toBeDisabled();
+
+    await noteInput.fill('     ');
+    await expect(addNoteButton).toBeDisabled();
+    expect(captureTurnRequests).toEqual([]);
+  });
+
+  test('accepts a written capture note while voice transcription is finalizing', async ({ page }) => {
+    const capturePlanTopicsRequests: unknown[] = [];
+    const capturePlanValidationRequests: string[] = [];
+    const captureStartRequests: string[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      capturePlanTopicsRequests,
+      capturePlanValidationRequests,
+      captureStartRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA written note during transcription');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await page.getByRole('button', { name: /Valider le plan|Validate plan/i }).click();
+    await expect.poll(() => capturePlanTopicsRequests.length).toBe(1);
+    await expect.poll(() => capturePlanValidationRequests.length).toBe(1);
+    await page.getByRole('button', { name: /Parler|Speak/i }).click();
+    await expect.poll(() => captureStartRequests.length).toBe(1);
+
+    await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      component.recording.set(false);
+      component.transcribing.set(true);
+      component.voiceState.set('transcribing');
+      component.currentClientTurnId = 'turn-written-while-transcribing';
+      ng?.applyChanges?.(component);
+    });
+
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('Complément écrit pendant la finalisation de la transcription voix.');
+    const addNoteButton = captureDocuments.getByRole('button', { name: /Ajouter la note/i });
+    await expect(addNoteButton).toBeEnabled();
+    await addNoteButton.click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'Complément écrit pendant la finalisation de la transcription voix.',
+      question_id: 'q-alignment',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [],
+      visual_context: null,
+    });
+    await expect(page.getByText('Note écrite ajoutée à la capture.')).toBeVisible();
+    await expect(noteInput).toHaveValue('');
   });
 
   test('keeps written capture anchored to the active guided plan section', async ({ page }) => {
