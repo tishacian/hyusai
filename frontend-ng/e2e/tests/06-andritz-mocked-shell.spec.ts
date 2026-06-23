@@ -128,6 +128,10 @@ function sse(route: Route, chunks: unknown[]) {
   });
 }
 
+function delay(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 function emptyOperations() {
   return {
     stale_after_hours: 24,
@@ -544,7 +548,12 @@ async function installAndritzMocks(
     acceptedProposal?: boolean;
     capturePlanRequests?: unknown[];
     chatStreamRequests?: unknown[];
+    chatStreamDelayMs?: number;
+    chatStreamAbort?: boolean;
+    chatStreamAbortDelayMs?: number;
+    chatStreamDeepQueued?: boolean;
     chatSessionCreateRequests?: unknown[];
+    workspaceJobRequests?: string[];
     chatUploadRequests?: string[];
     sourcePreviewRequests?: string[];
     sourcePreviewShouldFail?: boolean;
@@ -633,7 +642,12 @@ async function installAndritzMocks(
   const includeAcceptedProposal = options.acceptedProposal ?? false;
   const capturePlanRequests = options.capturePlanRequests;
   const chatStreamRequests = options.chatStreamRequests;
+  const chatStreamDelayMs = options.chatStreamDelayMs ?? 0;
+  const chatStreamAbort = options.chatStreamAbort ?? false;
+  const chatStreamAbortDelayMs = options.chatStreamAbortDelayMs ?? 0;
+  const chatStreamDeepQueued = options.chatStreamDeepQueued ?? false;
   const chatSessionCreateRequests = options.chatSessionCreateRequests;
+  const workspaceJobRequests = options.workspaceJobRequests;
   const chatUploadRequests = options.chatUploadRequests;
   const sourcePreviewRequests = options.sourcePreviewRequests;
   const sourcePreviewShouldFail = options.sourcePreviewShouldFail ?? false;
@@ -1487,6 +1501,47 @@ async function installAndritzMocks(
       const collection = assist.collection as { jobs?: unknown[] };
       return json(route, { items: collection.jobs || [] });
     }
+    if (/^\/workspace-jobs\/job-andritz-deep-1$/.test(path) && method === 'GET') {
+      workspaceJobRequests?.push(url.search);
+      return json(route, {
+        id: 'job-andritz-deep-1',
+        status: 'completed',
+        progress: 100,
+        stage: 'deep_completed',
+        result: {
+          status: 'completed',
+          answer: 'Synthetic deep retrieval answer with expanded Andritz evidence [1].',
+          answer_status: 'completed',
+          answer_provider: 'mock',
+          answer_model: 'deep-mock',
+          summary: {
+            chunks_retrieved: 4,
+            sources_returned: 2,
+            top_score: 0.94,
+            pipeline: 'deep_hierarchical_dense',
+            partial: false,
+            top_sources: [
+              {
+                label: 'andritz-deep-evidence.pdf',
+                chunks: 3,
+              },
+            ],
+          },
+          sources_preview: [
+            {
+              id: 'src-andritz-deep-1',
+              document_id: 'doc-andritz-deep',
+              filename: 'andritz-deep-evidence.pdf',
+              title: 'Andritz deep evidence',
+              snippet: 'Synthetic deep retrieval source snippet.',
+              collection: 'andritz-qa',
+              score: 0.94,
+              page: 2,
+            },
+          ],
+        },
+      });
+    }
 
     if (path === '/sessions' && method === 'GET') {
       return json(route, { sessions: [] });
@@ -1513,11 +1568,32 @@ async function installAndritzMocks(
     if (path === '/chat/stream' && method === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>;
       chatStreamRequests?.push(body);
-      return sse(route, [
+      if (chatStreamAbort) {
+        if (chatStreamAbortDelayMs > 0) await delay(chatStreamAbortDelayMs);
+        return route.abort('failed');
+      }
+      if (chatStreamDelayMs > 0) await delay(chatStreamDelayMs);
+      const streamChunks: unknown[] = [
         {
           chunk_type: 'session',
           session_id: 'chat-session-andritz-qa',
         },
+      ];
+      if (chatStreamDeepQueued) {
+        streamChunks.push({
+          chunk_type: 'retrieval',
+          phase: 'deep_queued',
+          details: {
+            deep_job_id: 'job-andritz-deep-1',
+            deep_poll_url: '/workspace-jobs/job-andritz-deep-1',
+            deep_status: 'queued',
+            deep_progress: 10,
+            deep_stage: 'auto_deep_search',
+            message_id: 'deep-msg-andritz-1',
+          },
+        });
+      }
+      streamChunks.push(
         {
           chunk_type: 'retrieval',
           phase: 'completed',
@@ -1542,7 +1618,8 @@ async function installAndritzMocks(
             },
           ],
         },
-      ]);
+      );
+      return sse(route, streamChunks);
     }
     if (path.startsWith('/chat/')) {
       return json(route, path.endsWith('/sessions') ? { sessions: [] } : {});
@@ -4058,6 +4135,162 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(chatStreamRequests).toHaveLength(1);
     expect(chatStreamRequests[0]).toMatchObject({
       query: longPrompt,
+      context_id: null,
+      context_mode: null,
+      knowledge_scope: 'andritz-qa',
+      stream: true,
+      include_sources: true,
+      include_reasoning: true,
+    });
+  });
+
+  test('keeps Recherche progress visible while mocked retrieval is slow', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatStreamDelayMs: 1500,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Analyse lentement les sources Andritz QA.');
+    await input.press('Enter');
+
+    await expect.poll(() => chatStreamRequests.length).toBe(1);
+    await expect(page.getByText('Analyse lentement les sources Andritz QA.')).toBeVisible();
+    await expect(page.getByText(/Préparation de la requête|Recherche dans les documents/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /Streaming|En cours/i })).toBeVisible();
+    await expect(input).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        context_id: null,
+        context_mode: null,
+        knowledge_scope: 'andritz-qa',
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Analyse lentement les sources Andritz QA.',
+      context_id: null,
+      context_mode: null,
+      knowledge_scope: 'andritz-qa',
+      stream: true,
+      include_sources: true,
+      include_reasoning: true,
+    });
+  });
+
+  test('recovers Recherche composer when the mocked stream is interrupted', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatStreamAbort: true,
+      chatStreamAbortDelayMs: 500,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Interromps le flux Recherche Andritz QA.');
+    await input.press('Enter');
+
+    await expect.poll(() => chatStreamRequests.length).toBe(1);
+    await expect(page.getByText('Interromps le flux Recherche Andritz QA.')).toBeVisible();
+    await expect(page.getByText(/Préparation de la requête|Recherche dans les documents/i)).toBeVisible();
+    await expect(page.getByText(/Failed to fetch|Load failed|NetworkError|fetch/i)).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toHaveCount(0);
+    await expect(input).toBeEnabled();
+    await input.fill('Nouvelle question apres interruption.');
+    await expect(input).toHaveValue('Nouvelle question apres interruption.');
+
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        context_id: null,
+        context_mode: null,
+        knowledge_scope: 'andritz-qa',
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Interromps le flux Recherche Andritz QA.',
+      context_id: null,
+      context_mode: null,
+      knowledge_scope: 'andritz-qa',
+      stream: true,
+      include_sources: true,
+      include_reasoning: true,
+    });
+  });
+
+  test('tracks a mocked auto Deep Search job from stream queue to completed answer', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const workspaceJobRequests: string[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      workspaceJobRequests,
+      chatStreamDeepQueued: true,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Lance une recherche approfondie Andritz QA.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    await expect(page.getByText('Recherche approfondie lancée pour affiner cette réponse.')).toBeVisible();
+    await expect(page.getByText(/Deep queued|Deep 10|Deep running/i)).toBeVisible();
+
+    await expect.poll(() => workspaceJobRequests.length, { timeout: 6_000 }).toBeGreaterThanOrEqual(1);
+    await expect(page.getByText('Synthetic deep retrieval answer with expanded Andritz evidence')).toBeVisible();
+    await expect(page.getByText(/Deep done · 4/i)).toBeVisible();
+    await expect(page.getByText(/4 passages/i)).toBeVisible();
+    await expect(page.getByText(/2 sources/i)).toBeVisible();
+
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        context_id: null,
+        context_mode: null,
+        knowledge_scope: 'andritz-qa',
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Lance une recherche approfondie Andritz QA.',
       context_id: null,
       context_mode: null,
       knowledge_scope: 'andritz-qa',
