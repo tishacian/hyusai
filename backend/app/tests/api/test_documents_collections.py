@@ -64,6 +64,31 @@ def test_list_collections_returns_ledger_items(db_session, monkeypatch):
     assert "document_names" not in body["items"][0]
 
 
+def test_collection_patch_denies_non_admin_without_mutating_metadata(db_session):
+    ws = Workspace(id="ws-patch-denied", name="Patch Denied", slug="patch-denied")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    collection.description = "Original description"
+    db_session.commit()
+    _seed_workspace_user(
+        db_session,
+        ws,
+        role="member",
+        role_template="workspace_contributor",
+    )
+
+    response = _client(db_session, ws).patch(
+        f"/documents/collections/{collection.id}",
+        json={"name": "Changed", "description": "Changed description"},
+    )
+
+    assert response.status_code == 403
+    db_session.refresh(collection)
+    assert collection.name == "Manuals"
+    assert collection.description == "Original description"
+
+
 def test_collection_inventory_can_page_sources(db_session, tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
@@ -179,6 +204,58 @@ def test_collection_inventory_filters_sorts_and_returns_global_aggregates(db_ses
     assert scoped_body["sources_total"] == 1
     assert scoped_body["source_filters"]["project_code"] == "ACJ100"
     assert [source["filename"] for source in scoped_body["sources"]] == ["manual-small.pdf"]
+
+
+def test_list_documents_does_not_return_cross_workspace_ledger_sources(db_session, monkeypatch):
+    current_ws = Workspace(id="ws-list-current", name="Current", slug="list-current")
+    other_ws = Workspace(id="ws-list-other", name="Other", slug="list-other")
+    db_session.add_all([current_ws, other_ws])
+    db_session.commit()
+    other_collection = create_collection(db_session, workspace=other_ws, name="Shared Manuals")
+    db_session.add(
+        KnowledgeCollectionSource(
+            workspace_id=other_ws.id,
+            collection_id=other_collection.id,
+            filename="secret-manual.pdf",
+            normalized_name="secret-manual.pdf",
+            source_kind="pdf",
+            extension="pdf",
+            mime_type="application/pdf",
+            origin="upload",
+            chunk_count=4,
+            status="ready",
+            source_metadata={"document_id": "secret-doc"},
+        )
+    )
+    db_session.commit()
+    captured: dict[str, str | None] = {}
+
+    class ScopedDocumentService:
+        def __init__(self, *args, **kwargs):
+            captured["collection_name"] = kwargs.get("collection_name")
+            captured["workspace_slug"] = kwargs.get("workspace_slug")
+
+        async def list_documents(self):
+            if captured["workspace_slug"] == other_ws.slug:
+                return [{"document_id": "secret-doc", "filename": "secret-manual.pdf"}]
+            return []
+
+    monkeypatch.setattr(documents, "DocumentService", ScopedDocumentService)
+
+    response = _client(db_session, current_ws).get(
+        f"/documents/list?collection_name={other_collection.slug}&limit=10"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["documents"] == []
+    assert body["total"] == 0
+    assert body["source"] == "vector"
+    assert captured == {
+        "collection_name": other_collection.slug,
+        "workspace_slug": current_ws.slug,
+    }
+    assert "secret-manual.pdf" not in str(body)
 
 
 def test_document_preview_resolves_source_from_ledger_without_vector_listing(db_session, tmp_path, monkeypatch):

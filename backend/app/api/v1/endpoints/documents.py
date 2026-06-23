@@ -2219,9 +2219,11 @@ async def patch_collection(
     payload: CollectionPatchRequest,
     vector_db_type: Optional[str] = Query(None),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
     """Patch mutable collection presentation fields."""
+    _require_workspace_admin(db, user, workspace)
     row = get_collection_or_404(
         db,
         workspace_id=workspace.id,

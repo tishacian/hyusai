@@ -8,10 +8,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.iam.roles import is_admin_template
 from app.db.base import get_db
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.knowledge_guides import (
     create_guide,
     effective_guides,
@@ -80,6 +81,16 @@ class DocumentQueryRequest(BaseModel):
     system_id: str | None = None
     document_profile_key: str | None = None
     include_evidence: bool = True
+
+
+def _require_workspace_admin(db: Session, user: User, workspace: Workspace) -> None:
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
+        .first()
+    )
+    if not membership or not is_admin_template(getattr(membership, "role_template", None), membership.role):
+        raise HTTPException(status_code=403, detail={"code": "WORKSPACE_PERMISSION_DENIED"})
 
 
 def _collection_stats(db: Session, workspace_id: str) -> dict[str, dict[str, Any]]:
@@ -195,6 +206,7 @@ def create_knowledge_guide(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    _require_workspace_admin(db, user, workspace)
     guide = create_guide(
         db,
         workspace,
@@ -216,6 +228,7 @@ def patch_knowledge_guide(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    _require_workspace_admin(db, user, workspace)
     guide = update_guide(
         db,
         workspace,
@@ -230,8 +243,10 @@ def patch_knowledge_guide(
 def patch_knowledge_scopes(
     payload: KnowledgeScopesPatch,
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    _require_workspace_admin(db, user, workspace)
     scopes = []
     for raw in payload.scopes:
         scope = sanitize_scope(raw.model_dump())

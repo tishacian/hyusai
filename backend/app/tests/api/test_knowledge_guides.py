@@ -8,7 +8,7 @@ from app.models.audit import AuditLog
 from app.models.knowledge_collection import KnowledgeCollection
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 
 
 def _client(db_session, workspace: Workspace, user: User) -> TestClient:
@@ -47,9 +47,43 @@ def _seed_workspace(db_session) -> tuple[Workspace, User, KnowledgeCollection]:
         vector_collection_name="guide_excel_pilot",
         artifact_prefix="knowledge/ws-guide/excel-pilot",
     )
-    db_session.add_all([user, workspace, collection])
+    db_session.add_all(
+        [
+            user,
+            workspace,
+            collection,
+            WorkspaceMember(
+                user_id=user.id,
+                workspace_id=workspace.id,
+                role="admin",
+                role_template="workspace_admin",
+            ),
+        ]
+    )
     db_session.commit()
     return workspace, user, collection
+
+
+def _add_member(
+    db_session,
+    workspace: Workspace,
+    *,
+    user_id: str,
+    role: str = "member",
+    role_template: str | None = "workspace_contributor",
+) -> User:
+    user = User(id=user_id, username=f"{user_id}@datategy.test", email=f"{user_id}@datategy.test")
+    db_session.add(user)
+    db_session.add(
+        WorkspaceMember(
+            user_id=user.id,
+            workspace_id=workspace.id,
+            role=role,
+            role_template=role_template,
+        )
+    )
+    db_session.commit()
+    return user
 
 
 def test_knowledge_guide_collection_lifecycle_is_versioned_and_audited(db_session):
@@ -129,6 +163,74 @@ def test_knowledge_guide_scope_target_requires_existing_scope(db_session):
     assert missing.status_code == 404
 
 
+def test_contributor_cannot_create_or_patch_knowledge_guides(db_session):
+    workspace, admin_user, _collection = _seed_workspace(db_session)
+    contributor = _add_member(db_session, workspace, user_id="guide-contributor")
+    admin_client = _client(db_session, workspace, admin_user)
+    contributor_client = _client(db_session, workspace, contributor)
+
+    created = admin_client.post(
+        "/knowledge/guides",
+        json={
+            "target_type": "collection",
+            "target_ref": "excel-pilot",
+            "title": "Excel data dictionary",
+            "markdown": "Column A contains labels.",
+            "status": "published",
+        },
+    )
+    assert created.status_code == 200
+    guide_key = created.json()["guide_key"]
+
+    denied_create = contributor_client.post(
+        "/knowledge/guides",
+        json={
+            "target_type": "collection",
+            "target_ref": "excel-pilot",
+            "title": "Unauthorized guide",
+            "markdown": "This should not be stored.",
+            "status": "published",
+        },
+    )
+    assert denied_create.status_code == 403
+
+    denied_patch = contributor_client.patch(
+        f"/knowledge/guides/{guide_key}",
+        json={"markdown": "Unauthorized edit."},
+    )
+    assert denied_patch.status_code == 403
+
+    versions = admin_client.get("/knowledge/guides?current_only=false").json()["items"]
+    assert len(versions) == 1
+    assert versions[0]["version"] == 1
+    assert versions[0]["markdown"] == "Column A contains labels."
+
+
+def test_contributor_cannot_patch_knowledge_scopes(db_session):
+    workspace, _admin_user, _collection = _seed_workspace(db_session)
+    contributor = _add_member(db_session, workspace, user_id="scope-contributor")
+    client = _client(db_session, workspace, contributor)
+    original_scopes = list((workspace.settings or {}).get("knowledge_scopes") or [])
+
+    response = client.patch(
+        "/knowledge/scopes",
+        json={
+            "scopes": [
+                {
+                    "key": "unauthorized_scope",
+                    "label": "Unauthorized",
+                    "collection_slugs": ["excel-pilot"],
+                    "is_default": True,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 403
+    db_session.refresh(workspace)
+    assert (workspace.settings or {}).get("knowledge_scopes") == original_scopes
+
+
 def test_table_query_endpoint_returns_cell_evidence(db_session):
     workspace, user, collection = _seed_workspace(db_session)
     db_session.add(
@@ -166,3 +268,51 @@ def test_table_query_endpoint_returns_cell_evidence(db_session):
     assert body["answer_payload"]["value"] == "85"
     assert body["evidence_rows"][0]["sheet_name"] == "Def strips"
     assert body["evidence_rows"][0]["cell_ref"] == "B2"
+
+
+def test_table_query_does_not_leak_hidden_workspace_collection(db_session):
+    workspace, user, _collection = _seed_workspace(db_session)
+    hidden_workspace = Workspace(id="ws-hidden-guide", name="Hidden", slug="hidden-guide")
+    hidden_collection = KnowledgeCollection(
+        id="collection-hidden-guide",
+        workspace_id=hidden_workspace.id,
+        slug="hidden-secret",
+        name="Hidden Secret",
+        vector_collection_name="hidden_secret",
+        artifact_prefix="knowledge/ws-hidden-guide/hidden-secret",
+    )
+    db_session.add_all([hidden_workspace, hidden_collection])
+    db_session.add(
+        KnowledgeTableFact(
+            id="fact-hidden-secret",
+            workspace_id=hidden_workspace.id,
+            collection_id=hidden_collection.id,
+            collection_slug=hidden_collection.slug,
+            document_id="hidden-xlsx",
+            document_filename="hidden.xlsx",
+            sheet_name="Secrets",
+            semantic_type="spreadsheet_cell_fact",
+            row_index=1,
+            cell_ref="A1",
+            row_label="Secret",
+            subject="Secret",
+            measure="Secret",
+            value_raw="SECRET",
+            content="SECRET cross-workspace value",
+            confidence=0.99,
+        )
+    )
+    db_session.commit()
+    client = _client(db_session, workspace, user)
+
+    response = client.post(
+        "/knowledge/table-query",
+        json={"collection_or_scope": "hidden-secret", "question": "Quelle est la valeur SECRET ?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer_payload"]["status"] == "no_evidence"
+    assert body["evidence_rows"] == []
+    assert "hidden.xlsx" not in str(body)
+    assert "cross-workspace value" not in str(body)
