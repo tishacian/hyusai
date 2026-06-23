@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const chromiumExecutable = process.env['E2E_CHROMIUM_EXECUTABLE'];
+
 /**
  * Agentium E2E test config (Vague E / E2).
  *
@@ -48,6 +50,9 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
+    ...(chromiumExecutable
+      ? { launchOptions: { executablePath: chromiumExecutable } }
+      : {}),
   },
 
   projects: [

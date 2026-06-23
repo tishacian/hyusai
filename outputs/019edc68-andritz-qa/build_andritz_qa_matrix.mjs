@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J8", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I14", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F16", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I15", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F17", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -56,6 +56,7 @@ const features = [
       { type: "Happy path", scenario: "Open Recherche route", steps: "Login, navigate to /chat, observe shell.", expected: "Recherche shell and chat panel are visible without console errors." },
       { type: "Permission/security", scenario: "Open route unauthenticated", preconditions: "No auth token.", steps: "Navigate to /chat.", expected: "User is redirected or blocked by auth guard.", severityIfFails: "High" },
       { type: "Responsive", scenario: "Open chat on mobile width", steps: "Set viewport < 480px and open /chat.", expected: "Header and composer remain usable without clipped controls." },
+      { type: "Regression", scenario: "Mocked Andritz browser route smoke", steps: "Run local Playwright with mocked auth/workspace APIs and open /chat.", expected: "The authenticated shell and chat surface render without contacting real backend data." },
     ],
   },
   {
@@ -327,6 +328,7 @@ const features = [
       { type: "Happy path", scenario: "Open dashboard", steps: "Navigate to /knowledge/capture.", expected: "Sessions tab loads and actions reflect permissions." },
       { type: "Boundary", scenario: "No sessions/fiches", steps: "Use empty workspace/user.", expected: "Empty states render without errors." },
       { type: "Permission/security", scenario: "Reviewer/member visibility", steps: "Compare reviewer and member roles.", expected: "Capture access matches IAM policy, no hidden data leak.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Mocked Andritz browser dashboard smoke", steps: "Run local Playwright with mocked capture sessions/fiches APIs and open /knowledge/capture.", expected: "The capture dashboard, empty states and primary session action render without contacting real backend data." },
     ],
   },
   {
@@ -868,6 +870,7 @@ const features = [
       { type: "Happy path", scenario: "Load collections", steps: "Open /knowledge.", expected: "Collections load with status/counts." },
       { type: "Performance", scenario: "Large collection list", steps: "Open workspace with many collections.", expected: "Page remains responsive." },
       { type: "Error path", scenario: "Collections API fails", steps: "Simulate 500.", expected: "Error state visible; no stale destructive action." },
+      { type: "Regression", scenario: "Mocked Andritz browser collection smoke", steps: "Run local Playwright with mocked /documents/collections and open /knowledge.", expected: "The Knowledge collections page renders the mocked Andritz collection without contacting real backend data." },
     ],
   },
   {
@@ -1842,6 +1845,7 @@ const features = [
       { type: "Boundary", scenario: "Connector disabled in workspace settings", steps: "Use workspace settings with secure_deposit and sftp disabled.", expected: "SFTP card is hidden/disabled and no misleading active state is shown." },
       { type: "Permission/security", scenario: "Direct route while card hidden", steps: "Navigate directly to /connectors/sftp as a user without intended access.", expected: "Backend actions remain denied and no data is exposed.", severityIfFails: "High" },
       { type: "Regression", scenario: "Connector navigation i18n key coverage", steps: "Run npm run check:i18n after parsing navigation.catalog.ts.", expected: "Every cockpit verb/section key, including connectors, has a dictionary entry and the guard fails if zero keys are parsed.", severityIfFails: "Medium" },
+      { type: "Regression", scenario: "Mocked Andritz browser connector smoke", steps: "Run local Playwright with mocked secure deposit APIs and open /connectors then /connectors/sftp.", expected: "The connector catalogue exposes Secure Deposit and the SFTP page renders health, links and empty live-upload state without contacting real backend data." },
     ],
   },
 ];
@@ -2016,6 +2020,20 @@ const executionEvidence = [
     notes:
       "Initial i18n guard reported OK while checking 0 catalog keys. Guard was fixed to parse navigation.catalog.ts; it then exposed missing nav.connectors. Added FR/EN nav.connectors and reran i18n guard, UI chrome guard and production build successfully.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-003",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "1 passed, 0 failed",
+    duration: "13.1s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version warning from local environment. First run before assertion adjustment rendered the page but failed on FR-only label expectation; test was corrected to accept FR/EN.",
+    safetyScope:
+      "Local Playwright browser smoke with all /api/v1/** calls mocked in-page. No backend calls, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Mocked authenticated Andritz workspace route smoke covering /connectors, /connectors/sftp, /knowledge, /knowledge/capture and /chat first-screen rendering. Playwright config now supports E2E_CHROMIUM_EXECUTABLE so local cache/system browsers can run without downloading a new browser.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2102,6 +2120,10 @@ const executedTestResults = new Map([
   pass("SFTP-013-T01", "Mapped to promote payload tests proving selected collection slug is carried into worker queueing.", 10),
   pass("SFTP-014-T03", "Mapped to allowed-extension policy tests including empty policy accepting any synthetic file type.", 10),
   pass("SFTP-018-T04", "Mapped to fixed navigation i18n guard parsing navigation.catalog.ts, checking 26 catalog keys and proving nav.connectors exists in FR/EN dictionaries.", 11),
+  pass("CHT-001-T04", "Mapped to local Playwright mocked Andritz route smoke opening /chat without real backend data.", 12),
+  pass("KCAP-001-T04", "Mapped to local Playwright mocked Andritz route smoke opening /knowledge/capture with empty dashboard/fiches data.", 12),
+  pass("COL-001-T04", "Mapped to local Playwright mocked Andritz route smoke opening /knowledge with a synthetic collection payload.", 12),
+  pass("SFTP-018-T05", "Mapped to local Playwright mocked Andritz route smoke opening /connectors and /connectors/sftp with synthetic secure-deposit health/queue data.", 12),
   pass("CHT-002-T01", "Mapped to chat stream hardening happy-path answer tests.", 2),
   pass("CHT-002-T02", "Mapped to controlled chat stream timeout/error tests.", 2),
   pass("CHT-006-T01", "Mapped to selected context collection stream tests.", 2),
@@ -2346,8 +2368,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; authenticated browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "59/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, and frontend navigation guard coverage for the SFTP connector entry. Authenticated browser journeys, mobile/UX, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "62/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and a local mocked browser smoke for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, mobile/UX, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -2622,10 +2644,18 @@ const phaseRows = [
     executionEvidence[11].safetyScope,
     "Continue with authenticated browser/e2e checks for actual connector-card visibility, direct-route permission behavior, and SFTP connector UX.",
   ],
+  [
+    executionEvidence[12].date,
+    "Phase 3 mocked browser route smoke",
+    "Added and executed a local Playwright smoke with mocked auth/workspace/API responses for the Andritz workspace, covering first-screen render of Chat, Knowledge Capture, Collections and SFTP connector entry.",
+    `${executionEvidence[12].result}; ${mappedPassedCountForEvidence(executionEvidence[12].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[12].safetyScope,
+    "Continue with authenticated browser/e2e against a safe real test account and mobile/voice validation; keep real SFTP deposits and collections read-only unless explicitly approved.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F15"));
+styleBody(phase.getRange("A2:F16"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
