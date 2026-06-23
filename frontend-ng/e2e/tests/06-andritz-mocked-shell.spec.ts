@@ -567,6 +567,9 @@ async function installAndritzMocks(
     captureDocumentViewShouldFail?: boolean;
     captureDocumentViewRequests?: unknown[];
     captureTurnRequests?: unknown[];
+    captureClosureRequests?: unknown[];
+    captureClosureShouldFail?: boolean;
+    captureClosureNoProposal?: boolean;
     captureDocumentPreviewRequests?: string[];
     captureDocumentPreviewShouldFail?: boolean;
     contextCreateRequests?: unknown[];
@@ -662,6 +665,9 @@ async function installAndritzMocks(
   const captureDocumentViewShouldFail = options.captureDocumentViewShouldFail ?? false;
   const captureDocumentViewRequests = options.captureDocumentViewRequests;
   const captureTurnRequests = options.captureTurnRequests;
+  const captureClosureRequests = options.captureClosureRequests;
+  const captureClosureShouldFail = options.captureClosureShouldFail ?? false;
+  const captureClosureNoProposal = options.captureClosureNoProposal ?? false;
   const captureDocumentPreviewRequests = options.captureDocumentPreviewRequests;
   const captureDocumentPreviewShouldFail = options.captureDocumentPreviewShouldFail ?? false;
   const contextCreateRequests = options.contextCreateRequests;
@@ -742,6 +748,7 @@ async function installAndritzMocks(
     ],
   };
   const sftpLinks = options.sftpLinks ?? [defaultSftpDepositLink(activeUser)];
+  let currentCaptureSessionTitle = 'Andritz QA free conversation smoke';
 
   await page.addInitScript(() => {
     localStorage.setItem('agentium_token', 'Bearer mocked-andritz-token');
@@ -1188,10 +1195,11 @@ async function installAndritzMocks(
     if (path === '/knowledge-capture/plans' && method === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>;
       capturePlanRequests?.push(body);
+      currentCaptureSessionTitle = String(body['title'] || currentCaptureSessionTitle);
       return json(
         route,
         createdFreeConversationSession(
-          String(body['title'] || 'Andritz QA free conversation smoke'),
+          currentCaptureSessionTitle,
           captureSessionStartsActive ? 'active' : 'draft',
         ),
       );
@@ -1261,7 +1269,7 @@ async function installAndritzMocks(
       const noteText = String(body['text'] || 'Synthetic written capture note.');
       return json(route, {
         session: {
-          ...createdFreeConversationSession('Andritz QA document capture smoke', 'active'),
+          ...createdFreeConversationSession(currentCaptureSessionTitle, 'active'),
           transcript: [
             {
               id: 'turn-written-capture-doc',
@@ -1277,6 +1285,43 @@ async function installAndritzMocks(
         next_prompt: null,
         next_question_id: null,
         system_prompt_event_id: null,
+      });
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/closure' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      captureClosureRequests?.push(body);
+      if (captureClosureShouldFail) {
+        return json(route, { detail: 'Mocked finalization timeout' }, 504);
+      }
+      if (captureClosureNoProposal) {
+        return json(route, {
+          action: body['action'] || 'finish',
+          session: createdFreeConversationSession(currentCaptureSessionTitle, 'completed'),
+          closure_sheet: {
+            markdown: '## Synthese\n- Aucun fait exploitable dans cette capture.',
+          },
+          proposal: null,
+        });
+      }
+      return json(route, {
+        action: body['action'] || 'finish',
+        session: {
+          ...createdFreeConversationSession(currentCaptureSessionTitle, 'completed'),
+          transcript: [
+            {
+              id: 'turn-written-capture-doc',
+              speaker: 'expert',
+              text: 'Synthetic written note before finalization.',
+              input_modality: 'text',
+              document_refs: [],
+              visual_context: null,
+            },
+          ],
+        },
+        closure_sheet: {
+          markdown: '## Synthese\n- Synthetic closure material.',
+        },
+        proposal: acceptedCaptureProposal(),
       });
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/events') {
@@ -4067,6 +4112,94 @@ test.describe('Andritz mocked browser smoke', () => {
       visual_context: null,
     });
     await expect(noteInput).toHaveValue('');
+  });
+
+  test('keeps no-plan capture in-session when finalization fails', async ({ page }) => {
+    const captureTurnRequests: unknown[] = [];
+    const captureClosureRequests: unknown[] = [];
+    let publishRequests = 0;
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.endsWith('/api/v1/knowledge-capture/proposals/proposal-andritz-qa/publish')) {
+        publishRequests += 1;
+      }
+    });
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureTurnRequests,
+      captureClosureRequests,
+      captureClosureShouldFail: true,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA finalization failure smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA finalization failure smoke' })).toBeVisible();
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+
+    const noteText = 'La note reste dans la capture si la finalisation echoue.';
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill(noteText);
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: noteText,
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [],
+      visual_context: null,
+    });
+
+    await page.getByRole('button', { name: /Terminer la capture|Finish capture/i }).click();
+
+    await expect.poll(() => captureClosureRequests.length).toBe(1);
+    expect(captureClosureRequests[0]).toMatchObject({ action: 'finish' });
+    await expect(page.getByText('Action de fin de session impossible.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Andritz QA document capture smoke|Andritz QA finalization failure smoke/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Terminer la capture|Finish capture/i })).toBeVisible();
+    expect(publishRequests).toBe(0);
+  });
+
+  test('finishes an empty no-plan capture without creating a bogus proposal', async ({ page }) => {
+    const captureClosureRequests: unknown[] = [];
+    let publishRequests = 0;
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.endsWith('/api/v1/knowledge-capture/proposals/proposal-andritz-qa/publish')) {
+        publishRequests += 1;
+      }
+    });
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureClosureRequests,
+      captureClosureNoProposal: true,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA empty no-plan smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA empty no-plan smoke' })).toBeVisible();
+    await expect(page.locator('body')).toContainText(/La transcription de l’échange apparaîtra ici|Démarrez la conversation/i);
+
+    await page.getByRole('button', { name: /Terminer la capture|Finish capture/i }).click();
+
+    await expect.poll(() => captureClosureRequests.length).toBe(1);
+    expect(captureClosureRequests[0]).toMatchObject({ action: 'finish' });
+    await expect(page.getByText('Aucun rapport exploitable n’a encore été produit.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Andritz QA empty no-plan smoke' })).toBeVisible();
+    await expect(page.locator('body')).not.toContainText(/Rapport final éditable|Editable final report/i);
+    await expect(page.locator('body')).not.toContainText(/Aperçu de la fiche|Sheet preview/i);
+    expect(publishRequests).toBe(0);
   });
 
   test('streams a mocked Recherche answer with source grounding without real backend data', async ({ page }) => {
