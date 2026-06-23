@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J16", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A60:I72", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A55:F66", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A63:I75", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A58:F69", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -1340,6 +1340,8 @@ const features = [
       { type: "Happy path", scenario: "Load operations snapshot", steps: "Open connector operations panel.", expected: "Health/live upload snapshot visible." },
       { type: "Permission/security", scenario: "Run reconcile unauthorized", steps: "Attempt as non-operator.", expected: "Denied.", severityIfFails: "High" },
       { type: "Destructive safety", scenario: "Quarantine from dry run", steps: "Review dry run before quarantine.", expected: "No mutation without explicit operator action.", severityIfFails: "Critical" },
+      { type: "Regression", scenario: "Cancel quarantine confirmation", steps: "Click Move to quarantine, then dismiss the browser confirmation.", expected: "No quarantine request is sent and the SFTP operations controls remain usable.", severityIfFails: "Critical" },
+      { type: "Error path", scenario: "Operations monitor unavailable", steps: "Force /sftp/operations to fail and refresh the monitor.", expected: "A visible non-blocking error appears, loading stops, and no reconcile/quarantine/promote/download mutation is sent.", severityIfFails: "High" },
     ],
   },
   {
@@ -2903,6 +2905,48 @@ const executionEvidence = [
     notes:
       "Verifies the SFTP indexing pipeline failure remediation: jobs polling failures no longer disappear silently and do not block or mutate secure-deposit workflows.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-060",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "64 passed, 0 failed",
+    duration: "50.4s",
+    warnings:
+      "Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. First sandboxed targeted run failed before app execution because Chromium could not bootstrap the macOS MachPort rendezvous; rerun with approved unsandboxed Playwright launch passed. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new SFTP reconciliation permission-denial case uses workspace_reviewer, makes /sftp/operations/reconcile return HTTP 403 for a dry-run request, verifies the denial is visible, verifies Run check and Move to quarantine controls recover, and asserts no quarantine, link, promote, bulk-promote or archive-download mutation occurs. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level permission coverage for the SFTP operations monitor: a denied reconciliation check is explicit and recoverable, and the quarantine path is not triggered.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-061",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "65 passed, 0 failed",
+    duration: "50.6s",
+    warnings:
+      "Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new SFTP quarantine-confirmation case uses synthetic SFTP operations with a completed dry-run candidate set, clicks Move to quarantine, dismisses the browser confirmation dialog, verifies the safety copy, and asserts no reconciliation/quarantine, promote, bulk-promote or archive-download mutation occurs. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level destructive-safety coverage for the SFTP operations monitor: canceling the quarantine confirmation leaves production-sensitive paths untouched.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-062",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "66 passed, 0 failed",
+    duration: "50.8s",
+    warnings:
+      "Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new SFTP operations-monitor failure case makes /sftp/operations return HTTP 500, verifies a visible non-blocking monitor error after initial load and manual Refresh ops, inspects component state for operations=null and loading=false, and asserts no reconcile/quarantine, promote, bulk-promote or archive-download mutation occurs. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level failure visibility coverage for the SFTP operations monitor: an unavailable monitor is explicit and does not trigger production-sensitive workflows.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3035,6 +3079,9 @@ const executedTestResults = new Map([
   pass("SFTP-015-T01", "Mapped to local Playwright mocked SFTP enabled-health direct-route smoke proving /connectors/sftp receives enabled health, removes the disabled warning, enables create-link controls and sends no mutation on load.", 69),
   pass("SFTP-015-T03", "Mapped to local Playwright mocked SFTP enabled-health direct-route smoke inspecting the health payload and proving no password/secret/token/private/credential/session keys are exposed.", 69),
   pass("SFTP-016-T02", "Mapped to local Playwright mocked SFTP indexing-monitor failure smoke proving /documents/jobs 500 surfaces a visible non-blocking pipeline error while keeping controls usable and avoiding link/promote/bulk/reconcile mutations.", 70),
+  pass("SFTP-010-T02", "Mapped to local Playwright mocked SFTP reconciliation permission-denial smoke proving a reviewer receives a visible 403 error, controls recover, and no quarantine/promote/bulk/archive mutation occurs.", 71),
+  pass("SFTP-010-T04", "Mapped to local Playwright mocked SFTP quarantine-confirmation smoke proving dismissing the confirmation dialog sends no reconcile/quarantine, promote, bulk or archive mutation.", 72),
+  pass("SFTP-010-T05", "Mapped to local Playwright mocked SFTP operations-monitor failure smoke proving /sftp/operations 500 remains visible, loading clears, and no reconcile/quarantine/promote/bulk/archive mutation occurs.", 73),
   pass("KCAP-001-T03", "Mapped to IAM engine tests proving reviewer capture permissions are explicit while non-owner operations remain denied.", 14),
   pass("KCAP-002-T04", "Mapped to IAM-enforced Knowledge Capture API test where a workspace_reviewer creates and starts a free-conversation capture session.", 14),
   pass("KCAP-001-T06", "Mapped to /iam/matrix API test proving workspace_reviewer receives capture_session create plus owner-scoped update/execute as allowed_for_subject.", 15),
@@ -3515,8 +3562,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[70].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[73].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -4199,10 +4246,34 @@ const phaseRows = [
     executionEvidence[70].safetyScope,
     "Continue with read-only real-backend connector validation when safe; next safe local target is SFTP polling cleanup or operations failure display without reconcile/quarantine mutation.",
   ],
+  [
+    executionEvidence[71].date,
+    "Phase 4 SFTP reconciliation permission-denial UX",
+    "Extended the local Playwright Andritz smoke so a mocked reviewer receives a visible 403 denial when starting an SFTP reconciliation dry run, while the UI recovers and the quarantine/promote/archive paths remain untouched.",
+    `${executionEvidence[71].result}; ${mappedPassedCountForEvidence(executionEvidence[71].id)} workbook test case mapped as Pass.`,
+    executionEvidence[71].safetyScope,
+    "Continue with read-only real-backend connector validation when safe; keep real reconcile/quarantine execution excluded unless explicitly approved.",
+  ],
+  [
+    executionEvidence[72].date,
+    "Phase 4 SFTP quarantine confirmation safety",
+    "Extended the local Playwright Andritz smoke so a synthetic SFTP quarantine action opens the browser confirmation and, when dismissed, sends no reconciliation/quarantine request while leaving controls usable.",
+    `${executionEvidence[72].result}; ${mappedPassedCountForEvidence(executionEvidence[72].id)} workbook test case mapped as Pass.`,
+    executionEvidence[72].safetyScope,
+    "Continue with read-only real-backend connector validation when safe; keep real quarantine execution excluded unless explicitly approved.",
+  ],
+  [
+    executionEvidence[73].date,
+    "Phase 4 SFTP operations monitor failure visibility",
+    "Extended the local Playwright Andritz smoke so a mocked /sftp/operations failure is displayed after initial load and manual refresh, loading clears, and production-sensitive SFTP actions remain untouched.",
+    `${executionEvidence[73].result}; ${mappedPassedCountForEvidence(executionEvidence[73].id)} workbook test case mapped as Pass.`,
+    executionEvidence[73].safetyScope,
+    "Continue with read-only real-backend connector validation when safe; keep real reconcile/quarantine execution excluded unless explicitly approved.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F66"));
+styleBody(phase.getRange("A2:F69"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
