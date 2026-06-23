@@ -234,4 +234,26 @@ test.describe('Andritz mocked browser smoke', () => {
     await page.goto('/chat');
     await expect(page.locator('body')).toContainText(/Chat|Question rapide|Posez votre question|Quick ask|Ask/i);
   });
+
+  test('keeps primary Andritz surfaces reachable on mobile viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    await page.goto('/connectors');
+    await expect(page.getByRole('heading', { name: 'Connectors' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Open secure deposit/i })).toBeVisible();
+
+    await page.goto('/connectors/sftp');
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await expect(page.locator('body')).toContainText(/Live upload monitor|No active SFTP transfer/i);
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await expect(page.locator('body')).toContainText(/Andritz QA|andritz-qa/i);
+
+    await page.goto('/knowledge/capture');
+    await expect(page.locator('body')).toContainText(/Capture sessions|Sessions de capture|New session|Nouvelle capture/i);
+
+    await page.goto('/chat');
+    await expect(page.locator('body')).toContainText(/Chat|Quick ask|Question rapide|Ask|Posez votre question/i);
+  });
 });
