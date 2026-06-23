@@ -567,7 +567,7 @@ def _compute_timer_metrics(session: ExpertCaptureSession, *, now: Optional[datet
             "elapsed_seconds": elapsed_seconds,
             "remaining_seconds": None,
             "timer_phase": "running",
-            "session_end_pending": False,
+            "session_end_pending": bool((session.metrics or {}).get("session_end_pending")),
             "last_minutes_alert": False,
         }
     limit_seconds = effective_minutes * 60

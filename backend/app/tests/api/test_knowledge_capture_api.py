@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.v1.endpoints import knowledge_capture
@@ -109,6 +110,279 @@ def test_free_conversation_plan_via_api(db_session, monkeypatch):
     assert body["plan"]["schema_version"] == "free_conversation_v1"
     assert body["metrics"]["unlimited_duration"] is True
     assert body["metrics"]["capture_domain"] == "technical"
+
+
+def test_free_conversation_api_conversation_step_records_turn_and_closure(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-free-conv-step", name="KC API Free Conv Step", slug="kc-api-free-conv-step")
+    user = User(id="user-kc-api-free-conv-step", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    async def _noop_warm_cache(*args, **kwargs):  # noqa: ARG001
+        return {"status": "skipped", "reason": "unit-test"}
+
+    monkeypatch.setattr(knowledge_capture, "warm_capture_context_cache", _noop_warm_cache)
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture libre conversation",
+            "objective": "Capturer une décision terrain sans plan imposé.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    assert created.status_code == 200
+    session_id = created.json()["id"]
+    started = client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    assert started.status_code == 200
+
+    answer = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/conversation-step",
+        json={
+            "client_turn_id": "free-conv-api-1",
+            "text": "Sur la ligne pilote, on réduit la vitesse du convoyeur après nettoyage humide.",
+        },
+    )
+
+    assert answer.status_code == 200
+    answer_body = answer.json()
+    assert answer_body["intent"] == "answer_ready"
+    assert answer_body["action_taken"] == "turn_appended"
+    assert answer_body["turn"]["turn_kind"] == "answer"
+    assert "vitesse du convoyeur" in answer_body["turn"]["text"]
+
+    events = client.get(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/events",
+        params={"event_type": "conversation_intent_detected"},
+    )
+    assert events.status_code == 200
+    intent_events = events.json()["events"]
+    assert len(intent_events) == 1
+    assert intent_events[0]["source"] == "conversation_only"
+    assert intent_events[0]["metadata"]["intent"] == "answer_ready"
+    assert intent_events[0]["metadata"]["client_turn_id"] == "free-conv-api-1"
+
+    closure = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/conversation-step",
+        json={
+            "client_turn_id": "free-conv-api-2",
+            "text": "C'est terminé pour aujourd'hui.",
+        },
+    )
+
+    assert closure.status_code == 200
+    closure_body = closure.json()
+    assert closure_body["intent"] == "session_complete"
+    assert closure_body["action_taken"] == "closure_sheet_generated"
+    assert closure_body["requires_confirmation"] is True
+    assert closure_body["confirmation_target"] == "session_closure"
+    assert closure_body["closure_sheet"]["markdown"]
+    assert closure_body["session"]["metrics"]["session_end_pending"] is True
+
+
+def test_capture_document_view_api_records_active_view(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-doc-view", name="KC API Doc View", slug="kc-api-doc-view")
+    user = User(id="user-kc-api-doc-view", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture libre documentée",
+            "objective": "Capturer une observation située dans un support.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    assert created.status_code == 200
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+
+    viewed = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/documents/view",
+        json={
+            "document_id": "manual-pdf",
+            "collection": "capture-session-docs",
+            "filename": "manuel.pdf",
+            "title": "Manuel ligne BBA",
+            "page": 7,
+            "association_mode": "active_view",
+        },
+    )
+
+    assert viewed.status_code == 200
+    body = viewed.json()
+    assert body["active_view"]["kind"] == "capture_document_ref"
+    assert body["active_view"]["document_id"] == "manual-pdf"
+    assert body["active_view"]["page"] == 7
+    assert body["event"]["event_type"] == "capture_document_viewed"
+    assert body["event"]["source"] == "capture_document"
+    assert body["event"]["metadata"]["filename"] == "manuel.pdf"
+
+    listed = client.get(f"/api/v1/knowledge-capture/sessions/{session_id}/documents")
+    assert listed.status_code == 200
+    listed_body = listed.json()
+    assert listed_body["collection"] == "capture-session-docs"
+    assert listed_body["active_view"]["document_id"] == "manual-pdf"
+    assert listed_body["active_view"]["page"] == 7
+
+
+def test_capture_text_turn_api_preserves_document_refs(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-doc-turn", name="KC API Doc Turn", slug="kc-api-doc-turn")
+    user = User(id="user-kc-api-doc-turn", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture texte documentée",
+            "objective": "Capturer une règle terrain référencée à une slide.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    assert created.status_code == 200
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    active_ref = {
+        "document_id": "deck-spl",
+        "collection": "capture-session-docs",
+        "filename": "support.pptx",
+        "title": "Support SPL",
+        "slide": 3,
+        "association_mode": "active_view",
+    }
+
+    turn = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "doc-turn-1",
+            "text": "Sur cette slide, la séquence impose de purger trente secondes avant redémarrage.",
+            "document_refs": [active_ref],
+            "visual_context": active_ref,
+        },
+    )
+
+    assert turn.status_code == 200
+    turn_body = turn.json()
+    assert turn_body["turn"]["input_modality"] == "text"
+    assert len(turn_body["turn"]["document_refs"]) == 1
+    assert turn_body["turn"]["document_refs"][0]["document_id"] == "deck-spl"
+    assert turn_body["turn"]["document_refs"][0]["slide"] == 3
+
+    events = client.get(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/events",
+        params={"event_type": "expert_turn_finalized"},
+    )
+    assert events.status_code == 200
+    finalized = events.json()["events"][0]
+    assert finalized["source"] == "expert_text"
+    assert finalized["metadata"]["document_refs"][0]["filename"] == "support.pptx"
+    assert finalized["metadata"]["document_refs"][0]["slide"] == 3
+
+
+def test_capture_document_upload_api_queues_document_without_worker_side_effects(db_session, tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.models.knowledge_collection import KnowledgeCollectionSource, WorkerJob
+    from app.services.knowledge_collections import get_collection_or_404, original_key
+    from app.services.object_store import get_object_store
+
+    monkeypatch.setattr(settings, "document_ingest_async_enabled", True)
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace = Workspace(id="ws-kc-api-doc-upload", name="KC API Doc Upload", slug="kc-api-doc-upload")
+    user = User(id="user-kc-api-doc-upload", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    dispatched: list[tuple[str, str, dict]] = []
+
+    def _fake_dispatch(_db, job, *, allow_inline_fallback=True):  # noqa: ANN001, ARG001
+        dispatched.append((job.id, job.kind, dict(job.result or {})))
+        return f"task-{job.id}"
+
+    monkeypatch.setattr(knowledge_capture, "dispatch_worker_job", _fake_dispatch)
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture avec upload document",
+            "objective": "Capturer une observation avec support uploadé.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    assert created.status_code == 200
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+
+    uploaded = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/documents",
+        files=[
+            ("files", ("manuel.pdf", b"%PDF-1.4\ncapture document\n", "application/pdf")),
+            ("files", ("photo.png", b"\x89PNG\r\n\x1a\ncapture image\n", "image/png")),
+        ],
+    )
+
+    assert uploaded.status_code == 200
+    body = uploaded.json()
+    assert body["collection"] == f"capture-session-{session_id}"
+    documents_by_name = {doc["filename"]: doc for doc in body["documents"]}
+    assert set(documents_by_name) == {"manuel.pdf", "photo.png"}
+    assert {doc["status"] for doc in documents_by_name.values()} == {"queued"}
+    assert {doc["chunks_processed"] for doc in documents_by_name.values()} == {0}
+    job_id = documents_by_name["manuel.pdf"]["job_id"]
+    assert job_id
+    assert documents_by_name["photo.png"]["job_id"] == job_id
+    assert dispatched == [(job_id, "document_ingest_index", {
+        "ingest_options": {
+            "mode": "incremental",
+            "document_names": ["manuel.pdf", "photo.png"],
+            "capture_session_id": session_id,
+        }
+    })]
+
+    collection = get_collection_or_404(db_session, workspace_id=workspace.id, collection_ref=body["collection"])
+    assert get_object_store().exists(original_key(collection, "manuel.pdf"))
+    assert get_object_store().exists(original_key(collection, "photo.png"))
+    sources = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(
+            KnowledgeCollectionSource.workspace_id == workspace.id,
+            KnowledgeCollectionSource.collection_id == collection.id,
+            KnowledgeCollectionSource.filename.in_(["manuel.pdf", "photo.png"]),
+        )
+        .all()
+    )
+    assert {source.filename for source in sources} == {"manuel.pdf", "photo.png"}
+    assert {source.status for source in sources} == {"queued"}
+    assert {source.origin for source in sources} == {"capture_session_upload"}
+    assert {source.source_metadata["capture_session_id"] for source in sources} == {session_id}
+    job = db_session.query(WorkerJob).filter(WorkerJob.id == job_id).one()
+    assert job.kind == "document_ingest_index"
+    assert job.result["ingest_options"]["document_names"] == ["manuel.pdf", "photo.png"]
+
+    events = client.get(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/events",
+        params={"event_type": "capture_document_uploaded"},
+    )
+    assert events.status_code == 200
+    upload_events = events.json()["events"]
+    assert len(upload_events) == 2
+    assert {event["source"] for event in upload_events} == {"capture_document"}
+    assert {event["metadata"]["filename"] for event in upload_events} == {"manuel.pdf", "photo.png"}
+    assert {event["metadata"]["job_id"] for event in upload_events} == {job_id}
 
 
 def test_free_conversation_proposal_endpoint_returns_structured_topic(db_session, monkeypatch):
@@ -692,3 +966,82 @@ def test_conversation_step_accept_checks_proposal_review_permissions(db_session,
     assert accepted.status_code == 200
     assert ("knowledge_proposal", "review_decide") in permission_calls
     assert ("knowledge_proposal", "trigger_ingestion") in permission_calls
+
+
+def test_conversation_step_accept_denied_keeps_proposal_pending(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-conv-deny", name="KC API Conv Deny", slug="kc-api-conv-deny")
+    user = User(id="user-kc-api-conv-deny", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    def _deny_ingestion(*args, **kwargs):
+        if kwargs.get("resource_kind") == "knowledge_proposal" and kwargs.get("action") == "trigger_ingestion":
+            raise HTTPException(status_code=403, detail="WORKSPACE_PERMISSION_DENIED")
+
+    app = FastAPI()
+    app.include_router(knowledge_capture.router, prefix="/api/v1/knowledge-capture")
+    app.dependency_overrides[knowledge_capture.get_current_workspace] = lambda: workspace
+    app.dependency_overrides[knowledge_capture.get_current_user] = lambda: user
+    app.dependency_overrides[knowledge_capture.get_db] = lambda: db_session
+    monkeypatch.setattr(knowledge_capture, "enforce_permission", _deny_ingestion)
+    monkeypatch.setattr(knowledge_capture, "_allow_immature_ai_plan", lambda *args, **kwargs: True)
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Conversation API denied",
+            "objective": "Capture expert troubleshooting decisions for production lines.",
+            "expert_profile": "Senior field engineer",
+            "duration_minutes": 20,
+            "knowledge_refs": [],
+            "plan_mode": "ai_plan",
+        },
+    ).json()
+    session_id = created["id"]
+    question_id = created["plan"]["questions"][0]["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/conversation-step",
+        json={
+            "client_turn_id": "api-conv-deny-1",
+            "question_id": question_id,
+            "text": "Quand la ligne vibre après maintenance, je vérifie le rapport terrain avant recalage.",
+        },
+    )
+    proposal = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/conversation-step",
+        json={
+            "client_turn_id": "api-conv-deny-2",
+            "question_id": question_id,
+            "text": "Crée la proposition.",
+        },
+    ).json()
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/conversation-step",
+        json={
+            "client_turn_id": "api-conv-deny-3",
+            "question_id": question_id,
+            "last_proposal_id": proposal["proposal"]["id"],
+            "text": "Oui je confirme.",
+        },
+    )
+
+    denied = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/conversation-step",
+        json={
+            "client_turn_id": "api-conv-deny-4",
+            "question_id": question_id,
+            "last_proposal_id": proposal["proposal"]["id"],
+            "text": "Oui valide.",
+        },
+    )
+
+    assert denied.status_code == 403
+    reloaded = client.get(
+        "/api/v1/knowledge-capture/proposals",
+        params={"session_id": session_id},
+    )
+    assert reloaded.status_code == 200
+    assert reloaded.json()["proposals"][0]["status"] == "pending_review"
