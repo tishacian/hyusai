@@ -42,6 +42,14 @@ class TextProcessor:
                 cleaned_chars.append(char)
         text = ''.join(cleaned_chars)
         
+        # Strip HTML/XML tags BEFORE the noise pass below, replacing each tag
+        # with a space so adjacent tokens are not glued together (e.g.
+        # "PUMP<b><br>URACA" must become "PUMP URACA", not "PUMP<b br>URACA").
+        # Only sequences that look like real tags ("<" + optional "/" + a letter
+        # ... + ">") are removed, so spaced math/inequalities such as "< 5" or
+        # "pressure > 100" are preserved.
+        text = re.sub(r'</?[a-zA-Z][^<>]*>', ' ', text)
+        
         # Remove sequences of non-alphanumeric characters that are likely noise
         text = re.sub(r'[^a-zA-Z0-9\s.,;!?\-]{2,}', ' ', text)
         
