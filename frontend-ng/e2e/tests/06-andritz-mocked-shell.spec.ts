@@ -212,9 +212,15 @@ async function installAndritzMocks(
     secureDepositEnabled?: boolean;
     chatDocumentUploadEnabled?: boolean;
     collectionsShouldFail?: boolean;
+    collectionCreateRequests?: string[];
+    collectionCreateShouldFail?: boolean;
+    collectionDeleteRequests?: string[];
+    collectionDeleteShouldFail?: boolean;
     documentListShouldFail?: boolean;
     documentListEmpty?: boolean;
     documentListRequests?: string[];
+    documentDeleteRequests?: string[];
+    documentDeleteShouldFail?: boolean;
     collectionPreviewRequests?: string[];
     collectionPreviewUnsafeContent?: boolean;
     collectionPreviewForbidden?: boolean;
@@ -257,9 +263,15 @@ async function installAndritzMocks(
   const secureDepositEnabled = options.secureDepositEnabled ?? true;
   const chatDocumentUploadEnabled = options.chatDocumentUploadEnabled ?? true;
   const collectionsShouldFail = options.collectionsShouldFail ?? false;
+  const collectionCreateRequests = options.collectionCreateRequests;
+  const collectionCreateShouldFail = options.collectionCreateShouldFail ?? false;
+  const collectionDeleteRequests = options.collectionDeleteRequests;
+  const collectionDeleteShouldFail = options.collectionDeleteShouldFail ?? false;
   const documentListShouldFail = options.documentListShouldFail ?? false;
   const documentListEmpty = options.documentListEmpty ?? false;
   const documentListRequests = options.documentListRequests;
+  const documentDeleteRequests = options.documentDeleteRequests;
+  const documentDeleteShouldFail = options.documentDeleteShouldFail ?? false;
   const collectionPreviewRequests = options.collectionPreviewRequests;
   const collectionPreviewUnsafeContent = options.collectionPreviewUnsafeContent ?? false;
   const collectionPreviewForbidden = options.collectionPreviewForbidden ?? false;
@@ -296,6 +308,8 @@ async function installAndritzMocks(
   const contextUpdateShouldFail = options.contextUpdateShouldFail ?? false;
   const contextPersistRequests = options.contextPersistRequests;
   const contextPersistShouldFail = options.contextPersistShouldFail ?? false;
+  let collectionDeleted = false;
+  const createdCollections: string[] = [];
   let collectionPreviewRequestCount = 0;
   const legacyRole = roleTemplate === 'workspace_reviewer' ? 'member' : 'admin';
   const activeWorkspace = {
@@ -423,24 +437,53 @@ async function installAndritzMocks(
       return json(route, { systems: [] });
     }
 
-    if (path === '/documents/collections') {
+    if (path === '/documents/collections' && method === 'GET') {
       if (collectionsShouldFail) {
         return json(route, { detail: 'Collections service unavailable' }, 500);
       }
+      const baseCollections = collectionDeleted ? [] : ['andritz-qa'];
+      const collectionNames = [...baseCollections, ...createdCollections];
       return json(route, {
-        collections: ['andritz-qa'],
-        default: 'andritz-qa',
+        collections: collectionNames,
+        default: collectionNames[0] ?? null,
         items: [
-          {
+          ...(!collectionDeleted ? [{
             slug: 'andritz-qa',
             name: 'Andritz QA',
             document_count: 2,
             chunk_count: 12,
             updated_at: '2026-06-23T00:00:00Z',
             status: 'ready',
-          },
+          }] : []),
+          ...createdCollections.map((name) => ({
+            slug: name,
+            name,
+            document_count: 0,
+            chunk_count: 0,
+            updated_at: '2026-06-23T00:00:00Z',
+            status: 'ready',
+          })),
         ],
       });
+    }
+    if (path === '/documents/collections' && method === 'POST') {
+      collectionCreateRequests?.push(url.search);
+      if (collectionCreateShouldFail) {
+        return json(route, { detail: 'Mocked collection create permission denied' }, 403);
+      }
+      const name = url.searchParams.get('collection_name') || 'untitled';
+      if (!createdCollections.includes(name)) {
+        createdCollections.push(name);
+      }
+      return json(route, { status: 'created', collection_name: name });
+    }
+    if (path === '/documents/collections/andritz-qa' && method === 'DELETE') {
+      collectionDeleteRequests?.push(path);
+      if (collectionDeleteShouldFail) {
+        return json(route, { detail: 'Mocked collection delete permission denied' }, 403);
+      }
+      collectionDeleted = true;
+      return json(route, { status: 'deleted', collection_name: 'andritz-qa' });
     }
     if (path === '/documents/list') {
       documentListRequests?.push(url.search);
@@ -502,6 +545,13 @@ async function installAndritzMocks(
         content_type: 'application/pdf',
         download_url: '/api/v1/documents/doc-andritz-qa/download?collection_name=andritz-qa',
       });
+    }
+    if (path === '/documents/doc-andritz-qa' && method === 'DELETE') {
+      documentDeleteRequests?.push(url.search);
+      if (documentDeleteShouldFail) {
+        return json(route, { detail: 'Mocked document delete permission denied' }, 403);
+      }
+      return json(route, { status: 'deleted', document_id: 'doc-andritz-qa' });
     }
     if (path === '/documents/upload-batch' && method === 'POST') {
       const uploadBody = request.postData() || '';
@@ -1253,6 +1303,109 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.locator('[title="Delete collection"]')).toHaveCount(0);
   });
 
+  test('creates a synthetic collection only after explicit user input', async ({ page }) => {
+    const collectionCreateRequests: string[] = [];
+    await installAndritzMocks(page, { collectionCreateRequests });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await page.getByRole('button', { name: /New collection/i }).click();
+
+    const nameInput = page.getByPlaceholder('e.g. policies, research');
+    const createButton = page.getByRole('button', { name: /^Create$/ });
+    await expect(nameInput).toBeVisible();
+    await expect(createButton).toBeDisabled();
+    await nameInput.fill('andritz-qa-scratch');
+    await expect(createButton).toBeEnabled();
+    await expect.poll(() => collectionCreateRequests.length).toBe(0);
+
+    await createButton.click();
+
+    await expect.poll(() => collectionCreateRequests.length).toBe(1);
+    const createParams = new URLSearchParams(collectionCreateRequests[0].replace(/^\?/, ''));
+    expect(createParams.get('collection_name')).toBe('andritz-qa-scratch');
+    await expect(page.getByText('Collection "andritz-qa-scratch" created')).toBeVisible();
+    await expect(nameInput).toHaveCount(0);
+    await expect(page.locator('a[href="/knowledge/andritz-qa-scratch"]')).toBeVisible();
+  });
+
+  test('does not show a synthetic collection when collection creation is forbidden', async ({ page }) => {
+    const collectionCreateRequests: string[] = [];
+    await installAndritzMocks(page, {
+      collectionCreateRequests,
+      collectionCreateShouldFail: true,
+    });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await page.getByRole('button', { name: /New collection/i }).click();
+
+    const nameInput = page.getByPlaceholder('e.g. policies, research');
+    await expect(nameInput).toBeVisible();
+    await nameInput.fill('andritz-qa-denied');
+    await page.getByRole('button', { name: /^Create$/ }).click();
+
+    await expect.poll(() => collectionCreateRequests.length).toBe(1);
+    const createParams = new URLSearchParams(collectionCreateRequests[0].replace(/^\?/, ''));
+    expect(createParams.get('collection_name')).toBe('andritz-qa-denied');
+    await expect(page.getByText('Mocked collection create permission denied')).toBeVisible();
+    await expect(nameInput).toBeVisible();
+    await expect(page.locator('a[href="/knowledge/andritz-qa-denied"]')).toHaveCount(0);
+    await expect(page.locator('a[href="/knowledge/andritz-qa"]')).toBeVisible();
+  });
+
+  test('requires typed confirmation before deleting a collection without real data', async ({ page }) => {
+    const collectionDeleteRequests: string[] = [];
+    await installAndritzMocks(page, { collectionDeleteRequests });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await expect(page.locator('a[href="/knowledge/andritz-qa"]')).toBeVisible();
+    await page.locator('[title="Delete collection"]').first().click();
+
+    await expect.poll(() => collectionDeleteRequests.length).toBe(0);
+    const confirmDialog = page.locator('app-confirm-dialog').filter({ hasText: 'Delete collection andritz-qa' });
+    await expect(confirmDialog.getByText('All documents and chunks in this collection will be deleted. This cannot be undone.')).toBeVisible();
+
+    const confirmInput = confirmDialog.getByPlaceholder('andritz-qa');
+    const confirmButton = confirmDialog.getByRole('button', { name: 'Delete collection' });
+    await expect(confirmButton).toBeDisabled();
+    await confirmInput.fill('andritz');
+    await expect(confirmButton).toBeDisabled();
+    await confirmInput.fill('andritz-qa');
+    await expect(confirmButton).toBeEnabled();
+    await expect.poll(() => collectionDeleteRequests.length).toBe(0);
+
+    await confirmButton.click();
+
+    await expect.poll(() => collectionDeleteRequests).toEqual(['/documents/collections/andritz-qa']);
+    await expect(page.locator('a[href="/knowledge/andritz-qa"]')).toHaveCount(0);
+  });
+
+  test('keeps a collection visible when collection deletion is forbidden', async ({ page }) => {
+    const collectionDeleteRequests: string[] = [];
+    await installAndritzMocks(page, {
+      collectionDeleteRequests,
+      collectionDeleteShouldFail: true,
+    });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await expect(page.locator('a[href="/knowledge/andritz-qa"]')).toBeVisible();
+    await page.locator('[title="Delete collection"]').first().click();
+
+    const confirmDialog = page.locator('app-confirm-dialog').filter({ hasText: 'Delete collection andritz-qa' });
+    await expect(confirmDialog.getByPlaceholder('andritz-qa')).toBeVisible();
+    await confirmDialog.getByPlaceholder('andritz-qa').fill('andritz-qa');
+    await expect.poll(() => collectionDeleteRequests.length).toBe(0);
+    await confirmDialog.getByRole('button', { name: 'Delete collection' }).click();
+
+    await expect.poll(() => collectionDeleteRequests).toEqual(['/documents/collections/andritz-qa']);
+    await expect(page.getByText('Mocked collection delete permission denied')).toBeVisible();
+    await expect(confirmDialog).toHaveCount(0);
+    await expect(page.locator('a[href="/knowledge/andritz-qa"]')).toBeVisible();
+  });
+
   test('opens the collection document inventory drawer without real data', async ({ page }) => {
     const documentListRequests: string[] = [];
     await installAndritzMocks(page, { documentListRequests });
@@ -1278,6 +1431,59 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(documentsDrawer.locator('[title="Delete document"]')).toBeVisible();
     await expect(documentsDrawer.getByText('Unable to load documents')).toHaveCount(0);
     await expect(documentsDrawer.getByText('Empty collection')).toHaveCount(0);
+  });
+
+  test('requires explicit confirmation before deleting a collection document without real data', async ({ page }) => {
+    const documentDeleteRequests: string[] = [];
+    await installAndritzMocks(page, { documentDeleteRequests });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await page.locator('[title="Browse documents"]').first().click();
+
+    const documentsDrawer = page.locator('app-drawer').filter({ hasText: 'andritz-qa-safe.pdf' });
+    await expect(documentsDrawer.getByText('andritz-qa-safe.pdf')).toBeVisible();
+    await documentsDrawer.locator('[title="Delete document"]').click();
+
+    await expect.poll(() => documentDeleteRequests.length).toBe(0);
+    const confirmDialog = page.locator('app-confirm-dialog').filter({ hasText: 'Delete andritz-qa-safe.pdf' });
+    await expect(confirmDialog.getByText('This document and its chunks will be removed from the collection.')).toBeVisible();
+    await expect(documentsDrawer.getByText('andritz-qa-safe.pdf')).toBeVisible();
+
+    await confirmDialog.getByRole('button', { name: /^Delete$/ }).click();
+
+    await expect.poll(() => documentDeleteRequests.length).toBe(1);
+    const deleteParams = new URLSearchParams(documentDeleteRequests[0].replace(/^\?/, ''));
+    expect(deleteParams.get('collection_name')).toBe('andritz-qa');
+    await expect(documentsDrawer.getByText('andritz-qa-safe.pdf')).toHaveCount(0);
+  });
+
+  test('keeps a collection document visible when document deletion is forbidden', async ({ page }) => {
+    const documentDeleteRequests: string[] = [];
+    await installAndritzMocks(page, {
+      documentDeleteRequests,
+      documentDeleteShouldFail: true,
+    });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await page.locator('[title="Browse documents"]').first().click();
+
+    const documentsDrawer = page.locator('app-drawer').filter({ hasText: 'andritz-qa-safe.pdf' });
+    await expect(documentsDrawer.getByText('andritz-qa-safe.pdf')).toBeVisible();
+    await documentsDrawer.locator('[title="Delete document"]').click();
+
+    const confirmDialog = page.locator('app-confirm-dialog').filter({ hasText: 'Delete andritz-qa-safe.pdf' });
+    await expect(confirmDialog.getByText('This document and its chunks will be removed from the collection.')).toBeVisible();
+    await expect.poll(() => documentDeleteRequests.length).toBe(0);
+    await confirmDialog.getByRole('button', { name: /^Delete$/ }).click();
+
+    await expect.poll(() => documentDeleteRequests.length).toBe(1);
+    const deleteParams = new URLSearchParams(documentDeleteRequests[0].replace(/^\?/, ''));
+    expect(deleteParams.get('collection_name')).toBe('andritz-qa');
+    await expect(page.getByText('Mocked document delete permission denied')).toBeVisible();
+    await expect(confirmDialog).toHaveCount(0);
+    await expect(documentsDrawer.getByText('andritz-qa-safe.pdf')).toBeVisible();
   });
 
   test('opens a collection document preview fallback without real data', async ({ page }) => {

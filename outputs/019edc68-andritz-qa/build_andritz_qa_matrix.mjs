@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J16", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I56", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F51", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I60", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F55", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -952,6 +952,9 @@ const features = [
       { type: "Destructive safety", scenario: "Delete synthetic document", steps: "Use QA document, confirm delete.", expected: "Only target synthetic doc removed." },
       { type: "Permission/security", scenario: "Unauthorized delete", steps: "Attempt delete as non-admin.", expected: "Denied.", severityIfFails: "Critical" },
       { type: "Boundary", scenario: "Delete collection with running job", steps: "Attempt delete while ingestion running.", expected: "Blocked or handled without orphaned data.", severityIfFails: "High" },
+      { type: "Destructive safety", scenario: "Delete synthetic collection requires typed confirmation", steps: "Open QA collection delete flow, type the exact collection name, confirm delete.", expected: "No delete is sent before exact typed confirmation; only the target synthetic collection is removed." },
+      { type: "Permission/security", scenario: "Collection delete forbidden", steps: "Attempt confirmed collection delete when backend returns 403.", expected: "Error is visible and the collection remains listed.", severityIfFails: "High" },
+      { type: "Permission/security", scenario: "Document delete forbidden", steps: "Attempt confirmed document delete when backend returns 403.", expected: "Error is visible and the document remains listed.", severityIfFails: "High" },
     ],
   },
   {
@@ -2672,6 +2675,62 @@ const executionEvidence = [
     notes:
       "Adds browser-level permission coverage for Knowledge collection preview: forbidden previews after a prior successful preview surface a clear error and do not leak stale document content or download links.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-044",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "46 passed, 0 failed",
+    duration: "37.6s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page may attempt /api/v1/help-content through the local dev proxy when no backend is running; guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the synthetic document-delete case opens the Knowledge collection inventory for andritz-qa, verifies no DELETE request is sent when the Delete document control only opens the confirmation dialog, then clicks the explicit confirm button and verifies the only DELETE request is scoped to collection_name=andritz-qa. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level destructive-safety coverage for Knowledge collection document deletion: deletion requires explicit confirmation and remains scoped to the synthetic collection.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-045",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "47 passed, 0 failed",
+    duration: "38.9s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page may attempt /api/v1/help-content through the local dev proxy when no backend is running; guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the synthetic collection-delete case opens the Knowledge collection card for andritz-qa, verifies the Delete collection confirm button is disabled until the exact collection name is typed, verifies no DELETE request is sent before confirmation, then sends one mocked DELETE to /documents/collections/andritz-qa and verifies the synthetic collection disappears from the mocked list. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level destructive-safety coverage for Knowledge collection deletion: typed confirmation is required and the operation remains limited to the synthetic collection.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-046",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "49 passed, 0 failed",
+    duration: "41.6s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page may attempt /api/v1/help-content through the local dev proxy when no backend is running; guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the synthetic forbidden-delete cases make confirmed collection and document delete requests return HTTP 403, verify the backend detail is visible to the user, and confirm the collection/document remains visible after the failed delete. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level permission-denial coverage for Knowledge destructive actions: backend 403 responses do not remove collection or document state from the UI.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-047",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "51 passed, 0 failed",
+    duration: "42.7s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page may attempt /api/v1/help-content through the local dev proxy when no backend is running; guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the synthetic collection-create cases verify no POST is sent while the create form is blank, then create a synthetic andritz-qa-scratch collection through mocked /documents/collections?collection_name=..., and separately make creation return HTTP 403 to confirm the error is visible and no fake collection appears. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Knowledge collection creation: explicit user input is required, successful synthetic creation appears after reload, and forbidden creation does not create stale UI state.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2719,13 +2778,18 @@ const executedTestResults = new Map([
   pass("COL-014-T03", "Mapped to embedding graph bounded sample/no raw vector exposure tests."),
   pass("COL-015-T01", "Mapped to worker job lifecycle/poll-url tests."),
   pass("COL-015-T02", "Mapped to worker ingest error and failed job detail tests."),
+  pass("COL-004-T01", "Mapped to local Playwright mocked document-delete smoke proving no DELETE before explicit confirmation and a scoped /documents/{id}?collection_name=andritz-qa request after confirmation.", 55),
+  pass("COL-004-T04", "Mapped to local Playwright mocked collection-delete smoke proving the Delete collection action requires exact typed confirmation and sends only a synthetic /documents/collections/andritz-qa DELETE after confirmation.", 56),
+  pass("COL-004-T05", "Mapped to local Playwright mocked forbidden collection-delete smoke proving HTTP 403 surfaces the backend detail and keeps the synthetic collection visible.", 57),
+  pass("COL-004-T06", "Mapped to local Playwright mocked forbidden document-delete smoke proving HTTP 403 surfaces the backend detail and keeps the synthetic document visible.", 57),
   pass("COL-007-T02", "Mapped to local Playwright mocked collection-preview-fallback smoke proving /documents/preview/{id} is scoped to andritz-qa and renders the Open file download fallback without real data.", 52),
   pass("COL-007-T03", "Mapped to local Playwright mocked unsafe-collection-preview smoke proving script-like preview content is rendered inertly and does not execute in the Collections preview drawer.", 53),
   pass("COL-007-T04", "Mapped to local Playwright mocked forbidden-collection-preview smoke proving /documents/preview/{id} 403 after a prior successful preview renders a permission error without stale content or download links.", 54),
   pass("COL-023-T01", "Mapped to local Playwright mocked collection-document-inventory smoke proving the Knowledge page opens a successful /documents/list drawer scoped to andritz-qa before any preview/delete action.", 50),
   pass("COL-023-T03", "Mapped to local Playwright mocked empty-collection-inventory smoke proving a successful empty /documents/list response shows Empty collection without load-error or preview/delete actions.", 51),
-  pass("COL-002-T01", "Mapped to collection detail API test exposing storage/vector/BM25 diagnostics for a collection.", 9),
-  pass("COL-002-T03", "Mapped to workspace-unique collection slug service test preventing unintended cross-workspace slug collisions.", 9),
+  pass("COL-002-T01", "Mapped to local Playwright mocked collection-create smoke proving explicit user input posts collection_name=andritz-qa-scratch and the synthetic collection appears after the mocked reload.", 58),
+  pass("COL-002-T02", "Mapped to local Playwright mocked collection-create smoke proving the Create action stays disabled while the collection name is blank.", 58),
+  pass("COL-002-T03", "Mapped to local Playwright mocked forbidden collection-create smoke proving HTTP 403 surfaces the backend detail and does not create a fake collection card.", 58),
   pass("COL-003-T02", "Mapped to worker ingest materialization error tests preserving document error state without corrupting collection ledger.", 9),
   pass("COL-004-T02", "Mapped to worker ingest deduplication test proving identical content is not duplicated in generated chunks.", 9),
   pass("COL-004-T03", "Mapped to worker ingest materialization-error test proving partial failures are recorded per document.", 9),
@@ -3244,8 +3308,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[54].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "80/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings, Collections API-failure, successful document-browse drawer, empty document-browse drawer, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[58].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "84/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -3800,10 +3864,42 @@ const phaseRows = [
     executionEvidence[54].safetyScope,
     "Continue with read-only real-backend browser checks for collection preview permissions and inventory scoping.",
   ],
+  [
+    executionEvidence[55].date,
+    "Phase 3 Collections document delete confirmation smoke",
+    "Extended the local Playwright Andritz smoke so a synthetic document delete first opens a confirmation dialog without issuing DELETE, then sends one scoped DELETE only after the explicit user confirmation.",
+    `${executionEvidence[55].result}; ${mappedPassedCountForEvidence(executionEvidence[55].id)} workbook test case mapped as Pass.`,
+    executionEvidence[55].safetyScope,
+    "Continue with read-only real-backend browser checks and keep any destructive collection/SFTP tests synthetic unless explicitly approved.",
+  ],
+  [
+    executionEvidence[56].date,
+    "Phase 3 Collections collection delete typed-confirmation smoke",
+    "Extended the local Playwright Andritz smoke so a synthetic collection delete keeps the confirm action disabled until the exact collection name is typed, then sends one mocked DELETE only after explicit confirmation.",
+    `${executionEvidence[56].result}; ${mappedPassedCountForEvidence(executionEvidence[56].id)} workbook test case mapped as Pass.`,
+    executionEvidence[56].safetyScope,
+    "Continue with read-only real-backend browser checks and keep real collection/SFTP delete validation out of scope unless explicitly approved.",
+  ],
+  [
+    executionEvidence[57].date,
+    "Phase 3 Collections forbidden delete rollback smoke",
+    "Extended the local Playwright Andritz smoke so confirmed collection/document delete requests that return 403 show the backend detail and leave the synthetic collection/document visible.",
+    `${executionEvidence[57].result}; ${mappedPassedCountForEvidence(executionEvidence[57].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[57].safetyScope,
+    "Continue with read-only real-backend browser checks; keep destructive delete validation synthetic unless explicitly approved.",
+  ],
+  [
+    executionEvidence[58].date,
+    "Phase 3 Collections collection create smoke",
+    "Extended the local Playwright Andritz smoke so synthetic collection creation requires explicit user input, sends the scoped collection_name query, appears after mocked reload, and forbidden creation does not create stale UI state.",
+    `${executionEvidence[58].result}; ${mappedPassedCountForEvidence(executionEvidence[58].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[58].safetyScope,
+    "Continue with safe local upload/create edge cases before any read-only real-backend browser checks.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F50"));
+styleBody(phase.getRange("A2:F54"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
