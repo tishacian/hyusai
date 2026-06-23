@@ -261,6 +261,16 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
                         @if (d.metaLoading) {
                           <app-icon name="loader-2" [size]="10" class="animate-spin t-doc-spin" />
                         }
+                        <button
+                          type="button"
+                          class="t-doc-remove"
+                          (click)="detachSessionDoc(d)"
+                          [disabled]="detachingDocKey() === docKey(d)"
+                          [title]="'Remove from this chat session: ' + displayTitle(d)"
+                          [attr.aria-label]="'Remove from this chat session: ' + displayTitle(d)"
+                        >
+                          <app-icon [name]="detachingDocKey() === docKey(d) ? 'loader-2' : 'x'" [size]="10" [class.animate-spin]="detachingDocKey() === docKey(d)" />
+                        </button>
                       </div>
                       @if (d.meta) {
                         <div class="t-doc-facts">
@@ -702,6 +712,28 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       color: var(--ck-fg-4);
       flex-shrink: 0;
     }
+    .t-doc-remove {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: var(--ck-fg-4);
+      background: transparent;
+      cursor: pointer;
+    }
+    .t-doc-remove:hover:not([disabled]) {
+      color: var(--ck-fg-1);
+      background: rgba(255, 255, 255, 0.04);
+      border-color: var(--ck-stroke-2);
+    }
+    .t-doc-remove[disabled] {
+      opacity: 0.55;
+      cursor: wait;
+    }
     /* "Doc facts" panel: compact readout of docmeta-sourced fields. */
     .t-doc-facts {
       display: flex;
@@ -809,6 +841,7 @@ export class ChatWorkspaceComponent implements OnInit {
   readonly uploading = signal(false);
   readonly uploadingCount = signal(0);
   readonly persisting = signal(false);
+  readonly detachingDocKey = signal<string | null>(null);
 
   /** Collapsed state of the dropzone in inline mode (always open full-screen). */
   readonly dropOpen = signal(true);
@@ -1090,6 +1123,11 @@ export class ChatWorkspaceComponent implements OnInit {
     );
   }
 
+  /** Stable key used by the template and detach flow. */
+  docKey(doc: SessionDoc): string {
+    return doc.id || doc.filename;
+  }
+
   /** Top N keywords for inline chips ("cockpit · stockage vectoriel · …"). */
   topKeywords(doc: SessionDoc, limit = 4): string[] {
     const raw = doc.meta?.document_extracted_keywords ?? [];
@@ -1126,7 +1164,16 @@ export class ChatWorkspaceComponent implements OnInit {
           environment_state: { collection: 'documents' },
           business_constraints: { source: 'drop_and_ask' },
         })
-        .subscribe();
+        .subscribe({
+          next: (ctx) => {
+            if (ctx) return;
+            this.removeSessionDocsByFilename(newDocs);
+            this.toast.error(
+              'Could not attach the file to this chat session.',
+              'Drop-and-ask',
+            );
+          },
+        });
       return;
     }
     this.canonical
@@ -1140,7 +1187,59 @@ export class ChatWorkspaceComponent implements OnInit {
       })
       .subscribe({
         next: (ctx) => {
-          if (ctx) this.ephemeralContextId.set(ctx.id);
+          if (ctx) {
+            this.ephemeralContextId.set(ctx.id);
+            return;
+          }
+          this.removeSessionDocsByFilename(newDocs);
+          this.toast.error(
+            'Could not create a temporary chat context.',
+            'Drop-and-ask',
+          );
+        },
+      });
+  }
+
+  private removeSessionDocsByFilename(filenames: string[]): void {
+    const names = new Set(filenames.filter(Boolean));
+    if (names.size === 0) return;
+    this.sessionDocs.update((prev) => prev.filter((doc) => !names.has(doc.filename)));
+  }
+
+  detachSessionDoc(doc: SessionDoc): void {
+    const key = this.docKey(doc);
+    if (!key || this.detachingDocKey()) return;
+    const previousDocs = this.sessionDocs();
+    const nextDocs = previousDocs.filter((d) => this.docKey(d) !== key);
+    if (nextDocs.length === previousDocs.length) return;
+
+    const contextId = this.ephemeralContextId();
+    if (!contextId) {
+      this.sessionDocs.set(nextDocs);
+      return;
+    }
+
+    this.detachingDocKey.set(key);
+    this.canonical
+      .updateContext(contextId, {
+        data_refs: nextDocs.map((d) => d.filename),
+        environment_state: { collection: 'documents' },
+        business_constraints: { source: 'drop_and_ask' },
+      })
+      .subscribe({
+        next: (ctx) => {
+          if (!ctx) {
+            this.detachingDocKey.set(null);
+            this.toast.error('Could not remove the file from this chat session.', 'Drop-and-ask');
+            return;
+          }
+          this.sessionDocs.set(nextDocs);
+          if (nextDocs.length === 0) this.ephemeralContextId.set(null);
+          this.detachingDocKey.set(null);
+        },
+        error: () => {
+          this.detachingDocKey.set(null);
+          this.toast.error('Could not remove the file from this chat session.', 'Drop-and-ask');
         },
       });
   }

@@ -10,9 +10,9 @@ const sheetPreviewRanges = [
   ["Coverage Summary", "A1:D21", "andritz_qa_matrix_summary.png"],
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
-  ["Defect Register", "A1:J12", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I36", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F31", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Defect Register", "A1:J15", "andritz_qa_matrix_defect_register_preview.png"],
+  ["Execution Log", "A1:I41", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F36", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -156,6 +156,11 @@ const features = [
       { type: "Regression", scenario: "Mocked drop-and-ask combine payload", steps: "Attach a synthetic session doc, switch to + Sources, ask a question and inspect mocked stream request.", expected: "No real upload occurs; the stream payload includes context_id, context_mode=combine, selected workspace scope and include_sources=true.", severityIfFails: "High" },
       { type: "Regression", scenario: "Mocked drop-and-ask only payload", steps: "Attach a synthetic session doc, keep the default Only mode, ask a question and inspect mocked stream request.", expected: "No real upload occurs; the stream payload includes context_id, context_mode=replace and knowledge_scope=null so workspace sources are not mixed into session-doc-only answers.", severityIfFails: "High" },
       { type: "Regression", scenario: "Latest source mode wins after toggle", steps: "Attach a synthetic session doc, switch to + Sources, switch back to Only, ask and inspect mocked request payload.", expected: "Final /sessions and /chat/stream payloads use context_mode=replace and knowledge_scope=null; no stale combine/workspace scope remains.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Detach last session doc clears stale scope", steps: "Attach a synthetic session doc, remove it from the session, ask and inspect mocked request payload.", expected: "Context PATCH writes data_refs=[]; final /sessions and /chat/stream payloads use context_id=null and context_mode=null so no removed document remains in scope.", severityIfFails: "High" },
+      { type: "Error path", scenario: "Detach context update failure preserves session doc", steps: "Attach a synthetic session doc, mock /contexts/{id} PATCH failure, click remove, then ask.", expected: "A recoverable error is visible, the doc remains attached, Persist remains available and the next request still carries context_id/context_mode for the existing session doc.", severityIfFails: "Medium" },
+      { type: "Regression", scenario: "Detach one of multiple session docs keeps remaining scope", steps: "Attach two synthetic session docs, remove one, then ask and inspect mocked request payload.", expected: "Context PATCH keeps only the remaining filename in data_refs; the remaining doc stays visible and the next request keeps context_id/context_mode for the still-attached session doc.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Re-upload after last detach recreates context", steps: "Attach a synthetic session doc, detach it, attach a different synthetic doc, then ask and inspect mocked request payload.", expected: "The second upload creates a fresh ephemeral context payload with only the new filename, and the next request uses the recreated session-doc context without stale data_refs.", severityIfFails: "High" },
+      { type: "Error path", scenario: "Context creation failure does not fake attachment", steps: "Attach a synthetic session doc while POST /contexts fails, then ask and inspect mocked request payload.", expected: "A recoverable error is visible, the doc is removed from the session-doc UI, Persist is unavailable, and final /sessions and /chat/stream payloads use context_id=null/context_mode=null with workspace scope.", severityIfFails: "High" },
     ],
   },
   {
@@ -2381,6 +2386,76 @@ const executionEvidence = [
     notes:
       "Adds browser-level coverage for Chat source-mode transition state: returning from + Sources to Only keeps the final request scoped to session docs only.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-024",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "26 passed, 0 failed",
+    duration: "30.2s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the session-doc detach case uses a synthetic in-memory text file, updates only the ephemeral context data_refs via mocked PATCH, and verifies the final /sessions and /chat/stream payloads carry context_id=null and context_mode=null. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage and remediation for Chat session-doc detach: removing the last temporary doc clears stale drop-and-ask scope without deleting indexed data.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-025",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "27 passed, 0 failed",
+    duration: "30.3s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the detach-update-failure case uses a synthetic in-memory text file, mocks /contexts/{id} PATCH as 500, verifies the doc remains attached, and verifies the next /sessions and /chat/stream payloads keep the existing context_id/context_mode. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage and remediation for Chat session-doc detach failure handling: a failed context PATCH no longer removes the doc locally or clears live chat scope.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-026",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "28 passed, 0 failed",
+    duration: "31.9s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the multi-doc detach case uses two synthetic in-memory text files, verifies context creation with both filenames, mocked PATCH with only the remaining filename, and final /sessions and /chat/stream payloads keeping the existing context_id/context_mode. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat multi-document session scope: detaching one temporary doc keeps the remaining session doc scoped without clearing the context.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-027",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "29 passed, 0 failed",
+    duration: "30.9s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the context-recreate case uses two synthetic in-memory text files across two uploads, verifies first context creation, mocked detach PATCH with data_refs=[], second context creation with only the new filename, and final /sessions and /chat/stream payloads using the recreated context_id/context_mode. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat session context recreation: after detaching the final temporary doc, a later upload creates a fresh ephemeral context without stale data_refs.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-028",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "30 passed, 0 failed",
+    duration: "33.9s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the context-create-failure case uses a synthetic in-memory text file, upload succeeds in mock, /contexts POST returns a mocked 500, and the test verifies the doc is not shown as attached and final /sessions and /chat/stream payloads have context_id=null and context_mode=null. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage and remediation for Chat context creation failure: failed ephemeral context creation no longer leaves a false attached session doc in the UI.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2501,6 +2576,11 @@ const executedTestResults = new Map([
   pass("CHT-006-T04", "Mapped to local Playwright mocked drop-and-ask combine-mode smoke proving a synthetic session doc creates an ephemeral context and /chat/stream carries context_id, context_mode=combine, knowledge_scope and include_sources without real upload.", 25),
   pass("CHT-006-T05", "Mapped to local Playwright mocked drop-and-ask Only-mode smoke proving a synthetic session doc keeps /chat/stream scoped to context_mode=replace with knowledge_scope=null and no real upload.", 26),
   pass("CHT-006-T06", "Mapped to local Playwright mocked source-mode toggle smoke proving returning from + Sources to Only sends context_mode=replace and knowledge_scope=null.", 34),
+  pass("CHT-006-T07", "Mapped to local Playwright mocked session-doc detach smoke proving removing the last doc patches data_refs=[] and sends the next chat with context_id/context_mode null.", 35),
+  pass("CHT-006-T08", "Mapped to local Playwright mocked detach PATCH failure smoke proving the doc remains attached and the next chat keeps context_id/context_mode.", 36),
+  pass("CHT-006-T09", "Mapped to local Playwright mocked multi-doc detach smoke proving removing one session doc keeps the remaining filename in data_refs and preserves context_id/context_mode.", 37),
+  pass("CHT-006-T10", "Mapped to local Playwright mocked recreate-after-final-detach smoke proving a later upload creates a fresh context payload with only the new filename.", 38),
+  pass("CHT-006-T11", "Mapped to local Playwright mocked context-create failure smoke proving failed ephemeral context creation removes the doc from session UI and the next chat has null context_id/context_mode.", 39),
   pass("CHT-007-T01", "Mapped to stable SSE retrieval/text/final lifecycle tests.", 2),
   pass("CHT-007-T02", "Mapped to timeout/error lifecycle tests; browser network interruption remains pending.", 2),
   pass("CHT-009-T01", "Mapped to deep retrieval job queueing and auto fast refinement tests.", 2),
@@ -2736,6 +2816,57 @@ const defectRecords = [
     status: "Fixed",
     ownerNotes:
       "uploadFiles now filters context data_refs to status=success before ensureEphemeralContext. Verified by EXEC-2026-06-23-FE-020.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-CHT-006",
+    featureIds: ["CHT-006"],
+    reproduction:
+      "Attach a drop-and-ask document, decide it should not ground the next answer, and try to remove it from the active chat session before asking.",
+    expected:
+      "User can detach the document from the temporary session context without deleting indexed data; context data_refs is patched and the next chat turn has no stale context_id/context_mode when no session docs remain.",
+    actual:
+      "The session-doc list was display-only, so an accidentally attached document stayed in the active drop-and-ask scope until the page/session was reset.",
+    severity: "High",
+    rootCause:
+      "ChatWorkspaceComponent had an append/update path for ephemeral context data_refs but no per-document detach flow or final-doc context clearing.",
+    status: "Fixed",
+    ownerNotes:
+      "Added a per-row remove control that PATCHes the ephemeral context with remaining data_refs and clears ephemeralContextId when the last doc is detached. Verified by EXEC-2026-06-23-FE-024.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-CHT-007",
+    featureIds: ["CHT-006"],
+    reproduction:
+      "Mock /contexts/{id} PATCH to fail while removing an attached drop-and-ask session document.",
+    expected:
+      "The UI shows a recoverable error, keeps the doc attached, keeps Persist available and preserves the active session-doc scope for the next chat request.",
+    actual:
+      "CanonicalApiService.updateContext() returns null on HTTP failure, but detachSessionDoc treated every next() value as success and removed the doc locally.",
+    severity: "Medium",
+    rootCause:
+      "The detach flow handled error callbacks but did not check the null failure sentinel returned by the canonical context service.",
+    status: "Fixed",
+    ownerNotes:
+      "detachSessionDoc now treats a null updateContext result as failure, resets the pending state, displays the existing recoverable error and leaves local session docs unchanged. Verified by EXEC-2026-06-23-FE-025.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-CHT-008",
+    featureIds: ["CHT-006"],
+    reproduction:
+      "Mock /contexts POST to fail after a successful drop-and-ask upload and before asking the next chat question.",
+    expected:
+      "The UI shows a recoverable error, does not present the uploaded file as attached to the chat session, hides Persist, and sends the next /sessions and /chat/stream payloads with context_id=null and context_mode=null.",
+    actual:
+      "Before the fix, createContext() failure returned null and ChatWorkspaceComponent left the uploaded doc visible as attached even though no ephemeral context id existed.",
+    severity: "High",
+    rootCause:
+      "ensureEphemeralContext only set the context id when createContext returned a truthy context, but it did not treat the null failure sentinel as a rollback condition for newly-added session docs.",
+    status: "Fixed",
+    ownerNotes:
+      "ensureEphemeralContext now treats null create/update results as failure, removes newly-added session docs from the UI, and shows a recoverable Drop-and-ask error. Verified by EXEC-2026-06-23-FE-028.",
     updated: "2026-06-23",
   },
 ];
@@ -3261,10 +3392,50 @@ const phaseRows = [
     executionEvidence[34].safetyScope,
     "Continue with safe local mocks for session-doc removal, then carefully graduate read-only real-backend checks.",
   ],
+  [
+    executionEvidence[35].date,
+    "Phase 4 Chat session-doc detach remediation",
+    "Extended the local Playwright Andritz smoke with a synthetic session-doc detach case and added a non-destructive remove control that patches only the ephemeral context data_refs, then clears stale chat scope when no session docs remain.",
+    `${executionEvidence[35].result}; ${mappedPassedCountForEvidence(executionEvidence[35].id)} workbook test case mapped as Pass; DEF-2026-06-23-CHT-006 fixed.`,
+    executionEvidence[35].safetyScope,
+    "Continue with safe local mocks for multi-document detach and context PATCH failure handling.",
+  ],
+  [
+    executionEvidence[36].date,
+    "Phase 4 Chat detach PATCH-failure remediation",
+    "Extended the local Playwright Andritz smoke with a mocked /contexts/{id} PATCH 500 during session-doc detach, and fixed the component to treat updateContext(null) as failure rather than success.",
+    `${executionEvidence[36].result}; ${mappedPassedCountForEvidence(executionEvidence[36].id)} workbook test case mapped as Pass; DEF-2026-06-23-CHT-007 fixed.`,
+    executionEvidence[36].safetyScope,
+    "Continue with safe local mocks for multi-document detach and later read-only real-backend source-scope checks.",
+  ],
+  [
+    executionEvidence[37].date,
+    "Phase 3 Chat multi-doc detach smoke",
+    "Extended the local Playwright Andritz smoke with a two-document drop-and-ask upload and removal of only one session doc, proving the ephemeral context data_refs and chat payload preserve the remaining doc scope.",
+    `${executionEvidence[37].result}; ${mappedPassedCountForEvidence(executionEvidence[37].id)} workbook test case mapped as Pass.`,
+    executionEvidence[37].safetyScope,
+    "Continue with safe local mocks for repeated detach/add-back cycles and later read-only real-backend source-scope checks.",
+  ],
+  [
+    executionEvidence[38].date,
+    "Phase 3 Chat context recreate smoke",
+    "Extended the local Playwright Andritz smoke with a final-doc detach followed by a second upload, proving the new upload creates a fresh ephemeral context payload with only the new filename and the chat payload uses the recreated session-doc scope.",
+    `${executionEvidence[38].result}; ${mappedPassedCountForEvidence(executionEvidence[38].id)} workbook test case mapped as Pass.`,
+    executionEvidence[38].safetyScope,
+    "Continue with safe local mocks for repeated detach/add-back cycles and context create failure handling.",
+  ],
+  [
+    executionEvidence[39].date,
+    "Phase 4 Chat context-create failure remediation",
+    "Extended the local Playwright Andritz smoke with a mocked /contexts POST 500 after a successful drop-and-ask upload, and fixed ChatWorkspaceComponent so failed context creation rolls back newly-added session docs instead of showing a false attachment.",
+    `${executionEvidence[39].result}; ${mappedPassedCountForEvidence(executionEvidence[39].id)} workbook test case mapped as Pass; DEF-2026-06-23-CHT-008 fixed.`,
+    executionEvidence[39].safetyScope,
+    "Continue with safe local mocks for context update failure on append and later read-only real-backend source-scope checks.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F30"));
+styleBody(phase.getRange("A2:F35"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
