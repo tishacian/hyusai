@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J16", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A66:I78", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A61:F72", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A66:I80", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A61:F74", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -2992,6 +2992,34 @@ const executionEvidence = [
     notes:
       "Adds browser-level error-path coverage for SFTP staging ZIP downloads while proving the failure remains recoverable and isolated from production-sensitive workflows.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-066",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "70 passed, 0 failed",
+    duration: "53.1s",
+    warnings:
+      "Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new Chat document metadata facts case uses a synthetic in-memory text file, intercepts /documents/upload-batch, /documents/{id}/metadata, /contexts and /chat/stream, verifies title/pages/tokens/chunks/keyword chips render, and proves the downstream chat request keeps the ephemeral context. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level happy-path coverage for Chat document metadata facts after drop-and-ask upload, completing the nominal/error/boundary metadata trio.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-067",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "71 passed, 0 failed",
+    duration: "54.7s",
+    warnings:
+      "Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new Chat system-scope case supplies a synthetic workspace_chat system, selects it through the visible context picker, verifies the UI switches to System chat, and proves /sessions receives context.system_id while /chat/stream receives agent_id for the selected system. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level happy-path coverage for system-scoped Recherche chat selection and payload propagation.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3137,6 +3165,7 @@ const executedTestResults = new Map([
   pass("CHT-002-T01", "Mapped to chat stream hardening happy-path answer tests.", 2),
   pass("CHT-002-T02", "Mapped to controlled chat stream timeout/error tests.", 2),
   pass("CHT-002-T04", "Mapped to local Playwright mocked Recherche quick-ask SSE smoke proving the stream payload, answer rendering and source panel are visible without real backend data.", 24),
+  pass("CHT-003-T01", "Mapped to local Playwright mocked Recherche system-scope smoke proving a selected workspace_chat system switches the UI to System chat and sends system_id/agent_id in session and stream payloads.", 78),
   pass("CHT-004-T04", "Mapped to local Playwright mocked disabled-upload smoke proving features.chat_document_upload=false hides file controls, emits no upload request and keeps Quick ask usable.", 27),
   pass("CHT-004-T05", "Mapped to local Playwright mocked upload-failure smoke proving a failed /documents/upload-batch shows a recoverable error, creates no context/session doc and leaves Quick ask usable with null context.", 30),
   pass("CHT-004-T06", "Mapped to local Playwright mocked partial-upload smoke proving failed upload rows are excluded from session docs and ephemeral context data_refs while the partial-failure warning remains visible.", 31),
@@ -3168,6 +3197,7 @@ const executedTestResults = new Map([
   pass("CHT-016-T01", "Mapped to non-streaming completion degraded metadata and normal completion hardening tests.", 2),
   pass("CHT-016-T02", "Mapped to completion degraded retrieval fallback and timeout/deep queue behavior tests.", 2),
   pass("CHT-016-T03", "Mapped to unknown/inaccessible context controlled-error tests.", 2),
+  pass("CHT-020-T01", "Mapped to local Playwright mocked document-metadata facts smoke proving an uploaded session document renders title, page/token/chunk counts and keyword chips while preserving context-scoped chat.", 77),
   pass("CHT-020-T02", "Mapped to local Playwright mocked document-metadata 404 smoke proving the upload row falls back to filename display, clears loading state and keeps the ephemeral context usable for chat.", 32),
   pass("CHT-020-T03", "Mapped to local Playwright mocked long-keyword metadata smoke proving only four keyword chips render, later keywords stay hidden and context-scoped chat still works.", 33),
   pass("KCAP-009-T01", "Mapped to voice runtime provider resolution/catalog tests; live audio remains pending.", 2),
@@ -3610,8 +3640,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[76].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[78].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -4342,10 +4372,26 @@ const phaseRows = [
     executionEvidence[76].safetyScope,
     "Continue with read-only real-backend connector validation when safe; keep real download/promote/reconcile/quarantine execution excluded unless explicitly approved.",
   ],
+  [
+    executionEvidence[77].date,
+    "Phase 3 Chat document metadata facts smoke",
+    "Extended the local Playwright Andritz smoke so a synthetic Chat drop-and-ask upload hydrates document metadata, renders title/page/token/chunk/keyword facts, and still sends the next chat turn with the ephemeral context.",
+    `${executionEvidence[77].result}; ${mappedPassedCountForEvidence(executionEvidence[77].id)} workbook test case mapped as Pass.`,
+    executionEvidence[77].safetyScope,
+    "Continue with authenticated real-backend read-only validation when safe; keep real file upload tests synthetic and isolated unless explicitly approved.",
+  ],
+  [
+    executionEvidence[78].date,
+    "Phase 3 Chat selected system scope smoke",
+    "Extended the local Playwright Andritz smoke so a synthetic Recherche workspace_chat system can be selected from the Context picker and is propagated to both chat session creation and streaming answer payloads.",
+    `${executionEvidence[78].result}; ${mappedPassedCountForEvidence(executionEvidence[78].id)} workbook test case mapped as Pass.`,
+    executionEvidence[78].safetyScope,
+    "Continue with real-backend read-only validation of actual Andritz system catalogue when safe; do not mutate Systems or workspace source policy in automated QA.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F72"));
+styleBody(phase.getRange("A2:F74"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

@@ -48,6 +48,14 @@ type MockKnowledgeCollectionItem = {
   chunk_count?: number | null;
   updated_at?: string | null;
 };
+type MockChatSystem = {
+  id: string;
+  name: string;
+  objective?: string;
+  settings?: Record<string, unknown>;
+  flow_definition?: Record<string, unknown>;
+  status?: string;
+};
 type MockSftpDepositLink = {
   id: string;
   label: string;
@@ -555,6 +563,8 @@ async function installAndritzMocks(
     contextUpdateShouldFail?: boolean;
     contextPersistRequests?: unknown[];
     contextPersistShouldFail?: boolean;
+    chatSystems?: MockChatSystem[];
+    chatSystemsRequests?: string[];
     knowledgeScopes?: MockKnowledgeScope[];
     knowledgeCollectionItems?: MockKnowledgeCollectionItem[];
     sftpLinks?: MockSftpDepositLink[];
@@ -635,6 +645,8 @@ async function installAndritzMocks(
   const contextUpdateShouldFail = options.contextUpdateShouldFail ?? false;
   const contextPersistRequests = options.contextPersistRequests;
   const contextPersistShouldFail = options.contextPersistShouldFail ?? false;
+  const chatSystems = options.chatSystems ?? [];
+  const chatSystemsRequests = options.chatSystemsRequests;
   const knowledgeCollectionItems = options.knowledgeCollectionItems ?? [];
   const sftpDepositFiles = options.sftpDepositFiles ?? [];
   const sftpOperations = options.sftpOperations ?? emptyOperations();
@@ -791,7 +803,8 @@ async function installAndritzMocks(
       });
     }
     if (path === '/systems') {
-      return json(route, { systems: [] });
+      chatSystemsRequests?.push(url.search);
+      return json(route, { systems: chatSystems });
     }
 
     if (path === '/documents/collections' && method === 'GET') {
@@ -2728,6 +2741,58 @@ test.describe('Andritz mocked browser smoke', () => {
     });
   });
 
+  test('renders Chat document metadata facts after drop-and-ask upload', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatUploadRequests,
+      contextCreateRequests,
+    });
+
+    await page.goto('/chat');
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-drop.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Synthetic Andritz metadata facts evidence.'),
+    });
+
+    await expect.poll(() => chatUploadRequests.length).toBe(1);
+    await expect.poll(() => contextCreateRequests.length).toBe(1);
+    await expect(page.getByText('Andritz chat drop note')).toBeVisible();
+    await expect(page.locator('.t-doc-spin')).toHaveCount(0);
+    await expect(page.getByText('1 page')).toBeVisible();
+    await expect(page.getByText('42 tokens')).toBeVisible();
+    await expect(page.getByText('1 chunks')).toBeVisible();
+    await expect(page.locator('.t-doc-kw')).toHaveCount(3);
+    await expect(page.locator('.t-doc-kw').filter({ hasText: /^andritz$/ })).toBeVisible();
+    await expect(page.locator('.t-doc-kw').filter({ hasText: /^qa$/ })).toBeVisible();
+    await expect(page.locator('.t-doc-kw').filter({ hasText: /^drop-and-ask$/ })).toBeVisible();
+    expect(contextCreateRequests[0]).toMatchObject({
+      data_refs: ['andritz-chat-drop.txt'],
+      environment_state: { collection: 'documents' },
+      business_constraints: { source: 'drop_and_ask' },
+      ephemeral: true,
+      ttl_hours: 24,
+    });
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Utilise les faits du fichier ajouté.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Utilise les faits du fichier ajouté.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Utilise les faits du fichier ajouté.',
+      context_id: 'ctx-chat-drop-and-ask',
+      context_mode: 'replace',
+      stream: true,
+      include_sources: true,
+    });
+  });
+
   test('keeps long Chat document metadata keywords compact', async ({ page }) => {
     const chatStreamRequests: unknown[] = [];
     const chatUploadRequests: string[] = [];
@@ -3681,6 +3746,69 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(chatStreamRequests).toHaveLength(1);
     expect(chatStreamRequests[0]).toMatchObject({
       query: 'Que dit la documentation Andritz QA ?',
+      session_id: 'chat-session-andritz-qa',
+      stream: true,
+      include_sources: true,
+      include_reasoning: true,
+    });
+  });
+
+  test('sends the selected Recherche system scope in the chat payload', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const chatSystemsRequests: string[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatSystemsRequests,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+      chatSystems: [
+        {
+          id: 'system-andritz-recherche',
+          name: 'Andritz Recherche transverse',
+          objective: 'Répondre avec le contexte transverse Andritz QA.',
+          settings: { system_type: 'workspace_chat' },
+          flow_definition: { variant: 'chat_transverse_v1' },
+          status: 'active',
+        },
+      ],
+    });
+
+    await page.goto('/chat');
+    await expect.poll(() => chatSystemsRequests.length).toBeGreaterThan(0);
+    const systemPicker = page.locator('select.t-picker').first();
+    await expect(systemPicker).toBeVisible();
+    await systemPicker.selectOption({ label: 'Andritz Recherche transverse' });
+    await expect(page.getByText('System chat').first()).toBeVisible();
+    await expect(page.getByText('Répondre avec le contexte transverse Andritz QA.')).toBeVisible();
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Utilise le système Recherche transverse Andritz.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Utilise le système Recherche transverse Andritz.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        system_id: 'system-andritz-recherche',
+        context_id: null,
+        context_mode: null,
+        knowledge_scope: 'andritz-qa',
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Utilise le système Recherche transverse Andritz.',
+      agent_id: 'system-andritz-recherche',
       session_id: 'chat-session-andritz-qa',
       stream: true,
       include_sources: true,
