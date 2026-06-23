@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J8", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I10", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F12", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I12", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F14", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -1959,6 +1959,34 @@ const executionEvidence = [
     notes:
       "Added API coverage for capture-session document upload of one PDF and one PNG, capture-specific collection creation, queued source ledger entries, local object-store persistence, worker-job payload, and capture_document_uploaded events.",
   },
+  {
+    id: "EXEC-2026-06-23-BE-007",
+    date: "2026-06-23",
+    command:
+      "poetry run pytest app/tests/services/test_knowledge_capture.py::test_retrieval_prefetch_and_interruption_are_audited -q; poetry run pytest app/tests/services/test_knowledge_capture.py -q",
+    result: "1 passed, 0 failed; then 99 passed, 0 failed",
+    duration: "1.78s + 6.03s",
+    warnings:
+      "Targeted run emitted 240 warnings; full service lot emitted 14232 warnings. Warnings are mostly datetime.utcnow deprecations and local Qdrant compatibility warnings; no product test failures.",
+    safetyScope:
+      "Local backend service pytest using test DB, fake providers, tmp fixtures and monkeypatches only. No VM mutation, no real Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Full Knowledge Capture service execution. Initial run exposed a stale test harness call that simulated a voice/STT scenario without input_modality=voice; test fixed to match VoiceSessionGateway and now verifies stt_final audit on the real voice append_turn contract.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-008",
+    date: "2026-06-23",
+    command:
+      "poetry run pytest app/tests/api/test_documents_collections.py app/tests/services/test_knowledge_collections_worker.py -q",
+    result: "30 passed, 0 failed",
+    duration: "2.30s",
+    warnings:
+      "268 warnings, mostly datetime.utcnow deprecations and dependency warnings; no product test failures.",
+    safetyScope:
+      "Local backend pytest using test DB, tmp_path/local object store and monkeypatched services only. Includes synthetic delete/worker/ledger flows; no VM mutation, no real Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Collections API + worker execution covering ledger listing, inventory, previews, search, diagnostics, uploads, worker jobs, delete on synthetic collection, BM25 artifact/rebuild behavior, deduplication, materialization error handling and SPL wave ledger finalization.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2005,6 +2033,16 @@ const executedTestResults = new Map([
   pass("COL-014-T03", "Mapped to embedding graph bounded sample/no raw vector exposure tests."),
   pass("COL-015-T01", "Mapped to worker job lifecycle/poll-url tests."),
   pass("COL-015-T02", "Mapped to worker ingest error and failed job detail tests."),
+  pass("COL-002-T01", "Mapped to collection detail API test exposing storage/vector/BM25 diagnostics for a collection.", 9),
+  pass("COL-002-T03", "Mapped to workspace-unique collection slug service test preventing unintended cross-workspace slug collisions.", 9),
+  pass("COL-003-T02", "Mapped to worker ingest materialization error tests preserving document error state without corrupting collection ledger.", 9),
+  pass("COL-004-T02", "Mapped to worker ingest deduplication test proving identical content is not duplicated in generated chunks.", 9),
+  pass("COL-004-T03", "Mapped to worker ingest materialization-error test proving partial failures are recorded per document.", 9),
+  pass("COL-009-T03", "Mapped to delete_collection synthetic API test removing ledger and object-store entries only for the test collection.", 9),
+  pass("COL-012-T02", "Mapped to BM25 rebuild worker tests for sidecar rebuild, hard chunk limit skip and artifact staleness envelope behavior.", 9),
+  pass("COL-015-T03", "Mapped to worker job listing/filter tests for recent deep retrieval jobs and polling payload boundaries.", 9),
+  pass("COL-016-T01", "Mapped to worker ingest finalization test recording SPL wave/deposit ledger completion on synthetic data.", 9),
+  pass("COL-016-T02", "Mapped to worker ingest skip-terminal-job and materialization-error tests preserving terminal/error state.", 9),
   pass("SFTP-002-T01", "Mapped to deposit link password/session authentication tests."),
   pass("SFTP-002-T02", "Mapped to bad password rejection tests."),
   pass("SFTP-006-T01", "Mapped to staged-file preview tests for text/PDF/DOCX/spreadsheet variants."),
@@ -2048,6 +2086,36 @@ const executedTestResults = new Map([
   pass("KCAP-015-T01", "Mapped to capture document upload API test queuing one PDF and one PNG in a capture-specific collection without interrupting capture state.", 7),
   pass("KCAP-016-T01", "Mapped to capture document view API test recording active page/view metadata and returning it through the documents list endpoint.", 6),
   pass("KCAP-017-T02", "Mapped to typed capture turn API test preserving document_refs and visual_context for an active slide.", 6),
+  pass("KCAP-005-T01", "Mapped to plan-build dialogue service tests that create grounded topics, preserve dialogue-built plan topics, finalize, generate question bank, and start the session.", 8),
+  pass("KCAP-005-T03", "Mapped to plan-build validation/readiness tests proving topics are required/validated before the capture start path.", 8),
+  pass("KCAP-006-T01", "Mapped to topic plan edit/approval and topic validation service tests.", 8),
+  pass("KCAP-006-T02", "Mapped to topic validation/normalization tests for missing or invalid topic structures.", 8),
+  pass("KCAP-008-T01", "Mapped to written capture turn service test preserving document context while staying off the STT path.", 8),
+  pass("KCAP-012-T01", "Mapped to VoiceSessionGateway partial-then-final tests with live transcript.partial and reused partial finalization.", 8),
+  pass("KCAP-012-T03", "Mapped to partial_stt and endpoint_stt runtime metric tests for empty partials, provider/reused_partial source, and separated endpoint_stt_ms.", 8),
+  pass("KCAP-013-T03", "Mapped to free-conversation weak-evidence prefetch test proving retrieval remains passive and does not push grounded questions/hints.", 8),
+  pass("KCAP-014-T01", "Mapped to live grounded question generation tests proving oracle.questions is emitted after text.final with kb grounding.", 8),
+  pass("KCAP-014-T02", "Mapped to live questions retrieval-timeout test proving no grounded question is emitted without completed evidence.", 8),
+  pass("KCAP-014-T03", "Mapped to oracle question status persistence tests and quality backlog suppression when questions are dismissed/deferred.", 8),
+  pass("KCAP-018-T01", "Mapped to section.finish/finalize_capture_section and gateway section-finish tests that synthesize a planned section without losing transcript state.", 8),
+  pass("KCAP-020-T01", "Mapped to finalize_capture service tests building proposal plan_structure and section synthesis.", 8),
+  pass("KCAP-020-T03", "Mapped to concurrent/failure-tolerant finalization tests proving multi-section synthesis continues when one section reformulation fails.", 8),
+  pass("KCAP-021-T01", "Mapped to free-conversation finalization and pseudo-section synthesis tests producing a structured report topic.", 8),
+  pass("KCAP-021-T03", "Mapped to malformed/no-topic structure fallback tests that materialize a session pseudo-topic from facts/synthesis.", 8),
+  pass("KCAP-022-T01", "Mapped to report instruction service test updating current report markdown and recommended ingestion without publishing.", 8),
+  pass("KCAP-023-T01", "Mapped to answer_proposal_open_question service test resynthesizing only the targeted section and marking the question answered.", 8),
+  pass("KCAP-023-T02", "Mapped to open-question status tests for defer/restore/invalidate with proposal metrics and audit events.", 8),
+  pass("KCAP-024-T01", "Mapped to capture plan turn/review proposal service tests that accept a proposal through review state.", 8),
+  pass("KCAP-025-T01", "Mapped to publish_proposal_to_knowledge service tests that publish an accepted proposal and persist export URLs.", 8),
+  pass("KCAP-025-T03", "Mapped to capture-document publication promotion tests rewriting report sources to the publication collection.", 8),
+  pass("KCAP-029-T01", "Mapped to defer voice/quality-item and oracle backlog status tests.", 8),
+  pass("KCAP-030-T01", "Mapped to amend_capture_event service test proving effective transcript text changes are auditable.", 8),
+  pass("KCAP-030-T03", "Mapped to amendment-before-proposal test proving generated proposal facts use amended text instead of raw transcript.", 8),
+  pass("KCAP-031-T01", "Mapped to capture session flags service test toggling suppress_oracle_questions without transcript mutation.", 8),
+  pass("KCAP-032-T01", "Mapped to plan-build hint queue tests returning relevant hints for active subtopic after grounded partial processing.", 8),
+  pass("KCAP-032-T02", "Mapped to resolve_hints_from_expert_text service test hiding hints organically answered by expert text.", 8),
+  pass("KCAP-037-T01", "Mapped to VoiceSessionGateway client.metric test sanitizing and re-emitting endpoint_candidate as runtime.metric source=client_capture.", 8),
+  pass("KCAP-037-T03", "Mapped to endpoint STT latency audit test persisting endpoint_stt_ms separately from turn_audio_capture_ms in turn/session metrics.", 8),
 ]);
 
 const defectRecords = [
@@ -2212,8 +2280,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; authenticated browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "42/100 - backend/API coverage now includes no-plan conversation-step safety, capture document upload, and capture document references, but authenticated browser journeys, mobile/UX, indexing completion, and safe synthetic mutation tests remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; authenticated browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "54/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, and collections worker/indexing ledger behavior; authenticated browser journeys, mobile/UX, real audio/VAD field behavior, and safe synthetic end-to-end mutation tests remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -2456,10 +2524,26 @@ const phaseRows = [
     executionEvidence[7].safetyScope,
     "Continue with authenticated browser upload/preview validation and indexing-completion checks on safe synthetic documents.",
   ],
+  [
+    executionEvidence[8].date,
+    "Phase 3 Knowledge Capture service execution + harness correction",
+    "Executed the full Knowledge Capture service pytest lot after fixing a stale voice/STT test harness call to pass input_modality=voice like VoiceSessionGateway.",
+    `${executionEvidence[8].result}; ${mappedPassedCountForEvidence(executionEvidence[8].id)} workbook test cases mapped as Pass; no product defect found in this lot.`,
+    executionEvidence[8].safetyScope,
+    "Continue with authenticated browser/e2e checks for capture voice fluidity, VAD field behavior, report renderer, document preview navigation, and publication confirmation.",
+  ],
+  [
+    executionEvidence[9].date,
+    "Phase 3 Collections API + worker execution",
+    "Executed local Collections API and worker pytest files covering ledger, inventory, previews, search, diagnostics, upload queueing, worker jobs, synthetic delete, BM25 artifacts and SPL wave ledger finalization.",
+    `${executionEvidence[9].result}; ${mappedPassedCountForEvidence(executionEvidence[9].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[9].safetyScope,
+    "Continue with authenticated browser/e2e checks on safe synthetic collections and avoid any real Andritz/SFTP mutation unless explicitly approved.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F11"));
+styleBody(phase.getRange("A2:F13"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

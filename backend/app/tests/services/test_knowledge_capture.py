@@ -1686,6 +1686,7 @@ async def test_retrieval_prefetch_and_interruption_are_audited(db_session, monke
         retrieval_event_id=prefetch["event_id"],
         interruption_of_event_id="prompt-event-1",
         turn_kind="correction",
+        input_modality="voice",
     )
     # New non-blocking model: the expert drives, so no forced system prompt / advance.
     assert turn["system_prompt_event_id"] is None
