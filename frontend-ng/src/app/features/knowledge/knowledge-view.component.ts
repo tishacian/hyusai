@@ -16,7 +16,6 @@ import {
   type CkObjectKpi,
 } from '@app/shared/cockpit/object-header.component';
 import { CkTabsComponent, CkTabComponent } from '@app/shared/cockpit/tabs.component';
-import { CkPanelComponent } from '@app/shared/cockpit/panel.component';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
 import { LensService } from '@app/core/lens';
@@ -242,7 +241,6 @@ type KbTabId =
     CkObjectHeaderComponent,
     CkTabsComponent,
     CkTabComponent,
-    CkPanelComponent,
     DocumentPreviewComponent,
     EmbeddingMapComponent,
   ],
@@ -272,7 +270,7 @@ type KbTabId =
       <button
         actions
         type="button"
-        (click)="bindingsPanelOpen.set(true)"
+        (click)="onTabChange('bindings')"
         class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
       >
         <app-icon name="link" [size]="14" /> Bindings
@@ -1535,36 +1533,6 @@ type KbTabId =
       </ck-tab>
     </ck-tabs>
 
-    <ck-panel
-      [open]="bindingsPanelOpen()"
-      (openChange)="bindingsPanelOpen.set($event)"
-      position="side"
-      eyebrow="Knowledge · panel"
-      title="Bindings overview"
-      width="420px"
-    >
-      <p class="text-xs text-gray-400 mb-3">
-        Systems whose <span class="font-mono text-brand-300">flow_definition.collections</span>
-        references this collection.
-      </p>
-      @if (bindings().length === 0) {
-        <div class="text-xs text-gray-500">No bindings yet.</div>
-      } @else {
-        <ul class="space-y-1.5">
-          @for (sys of bindings(); track sys.id) {
-            <li>
-              <a
-                [routerLink]="['/systems', sys.id]"
-                class="text-xs text-brand-300 hover:text-brand-200 transition truncate block"
-              >
-                {{ sys.name }}
-              </a>
-            </li>
-          }
-        </ul>
-      }
-    </ck-panel>
-
     <app-document-preview
       [open]="previewOpen()"
       [previewUrl]="previewUrl()"
@@ -1587,7 +1555,6 @@ export class KnowledgeViewComponent implements OnInit {
   kbId = '';
   readonly title = signal('Knowledge base');
   readonly activeTab = signal<KbTabId>('overview');
-  readonly bindingsPanelOpen = signal(false);
 
   // Source document preview (shared with Secure Deposit viewer).
   readonly previewOpen = signal(false);

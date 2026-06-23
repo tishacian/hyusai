@@ -133,6 +133,25 @@ def test_collection_inventory_can_page_sources(db_session, tmp_path, monkeypatch
     assert [source["filename"] for source in body["sources"]] == ["manual-1.pdf", "manual-2.pdf"]
 
 
+def test_collection_inventory_rejects_invalid_pagination_without_loading_sources(db_session):
+    ws = Workspace(id="ws-inventory-invalid", name="Inventory Invalid", slug="inventory-invalid")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+
+    negative_offset = _client(db_session, ws).get(
+        f"/documents/collections/{collection.id}/inventory?source_offset=-1"
+    )
+    excessive_limit = _client(db_session, ws).get(
+        f"/documents/collections/{collection.id}/inventory?source_limit=1001"
+    )
+
+    assert negative_offset.status_code == 422
+    assert excessive_limit.status_code == 422
+    assert "sources" not in negative_offset.text
+    assert "sources" not in excessive_limit.text
+
+
 def test_collection_inventory_filters_sorts_and_returns_global_aggregates(db_session):
     ws = Workspace(id="ws-inventory-filter", name="Inventory Filter", slug="inventory-filter")
     db_session.add(ws)

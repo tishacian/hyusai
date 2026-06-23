@@ -3471,6 +3471,42 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.locator('a[href="/knowledge/andritz-qa"]')).toBeVisible();
   });
 
+  test('renders only current permitted system bindings in collection detail', async ({ page }) => {
+    const chatSystemsRequests: string[] = [];
+    await installAndritzMocks(page, {
+      chatSystemsRequests,
+      chatSystems: [
+        {
+          id: 'system-visible-andritz',
+          name: 'Visible Andritz system',
+          objective: 'Repondre avec le contexte visible Andritz QA.',
+          flow_definition: { collections: ['andritz-qa'] },
+          status: 'active',
+        },
+        {
+          id: 'system-stale-andritz',
+          name: 'Stale Andritz system',
+          objective: 'This system still references an old Andritz collection slug.',
+          flow_definition: { collections: ['andritz-legacy'] },
+          status: 'active',
+        },
+      ],
+    });
+
+    await page.goto('/knowledge/andritz-qa');
+    await expect(page.getByText('collection=andritz-qa')).toBeVisible();
+    await expect.poll(() => chatSystemsRequests.length).toBeGreaterThan(0);
+
+    await page.getByRole('button', { name: /^Bindings$/ }).click();
+    await expect(page.getByText('Visible Andritz system')).toBeVisible();
+    await expect(page.getByText('Repondre avec le contexte visible Andritz QA.')).toBeVisible();
+    await expect(page.getByText('Stale Andritz system')).toHaveCount(0);
+    await expect(page.getByText('This system still references an old Andritz collection slug.')).toHaveCount(0);
+    await expect(page.getByText('Hidden Andritz system')).toHaveCount(0);
+    await expect(page.getByText('Do not expose hidden Andritz context.')).toHaveCount(0);
+    await expect(page.getByText('Bindings overview')).toHaveCount(0);
+  });
+
   test('opens the collection document inventory drawer without real data', async ({ page }) => {
     const documentListRequests: string[] = [];
     await installAndritzMocks(page, { documentListRequests });
