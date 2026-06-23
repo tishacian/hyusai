@@ -40,6 +40,21 @@ type MockKnowledgeScope = {
   is_default?: boolean;
   collection_slugs?: string[];
 };
+type MockSftpDepositFile = {
+  id: string;
+  access_link_id: string;
+  filename: string;
+  content_type?: string | null;
+  size_bytes: number;
+  sha256: string;
+  status: 'received' | 'rejected' | 'promoted';
+  uploaded_at: string | null;
+  promoted_at: string | null;
+  promoted_collection_slug?: string | null;
+  worker_job_id: string | null;
+  promotion_result?: Record<string, unknown> | null;
+  rejection_reason?: string | null;
+};
 
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({
@@ -97,6 +112,52 @@ function emptyOperations() {
     },
     last_jobs: [],
   };
+}
+
+function syntheticSftpDepositFiles(): MockSftpDepositFile[] {
+  return [
+    {
+      id: 'deposit-andritz-received-1',
+      access_link_id: 'link-andritz-qa',
+      filename: '1-NON-WOVENS/FRANCE/andritz-pump-check.pdf',
+      content_type: 'application/pdf',
+      size_bytes: 128_000,
+      sha256: 'sha-received-pump-check',
+      status: 'received',
+      uploaded_at: '2026-06-23T00:10:00Z',
+      promoted_at: null,
+      worker_job_id: null,
+      promotion_result: null,
+    },
+    {
+      id: 'deposit-andritz-promoted-1',
+      access_link_id: 'link-andritz-qa',
+      filename: '1-NON-WOVENS/FRANCE/andritz-promoted-manual.docx',
+      content_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size_bytes: 64_000,
+      sha256: 'sha-promoted-manual',
+      status: 'promoted',
+      uploaded_at: '2026-06-23T00:12:00Z',
+      promoted_at: '2026-06-23T00:20:00Z',
+      promoted_collection_slug: 'andritz-qa',
+      worker_job_id: 'job-promoted-manual',
+      promotion_result: { indexing_status: 'completed' },
+    },
+    {
+      id: 'deposit-andritz-rejected-1',
+      access_link_id: 'link-andritz-qa',
+      filename: '2-PULP/QA/andritz-rejected.tmp',
+      content_type: 'application/octet-stream',
+      size_bytes: 512,
+      sha256: 'sha-rejected-temp',
+      status: 'rejected',
+      uploaded_at: '2026-06-23T00:14:00Z',
+      promoted_at: null,
+      worker_job_id: null,
+      promotion_result: null,
+      rejection_reason: 'Unsupported synthetic extension.',
+    },
+  ];
 }
 
 function acceptedCaptureSession() {
@@ -257,6 +318,10 @@ async function installAndritzMocks(
     contextPersistRequests?: unknown[];
     contextPersistShouldFail?: boolean;
     knowledgeScopes?: MockKnowledgeScope[];
+    sftpDepositFiles?: MockSftpDepositFile[];
+    sftpPromoteRequests?: unknown[];
+    sftpBulkPromoteRequests?: unknown[];
+    sftpArchiveDownloadRequests?: string[];
   } = {},
 ) {
   const roleTemplate = options.roleTemplate ?? 'workspace_admin';
@@ -308,6 +373,10 @@ async function installAndritzMocks(
   const contextUpdateShouldFail = options.contextUpdateShouldFail ?? false;
   const contextPersistRequests = options.contextPersistRequests;
   const contextPersistShouldFail = options.contextPersistShouldFail ?? false;
+  const sftpDepositFiles = options.sftpDepositFiles ?? [];
+  const sftpPromoteRequests = options.sftpPromoteRequests;
+  const sftpBulkPromoteRequests = options.sftpBulkPromoteRequests;
+  const sftpArchiveDownloadRequests = options.sftpArchiveDownloadRequests;
   let collectionDeleted = false;
   const createdCollections: string[] = [];
   let collectionPreviewRequestCount = 0;
@@ -892,8 +961,20 @@ async function installAndritzMocks(
         ],
       });
     }
-    if (path === '/sftp/deposits') {
-      return json(route, { files: [] });
+    if (path === '/sftp/deposits' && method === 'GET') {
+      return json(route, { files: sftpDepositFiles });
+    }
+    if (/^\/sftp\/deposits\/[^/]+\/promote$/.test(path) && method === 'POST') {
+      sftpPromoteRequests?.push({ path, body: request.postDataJSON() });
+      return json(route, { detail: 'Mocked promote should not be called in this smoke' }, 500);
+    }
+    if (path === '/sftp/deposits/promote-bulk' && method === 'POST') {
+      sftpBulkPromoteRequests?.push(request.postDataJSON());
+      return json(route, { detail: 'Mocked bulk promote should not be called in this smoke' }, 500);
+    }
+    if (path === '/sftp/deposits/archive' && method === 'GET') {
+      sftpArchiveDownloadRequests?.push(url.search);
+      return json(route, { detail: 'Mocked archive download should not be called in this smoke' }, 500);
     }
     if (path === '/sftp/operations') {
       return json(route, emptyOperations());
@@ -1023,6 +1104,60 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(sftpCard).toBeVisible();
     await expect(sftpCard).toContainText(/ready/i);
     await expect(sftpCard).not.toContainText(/configured|Config saved/i);
+  });
+
+  test('loads and filters the SFTP staging queue without promoting synthetic files', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    await installAndritzMocks(page, {
+      sftpDepositFiles: syntheticSftpDepositFiles(),
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await page.getByText('Workspace staging queue', { exact: true }).scrollIntoViewIfNeeded();
+    await page.mouse.wheel(0, 500);
+    await expect(page.locator('body')).toContainText(/1 \/ 3 files/i);
+    await expect(page.getByText(/2 hidden by status filter/i)).toBeVisible();
+    await expect(page.getByTitle('Promote up to 25 files recommended by the latest indexing assist run.')).toBeDisabled();
+
+    await page.locator('select[name="queueStatusFilter"]').selectOption('all');
+    await page.locator('input[name="queueSearch"]').fill('promoted');
+    const queueState = await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+          queueItems?: () => Array<{ kind?: string; name?: string; path?: string }>;
+          queueSearch?: () => string;
+          statusFilter?: () => string;
+        }
+        | undefined;
+      return {
+        queueSearch: component?.queueSearch?.(),
+        statusFilter: component?.statusFilter?.(),
+        queueItems: component?.queueItems?.() || [],
+      };
+    });
+    expect(queueState).toMatchObject({
+      queueSearch: 'promoted',
+      statusFilter: 'all',
+    });
+    expect(queueState.queueItems).toEqual([
+      expect.objectContaining({
+        kind: 'file',
+        name: 'andritz-promoted-manual.docx',
+        path: '1-NON-WOVENS/FRANCE/andritz-promoted-manual.docx',
+      }),
+    ]);
+
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
   });
 
   test('hides Chat drop-and-ask upload controls when the workspace flag is disabled', async ({ page }) => {

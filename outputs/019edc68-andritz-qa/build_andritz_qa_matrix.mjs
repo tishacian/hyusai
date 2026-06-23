@@ -2731,6 +2731,20 @@ const executionEvidence = [
     notes:
       "Adds browser-level coverage for Knowledge collection creation: explicit user input is required, successful synthetic creation appears after reload, and forbidden creation does not create stale UI state.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-048",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "52 passed, 0 failed",
+    duration: "42.0s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the synthetic SFTP staging queue case loads three mocked deposit files, verifies received-status queue counters and hidden-status state, filters/searches the component queue state, and asserts no promote, bulk-promote or archive-download endpoint is called. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level read-only coverage for SFTP staging queue load/filter behavior without triggering promotion or download actions.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2845,6 +2859,7 @@ const executedTestResults = new Map([
   pass("COL-008-T05", "Mapped to local Playwright search context-reset smoke proving a new Knowledge search context opens with an empty query and no stale result/error state.", 21),
   pass("SFTP-018-T07", "Mapped to local Playwright no-token guard smoke proving /connectors/sftp redirects to /auth/signin with redirectURL preserved.", 17),
   pass("SFTP-018-T02", "Mapped to local Playwright disabled connector-settings smoke proving the SFTP card remains ready but not configured/Config saved.", 17),
+  pass("SFTP-005-T01", "Mapped to local Playwright mocked SFTP staging queue smoke proving synthetic deposit files load into received-status queue counters, component search/filter state resolves a promoted file, and no promote/bulk-promote/archive-download endpoint is called.", 59),
   pass("KCAP-001-T03", "Mapped to IAM engine tests proving reviewer capture permissions are explicit while non-owner operations remain denied.", 14),
   pass("KCAP-002-T04", "Mapped to IAM-enforced Knowledge Capture API test where a workspace_reviewer creates and starts a free-conversation capture session.", 14),
   pass("KCAP-001-T06", "Mapped to /iam/matrix API test proving workspace_reviewer receives capture_session create plus owner-scoped update/execute as allowed_for_subject.", 15),
@@ -3308,8 +3323,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[58].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "84/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[59].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "85/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings, SFTP staging queue load/filter safety, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -3896,10 +3911,18 @@ const phaseRows = [
     executionEvidence[58].safetyScope,
     "Continue with safe local upload/create edge cases before any read-only real-backend browser checks.",
   ],
+  [
+    executionEvidence[59].date,
+    "Phase 3 SFTP staging queue smoke",
+    "Extended the local Playwright Andritz smoke with a synthetic SFTP staging queue: three mocked deposit files load into received/all status controls, queue search resolves a promoted file in component state, and no promote, bulk-promote or archive-download request is sent.",
+    `${executionEvidence[59].result}; ${mappedPassedCountForEvidence(executionEvidence[59].id)} workbook test case mapped as Pass.`,
+    executionEvidence[59].safetyScope,
+    "Continue with SFTP read-only queue/preview/operations browser coverage; keep promote/reconcile mutations synthetic unless explicitly approved.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F54"));
+styleBody(phase.getRange("A2:F55"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
