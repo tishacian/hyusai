@@ -112,6 +112,7 @@ const features = [
       { type: "Happy path", scenario: "Drop PDF then ask", steps: "Drop a small PDF, wait for indexing, ask about it.", expected: "Doc appears in session docs and answer cites it." },
       { type: "Error path", scenario: "Unsupported file type", steps: "Try uploading an unsupported extension.", expected: "Upload is blocked or rejected with clear message; no broken context." },
       { type: "Boundary/performance", scenario: "Large XLSX/PDF upload", steps: "Upload a near-limit supported file.", expected: "Progress and failure/success states remain clear; UI does not freeze.", severityIfFails: "High" },
+      { type: "Permission/security", scenario: "Workspace disables chat document upload", steps: "Set features.chat_document_upload=false, open /chat, and ask a normal question.", expected: "Drop-and-ask file controls are hidden, no upload request can be sent, and Quick ask still streams normally.", severityIfFails: "High" },
     ],
   },
   {
@@ -130,6 +131,8 @@ const features = [
       { type: "Happy path", scenario: "Persist ephemeral context", steps: "Upload docs, click Persist.", expected: "Context becomes permanent and remains attached." },
       { type: "Error path", scenario: "Persist expired context", steps: "Use an expired context id.", expected: "Backend rejects; UI keeps current chat usable." },
       { type: "Permission/security", scenario: "Persist without permission", steps: "Use limited role.", expected: "No permanent context is created.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Persist is explicit after drop-and-ask upload", steps: "Attach a synthetic session doc, wait for the Persist control, then click it.", expected: "No persist request occurs before the click; exactly one POST /contexts/{id}/persist occurs after the click and success is visible.", severityIfFails: "High" },
+      { type: "Error path", scenario: "Persist failure is visible", steps: "Mock /contexts/{id}/persist failure after attaching a synthetic session doc and clicking Persist.", expected: "Exactly one persist request is sent, a recoverable error is visible, and the Persist action is re-enabled without duplicate context promotion.", severityIfFails: "Medium" },
     ],
   },
   {
@@ -148,6 +151,8 @@ const features = [
       { type: "Happy path", scenario: "Ask with session docs complementing workspace", steps: "Upload doc, set complement mode, ask.", expected: "Answer may cite both workspace and session docs." },
       { type: "Boundary", scenario: "Ask with no session docs but context mode set", steps: "Clear docs then send request.", expected: "Backend handles null/empty context safely." },
       { type: "Validation", scenario: "Source selection visible in request", steps: "Inspect network payload.", expected: "context_id/context_mode/source_selection reflect UI." },
+      { type: "Regression", scenario: "Mocked drop-and-ask combine payload", steps: "Attach a synthetic session doc, switch to + Sources, ask a question and inspect mocked stream request.", expected: "No real upload occurs; the stream payload includes context_id, context_mode=combine, selected workspace scope and include_sources=true.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Mocked drop-and-ask only payload", steps: "Attach a synthetic session doc, keep the default Only mode, ask a question and inspect mocked stream request.", expected: "No real upload occurs; the stream payload includes context_id, context_mode=replace and knowledge_scope=null so workspace sources are not mixed into session-doc-only answers.", severityIfFails: "High" },
     ],
   },
   {
@@ -2233,6 +2238,76 @@ const executionEvidence = [
     notes:
       "Adds browser-level coverage for Chat Recherche quick ask: a mocked SSE response displays the streamed answer, source count and source detail while proving the payload requests streaming and sources.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-014",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "16 passed, 0 failed",
+    duration: "23.1s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the drop-and-ask case uses a synthetic in-memory text file, intercepts /documents/upload-batch, creates a mocked ephemeral context and verifies the chat stream payload. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat Recherche session-doc + workspace-source orchestration: attach synthetic doc, switch to + Sources, and prove context_id/context_mode=combine/knowledge_scope/include_sources are preserved in /chat/stream.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-015",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "17 passed, 0 failed",
+    duration: "24.1s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the drop-and-ask Only case uses a synthetic in-memory text file, intercepts /documents/upload-batch, creates a mocked ephemeral context and verifies the chat session/stream payload. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat Recherche session-doc-only isolation: keep default Only mode and prove context_id/context_mode=replace/knowledge_scope=null/include_sources are preserved in /chat/stream.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-016",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "18 passed, 0 failed",
+    duration: "24.3s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the disabled chat upload case sets features.chat_document_upload=false, verifies no file input/dropzone is rendered, asks a normal question and verifies no upload request is emitted. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat Recherche drop-and-ask feature gating: when upload is disabled at workspace settings level, upload controls disappear while Quick ask remains usable.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-017",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "19 passed, 0 failed",
+    duration: "24.9s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the persist-context case uses a synthetic in-memory text file, intercepts /documents/upload-batch and /contexts/{id}/persist, verifies no persist happens before the explicit click and exactly one persist request after. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat Recherche drop-and-ask context persistence: the ephemeral context can be promoted only after an explicit Persist click.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-018",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "20 passed, 0 failed",
+    duration: "27.3s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the persist-failure case uses a synthetic in-memory text file, intercepts /documents/upload-batch and /contexts/{id}/persist, returns a mocked 403, verifies a recoverable error is visible and the Persist action is re-enabled. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for the Chat Recherche drop-and-ask persistence failure path and verifies the UI no longer silently swallows a null persistContext result.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2344,7 +2419,12 @@ const executedTestResults = new Map([
   pass("CHT-002-T01", "Mapped to chat stream hardening happy-path answer tests.", 2),
   pass("CHT-002-T02", "Mapped to controlled chat stream timeout/error tests.", 2),
   pass("CHT-002-T04", "Mapped to local Playwright mocked Recherche quick-ask SSE smoke proving the stream payload, answer rendering and source panel are visible without real backend data.", 24),
+  pass("CHT-004-T04", "Mapped to local Playwright mocked disabled-upload smoke proving features.chat_document_upload=false hides file controls, emits no upload request and keeps Quick ask usable.", 27),
+  pass("CHT-005-T04", "Mapped to local Playwright mocked persist-context smoke proving drop-and-ask persistence calls /contexts/{id}/persist only after the explicit Persist click.", 28),
+  pass("CHT-005-T05", "Mapped to local Playwright mocked persist-failure smoke proving a /contexts/{id}/persist failure shows a recoverable error, re-enables Persist and sends no duplicate request.", 29),
   pass("CHT-006-T01", "Mapped to selected context collection stream tests.", 2),
+  pass("CHT-006-T04", "Mapped to local Playwright mocked drop-and-ask combine-mode smoke proving a synthetic session doc creates an ephemeral context and /chat/stream carries context_id, context_mode=combine, knowledge_scope and include_sources without real upload.", 25),
+  pass("CHT-006-T05", "Mapped to local Playwright mocked drop-and-ask Only-mode smoke proving a synthetic session doc keeps /chat/stream scoped to context_mode=replace with knowledge_scope=null and no real upload.", 26),
   pass("CHT-007-T01", "Mapped to stable SSE retrieval/text/final lifecycle tests.", 2),
   pass("CHT-007-T02", "Mapped to timeout/error lifecycle tests; browser network interruption remains pending.", 2),
   pass("CHT-009-T01", "Mapped to deep retrieval job queueing and auto fast refinement tests.", 2),
@@ -2363,7 +2443,7 @@ const executedTestResults = new Map([
   pass("COL-008-T03", "Mapped to retrieval scope isolation and dense/scoped guardrail tests.", 2),
   pass("COL-011-T01", "Mapped to knowledge guide policy parsing/query variant tests.", 2),
   pass("COL-021-T01", "Mapped to knowledge scope inclusion/default resolution service tests.", 2),
-  pass("CHT-006-T03", "Mapped to retrieval profile scope/session-context combination tests; browser payload inspection remains pending.", 4),
+  pass("CHT-006-T03", "Mapped to retrieval profile scope/session-context combination tests; browser drop-and-ask payload inspection is covered separately by CHT-006-T04.", 4),
   pass("CHT-010-T01", "Mapped to corpus planner/retrieval profile tests for selected strategy and scoped sources.", 4),
   pass("CHT-010-T02", "Mapped to retrieval profile normalization/clamping tests for auto/invalid-like UI settings.", 4),
   pass("KCAP-013-T01", "Mapped to retrieve_rag_context service tests returning chunks/context with profile metadata; capture UI remains pending.", 4),
@@ -2544,6 +2624,23 @@ const defectRecords = [
     status: "Fixed",
     ownerNotes:
       "Fixed by routing global search through openGlobalSearch, resetting search state on new context, clearing collection draft on close, and clearing stale results when a new search starts. Verified by EXEC-2026-06-23-FE-010.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-CHT-005",
+    featureIds: ["CHT-005"],
+    reproduction:
+      "Mock /contexts/{id}/persist to return an error/null result after uploading a drop-and-ask document and clicking Persist.",
+    expected:
+      "User sees a recoverable failure and the Persist action becomes available again; no silent failure and no duplicate context promotion.",
+    actual:
+      "CanonicalApiService.persistContext() swallowed the HTTP error as null and ChatWorkspaceComponent handled only non-null success, so no error toast appeared.",
+    severity: "Medium",
+    rootCause:
+      "Component expected an error callback, but the canonical service catchError converted persistence failure into a null next value.",
+    status: "Fixed",
+    ownerNotes:
+      "ChatWorkspaceComponent now treats a null persistContext result as failure and shows the existing Drop-and-ask error toast. Verified by EXEC-2026-06-23-FE-018.",
     updated: "2026-06-23",
   },
 ];

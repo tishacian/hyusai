@@ -34,6 +34,12 @@ const user = {
 };
 
 type MockRoleTemplate = 'workspace_admin' | 'workspace_reviewer';
+type MockKnowledgeScope = {
+  key: string;
+  label: string;
+  is_default?: boolean;
+  collection_slugs?: string[];
+};
 
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({
@@ -204,22 +210,35 @@ async function installAndritzMocks(
   options: {
     roleTemplate?: MockRoleTemplate;
     secureDepositEnabled?: boolean;
+    chatDocumentUploadEnabled?: boolean;
     collectionsShouldFail?: boolean;
     documentListShouldFail?: boolean;
     searchShouldFail?: boolean;
     acceptedProposal?: boolean;
     capturePlanRequests?: unknown[];
     chatStreamRequests?: unknown[];
+    chatSessionCreateRequests?: unknown[];
+    chatUploadRequests?: string[];
+    contextCreateRequests?: unknown[];
+    contextPersistRequests?: unknown[];
+    contextPersistShouldFail?: boolean;
+    knowledgeScopes?: MockKnowledgeScope[];
   } = {},
 ) {
   const roleTemplate = options.roleTemplate ?? 'workspace_admin';
   const secureDepositEnabled = options.secureDepositEnabled ?? true;
+  const chatDocumentUploadEnabled = options.chatDocumentUploadEnabled ?? true;
   const collectionsShouldFail = options.collectionsShouldFail ?? false;
   const documentListShouldFail = options.documentListShouldFail ?? false;
   const searchShouldFail = options.searchShouldFail ?? false;
   const includeAcceptedProposal = options.acceptedProposal ?? false;
   const capturePlanRequests = options.capturePlanRequests;
   const chatStreamRequests = options.chatStreamRequests;
+  const chatSessionCreateRequests = options.chatSessionCreateRequests;
+  const chatUploadRequests = options.chatUploadRequests;
+  const contextCreateRequests = options.contextCreateRequests;
+  const contextPersistRequests = options.contextPersistRequests;
+  const contextPersistShouldFail = options.contextPersistShouldFail ?? false;
   const legacyRole = roleTemplate === 'workspace_reviewer' ? 'member' : 'admin';
   const activeWorkspace = {
     ...workspace,
@@ -232,6 +251,10 @@ async function installAndritzMocks(
         secure_deposit: { enabled: secureDepositEnabled },
         sftp: { enabled: secureDepositEnabled },
       },
+      features: {
+        chat_document_upload: chatDocumentUploadEnabled,
+      },
+      ...(options.knowledgeScopes ? { knowledge_scopes: options.knowledgeScopes } : {}),
     },
   };
   const activeUser = {
@@ -288,8 +311,44 @@ async function installAndritzMocks(
       });
     }
 
-    if (path === '/contexts') {
+    if (path === '/contexts' && method === 'GET') {
       return json(route, { contexts: [] });
+    }
+    if (path === '/contexts' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      contextCreateRequests?.push(body);
+      return json(route, {
+        id: 'ctx-chat-drop-and-ask',
+        name: body['name'] || 'Drop-and-ask · synthetic',
+        data_refs: body['data_refs'] || [],
+        environment_state: body['environment_state'] || {},
+        business_constraints: body['business_constraints'] || {},
+        ephemeral: true,
+        ttl_hours: 24,
+      });
+    }
+    if (path === '/contexts/ctx-chat-drop-and-ask/persist' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      contextPersistRequests?.push(body);
+      if (contextPersistShouldFail) {
+        return json(route, { detail: 'Persist permission denied' }, 403);
+      }
+      return json(route, {
+        id: 'ctx-chat-drop-and-ask',
+        name: 'Drop-and-ask · synthetic',
+        data_refs: ['andritz-chat-drop.txt'],
+        environment_state: { collection: 'documents' },
+        business_constraints: { source: 'drop_and_ask' },
+        ephemeral: false,
+        ttl_hours: null,
+      });
+    }
+    if (path === '/contexts/ctx-chat-drop-and-ask' && method === 'PATCH') {
+      return json(route, {
+        id: 'ctx-chat-drop-and-ask',
+        name: 'Drop-and-ask · synthetic',
+        ephemeral: true,
+      });
     }
     if (path === '/systems') {
       return json(route, { systems: [] });
@@ -345,6 +404,35 @@ async function installAndritzMocks(
             metadata: { filename: 'andritz-qa-safe.pdf', document_id: 'doc-andritz-qa' },
           },
         ],
+      });
+    }
+    if (path === '/documents/upload-batch' && method === 'POST') {
+      chatUploadRequests?.push(request.postData() || '');
+      return json(route, {
+        total: 1,
+        successful: 1,
+        failed: 0,
+        documents: [
+          {
+            document_id: 'doc-chat-drop-and-ask',
+            filename: 'andritz-chat-drop.txt',
+            status: 'success',
+            chunks_processed: 1,
+          },
+        ],
+      });
+    }
+    if (path === '/documents/doc-chat-drop-and-ask/metadata') {
+      return json(route, {
+        document_id: 'doc-chat-drop-and-ask',
+        metadata: {
+          document_title: 'Andritz chat drop note',
+          document_filename: 'andritz-chat-drop.txt',
+          document_num_pages: 1,
+          document_token_count: 42,
+          chunks_count: 1,
+          document_extracted_keywords: ['andritz', 'qa', 'drop-and-ask'],
+        },
       });
     }
 
@@ -433,6 +521,8 @@ async function installAndritzMocks(
       return json(route, { sessions: [] });
     }
     if (path === '/sessions' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      chatSessionCreateRequests?.push(body);
       return json(route, {
         id: 'chat-session-andritz-qa',
         title: 'Synthetic Andritz QA chat',
@@ -544,6 +634,36 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(sftpCard).toBeVisible();
     await expect(sftpCard).toContainText(/ready/i);
     await expect(sftpCard).not.toContainText(/configured|Config saved/i);
+  });
+
+  test('hides Chat drop-and-ask upload controls when the workspace flag is disabled', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    await installAndritzMocks(page, {
+      chatDocumentUploadEnabled: false,
+      chatStreamRequests,
+      chatUploadRequests,
+    });
+
+    await page.goto('/chat');
+    await expect(page.getByText(/Drop files/i)).toHaveCount(0);
+    await expect(page.locator('input[type="file"]')).toHaveCount(0);
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('La recherche reste disponible sans upload.');
+    await input.press('Enter');
+
+    await expect(page.getByText('La recherche reste disponible sans upload.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatUploadRequests).toHaveLength(0);
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'La recherche reste disponible sans upload.',
+      context_id: null,
+      context_mode: null,
+      stream: true,
+      include_sources: true,
+    });
   });
 
   test('shows a non-destructive error state when Collections cannot load', async ({ page }) => {
@@ -711,5 +831,193 @@ test.describe('Andritz mocked browser smoke', () => {
       include_sources: true,
       include_reasoning: true,
     });
+  });
+
+  test('keeps drop-and-ask session docs in the chat stream contract without real upload', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatUploadRequests,
+      contextCreateRequests,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+
+    await page.goto('/chat');
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-drop.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Synthetic Andritz drop-and-ask evidence.'),
+    });
+
+    await expect.poll(() => chatUploadRequests.length).toBe(1);
+    await expect.poll(() => contextCreateRequests.length).toBe(1);
+    await expect(page.getByText(/Andritz chat drop note|andritz-chat-drop\.txt/i).first()).toBeVisible();
+    await expect(page.getByText(/Session docs/i).first()).toBeVisible();
+
+    const combineButton = page.getByRole('button', { name: /\+ Sources/i }).first();
+    await expect(combineButton).toBeVisible();
+    await combineButton.click();
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Croise le fichier ajouté avec la base Andritz QA.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Croise le fichier ajouté avec la base Andritz QA.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(contextCreateRequests[0]).toMatchObject({
+      data_refs: ['andritz-chat-drop.txt'],
+      environment_state: { collection: 'documents' },
+      business_constraints: { source: 'drop_and_ask' },
+      ephemeral: true,
+      ttl_hours: 24,
+    });
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        context_id: 'ctx-chat-drop-and-ask',
+        context_mode: 'combine',
+        knowledge_scope: 'andritz-qa',
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Croise le fichier ajouté avec la base Andritz QA.',
+      context_id: 'ctx-chat-drop-and-ask',
+      context_mode: 'combine',
+      knowledge_scope: 'andritz-qa',
+      stream: true,
+      include_sources: true,
+    });
+  });
+
+  test('keeps drop-and-ask Only mode isolated from workspace scope without real upload', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatUploadRequests,
+      contextCreateRequests,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+
+    await page.goto('/chat');
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-drop.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Synthetic Andritz isolated drop-and-ask evidence.'),
+    });
+
+    await expect.poll(() => chatUploadRequests.length).toBe(1);
+    await expect.poll(() => contextCreateRequests.length).toBe(1);
+    await expect(page.getByText(/Andritz chat drop note|andritz-chat-drop\.txt/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Only$/i }).first()).toBeVisible();
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Réponds uniquement avec le fichier ajouté.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Réponds uniquement avec le fichier ajouté.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        context_id: 'ctx-chat-drop-and-ask',
+        context_mode: 'replace',
+        knowledge_scope: null,
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Réponds uniquement avec le fichier ajouté.',
+      context_id: 'ctx-chat-drop-and-ask',
+      context_mode: 'replace',
+      knowledge_scope: null,
+      stream: true,
+      include_sources: true,
+    });
+  });
+
+  test('persists a mocked drop-and-ask context only after explicit user click', async ({ page }) => {
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    const contextPersistRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatUploadRequests,
+      contextCreateRequests,
+      contextPersistRequests,
+    });
+
+    await page.goto('/chat');
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-drop.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Synthetic Andritz persist evidence.'),
+    });
+
+    await expect.poll(() => chatUploadRequests.length).toBe(1);
+    await expect.poll(() => contextCreateRequests.length).toBe(1);
+    await expect(page.getByText(/Andritz chat drop note|andritz-chat-drop\.txt/i).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Persist$/i })).toBeVisible();
+    expect(contextPersistRequests).toHaveLength(0);
+
+    await page.getByRole('button', { name: /^Persist$/i }).click();
+
+    await expect.poll(() => contextPersistRequests.length).toBe(1);
+    await expect(page.getByRole('alert', { name: /Saved as "Drop-and-ask · synthetic"/i })).toBeVisible();
+  });
+
+  test('shows a recoverable error when mocked drop-and-ask context persistence fails', async ({ page }) => {
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    const contextPersistRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatUploadRequests,
+      contextCreateRequests,
+      contextPersistRequests,
+      contextPersistShouldFail: true,
+    });
+
+    await page.goto('/chat');
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-drop.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Synthetic Andritz failed persist evidence.'),
+    });
+
+    await expect.poll(() => chatUploadRequests.length).toBe(1);
+    await expect.poll(() => contextCreateRequests.length).toBe(1);
+    await expect(page.getByText(/Andritz chat drop note|andritz-chat-drop\.txt/i).first()).toBeVisible();
+    const persistButton = page.getByRole('button', { name: /^Persist$/i });
+    await expect(persistButton).toBeVisible();
+    expect(contextPersistRequests).toHaveLength(0);
+
+    await persistButton.click();
+
+    await expect.poll(() => contextPersistRequests.length).toBe(1);
+    await expect(page.getByRole('alert', { name: /Failed to persist session/i })).toBeVisible();
+    await expect(persistButton).toBeEnabled();
   });
 });

@@ -1155,6 +1155,8 @@ export class ChatWorkspaceComponent implements OnInit {
             `Saved as "${ctx.name}"`,
             'Session persisted',
           );
+        } else {
+          this.toast.error('Failed to persist session', 'Drop-and-ask');
         }
       },
       error: () => {
