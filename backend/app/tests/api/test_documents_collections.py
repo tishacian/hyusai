@@ -12,7 +12,8 @@ from app.core.config import settings
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource, WorkerJob
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_table_fact import KnowledgeTableFact
-from app.models.workspace import Workspace
+from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.knowledge_collections import create_collection, create_worker_job
 from app.services.object_store import get_object_store
 
@@ -24,6 +25,21 @@ def _client(db_session, workspace: Workspace) -> TestClient:
     app.dependency_overrides[documents.get_current_user] = lambda: SimpleNamespace(id="user-1")
     app.dependency_overrides[documents.get_db] = lambda: db_session
     return TestClient(app)
+
+
+def _seed_workspace_user(db_session, workspace: Workspace, *, role: str, role_template: str | None = None) -> User:
+    user = User(id="user-1", username=f"user-{workspace.slug}", email=f"user-{workspace.slug}@example.test")
+    db_session.add(user)
+    db_session.add(
+        WorkspaceMember(
+            user_id=user.id,
+            workspace_id=workspace.id,
+            role=role,
+            role_template=role_template,
+        )
+    )
+    db_session.commit()
+    return user
 
 
 def test_list_collections_returns_ledger_items(db_session, monkeypatch):
@@ -870,6 +886,122 @@ def test_list_worker_jobs_filters_recent_deep_retrieval_jobs(db_session):
     assert ids == {running.id, completed.id}
     assert body["total_returned"] == 2
     assert all(item["poll_url"] == f"/documents/jobs/{item['id']}" for item in body["items"])
+
+
+def test_clear_documents_denies_non_admin_without_touching_store(db_session, monkeypatch):
+    ws = Workspace(id="ws-clear-denied", name="Clear Denied", slug="clear-denied")
+    db_session.add(ws)
+    db_session.commit()
+    _seed_workspace_user(db_session, ws, role="member", role_template="workspace_contributor")
+    calls = []
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            calls.append(("init", args, kwargs))
+
+        async def clear_all_documents(self):
+            calls.append(("clear", (), {}))
+            return True
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+
+    response = _client(db_session, ws).delete(
+        "/documents/clear?collection_name=andritz-prod&confirm=true&confirm_collection_name=andritz-prod"
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "WORKSPACE_PERMISSION_DENIED"
+    assert calls == []
+
+
+def test_clear_documents_requires_explicit_confirmation_for_admin(db_session, monkeypatch):
+    ws = Workspace(id="ws-clear-confirm", name="Clear Confirm", slug="clear-confirm")
+    db_session.add(ws)
+    db_session.commit()
+    _seed_workspace_user(db_session, ws, role="admin", role_template="workspace_admin")
+    calls = []
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            calls.append(("init", args, kwargs))
+
+        async def clear_all_documents(self):
+            calls.append(("clear", (), {}))
+            return True
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+
+    response = _client(db_session, ws).delete("/documents/clear?collection_name=andritz-synthetic")
+
+    assert response.status_code == 400
+    assert "confirm=true" in response.json()["detail"]
+    assert calls == []
+
+
+def test_clear_documents_requires_matching_collection_confirmation(db_session, monkeypatch):
+    ws = Workspace(id="ws-clear-match", name="Clear Match", slug="clear-match")
+    db_session.add(ws)
+    db_session.commit()
+    _seed_workspace_user(db_session, ws, role="admin", role_template="workspace_admin")
+    calls = []
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            calls.append(("init", args, kwargs))
+
+        async def clear_all_documents(self):
+            calls.append(("clear", (), {}))
+            return True
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+
+    response = _client(db_session, ws).delete(
+        "/documents/clear?collection_name=andritz-synthetic&confirm=true&confirm_collection_name=wrong"
+    )
+
+    assert response.status_code == 400
+    assert "confirm_collection_name" in response.json()["detail"]
+    assert calls == []
+
+
+def test_clear_documents_confirmed_admin_does_not_delete_uploads_by_default(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    ws = Workspace(id="ws-clear-admin", name="Clear Admin", slug="clear-admin")
+    db_session.add(ws)
+    db_session.commit()
+    _seed_workspace_user(db_session, ws, role="admin", role_template="workspace_admin")
+    uploads_dir = tmp_path / "uploads"
+    uploads_dir.mkdir()
+    legacy_upload = uploads_dir / "legacy-upload.txt"
+    legacy_upload.write_text("keep me", encoding="utf-8")
+    calls = []
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            calls.append(("init", args, kwargs))
+
+        async def clear_all_documents(self):
+            calls.append(("clear", (), {}))
+            return True
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+    monkeypatch.setattr(documents, "UPLOADS_DIR", str(uploads_dir))
+
+    response = _client(db_session, ws).delete(
+        "/documents/clear?collection_name=andritz-synthetic&confirm=true&confirm_collection_name=andritz-synthetic"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert body["message"] == "All documents cleared from collection 'andritz-synthetic'"
+    assert body["deleted_upload_files"] == 0
+    assert legacy_upload.exists()
+    assert calls[0][2]["collection_name"] == "andritz-synthetic"
+    assert calls[1][0] == "clear"
 
 
 def test_delete_collection_removes_ledger_and_store(

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
 from app.core.config import settings
+from app.core.iam.roles import is_admin_template
 from app.core.logging import get_logger
 from app.core.settings_manager import get_resolved_settings
 from app.db.base import get_db
@@ -29,7 +30,7 @@ from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
 from app.models.knowledge_document_fact import KnowledgeDocumentFact
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.user import User
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspaceMember
 from app.services.knowledge_collections import (
     collection_inventory,
     collection_source_rows,
@@ -63,6 +64,16 @@ UPLOADS_DIR = os.path.join(
     "uploads",
 )
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+
+def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> None:
+    membership = (
+        db.query(WorkspaceMember)
+        .filter(WorkspaceMember.user_id == user.id, WorkspaceMember.workspace_id == workspace.id)
+        .first()
+    )
+    if not membership or not is_admin_template(getattr(membership, "role_template", None), membership.role):
+        raise HTTPException(status_code=403, detail={"code": "WORKSPACE_PERMISSION_DENIED"})
 
 
 class DocumentSearchRequest(BaseModel):
@@ -1638,10 +1649,32 @@ async def get_document_stats(
 async def clear_all_documents(
     collection_name: str = Query("documents"),
     vector_db_type: Optional[str] = Query(None),
+    confirm: bool = Query(False, description="Must be true to acknowledge the destructive clear."),
+    confirm_collection_name: Optional[str] = Query(
+        None,
+        description="Must exactly match collection_name to prevent accidental broad clears.",
+    ),
+    clear_uploads: bool = Query(
+        False,
+        description="Also clear the legacy uploads directory. Disabled by default to avoid cross-collection file loss.",
+    ),
     workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     """Clear all documents from a collection"""
     try:
+        _require_workspace_admin(db, user, workspace)
+        if not confirm:
+            raise HTTPException(
+                status_code=400,
+                detail="Pass ?confirm=true to acknowledge the destructive document clear.",
+            )
+        if confirm_collection_name != collection_name:
+            raise HTTPException(
+                status_code=400,
+                detail="confirm_collection_name must exactly match collection_name.",
+            )
         db_type = _resolve_document_vector_db_type(workspace, vector_db_type)
 
         doc_service = DocumentService(
@@ -1650,16 +1683,19 @@ async def clear_all_documents(
         success = await doc_service.clear_all_documents()
 
         if success:
-            # Also clean up persisted upload files
-            for entry in os.listdir(UPLOADS_DIR):
-                try:
-                    os.unlink(os.path.join(UPLOADS_DIR, entry))
-                except OSError:
-                    pass
+            deleted_upload_files = 0
+            if clear_uploads:
+                for entry in os.listdir(UPLOADS_DIR):
+                    try:
+                        os.unlink(os.path.join(UPLOADS_DIR, entry))
+                        deleted_upload_files += 1
+                    except OSError:
+                        pass
             return {
                 "status": "success",
                 "message": f"All documents cleared from collection '{collection_name}'",
                 "vector_db_type": db_type,
+                "deleted_upload_files": deleted_upload_files,
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to clear documents")

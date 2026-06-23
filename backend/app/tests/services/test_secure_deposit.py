@@ -4,14 +4,15 @@ import hashlib
 import json
 import stat
 import zipfile
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
 from app.models.knowledge_collection import KnowledgeCollection, WorkerJob
-from app.models.secure_deposit import DepositFile
+from app.models.secure_deposit import DepositAccessLink, DepositFile
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.knowledge_collections import document_manifest_key
@@ -24,6 +25,7 @@ from app.services.secure_deposit import (
     create_link,
     promote_file_to_collection,
     preview_deposit_file,
+    receive_file,
     record_staged_file_from_path,
     safe_filename,
     safe_relative_path,
@@ -98,6 +100,62 @@ def test_deposit_link_rejects_bad_password(db_session):
     assert exc.value.status_code == 401
 
 
+def test_disabled_workspace_blocks_link_creation(db_session):
+    workspace = Workspace(
+        id="ws-disabled-deposit",
+        name="Disabled deposit",
+        slug="disabled-deposit",
+        settings={"features": {"secure_deposit": False}},
+    )
+    user = User(id="user-disabled", username="disabled", email="disabled@example.test")
+    db_session.add_all([workspace, user])
+    db_session.flush()
+    db_session.add(
+        WorkspaceMember(
+            user_id=user.id,
+            workspace_id=workspace.id,
+            role="owner",
+            role_template="workspace_owner",
+        )
+    )
+    db_session.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        create_link(
+            db_session,
+            workspace=workspace,
+            user=user,
+            label="Should not be created",
+            expires_at=None,
+            max_file_size_mb=None,
+            allowed_extensions=None,
+        )
+
+    assert exc.value.status_code == 403
+    assert db_session.query(DepositAccessLink).count() == 0
+
+
+def test_disabled_workspace_blocks_existing_link_auth(db_session):
+    workspace, user = _workspace_user(db_session)
+    link, password = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Supplier upload",
+        expires_at=None,
+        max_file_size_mb=None,
+        allowed_extensions=None,
+    )
+    workspace.settings = {"features": {"secure_deposit": False}}
+    db_session.add(workspace)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        authenticate_link(db_session, access_id=link.access_id, password=password)
+
+    assert exc.value.status_code == 403
+
+
 def test_empty_allowed_extensions_means_any_file_type(db_session):
     workspace, user = _workspace_user(db_session)
     link, _ = create_link(
@@ -112,6 +170,58 @@ def test_empty_allowed_extensions_means_any_file_type(db_session):
 
     assert link.allowed_extensions == []
     assert link.max_file_size_mb == 30 * 1024
+
+
+@pytest.mark.asyncio
+async def test_allowed_extension_policy_is_case_insensitive_for_public_and_sftp_paths(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="PDF only",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=["PDF"],
+    )
+
+    public_upload = UploadFile(filename="MANUAL.PDF", file=BytesIO(b"%PDF public upload"))
+    public_row = await receive_file(db_session, link=link, upload=public_upload)
+
+    staged = tmp_path / "sftp-upload.part"
+    staged.write_bytes(b"%PDF staged upload")
+    sftp_row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename="Line A/manual.pdf",
+        content_type="application/pdf",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+
+    blocked = tmp_path / "blocked.part"
+    blocked.write_bytes(b"MZ")
+    with pytest.raises(HTTPException) as exc:
+        record_staged_file_from_path(
+            db_session,
+            link=link,
+            source_path=blocked,
+            filename="Line A/manual.EXE",
+            content_type="application/octet-stream",
+            actor=f"sftp:{link.access_id}",
+            transport="sftp",
+        )
+
+    assert public_row.filename == "MANUAL.PDF"
+    assert sftp_row.filename == "Line A/manual.pdf"
+    assert exc.value.status_code == 415
+    assert blocked.exists()
 
 
 def test_record_staged_file_from_path_moves_sftp_upload(db_session, monkeypatch, tmp_path):

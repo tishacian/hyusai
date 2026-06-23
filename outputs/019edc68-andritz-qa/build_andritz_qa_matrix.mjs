@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J18", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A74:I101", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A69:F95", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A74:I103", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A69:F97", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -3321,6 +3321,34 @@ const executionEvidence = [
     notes:
       "Adds browser-level regression coverage that a same-turn transcript.partial remains visible as italic live text during endpoint STT finalization instead of being dropped as stale.",
   },
+  {
+    id: "EXEC-2026-06-23-BE-011",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py",
+    result: "23 passed, 0 failed",
+    duration: "1.97s",
+    warnings:
+      "140 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local backend API tests only. The new clear-documents cases use a fake DocumentService, synthetic workspace/user rows, and tmp_path legacy upload files; no real backend, no VM, no Andritz collection, no SFTP production-data mutation, and no real vector/object store clear.",
+    notes:
+      "Fixes and verifies global document clear safety: non-admin users are denied, admins must pass confirm=true and matching confirm_collection_name, and the legacy uploads directory is not deleted unless clear_uploads=true is explicitly supplied.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-012",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/services/test_secure_deposit.py",
+    result: "35 passed, 1 skipped, 0 failed",
+    duration: "12.84s",
+    warnings:
+      "149 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Secure Deposit service tests only. The new cases use synthetic workspace/link rows, tmp_path secure_deposit storage, and local UploadFile/staged-file fixtures; no real SFTP server, no VM, no Andritz/SFTP production-data mutation, and no real collection mutation.",
+    notes:
+      "Verifies disabled workspaces block link creation and existing-link authentication, and proves extension allow-lists apply case-insensitively across public upload plus SFTP staging while rejected disallowed files remain unmoved.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3368,6 +3396,9 @@ const executedTestResults = new Map([
   pass("COL-014-T03", "Mapped to embedding graph bounded sample/no raw vector exposure tests."),
   pass("COL-015-T01", "Mapped to worker job lifecycle/poll-url tests."),
   pass("COL-015-T02", "Mapped to worker ingest error and failed job detail tests."),
+  pass("COL-018-T01", "Mapped to local API guardrail tests and code inspection proving the Andritz clear path is not executed during QA; destructive clear requires explicit admin confirmation.", 100),
+  pass("COL-018-T02", "Mapped to local API test proving a non-admin workspace member receives 403 and DocumentService.clear_all_documents is never instantiated.", 100),
+  pass("COL-018-T03", "Mapped to local API synthetic clear test proving an admin-confirmed request targets only the named synthetic collection and does not delete legacy upload files by default.", 100),
   pass("COL-004-T01", "Mapped to local Playwright mocked document-delete smoke proving no DELETE before explicit confirmation and a scoped /documents/{id}?collection_name=andritz-qa request after confirmation.", 55),
   pass("COL-004-T04", "Mapped to local Playwright mocked collection-delete smoke proving the Delete collection action requires exact typed confirmation and sends only a synthetic /documents/collections/andritz-qa DELETE after confirmation.", 56),
   pass("COL-004-T05", "Mapped to local Playwright mocked forbidden collection-delete smoke proving HTTP 403 surfaces the backend detail and keeps the synthetic collection visible.", 57),
@@ -3416,7 +3447,9 @@ const executedTestResults = new Map([
   pass("SFTP-012-T01", "Mapped to SPL wave dry-run planning tests for synthetic deposits and archive groups.", 10),
   pass("SFTP-012-T02", "Mapped to SPL wave archive/document limit tests isolating large archives and bounded member reads.", 10),
   pass("SFTP-013-T01", "Mapped to promote payload tests proving selected collection slug is carried into worker queueing.", 10),
-  pass("SFTP-014-T03", "Mapped to allowed-extension policy tests including empty policy accepting any synthetic file type.", 10),
+  pass("SFTP-014-T01", "Mapped to full local Secure Deposit service execution proving enabled Andritz-style workspaces keep link/session behavior working while disabled workspaces are denied.", 101),
+  pass("SFTP-014-T02", "Mapped to local service tests proving a disabled workspace blocks both new link creation and authentication of an existing synthetic link.", 101),
+  pass("SFTP-014-T03", "Mapped to local service tests proving PDF allow-lists are case-insensitive for both public UploadFile and SFTP staged paths, while .EXE is rejected and left unmoved.", 101),
   pass("SFTP-018-T04", "Mapped to fixed navigation i18n guard parsing navigation.catalog.ts, checking 26 catalog keys and proving nav.connectors exists in FR/EN dictionaries.", 11),
   pass("CHT-001-T04", "Mapped to local Playwright mocked Andritz route smoke opening /chat without real backend data.", 12),
   pass("KCAP-001-T04", "Mapped to local Playwright mocked Andritz route smoke opening /knowledge/capture with empty dashboard/fiches data.", 12),
@@ -3770,6 +3803,23 @@ const defectRecords = [
     updated: "2026-06-23",
   },
   {
+    id: "DEF-2026-06-23-COL-018",
+    featureIds: ["COL-018"],
+    reproduction:
+      "Inspect and exercise DELETE /documents/clear in a local synthetic API test. Before the fix, any authenticated workspace user could call the endpoint with the default collection_name, no confirmation token, and the success path also wiped every file in the legacy UPLOADS_DIR.",
+    expected:
+      "Global document clear is unavailable to non-admin users, requires explicit destructive confirmation naming the target collection, and does not delete unrelated legacy upload files unless separately requested.",
+    actual:
+      "The endpoint depended only on get_current_workspace, accepted collection_name=documents by default, instantiated DocumentService.clear_all_documents immediately, and deleted all entries from UPLOADS_DIR after success.",
+    severity: "Critical",
+    rootCause:
+      "A legacy maintenance endpoint predated workspace-admin/confirmation guardrails and treated vector collection cleanup plus legacy upload cleanup as one implicit operation.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by adding workspace admin enforcement, confirm=true, confirm_collection_name equality, and opt-in clear_uploads. Verified locally with fake DocumentService and synthetic tmp uploads in EXEC-2026-06-23-BE-011.",
+    updated: "2026-06-23",
+  },
+  {
     id: "DEF-2026-06-23-CHT-005",
     featureIds: ["CHT-005"],
     reproduction:
@@ -3998,8 +4048,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser + voice transport/capture contract smoke: ${executionEvidence[99].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, capture preview page-change synchronization, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, voice active-document transport, late same-turn partial rendering, adaptive VAD endpoint candidate cancellation/flush, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser + voice transport/capture contract smoke: ${executionEvidence[99].result}; latest Collections clear-safety API lot: ${executionEvidence[100].result}; latest Secure Deposit workspace/extension policy lot: ${executionEvidence[101].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "90/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, capture preview page-change synchronization, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, voice active-document transport, late same-turn partial rendering, adaptive VAD endpoint candidate cancellation/flush, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, global document clear admin/confirmation safety, secure deposit workspace enablement/extension policy, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -4914,10 +4964,26 @@ const phaseRows = [
     executionEvidence[99].safetyScope,
     "Continue with real-device audio validation when safe; keep late-partial rendering checks mocked unless explicitly approved.",
   ],
+  [
+    executionEvidence[100].date,
+    "Phase 5 Collections global clear safety hardening",
+    "Hardened DELETE /documents/clear so it requires workspace admin access, confirm=true, matching confirm_collection_name, and explicit clear_uploads before touching the legacy uploads directory.",
+    `${executionEvidence[100].result}; ${mappedPassedCountForEvidence(executionEvidence[100].id)} workbook test cases mapped as Pass; DEF-2026-06-23-COL-018 fixed.`,
+    executionEvidence[100].safetyScope,
+    "Continue with read-only/mocked validation for remaining collection mutation endpoints; never execute global clear on real Andritz/SFTP data without explicit approval and backup strategy.",
+  ],
+  [
+    executionEvidence[101].date,
+    "Phase 5 SFTP secure deposit workspace policy regression",
+    "Added local Secure Deposit service coverage for workspace disabled gates on link creation/authentication and case-insensitive extension enforcement across public upload plus SFTP staging.",
+    `${executionEvidence[101].result}; ${mappedPassedCountForEvidence(executionEvidence[101].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[101].safetyScope,
+    "Continue with read-only/mocked validation for remaining SFTP link/download/connector gates; keep real SFTP server and production deposits untouched unless explicitly approved.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F95"));
+styleBody(phase.getRange("A2:F97"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
