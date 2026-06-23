@@ -184,12 +184,12 @@ function acceptedCaptureProposal() {
   };
 }
 
-function createdFreeConversationSession(title = 'Andritz QA free conversation smoke') {
+function createdFreeConversationSession(title = 'Andritz QA free conversation smoke', status = 'draft') {
   return {
     id: 'session-andritz-free-smoke',
     title,
     objective: 'Capture synthetic Andritz QA knowledge.',
-    status: 'draft',
+    status,
     plan: {
       schema_version: 'free_conversation_v1',
       mode: 'free_conversation',
@@ -227,6 +227,12 @@ async function installAndritzMocks(
     sourcePreviewRequests?: string[];
     sourcePreviewShouldFail?: boolean;
     sourcePreviewForbidden?: boolean;
+    captureSessionStartsActive?: boolean;
+    captureDocumentUploadRequests?: string[];
+    captureDocumentUploadShouldFail?: boolean;
+    captureDocumentViewRequests?: unknown[];
+    captureTurnRequests?: unknown[];
+    captureDocumentPreviewRequests?: string[];
     contextCreateRequests?: unknown[];
     contextCreateShouldFail?: boolean;
     contextUpdateRequests?: unknown[];
@@ -255,6 +261,12 @@ async function installAndritzMocks(
   const sourcePreviewRequests = options.sourcePreviewRequests;
   const sourcePreviewShouldFail = options.sourcePreviewShouldFail ?? false;
   const sourcePreviewForbidden = options.sourcePreviewForbidden ?? false;
+  const captureSessionStartsActive = options.captureSessionStartsActive ?? false;
+  const captureDocumentUploadRequests = options.captureDocumentUploadRequests;
+  const captureDocumentUploadShouldFail = options.captureDocumentUploadShouldFail ?? false;
+  const captureDocumentViewRequests = options.captureDocumentViewRequests;
+  const captureTurnRequests = options.captureTurnRequests;
+  const captureDocumentPreviewRequests = options.captureDocumentPreviewRequests;
   const contextCreateRequests = options.contextCreateRequests;
   const contextCreateShouldFail = options.contextCreateShouldFail ?? false;
   const contextUpdateRequests = options.contextUpdateRequests;
@@ -604,13 +616,79 @@ async function installAndritzMocks(
     if (path === '/knowledge-capture/plans' && method === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>;
       capturePlanRequests?.push(body);
-      return json(route, createdFreeConversationSession(String(body['title'] || 'Andritz QA free conversation smoke')));
+      return json(
+        route,
+        createdFreeConversationSession(
+          String(body['title'] || 'Andritz QA free conversation smoke'),
+          captureSessionStartsActive ? 'active' : 'draft',
+        ),
+      );
     }
     if (path === '/knowledge-capture/sessions') {
       return json(route, { sessions: includeAcceptedProposal ? [acceptedCaptureSession()] : [] });
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/documents') {
-      return json(route, { documents: [] });
+      if (method === 'POST') {
+        const uploadBody = request.postData() || '';
+        captureDocumentUploadRequests?.push(uploadBody);
+        if (captureDocumentUploadShouldFail) {
+          return json(route, { detail: 'Mocked capture document upload failure' }, 500);
+        }
+        return json(route, {
+          collection: 'capture-session-session-andritz-free-smoke',
+          collection_name: 'capture-session-session-andritz-free-smoke',
+          documents: [
+            {
+              document_id: 'doc-capture-reference',
+              filename: 'andritz-capture-reference.pdf',
+              title: 'Andritz capture reference',
+              status: 'ready',
+              chunks_processed: 2,
+              collection: 'capture-session-session-andritz-free-smoke',
+              collection_name: 'capture-session-session-andritz-free-smoke',
+            },
+          ],
+          session: createdFreeConversationSession('Andritz QA document capture smoke', 'active'),
+        });
+      }
+      return json(route, {
+        collection: 'capture-session-session-andritz-free-smoke',
+        collection_name: 'capture-session-session-andritz-free-smoke',
+        documents: [],
+        active_view: null,
+      });
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/documents/view') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      captureDocumentViewRequests?.push(body);
+      return json(route, {
+        active_view: body,
+        session: createdFreeConversationSession('Andritz QA document capture smoke', 'active'),
+      });
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/turns' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      captureTurnRequests?.push(body);
+      const noteText = String(body['text'] || 'Synthetic written capture note.');
+      return json(route, {
+        session: {
+          ...createdFreeConversationSession('Andritz QA document capture smoke', 'active'),
+          transcript: [
+            {
+              id: 'turn-written-capture-doc',
+              speaker: 'expert',
+              text: noteText,
+              input_modality: 'text',
+              document_refs: body['document_refs'] || [],
+              visual_context: body['visual_context'] || null,
+            },
+          ],
+        },
+        evaluation: null,
+        next_prompt: null,
+        next_question_id: null,
+        system_prompt_event_id: null,
+      });
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/events') {
       return json(route, { events: [] });
@@ -638,6 +716,18 @@ async function installAndritzMocks(
         destination: 'andritz-qa',
         final_title: 'Andritz QA accepted capture report',
         export_urls: { download_url: '/api/v1/documents/doc-published-andritz-qa/download' },
+      });
+    }
+    if (path === '/documents/doc-capture-reference/rich-preview') {
+      captureDocumentPreviewRequests?.push(url.search);
+      return json(route, {
+        kind: 'text',
+        filename: 'andritz-capture-reference.pdf',
+        content_type: 'text/plain',
+        size_bytes: 98,
+        download_url:
+          '/api/v1/documents/doc-capture-reference/download?collection_name=capture-session-session-andritz-free-smoke',
+        content: 'Synthetic capture document page content for active visual context.',
       });
     }
 
@@ -1205,6 +1295,143 @@ test.describe('Andritz mocked browser smoke', () => {
       plan_mode: 'free_conversation',
       voice_runtime: 'cascade_openai',
     });
+  });
+
+  test('attaches a written capture note to the active document view without real upload', async ({ page }) => {
+    const capturePlanRequests: unknown[] = [];
+    const captureDocumentUploadRequests: string[] = [];
+    const captureDocumentPreviewRequests: string[] = [];
+    const captureDocumentViewRequests: unknown[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlanRequests,
+      captureSessionStartsActive: true,
+      captureDocumentUploadRequests,
+      captureDocumentPreviewRequests,
+      captureDocumentViewRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA document capture smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA document capture smoke' })).toBeVisible();
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+
+    await captureDocuments.locator('input[type="file"]').setInputFiles({
+      name: 'andritz-capture-reference.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('Synthetic Andritz capture reference PDF content.'),
+    });
+
+    await expect.poll(() => captureDocumentUploadRequests.length).toBe(1);
+    await expect(page.getByRole('button', { name: /Andritz capture reference/i })).toBeVisible();
+    await page.getByRole('button', { name: /Andritz capture reference/i }).click();
+
+    await expect.poll(() => captureDocumentPreviewRequests.length).toBe(1);
+    const previewParams = new URLSearchParams(captureDocumentPreviewRequests[0].replace(/^\?/, ''));
+    expect(previewParams.get('collection_name')).toBe('capture-session-session-andritz-free-smoke');
+    expect(previewParams.get('filename')).toBe('andritz-capture-reference.pdf');
+    await expect.poll(() => captureDocumentViewRequests.length).toBe(1);
+    expect(captureDocumentViewRequests[0]).toMatchObject({
+      document_id: 'doc-capture-reference',
+      collection: 'capture-session-session-andritz-free-smoke',
+      collection_name: 'capture-session-session-andritz-free-smoke',
+      filename: 'andritz-capture-reference.pdf',
+      title: 'Andritz capture reference',
+      page: 1,
+      association_mode: 'active_view',
+    });
+    await expect(page.getByRole('heading', { name: /Andritz capture reference/i })).toBeVisible();
+    await expect(page.getByText('Synthetic capture document page content for active visual context.')).toBeVisible();
+    await page.getByRole('button', { name: /Close preview/i }).click();
+    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 1/i)).toBeVisible();
+
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('Sur cette page, le convoyeur de test Andritz reste aligné.');
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'Sur cette page, le convoyeur de test Andritz reste aligné.',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [
+        expect.objectContaining({
+          document_id: 'doc-capture-reference',
+          filename: 'andritz-capture-reference.pdf',
+          page: 1,
+          association_mode: 'active_view',
+        }),
+      ],
+      visual_context: expect.objectContaining({
+        document_id: 'doc-capture-reference',
+        filename: 'andritz-capture-reference.pdf',
+        page: 1,
+        association_mode: 'active_view',
+      }),
+    });
+    await expect(noteInput).toHaveValue('');
+    expect(capturePlanRequests).toHaveLength(1);
+  });
+
+  test('keeps written Knowledge Capture usable when capture document upload fails', async ({ page }) => {
+    const captureDocumentUploadRequests: string[] = [];
+    const captureDocumentPreviewRequests: string[] = [];
+    const captureDocumentViewRequests: unknown[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureDocumentUploadRequests,
+      captureDocumentUploadShouldFail: true,
+      captureDocumentPreviewRequests,
+      captureDocumentViewRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA failed document upload smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA failed document upload smoke' })).toBeVisible();
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+
+    await captureDocuments.locator('input[type="file"]').setInputFiles({
+      name: 'andritz-capture-rejected.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('Synthetic Andritz rejected capture document.'),
+    });
+
+    await expect.poll(() => captureDocumentUploadRequests.length).toBe(1);
+    await expect(page.getByText('Chargement document impossible pour cette capture.')).toBeVisible();
+    await expect(page.getByText(/andritz-capture-rejected\.pdf|Andritz capture reference/i)).toHaveCount(0);
+    expect(captureDocumentPreviewRequests).toHaveLength(0);
+    expect(captureDocumentViewRequests).toHaveLength(0);
+
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('La note écrite continue même sans document attaché.');
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'La note écrite continue même sans document attaché.',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [],
+      visual_context: null,
+    });
+    await expect(noteInput).toHaveValue('');
   });
 
   test('streams a mocked Recherche answer with source grounding without real backend data', async ({ page }) => {

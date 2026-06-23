@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J15", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I45", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F40", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I47", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F42", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -602,6 +602,7 @@ const features = [
       { type: "Happy path", scenario: "Upload PDF and image", steps: "Upload one PDF and one PNG during capture.", expected: "Both appear in document panel and index without interrupting voice." },
       { type: "Boundary", scenario: "Upload while recording", steps: "Start voice capture and upload doc.", expected: "Voice stream continues and upload state is non-blocking.", severityIfFails: "High" },
       { type: "Invalid input", scenario: "Unsupported file", steps: "Upload unsupported type.", expected: "Rejected with clear message." },
+      { type: "Error path", scenario: "Upload service failure", steps: "Upload a capture document while /sessions/{id}/documents returns an error, then add a written note.", expected: "A recoverable warning appears, no document is shown or previewed, and the written note still posts without document_refs/visual_context.", severityIfFails: "High" },
     ],
   },
   {
@@ -620,6 +621,7 @@ const features = [
       { type: "Happy path", scenario: "Navigate PDF page", steps: "Preview document, move to page 3.", expected: "Active view label updates and backend state includes page 3/timecode." },
       { type: "Boundary", scenario: "Rapid slide changes", steps: "Move across several slides quickly.", expected: "Final active view is correct; no UI lock." },
       { type: "Error path", scenario: "Preview unavailable", steps: "Open document still indexing.", expected: "Warning appears and capture continues." },
+      { type: "Regression", scenario: "Written note uses active document view", steps: "Create a no-plan capture, attach a synthetic document, preview it, then add a written note.", expected: "The preview request stays collection-scoped; /documents/view records page 1; /turns carries document_refs and visual_context for the active document without a real upload.", severityIfFails: "High" },
     ],
   },
   {
@@ -2513,6 +2515,34 @@ const executionEvidence = [
     notes:
       "Adds browser-level coverage for Chat source preview authorization failure: denied previews do not leak source content and leave the chat surface usable.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-033",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "35 passed, 0 failed",
+    duration: "37.3s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the written-note-active-document case creates a synthetic no-plan capture, returns it as active, uploads an in-memory PDF through mocked capture-document endpoints, opens a mocked rich-preview, records a mocked /knowledge-capture/sessions/{id}/documents/view call, then posts a written capture note and verifies /turns carries document_refs and visual_context for the active page. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for mixing written capture input with an active document view while preserving the same document-ref contract used by voice turns.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-034",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "36 passed, 0 failed",
+    duration: "39.2s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the capture-document-upload-failure case creates a synthetic no-plan capture, returns it as active, makes /knowledge-capture/sessions/{id}/documents return a mocked 500 for an in-memory PDF, verifies the user-visible warning, confirms no document/preview/view request is created, then posts a written capture note and verifies /turns carries no document_refs or visual_context. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for non-destructive capture-document upload failure handling while keeping written capture usable.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2672,7 +2702,9 @@ const executedTestResults = new Map([
   pass("KCAP-039-T01", "Mapped to free-conversation API conversation-step test recording an answer turn, conversation_intent_detected event, and closure sheet state.", 5),
   pass("KCAP-039-T03", "Mapped to conversation-step permission tests confirming review/ingestion permission checks and 403 denial leaves proposal pending.", 5),
   pass("KCAP-015-T01", "Mapped to capture document upload API test queuing one PDF and one PNG in a capture-specific collection without interrupting capture state.", 7),
+  pass("KCAP-015-T04", "Mapped to local Playwright mocked capture-document-upload-failure smoke proving failed upload shows a recoverable warning, creates no fake document/preview/view, and keeps written capture usable without document_refs.", 45),
   pass("KCAP-016-T01", "Mapped to capture document view API test recording active page/view metadata and returning it through the documents list endpoint.", 6),
+  pass("KCAP-016-T04", "Mapped to local Playwright mocked written-note-active-document smoke proving the capture document preview is scoped, /documents/view records page 1, and /turns carries document_refs plus visual_context without real upload.", 44),
   pass("KCAP-017-T02", "Mapped to typed capture turn API test preserving document_refs and visual_context for an active slide.", 6),
   pass("KCAP-005-T01", "Mapped to plan-build dialogue service tests that create grounded topics, preserve dialogue-built plan topics, finalize, generate question bank, and start the session.", 8),
   pass("KCAP-005-T03", "Mapped to plan-build validation/readiness tests proving topics are required/validated before the capture start path.", 8),
@@ -3525,10 +3557,26 @@ const phaseRows = [
     executionEvidence[43].safetyScope,
     "Continue with read-only real-backend source-scope checks and broader regression execution.",
   ],
+  [
+    executionEvidence[44].date,
+    "Phase 3 Knowledge Capture written note document-context smoke",
+    "Extended the local Playwright Andritz smoke to attach a synthetic capture document, open its preview, persist the active page view, and add a written note whose turn payload carries document_refs and visual_context.",
+    `${executionEvidence[44].result}; ${mappedPassedCountForEvidence(executionEvidence[44].id)} workbook test case mapped as Pass.`,
+    executionEvidence[44].safetyScope,
+    "Continue with safe local mocks for unsupported capture-document upload and then read-only real-backend browser checks.",
+  ],
+  [
+    executionEvidence[45].date,
+    "Phase 3 Knowledge Capture document upload failure smoke",
+    "Extended the local Playwright Andritz smoke so a failed capture-document upload shows a recoverable warning, creates no fake document/preview/view state, and still allows a written capture note.",
+    `${executionEvidence[45].result}; ${mappedPassedCountForEvidence(executionEvidence[45].id)} workbook test case mapped as Pass.`,
+    executionEvidence[45].safetyScope,
+    "Continue with safe local mocks for unsupported-file selection and then read-only real-backend browser checks.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F39"));
+styleBody(phase.getRange("A2:F41"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
