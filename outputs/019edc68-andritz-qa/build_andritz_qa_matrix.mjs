@@ -10,9 +10,9 @@ const sheetPreviewRanges = [
   ["Coverage Summary", "A1:D21", "andritz_qa_matrix_summary.png"],
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
-  ["Defect Register", "A1:J23", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A80:I110", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A75:F104", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Defect Register", "A1:J24", "andritz_qa_matrix_defect_register_preview.png"],
+  ["Execution Log", "A88:I118", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A83:F112", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -3447,6 +3447,118 @@ const executionEvidence = [
     notes:
       "Adds Collections inventory input-validation coverage: negative source_offset and excessive source_limit return 422 and do not load or expose source rows.",
   },
+  {
+    id: "EXEC-2026-06-23-BE-019",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py",
+    result: "27 passed, 0 failed",
+    duration: "1.88s",
+    warnings:
+      "158 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new empty-collection case uses a synthetic workspace and collection, forces vector diagnostics to be unavailable, and verifies inventory/diagnostics stay zero/empty without backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, or vector/object-store mutation.",
+    notes:
+      "Adds Collections empty-state diagnostics coverage: an empty collection returns zero source/document/chunk counts, empty fact states, disabled graph status, and unknown vector drift when the vector service is unavailable.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-020",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py",
+    result: "28 passed, 0 failed",
+    duration: "1.96s",
+    warnings:
+      "159 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new workspace document-list case uses a synthetic workspace and fake DocumentService, verifies vector fallback listing, pagination and hidden/temp/missing-id filtering, and performs no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, or vector/object-store mutation.",
+    notes:
+      "Adds Collections workspace document-list coverage: /documents/list without a ledger collection passes the current workspace slug to DocumentService, returns valid documents only, and preserves total/offset/limit/has_more pagination metadata.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-021",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py",
+    result: "29 passed, 0 failed",
+    duration: "2.01s",
+    warnings:
+      "167 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new duplicate-filename upload case uses a synthetic workspace/collection, tmp_path local object store and mocked worker dispatch, verifies same-request duplicate names do not create duplicate ledger rows after the fix, and performs no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, or vector/object-store mutation.",
+    notes:
+      "Adds and verifies duplicate collection-upload filename handling: the same normalized filename in one request is upserted once, object storage has the deterministic last payload, collection document_names remains unique, and inventory stays coherent.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-022",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py",
+    result: "31 passed, 0 failed",
+    duration: "2.36s",
+    warnings:
+      "183 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new table-facts cases use synthetic workspace, collection and KnowledgeTableFact rows, verify ledger-backed spreadsheet fact metadata plus sheet/query filtering, and perform no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, upload, or vector/object-store mutation.",
+    notes:
+      "Adds Collections structured table-fact coverage: /documents/table-facts returns sheet/cell/value/source metadata from the ledger and filters by sheet_name plus q without leaking stale rows from other sheets or measures.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-023",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_knowledge_guides.py",
+    result: "7 passed, 0 failed",
+    duration: "0.59s",
+    warnings:
+      "54 warnings, mostly datetime.utcnow deprecations from SQLAlchemy defaults, knowledge guide audit timestamps and guide versioning helpers.",
+    safetyScope:
+      "Local Knowledge Guides/Scopes API tests only. The new invalid-scope case uses a synthetic workspace/admin user, preserves the original workspace.settings knowledge_scopes, and monkeypatches chat-system refresh to fail if reached. No backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, upload, or vector/object-store mutation.",
+    notes:
+      "Adds Knowledge Scope invalid-input coverage: PATCH /knowledge/scopes rejects an invalid scope key with 422, leaves existing scopes unchanged, and does not refresh chat system defaults.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-024",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_knowledge_guides.py",
+    result: "8 passed, 0 failed",
+    duration: "0.73s",
+    warnings:
+      "63 warnings, mostly datetime.utcnow deprecations from SQLAlchemy defaults, knowledge guide audit timestamps and guide versioning helpers.",
+    safetyScope:
+      "Local Knowledge Guides API tests only. The new draft-to-published guide case uses a synthetic workspace/admin user/collection, proves effective guides ignore drafts then include the published version, and performs no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, upload, or vector/object-store mutation.",
+    notes:
+      "Adds Knowledge Guide publication coverage: creating a draft guide does not affect effective guides, patching it to published creates version 2 with published_at, and effective guide resolution returns the published markdown.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-025",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py",
+    result: "32 passed, 0 failed",
+    duration: "2.01s",
+    warnings:
+      "188 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new OCR-unavailable case uses a synthetic workspace/collection with a non-OCR document fact, verifies document_ocr_text filtering returns a clean empty result, and performs no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, OCR provider call, upload, or vector/object-store mutation.",
+    notes:
+      "Adds Document/OCR facts empty-state coverage: /documents/document-facts with semantic_type=document_ocr_text returns no items, zero totals, stable pagination metadata and existing by_type context when no OCR layer is present.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-026",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py",
+    result: "33 passed, 0 failed",
+    duration: "2.31s",
+    warnings:
+      "198 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new batch upload case uses a synthetic workspace/collection, tmp_path local object store and mocked worker dispatch, verifies one job plus source rows for text/CSV/image files, and performs no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, OCR provider call, or vector/object-store mutation outside tmp_path.",
+    notes:
+      "Adds synthetic collection batch-upload coverage: /documents/collections/{id}/documents returns the queued job, stores all originals, updates document_names/document_count, creates one source per uploaded file, and keeps inventory by_kind coherent.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3481,14 +3593,19 @@ const executedTestResults = new Map([
   pass("KCAP-038-T01", "Mapped to proposal listing by session id API tests."),
   pass("COL-001-T01", "Mapped to list collections API tests."),
   pass("COL-003-T01", "Mapped to collection document upload creating worker job and storing original."),
+  pass("COL-003-T03", "Mapped to local Collections API test proving duplicate filenames in one collection upload request are handled deterministically without duplicate ledger rows or inventory corruption.", 111),
   pass("COL-005-T01", "Mapped to collection inventory pagination tests."),
   pass("COL-005-T02", "Mapped to collection inventory filtering/sorting/global aggregate tests."),
   pass("COL-005-T03", "Mapped to local Collections API test proving invalid inventory source_offset/source_limit are rejected with 422 before source rows are returned.", 108),
   pass("COL-006-T01", "Mapped to collection diagnostics coverage tests."),
+  pass("COL-006-T03", "Mapped to local Collections API test proving empty collection inventory and diagnostics stay coherent with zero counts, empty fact states and disabled graph status even when vector diagnostics are unavailable.", 109),
   pass("COL-007-T01", "Mapped to document preview/rich-preview resolution tests."),
   pass("COL-008-T01", "Mapped to dense scoped collection search tests."),
   pass("COL-008-T02", "Mapped to search timeout/fallback tests."),
+  pass("COL-009-T01", "Mapped to local Collections API test proving /documents/table-facts returns ledger-backed spreadsheet rows with document, sheet, cell, row, unit and value metadata.", 112),
+  pass("COL-009-T02", "Mapped to local Collections API test proving /documents/table-facts sheet_name plus q filtering returns only matching ledger facts and excludes stale rows.", 112),
   pass("COL-010-T01", "Mapped to document facts endpoint tests."),
+  pass("COL-010-T03", "Mapped to local Collections API test proving OCR document-fact filters return a clean empty state when no OCR/visual layer is indexed for a collection.", 115),
   pass("COL-012-T01", "Mapped to retrieval artifact job dry-run/manual queue tests."),
   pass("COL-014-T01", "Mapped to chunks/stats/graph endpoint tests."),
   pass("COL-014-T02", "Mapped to document-scoped chunk listing tests."),
@@ -3519,8 +3636,12 @@ const executedTestResults = new Map([
   pass("COL-016-T01", "Mapped to worker ingest finalization test recording SPL wave/deposit ledger completion on synthetic data.", 9),
   pass("COL-016-T02", "Mapped to worker ingest skip-terminal-job and materialization-error tests preserving terminal/error state.", 9),
   pass("COL-011-T03", "Mapped to local Knowledge API test proving a workspace_contributor receives 403 on guide create and guide patch while the existing guide version remains unchanged.", 106),
+  pass("COL-011-T02", "Mapped to local Knowledge Guides API test proving draft guides are ignored by effective guide resolution until patched to published, after which the published version becomes effective.", 114),
   pass("COL-016-T03", "Mapped to local Documents API test proving a non-admin workspace member receives 403 on collection metadata patch and name/description remain unchanged.", 106),
+  pass("COL-017-T01", "Mapped to local Documents API test proving /documents/list returns current-workspace vector documents with pagination and filters hidden/temp/missing-id rows.", 110),
   pass("COL-017-T03", "Mapped to local Documents API test proving /documents/list for a collection slug that exists only in another workspace returns no documents and instantiates the vector fallback with the current workspace slug.", 106),
+  pass("COL-019-T01", "Mapped to local Collections API test proving synthetic multi-file collection upload returns a queued job, stores all originals and creates coherent source rows/inventory for every file.", 116),
+  pass("COL-021-T02", "Mapped to local Knowledge Scopes API test proving invalid scope patches are rejected with 422 without mutating existing workspace knowledge_scopes or refreshing chat defaults.", 113),
   pass("COL-021-T03", "Mapped to local Knowledge API test proving a workspace_contributor receives 403 on PATCH /knowledge/scopes and workspace settings remain unchanged.", 106),
   pass("COL-022-T01", "Mapped to local Playwright mocked collection-detail smoke proving the Knowledge detail Bindings action renders the visible system whose flow_definition.collections includes andritz-qa.", 107),
   pass("COL-022-T02", "Mapped to local Playwright mocked collection-detail smoke proving a system that still references an old collection slug is ignored without crashing the collection detail.", 107),
@@ -4007,6 +4128,23 @@ const defectRecords = [
     status: "Fixed",
     ownerNotes:
       "Fixed by aligning the header Bindings action with the other Knowledge facets: it now switches to the existing Bindings tab and the empty side-panel path was removed. Verified by EXEC-2026-06-23-FE-089.",
+    updated: "2026-06-23",
+  },
+  {
+    id: "DEF-2026-06-23-COL-025",
+    featureIds: ["COL-003"],
+    reproduction:
+      "POST two files with the same filename in a single synthetic /documents/collections/{id}/documents request. Before the fix, the second source upsert could not see the first pending ORM row and the request crashed on the unique constraint for collection_id + normalized_name.",
+    expected:
+      "A same-request duplicate filename is handled deterministically: the object-store original is overwritten by the last payload, the collection document_names list remains unique, one ledger source row exists, and inventory remains coherent.",
+    actual:
+      "Initial targeted test failed with sqlalchemy.exc.IntegrityError / sqlite3 UNIQUE constraint failed: knowledge_collection_sources.collection_id, knowledge_collection_sources.normalized_name.",
+    severity: "High",
+    rootCause:
+      "_queue_collection_ingest called upsert_collection_source once per multipart item before flushing; duplicate normalized names in the same request created two pending rows because the second lookup did not find the first unflushed instance.",
+    status: "Fixed",
+    ownerNotes:
+      "Fixed by grouping collection source updates by normalize_source_name within the request and applying one upsert per normalized filename after object writes. Verified by EXEC-2026-06-23-BE-021.",
     updated: "2026-06-23",
   },
   {
@@ -5226,10 +5364,74 @@ const phaseRows = [
     executionEvidence[108].safetyScope,
     "Continue with mocked/read-only validation for large inventories and diagnostics; avoid querying real Andritz large collections for stress unless explicitly approved.",
   ],
+  [
+    executionEvidence[109].date,
+    "Phase 5 Collections empty diagnostics regression",
+    "Added local Collections API coverage proving an empty collection keeps inventory and diagnostics coherent at zero/empty even when vector diagnostics are unavailable.",
+    `${executionEvidence[109].result}; ${mappedPassedCountForEvidence(executionEvidence[109].id)} workbook test case mapped as Pass.`,
+    executionEvidence[109].safetyScope,
+    "Continue with mocked/read-only validation for diagnostics failure states and large inventories; keep all real Andritz/SFTP mutation checks behind explicit approval.",
+  ],
+  [
+    executionEvidence[110].date,
+    "Phase 5 Collections workspace document-list regression",
+    "Added local Collections API coverage proving /documents/list returns current-workspace vector documents with stable filtering and pagination when no ledger collection is present.",
+    `${executionEvidence[110].result}; ${mappedPassedCountForEvidence(executionEvidence[110].id)} workbook test case mapped as Pass.`,
+    executionEvidence[110].safetyScope,
+    "Continue with mocked/read-only validation for large document-list performance and upload/promote flows; keep real Andritz/SFTP data untouched unless explicitly approved.",
+  ],
+  [
+    executionEvidence[111].date,
+    "Phase 5 Collections duplicate upload regression",
+    "Added local Collections API coverage for same-request duplicate filenames, fixed the unique-constraint crash, and verified inventory remains coherent.",
+    `${executionEvidence[111].result}; ${mappedPassedCountForEvidence(executionEvidence[111].id)} workbook test case mapped as Pass; DEF-2026-06-23-COL-025 fixed.`,
+    executionEvidence[111].safetyScope,
+    "Continue with mocked/synthetic validation for mixed unsupported uploads, batch limits and worker enqueue failures; do not upload into real Andritz collections unless explicitly approved.",
+  ],
+  [
+    executionEvidence[112].date,
+    "Phase 5 Collections table-facts regression",
+    "Added local Collections API coverage for ledger-backed spreadsheet facts, including sheet/cell/value/source metadata and sheet/query filtering without stale rows.",
+    `${executionEvidence[112].result}; ${mappedPassedCountForEvidence(executionEvidence[112].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[112].safetyScope,
+    "Continue with mocked/synthetic OCR and guide publication checks; keep real Andritz spreadsheet/OCR validation read-only unless explicitly approved.",
+  ],
+  [
+    executionEvidence[113].date,
+    "Phase 5 Collections knowledge-scope invalid-input regression",
+    "Added local Knowledge Scopes API coverage proving invalid scope patches are rejected before workspace settings or chat default systems are touched.",
+    `${executionEvidence[113].result}; ${mappedPassedCountForEvidence(executionEvidence[113].id)} workbook test case mapped as Pass.`,
+    executionEvidence[113].safetyScope,
+    "Continue with synthetic/read-only validation for guide publication and remaining collection diagnostics; keep real workspace scope edits behind explicit approval.",
+  ],
+  [
+    executionEvidence[114].date,
+    "Phase 5 Collections guide publication regression",
+    "Added local Knowledge Guides API coverage proving draft guides are not effective until explicitly published, and that publication updates effective guide resolution.",
+    `${executionEvidence[114].result}; ${mappedPassedCountForEvidence(executionEvidence[114].id)} workbook test case mapped as Pass.`,
+    executionEvidence[114].safetyScope,
+    "Continue with mocked/synthetic validation for collection diagnostics and OCR states; keep real guide edits in Andritz behind explicit approval.",
+  ],
+  [
+    executionEvidence[115].date,
+    "Phase 5 Collections OCR empty-state regression",
+    "Added local Collections API coverage proving OCR document-fact filters return a stable empty state when no OCR or visual layer is indexed.",
+    `${executionEvidence[115].result}; ${mappedPassedCountForEvidence(executionEvidence[115].id)} workbook test case mapped as Pass.`,
+    executionEvidence[115].safetyScope,
+    "Continue with mocked/synthetic validation for OCR duplicate handling and diagnostics failure UI; do not invoke real OCR providers or mutate real Andritz collections without approval.",
+  ],
+  [
+    executionEvidence[116].date,
+    "Phase 5 Collections synthetic batch-upload regression",
+    "Added local Collections API coverage proving a multi-file synthetic upload creates one queued job, persists originals, creates source rows and keeps inventory coherent.",
+    `${executionEvidence[116].result}; ${mappedPassedCountForEvidence(executionEvidence[116].id)} workbook test case mapped as Pass.`,
+    executionEvidence[116].safetyScope,
+    "Continue with mocked/synthetic validation for mixed unsupported uploads, large batch limits and worker enqueue failures; do not upload into real Andritz collections without explicit approval.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F104"));
+styleBody(phase.getRange("A2:F112"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

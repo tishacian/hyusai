@@ -152,6 +152,73 @@ def test_collection_inventory_rejects_invalid_pagination_without_loading_sources
     assert "sources" not in excessive_limit.text
 
 
+def test_empty_collection_inventory_and_diagnostics_stay_zero_when_vector_unavailable(
+    db_session,
+    monkeypatch,
+):
+    ws = Workspace(id="ws-empty-collection", name="Empty Collection", slug="empty-collection")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Empty Manuals")
+    db_session.commit()
+
+    inventory_response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.id}/inventory"
+    )
+
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["source_count"] == 0
+    assert inventory["sources_total"] == 0
+    assert inventory["document_count"] == 0
+    assert inventory["chunk_count"] == 0
+    assert inventory["sources"] == []
+    assert inventory["sources_returned"] == 0
+    assert inventory["sources_has_more"] is False
+    assert inventory["by_kind"] == {}
+    assert inventory["by_extension"] == {}
+    assert inventory["by_status"] == {}
+    assert inventory["top_sources"] == []
+    assert inventory["zero_chunk_sources"] == 0
+    assert inventory["error_sources"] == 0
+    assert inventory["heavy_sources"] == 0
+    assert inventory["chunk_percentiles"] == {"p50": 0, "p90": 0, "p95": 0, "p99": 0}
+
+    class UnavailableDocumentService:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("vector store unavailable")
+
+    monkeypatch.setattr(documents, "DocumentService", UnavailableDocumentService)
+
+    diagnostics_response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.id}/diagnostics"
+    )
+
+    assert diagnostics_response.status_code == 200
+    diagnostics = diagnostics_response.json()
+    assert diagnostics["ledger_source_count"] == 0
+    assert diagnostics["ledger_document_count"] == 0
+    assert diagnostics["ledger_chunk_sum"] == 0
+    assert diagnostics["vector_points"] is None
+    assert diagnostics["drift"] is None
+    assert diagnostics["drift_status"] == "unknown"
+    assert diagnostics["dense"] is False
+    assert diagnostics["top_sources"] == []
+    assert diagnostics["zero_chunk_sources"] == 0
+    assert diagnostics["error_sources"] == 0
+    assert diagnostics["heavy_sources"] == 0
+    assert diagnostics["document_facts"] == {
+        "total": 0,
+        "by_type": {},
+        "docs_by_document_type": {},
+    }
+    assert diagnostics["table_facts"] == {"total": 0, "by_type": {}}
+    assert diagnostics["feature_status"]["document_facts"]["state"] == "empty"
+    assert diagnostics["feature_status"]["ocr"]["state"] == "empty"
+    assert diagnostics["feature_status"]["table_facts"]["state"] == "empty"
+    assert diagnostics["feature_status"]["graph"]["state"] == "disabled"
+
+
 def test_collection_inventory_filters_sorts_and_returns_global_aggregates(db_session):
     ws = Workspace(id="ws-inventory-filter", name="Inventory Filter", slug="inventory-filter")
     db_session.add(ws)
@@ -321,6 +388,52 @@ def test_document_preview_resolves_source_from_ledger_without_vector_listing(db_
     raw = client.get(f"/documents/doc-ledger/raw?collection_name={collection.slug}")
     assert raw.status_code == 200
     assert raw.text == "ledger preview"
+
+
+def test_list_documents_returns_workspace_vector_documents_with_pagination(
+    db_session,
+    monkeypatch,
+):
+    ws = Workspace(id="ws-list-vector", name="List Vector", slug="list-vector")
+    db_session.add(ws)
+    db_session.commit()
+    captured: dict[str, str | None] = {}
+
+    class FakeDocumentService:
+        def __init__(self, *args, **kwargs):
+            captured["collection_name"] = kwargs.get("collection_name")
+            captured["workspace_slug"] = kwargs.get("workspace_slug")
+
+        async def list_documents(self):
+            return [
+                {"document_id": "doc-1", "filename": "manual-1.pdf"},
+                {"document_id": "hidden", "filename": ".hidden.pdf"},
+                {"document_id": "tmp", "filename": "upload.tmp"},
+                {"filename": "missing-id.pdf"},
+                {"document_id": "doc-2", "filename": "manual-2.pdf"},
+                {"document_id": "doc-3", "filename": "manual-3.pdf"},
+            ]
+
+    monkeypatch.setattr(documents, "DocumentService", FakeDocumentService)
+
+    response = _client(db_session, ws).get("/documents/list?limit=2&offset=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert captured == {
+        "collection_name": "documents",
+        "workspace_slug": ws.slug,
+    }
+    assert body["collection_name"] == "documents"
+    assert body["source"] == "vector"
+    assert body["total"] == 3
+    assert body["limit"] == 2
+    assert body["offset"] == 1
+    assert body["has_more"] is False
+    assert [item["document_id"] for item in body["documents"]] == ["doc-2", "doc-3"]
+    assert ".hidden.pdf" not in str(body)
+    assert "upload.tmp" not in str(body)
+    assert "missing-id.pdf" not in str(body)
 
 
 def test_list_chunks_returns_exact_ledger_total_for_document(db_session, monkeypatch):
@@ -553,6 +666,191 @@ def test_document_facts_return_total_has_more_and_type_counts(db_session):
     assert body["total_returned"] == 1
 
 
+def test_document_facts_ocr_filter_returns_empty_state_when_unavailable(db_session):
+    ws = Workspace(id="ws-ocr-empty", name="OCR Empty", slug="ocr-empty")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Visual Manuals")
+    db_session.add(
+        KnowledgeDocumentFact(
+            workspace_id=ws.id,
+            collection_id=collection.id,
+            collection_slug=collection.slug,
+            document_id="manual-doc",
+            document_filename="manual.pdf",
+            document_type="pdf",
+            semantic_type="document_warning",
+            content="Non-OCR warning fact",
+        )
+    )
+    db_session.commit()
+
+    response = _client(db_session, ws).get(
+        f"/documents/document-facts?collection_name={collection.slug}&semantic_type=document_ocr_text"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["collection_name"] == collection.slug
+    assert body["items"] == []
+    assert body["total"] == 0
+    assert body["total_returned"] == 0
+    assert body["has_more"] is False
+    assert body["limit"] == 100
+    assert body["offset"] == 0
+    assert body["by_type"] == {"document_warning": 1}
+
+
+def test_table_facts_return_ledger_rows_with_cell_metadata(db_session):
+    ws = Workspace(id="ws-table-facts", name="Table Facts", slug="table-facts")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Spreadsheets")
+    db_session.add_all(
+        [
+            KnowledgeTableFact(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                collection_slug=collection.slug,
+                document_id="sheet-doc-1",
+                document_filename="machine-settings.xlsx",
+                sheet_name="Parameters",
+                semantic_type="spreadsheet_cell_fact",
+                row_index=2,
+                column_index=3,
+                cell_ref="C2",
+                cell_range="C2:C2",
+                row_label="Line speed",
+                column_header="Nominal value",
+                subject="DCC line",
+                measure="speed",
+                value_raw="1200",
+                value_numeric=1200.0,
+                unit="m/min",
+                table_region_id="Parameters:1",
+                content="Line speed nominal value is 1200 m/min",
+            ),
+            KnowledgeTableFact(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                collection_slug=collection.slug,
+                document_id="sheet-doc-1",
+                document_filename="machine-settings.xlsx",
+                sheet_name="Parameters",
+                semantic_type="spreadsheet_schema",
+                row_index=1,
+                column_index=1,
+                cell_range="A1:C1",
+                content="Spreadsheet schema for parameters",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = _client(db_session, ws).get(
+        f"/documents/table-facts?collection_name={collection.slug}&semantic_type=spreadsheet_cell_fact"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "ledger"
+    assert body["total_is_exact"] is True
+    assert body["total"] == 1
+    assert body["total_returned"] == 1
+    assert body["has_more"] is False
+    assert body["by_type"] == {"spreadsheet_cell_fact": 1, "spreadsheet_schema": 1}
+    item = body["items"][0]
+    assert item["document_id"] == "sheet-doc-1"
+    assert item["document_filename"] == "machine-settings.xlsx"
+    assert item["sheet_name"] == "Parameters"
+    assert item["cell_ref"] == "C2"
+    assert item["cell_range"] == "C2:C2"
+    assert item["row_start"] == 2
+    assert item["row_end"] == 2
+    assert item["row_label"] == "Line speed"
+    assert item["column_header"] == "Nominal value"
+    assert item["unit"] == "m/min"
+    assert item["subject"] == "DCC line"
+    assert item["measure"] == "speed"
+    assert item["value_raw"] == "1200"
+    assert item["value_numeric"] == 1200.0
+
+
+def test_table_facts_filter_by_sheet_and_query_without_stale_rows(db_session):
+    ws = Workspace(id="ws-table-filter", name="Table Filter", slug="table-filter")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Spreadsheets")
+    db_session.add_all(
+        [
+            KnowledgeTableFact(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                collection_slug=collection.slug,
+                document_id="doc-pressure",
+                document_filename="process.xlsx",
+                sheet_name="Hydraulics",
+                semantic_type="spreadsheet_cell_fact",
+                row_index=4,
+                column_index=2,
+                cell_ref="B4",
+                row_label="Pressure",
+                value_raw="85 bar",
+                value_numeric=85.0,
+                unit="bar",
+                content="Hydraulics pressure target 85 bar",
+            ),
+            KnowledgeTableFact(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                collection_slug=collection.slug,
+                document_id="doc-temperature",
+                document_filename="process.xlsx",
+                sheet_name="Thermal",
+                semantic_type="spreadsheet_cell_fact",
+                row_index=4,
+                column_index=2,
+                cell_ref="B4",
+                row_label="Pressure",
+                value_raw="85 bar",
+                content="Thermal pressure note should not appear for hydraulics sheet filter",
+            ),
+            KnowledgeTableFact(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                collection_slug=collection.slug,
+                document_id="doc-speed",
+                document_filename="process.xlsx",
+                sheet_name="Hydraulics",
+                semantic_type="spreadsheet_cell_fact",
+                row_index=5,
+                column_index=2,
+                cell_ref="B5",
+                row_label="Speed",
+                value_raw="1200",
+                content="Hydraulics speed target 1200",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = _client(db_session, ws).get(
+        f"/documents/table-facts?collection_name={collection.slug}&sheet_name=Hydraulics&q=pressure"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "ledger"
+    assert body["total"] == 1
+    assert body["total_returned"] == 1
+    assert body["by_type"] == {"spreadsheet_cell_fact": 1}
+    assert body["items"][0]["document_id"] == "doc-pressure"
+    assert body["items"][0]["sheet_name"] == "Hydraulics"
+    assert body["items"][0]["row_label"] == "Pressure"
+    assert "doc-temperature" not in str(body)
+    assert "doc-speed" not in str(body)
+
+
 def test_collection_diagnostics_reports_drift_and_fact_coverage(db_session, monkeypatch):
     ws = Workspace(id="ws-diagnostics", name="Diagnostics", slug="diagnostics")
     db_session.add(ws)
@@ -783,6 +1081,144 @@ def test_collection_document_upload_creates_worker_job_and_stores_original(
     assert source.extension == "txt"
     assert source.size_bytes == 5
     assert source.status == "queued"
+
+
+def test_collection_document_upload_batch_creates_sources_for_all_files(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-upload-batch", name="Upload Batch", slug="upload-batch")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    db_session.commit()
+
+    def fake_dispatch(db, job):
+        job.celery_task_id = "task-batch"
+        return "task-batch"
+
+    monkeypatch.setattr(documents, "dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, ws).post(
+        f"/documents/collections/{collection.id}/documents",
+        files=[
+            ("files", ("manual.txt", b"hello", "text/plain")),
+            ("files", ("settings.csv", b"label,value\nspeed,1200\n", "text/csv")),
+            ("files", ("diagram.png", b"\x89PNG\r\n\x1a\n", "image/png")),
+        ],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["collection_id"] == collection.id
+    assert body["collection_slug"] == collection.slug
+    assert body["status"] == "queued"
+    assert body["collection_status"] == "queued"
+    assert body["celery_task_id"] == "task-batch"
+    assert body["files"] == ["manual.txt", "settings.csv", "diagram.png"]
+
+    job = db_session.query(WorkerJob).filter(WorkerJob.id == body["job_id"]).one()
+    assert job.collection_id == collection.id
+    assert job.status == "queued"
+
+    db_session.refresh(collection)
+    assert collection.document_names == ["manual.txt", "settings.csv", "diagram.png"]
+    assert collection.document_count == 3
+    assert (
+        tmp_path / "objects" / collection.artifact_prefix / "original" / "manual.txt"
+    ).read_bytes() == b"hello"
+    assert (
+        tmp_path / "objects" / collection.artifact_prefix / "original" / "settings.csv"
+    ).read_bytes() == b"label,value\nspeed,1200\n"
+    assert (
+        tmp_path / "objects" / collection.artifact_prefix / "original" / "diagram.png"
+    ).read_bytes() == b"\x89PNG\r\n\x1a\n"
+
+    sources = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .order_by(KnowledgeCollectionSource.filename.asc())
+        .all()
+    )
+    assert [(source.filename, source.source_kind, source.status) for source in sources] == [
+        ("diagram.png", "image", "queued"),
+        ("manual.txt", "text", "queued"),
+        ("settings.csv", "spreadsheet", "queued"),
+    ]
+
+    inventory_response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.id}/inventory"
+    )
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["source_count"] == 3
+    assert inventory["document_count"] == 3
+    assert inventory["sources_returned"] == 3
+    assert inventory["by_kind"] == {"image": 1, "spreadsheet": 1, "text": 1}
+
+
+def test_collection_document_upload_duplicate_filename_keeps_inventory_coherent(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-upload-duplicate", name="Upload Duplicate", slug="upload-duplicate")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(db_session, workspace=ws, name="Manuals")
+    db_session.commit()
+
+    def fake_dispatch(db, job):
+        job.celery_task_id = "task-duplicate"
+        return "task-duplicate"
+
+    monkeypatch.setattr(documents, "dispatch_worker_job", fake_dispatch)
+
+    response = _client(db_session, ws).post(
+        f"/documents/collections/{collection.id}/documents",
+        files=[
+            ("files", ("manual.txt", b"first", "text/plain")),
+            ("files", ("manual.txt", b"second", "text/plain")),
+        ],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["files"] == ["manual.txt", "manual.txt"]
+    assert body["celery_task_id"] == "task-duplicate"
+
+    db_session.refresh(collection)
+    assert collection.document_names == ["manual.txt"]
+    assert collection.document_count == 1
+    assert (
+        tmp_path / "objects" / collection.artifact_prefix / "original" / "manual.txt"
+    ).read_bytes() == b"second"
+
+    sources = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .all()
+    )
+    assert len(sources) == 1
+    assert sources[0].filename == "manual.txt"
+    assert sources[0].normalized_name == "manual.txt"
+    assert sources[0].size_bytes == len(b"second")
+    assert sources[0].status == "queued"
+
+    inventory_response = _client(db_session, ws).get(
+        f"/documents/collections/{collection.id}/inventory"
+    )
+    assert inventory_response.status_code == 200
+    inventory = inventory_response.json()
+    assert inventory["source_count"] == 1
+    assert inventory["document_count"] == 1
+    assert inventory["sources_returned"] == 1
+    assert inventory["sources"][0]["filename"] == "manual.txt"
 
 
 def test_collection_detail_exposes_storage_vector_and_bm25_diagnostics(

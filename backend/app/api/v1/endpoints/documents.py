@@ -38,6 +38,7 @@ from app.services.knowledge_collections import (
     create_collection as create_knowledge_collection,
     create_worker_job,
     get_collection_or_404,
+    normalize_source_name,
     original_key,
     resolve_original_key,
     serialize_collection,
@@ -206,22 +207,30 @@ async def _queue_collection_ingest(
     store = get_object_store()
     existing = list(collection.document_names or [])
     uploaded_names: list[str] = []
+    source_updates: dict[str, dict[str, Any]] = {}
     for file in files:
         safe_name = (file.filename or "upload").replace("/", "_").replace("\\", "_")
         content = await file.read()
         store.write_bytes(original_key(collection, safe_name), content)
-        upsert_collection_source(
-            db,
-            collection=collection,
-            filename=safe_name,
-            status="queued",
-            mime_type=file.content_type,
-            origin="upload",
-            size_bytes=len(content),
-        )
+        source_updates[normalize_source_name(safe_name)] = {
+            "filename": safe_name,
+            "mime_type": file.content_type,
+            "size_bytes": len(content),
+        }
         if safe_name not in existing:
             existing.append(safe_name)
         uploaded_names.append(safe_name)
+
+    for update in source_updates.values():
+        upsert_collection_source(
+            db,
+            collection=collection,
+            filename=update["filename"],
+            status="queued",
+            mime_type=update["mime_type"],
+            origin="upload",
+            size_bytes=update["size_bytes"],
+        )
 
     update_collection_status(
         db,

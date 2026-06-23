@@ -130,6 +130,49 @@ def test_knowledge_guide_collection_lifecycle_is_versioned_and_audited(db_sessio
     assert "knowledge.guide.updated" in events
 
 
+def test_publishing_draft_knowledge_guide_updates_effective_guide(db_session):
+    workspace, user, _collection = _seed_workspace(db_session)
+    client = _client(db_session, workspace, user)
+
+    created = client.post(
+        "/knowledge/guides",
+        json={
+            "target_type": "collection",
+            "target_ref": "excel-pilot",
+            "title": "Draft guide",
+            "markdown": "Draft interpretation.",
+            "status": "draft",
+        },
+    )
+
+    assert created.status_code == 200
+    draft = created.json()
+    assert draft["status"] == "draft"
+    assert draft["published_at"] is None
+
+    initial_effective = client.get("/knowledge/guides/effective?collection_slug=excel-pilot")
+    assert initial_effective.status_code == 200
+    assert initial_effective.json()["items"] == []
+
+    published = client.patch(
+        f"/knowledge/guides/{draft['guide_key']}",
+        json={"status": "published", "markdown": "Published interpretation."},
+    )
+
+    assert published.status_code == 200
+    published_body = published.json()
+    assert published_body["status"] == "published"
+    assert published_body["version"] == 2
+    assert published_body["published_at"] is not None
+
+    effective = client.get("/knowledge/guides/effective?collection_slug=excel-pilot")
+    assert effective.status_code == 200
+    items = effective.json()["items"]
+    assert len(items) == 1
+    assert items[0]["guide_key"] == draft["guide_key"]
+    assert items[0]["markdown"] == "Published interpretation."
+
+
 def test_knowledge_guide_scope_target_requires_existing_scope(db_session):
     workspace, user, _collection = _seed_workspace(db_session)
     client = _client(db_session, workspace, user)
@@ -227,6 +270,36 @@ def test_contributor_cannot_patch_knowledge_scopes(db_session):
     )
 
     assert response.status_code == 403
+    db_session.refresh(workspace)
+    assert (workspace.settings or {}).get("knowledge_scopes") == original_scopes
+
+
+def test_patch_knowledge_scopes_rejects_invalid_scope_without_mutation(db_session, monkeypatch):
+    workspace, admin_user, _collection = _seed_workspace(db_session)
+    client = _client(db_session, workspace, admin_user)
+    original_scopes = list((workspace.settings or {}).get("knowledge_scopes") or [])
+
+    def fail_if_system_refresh_runs(*args, **kwargs):
+        raise AssertionError("invalid scopes must not refresh chat system defaults")
+
+    monkeypatch.setattr(knowledge, "ensure_workspace_chat_system_default", fail_if_system_refresh_runs)
+
+    response = client.patch(
+        "/knowledge/scopes",
+        json={
+            "scopes": [
+                {
+                    "key": "invalid scope key",
+                    "label": "Invalid",
+                    "collection_slugs": ["excel-pilot"],
+                    "is_default": True,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Invalid knowledge scope"
     db_session.refresh(workspace)
     assert (workspace.settings or {}).get("knowledge_scopes") == original_scopes
 
