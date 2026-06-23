@@ -1021,7 +1021,9 @@ export class ChatWorkspaceComponent implements OnInit {
               this.fetchDocMetadata(doc.id);
             });
           }
-          const added = (res.documents ?? []).map((d) => d.filename ?? '');
+          const added = (res.documents ?? [])
+            .filter((d) => d.status === 'success')
+            .map((d) => d.filename ?? '');
           this.ensureEphemeralContext(
             added.filter((n): n is string => !!n),
           );
