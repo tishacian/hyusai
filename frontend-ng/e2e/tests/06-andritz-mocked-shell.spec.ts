@@ -565,6 +565,9 @@ async function installAndritzMocks(
     contextPersistShouldFail?: boolean;
     chatSystems?: MockChatSystem[];
     chatSystemsRequests?: string[];
+    chatSystemsShouldFail?: boolean;
+    chatSystemsFailureStatus?: number;
+    chatSystemsFailureDetail?: string;
     knowledgeScopes?: MockKnowledgeScope[];
     knowledgeCollectionItems?: MockKnowledgeCollectionItem[];
     sftpLinks?: MockSftpDepositLink[];
@@ -647,6 +650,9 @@ async function installAndritzMocks(
   const contextPersistShouldFail = options.contextPersistShouldFail ?? false;
   const chatSystems = options.chatSystems ?? [];
   const chatSystemsRequests = options.chatSystemsRequests;
+  const chatSystemsShouldFail = options.chatSystemsShouldFail ?? false;
+  const chatSystemsFailureStatus = options.chatSystemsFailureStatus ?? 403;
+  const chatSystemsFailureDetail = options.chatSystemsFailureDetail ?? 'Mocked system catalogue permission denied';
   const knowledgeCollectionItems = options.knowledgeCollectionItems ?? [];
   const sftpDepositFiles = options.sftpDepositFiles ?? [];
   const sftpOperations = options.sftpOperations ?? emptyOperations();
@@ -804,6 +810,9 @@ async function installAndritzMocks(
     }
     if (path === '/systems') {
       chatSystemsRequests?.push(url.search);
+      if (chatSystemsShouldFail) {
+        return json(route, { detail: chatSystemsFailureDetail }, chatSystemsFailureStatus);
+      }
       return json(route, { systems: chatSystems });
     }
 
@@ -952,6 +961,21 @@ async function installAndritzMocks(
           ],
         });
       }
+      if (uploadBody.includes('andritz-chat-drop.pdf')) {
+        return json(route, {
+          total: 1,
+          successful: 1,
+          failed: 0,
+          documents: [
+            {
+              document_id: 'doc-chat-drop-pdf',
+              filename: 'andritz-chat-drop.pdf',
+              status: 'success',
+              chunks_processed: 2,
+            },
+          ],
+        });
+      }
       if (chatUploadPartialFailure) {
         return json(route, {
           total: 2,
@@ -1043,6 +1067,19 @@ async function installAndritzMocks(
           document_token_count: 42,
           chunks_count: 1,
           document_extracted_keywords: ['andritz', 'qa', 'drop-and-ask'],
+        },
+      });
+    }
+    if (path === '/documents/doc-chat-drop-pdf/metadata') {
+      return json(route, {
+        document_id: 'doc-chat-drop-pdf',
+        metadata: {
+          document_title: 'Andritz chat PDF note',
+          document_filename: 'andritz-chat-drop.pdf',
+          document_num_pages: 3,
+          document_token_count: 128,
+          chunks_count: 2,
+          document_extracted_keywords: ['andritz', 'pdf', 'drop-and-ask'],
         },
       });
     }
@@ -2552,6 +2589,75 @@ test.describe('Andritz mocked browser smoke', () => {
     });
   });
 
+  test('uploads a mocked PDF drop-and-ask document before asking', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatUploadRequests,
+      contextCreateRequests,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+
+    await page.goto('/chat');
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-drop.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n'),
+    });
+
+    await expect.poll(() => chatUploadRequests.length).toBe(1);
+    expect(chatUploadRequests[0]).toContain('andritz-chat-drop.pdf');
+    await expect.poll(() => contextCreateRequests.length).toBe(1);
+    await expect(page.getByText(/Andritz chat PDF note|andritz-chat-drop\.pdf/i).first()).toBeVisible();
+    await expect(page.getByText('3 pages')).toBeVisible();
+    await expect(page.getByText('128 tokens')).toBeVisible();
+    await expect(page.getByText('2 chunks')).toBeVisible();
+    expect(contextCreateRequests[0]).toMatchObject({
+      data_refs: ['andritz-chat-drop.pdf'],
+      environment_state: { collection: 'documents' },
+      business_constraints: { source: 'drop_and_ask' },
+      ephemeral: true,
+      ttl_hours: 24,
+    });
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Que dit le PDF ajouté ?');
+    await input.press('Enter');
+
+    await expect(page.getByText('Que dit le PDF ajouté ?')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        context_id: 'ctx-chat-drop-and-ask',
+        context_mode: 'replace',
+        knowledge_scope: null,
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Que dit le PDF ajouté ?',
+      context_id: 'ctx-chat-drop-and-ask',
+      context_mode: 'replace',
+      knowledge_scope: null,
+      stream: true,
+      include_sources: true,
+      include_reasoning: true,
+    });
+  });
+
   test('shows a recoverable error when Chat drop-and-ask upload fails', async ({ page }) => {
     const chatStreamRequests: unknown[] = [];
     const chatUploadRequests: string[] = [];
@@ -3809,6 +3915,109 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(chatStreamRequests[0]).toMatchObject({
       query: 'Utilise le système Recherche transverse Andritz.',
       agent_id: 'system-andritz-recherche',
+      session_id: 'chat-session-andritz-qa',
+      stream: true,
+      include_sources: true,
+      include_reasoning: true,
+    });
+  });
+
+  test('falls back to Quick ask when a preselected Recherche system is stale', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const chatSystemsRequests: string[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatSystemsRequests,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+      chatSystems: [],
+    });
+
+    await page.goto('/workspace/andritz/chat?mode=system&systemId=system-deleted-andritz');
+    await expect.poll(() => chatSystemsRequests.length).toBeGreaterThan(0);
+    await expect(page.getByText('Quick ask').first()).toBeVisible();
+    await expect(page.getByText('Contexte du workspace')).toBeVisible();
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Continue sans système supprimé.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Continue sans système supprimé.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        system_id: null,
+        context_id: null,
+        context_mode: null,
+        knowledge_scope: 'andritz-qa',
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Continue sans système supprimé.',
+      agent_id: null,
+      session_id: 'chat-session-andritz-qa',
+      stream: true,
+      include_sources: true,
+      include_reasoning: true,
+    });
+  });
+
+  test('keeps Recherche usable when the system catalogue is forbidden', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const chatSystemsRequests: string[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatSystemsRequests,
+      chatSystemsShouldFail: true,
+      chatSystemsFailureStatus: 403,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+
+    await page.goto('/workspace/andritz/chat?mode=system&systemId=system-forbidden-andritz');
+    await expect.poll(() => chatSystemsRequests.length).toBeGreaterThan(0);
+    await expect(page.getByText('Quick ask').first()).toBeVisible();
+    await expect(page.getByText('Contexte du workspace')).toBeVisible();
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Continue sans accès catalogue systèmes.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Continue sans accès catalogue systèmes.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        system_id: null,
+        context_id: null,
+        context_mode: null,
+        knowledge_scope: 'andritz-qa',
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Continue sans accès catalogue systèmes.',
+      agent_id: null,
       session_id: 'chat-session-andritz-qa',
       stream: true,
       include_sources: true,

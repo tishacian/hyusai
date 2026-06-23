@@ -891,9 +891,15 @@ export class ChatWorkspaceComponent implements OnInit {
     return this.systems().find((system) => this.isWorkspaceChatSystem(system)) ?? null;
   });
 
+  readonly selectedSystem = computed<System | null>(() => {
+    const selected = this.selectedSystemId();
+    if (!selected) return null;
+    return this.systems().find((system) => system.id === selected) ?? null;
+  });
+
   readonly effectiveSystemId = computed<string | null>(() => {
     if (this.businessSurface()) return this.workspaceChatSystem()?.id ?? null;
-    return this.selectedSystemId() ?? this.workspaceChatSystem()?.id ?? null;
+    return this.selectedSystem()?.id ?? this.workspaceChatSystem()?.id ?? null;
   });
 
   readonly flowBuilderSystemId = computed<string | null>(() =>
@@ -903,24 +909,23 @@ export class ChatWorkspaceComponent implements OnInit {
   readonly modeLabel = computed<string>(() => {
     if (this.businessSurface()) return 'Recherche';
     if (this.ephemeralContextId()) return 'Drop-and-ask';
-    if (this.selectedSystemId()) return 'System chat';
+    if (this.selectedSystem()) return 'System chat';
     return 'Quick ask';
   });
 
   readonly modeTone = computed<'cool' | 'violet' | 'pos'>(() => {
     if (this.businessSurface()) return 'pos';
     if (this.ephemeralContextId()) return 'violet';
-    if (this.selectedSystemId()) return 'cool';
+    if (this.selectedSystem()) return 'cool';
     return 'pos';
   });
 
   readonly modeHint = computed<string>(() => {
     if (this.businessSurface()) return 'Questions sur les sources du workspace';
     if (this.ephemeralContextId()) return 'Session docs ground the answer';
-    const selected = this.selectedSystemId();
+    const selected = this.selectedSystem();
     if (selected) {
-      const s = this.systems().find((x) => x.id === selected);
-      return s?.objective || 'Scoped to selected system';
+      return selected.objective || 'Scoped to selected system';
     }
     const chatSystem = this.workspaceChatSystem();
     if (chatSystem) return chatSystem.objective || 'Fast workspace chat flow';
@@ -941,14 +946,23 @@ export class ChatWorkspaceComponent implements OnInit {
 
   private loadSystems(): void {
     this.canonical.listSystems().subscribe({
-      next: (list) => this.systems.set(list || []),
-      error: () => this.systems.set([]),
+      next: (list) => {
+        const systems = list || [];
+        this.systems.set(systems);
+        if (this.selectedSystemId() && !systems.some((system) => system.id === this.selectedSystemId())) {
+          this.selectedSystemId.set(null);
+        }
+      },
+      error: () => {
+        this.systems.set([]);
+        this.selectedSystemId.set(null);
+      },
     });
   }
 
   onSystemChange(id: string | null): void {
     if (this.businessSurface()) return;
-    this.selectedSystemId.set(id);
+    this.selectedSystemId.set(id && this.systems().some((system) => system.id === id) ? id : null);
   }
 
   openFlowBuilder(): void {
