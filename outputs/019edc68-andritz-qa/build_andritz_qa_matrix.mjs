@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J8", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I19", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F21", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I20", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F22", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -332,6 +332,7 @@ const features = [
       { type: "Responsive", scenario: "Open capture dashboard on mobile width", steps: "Set viewport to mobile width and open /knowledge/capture with mocked Andritz APIs.", expected: "The capture dashboard remains reachable and primary actions/empty state text are visible without real backend data." },
       { type: "Permission/security", scenario: "Reviewer IAM matrix exposes capture controls", steps: "Call /iam/matrix as workspace_reviewer in an IAM-enforced workspace.", expected: "The matrix exposes capture_session create plus owner-scoped update/execute as allowed for the subject.", severityIfFails: "High" },
       { type: "Regression", scenario: "Reviewer new capture button enabled from IAM matrix", steps: "Run local Playwright with mocked reviewer auth/workspace/IAM APIs and open /knowledge/capture.", expected: "The New/Nouvelle capture action is visible and enabled without contacting real backend data.", severityIfFails: "High" },
+      { type: "Permission/security", scenario: "Open capture dashboard unauthenticated", preconditions: "No auth token.", steps: "Navigate directly to /knowledge/capture.", expected: "Route redirects to sign-in with redirectURL preserved before capture data APIs are exposed.", severityIfFails: "High" },
     ],
   },
   {
@@ -876,6 +877,7 @@ const features = [
       { type: "Error path", scenario: "Collections API fails", steps: "Simulate 500.", expected: "Error state visible; no stale destructive action." },
       { type: "Regression", scenario: "Mocked Andritz browser collection smoke", steps: "Run local Playwright with mocked /documents/collections and open /knowledge.", expected: "The Knowledge collections page renders the mocked Andritz collection without contacting real backend data." },
       { type: "Responsive", scenario: "Open collections on mobile width", steps: "Set viewport to mobile width and open /knowledge with mocked Andritz APIs.", expected: "The Knowledge collections page remains reachable and shows the workspace collection without real backend data." },
+      { type: "Permission/security", scenario: "Open collections unauthenticated", preconditions: "No auth token.", steps: "Navigate directly to /knowledge.", expected: "Route redirects to sign-in with redirectURL preserved before collection metadata is exposed.", severityIfFails: "High" },
     ],
   },
   {
@@ -1836,10 +1838,10 @@ const features = [
   {
     id: "SFTP-018",
     name: "Connectors catalogue SFTP entry and enablement gate",
-    story: "As an operator, I can find the secure deposit connector from the Connectors page only when workspace settings indicate SFTP/secure deposit is available.",
-    expected: "ConnectorsPageComponent renders the SFTP connector card and routes to /connectors/sftp; SFTP availability is computed from workspace connector settings secure_deposit.enabled or sftp.enabled.",
-    edges: "Workspace settings absent, connector disabled, stale navigation card, user lacks connector permission, direct URL when card hidden.",
-    validation: "The card/gate reflects workspace settings; hiding the card does not by itself authorize direct URL access; direct SFTP actions remain backend permission guarded.",
+    story: "As an operator, I can find the secure deposit connector from the Connectors page and understand whether the workspace has it configured.",
+    expected: "ConnectorsPageComponent renders the SFTP connector catalogue card and routes to /connectors/sftp; configured state is computed from workspace connector settings secure_deposit.enabled or sftp.enabled. When both are disabled, the catalogue card remains visible as a supported connector but is not marked configured/Config saved.",
+    edges: "Workspace settings absent, connector disabled, stale navigation card, user lacks connector permission, direct URL when card appears unconfigured.",
+    validation: "The card status reflects workspace settings; an unconfigured card does not by itself authorize backend actions; direct SFTP actions remain backend permission guarded.",
     dependencies: "ConnectorsPageComponent, connectors.routes.ts, SftpConnectorComponent, workspace settings.",
     assumptions: "Andritz secure deposit should be enabled intentionally through workspace connector settings.",
     notes: "Discovery gap found during route scan; complements SFTP operational features by documenting the entry route/gate.",
@@ -1847,11 +1849,12 @@ const features = [
     scope: "SFTP Andritz",
     tests: [
       { type: "Happy path", scenario: "Open SFTP from connectors catalogue", steps: "Open /connectors and click secure deposit.", expected: "User lands on /connectors/sftp and connector loads health state." },
-      { type: "Boundary", scenario: "Connector disabled in workspace settings", steps: "Use workspace settings with secure_deposit and sftp disabled.", expected: "SFTP card is hidden/disabled and no misleading active state is shown." },
+      { type: "Boundary", scenario: "Connector disabled in workspace settings", steps: "Use workspace settings with secure_deposit and sftp disabled.", expected: "SFTP card remains visible as a supported catalogue entry, but it is not marked configured and does not show Config saved." },
       { type: "Permission/security", scenario: "Direct route while card hidden", steps: "Navigate directly to /connectors/sftp as a user without intended access.", expected: "Backend actions remain denied and no data is exposed.", severityIfFails: "High" },
       { type: "Regression", scenario: "Connector navigation i18n key coverage", steps: "Run npm run check:i18n after parsing navigation.catalog.ts.", expected: "Every cockpit verb/section key, including connectors, has a dictionary entry and the guard fails if zero keys are parsed.", severityIfFails: "Medium" },
       { type: "Regression", scenario: "Mocked Andritz browser connector smoke", steps: "Run local Playwright with mocked secure deposit APIs and open /connectors then /connectors/sftp.", expected: "The connector catalogue exposes Secure Deposit and the SFTP page renders health, links and empty live-upload state without contacting real backend data." },
       { type: "Responsive", scenario: "Open connector catalogue and SFTP page on mobile width", steps: "Set viewport to mobile width and open /connectors then /connectors/sftp with mocked Andritz APIs.", expected: "The connector catalogue and SFTP surface remain reachable and show secure deposit/live-upload status without real backend data." },
+      { type: "Permission/security", scenario: "Open SFTP route unauthenticated", preconditions: "No auth token.", steps: "Navigate directly to /connectors/sftp.", expected: "Route redirects to sign-in with redirectURL preserved before secure-deposit data APIs are exposed.", severityIfFails: "High" },
     ],
   },
 ];
@@ -2096,6 +2099,20 @@ const executionEvidence = [
     notes:
       "Adds a mocked reviewer IAM matrix case proving /knowledge/capture renders the New/Nouvelle capture action enabled for workspace_reviewer while retaining desktop and mobile route smokes.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-006",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "8 passed, 0 failed",
+    duration: "18.8s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; unauthenticated guard cases use no token and only verify redirect to sign-in for /chat, /knowledge, /knowledge/capture and /connectors/sftp. No VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds no-token browser guard tests proving the protected Recherche, Collections, Knowledge Capture and Secure Deposit routes redirect to /auth/signin with redirectURL preserved instead of exposing protected shells to unauthenticated users. Adds a disabled SFTP workspace-settings case proving the catalogue card stays visible as ready but is not marked configured/Config saved.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2187,9 +2204,14 @@ const executedTestResults = new Map([
   pass("COL-001-T04", "Mapped to local Playwright mocked Andritz route smoke opening /knowledge with a synthetic collection payload.", 12),
   pass("SFTP-018-T05", "Mapped to local Playwright mocked Andritz route smoke opening /connectors and /connectors/sftp with synthetic secure-deposit health/queue data.", 12),
   pass("CHT-001-T03", "Mapped to local Playwright mocked Andritz mobile viewport smoke opening /chat.", 13),
+  pass("CHT-001-T02", "Mapped to local Playwright no-token guard smoke proving /chat redirects to /auth/signin with redirectURL preserved.", 17),
   pass("KCAP-001-T05", "Mapped to local Playwright mocked Andritz mobile viewport smoke opening /knowledge/capture.", 13),
   pass("COL-001-T05", "Mapped to local Playwright mocked Andritz mobile viewport smoke opening /knowledge.", 13),
   pass("SFTP-018-T06", "Mapped to local Playwright mocked Andritz mobile viewport smoke opening /connectors and /connectors/sftp.", 13),
+  pass("KCAP-001-T08", "Mapped to local Playwright no-token guard smoke proving /knowledge/capture redirects to /auth/signin with redirectURL preserved.", 17),
+  pass("COL-001-T06", "Mapped to local Playwright no-token guard smoke proving /knowledge redirects to /auth/signin with redirectURL preserved.", 17),
+  pass("SFTP-018-T07", "Mapped to local Playwright no-token guard smoke proving /connectors/sftp redirects to /auth/signin with redirectURL preserved.", 17),
+  pass("SFTP-018-T02", "Mapped to local Playwright disabled connector-settings smoke proving the SFTP card remains ready but not configured/Config saved.", 17),
   pass("KCAP-001-T03", "Mapped to IAM engine tests proving reviewer capture permissions are explicit while non-owner operations remain denied.", 14),
   pass("KCAP-002-T04", "Mapped to IAM-enforced Knowledge Capture API test where a workspace_reviewer creates and starts a free-conversation capture session.", 14),
   pass("KCAP-001-T06", "Mapped to /iam/matrix API test proving workspace_reviewer receives capture_session create plus owner-scoped update/execute as allowed_for_subject.", 15),
@@ -2388,7 +2410,7 @@ function featureExecutionNotes(feature) {
     evidenceCounts.set(result.evidence, (evidenceCounts.get(result.evidence) || 0) + 1);
   }
   const evidenceSummary = [...evidenceCounts.entries()]
-    .map(([evidenceId, evidenceCount]) => `${evidenceId}: ${evidenceCount} mapped backend test case(s) passed locally.`)
+    .map(([evidenceId, evidenceCount]) => `${evidenceId}: ${evidenceCount} mapped test case(s) passed locally.`)
     .join("\n");
   return `${feature.notes}\n${evidenceSummary}\nBrowser UX, VM read-only checks and/or destructive synthetic tests remain pending as applicable.`;
 }
@@ -2448,15 +2470,15 @@ const summaryRows = [
   ["Safety posture", "Local automated tests/builds only. No destructive Andritz/SFTP data operation executed.", "", "", "", "", "", ""],
   ["Features documented", features.length, "", "", "", "", "", ""],
   ["Test cases drafted", allTests.length, "", "", "", "", "", ""],
-  ["Mapped backend tests passed", mappedPassedCount, "", "", "", "", "", ""],
+  ["Mapped tests passed", mappedPassedCount, "", "", "", "", "", ""],
   ["Features with partial backend pass", executedFeatureIds.size, "", "", "", "", "", ""],
   ["Frontend production build", `${executionEvidence[1].result} (${executionEvidence[1].duration}); FE-002 static guards and rebuild also passed.`, "", "", "", "", "", ""],
   ["VM read-only smoke", "Drift audit passed; backend/frontend health 200; critical SPA routes served; KC/SFTP protected APIs rejected unauthenticated access.", "", "", "", "", "", ""],
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "68/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "71/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard plus disabled-SFTP-settings browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -2771,10 +2793,18 @@ const phaseRows = [
     executionEvidence[16].safetyScope,
     "Continue with the same reviewer journey against a safe real backend account before marking the end-to-end workflow complete.",
   ],
+  [
+    executionEvidence[17].date,
+    "Phase 3 unauthenticated route guard smoke",
+    "Extended the local Playwright Andritz smoke with no-token route guard checks for Recherche chat, Knowledge, Knowledge Capture and Secure Deposit, and a disabled SFTP workspace-settings catalogue-state check.",
+    `${executionEvidence[17].result}; ${mappedPassedCountForEvidence(executionEvidence[17].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[17].safetyScope,
+    "Continue with authenticated real-backend browser journeys when a safe test account is available.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F20"));
+styleBody(phase.getRange("A2:F21"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

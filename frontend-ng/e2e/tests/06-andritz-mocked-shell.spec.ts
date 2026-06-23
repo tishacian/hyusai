@@ -82,14 +82,23 @@ function emptyOperations() {
 
 async function installAndritzMocks(
   page: Page,
-  options: { roleTemplate?: MockRoleTemplate } = {},
+  options: { roleTemplate?: MockRoleTemplate; secureDepositEnabled?: boolean } = {},
 ) {
   const roleTemplate = options.roleTemplate ?? 'workspace_admin';
+  const secureDepositEnabled = options.secureDepositEnabled ?? true;
   const legacyRole = roleTemplate === 'workspace_reviewer' ? 'member' : 'admin';
   const activeWorkspace = {
     ...workspace,
     role: legacyRole,
     role_template: roleTemplate,
+    settings: {
+      ...workspace.settings,
+      connectors: {
+        ...(workspace.settings.connectors || {}),
+        secure_deposit: { enabled: secureDepositEnabled },
+        sftp: { enabled: secureDepositEnabled },
+      },
+    },
   };
   const activeUser = {
     ...user,
@@ -240,6 +249,16 @@ async function installAndritzMocks(
 }
 
 test.describe('Andritz mocked browser smoke', () => {
+  for (const routePath of ['/chat', '/knowledge', '/knowledge/capture', '/connectors/sftp']) {
+    test(`redirects unauthenticated ${routePath} access to sign-in`, async ({ page }) => {
+      await page.goto(routePath);
+
+      await expect(page).toHaveURL(/\/auth\/signin\?/);
+      expect(new URL(page.url()).searchParams.get('redirectURL')).toBe(routePath);
+      await expect(page.getByRole('heading', { name: /Sign in|Connexion/i })).toBeVisible();
+    });
+  }
+
   test('renders Chat, Knowledge Capture, Collections and SFTP entry without real data', async ({ page }) => {
     await installAndritzMocks(page);
 
@@ -260,6 +279,16 @@ test.describe('Andritz mocked browser smoke', () => {
 
     await page.goto('/chat');
     await expect(page.locator('body')).toContainText(/Chat|Question rapide|Posez votre question|Quick ask|Ask/i);
+  });
+
+  test('shows disabled SFTP connector as ready but not configured', async ({ page }) => {
+    await installAndritzMocks(page, { secureDepositEnabled: false });
+
+    await page.goto('/connectors');
+    const sftpCard = page.locator('article').filter({ hasText: 'SFTP / Secure Deposit' }).first();
+    await expect(sftpCard).toBeVisible();
+    await expect(sftpCard).toContainText(/ready/i);
+    await expect(sftpCard).not.toContainText(/configured|Config saved/i);
   });
 
   test('keeps primary Andritz surfaces reachable on mobile viewport', async ({ page }) => {
