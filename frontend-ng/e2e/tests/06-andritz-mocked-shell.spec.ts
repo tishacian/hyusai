@@ -640,6 +640,9 @@ async function installAndritzMocks(
     chatMetadataLongKeywords?: boolean;
     acceptedProposal?: boolean;
     capturePlanRequests?: unknown[];
+    capturePlanShouldFail?: boolean;
+    capturePlanFailureStatus?: number;
+    capturePlanFailureDetail?: string;
     capturePlanTopicsRequests?: unknown[];
     capturePlanValidationRequests?: string[];
     captureStartRequests?: string[];
@@ -745,6 +748,9 @@ async function installAndritzMocks(
   const chatMetadataLongKeywords = options.chatMetadataLongKeywords ?? false;
   const includeAcceptedProposal = options.acceptedProposal ?? false;
   const capturePlanRequests = options.capturePlanRequests;
+  const capturePlanShouldFail = options.capturePlanShouldFail ?? false;
+  const capturePlanFailureStatus = options.capturePlanFailureStatus ?? 500;
+  const capturePlanFailureDetail = options.capturePlanFailureDetail ?? 'Mocked capture plan creation failed';
   const capturePlanTopicsRequests = options.capturePlanTopicsRequests;
   const capturePlanValidationRequests = options.capturePlanValidationRequests;
   const captureStartRequests = options.captureStartRequests;
@@ -1341,6 +1347,9 @@ async function installAndritzMocks(
       const body = request.postDataJSON() as Record<string, unknown>;
       capturePlanRequests?.push(body);
       currentCaptureSessionTitle = String(body['title'] || currentCaptureSessionTitle);
+      if (capturePlanShouldFail) {
+        return json(route, { detail: capturePlanFailureDetail }, capturePlanFailureStatus);
+      }
       return json(
         route,
         capturePlannedSession
@@ -1911,6 +1920,34 @@ test.describe('Andritz mocked browser smoke', () => {
 
     await page.goto('/chat');
     await expect(page.locator('body')).toContainText(/Chat|Question rapide|Posez votre question|Quick ask|Ask/i);
+  });
+
+  test('renders an empty Knowledge Capture dashboard without mutating capture data', async ({ page }) => {
+    const captureMutations: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (
+        url.pathname.includes('/api/v1/knowledge-capture')
+        && ['POST', 'PATCH', 'DELETE'].includes(request.method())
+      ) {
+        captureMutations.push(`${request.method()} ${url.pathname}`);
+      }
+    });
+    await installAndritzMocks(page);
+
+    await page.goto('/knowledge/capture');
+    await expect(page.locator('body')).toContainText(/Sessions de capture|Capture sessions/i);
+    await expect(page.getByRole('button', { name: /Nouvelle capture|Nouvelle session|New capture|New session/i }).first()).toBeVisible();
+    await expect(page.locator('body')).toContainText(/Aucune session pour l’instant|No sessions yet/i);
+    await expect(page.locator('body')).toContainText(/Afficher les sessions archivées|Show archived sessions/i);
+
+    const publishedTab = page.getByRole('button', { name: /Fiches publiées|Published sheets/i });
+    await expect(publishedTab).toBeVisible();
+    await publishedTab.click();
+    await expect(page.locator('body')).toContainText(/Fiches publiées|Published knowledge sheets/i);
+    await expect(page.locator('body')).toContainText(/Aucune fiche publiée pour l’instant|No published sheets yet/i);
+
+    expect(captureMutations).toEqual([]);
   });
 
   test('shows disabled SFTP connector as ready but not configured', async ({ page }) => {
@@ -4067,6 +4104,48 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.locator('body')).toContainText(/Andritz QA accepted capture report/i);
   });
 
+  test('keeps Knowledge Capture preparation blocked when the title is blank', async ({ page }) => {
+    const capturePlanRequests: unknown[] = [];
+    await installAndritzMocks(page, { capturePlanRequests });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await expect(page.locator('body')).toContainText(/Préparer la capture|Prepare the capture/i);
+    const continueButton = page.getByRole('button', { name: /^Continuer$|^Continue$/i });
+    await expect(continueButton).toBeDisabled();
+    await expect(page.locator('body')).toContainText(/Renseignez un titre de session pour continuer|session title/i);
+
+    await page.getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i).fill('   ');
+    await expect(continueButton).toBeDisabled();
+    expect(capturePlanRequests).toEqual([]);
+  });
+
+  test('keeps Knowledge Capture preparation editable when session creation fails', async ({ page }) => {
+    const capturePlanRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlanRequests,
+      capturePlanShouldFail: true,
+      capturePlanFailureDetail: 'Mocked plan service unavailable',
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    const titleInput = page.getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i);
+    await titleInput.fill('Andritz QA plan failure smoke');
+    const continueButton = page.getByRole('button', { name: /^Continuer$|^Continue$/i });
+    await continueButton.click();
+
+    await expect.poll(() => capturePlanRequests.length).toBe(1);
+    await expect(page.locator('body')).toContainText(/Préparation de session impossible|session preparation failed|réessayez|try again/i);
+    await expect(titleInput).toHaveValue('Andritz QA plan failure smoke');
+    await expect(continueButton).toBeEnabled();
+    await expect(page.locator('body')).not.toContainText(/Conversation libre|Free conversation/i);
+    expect(capturePlanRequests[0]).toMatchObject({
+      title: 'Andritz QA plan failure smoke',
+      plan_mode: 'free_conversation',
+    });
+  });
+
   test('creates a no-plan capture from the browser without exposing the plan rail', async ({ page }) => {
     const capturePlanRequests: unknown[] = [];
     await installAndritzMocks(page, { capturePlanRequests });
@@ -5273,6 +5352,64 @@ test.describe('Andritz mocked browser smoke', () => {
       include_sources: true,
       include_reasoning: true,
     });
+  });
+
+  test('records Recherche feedback on a promoted Deep Search answer without changing its scope', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const workspaceJobRequests: string[] = [];
+    const auditRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      workspaceJobRequests,
+      auditRequests,
+      chatStreamDeepQueued: true,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Note la réponse approfondie Andritz QA.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    await expect.poll(() => workspaceJobRequests.length, { timeout: 6_000 }).toBeGreaterThanOrEqual(1);
+    await expect(page.getByText('Synthetic deep retrieval answer with expanded Andritz evidence')).toBeVisible();
+
+    const deepAnswer = page
+      .locator('div.flex.flex-col.gap-2')
+      .filter({ hasText: 'Synthetic deep retrieval answer with expanded Andritz evidence' })
+      .last();
+    const helpful = deepAnswer.getByRole('button', { name: 'Helpful', exact: true });
+    await helpful.click();
+    await expect(helpful).toHaveClass(/text-emerald-400/);
+    await expect(deepAnswer.getByText('Synthetic deep retrieval answer with expanded Andritz evidence')).toBeVisible();
+
+    const deepSourcesToggle = deepAnswer.getByRole('button', { name: /Sources · 1|1 sources/i });
+    await expect(deepSourcesToggle).toBeVisible();
+    await deepSourcesToggle.click();
+    await expect(deepAnswer.getByText(/Andritz deep evidence|andritz-deep-evidence\.pdf/i)).toBeVisible();
+
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatStreamRequests).toHaveLength(1);
+    await expect.poll(() => auditRequests.filter((entry) => (entry as { event_type?: string }).event_type === 'chat_feedback').length).toBe(1);
+    expect(auditRequests).toContainEqual(
+      expect.objectContaining({
+        event_type: 'chat_feedback',
+        details: expect.objectContaining({
+          message_id: 'deep-msg-andritz-1',
+          verdict: 'up',
+        }),
+      }),
+    );
   });
 
   test('sends the selected Recherche system scope in the chat payload', async ({ page }) => {

@@ -901,6 +901,9 @@ interface ProposalFact {
             @if (preparationBlockingHint(); as hint) {
               <p class="-mt-3 text-right text-[11px] text-amber-200/85">{{ hint }}</p>
             }
+            @if (voiceNotice(); as notice) {
+              <p [class]="voiceNoticePanelClass()">{{ notice }}</p>
+            }
           </div>
         </section>
       }
@@ -4530,7 +4533,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
             this.conversationMode.set('conversation_only');
           }
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          this.loading.set(false);
+          this.setVoiceNotice('Préparation de session impossible. Vérifiez le backend, puis réessayez.', 'error');
+        },
       });
   }
 
