@@ -11014,6 +11014,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   onSourcePreviewViewChanged(change: DocumentPreviewViewChange): void {
     const doc = this.sourcePreviewCaptureDocument();
     if (!doc) return;
+    this.sourcePreviewPage.set(change.page || null);
     this.persistCaptureDocumentView(doc, {
       page: change.page || undefined,
       association_mode: 'active_view',

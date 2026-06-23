@@ -4106,6 +4106,95 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(capturePlanRequests).toHaveLength(1);
   });
 
+  test('updates written capture document refs after a preview page change', async ({ page }) => {
+    const captureDocumentUploadRequests: string[] = [];
+    const captureDocumentPreviewRequests: string[] = [];
+    const captureDocumentViewRequests: unknown[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureDocumentUploadRequests,
+      captureDocumentPreviewRequests,
+      captureDocumentViewRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA document page-change smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+    await captureDocuments.locator('input[type="file"]').setInputFiles({
+      name: 'andritz-capture-reference.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('Synthetic Andritz capture reference PDF content.'),
+    });
+    await expect.poll(() => captureDocumentUploadRequests.length).toBe(1);
+    await page.getByRole('button', { name: /Andritz capture reference/i }).click();
+    await expect.poll(() => captureDocumentPreviewRequests.length).toBe(1);
+    await expect.poll(() => captureDocumentViewRequests.length).toBe(1);
+    expect(captureDocumentViewRequests[0]).toMatchObject({
+      document_id: 'doc-capture-reference',
+      page: 1,
+      association_mode: 'active_view',
+    });
+
+    await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      component.onSourcePreviewViewChanged({
+        kind: 'pdf',
+        filename: 'andritz-capture-reference.pdf',
+        page: 2,
+      });
+    });
+
+    await expect.poll(() => captureDocumentViewRequests.length).toBe(2);
+    expect(captureDocumentViewRequests[1]).toMatchObject({
+      document_id: 'doc-capture-reference',
+      collection: 'capture-session-session-andritz-free-smoke',
+      collection_name: 'capture-session-session-andritz-free-smoke',
+      filename: 'andritz-capture-reference.pdf',
+      title: 'Andritz capture reference',
+      page: 2,
+      association_mode: 'active_view',
+    });
+    await page.getByRole('button', { name: /Close preview/i }).click();
+    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 2/i)).toBeVisible();
+
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('Sur cette page 2, le réducteur Andritz est identifié.');
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'Sur cette page 2, le réducteur Andritz est identifié.',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [
+        expect.objectContaining({
+          document_id: 'doc-capture-reference',
+          filename: 'andritz-capture-reference.pdf',
+          page: 2,
+          association_mode: 'active_view',
+        }),
+      ],
+      visual_context: expect.objectContaining({
+        document_id: 'doc-capture-reference',
+        filename: 'andritz-capture-reference.pdf',
+        page: 2,
+        association_mode: 'active_view',
+      }),
+    });
+  });
+
   test('keeps written capture references scoped to the latest active document', async ({ page }) => {
     const captureDocumentUploadRequests: string[] = [];
     const captureDocumentPreviewRequests: string[] = [];
