@@ -29,16 +29,13 @@ class _FakeQdrantClient:
 
     def facet(self, *, collection_name, key, facet_filter, limit, exact):  # noqa: ARG002
         assert key == "project_code"
-        # Each must-clause is a nested Filter OR-ing the term's case variants; the
-        # first should-variant is the folded (lowercase) term used as mapping key.
-        terms = tuple(
-            per_term.should[0].match.text for per_term in facet_filter.must
-        )
-        # Every term must contribute its uppercase variant so a case-sensitive
-        # MatchText scan over an un-indexed content field stays exhaustive.
-        for per_term in facet_filter.must:
-            variants = {condition.match.text for condition in per_term.should}
-            assert any(v.isupper() for v in variants), variants
+        # Each must-clause is a single content MatchText (the lowercase content
+        # full-text index makes the match case-insensitive — no case-variant OR).
+        terms = tuple(condition.match.text for condition in facet_filter.must)
+        for condition in facet_filter.must:
+            assert condition.key == "content"
+            # Terms are folded lowercase; no uppercase variants are emitted.
+            assert condition.match.text == condition.match.text.lower()
         self.facet_calls.append(terms)
         hits = self._mapping.get(terms, [])
         return _FakeFacetResponse([_FakeHit(code, count) for code, count in hits])
@@ -76,14 +73,6 @@ def _patch_factory(monkeypatch, db_by_slug):
 )
 def test_extract_inventory_terms_keeps_only_salient_equipment(query, expected):
     assert pi.extract_inventory_terms(query) == expected
-
-
-def test_term_case_variants_cover_brand_casings():
-    # The content field has no full-text index, so MatchText is case-sensitive;
-    # equipment brands are canonically uppercase in the corpus. Each term must
-    # therefore be matched in lower/UPPER/Title casing.
-    assert pi._term_case_variants("uraca") == ["uraca", "URACA", "Uraca"]
-    assert pi._term_case_variants("kd724") == ["kd724", "KD724", "Kd724"]
 
 
 def test_query_targets_projects():

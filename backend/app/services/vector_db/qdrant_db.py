@@ -61,6 +61,45 @@ _SPARSE_VECTOR_NAME = "sparse"
 _SPARSE_HASH_BUCKETS = 2_000_003
 _SPARSE_TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9_.-]{2,}")
 
+# Full-text index on the ``content`` payload field. Separate from the KEYWORD
+# fields above: it powers the exhaustive inventory facet (project_inventory),
+# turning a ~44 s full payload scan over 1.57 M points into a sub-second
+# inverted-index lookup, and makes ``MatchText`` case-insensitive (lowercase=True),
+# which removes the case-variant hack in project_inventory.
+#
+# Params decided empirically in the rollout's Phase 0 measurement GATE
+# (qdrant/qdrant:v1.12.5-unprivileged supports ``multilingual``):
+#   tokenizer=multilingual (FR/EN/DE/ES corpus), min_token_len=2, max_token_len=30,
+#   lowercase=True, on_disk=True (keep the inverted index off the heap — the box
+#   runs without swap).
+#
+# Growth rule (Phase 0): this index costs ~1.65 GiB RAM and ~0.61 GB disk per 1 M
+# points (~2.6 GiB RAM / ~0.95 GB disk at the current 1.57 M points). The
+# DOMINANT growth constraint is NOT this index but the dense 1536-d vectors held
+# in RAM (``on_disk=None``); moving the dense vectors ``on_disk`` is the future
+# lever if the box saturates (out of scope here).
+_CONTENT_TEXT_INDEX_FIELD = "content"
+
+
+def _content_text_index_schema() -> Any:
+    """Build the ``content`` full-text index schema (defensive import).
+
+    Returns ``None`` on an older qdrant-client without ``TextIndexParams`` so the
+    lazy ensure path simply skips the text index instead of raising.
+    """
+    try:
+        from qdrant_client.models import TextIndexParams, TokenizerType
+    except Exception:  # pragma: no cover - old client fallback.
+        return None
+    return TextIndexParams(
+        type="text",
+        tokenizer=TokenizerType.MULTILINGUAL,
+        min_token_len=2,
+        max_token_len=30,
+        lowercase=True,
+        on_disk=True,
+    )
+
 
 def _sanitize_payload(metadata: Dict[str, Any]) -> Dict[str, Any]:
     """Qdrant payload: JSON-serializable scalars and keyword arrays."""
@@ -303,6 +342,24 @@ class QdrantVectorDB(VectorDBBase):
                     "Qdrant payload index skipped",
                     collection=self.collection_name,
                     field=field,
+                    error=str(exc),
+                )
+        # Full-text index on ``content`` (separate from the KEYWORD loop above).
+        # wait=False keeps the lazy ensure path cheap; the heavy build for
+        # existing collections is done by scripts/backfill_content_text_index.py.
+        content_schema = _content_text_index_schema()
+        if content_schema is not None:
+            try:
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name=_CONTENT_TEXT_INDEX_FIELD,
+                    field_schema=content_schema,
+                    wait=False,
+                )
+            except Exception as exc:  # noqa: BLE001 - idempotent/index-exists/old-server path.
+                logger.debug(
+                    "Qdrant content text index skipped",
+                    collection=self.collection_name,
                     error=str(exc),
                 )
         self._payload_indexes_ensured = True

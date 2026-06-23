@@ -34,6 +34,29 @@ async def test_create_index_creates_when_missing():
 
 
 @pytest.mark.asyncio
+async def test_create_index_builds_content_full_text_index():
+    client = MagicMock()
+    client.collection_exists.return_value = False
+    db = QdrantVectorDB(collection_name="my_col", client=client)
+    await db.create_index(dimension=4)
+    content_calls = [
+        call for call in client.create_payload_index.call_args_list if call.kwargs.get("field_name") == "content"
+    ]
+    assert len(content_calls) == 1
+    schema = content_calls[0].kwargs["field_schema"]
+    # Phase 0 decided params: multilingual tokenizer, lowercase, on_disk, 2..30.
+    assert str(getattr(schema.tokenizer, "value", schema.tokenizer)) == "multilingual"
+    assert schema.lowercase is True
+    assert schema.on_disk is True
+    assert schema.min_token_len == 2
+    assert schema.max_token_len == 30
+    # Lazy ensure path must not block on the heavy build.
+    assert content_calls[0].kwargs["wait"] is False
+    # ``content`` is a separate text index, never added to the KEYWORD loop.
+    assert "content" not in _PAYLOAD_INDEX_FIELDS
+
+
+@pytest.mark.asyncio
 async def test_create_index_can_create_dense_sparse_named_vectors(monkeypatch):
     monkeypatch.setattr(settings, "rag_qdrant_sparse_enabled", True)
     client = MagicMock()
