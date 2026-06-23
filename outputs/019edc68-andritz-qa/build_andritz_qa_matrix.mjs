@@ -75,6 +75,7 @@ const features = [
       { type: "Happy path", scenario: "Ask a normal Andritz knowledge question", steps: "Enter a business question and send.", expected: "Assistant streams or returns an answer with stable final state." },
       { type: "Error path", scenario: "Backend stream timeout", steps: "Simulate or observe slow response beyond configured timeout.", expected: "UI stops streaming and displays recoverable error without losing the user prompt.", severityIfFails: "High" },
       { type: "Boundary", scenario: "Very long prompt", steps: "Paste a long question near client/server limits and send.", expected: "Request is accepted or rejected with clear validation; UI remains responsive." },
+      { type: "Regression", scenario: "Mocked Recherche quick ask stream", steps: "Open /chat, send a workspace question with mocked SSE retrieval/text chunks.", expected: "The browser shows the user question, streamed answer, source count and source detail; payload includes session_id, stream=true and include_sources=true.", severityIfFails: "High" },
     ],
   },
   {
@@ -388,6 +389,7 @@ const features = [
       { type: "Happy path", scenario: "Create free conversation session", steps: "Select free conversation and continue.", expected: "Capture opens in conversation_only without manual composer unless fallback." },
       { type: "Happy path", scenario: "Create provided plan session", steps: "Provide plan and approve.", expected: "Plan rail and breadcrumb guide capture." },
       { type: "Regression", scenario: "Free conversation report", steps: "Capture material and finalize.", expected: "Report is structured with Synthese de la capture topic.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Browser creates no-plan capture", steps: "Open Knowledge Capture, click New capture, fill a title and continue with Sans plan selected.", expected: "The browser posts plan_mode=free_conversation, opens the capture surface and hides the Plan rail.", severityIfFails: "High" },
     ],
   },
   {
@@ -2189,6 +2191,48 @@ const executionEvidence = [
     notes:
       "Adds a mocked Knowledge search context-reset smoke and verifies DEF-2026-06-23-COL-008B after the search drawer stale-state fix.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-011",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "13 passed, 0 failed",
+    duration: "21.0s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the accepted capture proposal case counts /publish requests and proves none are sent when opening review or moving to the publish step, then exactly one is sent after the explicit Publish click. No VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds a mocked explicit-publication guard for Knowledge Capture: an accepted proposal can be reviewed and opened in Publish without auto-publication; publication occurs only after the final user click.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-012",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "14 passed, 0 failed",
+    duration: "23.0s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the no-plan capture creation case posts only to mocked /knowledge-capture/plans, records the request payload, returns a synthetic free_conversation_v1 session and verifies the Plan rail is hidden. No backend calls, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Knowledge Capture free-conversation creation: New capture -> title -> Sans plan sends plan_mode=free_conversation and opens the capture surface without exposing a Plan rail.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-013",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "15 passed, 0 failed",
+    duration: "23.3s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the Recherche quick-ask case mocks /sessions and /chat/stream SSE chunks, records only the request payload and verifies source rendering. No backend calls, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for Chat Recherche quick ask: a mocked SSE response displays the streamed answer, source count and source detail while proving the payload requests streaming and sources.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2214,6 +2258,7 @@ const executedTestResults = new Map([
   pass("KCAP-004-T01", "Mapped to free-conversation plan creation API tests."),
   pass("KCAP-004-T02", "Mapped to provided-plan creation API tests."),
   pass("KCAP-004-T03", "Mapped to free-conversation structured proposal API tests."),
+  pass("KCAP-004-T04", "Mapped to local Playwright mocked no-plan capture creation smoke proving the browser sends plan_mode=free_conversation and hides the Plan rail.", 23),
   pass("KCAP-019-T01", "Mapped to closure/free-conversation finish structured proposal tests."),
   pass("KCAP-026-T01", "Mapped to POST proposal on free session with material returning structured topic."),
   pass("KCAP-026-T02", "Mapped to closure finish free session returning structured proposal shape."),
@@ -2298,6 +2343,7 @@ const executedTestResults = new Map([
   pass("KCAP-001-T07", "Mapped to local Playwright mocked reviewer IAM matrix smoke proving the New/Nouvelle capture action is enabled on /knowledge/capture.", 16),
   pass("CHT-002-T01", "Mapped to chat stream hardening happy-path answer tests.", 2),
   pass("CHT-002-T02", "Mapped to controlled chat stream timeout/error tests.", 2),
+  pass("CHT-002-T04", "Mapped to local Playwright mocked Recherche quick-ask SSE smoke proving the stream payload, answer rendering and source panel are visible without real backend data.", 24),
   pass("CHT-006-T01", "Mapped to selected context collection stream tests.", 2),
   pass("CHT-007-T01", "Mapped to stable SSE retrieval/text/final lifecycle tests.", 2),
   pass("CHT-007-T02", "Mapped to timeout/error lifecycle tests; browser network interruption remains pending.", 2),
@@ -2350,6 +2396,8 @@ const executedTestResults = new Map([
   pass("KCAP-023-T02", "Mapped to open-question status tests for defer/restore/invalidate with proposal metrics and audit events.", 8),
   pass("KCAP-024-T01", "Mapped to capture plan turn/review proposal service tests that accept a proposal through review state.", 8),
   pass("KCAP-025-T01", "Mapped to publish_proposal_to_knowledge service tests that publish an accepted proposal and persist export URLs.", 8),
+  pass("KCAP-025-T01", "Mapped to local Playwright mocked accepted-proposal flow proving the Publish step requires an explicit final click before /publish is called.", 22),
+  pass("KCAP-025-T02", "Mapped to local Playwright mocked accepted-proposal flow proving opening Review and Continue to publication do not send /publish.", 22),
   pass("KCAP-025-T03", "Mapped to capture-document publication promotion tests rewriting report sources to the publication collection.", 8),
   pass("KCAP-029-T01", "Mapped to defer voice/quality-item and oracle backlog status tests.", 8),
   pass("KCAP-030-T01", "Mapped to amend_capture_event service test proving effective transcript text changes are auditable.", 8),

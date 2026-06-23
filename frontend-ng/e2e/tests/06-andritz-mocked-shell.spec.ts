@@ -43,6 +43,19 @@ function json(route: Route, body: unknown, status = 200) {
   });
 }
 
+function sse(route: Route, chunks: unknown[]) {
+  const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n';
+  return route.fulfill({
+    status: 200,
+    contentType: 'text/event-stream',
+    headers: {
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+    body,
+  });
+}
+
 function emptyOperations() {
   return {
     stale_after_hours: 24,
@@ -80,6 +93,112 @@ function emptyOperations() {
   };
 }
 
+function acceptedCaptureSession() {
+  return {
+    id: 'session-andritz-qa',
+    title: 'Andritz QA capture',
+    objective: 'Capture synthetic Andritz QA knowledge.',
+    status: 'completed',
+    plan: {
+      schema_version: 'free_conversation_v1',
+      mode: 'free_conversation',
+      topics: [],
+    },
+    transcript: [
+      {
+        id: 'turn-andritz-qa',
+        speaker: 'expert',
+        text: 'Synthetic Andritz QA fact for explicit publication guard.',
+      },
+    ],
+    metrics: {},
+    open_questions_count: 0,
+    created_by_user_id: user.id,
+    created_by_label: user.email,
+    completed_at: '2026-06-23T00:00:00Z',
+    last_activity: '2026-06-23T00:00:00Z',
+  };
+}
+
+function acceptedCaptureProposal() {
+  return {
+    id: 'proposal-andritz-qa',
+    status: 'accepted',
+    session_id: 'session-andritz-qa',
+    created_by_user_id: user.id,
+    proposal: {
+      title: 'Andritz QA accepted capture report',
+      objective: 'Capture synthetic Andritz QA knowledge.',
+      report_markdown:
+        '# Fiche connaissance - Andritz QA\n\n## Synthèse de la capture\n- Synthetic Andritz QA fact for explicit publication guard.',
+      captured_facts: [
+        {
+          id: 'fact-andritz-qa',
+          text: 'Synthetic Andritz QA fact for explicit publication guard.',
+          source: 'capture',
+          confidence: 0.91,
+        },
+      ],
+      plan_structure: {
+        topics: [
+          {
+            topic_id: 'session',
+            title: 'Synthèse de la capture',
+            facts: [
+              {
+                id: 'fact-andritz-qa',
+                text: 'Synthetic Andritz QA fact for explicit publication guard.',
+                source: 'capture',
+                confidence: 0.91,
+              },
+            ],
+            subtopics: [],
+            sources: [],
+            open_questions: [],
+          },
+        ],
+      },
+      open_questions: [],
+      recommended_ingestion: {
+        title: 'Andritz QA accepted capture report',
+        content:
+          '# Fiche connaissance - Andritz QA\n\n## Synthèse de la capture\n- Synthetic Andritz QA fact for explicit publication guard.',
+        metadata: { publication_category: 'technical' },
+      },
+      publication: {
+        category: 'technical',
+        destination: 'andritz-qa',
+        destination_scope: 'andritz-qa',
+        final_title: 'Andritz QA accepted capture report',
+        include_unresolved_questions: true,
+        suggested: true,
+      },
+      audit: { event_count: 1, amendment_count: 0 },
+    },
+  };
+}
+
+function createdFreeConversationSession(title = 'Andritz QA free conversation smoke') {
+  return {
+    id: 'session-andritz-free-smoke',
+    title,
+    objective: 'Capture synthetic Andritz QA knowledge.',
+    status: 'draft',
+    plan: {
+      schema_version: 'free_conversation_v1',
+      mode: 'free_conversation',
+      topics: [],
+      questions: [],
+    },
+    transcript: [],
+    metrics: {},
+    open_questions_count: 0,
+    created_by_user_id: user.id,
+    created_by_label: user.email,
+    last_activity: '2026-06-23T00:00:00Z',
+  };
+}
+
 async function installAndritzMocks(
   page: Page,
   options: {
@@ -88,6 +207,9 @@ async function installAndritzMocks(
     collectionsShouldFail?: boolean;
     documentListShouldFail?: boolean;
     searchShouldFail?: boolean;
+    acceptedProposal?: boolean;
+    capturePlanRequests?: unknown[];
+    chatStreamRequests?: unknown[];
   } = {},
 ) {
   const roleTemplate = options.roleTemplate ?? 'workspace_admin';
@@ -95,6 +217,9 @@ async function installAndritzMocks(
   const collectionsShouldFail = options.collectionsShouldFail ?? false;
   const documentListShouldFail = options.documentListShouldFail ?? false;
   const searchShouldFail = options.searchShouldFail ?? false;
+  const includeAcceptedProposal = options.acceptedProposal ?? false;
+  const capturePlanRequests = options.capturePlanRequests;
+  const chatStreamRequests = options.chatStreamRequests;
   const legacyRole = roleTemplate === 'workspace_reviewer' ? 'member' : 'admin';
   const activeWorkspace = {
     ...workspace,
@@ -158,6 +283,7 @@ async function installAndritzMocks(
           { resource_kind: 'capture_session', action: 'update', roles: [roleTemplate], conditions: ['owner_match'], policy_id: 'qa', allowed_for_subject: true },
           { resource_kind: 'capture_session', action: 'execute', roles: [roleTemplate], conditions: ['owner_match'], policy_id: 'qa', allowed_for_subject: true },
           { resource_kind: 'knowledge_proposal', action: 'review_decide', roles: [roleTemplate], conditions: [], policy_id: 'qa', allowed_for_subject: true },
+          { resource_kind: 'knowledge_proposal', action: 'trigger_ingestion', roles: [roleTemplate], conditions: ['second_eye_ingestion'], policy_id: 'qa', allowed_for_subject: true },
         ],
       });
     }
@@ -222,14 +348,44 @@ async function installAndritzMocks(
       });
     }
 
+    if (path === '/knowledge-capture/plans' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      capturePlanRequests?.push(body);
+      return json(route, createdFreeConversationSession(String(body['title'] || 'Andritz QA free conversation smoke')));
+    }
     if (path === '/knowledge-capture/sessions') {
-      return json(route, { sessions: [] });
+      return json(route, { sessions: includeAcceptedProposal ? [acceptedCaptureSession()] : [] });
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/documents') {
+      return json(route, { documents: [] });
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/events') {
+      return json(route, { events: [] });
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/quality-backlog') {
+      return json(route, { imprecisions: [], contradictions: [], open_questions: [] });
     }
     if (path === '/knowledge-capture/proposals') {
-      return json(route, { proposals: [] });
+      return json(route, { proposals: includeAcceptedProposal ? [acceptedCaptureProposal()] : [] });
     }
     if (path === '/knowledge-capture/fiches') {
       return json(route, { fiches: [], total: 0, limit: 100, offset: 0, has_more: false });
+    }
+    if (path === '/knowledge-capture/proposals/proposal-andritz-qa/content') {
+      return json(route, acceptedCaptureProposal());
+    }
+    if (path === '/knowledge-capture/proposals/proposal-andritz-qa/publish') {
+      return json(route, {
+        proposal_id: 'proposal-andritz-qa',
+        status: 'published',
+        collection: 'andritz-qa',
+        document_id: 'doc-published-andritz-qa',
+        chunks_processed: 1,
+        category: 'technical',
+        destination: 'andritz-qa',
+        final_title: 'Andritz QA accepted capture report',
+        export_urls: { download_url: '/api/v1/documents/doc-published-andritz-qa/download' },
+      });
     }
 
     if (path === '/sftp/health') {
@@ -273,6 +429,60 @@ async function installAndritzMocks(
       });
     }
 
+    if (path === '/sessions' && method === 'GET') {
+      return json(route, { sessions: [] });
+    }
+    if (path === '/sessions' && method === 'POST') {
+      return json(route, {
+        id: 'chat-session-andritz-qa',
+        title: 'Synthetic Andritz QA chat',
+        status: 'active',
+        message_count: 0,
+        updated_at: '2026-06-23T00:00:00Z',
+      });
+    }
+    if (path === '/sessions/chat-session-andritz-qa') {
+      return json(route, {
+        id: 'chat-session-andritz-qa',
+        title: 'Synthetic Andritz QA chat',
+        status: 'active',
+        messages: [],
+      });
+    }
+    if (path === '/chat/stream' && method === 'POST') {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      chatStreamRequests?.push(body);
+      return sse(route, [
+        {
+          chunk_type: 'session',
+          session_id: 'chat-session-andritz-qa',
+        },
+        {
+          chunk_type: 'retrieval',
+          phase: 'completed',
+          details: {
+            latency_profile: 'fast',
+            retrieval_scope: { collection: 'andritz-qa' },
+            candidate_counts: { dense: 1, selected: 1 },
+          },
+        },
+        {
+          chunk_type: 'text',
+          content: 'Synthetic Andritz QA answer with cited source [1].',
+          sources: [
+            {
+              id: 'src-andritz-qa',
+              document_id: 'doc-andritz-qa',
+              filename: 'andritz-qa-safe.pdf',
+              title: 'Andritz QA safe document',
+              snippet: 'Synthetic Andritz QA source snippet.',
+              collection: 'andritz-qa',
+              score: 0.91,
+            },
+          ],
+        },
+      ]);
+    }
     if (path.startsWith('/chat/')) {
       return json(route, path.endsWith('/sessions') ? { sessions: [] } : {});
     }
@@ -427,5 +637,79 @@ test.describe('Andritz mocked browser smoke', () => {
       .first();
     await expect(newCapture).toBeVisible();
     await expect(newCapture).toBeEnabled();
+  });
+
+  test('requires an explicit publish click for an accepted capture proposal', async ({ page }) => {
+    let publishRequests = 0;
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.endsWith('/api/v1/knowledge-capture/proposals/proposal-andritz-qa/publish')) {
+        publishRequests += 1;
+      }
+    });
+    await installAndritzMocks(page, { acceptedProposal: true });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /Andritz QA accepted capture report/i }).click();
+    await expect(page.getByRole('heading', { name: /Andritz QA accepted capture report/i })).toBeVisible();
+    await expect(page.locator('body')).toContainText(/Rapport final éditable|Editable final report/i);
+    expect(publishRequests).toBe(0);
+
+    await page.getByRole('button', { name: /Continuer vers publication|Continue to publication/i }).click();
+    await expect(page.locator('body')).toContainText(/Aperçu de la fiche|Sheet preview/i);
+    expect(publishRequests).toBe(0);
+
+    await page.getByRole('button', { name: /Publier dans la base de connaissances|Publish to knowledge base/i }).click();
+    await expect.poll(() => publishRequests).toBe(1);
+    await expect(page.locator('body')).toContainText(/Andritz QA accepted capture report/i);
+  });
+
+  test('creates a no-plan capture from the browser without exposing the plan rail', async ({ page }) => {
+    const capturePlanRequests: unknown[] = [];
+    await installAndritzMocks(page, { capturePlanRequests });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await expect(page.locator('body')).toContainText(/Préparer la capture|Prepare the capture/i);
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA free conversation smoke');
+    await expect(page.getByRole('button', { name: /Sans plan|Without plan/i })).toBeVisible();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA free conversation smoke' })).toBeVisible();
+    await expect(page.locator('body')).toContainText(/Conversation libre|Free conversation/i);
+    await expect(page.getByRole('button', { name: /^Plan$/ })).toHaveCount(0);
+    expect(capturePlanRequests).toHaveLength(1);
+    expect(capturePlanRequests[0]).toMatchObject({
+      title: 'Andritz QA free conversation smoke',
+      plan_mode: 'free_conversation',
+      voice_runtime: 'cascade_openai',
+    });
+  });
+
+  test('streams a mocked Recherche answer with source grounding without real backend data', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    await installAndritzMocks(page, { chatStreamRequests });
+
+    await page.goto('/chat');
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Que dit la documentation Andritz QA ?');
+    await input.press('Enter');
+
+    await expect(page.getByText('Que dit la documentation Andritz QA ?')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    const sourcesToggle = page.getByRole('button', { name: /Sources · 1|1 sources/i }).first();
+    await expect(sourcesToggle).toBeVisible();
+    await sourcesToggle.click();
+    await expect(page.getByText(/Andritz QA safe document|andritz-qa-safe\.pdf/i)).toBeVisible();
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Que dit la documentation Andritz QA ?',
+      session_id: 'chat-session-andritz-qa',
+      stream: true,
+      include_sources: true,
+      include_reasoning: true,
+    });
   });
 });
