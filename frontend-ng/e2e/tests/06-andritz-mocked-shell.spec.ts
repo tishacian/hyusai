@@ -574,6 +574,8 @@ async function installAndritzMocks(
     sftpArchiveBrowseRequests?: string[];
     sftpArchiveMemberPreviewRequests?: string[];
     sftpFileDownloadRequests?: string[];
+    sftpFileDownloadFailureDetail?: string;
+    sftpFileDownloadFailureStatus?: number;
     sftpArchiveMemberDownloadRequests?: string[];
     sftpLinkMutationRequests?: Array<{ path: string; body?: unknown }>;
     sftpLinkMutationShouldFail?: boolean;
@@ -650,6 +652,9 @@ async function installAndritzMocks(
   const sftpArchiveBrowseRequests = options.sftpArchiveBrowseRequests;
   const sftpArchiveMemberPreviewRequests = options.sftpArchiveMemberPreviewRequests;
   const sftpFileDownloadRequests = options.sftpFileDownloadRequests;
+  const sftpFileDownloadFailureDetail =
+    options.sftpFileDownloadFailureDetail ?? 'Mocked file download should not be called in this smoke';
+  const sftpFileDownloadFailureStatus = options.sftpFileDownloadFailureStatus ?? 500;
   const sftpArchiveMemberDownloadRequests = options.sftpArchiveMemberDownloadRequests;
   const sftpLinkMutationRequests = options.sftpLinkMutationRequests;
   const sftpLinkMutationShouldFail = options.sftpLinkMutationShouldFail ?? false;
@@ -1312,9 +1317,9 @@ async function installAndritzMocks(
     if (/^\/sftp\/deposits\/[^/]+\/download$/.test(path) && method === 'GET') {
       sftpFileDownloadRequests?.push(path);
       return route.fulfill({
-        status: 500,
+        status: sftpFileDownloadFailureStatus,
         contentType: 'application/json',
-        body: JSON.stringify({ detail: 'Mocked file download should not be called in this smoke' }),
+        body: JSON.stringify({ detail: sftpFileDownloadFailureDetail }),
       });
     }
     if (/^\/sftp\/deposits\/[^/]+\/archive$/.test(path) && method === 'GET') {
@@ -2129,6 +2134,66 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(sftpArchiveDownloadRequests).toHaveLength(0);
   });
 
+  test('runs SFTP reconciliation dry-run without quarantine mutation', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    const sftpOperationsRequests: string[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    await installAndritzMocks(page, {
+      sftpDepositFiles: syntheticSftpDepositFiles(),
+      sftpOperations: syntheticSftpOperations(),
+      sftpOperationsRequests,
+      sftpOperationsReconcileRequests,
+      sftpOperationsReconcileResponse: {
+        job: {
+          id: 'job-sftp-dry-run-refresh',
+          kind: 'sftp_reconciliation',
+          title: 'Synthetic SFTP reconciliation dry run refresh',
+          status: 'completed',
+          progress: 100,
+          stage: 'dry_run',
+          error: null,
+          input_ref: { mode: 'dry_run' },
+          result: {
+            counts: { stale_partials: 1, orphan_files: 1, missing_db_files: 0, pending_rows: 0 },
+            sizes: { stale_partial_bytes: 2_048, orphan_file_bytes: 4_096 },
+          },
+          created_at: '2026-06-23T00:35:00Z',
+          updated_at: '2026-06-23T00:35:05Z',
+          completed_at: '2026-06-23T00:35:05Z',
+        },
+      },
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+      sftpLinkMutationRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await expect(page.getByText(/2 quarantine candidates/i)).toBeVisible();
+    await page.getByRole('button', { name: /Run check/i }).click();
+    await expect(page.getByText('Reconciliation completed')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Run check/i })).toBeEnabled();
+    await expect.poll(() => sftpOperationsRequests.length).toBeGreaterThanOrEqual(2);
+
+    expect(sftpOperationsReconcileRequests).toEqual([
+      expect.objectContaining({
+        mode: 'dry_run',
+        stale_after_hours: 24,
+      }),
+    ]);
+    expect(sftpOperationsReconcileRequests).not.toContainEqual(expect.objectContaining({ mode: 'quarantine' }));
+    expect(sftpOperationsRequests.at(-1)).toContain('stale_after_hours=24');
+    expect(sftpLinkMutationRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
+  });
+
   test('requires explicit confirmation before SFTP quarantine mutation', async ({ page }) => {
     const sftpPromoteRequests: unknown[] = [];
     const sftpBulkPromoteRequests: unknown[] = [];
@@ -2376,6 +2441,72 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(sftpArchiveDownloadRequests).toHaveLength(0);
     expect(sftpFileDownloadRequests).toHaveLength(0);
     expect(sftpArchiveMemberDownloadRequests).toHaveLength(0);
+  });
+
+  test('shows a recoverable SFTP file download error without mutating synthetic files', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    const sftpFileDownloadRequests: string[] = [];
+    const sftpArchiveMemberDownloadRequests: string[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      sftpDepositFiles: syntheticSftpPreviewDepositFiles(),
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+      sftpFileDownloadRequests,
+      sftpFileDownloadFailureDetail: 'Mocked SFTP file download forbidden',
+      sftpArchiveMemberDownloadRequests,
+      sftpOperationsReconcileRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await page.locator('input[name="queueSearch"]').fill('pump');
+    await page.getByTitle('Download file').click();
+    await expect(page.getByText('Unable to download file.')).toBeVisible();
+    await expect(page.getByTitle('Download file')).toBeEnabled();
+
+    expect(sftpFileDownloadRequests).toEqual(['/sftp/deposits/deposit-andritz-received-1/download']);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
+    expect(sftpArchiveMemberDownloadRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+  });
+
+  test('shows a recoverable SFTP archive download error without mutating synthetic files', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    const sftpFileDownloadRequests: string[] = [];
+    const sftpArchiveMemberDownloadRequests: string[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      sftpDepositFiles: syntheticSftpPreviewDepositFiles(),
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+      sftpFileDownloadRequests,
+      sftpArchiveMemberDownloadRequests,
+      sftpOperationsReconcileRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await page.getByRole('button', { name: /Download ZIP/i }).click();
+    await expect(page.getByText('Unable to download staging archive.')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Download ZIP/i })).toBeEnabled();
+
+    expect(sftpArchiveDownloadRequests).toEqual(['?status=received']);
+    expect(sftpFileDownloadRequests).toHaveLength(0);
+    expect(sftpArchiveMemberDownloadRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
   });
 
   test('hides Chat drop-and-ask upload controls when the workspace flag is disabled', async ({ page }) => {
