@@ -572,6 +572,7 @@ async function installAndritzMocks(
     sftpFileDownloadRequests?: string[];
     sftpArchiveMemberDownloadRequests?: string[];
     sftpLinkMutationRequests?: Array<{ path: string; body?: unknown }>;
+    sftpLinkMutationShouldFail?: boolean;
   } = {},
 ) {
   const roleTemplate = options.roleTemplate ?? 'workspace_admin';
@@ -638,6 +639,7 @@ async function installAndritzMocks(
   const sftpFileDownloadRequests = options.sftpFileDownloadRequests;
   const sftpArchiveMemberDownloadRequests = options.sftpArchiveMemberDownloadRequests;
   const sftpLinkMutationRequests = options.sftpLinkMutationRequests;
+  const sftpLinkMutationShouldFail = options.sftpLinkMutationShouldFail ?? false;
   let collectionDeleted = false;
   const createdCollections: string[] = [];
   let collectionPreviewRequestCount = 0;
@@ -1206,9 +1208,9 @@ async function installAndritzMocks(
 
     if (path === '/sftp/health') {
       return json(route, {
-        status: 'ok',
+        status: secureDepositEnabled ? 'ok' : 'disabled',
         workspace: 'andritz',
-        enabled: true,
+        enabled: secureDepositEnabled,
         default_allowed_extensions: ['.pdf', '.docx', '.pptx', '.xlsx', '.png', '.jpg'],
       });
     }
@@ -1220,6 +1222,9 @@ async function installAndritzMocks(
     if (path === '/sftp/links' && method === 'POST') {
       const body = request.postDataJSON() as Record<string, unknown>;
       sftpLinkMutationRequests?.push({ path, body });
+      if (sftpLinkMutationShouldFail) {
+        return json(route, { detail: 'Mocked SFTP link management permission denied' }, 403);
+      }
       return json(route, {
         link: {
           id: 'link-andritz-new',
@@ -1239,6 +1244,9 @@ async function installAndritzMocks(
     }
     if (/^\/sftp\/links\/[^/]+\/(rotate|revoke)$/.test(path) && method === 'POST') {
       sftpLinkMutationRequests?.push({ path, body: request.postDataJSON() });
+      if (sftpLinkMutationShouldFail) {
+        return json(route, { detail: 'Mocked SFTP link management permission denied' }, 403);
+      }
       return json(route, {
         link: {
           id: 'link-andritz-qa',
@@ -1473,6 +1481,38 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(sftpCard).not.toContainText(/configured|Config saved/i);
   });
 
+  test('keeps direct SFTP page read-only when Secure Deposit is disabled', async ({ page }) => {
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      secureDepositEnabled: false,
+      sftpLinkMutationRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpOperationsReconcileRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await expect(page.getByText(/Secure Deposit is not enabled for Andritz/i)).toBeVisible();
+    await expect(page.locator('input[name="label"]')).toBeDisabled();
+    await expect(page.locator('input[name="max"]')).toBeDisabled();
+    await expect(page.locator('input[name="expires"]')).toBeDisabled();
+    await expect(page.locator('input[name="extensions"]')).toBeDisabled();
+    await expect(page.getByRole('button', { name: /Create link/i })).toBeDisabled();
+    await expect(page.locator('section').filter({ hasText: 'Deposit links' }).first()).toContainText(
+      'Andritz QA external upload',
+    );
+
+    expect(sftpLinkMutationRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+  });
+
   test('copies an existing SFTP deposit URL without exposing a stored password or mutating links', async ({ page }) => {
     const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
     const sftpPromoteRequests: unknown[] = [];
@@ -1549,6 +1589,112 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect.poll(() => page.evaluate(() => window.localStorage.getItem('andritz_mock_clipboard'))).toBeNull();
 
     expect(sftpLinkMutationRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+  });
+
+  test('creates, rotates and revokes synthetic SFTP links without exposing stored passwords or promoting files', async ({ page }) => {
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      sftpLinkMutationRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpOperationsReconcileRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await page.locator('input[name="label"]').fill('Andritz QA one-time handoff');
+    await page.locator('input[name="max"]').fill('128');
+    await page.locator('input[name="expires"]').fill('2026-07-15');
+    await page.locator('input[name="extensions"]').fill('pdf, .docx, PPTX');
+    await page.getByRole('button', { name: /Create link/i }).click();
+
+    const shareOnce = page.locator('section').filter({ hasText: 'Share once' }).first();
+    await expect(shareOnce).toBeVisible();
+    await expect(shareOnce).toContainText('Andritz QA one-time handoff');
+    await expect(shareOnce).toContainText('temporary-secret-visible-once');
+    expect(sftpLinkMutationRequests).toEqual([
+      {
+        path: '/sftp/links',
+        body: expect.objectContaining({
+          label: 'Andritz QA one-time handoff',
+          max_file_size_mb: 128,
+          allowed_extensions: ['pdf', 'docx', 'pptx'],
+        }),
+      },
+    ]);
+    expect((sftpLinkMutationRequests[0]?.body as { expires_at?: string } | undefined)?.expires_at).toBe(
+      new Date('2026-07-15T23:59:59').toISOString(),
+    );
+
+    const depositLinks = page.locator('section').filter({ hasText: 'Deposit links' }).first();
+    await expect(depositLinks).toContainText('Andritz QA external upload');
+    await expect(depositLinks.getByText(/Password:/i)).toHaveCount(0);
+    await shareOnce.getByRole('button', { name: /Hide/i }).click();
+    await expect(page.getByText('temporary-secret-visible-once')).toHaveCount(0);
+    await expect(depositLinks.getByText(/Password:/i)).toHaveCount(0);
+
+    await depositLinks.getByRole('button', { name: /Rotate/i }).click();
+    await expect(shareOnce).toContainText('rotated-secret-visible-once');
+    await expect(depositLinks.getByText(/Password:/i)).toHaveCount(0);
+
+    await depositLinks.getByRole('button', { name: /Revoke/i }).click();
+    expect(sftpLinkMutationRequests).toEqual([
+      expect.objectContaining({ path: '/sftp/links' }),
+      { path: '/sftp/links/link-andritz-qa/rotate', body: {} },
+      { path: '/sftp/links/link-andritz-qa/revoke', body: {} },
+    ]);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+  });
+
+  test('keeps SFTP link state unchanged when link management is forbidden', async ({ page }) => {
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      roleTemplate: 'workspace_reviewer',
+      sftpLinkMutationRequests,
+      sftpLinkMutationShouldFail: true,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpOperationsReconcileRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    const depositLinks = page.locator('section').filter({ hasText: 'Deposit links' }).first();
+    await expect(depositLinks).toContainText('Andritz QA external upload');
+
+    await page.locator('input[name="label"]').fill('Andritz denied handoff');
+    await page.getByRole('button', { name: /Create link/i }).click();
+    await expect(page.getByText('Mocked SFTP link management permission denied')).toBeVisible();
+    await expect(page.getByText('Andritz denied handoff')).toHaveCount(0);
+    await expect(page.getByText('temporary-secret-visible-once')).toHaveCount(0);
+
+    await depositLinks.getByRole('button', { name: /Rotate/i }).click();
+    await expect(page.getByText('Unable to rotate password')).toBeVisible();
+    await expect(page.getByText('rotated-secret-visible-once')).toHaveCount(0);
+
+    await depositLinks.getByRole('button', { name: /Revoke/i }).click();
+    await expect(page.getByText('Unable to revoke link')).toBeVisible();
+    await expect(depositLinks).toContainText('active');
+    await expect(depositLinks.getByText(/Password:/i)).toHaveCount(0);
+
+    expect(sftpLinkMutationRequests).toEqual([
+      expect.objectContaining({ path: '/sftp/links' }),
+      { path: '/sftp/links/link-andritz-qa/rotate', body: {} },
+      { path: '/sftp/links/link-andritz-qa/revoke', body: {} },
+    ]);
     expect(sftpPromoteRequests).toHaveLength(0);
     expect(sftpBulkPromoteRequests).toHaveLength(0);
     expect(sftpOperationsReconcileRequests).toHaveLength(0);

@@ -1175,6 +1175,7 @@ const features = [
       { type: "Happy path", scenario: "Create synthetic deposit link", steps: "Create link with QA label.", expected: "Link appears; password reveal limited to creation response." },
       { type: "Security", scenario: "Rotate/revoke link", steps: "Rotate then revoke.", expected: "Old credentials fail; revoked link unusable.", severityIfFails: "Critical" },
       { type: "Permission/security", scenario: "Member manages links", steps: "Attempt create/revoke as non-operator.", expected: "Denied.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Browser link lifecycle stays explicit", steps: "Create a synthetic link, hide the one-time secret, rotate the stored link, then revoke it.", expected: "Only explicit link mutations are sent, stored-list passwords remain hidden, and no staged file promotion/reconciliation occurs." },
     ],
   },
   {
@@ -2832,6 +2833,48 @@ const executionEvidence = [
     notes:
       "Adds browser-level read-only coverage for SFTP staging queue link filtering and empty search/no files behavior.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-055",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "59 passed, 0 failed",
+    duration: "47.8s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the synthetic SFTP link-lifecycle case creates a mocked deposit link, verifies the generated password appears only in the one-time share panel and not in the stored link list, hides the secret, rotates the stored link, revokes it, and asserts no promote, bulk-promote or reconciliation mutation. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level explicit-lifecycle coverage for SFTP secure-deposit link creation, one-time secret handling, rotation and revocation.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-056",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "60 passed, 0 failed",
+    duration: "48.1s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the synthetic SFTP forbidden-link-management case uses a reviewer-shaped session with mocked 403 responses for create, rotate and revoke, verifies no fake link or one-time password is rendered, verifies the stored link remains active with hidden password state, and asserts no promote, bulk-promote or reconciliation mutation. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level permission-denial coverage for SFTP secure-deposit link management without creating fake credential or staged-file side effects.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-057",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://127.0.0.1:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "61 passed, 0 failed",
+    duration: "48.8s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 FORCE_COLOR/NO_COLOR warnings from local environment. Local run used 127.0.0.1 to reuse the existing dev server and avoid Playwright starting a second localhost server on ::1.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the synthetic SFTP disabled-health direct-route case returns secure-deposit health enabled=false, verifies the disabled warning and disabled create-link form controls, keeps existing link visibility read-only, and asserts no link, promote, bulk-promote or reconciliation mutation. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level disabled-workspace coverage for direct /connectors/sftp access: the page remains read-only and does not mutate link or staging state.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2957,6 +3000,10 @@ const executedTestResults = new Map([
   pass("SFTP-017-T03", "Mapped to local Playwright mocked SFTP clipboard-denied smoke proving a failed Copy URL action shows Copy failed without mutating links or staging data.", 64),
   pass("SFTP-005-T03", "Mapped to local Playwright mocked SFTP link-filter/empty-search smoke proving a no-match search renders an empty state without losing selected-link scope or mutating files.", 65),
   pass("SFTP-005-T04", "Mapped to local Playwright mocked SFTP link-filter smoke proving queue state is scoped to the selected deposit link without promote/bulk-promote/archive-download calls.", 65),
+  pass("SFTP-001-T04", "Mapped to local Playwright mocked SFTP link-lifecycle smoke proving create, hide one-time secret, rotate and revoke are explicit link mutations while stored passwords remain hidden and no staged-file mutation occurs.", 66),
+  pass("SFTP-001-T03", "Mapped to local Playwright mocked SFTP forbidden-link-management smoke proving create, rotate and revoke 403 responses show recoverable errors, do not create fake credential/link state, keep the stored link active, and avoid staged-file mutations.", 67),
+  pass("SFTP-015-T02", "Mapped to local Playwright mocked SFTP disabled-health direct-route smoke proving /connectors/sftp shows disabled state, disables create-link controls, keeps link visibility read-only and sends no mutation.", 68),
+  pass("SFTP-018-T03", "Mapped to local Playwright mocked SFTP direct-route disabled-health smoke proving direct page access remains non-mutating when secure deposit is disabled in workspace settings.", 68),
   pass("KCAP-001-T03", "Mapped to IAM engine tests proving reviewer capture permissions are explicit while non-owner operations remain denied.", 14),
   pass("KCAP-002-T04", "Mapped to IAM-enforced Knowledge Capture API test where a workspace_reviewer creates and starts a free-conversation capture session.", 14),
   pass("KCAP-001-T06", "Mapped to /iam/matrix API test proving workspace_reviewer receives capture_session create plus owner-scoped update/execute as allowed_for_subject.", 15),
@@ -3420,8 +3467,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[65].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "89/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link copy/password/copy-failure handoff safety, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser smoke: ${executionEvidence[68].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "89/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -4064,10 +4111,34 @@ const phaseRows = [
     executionEvidence[65].safetyScope,
     "Continue with read-only real-backend connector validation when safe; keep link creation/rotation/revocation and deposit promotion synthetic unless explicitly approved.",
   ],
+  [
+    executionEvidence[66].date,
+    "Phase 3 SFTP link lifecycle smoke",
+    "Extended the local Playwright Andritz smoke so synthetic link creation, one-time secret hiding, password rotation and revocation remain explicit, with stored-list passwords hidden and no staged-file promotion or reconciliation side effect.",
+    `${executionEvidence[66].result}; ${mappedPassedCountForEvidence(executionEvidence[66].id)} workbook test case mapped as Pass.`,
+    executionEvidence[66].safetyScope,
+    "Continue with read-only real-backend connector validation when safe; keep real link creation/rotation/revocation and deposit promotion out of automated tests unless explicitly approved.",
+  ],
+  [
+    executionEvidence[67].date,
+    "Phase 3 SFTP forbidden link management smoke",
+    "Extended the local Playwright Andritz smoke so mocked 403 responses for synthetic link creation, rotation and revocation show recoverable errors without creating fake credential/link state or touching staged-file workflows.",
+    `${executionEvidence[67].result}; ${mappedPassedCountForEvidence(executionEvidence[67].id)} workbook test case mapped as Pass.`,
+    executionEvidence[67].safetyScope,
+    "Continue with read-only real-backend connector validation when safe; keep real link creation/rotation/revocation and deposit promotion out of automated tests unless explicitly approved.",
+  ],
+  [
+    executionEvidence[68].date,
+    "Phase 3 SFTP disabled direct-route smoke",
+    "Extended the local Playwright Andritz smoke so a mocked secure-deposit disabled health state on direct /connectors/sftp access shows the disabled warning, disables create-link controls, keeps existing link visibility read-only and avoids link/staging mutations.",
+    `${executionEvidence[68].result}; ${mappedPassedCountForEvidence(executionEvidence[68].id)} workbook test cases mapped as Pass.`,
+    executionEvidence[68].safetyScope,
+    "Continue with read-only real-backend connector validation when safe; keep real link creation/rotation/revocation and deposit promotion out of automated tests unless explicitly approved.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F61"));
+styleBody(phase.getRange("A2:F64"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {
