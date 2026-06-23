@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J26", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A90:I125", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A85:F119", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A90:I128", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A85:F122", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -3657,6 +3657,48 @@ const executionEvidence = [
     notes:
       "Adds large workspace collection-list coverage: /documents/collections returns all 120 current-workspace ledger rows in newest-first order, excludes another workspace's collection, filters internal legacy names, de-duplicates legacy names already present in the ledger, preserves default selection, and omits document_names from list items.",
   },
+  {
+    id: "EXEC-2026-06-23-BE-034",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py -q",
+    result: "43 passed, 0 failed",
+    duration: "2.45s",
+    warnings:
+      "662 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new large retrieval-artifact dry-run case uses one synthetic workspace, a synthetic collection with large document/chunk counters, three synthetic source rows, tmp_path local object-store settings and a dispatch guard that fails if any worker is enqueued. It performs no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, worker dispatch, or vector/object-store mutation outside tmp_path.",
+    notes:
+      "Adds read-only large reindex assessment coverage: POST /documents/collections/{collection}/retrieval-artifact-jobs with qdrant_sparse_reindex dry_run returns a dry_run response, creates no WorkerJob, does not call dispatch_worker_job, preserves collection/source ledger state, and leaves the sentinel original object untouched.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-090",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "91 passed, 0 failed",
+    duration: "1.3m",
+    warnings:
+      "Node FORCE_COLOR/NO_COLOR warnings from the local Playwright environment.",
+    safetyScope:
+      "Local mocked Playwright browser smoke only. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new OCR duplicate case injects synthetic /documents/document-facts responses for document_ocr_text and visual_warning, activates the Knowledge detail OCR facet through the mounted Angular component, and verifies duplicate OCR rows render once while the unique warning remains visible. No backend call, no VM, no real Andritz collection, no SFTP production-data mutation, no OCR provider call, and no vector/object-store mutation.",
+    notes:
+      "Adds Collections OCR duplicate-fact UI coverage: duplicate OCR facts with the same document/page/bounding-box/content are deduped in the Knowledge detail OCR evidence view while total source evidence remains auditable.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-091",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "92 passed, 0 failed",
+    duration: "1.3m",
+    warnings:
+      "Node FORCE_COLOR/NO_COLOR warnings from the local Playwright environment.",
+    safetyScope:
+      "Local mocked Playwright browser smoke only. Authenticated Andritz cases mock all /api/v1/** calls in-page; the new connector-catalogue SFTP case clicks the SFTP / Secure Deposit card from /connectors, verifies navigation to /connectors/sftp and asserts no link, promote, bulk-promote or reconciliation mutation request fires. No backend call, no VM, no real SFTP server, no Andritz/SFTP production-data mutation, and no collection/vector/object-store mutation.",
+    notes:
+      "Adds SFTP catalogue navigation coverage: workspace users can open SFTP from the connectors catalogue, and the navigation path remains read-only until an explicit operator action.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3705,8 +3747,10 @@ const executedTestResults = new Map([
   pass("COL-009-T01", "Mapped to local Collections API test proving /documents/table-facts returns ledger-backed spreadsheet rows with document, sheet, cell, row, unit and value metadata.", 112),
   pass("COL-009-T02", "Mapped to local Collections API test proving /documents/table-facts sheet_name plus q filtering returns only matching ledger facts and excludes stale rows.", 112),
   pass("COL-010-T01", "Mapped to document facts endpoint tests."),
+  pass("COL-010-T02", "Mapped to local Playwright mocked Knowledge detail OCR smoke proving duplicate OCR rows render once while distinct visual warnings remain visible.", 125),
   pass("COL-010-T03", "Mapped to local Collections API test proving OCR document-fact filters return a clean empty state when no OCR/visual layer is indexed for a collection.", 115),
   pass("COL-012-T01", "Mapped to retrieval artifact job dry-run/manual queue tests."),
+  pass("COL-012-T03", "Mapped to local Collections API test proving a large synthetic qdrant_sparse_reindex dry_run remains read-only: no worker job, no dispatch, no collection/source mutation and no object-store mutation.", 124),
   pass("COL-014-T01", "Mapped to chunks/stats/graph endpoint tests."),
   pass("COL-014-T02", "Mapped to document-scoped chunk listing tests."),
   pass("COL-014-T03", "Mapped to embedding graph bounded sample/no raw vector exposure tests."),
@@ -3788,6 +3832,7 @@ const executedTestResults = new Map([
   pass("SFTP-014-T01", "Mapped to full local Secure Deposit service execution proving enabled Andritz-style workspaces keep link/session behavior working while disabled workspaces are denied.", 101),
   pass("SFTP-014-T02", "Mapped to local service tests proving a disabled workspace blocks both new link creation and authentication of an existing synthetic link.", 101),
   pass("SFTP-014-T03", "Mapped to local service tests proving PDF allow-lists are case-insensitive for both public UploadFile and SFTP staged paths, while .EXE is rejected and left unmoved.", 101),
+  pass("SFTP-018-T01", "Mapped to local mocked Playwright connector-catalogue smoke proving the SFTP card opens /connectors/sftp without link/promote/bulk-promote/reconcile mutations.", 126),
   pass("SFTP-018-T04", "Mapped to fixed navigation i18n guard parsing navigation.catalog.ts, checking 26 catalog keys and proving nav.connectors exists in FR/EN dictionaries.", 11),
   pass("CHT-001-T04", "Mapped to local Playwright mocked Andritz route smoke opening /chat without real backend data.", 12),
   pass("KCAP-001-T04", "Mapped to local Playwright mocked Andritz route smoke opening /knowledge/capture with empty dashboard/fiches data.", 12),
@@ -4516,8 +4561,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser + voice transport/capture contract smoke: ${executionEvidence[99].result}; latest Collections clear-safety API lot: ${executionEvidence[100].result}; latest Secure Deposit workspace/extension policy lot: ${executionEvidence[101].result}; latest Secure Deposit critical access-control lot: ${executionEvidence[102].result}; latest Knowledge Capture publication-safety lot: ${executionEvidence[103].result}; latest SFTP/SPL explicit-execute guard lot: ${executionEvidence[104].result}; latest Knowledge Capture permission/content lot: ${executionEvidence[105].result}; latest Collections permission/scope lot: ${executionEvidence[106].result}; latest Collections hidden-binding UI smoke: ${executionEvidence[107].result}; latest Collections inventory input-validation lot: ${executionEvidence[108].result}; latest Collections unsupported upload guard lot: ${executionEvidence[122].result}; latest Collections large-list lot: ${executionEvidence[123].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "91/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, capture preview page-change synchronization, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, voice active-document transport, late same-turn partial rendering, adaptive VAD endpoint candidate cancellation/flush, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, Knowledge Capture proposal/session permission denials and contributor proposal-scope filtering, accepted-proposal content editing without implicit publication, collections worker/indexing ledger behavior, collection inventory input bounds, large collection-list isolation, global document clear admin/confirmation safety, knowledge guide/scope admin gates, collection metadata patch admin gates, cross-workspace table-query and legacy list isolation, collection hidden-system binding non-leak and Bindings action UX, secure deposit workspace enablement/extension policy, secure deposit token/rotate-revoke/download/SFTP upload-only access gates, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, SPL CLI dry-run-by-default execution guard, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser + voice transport/capture contract smoke: ${executionEvidence[99].result}; latest Collections clear-safety API lot: ${executionEvidence[100].result}; latest Secure Deposit workspace/extension policy lot: ${executionEvidence[101].result}; latest Secure Deposit critical access-control lot: ${executionEvidence[102].result}; latest Knowledge Capture publication-safety lot: ${executionEvidence[103].result}; latest SFTP/SPL explicit-execute guard lot: ${executionEvidence[104].result}; latest Knowledge Capture permission/content lot: ${executionEvidence[105].result}; latest Collections permission/scope lot: ${executionEvidence[106].result}; latest Collections hidden-binding UI smoke: ${executionEvidence[107].result}; latest Collections inventory input-validation lot: ${executionEvidence[108].result}; latest Collections unsupported upload guard lot: ${executionEvidence[122].result}; latest Collections large-list lot: ${executionEvidence[123].result}; latest Collections large dry-run reindex lot: ${executionEvidence[124].result}; latest Collections OCR duplicate UI smoke: ${executionEvidence[125].result}; latest SFTP catalogue navigation smoke: ${executionEvidence[126].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "91/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, capture preview page-change synchronization, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, voice active-document transport, late same-turn partial rendering, adaptive VAD endpoint candidate cancellation/flush, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, Knowledge Capture proposal/session permission denials and contributor proposal-scope filtering, accepted-proposal content editing without implicit publication, collections worker/indexing ledger behavior, collection inventory input bounds, large collection-list isolation, large retrieval-artifact dry-run read-only assessment, OCR duplicate-fact UI dedupe, global document clear admin/confirmation safety, knowledge guide/scope admin gates, collection metadata patch admin gates, cross-workspace table-query and legacy list isolation, collection hidden-system binding non-leak and Bindings action UX, secure deposit workspace enablement/extension policy, secure deposit token/rotate-revoke/download/SFTP upload-only access gates, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, SPL CLI dry-run-by-default execution guard, frontend navigation guard coverage and SFTP connector catalogue navigation for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -5624,10 +5669,34 @@ const phaseRows = [
     executionEvidence[123].safetyScope,
     "Continue with mocked/synthetic validation for OCR duplicate facts and read-only reindex assessment; keep real Andritz collection/SFTP checks non-mutating unless explicitly approved.",
   ],
+  [
+    executionEvidence[124].date,
+    "Phase 5 Collections large reindex dry-run guard",
+    "Added local Collections API coverage proving large retrieval-artifact reindex assessment stays read-only when dry_run=true.",
+    `${executionEvidence[124].result}; ${mappedPassedCountForEvidence(executionEvidence[124].id)} workbook test case mapped as Pass.`,
+    executionEvidence[124].safetyScope,
+    "Continue with mocked/synthetic validation for OCR duplicate facts; keep real Andritz reindex/SFTP operations behind explicit approval.",
+  ],
+  [
+    executionEvidence[125].date,
+    "Phase 5 Collections OCR duplicate UI smoke",
+    "Added local mocked Playwright coverage proving Knowledge detail OCR evidence dedupes duplicate OCR facts while keeping distinct visual warnings visible.",
+    `${executionEvidence[125].result}; ${mappedPassedCountForEvidence(executionEvidence[125].id)} workbook test case mapped as Pass.`,
+    executionEvidence[125].safetyScope,
+    "Collections drafted tests are now all mapped to local synthetic/mocked pass evidence; continue with Chat/KCapture/SFTP remaining validation and real-backend read-only checks when safe.",
+  ],
+  [
+    executionEvidence[126].date,
+    "Phase 5 SFTP catalogue navigation smoke",
+    "Added local mocked Playwright coverage proving the Connectors catalogue opens SFTP / Secure Deposit and does not trigger any secure-deposit mutation endpoint.",
+    `${executionEvidence[126].result}; ${mappedPassedCountForEvidence(executionEvidence[126].id)} workbook test case mapped as Pass.`,
+    executionEvidence[126].safetyScope,
+    "Continue with remaining SFTP read-only browser validation and real-backend checks only when a safe non-mutating account/path is available.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F119"));
+styleBody(phase.getRangeByIndexes(1, 0, phaseRows.length, phaseHeaders.length));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

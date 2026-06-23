@@ -1812,6 +1812,87 @@ def test_collection_retrieval_artifact_job_dry_run_does_not_create_job(db_sessio
     assert db_session.query(WorkerJob).filter(WorkerJob.collection_id == collection.id).count() == 0
 
 
+def test_collection_retrieval_artifact_job_large_dry_run_is_read_only(db_session, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-artifact-large-dry", name="Artifact Large Dry", slug="artifact-large-dry")
+    db_session.add(ws)
+    db_session.commit()
+    collection = create_collection(
+        db_session,
+        workspace=ws,
+        name="Synthetic Large Manuals",
+        slug="synthetic-large-manuals",
+    )
+    collection.status = "ready"
+    collection.document_count = settings.rag_dense_source_threshold + 250
+    collection.chunk_count = settings.rag_dense_chunk_threshold + 25_000
+    db_session.add_all(
+        [
+            KnowledgeCollectionSource(
+                workspace_id=ws.id,
+                collection_id=collection.id,
+                filename=f"large-manual-{index}.pdf",
+                normalized_name=f"large-manual-{index}.pdf",
+                source_kind="pdf",
+                extension="pdf",
+                mime_type="application/pdf",
+                origin="upload",
+                chunk_count=10_000 + index,
+                status="ready",
+            )
+            for index in range(3)
+        ]
+    )
+    db_session.commit()
+    store = get_object_store()
+    sentinel_key = f"{collection.artifact_prefix}/originals/large-manual-0.pdf"
+    store.write_bytes(sentinel_key, b"synthetic-pdf")
+    before_collection = {
+        "status": collection.status,
+        "document_count": collection.document_count,
+        "chunk_count": collection.chunk_count,
+    }
+    before_source_count = (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .count()
+    )
+
+    def fail_dispatch(*_args, **_kwargs):
+        raise AssertionError("dry-run retrieval artifact assessment must not enqueue workers")
+
+    monkeypatch.setattr(documents, "dispatch_worker_job", fail_dispatch)
+
+    response = _client(db_session, ws).post(
+        f"/documents/collections/{collection.slug}/retrieval-artifact-jobs",
+        json={"kind": "qdrant_sparse_reindex", "dry_run": True},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "dry_run"
+    assert body["kind"] == "qdrant_sparse_reindex"
+    assert body["collection_slug"] == collection.slug
+    assert body["poll_url"] is None
+    assert body["would_create_job"] is True
+    assert body["would_dispatch"] is True
+    assert body["dry_run"] is True
+    assert db_session.query(WorkerJob).filter(WorkerJob.collection_id == collection.id).count() == 0
+    db_session.refresh(collection)
+    assert {
+        "status": collection.status,
+        "document_count": collection.document_count,
+        "chunk_count": collection.chunk_count,
+    } == before_collection
+    assert (
+        db_session.query(KnowledgeCollectionSource)
+        .filter(KnowledgeCollectionSource.collection_id == collection.id)
+        .count()
+    ) == before_source_count
+    assert store.read_bytes(sentinel_key) == b"synthetic-pdf"
+
+
 def test_collection_retrieval_artifact_job_queues_manual_worker(db_session, monkeypatch):
     ws = Workspace(id="ws-artifact-job", name="Artifact Job", slug="artifact-job")
     db_session.add(ws)

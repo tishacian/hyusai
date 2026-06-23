@@ -56,6 +56,19 @@ type MockChatSystem = {
   flow_definition?: Record<string, unknown>;
   status?: string;
 };
+type MockDocumentFact = {
+  id?: string;
+  document_id?: string;
+  document_filename?: string;
+  semantic_type?: string;
+  page?: number | null;
+  section_path?: string | null;
+  content?: string | null;
+  value_raw?: string | null;
+  confidence?: number | null;
+  qualifiers?: Record<string, unknown> | null;
+  evidence_locator?: Record<string, unknown> | null;
+};
 type MockSftpDepositLink = {
   id: string;
   label: string;
@@ -669,6 +682,8 @@ async function installAndritzMocks(
     chatSystemsShouldFail?: boolean;
     chatSystemsFailureStatus?: number;
     chatSystemsFailureDetail?: string;
+    documentFacts?: MockDocumentFact[];
+    documentFactRequests?: string[];
     knowledgeScopes?: MockKnowledgeScope[];
     knowledgeCollectionItems?: MockKnowledgeCollectionItem[];
     sftpLinks?: MockSftpDepositLink[];
@@ -771,6 +786,8 @@ async function installAndritzMocks(
   const chatSystemsShouldFail = options.chatSystemsShouldFail ?? false;
   const chatSystemsFailureStatus = options.chatSystemsFailureStatus ?? 403;
   const chatSystemsFailureDetail = options.chatSystemsFailureDetail ?? 'Mocked system catalogue permission denied';
+  const documentFacts = options.documentFacts ?? [];
+  const documentFactRequests = options.documentFactRequests;
   const knowledgeCollectionItems = options.knowledgeCollectionItems ?? [];
   const sftpDepositFiles = options.sftpDepositFiles ?? [];
   const sftpOperations = options.sftpOperations ?? emptyOperations();
@@ -1018,6 +1035,42 @@ async function installAndritzMocks(
         offset: 0,
         limit: 100,
         has_more: false,
+      });
+    }
+    if (path === '/documents/document-facts' && method === 'GET') {
+      documentFactRequests?.push(url.search);
+      const semanticType = url.searchParams.get('semantic_type');
+      const query = (url.searchParams.get('q') || '').trim().toLowerCase();
+      const offset = Math.max(0, Number(url.searchParams.get('offset') || 0) || 0);
+      const limit = Math.max(1, Number(url.searchParams.get('limit') || 100) || 100);
+      const filtered = documentFacts.filter((fact) => {
+        if (semanticType && fact.semantic_type !== semanticType) return false;
+        if (!query) return true;
+        return [
+          fact.content,
+          fact.value_raw,
+          fact.document_filename,
+          fact.section_path,
+          fact.semantic_type,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(query);
+      });
+      const byType = filtered.reduce<Record<string, number>>((acc, fact) => {
+        const type = fact.semantic_type || 'unknown';
+        acc[type] = (acc[type] || 0) + 1;
+        return acc;
+      }, {});
+      return json(route, {
+        items: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+        total_returned: filtered.length,
+        offset,
+        limit,
+        has_more: offset + limit < filtered.length,
+        by_type: byType,
       });
     }
     if (path === '/documents/search') {
@@ -1857,6 +1910,33 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(sftpCard).toBeVisible();
     await expect(sftpCard).toContainText(/ready/i);
     await expect(sftpCard).not.toContainText(/configured|Config saved/i);
+  });
+
+  test('opens SFTP from the connectors catalogue without mutating secure deposit state', async ({ page }) => {
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      sftpLinkMutationRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpOperationsReconcileRequests,
+    });
+
+    await page.goto('/connectors');
+    await expect(page.getByRole('heading', { name: 'Connectors' })).toBeVisible();
+    const sftpCard = page.locator('article').filter({ hasText: 'SFTP / Secure Deposit' }).first();
+    await expect(sftpCard).toBeVisible();
+    await sftpCard.getByRole('link', { name: /Open secure deposit/i }).click();
+
+    await expect(page).toHaveURL(/\/connectors\/sftp$/);
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await expect(page.locator('body')).toContainText(/Live upload monitor|No active SFTP transfer/i);
+    expect(sftpLinkMutationRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
   });
 
   test('keeps direct SFTP page read-only when Secure Deposit is disabled', async ({ page }) => {
@@ -3505,6 +3585,68 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.getByText('Hidden Andritz system')).toHaveCount(0);
     await expect(page.getByText('Do not expose hidden Andritz context.')).toHaveCount(0);
     await expect(page.getByText('Bindings overview')).toHaveCount(0);
+  });
+
+  test('dedupes duplicate OCR facts in collection detail without real data', async ({ page }) => {
+    const documentFactRequests: string[] = [];
+    const duplicatedOcrText = 'ANDRITZ OCR DUPLICATE BLOCK';
+    await installAndritzMocks(page, {
+      documentFactRequests,
+      documentFacts: [
+        {
+          id: 'ocr-fact-1',
+          document_id: 'doc-andritz-ocr',
+          document_filename: 'andritz-ocr-photo.jpg',
+          semantic_type: 'document_ocr_text',
+          page: 2,
+          content: duplicatedOcrText,
+          qualifiers: { provider: 'PP-OCR', confidence: 0.93, bbox: [10, 20, 110, 42] },
+        },
+        {
+          id: 'ocr-fact-duplicate',
+          document_id: 'doc-andritz-ocr',
+          document_filename: 'andritz-ocr-photo.jpg',
+          semantic_type: 'document_ocr_text',
+          page: 2,
+          content: duplicatedOcrText,
+          qualifiers: { provider: 'PP-OCR', confidence: 0.91, bbox: [10, 20, 110, 42] },
+        },
+        {
+          id: 'ocr-warning-1',
+          document_id: 'doc-andritz-ocr',
+          document_filename: 'andritz-ocr-photo.jpg',
+          semantic_type: 'visual_warning',
+          page: 2,
+          content: 'Andritz OCR low contrast warning',
+          qualifiers: { provider: 'vision-fallback', warning: 'Low contrast area' },
+        },
+      ],
+    });
+
+    await page.goto('/knowledge/andritz-qa');
+    await expect(page.getByText('collection=andritz-qa')).toBeVisible();
+    await page.locator('app-knowledge-view').evaluate((host) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(host) as { onTabChange?: (id: string) => void } | undefined;
+      if (!component?.onTabChange) throw new Error('KnowledgeViewComponent instance not found');
+      component.onTabChange('ocr');
+    });
+
+    await expect.poll(() => documentFactRequests.length).toBe(4);
+    const semanticTypes = documentFactRequests
+      .map((search) => new URLSearchParams(search.replace(/^\?/, '')).get('semantic_type'))
+      .sort();
+    expect(semanticTypes).toEqual([
+      'document_ocr_text',
+      'visual_parameter',
+      'visual_text_block',
+      'visual_warning',
+    ]);
+    await expect(page.getByText('2 loaded / 3 total OCR or visual facts')).toBeVisible();
+    await expect(page.getByText(duplicatedOcrText)).toHaveCount(1);
+    await expect(page.getByText('Andritz OCR low contrast warning')).toBeVisible();
+    await expect(page.getByText('Provider: PP-OCR')).toBeVisible();
+    await expect(page.getByText('Low contrast area')).toBeVisible();
   });
 
   test('opens the collection document inventory drawer without real data', async ({ page }) => {
