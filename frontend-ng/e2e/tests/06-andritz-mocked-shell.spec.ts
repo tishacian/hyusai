@@ -230,9 +230,14 @@ async function installAndritzMocks(
     captureSessionStartsActive?: boolean;
     captureDocumentUploadRequests?: string[];
     captureDocumentUploadShouldFail?: boolean;
+    captureDocumentUploadFailureDetail?: string;
+    captureDocumentUploadFailureStatus?: number;
+    captureDocumentUploadTwoSuccess?: boolean;
+    captureDocumentViewShouldFail?: boolean;
     captureDocumentViewRequests?: unknown[];
     captureTurnRequests?: unknown[];
     captureDocumentPreviewRequests?: string[];
+    captureDocumentPreviewShouldFail?: boolean;
     contextCreateRequests?: unknown[];
     contextCreateShouldFail?: boolean;
     contextUpdateRequests?: unknown[];
@@ -264,9 +269,15 @@ async function installAndritzMocks(
   const captureSessionStartsActive = options.captureSessionStartsActive ?? false;
   const captureDocumentUploadRequests = options.captureDocumentUploadRequests;
   const captureDocumentUploadShouldFail = options.captureDocumentUploadShouldFail ?? false;
+  const captureDocumentUploadFailureDetail =
+    options.captureDocumentUploadFailureDetail ?? 'Chargement document impossible pour cette capture.';
+  const captureDocumentUploadFailureStatus = options.captureDocumentUploadFailureStatus ?? 500;
+  const captureDocumentUploadTwoSuccess = options.captureDocumentUploadTwoSuccess ?? false;
+  const captureDocumentViewShouldFail = options.captureDocumentViewShouldFail ?? false;
   const captureDocumentViewRequests = options.captureDocumentViewRequests;
   const captureTurnRequests = options.captureTurnRequests;
   const captureDocumentPreviewRequests = options.captureDocumentPreviewRequests;
+  const captureDocumentPreviewShouldFail = options.captureDocumentPreviewShouldFail ?? false;
   const contextCreateRequests = options.contextCreateRequests;
   const contextCreateShouldFail = options.contextCreateShouldFail ?? false;
   const contextUpdateRequests = options.contextUpdateRequests;
@@ -632,22 +643,36 @@ async function installAndritzMocks(
         const uploadBody = request.postData() || '';
         captureDocumentUploadRequests?.push(uploadBody);
         if (captureDocumentUploadShouldFail) {
-          return json(route, { detail: 'Mocked capture document upload failure' }, 500);
+          return json(route, { detail: captureDocumentUploadFailureDetail }, captureDocumentUploadFailureStatus);
         }
+        const documents = [
+          {
+            document_id: 'doc-capture-reference',
+            filename: 'andritz-capture-reference.pdf',
+            title: 'Andritz capture reference',
+            status: 'ready',
+            chunks_processed: 2,
+            collection: 'capture-session-session-andritz-free-smoke',
+            collection_name: 'capture-session-session-andritz-free-smoke',
+          },
+          ...(captureDocumentUploadTwoSuccess
+            ? [
+                {
+                  document_id: 'doc-capture-photo',
+                  filename: 'andritz-capture-photo.jpg',
+                  title: 'Andritz capture photo',
+                  status: 'ready',
+                  chunks_processed: 1,
+                  collection: 'capture-session-session-andritz-free-smoke',
+                  collection_name: 'capture-session-session-andritz-free-smoke',
+                },
+              ]
+            : []),
+        ];
         return json(route, {
           collection: 'capture-session-session-andritz-free-smoke',
           collection_name: 'capture-session-session-andritz-free-smoke',
-          documents: [
-            {
-              document_id: 'doc-capture-reference',
-              filename: 'andritz-capture-reference.pdf',
-              title: 'Andritz capture reference',
-              status: 'ready',
-              chunks_processed: 2,
-              collection: 'capture-session-session-andritz-free-smoke',
-              collection_name: 'capture-session-session-andritz-free-smoke',
-            },
-          ],
+          documents,
           session: createdFreeConversationSession('Andritz QA document capture smoke', 'active'),
         });
       }
@@ -661,6 +686,9 @@ async function installAndritzMocks(
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/documents/view') {
       const body = request.postDataJSON() as Record<string, unknown>;
       captureDocumentViewRequests?.push(body);
+      if (captureDocumentViewShouldFail) {
+        return json(route, { detail: 'Mocked capture document view logging failure' }, 500);
+      }
       return json(route, {
         active_view: body,
         session: createdFreeConversationSession('Andritz QA document capture smoke', 'active'),
@@ -720,6 +748,9 @@ async function installAndritzMocks(
     }
     if (path === '/documents/doc-capture-reference/rich-preview') {
       captureDocumentPreviewRequests?.push(url.search);
+      if (captureDocumentPreviewShouldFail) {
+        return json(route, { detail: 'Mocked capture document preview unavailable' }, 404);
+      }
       return json(route, {
         kind: 'text',
         filename: 'andritz-capture-reference.pdf',
@@ -728,6 +759,18 @@ async function installAndritzMocks(
         download_url:
           '/api/v1/documents/doc-capture-reference/download?collection_name=capture-session-session-andritz-free-smoke',
         content: 'Synthetic capture document page content for active visual context.',
+      });
+    }
+    if (path === '/documents/doc-capture-photo/rich-preview') {
+      captureDocumentPreviewRequests?.push(url.search);
+      return json(route, {
+        kind: 'text',
+        filename: 'andritz-capture-photo.jpg',
+        content_type: 'text/plain',
+        size_bytes: 82,
+        download_url:
+          '/api/v1/documents/doc-capture-photo/download?collection_name=capture-session-session-andritz-free-smoke',
+        content: 'Synthetic capture photo content for the second active visual context.',
       });
     }
 
@@ -1381,6 +1424,256 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(capturePlanRequests).toHaveLength(1);
   });
 
+  test('keeps written capture references scoped to the latest active document', async ({ page }) => {
+    const captureDocumentUploadRequests: string[] = [];
+    const captureDocumentPreviewRequests: string[] = [];
+    const captureDocumentViewRequests: unknown[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureDocumentUploadRequests,
+      captureDocumentUploadTwoSuccess: true,
+      captureDocumentPreviewRequests,
+      captureDocumentViewRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA document capture smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA document capture smoke' })).toBeVisible();
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+
+    await captureDocuments.locator('input[type="file"]').setInputFiles([
+      {
+        name: 'andritz-capture-reference.pdf',
+        mimeType: 'application/pdf',
+        buffer: Buffer.from('Synthetic Andritz capture reference PDF content.'),
+      },
+      {
+        name: 'andritz-capture-photo.jpg',
+        mimeType: 'image/jpeg',
+        buffer: Buffer.from('Synthetic Andritz capture photo bytes.'),
+      },
+    ]);
+
+    await expect.poll(() => captureDocumentUploadRequests.length).toBe(1);
+    await expect(page.getByRole('button', { name: /Andritz capture reference/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Andritz capture photo/i })).toBeVisible();
+
+    await page.getByRole('button', { name: /Andritz capture reference/i }).click();
+    await expect(page.getByText('Synthetic capture document page content for active visual context.')).toBeVisible();
+    await page.getByRole('button', { name: /Close preview/i }).click();
+    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 1/i)).toBeVisible();
+
+    await page.getByRole('button', { name: /Andritz capture photo/i }).click();
+    await expect(page.getByText('Synthetic capture photo content for the second active visual context.')).toBeVisible();
+    await page.getByRole('button', { name: /Close preview/i }).click();
+    await expect(captureDocuments.getByText(/Vue active : Andritz capture photo · page 1/i)).toBeVisible();
+
+    await expect.poll(() => captureDocumentPreviewRequests.length).toBe(2);
+    const secondPreviewParams = new URLSearchParams(captureDocumentPreviewRequests[1].replace(/^\?/, ''));
+    expect(secondPreviewParams.get('collection_name')).toBe('capture-session-session-andritz-free-smoke');
+    expect(secondPreviewParams.get('filename')).toBe('andritz-capture-photo.jpg');
+    await expect.poll(() => captureDocumentViewRequests.length).toBe(2);
+    expect(captureDocumentViewRequests[0]).toMatchObject({
+      document_id: 'doc-capture-reference',
+      filename: 'andritz-capture-reference.pdf',
+      page: 1,
+      association_mode: 'active_view',
+    });
+    expect(captureDocumentViewRequests[1]).toMatchObject({
+      document_id: 'doc-capture-photo',
+      filename: 'andritz-capture-photo.jpg',
+      page: 1,
+      association_mode: 'active_view',
+    });
+
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('Sur cette photo, la zone d accès maintenance Andritz reste visible.');
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'Sur cette photo, la zone d accès maintenance Andritz reste visible.',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [
+        expect.objectContaining({
+          document_id: 'doc-capture-photo',
+          filename: 'andritz-capture-photo.jpg',
+          page: 1,
+          association_mode: 'active_view',
+        }),
+      ],
+      visual_context: expect.objectContaining({
+        document_id: 'doc-capture-photo',
+        filename: 'andritz-capture-photo.jpg',
+        page: 1,
+        association_mode: 'active_view',
+      }),
+    });
+    expect(JSON.stringify(captureTurnRequests[0])).not.toContain('doc-capture-reference');
+    await expect(noteInput).toHaveValue('');
+  });
+
+  test('keeps written capture usable when capture document preview is unavailable', async ({ page }) => {
+    const captureDocumentUploadRequests: string[] = [];
+    const captureDocumentPreviewRequests: string[] = [];
+    const captureDocumentViewRequests: unknown[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureDocumentUploadRequests,
+      captureDocumentPreviewRequests,
+      captureDocumentPreviewShouldFail: true,
+      captureDocumentViewRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA unavailable document preview smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA unavailable document preview smoke' })).toBeVisible();
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+
+    await captureDocuments.locator('input[type="file"]').setInputFiles({
+      name: 'andritz-capture-reference.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('Synthetic Andritz capture reference PDF content.'),
+    });
+
+    await expect.poll(() => captureDocumentUploadRequests.length).toBe(1);
+    await page.getByRole('button', { name: /Andritz capture reference/i }).click();
+
+    await expect.poll(() => captureDocumentPreviewRequests.length).toBe(1);
+    const previewParams = new URLSearchParams(captureDocumentPreviewRequests[0].replace(/^\?/, ''));
+    expect(previewParams.get('collection_name')).toBe('capture-session-session-andritz-free-smoke');
+    expect(previewParams.get('filename')).toBe('andritz-capture-reference.pdf');
+    await expect.poll(() => captureDocumentViewRequests.length).toBe(1);
+    expect(captureDocumentViewRequests[0]).toMatchObject({
+      document_id: 'doc-capture-reference',
+      filename: 'andritz-capture-reference.pdf',
+      page: 1,
+      association_mode: 'active_view',
+    });
+    await expect(page.getByText('Mocked capture document preview unavailable')).toBeVisible();
+    await page.getByRole('button', { name: /Close preview/i }).click();
+    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 1/i)).toBeVisible();
+
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('Le document reste lie au tour meme si la preview est temporairement indisponible.');
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'Le document reste lie au tour meme si la preview est temporairement indisponible.',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [
+        expect.objectContaining({
+          document_id: 'doc-capture-reference',
+          filename: 'andritz-capture-reference.pdf',
+          page: 1,
+          association_mode: 'active_view',
+        }),
+      ],
+      visual_context: expect.objectContaining({
+        document_id: 'doc-capture-reference',
+        filename: 'andritz-capture-reference.pdf',
+        page: 1,
+        association_mode: 'active_view',
+      }),
+    });
+    await expect(noteInput).toHaveValue('');
+  });
+
+  test('keeps written capture usable when active document view logging fails', async ({ page }) => {
+    const captureDocumentUploadRequests: string[] = [];
+    const captureDocumentPreviewRequests: string[] = [];
+    const captureDocumentViewRequests: unknown[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureDocumentUploadRequests,
+      captureDocumentViewRequests,
+      captureDocumentViewShouldFail: true,
+      captureDocumentPreviewRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA document view failure smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA document view failure smoke' })).toBeVisible();
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+
+    await captureDocuments.locator('input[type="file"]').setInputFiles({
+      name: 'andritz-capture-reference.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('Synthetic Andritz capture reference PDF content.'),
+    });
+
+    await expect.poll(() => captureDocumentUploadRequests.length).toBe(1);
+    await page.getByRole('button', { name: /Andritz capture reference/i }).click();
+
+    await expect.poll(() => captureDocumentPreviewRequests.length).toBe(1);
+    await expect.poll(() => captureDocumentViewRequests.length).toBe(1);
+    expect(captureDocumentViewRequests[0]).toMatchObject({
+      document_id: 'doc-capture-reference',
+      filename: 'andritz-capture-reference.pdf',
+      page: 1,
+      association_mode: 'active_view',
+    });
+    await expect(page.getByText('Synthetic capture document page content for active visual context.')).toBeVisible();
+    await page.getByRole('button', { name: /Close preview/i }).click();
+    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 1/i)).toBeVisible();
+
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('Sur cette page, le repère Andritz reste exploitable malgré l audit différé.');
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'Sur cette page, le repère Andritz reste exploitable malgré l audit différé.',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [
+        expect.objectContaining({
+          document_id: 'doc-capture-reference',
+          filename: 'andritz-capture-reference.pdf',
+          page: 1,
+          association_mode: 'active_view',
+        }),
+      ],
+      visual_context: expect.objectContaining({
+        document_id: 'doc-capture-reference',
+        filename: 'andritz-capture-reference.pdf',
+        page: 1,
+        association_mode: 'active_view',
+      }),
+    });
+    await expect(noteInput).toHaveValue('');
+  });
+
   test('keeps written Knowledge Capture usable when capture document upload fails', async ({ page }) => {
     const captureDocumentUploadRequests: string[] = [];
     const captureDocumentPreviewRequests: string[] = [];
@@ -1426,6 +1719,61 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(captureTurnRequests[0]).toMatchObject({
       speaker: 'expert',
       text: 'La note écrite continue même sans document attaché.',
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [],
+      visual_context: null,
+    });
+    await expect(noteInput).toHaveValue('');
+  });
+
+  test('surfaces capture document upload rejection detail without creating document state', async ({ page }) => {
+    const captureDocumentUploadRequests: string[] = [];
+    const captureDocumentPreviewRequests: string[] = [];
+    const captureDocumentViewRequests: unknown[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureDocumentUploadRequests,
+      captureDocumentUploadShouldFail: true,
+      captureDocumentUploadFailureStatus: 400,
+      captureDocumentUploadFailureDetail: 'Type de fichier non supporte pour la capture.',
+      captureDocumentPreviewRequests,
+      captureDocumentViewRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA unsupported capture document smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA unsupported capture document smoke' })).toBeVisible();
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+
+    await captureDocuments.locator('input[type="file"]').setInputFiles({
+      name: 'andritz-capture-unsupported.bin',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from('Synthetic unsupported Andritz capture document.'),
+    });
+
+    await expect.poll(() => captureDocumentUploadRequests.length).toBe(1);
+    await expect(page.getByText('Type de fichier non supporte pour la capture.')).toBeVisible();
+    await expect(page.getByText(/andritz-capture-unsupported\.bin|Andritz capture reference/i)).toHaveCount(0);
+    expect(captureDocumentPreviewRequests).toHaveLength(0);
+    expect(captureDocumentViewRequests).toHaveLength(0);
+
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill('La capture reste disponible apres le rejet du document.');
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'La capture reste disponible apres le rejet du document.',
       turn_kind: 'complement',
       input_modality: 'text',
       document_refs: [],

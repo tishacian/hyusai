@@ -10966,10 +10966,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
           this.applyCaptureDocuments(payload as CaptureDocumentsResponse);
           input.value = '';
         },
-        error: () => {
+        error: (err) => {
           this.captureDocumentsUploading.set(false);
           input.value = '';
-          this.setVoiceNotice('Chargement document impossible pour cette capture.', 'error');
+          this.setVoiceNotice(this.apiErrorMessage(err, 'Chargement document impossible pour cette capture.'), 'error');
         },
       });
   }
