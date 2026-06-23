@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J16", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I51", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F46", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I55", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F50", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -2601,6 +2601,62 @@ const executionEvidence = [
     notes:
       "Adds browser-level coverage for unavailable capture document previews while preserving capture continuity and active document context.",
   },
+  {
+    id: "EXEC-2026-06-23-FE-039",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "41 passed, 0 failed",
+    duration: "30.8s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the collection-document-inventory case opens /knowledge with a synthetic collection, clicks Browse documents, verifies the mocked /documents/list query uses collection_name=andritz-qa, limit=100 and offset=0, and confirms the loaded drawer shows the synthetic PDF inventory before any preview/delete action. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level happy-path coverage for the Knowledge page document inventory drawer, complementing the existing non-destructive failure-state coverage.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-040",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "42 passed, 0 failed",
+    duration: "31.4s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the empty-collection-inventory case opens /knowledge with a synthetic collection, makes /documents/list return HTTP 200 with documents=[], verifies the scoped query parameters, and confirms the drawer shows Empty collection without preview/delete actions or load-error messaging. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level boundary coverage for a successful empty Knowledge document inventory so operators do not confuse true empty collections with failed loads or stale destructive actions.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-041",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "43 passed, 0 failed",
+    duration: "33.1s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the collection-preview-fallback case opens a synthetic collection inventory, clicks Preview for a synthetic PDF, verifies /documents/list and /documents/preview/{id} are both scoped to collection_name=andritz-qa, and confirms the preview drawer shows the Open file download fallback. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level coverage for the Knowledge collection preview fallback path when converted inline preview content is unavailable but a scoped download URL is returned.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-042",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "44 passed, 0 failed",
+    duration: "34.4s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version and FORCE_COLOR/NO_COLOR warnings from local environment. The unauthenticated sign-in page attempted /api/v1/help-content through the local dev proxy and received ECONNREFUSED because no backend was running; the guard assertions still passed.",
+    safetyScope:
+      "Local Playwright browser smoke. Authenticated Andritz cases mock all /api/v1/** calls in-page; the unsafe-collection-preview case opens a synthetic collection inventory, makes /documents/preview/{id} return script-like HTML content, verifies the request is scoped to collection_name=andritz-qa, and confirms the preview drawer renders the payload as inert text without setting window.__andritzPreviewXss or exposing an Open file action. No backend calls, no real upload, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds browser-level security coverage for Knowledge collection preview sanitization: HTML/script-like preview content is displayed as text rather than executed.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2648,6 +2704,10 @@ const executedTestResults = new Map([
   pass("COL-014-T03", "Mapped to embedding graph bounded sample/no raw vector exposure tests."),
   pass("COL-015-T01", "Mapped to worker job lifecycle/poll-url tests."),
   pass("COL-015-T02", "Mapped to worker ingest error and failed job detail tests."),
+  pass("COL-007-T02", "Mapped to local Playwright mocked collection-preview-fallback smoke proving /documents/preview/{id} is scoped to andritz-qa and renders the Open file download fallback without real data.", 52),
+  pass("COL-007-T03", "Mapped to local Playwright mocked unsafe-collection-preview smoke proving script-like preview content is rendered inertly and does not execute in the Collections preview drawer.", 53),
+  pass("COL-023-T01", "Mapped to local Playwright mocked collection-document-inventory smoke proving the Knowledge page opens a successful /documents/list drawer scoped to andritz-qa before any preview/delete action.", 50),
+  pass("COL-023-T03", "Mapped to local Playwright mocked empty-collection-inventory smoke proving a successful empty /documents/list response shows Empty collection without load-error or preview/delete actions.", 51),
   pass("COL-002-T01", "Mapped to collection detail API test exposing storage/vector/BM25 diagnostics for a collection.", 9),
   pass("COL-002-T03", "Mapped to workspace-unique collection slug service test preventing unintended cross-workspace slug collisions.", 9),
   pass("COL-003-T02", "Mapped to worker ingest materialization error tests preserving document error state without corrupting collection ledger.", 9),
@@ -3169,7 +3229,7 @@ const summaryRows = [
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
   ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "75/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings, Collections API-failure, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Confidence score", "79/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, non-blocking capture document view logging failure, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings, Collections API-failure, successful document-browse drawer, empty document-browse drawer, document preview download fallback, document preview sanitization, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -3684,10 +3744,42 @@ const phaseRows = [
     executionEvidence[49].safetyScope,
     "Continue with safe local mocks for PDF page-change emission and then read-only real-backend browser checks.",
   ],
+  [
+    executionEvidence[50].date,
+    "Phase 3 Collections document inventory drawer smoke",
+    "Extended the local Playwright Andritz smoke so the Knowledge page opens a successful document inventory drawer, proves /documents/list is scoped to the selected synthetic collection, and verifies the loaded PDF row before any preview/delete action.",
+    `${executionEvidence[50].result}; ${mappedPassedCountForEvidence(executionEvidence[50].id)} workbook test case mapped as Pass.`,
+    executionEvidence[50].safetyScope,
+    "Continue with safe local mocks for empty inventory and read-only real-backend browser checks.",
+  ],
+  [
+    executionEvidence[51].date,
+    "Phase 3 Collections empty inventory drawer smoke",
+    "Extended the local Playwright Andritz smoke so a successful empty /documents/list response is rendered as Empty collection, while preview/delete actions and load-error messaging remain absent.",
+    `${executionEvidence[51].result}; ${mappedPassedCountForEvidence(executionEvidence[51].id)} workbook test case mapped as Pass.`,
+    executionEvidence[51].safetyScope,
+    "Continue with read-only real-backend browser checks for collection inventory browsing and source scoping.",
+  ],
+  [
+    executionEvidence[52].date,
+    "Phase 3 Collections document preview fallback smoke",
+    "Extended the local Playwright Andritz smoke so the Knowledge page opens a document preview from the collection inventory, proves both list and preview requests are scoped to the selected synthetic collection, and verifies the download fallback renders.",
+    `${executionEvidence[52].result}; ${mappedPassedCountForEvidence(executionEvidence[52].id)} workbook test case mapped as Pass.`,
+    executionEvidence[52].safetyScope,
+    "Continue with safe local mocks for unauthorized collection previews and then read-only real-backend browser checks.",
+  ],
+  [
+    executionEvidence[53].date,
+    "Phase 3 Collections document preview sanitization smoke",
+    "Extended the local Playwright Andritz smoke so script-like document preview content returned from the collection preview endpoint is rendered inertly as text and does not execute in the browser.",
+    `${executionEvidence[53].result}; ${mappedPassedCountForEvidence(executionEvidence[53].id)} workbook test case mapped as Pass.`,
+    executionEvidence[53].safetyScope,
+    "Continue with unauthorized collection preview fallback and read-only real-backend browser checks.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F45"));
+styleBody(phase.getRange("A2:F49"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

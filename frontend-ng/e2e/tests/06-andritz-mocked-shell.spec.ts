@@ -213,6 +213,10 @@ async function installAndritzMocks(
     chatDocumentUploadEnabled?: boolean;
     collectionsShouldFail?: boolean;
     documentListShouldFail?: boolean;
+    documentListEmpty?: boolean;
+    documentListRequests?: string[];
+    collectionPreviewRequests?: string[];
+    collectionPreviewUnsafeContent?: boolean;
     searchShouldFail?: boolean;
     chatUploadShouldFail?: boolean;
     chatUploadPartialFailure?: boolean;
@@ -252,6 +256,10 @@ async function installAndritzMocks(
   const chatDocumentUploadEnabled = options.chatDocumentUploadEnabled ?? true;
   const collectionsShouldFail = options.collectionsShouldFail ?? false;
   const documentListShouldFail = options.documentListShouldFail ?? false;
+  const documentListEmpty = options.documentListEmpty ?? false;
+  const documentListRequests = options.documentListRequests;
+  const collectionPreviewRequests = options.collectionPreviewRequests;
+  const collectionPreviewUnsafeContent = options.collectionPreviewUnsafeContent ?? false;
   const searchShouldFail = options.searchShouldFail ?? false;
   const chatUploadShouldFail = options.chatUploadShouldFail ?? false;
   const chatUploadPartialFailure = options.chatUploadPartialFailure ?? false;
@@ -430,8 +438,18 @@ async function installAndritzMocks(
       });
     }
     if (path === '/documents/list') {
+      documentListRequests?.push(url.search);
       if (documentListShouldFail) {
         return json(route, { detail: 'Document inventory unavailable' }, 500);
+      }
+      if (documentListEmpty) {
+        return json(route, {
+          documents: [],
+          total: 0,
+          offset: 0,
+          limit: 100,
+          has_more: false,
+        });
       }
       return json(route, {
         documents: [
@@ -460,6 +478,20 @@ async function installAndritzMocks(
             metadata: { filename: 'andritz-qa-safe.pdf', document_id: 'doc-andritz-qa' },
           },
         ],
+      });
+    }
+    if (path === '/documents/preview/doc-andritz-qa') {
+      collectionPreviewRequests?.push(url.search);
+      if (collectionPreviewUnsafeContent) {
+        return json(route, {
+          content_type: 'text/html',
+          content:
+            '<h1>Unsafe Andritz preview</h1><script>window.__andritzPreviewXss = true</script><img src=x onerror="window.__andritzPreviewXss = true">',
+        });
+      }
+      return json(route, {
+        content_type: 'application/pdf',
+        download_url: '/api/v1/documents/doc-andritz-qa/download?collection_name=andritz-qa',
       });
     }
     if (path === '/documents/upload-batch' && method === 'POST') {
@@ -1210,6 +1242,114 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.getByRole('button', { name: /Upload/i })).toBeDisabled();
     await expect(page.locator('a[href="/knowledge/andritz-qa"]')).toHaveCount(0);
     await expect(page.locator('[title="Delete collection"]')).toHaveCount(0);
+  });
+
+  test('opens the collection document inventory drawer without real data', async ({ page }) => {
+    const documentListRequests: string[] = [];
+    await installAndritzMocks(page, { documentListRequests });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await page.locator('[title="Browse documents"]').first().click();
+
+    await expect.poll(() => documentListRequests.length).toBe(1);
+    const params = new URLSearchParams(documentListRequests[0].replace(/^\?/, ''));
+    expect(params.get('collection_name')).toBe('andritz-qa');
+    expect(params.get('limit')).toBe('100');
+    expect(params.get('offset')).toBe('0');
+
+    const documentsDrawer = page.locator('app-drawer').filter({ hasText: 'andritz-qa-safe.pdf' });
+    await expect(documentsDrawer.getByRole('heading', { name: 'Documents' })).toBeVisible();
+    await expect(documentsDrawer.getByText('andritz-qa', { exact: true })).toBeVisible();
+    await expect(documentsDrawer.getByText('1–1 / 1')).toBeVisible();
+    await expect(documentsDrawer.getByText('andritz-qa-safe.pdf')).toBeVisible();
+    await expect(documentsDrawer.getByText('3 chunks')).toBeVisible();
+    await expect(documentsDrawer.getByText('application/pdf')).toBeVisible();
+    await expect(documentsDrawer.locator('[title="Preview"]')).toBeVisible();
+    await expect(documentsDrawer.locator('[title="Delete document"]')).toBeVisible();
+    await expect(documentsDrawer.getByText('Unable to load documents')).toHaveCount(0);
+    await expect(documentsDrawer.getByText('Empty collection')).toHaveCount(0);
+  });
+
+  test('opens a collection document preview fallback without real data', async ({ page }) => {
+    const documentListRequests: string[] = [];
+    const collectionPreviewRequests: string[] = [];
+    await installAndritzMocks(page, { documentListRequests, collectionPreviewRequests });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await page.locator('[title="Browse documents"]').first().click();
+
+    const documentsDrawer = page.locator('app-drawer').filter({ hasText: 'andritz-qa-safe.pdf' });
+    await expect(documentsDrawer.getByText('andritz-qa-safe.pdf')).toBeVisible();
+    await documentsDrawer.locator('[title="Preview"]').click();
+
+    await expect.poll(() => documentListRequests.length).toBe(1);
+    await expect.poll(() => collectionPreviewRequests.length).toBe(1);
+    const listParams = new URLSearchParams(documentListRequests[0].replace(/^\?/, ''));
+    expect(listParams.get('collection_name')).toBe('andritz-qa');
+    const previewParams = new URLSearchParams(collectionPreviewRequests[0].replace(/^\?/, ''));
+    expect(previewParams.get('collection_name')).toBe('andritz-qa');
+
+    const previewDrawer = page.locator('app-drawer').filter({ hasText: 'Document preview' }).filter({ hasText: 'Open file' });
+    await expect(previewDrawer.getByRole('heading', { name: 'andritz-qa-safe.pdf' })).toBeVisible();
+    await expect(previewDrawer.getByText('This document is a binary file. Open or download it to view.')).toBeVisible();
+    await expect(previewDrawer.getByRole('link', { name: /Open file/i })).toHaveAttribute(
+      'href',
+      /\/api\/v1\/documents\/doc-andritz-qa\/download\?collection_name=andritz-qa$/,
+    );
+    await expect(previewDrawer.getByText('Unable to load documents')).toHaveCount(0);
+  });
+
+  test('renders unsafe collection preview content as inert text', async ({ page }) => {
+    const collectionPreviewRequests: string[] = [];
+    await installAndritzMocks(page, { collectionPreviewRequests, collectionPreviewUnsafeContent: true });
+    await page.addInitScript(() => {
+      (window as Window & { __andritzPreviewXss?: boolean }).__andritzPreviewXss = false;
+    });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await page.locator('[title="Browse documents"]').first().click();
+
+    const documentsDrawer = page.locator('app-drawer').filter({ hasText: 'andritz-qa-safe.pdf' });
+    await expect(documentsDrawer.getByText('andritz-qa-safe.pdf')).toBeVisible();
+    await documentsDrawer.locator('[title="Preview"]').click();
+
+    await expect.poll(() => collectionPreviewRequests.length).toBe(1);
+    const previewParams = new URLSearchParams(collectionPreviewRequests[0].replace(/^\?/, ''));
+    expect(previewParams.get('collection_name')).toBe('andritz-qa');
+
+    const previewDrawer = page.locator('app-drawer').filter({ hasText: 'Unsafe Andritz preview' });
+    await expect(previewDrawer.getByRole('heading', { name: 'andritz-qa-safe.pdf' })).toBeVisible();
+    await expect(previewDrawer.getByText('<h1>Unsafe Andritz preview</h1>')).toBeVisible();
+    await expect(previewDrawer.getByText('window.__andritzPreviewXss = true')).toBeVisible();
+    await expect(previewDrawer.getByRole('link', { name: /Open file/i })).toHaveCount(0);
+    await expect.poll(async () => page.evaluate(() => Boolean((window as Window & { __andritzPreviewXss?: boolean }).__andritzPreviewXss))).toBe(false);
+  });
+
+  test('shows an empty collection state only after a successful empty inventory load', async ({ page }) => {
+    const documentListRequests: string[] = [];
+    await installAndritzMocks(page, { documentListEmpty: true, documentListRequests });
+
+    await page.goto('/knowledge');
+    await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
+    await page.locator('[title="Browse documents"]').first().click();
+
+    await expect.poll(() => documentListRequests.length).toBe(1);
+    const params = new URLSearchParams(documentListRequests[0].replace(/^\?/, ''));
+    expect(params.get('collection_name')).toBe('andritz-qa');
+    expect(params.get('limit')).toBe('100');
+    expect(params.get('offset')).toBe('0');
+
+    const documentsDrawer = page.locator('app-drawer').filter({ hasText: 'Empty collection' });
+    await expect(documentsDrawer.getByRole('heading', { name: 'Documents' })).toBeVisible();
+    await expect(documentsDrawer.getByText('andritz-qa', { exact: true })).toBeVisible();
+    await expect(documentsDrawer.getByText('Empty collection')).toBeVisible();
+    await expect(documentsDrawer.getByText('Upload documents to this collection.')).toBeVisible();
+    await expect(documentsDrawer.getByText('Unable to load documents')).toHaveCount(0);
+    await expect(documentsDrawer.locator('[title="Preview"]')).toHaveCount(0);
+    await expect(documentsDrawer.locator('[title="Delete document"]')).toHaveCount(0);
   });
 
   test('shows a non-destructive error state when collection documents cannot load', async ({ page }) => {
