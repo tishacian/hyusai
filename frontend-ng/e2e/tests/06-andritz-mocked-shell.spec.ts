@@ -534,6 +534,9 @@ async function installAndritzMocks(
     collectionPreviewForbiddenAfterFirstSuccess?: boolean;
     searchShouldFail?: boolean;
     chatUploadShouldFail?: boolean;
+    chatUploadFailureDetail?: string;
+    chatUploadFailureStatus?: number;
+    chatUploadDelayMs?: number;
     chatUploadPartialFailure?: boolean;
     chatUploadTwoSuccess?: boolean;
     chatMetadataShouldFail?: boolean;
@@ -563,6 +566,8 @@ async function installAndritzMocks(
     contextUpdateShouldFail?: boolean;
     contextPersistRequests?: unknown[];
     contextPersistShouldFail?: boolean;
+    contextPersistFailureStatus?: number;
+    contextPersistFailureDetail?: string;
     chatSystems?: MockChatSystem[];
     chatSystemsRequests?: string[];
     chatSystemsShouldFail?: boolean;
@@ -618,6 +623,9 @@ async function installAndritzMocks(
   const collectionPreviewForbiddenAfterFirstSuccess = options.collectionPreviewForbiddenAfterFirstSuccess ?? false;
   const searchShouldFail = options.searchShouldFail ?? false;
   const chatUploadShouldFail = options.chatUploadShouldFail ?? false;
+  const chatUploadFailureDetail = options.chatUploadFailureDetail ?? 'Mocked upload failure';
+  const chatUploadFailureStatus = options.chatUploadFailureStatus ?? 500;
+  const chatUploadDelayMs = options.chatUploadDelayMs ?? 0;
   const chatUploadPartialFailure = options.chatUploadPartialFailure ?? false;
   const chatUploadTwoSuccess = options.chatUploadTwoSuccess ?? false;
   const chatMetadataShouldFail = options.chatMetadataShouldFail ?? false;
@@ -648,6 +656,8 @@ async function installAndritzMocks(
   const contextUpdateShouldFail = options.contextUpdateShouldFail ?? false;
   const contextPersistRequests = options.contextPersistRequests;
   const contextPersistShouldFail = options.contextPersistShouldFail ?? false;
+  const contextPersistFailureStatus = options.contextPersistFailureStatus ?? 403;
+  const contextPersistFailureDetail = options.contextPersistFailureDetail ?? 'Persist permission denied';
   const chatSystems = options.chatSystems ?? [];
   const chatSystemsRequests = options.chatSystemsRequests;
   const chatSystemsShouldFail = options.chatSystemsShouldFail ?? false;
@@ -781,7 +791,7 @@ async function installAndritzMocks(
       const body = request.postDataJSON() as Record<string, unknown>;
       contextPersistRequests?.push(body);
       if (contextPersistShouldFail) {
-        return json(route, { detail: 'Persist permission denied' }, 403);
+        return json(route, { detail: contextPersistFailureDetail }, contextPersistFailureStatus);
       }
       return json(route, {
         id: 'ctx-chat-drop-and-ask',
@@ -943,8 +953,11 @@ async function installAndritzMocks(
     if (path === '/documents/upload-batch' && method === 'POST') {
       const uploadBody = request.postData() || '';
       chatUploadRequests?.push(uploadBody);
+      if (chatUploadDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, chatUploadDelayMs));
+      }
       if (chatUploadShouldFail) {
-        return json(route, { detail: 'Mocked upload failure' }, 500);
+        return json(route, { detail: chatUploadFailureDetail }, chatUploadFailureStatus);
       }
       if (uploadBody.includes('andritz-chat-return.txt')) {
         return json(route, {
@@ -972,6 +985,21 @@ async function installAndritzMocks(
               filename: 'andritz-chat-drop.pdf',
               status: 'success',
               chunks_processed: 2,
+            },
+          ],
+        });
+      }
+      if (uploadBody.includes('andritz-chat-large.xlsx')) {
+        return json(route, {
+          total: 1,
+          successful: 1,
+          failed: 0,
+          documents: [
+            {
+              document_id: 'doc-chat-large-xlsx',
+              filename: 'andritz-chat-large.xlsx',
+              status: 'success',
+              chunks_processed: 24,
             },
           ],
         });
@@ -1080,6 +1108,19 @@ async function installAndritzMocks(
           document_token_count: 128,
           chunks_count: 2,
           document_extracted_keywords: ['andritz', 'pdf', 'drop-and-ask'],
+        },
+      });
+    }
+    if (path === '/documents/doc-chat-large-xlsx/metadata') {
+      return json(route, {
+        document_id: 'doc-chat-large-xlsx',
+        metadata: {
+          document_title: 'Andritz chat large workbook',
+          document_filename: 'andritz-chat-large.xlsx',
+          document_num_pages: 18,
+          document_token_count: 24576,
+          chunks_count: 24,
+          document_extracted_keywords: ['andritz', 'xlsx', 'boundary', 'drop-and-ask'],
         },
       });
     }
@@ -2655,6 +2696,123 @@ test.describe('Andritz mocked browser smoke', () => {
       stream: true,
       include_sources: true,
       include_reasoning: true,
+    });
+  });
+
+  test('keeps a large mocked Chat drop-and-ask upload responsive before asking', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatSessionCreateRequests,
+      chatUploadRequests,
+      contextCreateRequests,
+      chatUploadDelayMs: 650,
+      knowledgeScopes: [
+        {
+          key: 'andritz-qa',
+          label: 'Andritz QA knowledge',
+          is_default: true,
+          collection_slugs: ['andritz-qa'],
+        },
+      ],
+    });
+
+    await page.goto('/chat');
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-large.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.alloc(512 * 1024, 'A'),
+    });
+
+    await expect(page.getByText(/Indexing 1/i)).toBeVisible();
+    await expect.poll(() => chatUploadRequests.length).toBe(1);
+    expect(chatUploadRequests[0]).toContain('andritz-chat-large.xlsx');
+    await expect.poll(() => contextCreateRequests.length).toBe(1);
+    await expect(page.getByText(/Indexing 1/i)).toHaveCount(0);
+    await expect(page.getByText(/Andritz chat large workbook|andritz-chat-large\.xlsx/i).first()).toBeVisible();
+    await expect(page.getByText('18 pages')).toBeVisible();
+    await expect(page.getByText('24.6k tokens')).toBeVisible();
+    await expect(page.getByText('24 chunks')).toBeVisible();
+    expect(contextCreateRequests[0]).toMatchObject({
+      data_refs: ['andritz-chat-large.xlsx'],
+      environment_state: { collection: 'documents' },
+      business_constraints: { source: 'drop_and_ask' },
+      ephemeral: true,
+      ttl_hours: 24,
+    });
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Résume le classeur ajouté.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Résume le classeur ajouté.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatSessionCreateRequests).toHaveLength(1);
+    expect(chatSessionCreateRequests[0]).toMatchObject({
+      context: {
+        context_id: 'ctx-chat-drop-and-ask',
+        context_mode: 'replace',
+        knowledge_scope: null,
+        source_selection: 'auto',
+      },
+    });
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Résume le classeur ajouté.',
+      context_id: 'ctx-chat-drop-and-ask',
+      context_mode: 'replace',
+      knowledge_scope: null,
+      stream: true,
+      include_sources: true,
+      include_reasoning: true,
+    });
+  });
+
+  test('shows a backend rejection for unsupported Chat drop-and-ask files', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatUploadRequests,
+      contextCreateRequests,
+      chatUploadShouldFail: true,
+      chatUploadFailureStatus: 400,
+      chatUploadFailureDetail: 'Type de fichier non supporte pour le drop-and-ask.',
+    });
+
+    await page.goto('/chat');
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-unsupported.bin',
+      mimeType: 'application/octet-stream',
+      buffer: Buffer.from('Synthetic unsupported Andritz chat document.'),
+    });
+
+    await expect.poll(() => chatUploadRequests.length).toBe(1);
+    expect(chatUploadRequests[0]).toContain('andritz-chat-unsupported.bin');
+    await expect(
+      page.getByRole('alert', { name: /Type de fichier non supporte pour le drop-and-ask/i }),
+    ).toBeVisible();
+    expect(contextCreateRequests).toHaveLength(0);
+    await expect(page.getByText(/andritz-chat-unsupported\.bin/i)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Persist$/i })).toHaveCount(0);
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('La recherche reste disponible après un type refusé.');
+    await input.press('Enter');
+
+    await expect(page.getByText('La recherche reste disponible après un type refusé.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'La recherche reste disponible après un type refusé.',
+      context_id: null,
+      context_mode: null,
+      stream: true,
+      include_sources: true,
     });
   });
 
@@ -4732,5 +4890,55 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect.poll(() => contextPersistRequests.length).toBe(1);
     await expect(page.getByRole('alert', { name: /Failed to persist session/i })).toBeVisible();
     await expect(persistButton).toBeEnabled();
+  });
+
+  test('keeps chat usable when a mocked drop-and-ask context has expired before persist', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatUploadRequests: string[] = [];
+    const contextCreateRequests: unknown[] = [];
+    const contextPersistRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatStreamRequests,
+      chatUploadRequests,
+      contextCreateRequests,
+      contextPersistRequests,
+      contextPersistShouldFail: true,
+      contextPersistFailureStatus: 410,
+      contextPersistFailureDetail: 'Drop-and-ask context expired',
+    });
+
+    await page.goto('/chat');
+    await page.locator('input[type="file"]').first().setInputFiles({
+      name: 'andritz-chat-drop.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Synthetic Andritz expired persist evidence.'),
+    });
+
+    await expect.poll(() => chatUploadRequests.length).toBe(1);
+    await expect.poll(() => contextCreateRequests.length).toBe(1);
+    await expect(page.getByText(/Andritz chat drop note|andritz-chat-drop\.txt/i).first()).toBeVisible();
+    const persistButton = page.getByRole('button', { name: /^Persist$/i });
+    await expect(persistButton).toBeVisible();
+
+    await persistButton.click();
+
+    await expect.poll(() => contextPersistRequests.length).toBe(1);
+    await expect(page.getByRole('alert', { name: /Failed to persist session/i })).toBeVisible();
+    await expect(persistButton).toBeEnabled();
+
+    const input = page.locator('app-chat-panel textarea[name="userInput"]').first();
+    await input.fill('Le chat reste utilisable après expiration du contexte.');
+    await input.press('Enter');
+
+    await expect(page.getByText('Le chat reste utilisable après expiration du contexte.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+    expect(chatStreamRequests).toHaveLength(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'Le chat reste utilisable après expiration du contexte.',
+      context_id: 'ctx-chat-drop-and-ask',
+      context_mode: 'replace',
+      stream: true,
+      include_sources: true,
+    });
   });
 });
