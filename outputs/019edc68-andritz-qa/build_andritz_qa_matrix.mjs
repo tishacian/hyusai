@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J26", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A88:I123", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A83:F117", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A90:I125", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A85:F119", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -3629,6 +3629,34 @@ const executionEvidence = [
     notes:
       "Adds diagnostics degradation coverage: /documents/collections/{id}/diagnostics returns 200 when vector diagnostics fail, keeps ledger source/document/chunk counts plus fact coverage visible, and marks vector drift as unknown.",
   },
+  {
+    id: "EXEC-2026-06-23-BE-032",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py -q",
+    result: "41 passed, 0 failed",
+    duration: "2.30s",
+    warnings:
+      "289 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new unsupported-upload cases use synthetic workspaces, /documents/upload-batch and /documents/upload, one tiny supported text file, tiny unsupported .exe files, tmp_path local object-store settings and dispatch guards, and verify rejection before collection/source/job/original persistence. They perform no backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, or vector/object-store mutation outside tmp_path.",
+    notes:
+      "Adds mixed unsupported upload-batch coverage and verifies the new atomic extension guard: unsupported files return 422 with the rejected filename while accepted files are not half-manifested, no worker is dispatched, and no source/original ledger is created. Also verifies single-file /documents/upload preserves the 422 instead of wrapping it as a 500.",
+  },
+  {
+    id: "EXEC-2026-06-23-BE-033",
+    date: "2026-06-23",
+    command:
+      "cd backend && poetry run pytest app/tests/api/test_documents_collections.py -q",
+    result: "42 passed, 0 failed",
+    duration: "2.55s",
+    warnings:
+      "652 warnings, mostly datetime.utcnow deprecations plus local SWIG deprecation warnings from optional native dependencies.",
+    safetyScope:
+      "Local Collections API tests only. The new large collection-list case creates 120 synthetic collection ledger rows in one synthetic workspace plus one separate-workspace row, uses a mocked VectorDBFactory legacy list, and verifies workspace isolation plus legacy de-dup/filter behavior without backend network call, VM access, real Andritz collection mutation, SFTP production-data mutation, upload, or vector/object-store mutation.",
+    notes:
+      "Adds large workspace collection-list coverage: /documents/collections returns all 120 current-workspace ledger rows in newest-first order, excludes another workspace's collection, filters internal legacy names, de-duplicates legacy names already present in the ledger, preserves default selection, and omits document_names from list items.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -3662,6 +3690,7 @@ const executedTestResults = new Map([
   pass("KCAP-028-T01", "Mapped to published-fiches listing API tests; browser filtering remains pending."),
   pass("KCAP-038-T01", "Mapped to proposal listing by session id API tests."),
   pass("COL-001-T01", "Mapped to list collections API tests."),
+  pass("COL-001-T02", "Mapped to local Collections API test proving /documents/collections handles 120 synthetic current-workspace ledger rows without leaking other workspaces and de-duplicates/filters legacy vector names.", 123),
   pass("COL-003-T01", "Mapped to collection document upload creating worker job and storing original."),
   pass("COL-003-T03", "Mapped to local Collections API test proving duplicate filenames in one collection upload request are handled deterministically without duplicate ledger rows or inventory corruption.", 111),
   pass("COL-005-T01", "Mapped to collection inventory pagination tests."),
@@ -3713,6 +3742,7 @@ const executedTestResults = new Map([
   pass("COL-017-T02", "Mapped to local Collections API test proving /documents/list pages a large synthetic vector-only document set at limit=1000 and rejects oversized limit=1001 without invoking the service.", 117),
   pass("COL-017-T03", "Mapped to local Documents API test proving /documents/list for a collection slug that exists only in another workspace returns no documents and instantiates the vector fallback with the current workspace slug.", 106),
   pass("COL-019-T01", "Mapped to local Collections API test proving synthetic multi-file collection upload returns a queued job, stores all originals and creates coherent source rows/inventory for every file.", 116),
+  pass("COL-019-T02", "Mapped to local Collections API test proving a mixed supported/unsupported /documents/upload-batch request returns a clear 422 before collection/source/job/original persistence or worker dispatch.", 122),
   pass("COL-019-T03", "Mapped to local Collections API test proving /documents/upload-batch handles a 40-file synthetic batch with one job, traceable source rows, original objects and stable manifest counts.", 120),
   pass("COL-020-T01", "Mapped to local Collections API test proving adding a synthetic file to an existing collection extends document_names/source rows without overwriting the prior ready source.", 118),
   pass("COL-020-T02", "Mapped to local Collections API test proving reuploading an existing filename keeps one manifest entry and requeues a clean source row without stale chunk/document metadata.", 118),
@@ -4486,8 +4516,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser + voice transport/capture contract smoke: ${executionEvidence[99].result}; latest Collections clear-safety API lot: ${executionEvidence[100].result}; latest Secure Deposit workspace/extension policy lot: ${executionEvidence[101].result}; latest Secure Deposit critical access-control lot: ${executionEvidence[102].result}; latest Knowledge Capture publication-safety lot: ${executionEvidence[103].result}; latest SFTP/SPL explicit-execute guard lot: ${executionEvidence[104].result}; latest Knowledge Capture permission/content lot: ${executionEvidence[105].result}; latest Collections permission/scope lot: ${executionEvidence[106].result}; latest Collections hidden-binding UI smoke: ${executionEvidence[107].result}; latest Collections inventory input-validation lot: ${executionEvidence[108].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "91/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, capture preview page-change synchronization, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, voice active-document transport, late same-turn partial rendering, adaptive VAD endpoint candidate cancellation/flush, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, Knowledge Capture proposal/session permission denials and contributor proposal-scope filtering, accepted-proposal content editing without implicit publication, collections worker/indexing ledger behavior, collection inventory input bounds, global document clear admin/confirmation safety, knowledge guide/scope admin gates, collection metadata patch admin gates, cross-workspace table-query and legacy list isolation, collection hidden-system binding non-leak and Bindings action UX, secure deposit workspace enablement/extension policy, secure deposit token/rotate-revoke/download/SFTP upload-only access gates, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, SPL CLI dry-run-by-default execution guard, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; ${executionEvidence[17].result}; ${executionEvidence[18].result}; ${executionEvidence[19].result}; ${executionEvidence[20].result}; ${executionEvidence[21].result}; latest Andritz mocked browser + voice transport/capture contract smoke: ${executionEvidence[99].result}; latest Collections clear-safety API lot: ${executionEvidence[100].result}; latest Secure Deposit workspace/extension policy lot: ${executionEvidence[101].result}; latest Secure Deposit critical access-control lot: ${executionEvidence[102].result}; latest Knowledge Capture publication-safety lot: ${executionEvidence[103].result}; latest SFTP/SPL explicit-execute guard lot: ${executionEvidence[104].result}; latest Knowledge Capture permission/content lot: ${executionEvidence[105].result}; latest Collections permission/scope lot: ${executionEvidence[106].result}; latest Collections hidden-binding UI smoke: ${executionEvidence[107].result}; latest Collections inventory input-validation lot: ${executionEvidence[108].result}; latest Collections unsupported upload guard lot: ${executionEvidence[122].result}; latest Collections large-list lot: ${executionEvidence[123].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "91/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, unsupported upload rejection detail, multi-document active-view scoping, capture preview page-change synchronization, guided-plan written note anchoring, guided-plan section-switch anchoring, guided-plan document-reference anchoring, voice active-document transport, late same-turn partial rendering, adaptive VAD endpoint candidate cancellation/flush, non-blocking capture document view logging failure, no-plan finalization failure recovery, empty no-plan finish guard, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, Knowledge Capture proposal/session permission denials and contributor proposal-scope filtering, accepted-proposal content editing without implicit publication, collections worker/indexing ledger behavior, collection inventory input bounds, large collection-list isolation, global document clear admin/confirmation safety, knowledge guide/scope admin gates, collection metadata patch admin gates, cross-workspace table-query and legacy list isolation, collection hidden-system binding non-leak and Bindings action UX, secure deposit workspace enablement/extension policy, secure deposit token/rotate-revoke/download/SFTP upload-only access gates, synthetic collection creation safety, synthetic document and collection delete safety with permission-denial rollback, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, SPL CLI dry-run-by-default execution guard, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer/multi-route unauthenticated-guard, disabled-SFTP-settings/direct-page, enabled-SFTP health/no-secret direct-page, SFTP staging queue load/filter/link-scope/empty-search safety, SFTP operations/indexing-assist monitor safety, SFTP operations monitor failure visibility, SFTP reconciliation dry-run success UX, SFTP reconciliation permission-denial UX, SFTP quarantine cancel confirmation safety, SFTP file-download failure recovery, SFTP staging ZIP download failure recovery, SFTP indexing-monitor failure visibility, SFTP preview/archive drawer safety, SFTP target collection selection safety, SFTP deposit link create/rotate/revoke/copy/password/copy-failure/permission-denial handoff safety, Chat selected system scope propagation, stale-system fallback, forbidden-system fallback, Quick ask long-prompt boundary handling, slow-stream waiting feedback, stream interruption recovery, auto-deep retrieval tracking, PDF drop-and-ask happy path, unsupported-file rejection, large-file boundary responsiveness, no-session-doc null-scope handling and context persistence happy/expired/permission-denial handling, Chat document metadata facts/failure/keyword compaction, Collections API-failure, successful document-browse drawer, empty document-browse drawer, explicit scoped document delete confirmation, typed collection delete confirmation, forbidden delete handling, document preview download fallback, document preview sanitization, forbidden collection preview, document-browse failure, Knowledge search failure and Knowledge search context-reset browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -5578,10 +5608,26 @@ const phaseRows = [
     executionEvidence[121].safetyScope,
     "Continue with mocked/synthetic validation for OCR duplicate facts, mixed unsupported uploads and read-only reindex assessment.",
   ],
+  [
+    executionEvidence[122].date,
+    "Phase 5 Collections mixed upload guard",
+    "Added local Collections API coverage for mixed supported/unsupported batch upload and unsupported single upload, then added an atomic extension guard before collection/source/job/original persistence.",
+    `${executionEvidence[122].result}; ${mappedPassedCountForEvidence(executionEvidence[122].id)} workbook test case mapped as Pass.`,
+    executionEvidence[122].safetyScope,
+    "Continue with mocked/synthetic validation for OCR duplicate facts and read-only reindex assessment; keep real Andritz uploads behind explicit approval.",
+  ],
+  [
+    executionEvidence[123].date,
+    "Phase 5 Collections large list regression",
+    "Added local Collections API coverage proving the collection index handles a large synthetic workspace list while preserving workspace isolation and legacy vector-name filtering.",
+    `${executionEvidence[123].result}; ${mappedPassedCountForEvidence(executionEvidence[123].id)} workbook test case mapped as Pass.`,
+    executionEvidence[123].safetyScope,
+    "Continue with mocked/synthetic validation for OCR duplicate facts and read-only reindex assessment; keep real Andritz collection/SFTP checks non-mutating unless explicitly approved.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F117"));
+styleBody(phase.getRange("A2:F119"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

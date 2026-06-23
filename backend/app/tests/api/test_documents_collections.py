@@ -64,6 +64,57 @@ def test_list_collections_returns_ledger_items(db_session, monkeypatch):
     assert "document_names" not in body["items"][0]
 
 
+def test_list_collections_handles_large_workspace_list_without_cross_workspace_leak(
+    db_session,
+    monkeypatch,
+):
+    ws = Workspace(id="ws-api-large", name="API Large", slug="api-large")
+    other_ws = Workspace(id="ws-api-other", name="API Other", slug="api-other")
+    db_session.add_all([ws, other_ws])
+    db_session.commit()
+
+    for index in range(120):
+        collection = create_collection(
+            db_session,
+            workspace=ws,
+            name=f"Manuals {index:03d}",
+            slug=f"manuals-{index:03d}",
+        )
+        collection.document_count = index % 5
+        collection.chunk_count = index * 2
+    create_collection(db_session, workspace=other_ws, name="Other Workspace Secret", slug="other-secret")
+    db_session.commit()
+
+    captured: dict[str, str | None] = {}
+
+    def fake_legacy(cls, db_type="qdrant", workspace_slug=None):
+        captured["workspace_slug"] = workspace_slug
+        return ["manuals-000", "_internal", "legacy-extra"]
+
+    monkeypatch.setattr(
+        "app.services.vector_db.factory.VectorDBFactory.list_collections_for_workspace",
+        classmethod(fake_legacy),
+    )
+
+    response = _client(db_session, ws).get("/documents/collections")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert captured["workspace_slug"] == ws.slug
+    assert len(body["items"]) == 120
+    assert len(body["collections"]) == 121
+    assert body["collections"][0] == "manuals-119"
+    assert body["default"] == "manuals-119"
+    assert body["collections"].count("manuals-000") == 1
+    assert "legacy-extra" in body["collections"]
+    assert "_internal" not in body["collections"]
+    assert "other-secret" not in body["collections"]
+    assert all("document_names" not in item for item in body["items"])
+    assert body["items"][0]["slug"] == "manuals-119"
+    assert body["items"][0]["document_count"] == 119 % 5
+    assert body["items"][0]["chunk_count"] == 119 * 2
+
+
 def test_collection_patch_denies_non_admin_without_mutating_metadata(db_session):
     ws = Workspace(id="ws-patch-denied", name="Patch Denied", slug="patch-denied")
     db_session.add(ws)
@@ -1355,6 +1406,79 @@ def test_upload_batch_handles_large_synthetic_batch_with_one_job(
         == f"payload {filename}".encode()
         for filename in filenames
     )
+
+
+def test_upload_batch_rejects_mixed_unsupported_file_without_persisting_batch(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "document_ingest_async_enabled", True)
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-upload-global-mixed", name="Upload Global Mixed", slug="upload-global-mixed")
+    db_session.add(ws)
+    db_session.commit()
+
+    def fail_dispatch(db, job):  # pragma: no cover - assertion guard
+        raise AssertionError("unsupported batch must fail before dispatch")
+
+    monkeypatch.setattr(documents, "dispatch_worker_job", fail_dispatch)
+
+    response = _client(db_session, ws).post(
+        "/documents/upload-batch",
+        data={"collection_name": "mixed-batch"},
+        files=[
+            ("files", ("manual.txt", b"valid manual payload", "text/plain")),
+            ("files", ("blocked.exe", b"MZ", "application/octet-stream")),
+        ],
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "Unsupported file extension" in detail
+    assert "blocked.exe" in detail
+    assert "manual.txt" not in detail
+    assert (
+        db_session.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.workspace_id == ws.id, KnowledgeCollection.slug == "mixed-batch")
+        .count()
+        == 0
+    )
+    assert db_session.query(KnowledgeCollectionSource).count() == 0
+    assert db_session.query(WorkerJob).count() == 0
+    object_root = tmp_path / "objects"
+    assert not object_root.exists() or not any(object_root.rglob("*"))
+
+
+def test_single_upload_rejects_unsupported_file_without_wrapping_http_error(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "document_ingest_async_enabled", True)
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    ws = Workspace(id="ws-upload-single-bad", name="Upload Single Bad", slug="upload-single-bad")
+    db_session.add(ws)
+    db_session.commit()
+
+    response = _client(db_session, ws).post(
+        "/documents/upload",
+        data={"collection_name": "single-bad"},
+        files={"file": ("blocked.exe", b"MZ", "application/octet-stream")},
+    )
+
+    assert response.status_code == 422
+    assert "blocked.exe" in response.json()["detail"]
+    assert (
+        db_session.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.workspace_id == ws.id, KnowledgeCollection.slug == "single-bad")
+        .count()
+        == 0
+    )
+    assert db_session.query(KnowledgeCollectionSource).count() == 0
+    assert db_session.query(WorkerJob).count() == 0
 
 
 def test_collection_document_upload_extends_existing_manifest_without_overwriting_sources(

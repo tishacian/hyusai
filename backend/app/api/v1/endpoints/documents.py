@@ -67,6 +67,59 @@ UPLOADS_DIR = os.path.join(
 )
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
+_SUPPORTED_UPLOAD_EXTENSIONS = {
+    ".bmp",
+    ".csv",
+    ".doc",
+    ".docx",
+    ".htm",
+    ".html",
+    ".jpeg",
+    ".jpg",
+    ".json",
+    ".log",
+    ".markdown",
+    ".md",
+    ".odt",
+    ".pdf",
+    ".png",
+    ".pptx",
+    ".rtf",
+    ".text",
+    ".tif",
+    ".tiff",
+    ".tsv",
+    ".txt",
+    ".webp",
+    ".xls",
+    ".xlsm",
+    ".xlsx",
+    ".xltm",
+    ".xltx",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
+
+
+def _safe_upload_filename(file: UploadFile) -> str:
+    return (file.filename or "upload").replace("/", "_").replace("\\", "_")
+
+
+def _validate_supported_upload_files(files: list[UploadFile]) -> None:
+    unsupported = [
+        _safe_upload_filename(file)
+        for file in files
+        if Path(_safe_upload_filename(file)).suffix.lower() not in _SUPPORTED_UPLOAD_EXTENSIONS
+    ]
+    if unsupported:
+        supported = ", ".join(sorted(_SUPPORTED_UPLOAD_EXTENSIONS))
+        rejected = ", ".join(unsupported)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported file extension for upload: {rejected}. Supported extensions: {supported}",
+        )
+
 
 def _require_workspace_admin(db: DBSession, user: User, workspace: Workspace) -> None:
     membership = (
@@ -204,13 +257,14 @@ async def _queue_collection_ingest(
 ) -> dict:
     if not files:
         raise HTTPException(status_code=422, detail="At least one file is required")
+    _validate_supported_upload_files(files)
 
     store = get_object_store()
     existing = list(collection.document_names or [])
     uploaded_names: list[str] = []
     source_updates: dict[str, dict[str, Any]] = {}
     for file in files:
-        safe_name = (file.filename or "upload").replace("/", "_").replace("\\", "_")
+        safe_name = _safe_upload_filename(file)
         content = await file.read()
         store.write_bytes(original_key(collection, safe_name), content)
         source_updates[normalize_source_name(safe_name)] = {
@@ -297,6 +351,7 @@ async def upload_document(
     db: DBSession = Depends(get_db),
 ):
     """Upload and index a document"""
+    _validate_supported_upload_files([file])
     try:
         if settings.document_ingest_async_enabled:
             collection = create_or_get_collection(
@@ -352,6 +407,8 @@ async def upload_document(
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error uploading document: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -373,6 +430,7 @@ async def upload_documents_batch(
             status_code=403,
             detail="Document upload in chat is disabled for this workspace",
         )
+    _validate_supported_upload_files(files)
     if settings.document_ingest_async_enabled:
         collection = create_or_get_collection(
             db,
