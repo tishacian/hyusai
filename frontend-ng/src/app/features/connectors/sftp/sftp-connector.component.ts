@@ -718,6 +718,11 @@ const BULK_PROMOTE_LIMIT = 25;
                   </span>
                 }
               </div>
+              @if (indexingMonitorError()) {
+                <div class="mt-3 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-400/25">
+                  {{ indexingMonitorError() }}
+                </div>
+              }
               <div class="mt-4 grid grid-cols-4 gap-2">
                 <div class="rounded bg-white/[0.03] p-2 text-center ring-1 ring-white/10">
                   <p class="font-mono text-sm text-white">{{ indexingJobCount('queued') }}</p>
@@ -1606,6 +1611,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
   readonly indexingAssistError = signal<string | null>(null);
   readonly knowledgeJobs = signal<KnowledgeWorkerJob[]>([]);
   readonly knowledgeJobsLoading = signal(false);
+  readonly indexingMonitorError = signal<string | null>(null);
   readonly lastPromotionBanner = signal<{ collection_slug: string; job_id?: string | null; count: number } | null>(null);
   readonly error = signal<string | null>(null);
   readonly previewOpen = signal(false);
@@ -1887,6 +1893,7 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
     if (!collection) return;
     if (!silent) {
       this.knowledgeJobsLoading.set(true);
+      this.indexingMonitorError.set(null);
     }
     this.api
       .get<{ items: KnowledgeWorkerJob[] }>('/documents/jobs', {
@@ -1896,10 +1903,14 @@ export class SftpConnectorComponent implements OnInit, OnDestroy {
       .subscribe({
         next: (res) => {
           this.knowledgeJobs.set(res.items || []);
+          this.indexingMonitorError.set(null);
           this.knowledgeJobsLoading.set(false);
         },
-        error: () => {
+        error: (err) => {
           this.knowledgeJobs.set([]);
+          if (!silent) {
+            this.indexingMonitorError.set(this.errorMessage(err, 'Unable to load indexing jobs.'));
+          }
           this.knowledgeJobsLoading.set(false);
         },
       });

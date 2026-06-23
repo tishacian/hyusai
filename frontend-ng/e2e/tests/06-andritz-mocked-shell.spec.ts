@@ -573,6 +573,8 @@ async function installAndritzMocks(
     sftpArchiveMemberDownloadRequests?: string[];
     sftpLinkMutationRequests?: Array<{ path: string; body?: unknown }>;
     sftpLinkMutationShouldFail?: boolean;
+    sftpJobsRequests?: string[];
+    sftpJobsShouldFail?: boolean;
   } = {},
 ) {
   const roleTemplate = options.roleTemplate ?? 'workspace_admin';
@@ -640,6 +642,8 @@ async function installAndritzMocks(
   const sftpArchiveMemberDownloadRequests = options.sftpArchiveMemberDownloadRequests;
   const sftpLinkMutationRequests = options.sftpLinkMutationRequests;
   const sftpLinkMutationShouldFail = options.sftpLinkMutationShouldFail ?? false;
+  const sftpJobsRequests = options.sftpJobsRequests;
+  const sftpJobsShouldFail = options.sftpJobsShouldFail ?? false;
   let collectionDeleted = false;
   const createdCollections: string[] = [];
   let collectionPreviewRequestCount = 0;
@@ -1357,6 +1361,10 @@ async function installAndritzMocks(
       return json(route, fileIds.length > 0 && sftpIndexingAssist ? sftpIndexingAssist : emptySftpIndexingAssist());
     }
     if (path === '/documents/jobs' && method === 'GET') {
+      sftpJobsRequests?.push(url.search);
+      if (sftpJobsShouldFail) {
+        return json(route, { detail: 'Mocked indexing jobs unavailable' }, 500);
+      }
       const assist = sftpIndexingAssist || emptySftpIndexingAssist();
       const collection = assist.collection as { jobs?: unknown[] };
       return json(route, { items: collection.jobs || [] });
@@ -1505,6 +1513,61 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.getByRole('button', { name: /Create link/i })).toBeDisabled();
     await expect(page.locator('section').filter({ hasText: 'Deposit links' }).first()).toContainText(
       'Andritz QA external upload',
+    );
+
+    expect(sftpLinkMutationRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+  });
+
+  test('loads enabled SFTP health without exposing secrets or mutating state', async ({ page }) => {
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      secureDepositEnabled: true,
+      sftpLinkMutationRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpOperationsReconcileRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await expect(page.getByText(/Secure Deposit is not enabled/i)).toHaveCount(0);
+    await expect(page.locator('input[name="label"]')).toBeEnabled();
+    await expect(page.locator('input[name="max"]')).toBeEnabled();
+    await expect(page.locator('input[name="expires"]')).toBeEnabled();
+    await expect(page.locator('input[name="extensions"]')).toBeEnabled();
+    await expect(page.getByRole('button', { name: /Create link/i })).toBeEnabled();
+
+    const healthState = await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+          health?: () => Record<string, unknown> | null;
+          secureDepositEnabled?: () => boolean;
+        }
+        | undefined;
+      return {
+        enabled: component?.secureDepositEnabled?.(),
+        health: component?.health?.(),
+      };
+    });
+    expect(healthState).toMatchObject({
+      enabled: true,
+      health: {
+        status: 'ok',
+        workspace: 'andritz',
+        enabled: true,
+        default_allowed_extensions: ['.pdf', '.docx', '.pptx', '.xlsx', '.png', '.jpg'],
+      },
+    });
+    expect(JSON.stringify(healthState.health).toLowerCase()).not.toMatch(
+      /password|secret|token|private|credential|session/,
     );
 
     expect(sftpLinkMutationRequests).toHaveLength(0);
@@ -1938,6 +2001,68 @@ test.describe('Andritz mocked browser smoke', () => {
       collection_slug: 'andritz-qa',
       file_ids: ['deposit-andritz-received-1'],
     });
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+  });
+
+  test('keeps SFTP indexing monitor failure visible and non-mutating', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    const sftpIndexingAssistRequests: unknown[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    const sftpJobsRequests: string[] = [];
+    await installAndritzMocks(page, {
+      sftpDepositFiles: syntheticSftpDepositFiles(),
+      sftpOperations: syntheticSftpOperations(),
+      sftpJobsRequests,
+      sftpJobsShouldFail: true,
+      sftpIndexingAssistRequests,
+      sftpOperationsReconcileRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+      sftpLinkMutationRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await page.getByRole('button', { name: /Refresh pipeline/i }).click();
+    await expect(page.getByText('Mocked indexing jobs unavailable')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Analyze current view/i })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /Create link/i })).toBeEnabled();
+
+    const monitorState = await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+          indexingMonitorError?: () => string | null;
+          knowledgeJobs?: () => unknown[];
+          knowledgeJobsLoading?: () => boolean;
+        }
+        | undefined;
+      return {
+        indexingMonitorError: component?.indexingMonitorError?.(),
+        knowledgeJobs: component?.knowledgeJobs?.() || [],
+        knowledgeJobsLoading: component?.knowledgeJobsLoading?.(),
+      };
+    });
+    expect(monitorState).toMatchObject({
+      indexingMonitorError: 'Mocked indexing jobs unavailable',
+      knowledgeJobs: [],
+      knowledgeJobsLoading: false,
+    });
+    expect(sftpJobsRequests.length).toBeGreaterThan(0);
+    expect(sftpJobsRequests.at(-1)).toContain('collection_id=andritz-qa');
+    expect(sftpIndexingAssistRequests.every((request) => {
+      const fileIds = (request as { file_ids?: unknown }).file_ids;
+      return Array.isArray(fileIds) && fileIds.length === 0;
+    })).toBe(true);
+    expect(sftpLinkMutationRequests).toHaveLength(0);
     expect(sftpPromoteRequests).toHaveLength(0);
     expect(sftpBulkPromoteRequests).toHaveLength(0);
     expect(sftpArchiveDownloadRequests).toHaveLength(0);
