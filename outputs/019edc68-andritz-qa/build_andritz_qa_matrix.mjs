@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J8", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A1:I17", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A1:F19", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A1:I19", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A1:F21", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-23";
 
@@ -330,6 +330,8 @@ const features = [
       { type: "Permission/security", scenario: "Reviewer/member visibility", steps: "Compare reviewer and member roles.", expected: "Capture access matches IAM policy, no hidden data leak.", severityIfFails: "High" },
       { type: "Regression", scenario: "Mocked Andritz browser dashboard smoke", steps: "Run local Playwright with mocked capture sessions/fiches APIs and open /knowledge/capture.", expected: "The capture dashboard, empty states and primary session action render without contacting real backend data." },
       { type: "Responsive", scenario: "Open capture dashboard on mobile width", steps: "Set viewport to mobile width and open /knowledge/capture with mocked Andritz APIs.", expected: "The capture dashboard remains reachable and primary actions/empty state text are visible without real backend data." },
+      { type: "Permission/security", scenario: "Reviewer IAM matrix exposes capture controls", steps: "Call /iam/matrix as workspace_reviewer in an IAM-enforced workspace.", expected: "The matrix exposes capture_session create plus owner-scoped update/execute as allowed for the subject.", severityIfFails: "High" },
+      { type: "Regression", scenario: "Reviewer new capture button enabled from IAM matrix", steps: "Run local Playwright with mocked reviewer auth/workspace/IAM APIs and open /knowledge/capture.", expected: "The New/Nouvelle capture action is visible and enabled without contacting real backend data.", severityIfFails: "High" },
     ],
   },
   {
@@ -2066,6 +2068,34 @@ const executionEvidence = [
     notes:
       "Reviewer capture IAM remediation: service test proves reviewers can create/update/execute only their own capture sessions, and API test proves an IAM-enforced reviewer can create and start a free-conversation capture through /knowledge-capture/plans and /sessions/{id}/start.",
   },
+  {
+    id: "EXEC-2026-06-23-BE-011",
+    date: "2026-06-23",
+    command:
+      "poetry run pytest app/tests/api/test_iam_api.py::test_iam_matrix_exposes_reviewer_capture_create_and_owned_execution -q",
+    result: "1 passed, 0 failed",
+    duration: "0.60s",
+    warnings:
+      "3 datetime.utcnow deprecation warnings from SQLAlchemy schema defaults; no product test failures.",
+    safetyScope:
+      "Local backend API pytest using test DB and FastAPI TestClient only. No VM mutation, no real Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Validates /iam/matrix, the exact frontend permission source, returns workspace_reviewer capture_session create/update/execute allowed_for_subject=true for create and owner-scoped operations.",
+  },
+  {
+    id: "EXEC-2026-06-23-FE-005",
+    date: "2026-06-23",
+    command:
+      "E2E_BASE_URL=http://localhost:4200 E2E_CHROMIUM_EXECUTABLE=/Users/thib/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell npm run test:e2e -- e2e/tests/06-andritz-mocked-shell.spec.ts --project=chromium",
+    result: "3 passed, 0 failed",
+    duration: "16.6s",
+    warnings:
+      "Angular dev-server warning unchanged: NG8107 optional-chain warning in mission-room/vp-map-preview. Node v23 odd-version warning and FORCE_COLOR/NO_COLOR warnings from local environment.",
+    safetyScope:
+      "Local Playwright browser smoke with all /api/v1/** calls mocked in-page. No backend calls, no VM mutation, no Andritz collection mutation, no SFTP production-data mutation.",
+    notes:
+      "Adds a mocked reviewer IAM matrix case proving /knowledge/capture renders the New/Nouvelle capture action enabled for workspace_reviewer while retaining desktop and mobile route smokes.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -2162,6 +2192,8 @@ const executedTestResults = new Map([
   pass("SFTP-018-T06", "Mapped to local Playwright mocked Andritz mobile viewport smoke opening /connectors and /connectors/sftp.", 13),
   pass("KCAP-001-T03", "Mapped to IAM engine tests proving reviewer capture permissions are explicit while non-owner operations remain denied.", 14),
   pass("KCAP-002-T04", "Mapped to IAM-enforced Knowledge Capture API test where a workspace_reviewer creates and starts a free-conversation capture session.", 14),
+  pass("KCAP-001-T06", "Mapped to /iam/matrix API test proving workspace_reviewer receives capture_session create plus owner-scoped update/execute as allowed_for_subject.", 15),
+  pass("KCAP-001-T07", "Mapped to local Playwright mocked reviewer IAM matrix smoke proving the New/Nouvelle capture action is enabled on /knowledge/capture.", 16),
   pass("CHT-002-T01", "Mapped to chat stream hardening happy-path answer tests.", 2),
   pass("CHT-002-T02", "Mapped to controlled chat stream timeout/error tests.", 2),
   pass("CHT-006-T01", "Mapped to selected context collection stream tests.", 2),
@@ -2423,8 +2455,8 @@ const summaryRows = [
   ["Defects found/fixed", `${defectRecords.length} found, ${defectRecords.filter((defect) => defect.status === "Fixed").length} fixed`, "", "", "", "", "", ""],
   ["Open defects recorded", openDefectRecords.length, "", "", "", "", "", ""],
   ["Critical/high defects", openCriticalHighDefects.length, "", "", "", "", "", ""],
-  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
-  ["Confidence score", "66/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
+  ["Execution status", `${executionEvidence[0].result}; ${executionEvidence[2].result}; ${executionEvidence[3].result}; ${executionEvidence[4].result}; ${executionEvidence[5].result}; ${executionEvidence[6].result}; ${executionEvidence[7].result}; ${executionEvidence[8].result}; ${executionEvidence[9].result}; ${executionEvidence[10].result}; ${executionEvidence[11].result}; ${executionEvidence[12].result}; ${executionEvidence[13].result}; ${executionEvidence[14].result}; ${executionEvidence[15].result}; ${executionEvidence[16].result}; authenticated real-backend browser/e2e validation remains pending.`, "", "", "", "", "", ""],
+  ["Confidence score", "68/100 - backend/API and service coverage now includes no-plan safety, capture document upload/references, oracle grounding, STT metrics, report finalization, publication promotion, reviewer capture IAM and IAM matrix exposure, collections worker/indexing ledger behavior, synthetic SFTP/Secure Deposit promotion/reconciliation/wave planning, frontend navigation guard coverage for the SFTP connector entry, and local mocked desktop/mobile/reviewer browser smokes for Chat, Knowledge Capture, Collections and SFTP entry rendering. Authenticated browser journeys against real backend data, real audio/VAD field behavior, real SFTP server behavior, and real Andritz data-preserving end-to-end validation remain pending.", "", "", "", "", "", ""],
 ];
 summary.getRange("A3:H16").values = summaryRows;
 styleBody(summary.getRange("A3:H16"));
@@ -2723,10 +2755,26 @@ const phaseRows = [
     executionEvidence[14].safetyScope,
     "Continue with authenticated browser validation that the reviewer UI button is enabled and the full capture flow works against a safe test account.",
   ],
+  [
+    executionEvidence[15].date,
+    "Phase 4 reviewer IAM matrix API validation",
+    "Added and executed an IAM API test proving the matrix consumed by the frontend exposes reviewer capture create/update/execute permissions under workspace-local IAM enforcement.",
+    `${executionEvidence[15].result}; ${mappedPassedCountForEvidence(executionEvidence[15].id)} workbook test case mapped as Pass.`,
+    executionEvidence[15].safetyScope,
+    "Continue with real authenticated reviewer browser validation when a safe test account is available.",
+  ],
+  [
+    executionEvidence[16].date,
+    "Phase 3 mocked reviewer capture UI smoke",
+    "Extended the local Playwright Andritz smoke with a reviewer IAM matrix scenario and verified the Knowledge Capture new-session button is visible and enabled.",
+    `${executionEvidence[16].result}; ${mappedPassedCountForEvidence(executionEvidence[16].id)} workbook test case mapped as Pass.`,
+    executionEvidence[16].safetyScope,
+    "Continue with the same reviewer journey against a safe real backend account before marking the end-to-end workflow complete.",
+  ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
 styleHeader(phase.getRange("A1:F1"));
-styleBody(phase.getRange("A2:F18"));
+styleBody(phase.getRange("A2:F20"));
 setWidths(phase, [16, 26, 70, 52, 58, 62]);
 
 for (const sheet of [summary, matrix, testSheet, defects, execution, phase]) {

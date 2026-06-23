@@ -33,6 +33,8 @@ const user = {
   workspaces: [{ id: workspace.id, name: workspace.name, slug: workspace.slug, role: workspace.role }],
 };
 
+type MockRoleTemplate = 'workspace_admin' | 'workspace_reviewer';
+
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({
     status,
@@ -78,7 +80,32 @@ function emptyOperations() {
   };
 }
 
-async function installAndritzMocks(page: Page) {
+async function installAndritzMocks(
+  page: Page,
+  options: { roleTemplate?: MockRoleTemplate } = {},
+) {
+  const roleTemplate = options.roleTemplate ?? 'workspace_admin';
+  const legacyRole = roleTemplate === 'workspace_reviewer' ? 'member' : 'admin';
+  const activeWorkspace = {
+    ...workspace,
+    role: legacyRole,
+    role_template: roleTemplate,
+  };
+  const activeUser = {
+    ...user,
+    role: legacyRole,
+    email: roleTemplate === 'workspace_reviewer' ? 'reviewer.andritz.qa@example.test' : user.email,
+    workspaces: [
+      {
+        id: workspace.id,
+        name: workspace.name,
+        slug: workspace.slug,
+        role: legacyRole,
+        role_template: roleTemplate,
+      },
+    ],
+  };
+
   await page.addInitScript(() => {
     localStorage.setItem('agentium_token', 'Bearer mocked-andritz-token');
     localStorage.setItem('agentium_workspace_slug', 'andritz');
@@ -91,26 +118,28 @@ async function installAndritzMocks(page: Page) {
     const method = request.method();
 
     if (path === '/auth/validate' && method === 'POST') {
-      return json(route, { valid: true, user_id: user.id, email: user.email, role: user.role });
+      return json(route, { valid: true, user_id: activeUser.id, email: activeUser.email, role: activeUser.role });
     }
     if (path === '/auth/workspaces') {
-      return json(route, [workspace]);
+      return json(route, [activeWorkspace]);
     }
     if (path === '/auth/me') {
-      return json(route, user);
+      return json(route, activeUser);
     }
     if (path === '/iam/matrix') {
       return json(route, {
-        workspace: { id: workspace.id, slug: workspace.slug, name: workspace.name },
-        subject_user_id: user.id,
-        role_template: 'workspace_admin',
+        workspace: { id: activeWorkspace.id, slug: activeWorkspace.slug, name: activeWorkspace.name },
+        subject_user_id: activeUser.id,
+        role_template: roleTemplate,
         custom_labels: [],
         role_flags: { require_second_eye_for_ingestion: false },
         enforcement: true,
         permissions: [
-          { resource_kind: 'capture_session', action: 'create', roles: ['workspace_admin'], conditions: [], policy_id: 'qa', allowed_for_subject: true },
-          { resource_kind: 'capture_session', action: 'read', roles: ['workspace_admin'], conditions: [], policy_id: 'qa', allowed_for_subject: true },
-          { resource_kind: 'capture_proposal', action: 'review', roles: ['workspace_admin'], conditions: [], policy_id: 'qa', allowed_for_subject: true },
+          { resource_kind: 'capture_session', action: 'create', roles: [roleTemplate], conditions: [], policy_id: 'qa', allowed_for_subject: true },
+          { resource_kind: 'capture_session', action: 'read', roles: [roleTemplate], conditions: [], policy_id: 'qa', allowed_for_subject: true },
+          { resource_kind: 'capture_session', action: 'update', roles: [roleTemplate], conditions: ['owner_match'], policy_id: 'qa', allowed_for_subject: true },
+          { resource_kind: 'capture_session', action: 'execute', roles: [roleTemplate], conditions: ['owner_match'], policy_id: 'qa', allowed_for_subject: true },
+          { resource_kind: 'knowledge_proposal', action: 'review_decide', roles: [roleTemplate], conditions: [], policy_id: 'qa', allowed_for_subject: true },
         ],
       });
     }
@@ -170,8 +199,8 @@ async function installAndritzMocks(page: Page) {
             max_file_size_mb: 250,
             allowed_extensions: ['.pdf', '.docx', '.pptx', '.xlsx'],
             created_at: '2026-06-23T00:00:00Z',
-            created_by_user_id: user.id,
-            created_by: user.email,
+            created_by_user_id: activeUser.id,
+            created_by: activeUser.email,
           },
         ],
       });
@@ -211,11 +240,9 @@ async function installAndritzMocks(page: Page) {
 }
 
 test.describe('Andritz mocked browser smoke', () => {
-  test.beforeEach(async ({ page }) => {
-    await installAndritzMocks(page);
-  });
-
   test('renders Chat, Knowledge Capture, Collections and SFTP entry without real data', async ({ page }) => {
+    await installAndritzMocks(page);
+
     await page.goto('/connectors');
     await expect(page.getByRole('heading', { name: 'Connectors' })).toBeVisible();
     await expect(page.getByRole('link', { name: /Open secure deposit/i })).toBeVisible();
@@ -236,6 +263,7 @@ test.describe('Andritz mocked browser smoke', () => {
   });
 
   test('keeps primary Andritz surfaces reachable on mobile viewport', async ({ page }) => {
+    await installAndritzMocks(page);
     await page.setViewportSize({ width: 390, height: 844 });
 
     await page.goto('/connectors');
@@ -255,5 +283,16 @@ test.describe('Andritz mocked browser smoke', () => {
 
     await page.goto('/chat');
     await expect(page.locator('body')).toContainText(/Chat|Quick ask|Question rapide|Ask|Posez votre question/i);
+  });
+
+  test('enables new capture for reviewer IAM matrix', async ({ page }) => {
+    await installAndritzMocks(page, { roleTemplate: 'workspace_reviewer' });
+
+    await page.goto('/knowledge/capture');
+    const newCapture = page
+      .getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i })
+      .first();
+    await expect(newCapture).toBeVisible();
+    await expect(newCapture).toBeEnabled();
   });
 });
