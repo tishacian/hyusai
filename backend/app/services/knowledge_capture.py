@@ -1140,12 +1140,20 @@ def build_quality_backlog(
     contradictions: List[Dict[str, Any]] = []
     open_questions: List[Dict[str, Any]] = []
     seen: set[str] = set()
+    event_list = list(events or [])
+    deferred_item_ids = {
+        str((event.meta_data or {}).get("item_id"))
+        for event in event_list
+        if event.event_type in {"quality_item_deferred", "capture_quality_deferred"}
+        and (event.meta_data or {}).get("deferred_reason")
+        and (event.meta_data or {}).get("item_id")
+    }
 
     for evaluation in session.evaluations or []:
         verdict = str(evaluation.get("verdict") or "")
         follow_up = evaluation.get("follow_up")
         item_id = str(evaluation.get("id") or evaluation.get("question_id") or uuid.uuid4())
-        if item_id in seen:
+        if item_id in seen or item_id in deferred_item_ids:
             continue
         seen.add(item_id)
         base = {
@@ -1170,14 +1178,14 @@ def build_quality_backlog(
                 }
             )
 
-    for event in events or []:
+    for event in event_list:
         meta = event.meta_data or {}
         deferred = meta.get("deferred_reason")
         if deferred and event.event_type in {"quality_item_deferred", "capture_quality_deferred"}:
             label = meta.get("label") or _effective_event_text(event) or "Élément reporté"
             bucket = meta.get("bucket") or "open_questions"
             payload = {
-                "id": event.id,
+                "id": str(meta.get("item_id") or event.id),
                 "label": label,
                 "status": "deferred",
                 "deferred_reason": deferred,
@@ -1194,16 +1202,19 @@ def build_quality_backlog(
         if not isinstance(question, dict):
             continue
         label = question.get("follow_up") or question.get("reason") or "Question ouverte"
+        question_id = question.get("gap_id") or question.get("id")
+        if question_id and str(question_id) in deferred_item_ids:
+            continue
         status = _stored_oracle_question_status(
             plan,
-            question_id=question.get("gap_id") or question.get("id"),
+            question_id=question_id,
             question_text=label,
         ) or "open"
         if status in {"answered", "dismissed", "addressed"}:
             continue
         open_questions.append(
             {
-                "id": question.get("gap_id") or str(uuid.uuid4()),
+                "id": question_id or str(uuid.uuid4()),
                 "label": label,
                 "status": "open" if status == "active" else status,
                 "deferred_reason": None,
@@ -1229,7 +1240,23 @@ def defer_quality_item(
     actor_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     session = get_session(db, workspace_id=workspace_id, session_id=session_id)
+    clean_bucket = (bucket or "open_questions").strip()
+    if clean_bucket not in {"imprecisions", "contradictions", "open_questions"}:
+        raise ValueError("Quality bucket not found")
+    events = list_capture_events(db, workspace_id=workspace_id, session_id=session_id)
+    backlog = build_quality_backlog(session, events)
+    candidate = next(
+        (
+            item
+            for item in backlog.get(clean_bucket, [])
+            if str(item.get("id") or "") == str(item_id or "")
+        ),
+        None,
+    )
+    if not candidate:
+        raise ValueError("Quality item not found")
     reason = (deferred_reason or "end_of_session").strip()
+    label = candidate.get("label") or candidate.get("follow_up") or reason
     _record_capture_event(
         db,
         session=session,
@@ -1239,9 +1266,9 @@ def defer_quality_item(
         created_by=actor_user_id,
         meta_data={
             "item_id": item_id,
-            "bucket": bucket,
+            "bucket": clean_bucket,
             "deferred_reason": reason,
-            "label": reason,
+            "label": label,
         },
     )
     db.commit()

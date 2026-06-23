@@ -661,6 +661,51 @@ def test_free_conversation_closure_finish_returns_structured_proposal(db_session
     assert topics[0]["title"] == "Synthèse de la capture"
 
 
+def test_free_conversation_closure_finish_without_material_creates_no_proposal(db_session, monkeypatch):
+    async def _unexpected_finalize(*_args, **_kwargs):
+        raise AssertionError("empty free-conversation closure must not finalize")
+
+    monkeypatch.setattr(knowledge_capture, "finalize_capture", _unexpected_finalize)
+
+    workspace = Workspace(id="ws-kc-api-free-empty-closure", name="KC API Free Empty Closure", slug="kc-api-free-empty-closure")
+    user = User(id="user-kc-api-free-empty-closure", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture libre vide",
+            "objective": "Ne rien publier tant que la capture ne contient pas de matière.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+
+    response = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/closure",
+        json={"action": "finish"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "finish"
+    assert body["proposal"] is None
+    assert body["session"]["status"] == "completed"
+    assert body["closure_sheet"]["captured_facts"] == []
+    assert db_session.query(KnowledgeUpdateProposal).filter_by(session_id=session_id).count() == 0
+    completed = (
+        db_session.query(ExpertCaptureEvent)
+        .filter_by(session_id=session_id, event_type="capture_session_completed")
+        .one()
+    )
+    assert completed.meta_data["proposal_created"] is False
+
+
 def test_archive_and_unarchive_session(db_session, monkeypatch):
     workspace = Workspace(id="ws-kc-api-archive", name="KC API Archive", slug="kc-api-archive")
     user = User(id="user-kc-api-archive", username="operator", email="operator@example.test")
@@ -1199,6 +1244,67 @@ def test_export_accepted_proposal_does_not_publish(db_session, monkeypatch):
     assert "published_at" not in proposal.proposal["publication"]
 
 
+def test_export_current_proposal_markdown_includes_sections_sources_questions(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-export-current", name="KC API Export Current", slug="kc-api-export-current")
+    user = User(id="user-kc-api-export-current", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-export-current",
+        workspace_id=workspace.id,
+        title="Export current capture",
+        objective="Exporter la proposition courante.",
+        created_by_user_id=user.id,
+        status="completed",
+    )
+    proposal = KnowledgeUpdateProposal(
+        id="proposal-kc-api-export-current",
+        workspace_id=workspace.id,
+        session_id=session.id,
+        status="pending_review",
+        created_by_user_id=user.id,
+        proposal={
+            "executive_summary": "Résumé courant",
+            "report_markdown": (
+                "# Fiche connaissance - Pompe BBA\n\n"
+                "## Rapport structuré\n"
+                "- Vérifier la purge avant redémarrage.\n\n"
+                "## Sources\n"
+                "- Manuel pompe BBA, page 4\n\n"
+                "## Questions ouvertes\n"
+                "- Qui valide le seuil final ?\n"
+            ),
+            "open_questions": [{"follow_up": "Qui valide le seuil final ?", "status": "open"}],
+            "publication": {"category": "technical"},
+            "recommended_ingestion": {
+                "title": "Fiche connaissance - Pompe BBA",
+                "content": "Contenu fallback qui ne doit pas remplacer report_markdown.",
+            },
+        },
+    )
+    db_session.add_all([workspace, user, session, proposal])
+    db_session.commit()
+
+    async def _fail_publish(*args, **kwargs):  # noqa: ARG001
+        raise AssertionError("export current proposal must not publish")
+
+    monkeypatch.setattr(knowledge_capture, "publish_proposal_to_knowledge", _fail_publish)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    response = client.post(f"/api/v1/knowledge-capture/sessions/{session.id}/proposal/export", json={})
+
+    assert response.status_code == 200
+    markdown = response.json()["markdown"]
+    assert markdown.startswith("## Résumé exécutif\n\nRésumé courant")
+    assert "# Fiche connaissance - Pompe BBA" in markdown
+    assert "## Rapport structuré" in markdown
+    assert "Manuel pompe BBA, page 4" in markdown
+    assert "Qui valide le seuil final ?" in markdown
+    assert "Contenu fallback" not in markdown
+    db_session.refresh(proposal)
+    assert proposal.status == "pending_review"
+    assert proposal.proposal["publication"] == {"category": "technical"}
+    assert "published_at" not in proposal.proposal["publication"]
+
+
 def test_export_without_proposal_returns_recoverable_error(db_session, monkeypatch):
     workspace = Workspace(id="ws-kc-api-export-missing", name="KC API Export Missing", slug="kc-api-export-missing")
     user = User(id="user-kc-api-export-missing", username="operator", email="operator@example.test")
@@ -1288,26 +1394,71 @@ def test_list_published_fiches_returns_workspace_outputs(db_session, monkeypatch
             },
         },
     )
-    db_session.add_all([session, proposal])
+    session_without_preview = ExpertCaptureSession(
+        id="session-published-fiche-no-preview",
+        workspace_id=workspace.id,
+        title="Published session without preview",
+        objective="Capture objective without indexed document",
+        created_by_user_id=author.id,
+        status="completed",
+    )
+    proposal_without_preview = KnowledgeUpdateProposal(
+        id="proposal-published-fiche-no-preview",
+        workspace_id=workspace.id,
+        session_id=session_without_preview.id,
+        status="published",
+        created_by_user_id=author.id,
+        reviewer_user_id=reviewer.id,
+        proposal={
+            "title": "Fiche sans aperçu",
+            "recommended_ingestion": {
+                "title": "Fiche sans aperçu",
+                "content": "Fiche acceptée sans document indexé associé.",
+                "metadata": {
+                    "source": "expert_capture_session",
+                    "capture_session_id": session_without_preview.id,
+                    "proposal_id": "proposal-published-fiche-no-preview",
+                    "publication_category": "technical",
+                    "publication_destination": "capture-knowledge",
+                    "collection_slug": "capture-knowledge",
+                },
+            },
+            "publication": {
+                "final_title": "Fiche sans aperçu",
+                "category": "technical",
+                "destination": "capture-knowledge",
+                "collection_slug": "capture-knowledge",
+                "published_at": "2026-06-01T09:00:00",
+            },
+        },
+    )
+    db_session.add_all([session, proposal, session_without_preview, proposal_without_preview])
     db_session.commit()
 
     client = _client(db_session, workspace, reviewer, monkeypatch)
     response = client.get("/api/v1/knowledge-capture/fiches")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["total"] == 1
-    assert len(payload["fiches"]) == 1
-    fiche = payload["fiches"][0]
+    assert payload["total"] == 2
+    assert len(payload["fiches"]) == 2
+    fiche = next(item for item in payload["fiches"] if item["proposal_id"] == "proposal-published-fiche")
     assert fiche["proposal_id"] == "proposal-published-fiche"
     assert fiche["title"] == "Fiche maintenance ligne pilote"
     assert fiche["category"] == "technical"
     assert fiche["destination"] == "capture-knowledge"
     assert fiche["document_id"] == "doc-published-fiche"
+    assert fiche["preview_url"]
+    assert fiche["raw_url"] == "/api/v1/documents/doc-published-fiche/raw"
     assert fiche["chunks_processed"] == 4
     assert fiche["open_questions_count"] == 1
     assert fiche["author"]["id"] == author.id
     assert fiche["published_by"]["id"] == reviewer.id
     assert fiche["session_owned_by_current_user"] is False
+    no_preview = next(item for item in payload["fiches"] if item["proposal_id"] == "proposal-published-fiche-no-preview")
+    assert no_preview["document_id"] is None
+    assert no_preview["preview_url"] is None
+    assert no_preview["raw_url"] is None
+    assert no_preview["export_urls"] == {}
 
     filtered = client.get(
         "/api/v1/knowledge-capture/fiches",
@@ -1319,6 +1470,11 @@ def test_list_published_fiches_returns_workspace_outputs(db_session, monkeypatch
     missing = client.get("/api/v1/knowledge-capture/fiches", params={"q": "introuvable"})
     assert missing.status_code == 200
     assert missing.json()["total"] == 0
+
+    no_preview_filtered = client.get("/api/v1/knowledge-capture/fiches", params={"q": "sans aperçu"})
+    assert no_preview_filtered.status_code == 200
+    assert no_preview_filtered.json()["total"] == 1
+    assert no_preview_filtered.json()["fiches"][0]["preview_url"] is None
 
 
 def test_admin_lists_all_members_capture_sessions(db_session, monkeypatch):

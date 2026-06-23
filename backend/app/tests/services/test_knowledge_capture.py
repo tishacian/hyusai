@@ -21,6 +21,7 @@ from app.services.knowledge_capture import (
     build_quality_backlog,
     classify_conversation_intent,
     create_update_proposal,
+    defer_quality_item,
     extend_capture_session,
     finalize_capture,
     finalize_capture_section,
@@ -586,7 +587,7 @@ def test_proposal_open_question_statuses_are_persisted(db_session):
     assert restored.proposal["open_questions"][0]["status"] == "open"
     restored_session = get_session(db_session, workspace_id=workspace.id, session_id=session.id)
     assert restored_session.metrics["open_questions_count"] == 1
-    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
+    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=proposal.session_id)
     assert any(event.event_type == "proposal_open_question_status_updated" for event in events)
 
     # Unified lifecycle (c3): "invalid" is the new delete/exclude status.
@@ -874,8 +875,43 @@ async def test_finalize_capture_section_keeps_high_dense_low_fusion_sources(db_s
 
 @pytest.mark.asyncio
 async def test_apply_report_instruction_updates_current_report_without_llm(db_session):
+    workspace, user, proposal = _report_instruction_fixture(db_session)
+
+    updated = await apply_proposal_report_instruction(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        instruction="Ajoute une mention sur le contrôle visuel terrain.",
+        current_content="# Rapport\n\nContenu initial.",
+        actor_user_id=user.id,
+        actor_label=user.email,
+        use_llm=False,
+    )
+
+    payload = updated.proposal
+    assert "Modification demandée" in payload["report_markdown"]
+    assert "contrôle visuel terrain" in payload["report_markdown"]
+    assert payload["recommended_ingestion"]["content"] == payload["report_markdown"]
+    assert payload["recommended_ingestion"]["metadata"]["last_instruction_status"] == "instruction_recorded_fallback"
+    assert payload["report_edit"]["status"] == "instruction_recorded_fallback"
+    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=proposal.session_id)
+    assert any(event.event_type == "proposal_report_instruction_applied" for event in events)
+
+
+def _report_instruction_fixture(db_session, *, suffix: str = ""):
+    suffix = suffix or "default"
     workspace = Workspace(id="ws-capture-report-instruction", name="Capture Report Instruction", slug="capture-report-instruction")
-    user = User(id="user-report-editor", username="editor@datategy.local", email="editor@datategy.local")
+    if suffix != "default":
+        workspace = Workspace(
+            id=f"ws-capture-report-instruction-{suffix}",
+            name=f"Capture Report Instruction {suffix}",
+            slug=f"capture-report-instruction-{suffix}",
+        )
+    user = User(
+        id=f"user-report-editor-{suffix}",
+        username=f"editor-{suffix}@datategy.local",
+        email=f"editor-{suffix}@datategy.local",
+    )
     db_session.add_all([workspace, user])
     seed_skills_and_capabilities(db_session)
 
@@ -908,26 +944,78 @@ async def test_apply_report_instruction_updates_current_report_without_llm(db_se
         session_id=session.id,
         created_by_user_id=user.id,
     )
+    return workspace, user, proposal
 
+
+@pytest.mark.asyncio
+async def test_apply_report_instruction_rejects_blank_without_mutation(db_session):
+    workspace, user, proposal = _report_instruction_fixture(db_session, suffix="blank")
+    before_payload = json.loads(json.dumps(proposal.proposal))
+
+    with pytest.raises(ValueError, match="Report instruction cannot be empty"):
+        await apply_proposal_report_instruction(
+            db_session,
+            workspace_id=workspace.id,
+            proposal_id=proposal.id,
+            instruction=" \n\t ",
+            current_content="# Rapport\n\nContenu initial.",
+            actor_user_id=user.id,
+            actor_label=user.email,
+            use_llm=False,
+        )
+
+    db_session.refresh(proposal)
+    assert proposal.proposal == before_payload
+    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=proposal.session_id)
+    assert not any(event.event_type == "proposal_report_instruction_applied" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_apply_report_instruction_llm_failure_falls_back_with_audit(db_session, monkeypatch):
+    workspace, user, proposal = _report_instruction_fixture(db_session, suffix="llm-failure")
+
+    monkeypatch.setattr(
+        "app.services.knowledge_capture._resolve_llm_config",
+        lambda workspace_id=None: ("test-key", "gpt-test"),
+    )
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            raise RuntimeError("simulated rewrite failure")
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    monkeypatch.setattr("openai.AsyncOpenAI", lambda api_key=None: FakeClient())
+
+    original_report = "# Rapport\n\nContenu initial avec une source terrain."
     updated = await apply_proposal_report_instruction(
         db_session,
         workspace_id=workspace.id,
         proposal_id=proposal.id,
-        instruction="Ajoute une mention sur le contrôle visuel terrain.",
-        current_content="# Rapport\n\nContenu initial.",
+        instruction="Ajoute une précision sur les conditions de validation.",
+        current_content=original_report,
         actor_user_id=user.id,
         actor_label=user.email,
-        use_llm=False,
+        use_llm=True,
     )
 
     payload = updated.proposal
+    assert original_report in payload["report_markdown"]
     assert "Modification demandée" in payload["report_markdown"]
-    assert "contrôle visuel terrain" in payload["report_markdown"]
+    assert "conditions de validation" in payload["report_markdown"]
     assert payload["recommended_ingestion"]["content"] == payload["report_markdown"]
     assert payload["recommended_ingestion"]["metadata"]["last_instruction_status"] == "instruction_recorded_fallback"
+    assert payload["recommended_ingestion"]["metadata"]["last_instruction_provider"] == "deterministic"
     assert payload["report_edit"]["status"] == "instruction_recorded_fallback"
-    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
-    assert any(event.event_type == "proposal_report_instruction_applied" for event in events)
+    assert payload["report_edit"]["provider"] == "deterministic"
+    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=proposal.session_id)
+    edit_events = [event for event in events if event.event_type == "proposal_report_instruction_applied"]
+    assert len(edit_events) == 1
+    assert edit_events[0].status == "instruction_recorded_fallback"
 
 
 def test_update_proposal_adds_publication_defaults_and_preserves_editor_choices(db_session):
@@ -4602,6 +4690,121 @@ def test_defer_vocal_defers_open_quality_item(db_session):
     )
     assert step["intent"] == "defer_vocal"
     assert step["action_taken"] in {"quality_item_deferred", "hint_deferred", "defer_no_target"}
+
+
+def test_quality_backlog_empty_session_has_no_items(db_session):
+    workspace = Workspace(id="ws-quality-empty", name="Quality Empty", slug="quality-empty")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Backlog vide",
+        objective="Vérifier l'état vide du backlog qualité.",
+        expert_profile="Expert",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+
+    backlog = build_quality_backlog(session, [])
+
+    assert backlog["imprecisions"] == []
+    assert backlog["contradictions"] == []
+    assert backlog["open_questions"] == []
+    assert backlog["defer_weak_contradictions"] is False
+
+
+def test_defer_quality_item_rejects_stale_id_without_event(db_session):
+    workspace = Workspace(id="ws-quality-stale", name="Quality Stale", slug="quality-stale")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Backlog stale",
+        objective="Vérifier le rejet d'un item qualité obsolète.",
+        expert_profile="Expert",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+
+    with pytest.raises(ValueError, match="Quality item not found"):
+        defer_quality_item(
+            db_session,
+            workspace_id=workspace.id,
+            session_id=session.id,
+            item_id="missing-quality-item",
+            bucket="imprecisions",
+            deferred_reason="end_of_session",
+            actor_user_id="reviewer",
+        )
+
+    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
+    assert not any(event.event_type == "quality_item_deferred" for event in events)
+    assert build_quality_backlog(session, events)["imprecisions"] == []
+
+
+def test_defer_quality_item_marks_existing_item_without_duplicate_open_entry(db_session):
+    workspace = Workspace(id="ws-quality-valid", name="Quality Valid", slug="quality-valid")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Backlog defer",
+        objective="Vérifier le report d'un item qualité existant.",
+        expert_profile="Expert",
+        duration_minutes=20,
+        context_id=None,
+        system_id=None,
+        knowledge_refs=[],
+        plan_mode="free_conversation",
+    )
+    session.evaluations = [
+        {
+            "id": "quality-precision-1",
+            "verdict": "needs_precision",
+            "score": 0.52,
+            "follow_up": "Préciser le seuil de validation terrain.",
+        }
+    ]
+    db_session.add(session)
+    db_session.commit()
+
+    before = build_quality_backlog(session, [])
+    assert [item["id"] for item in before["imprecisions"]] == ["quality-precision-1"]
+
+    after = defer_quality_item(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        item_id="quality-precision-1",
+        bucket="imprecisions",
+        deferred_reason="end_of_session",
+        actor_user_id="reviewer",
+    )
+
+    assert after["imprecisions"] == [
+        {
+            "id": "quality-precision-1",
+            "label": "Préciser le seuil de validation terrain.",
+            "status": "deferred",
+            "deferred_reason": "end_of_session",
+        }
+    ]
+    events = list_capture_events(db_session, workspace_id=workspace.id, session_id=session.id)
+    deferred_events = [event for event in events if event.event_type == "quality_item_deferred"]
+    assert len(deferred_events) == 1
+    assert deferred_events[0].meta_data["item_id"] == "quality-precision-1"
 
 
 def test_resolve_hints_from_expert_text_marks_overlap(db_session, monkeypatch):
