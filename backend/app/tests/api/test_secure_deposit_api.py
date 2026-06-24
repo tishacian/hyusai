@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import json
 import zipfile
 
 from fastapi import FastAPI
@@ -456,6 +458,96 @@ def test_browse_deposit_zip_member_rejects_unsafe_path(db_session, monkeypatch, 
     assert response.status_code == 422
 
 
+def test_download_deposit_archive_handles_large_synthetic_queue_without_mutation(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+
+    workspace = Workspace(id="ws-archive-download", name="Archive Download", slug="andritz")
+    user = User(id="user-archive-download", email="archive-download@datategy.net", username="archive-download")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Large Queue",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+
+    rows = []
+    for index in range(80):
+        source = tmp_path / f"large-queue-{index:03}.pdf"
+        source.write_bytes(b"%PDF-1.4\n" + f"synthetic archive payload {index}".encode())
+        rows.append(
+            record_staged_file_from_path(
+                db_session,
+                link=link,
+                source_path=source,
+                filename=f"1-NON-WOVENS/FRANCE/LARGE/archive-download-{index:03}.pdf",
+                content_type="application/pdf",
+                actor=f"sftp:{link.access_id}",
+                transport="sftp",
+            )
+        )
+    rejected_source = tmp_path / "large-queue-rejected.tmp"
+    rejected_source.write_bytes(b"rejected")
+    rejected = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=rejected_source,
+        filename="1-NON-WOVENS/FRANCE/LARGE/archive-rejected.tmp",
+        content_type="application/octet-stream",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+    rejected.status = "rejected"
+    rejected.rejection_reason = "Synthetic rejected file must stay out of default archive."
+    db_session.commit()
+
+    response = _client(db_session, workspace, user).get("/sftp/deposits/archive")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/zip")
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = archive.namelist()
+        assert "_manifest.json" in names
+        manifest = json.loads(archive.read("_manifest.json"))
+        archived_files = [item for item in names if item != "_manifest.json"]
+        assert len(archived_files) == 80
+        assert manifest["workspace"] == "andritz"
+        assert manifest["file_count"] == 80
+        assert len(manifest["files"]) == 80
+        assert all("/received/" in item["archive_path"] for item in manifest["files"])
+        assert {item["status"] for item in manifest["files"]} == {"received"}
+        assert rejected.id not in {item["file_id"] for item in manifest["files"]}
+        assert any(item.endswith("archive-download-079.pdf") for item in archived_files)
+
+    event = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.event_type == "deposit.queue.downloaded")
+        .one()
+    )
+    assert event.details["file_count"] == 80
+    assert event.details["status"] is None
+    assert event.details["archive_filename"].endswith(".zip")
+    assert db_session.query(KnowledgeCollection).count() == 0
+    assert db_session.query(WorkspaceJob).count() == 0
+    for row in rows:
+        db_session.refresh(row)
+        assert row.status == "received"
+        assert row.promoted_at is None
+        assert row.worker_job_id is None
+        assert row.promotion_result is None
+    db_session.refresh(rejected)
+    assert rejected.status == "rejected"
+    assert rejected.promoted_at is None
+    assert rejected.worker_job_id is None
+
+
 def test_bulk_promote_supported_documents_uses_one_worker_job(db_session, monkeypatch, tmp_path):
     openpyxl = pytest.importorskip("openpyxl")
     monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
@@ -632,6 +724,70 @@ def test_bulk_promote_with_missing_id_is_atomic_and_read_only(db_session, monkey
         assert row.promotion_result is None
 
 
+def test_bulk_promote_rejects_oversized_selection_before_lookup_or_mutation(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+
+    workspace = Workspace(id="ws-bulk-limit", name="Bulk Limit", slug="andritz")
+    user = User(id="user-bulk-limit", email="bulk-limit@datategy.net", username="bulk-limit")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Synthetic bulk limit upload",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+
+    rows = []
+    for index in range(2):
+        source = tmp_path / f"bulk-limit-{index}.pdf"
+        source.write_bytes(b"%PDF-1.4\n% synthetic")
+        rows.append(
+            record_staged_file_from_path(
+                db_session,
+                link=link,
+                source_path=source,
+                filename=f"1-NON-WOVENS/FRANCE/GEOTEX/bulk-limit-{index}.pdf",
+                content_type="application/pdf",
+                actor=f"sftp:{link.access_id}",
+                transport="sftp",
+            )
+        )
+    db_session.commit()
+
+    def fail_batch_promote(*_args, **_kwargs):
+        raise AssertionError("oversized bulk validation must happen before batch promotion")
+
+    monkeypatch.setattr(secure_deposit, "promote_files_to_collection_batch", fail_batch_promote)
+
+    response = _client(db_session, workspace, user).post(
+        "/sftp/deposits/promote-bulk",
+        json={
+            "collection_slug": "andritz-non-wovens-france-excel-pilot",
+            "file_ids": [rows[0].id, rows[1].id] + [f"synthetic-extra-{index}" for index in range(49)],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Bulk promotion is limited to 50 files"
+    assert db_session.query(KnowledgeCollection).count() == 0
+    assert db_session.query(WorkspaceJob).count() == 0
+    for row in rows:
+        db_session.refresh(row)
+        assert row.status == "received"
+        assert row.promoted_at is None
+        assert row.promoted_by_user_id is None
+        assert row.promoted_collection_slug is None
+        assert row.worker_job_id is None
+        assert row.promotion_result is None
+
+
 def test_deposit_indexing_assist_recommends_and_summarizes_collection(db_session, monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
     monkeypatch.setattr(settings, "object_store_backend", "local")
@@ -730,6 +886,81 @@ def test_deposit_indexing_assist_recommends_and_summarizes_collection(db_session
     assert recommendations[inspect_archive.id]["recommendation"] == "inspect_archive"
     assert recommendations[inspect_archive.id]["archive"]["supported_document_count"] == 11
     assert recommendations[promoted.id]["recommendation"] == "already_promoted"
+
+
+def test_deposit_indexing_assist_unknown_file_is_advisory_and_read_only(db_session, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "secure-deposit"))
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "object-store"))
+    monkeypatch.setattr(secure_deposit, "_enforce", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.secure_deposit.is_workspace_enabled", lambda workspace: True)
+
+    workspace = Workspace(id="ws-assist-unknown", name="Assist Unknown", slug="andritz")
+    user = User(id="user-assist-unknown", email="assist-unknown@example.test", username="assist-unknown")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Indexing assist unknown",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+
+    source = tmp_path / "equipment.telemetry"
+    source.write_bytes(b"raw binary-ish telemetry")
+    staged = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=source,
+        filename="1-NON-WOVENS/FRANCE/GEOTEX/equipment.telemetry",
+        content_type="application/octet-stream",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+    db_session.commit()
+
+    response = _client(db_session, workspace, user).post(
+        "/sftp/deposits/indexing-assist",
+        json={
+            "collection_slug": "andritz-non-wovens-france-excel-pilot",
+            "file_ids": [staged.id],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"]["total_files"] == 1
+    assert body["summary"]["found_files"] == 1
+    assert body["summary"]["unsupported_count"] == 1
+    assert body["summary"]["recommended_count"] == 0
+    assert body["summary"]["recommended_file_ids"] == []
+    assert len(body["recommendations"]) == 1
+    recommendation = body["recommendations"][0]
+    assert recommendation["file_id"] == staged.id
+    assert recommendation["filename"] == "1-NON-WOVENS/FRANCE/GEOTEX/equipment.telemetry"
+    assert recommendation["status"] == "received"
+    assert recommendation["extension"] == "telemetry"
+    assert recommendation["recommendation"] == "unsupported"
+    assert recommendation["label"] == "Unsupported"
+    assert recommendation["reason"] == ".telemetry is not currently supported for Knowledge promotion."
+    assert recommendation["eligible_for_batch"] is False
+    assert recommendation["size_bytes"] == staged.size_bytes
+    assert recommendation["archive"] is None
+    assert recommendation["target_collection_slug"] == "andritz-non-wovens-france-excel-pilot"
+    assert recommendation["promoted_collection_slug"] is None
+    assert recommendation["worker_job_id"] is None
+    assert recommendation["promotion_result"] is None
+    assert db_session.query(KnowledgeCollection).count() == 0
+    assert db_session.query(WorkspaceJob).count() == 0
+    db_session.refresh(staged)
+    assert staged.status == "received"
+    assert staged.promoted_at is None
+    assert staged.promoted_collection_slug is None
+    assert staged.worker_job_id is None
+    assert staged.promotion_result is None
 
 
 def test_sftp_operations_lists_active_sidecar_upload(db_session, monkeypatch, tmp_path):

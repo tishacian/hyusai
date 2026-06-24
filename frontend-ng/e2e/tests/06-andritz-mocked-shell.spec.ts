@@ -423,6 +423,25 @@ function syntheticSftpPreviewDepositFiles(): MockSftpDepositFile[] {
   ];
 }
 
+function syntheticLargeSftpDepositFiles(count = 125): MockSftpDepositFile[] {
+  return Array.from({ length: count }, (_, index) => {
+    const padded = String(index + 1).padStart(3, '0');
+    return {
+      id: `deposit-andritz-large-${padded}`,
+      access_link_id: 'link-andritz-qa',
+      filename: `1-NON-WOVENS/FRANCE/PAGINATION/pagination-probe-${padded}.pdf`,
+      content_type: 'application/pdf',
+      size_bytes: 10_000 + index,
+      sha256: `sha-pagination-probe-${padded}`,
+      status: 'received',
+      uploaded_at: `2026-06-23T01:${String(index % 60).padStart(2, '0')}:00Z`,
+      promoted_at: null,
+      worker_job_id: null,
+      promotion_result: null,
+    };
+  });
+}
+
 function acceptedCaptureSession() {
   return {
     id: 'session-andritz-qa',
@@ -2418,6 +2437,71 @@ test.describe('Andritz mocked browser smoke', () => {
       }),
     ]);
 
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
+  });
+
+  test('paginates a large mocked SFTP staging queue without mutating files', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    await installAndritzMocks(page, {
+      sftpDepositFiles: syntheticLargeSftpDepositFiles(125),
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await page.getByText('Workspace staging queue', { exact: true }).scrollIntoViewIfNeeded();
+    await page.locator('input[name="queueSearch"]').fill('pagination-probe');
+    await page.locator('select[name="queuePageSize"]').selectOption('50');
+    await expect(page.locator('body')).toContainText('1-50 of 125 rows');
+    await expect(page.locator('body')).toContainText('Page 1 / 3');
+
+    await page.locator('select[name="queuePageSize"]').selectOption('100');
+    await expect(page.locator('body')).toContainText('1-100 of 125 rows');
+    await expect(page.locator('body')).toContainText('Page 1 / 2');
+    await page.getByRole('button', { name: /Next/i }).click();
+    await expect(page.locator('body')).toContainText('101-125 of 125 rows');
+    await expect(page.locator('body')).toContainText('Page 2 / 2');
+
+    const queueState = await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+          currentQueuePage?: () => number;
+          queueItems?: () => Array<{ kind?: string; name?: string; path?: string }>;
+          queuePageSize?: () => number;
+          queueSearch?: () => string;
+          totalQueuePages?: () => number;
+          visibleQueueItems?: () => Array<{ kind?: string; name?: string; path?: string }>;
+        }
+        | undefined;
+      return {
+        currentQueuePage: component?.currentQueuePage?.(),
+        queueItemCount: component?.queueItems?.().length,
+        queuePageSize: component?.queuePageSize?.(),
+        queueSearch: component?.queueSearch?.(),
+        totalQueuePages: component?.totalQueuePages?.(),
+        visibleCount: component?.visibleQueueItems?.().length,
+        firstVisible: component?.visibleQueueItems?.()[0],
+        lastVisible: component?.visibleQueueItems?.().at(-1),
+      };
+    });
+
+    expect(queueState).toMatchObject({
+      currentQueuePage: 2,
+      queueItemCount: 125,
+      queuePageSize: 100,
+      queueSearch: 'pagination-probe',
+      totalQueuePages: 2,
+      visibleCount: 25,
+      firstVisible: expect.objectContaining({ name: 'pagination-probe-101.pdf' }),
+      lastVisible: expect.objectContaining({ name: 'pagination-probe-125.pdf' }),
+    });
     expect(sftpPromoteRequests).toHaveLength(0);
     expect(sftpBulkPromoteRequests).toHaveLength(0);
     expect(sftpArchiveDownloadRequests).toHaveLength(0);
