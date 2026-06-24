@@ -658,6 +658,7 @@ async function installAndritzMocks(
     chatMetadataShouldFail?: boolean;
     chatMetadataLongKeywords?: boolean;
     acceptedProposal?: boolean;
+    activeCaptureSession?: boolean;
     capturePlanRequests?: unknown[];
     capturePlanShouldFail?: boolean;
     capturePlanFailureStatus?: number;
@@ -700,6 +701,7 @@ async function installAndritzMocks(
     captureClosureRequests?: unknown[];
     captureClosureShouldFail?: boolean;
     captureClosureNoProposal?: boolean;
+    captureDeleteRequests?: string[];
     captureDocumentPreviewRequests?: string[];
     captureDocumentPreviewShouldFail?: boolean;
     contextCreateRequests?: unknown[];
@@ -775,6 +777,7 @@ async function installAndritzMocks(
   const chatMetadataShouldFail = options.chatMetadataShouldFail ?? false;
   const chatMetadataLongKeywords = options.chatMetadataLongKeywords ?? false;
   const includeAcceptedProposal = options.acceptedProposal ?? false;
+  const includeActiveCaptureSession = options.activeCaptureSession ?? false;
   const capturePlanRequests = options.capturePlanRequests;
   const capturePlanShouldFail = options.capturePlanShouldFail ?? false;
   const capturePlanFailureStatus = options.capturePlanFailureStatus ?? 500;
@@ -821,6 +824,7 @@ async function installAndritzMocks(
   const captureClosureRequests = options.captureClosureRequests;
   const captureClosureShouldFail = options.captureClosureShouldFail ?? false;
   const captureClosureNoProposal = options.captureClosureNoProposal ?? false;
+  const captureDeleteRequests = options.captureDeleteRequests;
   const captureDocumentPreviewRequests = options.captureDocumentPreviewRequests;
   const captureDocumentPreviewShouldFail = options.captureDocumentPreviewShouldFail ?? false;
   const contextCreateRequests = options.contextCreateRequests;
@@ -1419,7 +1423,25 @@ async function installAndritzMocks(
       });
     }
     if (path === '/knowledge-capture/sessions') {
-      return json(route, { sessions: includeAcceptedProposal ? [acceptedCaptureSession()] : [] });
+      const sessions = [
+        ...(includeActiveCaptureSession
+          ? [
+              {
+                ...createdFreeConversationSession('Andritz QA active capture', 'active'),
+                transcript: [
+                  {
+                    id: 'turn-andritz-active',
+                    speaker: 'expert',
+                    text: 'Synthetic active Andritz capture note.',
+                    input_modality: 'text',
+                  },
+                ],
+              },
+            ]
+          : []),
+        ...(includeAcceptedProposal ? [acceptedCaptureSession()] : []),
+      ];
+      return json(route, { sessions });
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/plan/topics' && method === 'PATCH') {
       capturePlanTopicsRequests?.push(request.postDataJSON());
@@ -1589,6 +1611,10 @@ async function installAndritzMocks(
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/events') {
       return json(route, { events: [] });
+    }
+    if (path === '/knowledge-capture/sessions/session-andritz-qa' && method === 'DELETE') {
+      captureDeleteRequests?.push(path);
+      return json(route, { deleted: true });
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/quality-backlog') {
       return json(route, { imprecisions: [], contradictions: [], open_questions: [] });
@@ -4440,6 +4466,79 @@ test.describe('Andritz mocked browser smoke', () => {
       .first();
     await expect(newCapture).toBeVisible();
     await expect(newCapture).toBeEnabled();
+  });
+
+  test('reopens an active Knowledge Capture session without creating or publishing data', async ({ page }) => {
+    const captureMutations: string[] = [];
+    const proposalRequests: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.includes('/api/v1/knowledge-capture/proposals')) {
+        proposalRequests.push(`${request.method()} ${url.pathname}${url.search}`);
+      }
+      if (
+        url.pathname.includes('/api/v1/knowledge-capture')
+        && ['POST', 'PATCH', 'DELETE'].includes(request.method())
+      ) {
+        captureMutations.push(`${request.method()} ${url.pathname}`);
+      }
+    });
+    await installAndritzMocks(page, { activeCaptureSession: true });
+
+    await page.goto('/knowledge/capture');
+    await expect(page.getByText('Andritz QA active capture').first()).toBeVisible();
+    await page.getByText('Andritz QA active capture').first().click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA active capture' })).toBeVisible();
+    await expect(page.locator('body')).toContainText(/Échange capturé|Captured exchange|The expert drives/i);
+    const state = await page.locator('app-knowledge-capture').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as
+        | {
+            activeSurface?: () => string;
+            session?: () => { id?: string; status?: string; title?: string } | null;
+            proposal?: () => unknown;
+          }
+        | undefined;
+      return {
+        activeSurface: component?.activeSurface?.(),
+        session: component?.session?.(),
+        hasProposal: Boolean(component?.proposal?.()),
+      };
+    });
+    expect(state).toMatchObject({
+      activeSurface: 'session',
+      session: {
+        id: 'session-andritz-free-smoke',
+        status: 'active',
+        title: 'Andritz QA active capture',
+      },
+      hasProposal: false,
+    });
+    expect(proposalRequests).toContain('GET /api/v1/knowledge-capture/proposals?session_id=session-andritz-free-smoke');
+    expect(captureMutations).toEqual([]);
+  });
+
+  test('requires explicit confirmation before deleting a Knowledge Capture session', async ({ page }) => {
+    const captureDeleteRequests: string[] = [];
+    await installAndritzMocks(page, { acceptedProposal: true, captureDeleteRequests });
+
+    await page.goto('/knowledge/capture');
+    const sessionCard = page.locator('[role="button"]').filter({ hasText: 'Andritz QA capture' }).first();
+    await expect(sessionCard).toBeVisible();
+
+    await sessionCard.locator('button[title="Supprimer la session"]').click();
+    await expect(sessionCard).toContainText(/Supprimer définitivement cette session/i);
+    expect(captureDeleteRequests).toEqual([]);
+
+    await sessionCard.getByRole('button', { name: /Annuler/i }).click();
+    await expect(sessionCard).not.toContainText(/Supprimer définitivement cette session/i);
+    expect(captureDeleteRequests).toEqual([]);
+
+    await sessionCard.locator('button[title="Supprimer la session"]').click();
+    await sessionCard.getByRole('button', { name: /^Supprimer$/i }).click();
+
+    await expect.poll(() => captureDeleteRequests).toEqual(['/knowledge-capture/sessions/session-andritz-qa']);
   });
 
   test('requires an explicit publish click for an accepted capture proposal', async ({ page }) => {

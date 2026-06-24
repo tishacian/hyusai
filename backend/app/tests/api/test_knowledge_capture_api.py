@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -860,6 +862,81 @@ def test_list_proposals_filters_by_session_id(db_session, monkeypatch):
 
     none = client.get("/api/v1/knowledge-capture/proposals", params={"session_id": "missing-session"}).json()["proposals"]
     assert none == []
+
+
+def test_list_proposals_for_session_orders_multiple_revisions_newest_first(db_session, monkeypatch):
+    workspace = Workspace(id="ws-kc-api-prop-order", name="KC API Prop Order", slug="kc-api-prop-order")
+    user = User(id="user-kc-api-prop-order", username="operator", email="operator@example.test")
+    session = ExpertCaptureSession(
+        id="session-kc-api-prop-order",
+        workspace_id=workspace.id,
+        created_by_user_id=user.id,
+        title="Proposal order",
+        objective="Capture expert decisions.",
+        status="completed",
+        plan={"schema_version": "free_conversation_v1", "mode": "free_conversation", "topics": []},
+        transcript=[{"speaker": "expert", "text": "Version initiale puis version corrigée."}],
+    )
+    older = KnowledgeUpdateProposal(
+        id="proposal-kc-api-order-old",
+        workspace_id=workspace.id,
+        session_id=session.id,
+        created_by_user_id=user.id,
+        status="pending_review",
+        proposal={
+            "title": "Older proposal",
+            "report_markdown": "## Synthèse\n- Version initiale.",
+            "captured_facts": [{"id": "old", "text": "Version initiale."}],
+        },
+        created_at=datetime.now(UTC) - timedelta(minutes=5),
+    )
+    newer = KnowledgeUpdateProposal(
+        id="proposal-kc-api-order-new",
+        workspace_id=workspace.id,
+        session_id=session.id,
+        created_by_user_id=user.id,
+        status="accepted",
+        proposal={
+            "title": "Newer proposal",
+            "report_markdown": "## Synthèse\n- Version corrigée.",
+            "captured_facts": [{"id": "new", "text": "Version corrigée."}],
+        },
+        created_at=datetime.now(UTC),
+    )
+    foreign_session = ExpertCaptureSession(
+        id="session-kc-api-prop-order-other",
+        workspace_id=workspace.id,
+        created_by_user_id=user.id,
+        title="Other proposal order",
+        objective="Capture unrelated expert decisions.",
+        status="completed",
+        plan={"schema_version": "free_conversation_v1", "mode": "free_conversation", "topics": []},
+    )
+    foreign = KnowledgeUpdateProposal(
+        id="proposal-kc-api-order-foreign",
+        workspace_id=workspace.id,
+        session_id=foreign_session.id,
+        created_by_user_id=user.id,
+        status="accepted",
+        proposal={"title": "Foreign proposal", "report_markdown": "## Autre"},
+        created_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+    db_session.add_all([workspace, user, session, older, newer, foreign_session, foreign])
+    db_session.commit()
+
+    response = _client(db_session, workspace, user, monkeypatch).get(
+        "/api/v1/knowledge-capture/proposals",
+        params={"session_id": session.id},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    ids = [row["id"] for row in body["proposals"]]
+    assert ids == ["proposal-kc-api-order-new", "proposal-kc-api-order-old"]
+    assert body["proposals"][0]["proposal"]["title"] == "Newer proposal"
+    assert body["proposals"][0]["status"] == "accepted"
+    assert all(row["session_id"] == session.id for row in body["proposals"])
+    assert "proposal-kc-api-order-foreign" not in ids
 
 
 def test_contributor_proposal_list_hides_foreign_legacy_authorless_proposals(db_session):
