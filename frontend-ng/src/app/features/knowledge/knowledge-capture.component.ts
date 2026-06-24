@@ -7517,9 +7517,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.api
       .getCaptureHintQueue(sessionId, subtopicId || this.activeSubtopicId() || undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((payload) => {
-        const hints = ((payload as { hints?: CaptureHint[] }).hints || []) as CaptureHint[];
-        this.hintStack.set(hints);
+      .subscribe({
+        next: (payload) => {
+          const hints = ((payload as { hints?: CaptureHint[] }).hints || []) as CaptureHint[];
+          this.hintStack.set(hints);
+        },
+        error: () => {
+          this.hintStack.set([]);
+          this.setVoiceNotice('Relances indisponibles pour le moment. La capture continue.', 'warning');
+        },
       });
   }
 
@@ -11975,6 +11981,10 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     }
     if (command === 'end_section') {
       const session = this.session();
+      if (session && this.isFreeConversationSession(session)) {
+        this.setVoiceNotice('Commande de section ignorée en capture libre. La capture continue.', 'info');
+        return true;
+      }
       if (session) this.finishCurrentSection(session);
       return true;
     }

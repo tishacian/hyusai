@@ -704,6 +704,10 @@ async function installAndritzMocks(
     captureDeleteRequests?: string[];
     captureDocumentPreviewRequests?: string[];
     captureDocumentPreviewShouldFail?: boolean;
+    captureHintQueueRequests?: string[];
+    captureHintQueueShouldFail?: boolean;
+    captureHintQueueFailureStatus?: number;
+    captureHintQueueFailureDetail?: string;
     contextCreateRequests?: unknown[];
     contextCreateShouldFail?: boolean;
     contextUpdateRequests?: unknown[];
@@ -827,6 +831,10 @@ async function installAndritzMocks(
   const captureDeleteRequests = options.captureDeleteRequests;
   const captureDocumentPreviewRequests = options.captureDocumentPreviewRequests;
   const captureDocumentPreviewShouldFail = options.captureDocumentPreviewShouldFail ?? false;
+  const captureHintQueueRequests = options.captureHintQueueRequests;
+  const captureHintQueueShouldFail = options.captureHintQueueShouldFail ?? false;
+  const captureHintQueueFailureStatus = options.captureHintQueueFailureStatus ?? 503;
+  const captureHintQueueFailureDetail = options.captureHintQueueFailureDetail ?? 'Mocked hint queue unavailable';
   const contextCreateRequests = options.contextCreateRequests;
   const contextCreateShouldFail = options.contextCreateShouldFail ?? false;
   const contextUpdateRequests = options.contextUpdateRequests;
@@ -1475,6 +1483,10 @@ async function installAndritzMocks(
       return json(route, createdPlannedCaptureSession(currentCaptureSessionTitle, 'active'));
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/hint-queue') {
+      captureHintQueueRequests?.push(`${path}${url.search}`);
+      if (captureHintQueueShouldFail) {
+        return json(route, { detail: captureHintQueueFailureDetail }, captureHintQueueFailureStatus);
+      }
       return json(route, { subtopic_id: url.searchParams.get('subtopic_id') || null, hints: [] });
     }
     if (path === '/knowledge-capture/sessions/session-andritz-free-smoke/documents') {
@@ -3366,6 +3378,453 @@ test.describe('Andritz mocked browser smoke', () => {
     });
   });
 
+  test('repeats the last Chat answer by voice command without creating a new query', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatDocumentUploadEnabled: false,
+      chatStreamRequests,
+      chatSessionCreateRequests,
+    });
+
+    await page.goto('/chat');
+    await expect(page.locator('app-chat-panel')).toBeVisible();
+
+    const result = await page.evaluate(() => {
+      const host = document.querySelector('app-chat-panel');
+      const component = (window as any).ng.getComponent(host);
+      const voiceCommands: unknown[] = [];
+      const ttsFlushes: string[] = [];
+      let resetCount = 0;
+      let beginCount = 0;
+
+      component.messages.set([
+        { id: 'msg-user-repeat', role: 'user', content: 'Explique le réglage convoyeur.' },
+        { id: 'msg-assistant-repeat', role: 'assistant', content: 'Dernière réponse Andritz à répéter.' },
+      ]);
+      component.voiceConnection = {
+        voiceCommand: (command: string, transcript: string, payload: unknown) =>
+          voiceCommands.push({ command, transcript, payload }),
+      };
+      component.ttsEnabled.set(true);
+      component.transcribing.set(true);
+      component.voicePartial.set('repete');
+      component.resetTtsPipeline = () => {
+        resetCount += 1;
+      };
+      component.beginTtsStream = () => {
+        beginCount += 1;
+      };
+      component.flushTrailingTts = (text: string) => {
+        ttsFlushes.push(text);
+      };
+
+      const handled = component.handleFinalVoiceTranscript('repete', {
+        fallbackUsed: false,
+        provider: 'openai',
+      });
+
+      return {
+        handled,
+        voiceCommands,
+        ttsFlushes,
+        resetCount,
+        beginCount,
+        transcribing: component.transcribing(),
+        partial: component.voicePartial(),
+        userInput: component.userInput,
+        oracleMessage: component.voiceOracleMessage(),
+      };
+    });
+
+    expect(result).toMatchObject({
+      handled: true,
+      ttsFlushes: ['Dernière réponse Andritz à répéter.'],
+      resetCount: 1,
+      beginCount: 1,
+      transcribing: false,
+      partial: '',
+      userInput: '',
+      oracleMessage: 'Voice command committed: repeat.',
+    });
+    expect(result.voiceCommands).toEqual([
+      {
+        command: 'repeat',
+        transcript: 'repete',
+        payload: { surface: 'chat' },
+      },
+    ]);
+    expect(chatStreamRequests).toHaveLength(0);
+    expect(chatSessionCreateRequests).toHaveLength(0);
+  });
+
+  test('keeps a Chat rephrase voice command local when no assistant answer exists', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatDocumentUploadEnabled: false,
+      chatStreamRequests,
+      chatSessionCreateRequests,
+    });
+
+    await page.goto('/chat');
+    await expect(page.locator('app-chat-panel')).toBeVisible();
+
+    const result = await page.evaluate(() => {
+      const host = document.querySelector('app-chat-panel');
+      const component = (window as any).ng.getComponent(host);
+      const voiceCommands: unknown[] = [];
+      const toasts: unknown[] = [];
+      let rearmCount = 0;
+
+      component.messages.set([]);
+      component.voiceConnection = {
+        voiceCommand: (command: string, transcript: string, payload: unknown) =>
+          voiceCommands.push({ command, transcript, payload }),
+      };
+      component.toast.info = (message: string, title?: string) => {
+        toasts.push({ message, title });
+      };
+      component.scheduleVoiceLoopRearm = () => {
+        rearmCount += 1;
+      };
+      component.transcribing.set(true);
+      component.voicePartial.set('reformule');
+
+      const handled = component.handleFinalVoiceTranscript('reformule', {
+        fallbackUsed: false,
+        provider: 'openai',
+      });
+
+      return {
+        handled,
+        voiceCommands,
+        toasts,
+        rearmCount,
+        transcribing: component.transcribing(),
+        partial: component.voicePartial(),
+        userInput: component.userInput,
+        oracleMessage: component.voiceOracleMessage(),
+      };
+    });
+
+    expect(result).toMatchObject({
+      handled: true,
+      rearmCount: 1,
+      transcribing: false,
+      partial: '',
+      userInput: '',
+      oracleMessage: 'Voice command committed: rephrase.',
+    });
+    expect(result.voiceCommands).toEqual([
+      {
+        command: 'rephrase',
+        transcript: 'reformule',
+        payload: { surface: 'chat' },
+      },
+    ]);
+    expect(result.toasts).toEqual([{ message: 'No assistant answer to rephrase yet', title: 'Voice' }]);
+    expect(chatStreamRequests).toHaveLength(0);
+    expect(chatSessionCreateRequests).toHaveLength(0);
+  });
+
+  test('fills the Chat composer from server voice partial and final transcript events', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatDocumentUploadEnabled: false,
+      chatStreamRequests,
+      chatSessionCreateRequests,
+    });
+
+    await page.goto('/chat');
+    await expect(page.locator('app-chat-panel')).toBeVisible();
+
+    const result = await page.evaluate(() => {
+      const host = document.querySelector('app-chat-panel');
+      const component = (window as any).ng.getComponent(host);
+      component.chatVoiceSessionId = 'chat-dictation-session';
+      component.transcribing.set(true);
+      component.handleVoiceSessionEvent({
+        id: 'evt-chat-dictation-partial',
+        session_id: 'chat-dictation-session',
+        type: 'text.partial',
+        ts_ms: Date.now(),
+        sequence: 1,
+        payload: {
+          text: 'Réglage convoyeur en cours',
+        },
+      });
+      const partial = component.voicePartial();
+      const oracleDuringPartial = component.voiceOracleMessage();
+      component.handleVoiceSessionEvent({
+        id: 'evt-chat-dictation-final',
+        session_id: 'chat-dictation-session',
+        type: 'text.final',
+        ts_ms: Date.now(),
+        sequence: 2,
+        payload: {
+          text: 'Réglage convoyeur final validé.',
+          fallback_used: false,
+        },
+      });
+      return {
+        partial,
+        oracleDuringPartial,
+        finalPartial: component.voicePartial(),
+        transcribing: component.transcribing(),
+        userInput: component.userInput,
+        voiceNotice: component.voiceNotice(),
+        oracleStage: component.voiceOracleStage(),
+        oracleMessage: component.voiceOracleMessage(),
+      };
+    });
+
+    expect(result).toMatchObject({
+      partial: 'Réglage convoyeur en cours',
+      finalPartial: '',
+      transcribing: false,
+      userInput: 'Réglage convoyeur final validé.',
+      voiceNotice: 'Transcript ready',
+      oracleStage: 'committed',
+      oracleMessage: 'Final transcript committed for this voice turn.',
+    });
+    expect(result.oracleDuringPartial).toContain('Réglage convoyeur en cours');
+    await expect(page.locator('app-chat-panel textarea[name="userInput"]').first()).toHaveValue(
+      'Réglage convoyeur final validé.',
+    );
+    expect(chatStreamRequests).toHaveLength(0);
+    expect(chatSessionCreateRequests).toHaveLength(0);
+  });
+
+  test('keeps Chat voice state clear when microphone permission is denied', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatDocumentUploadEnabled: false,
+      chatStreamRequests,
+      chatSessionCreateRequests,
+    });
+
+    await page.goto('/chat');
+    await expect(page.locator('app-chat-panel')).toBeVisible();
+
+    const result = await page.evaluate(async () => {
+      const host = document.querySelector('app-chat-panel');
+      const component = (window as any).ng.getComponent(host);
+      const toasts: unknown[] = [];
+      let loopStartCount = 0;
+
+      component.toast.error = (message: string, title?: string) => {
+        toasts.push({ message, title });
+      };
+      component.voiceLoop.startTurn = async () => {
+        loopStartCount += 1;
+        throw new DOMException('Synthetic microphone permission denial', 'NotAllowedError');
+      };
+      component.recording.set(false);
+      component.transcribing.set(false);
+      component.voiceConversationActive.set(false);
+
+      const started = await component.startVoiceTurn(false);
+
+      return {
+        started,
+        loopStartCount,
+        toasts,
+        recording: component.recording(),
+        transcribing: component.transcribing(),
+        conversationActive: component.voiceConversationActive(),
+        userInput: component.userInput,
+      };
+    });
+
+    expect(result).toEqual({
+      started: false,
+      loopStartCount: 1,
+      toasts: [{ message: 'Microphone access denied', title: 'Voice' }],
+      recording: false,
+      transcribing: false,
+      conversationActive: false,
+      userInput: '',
+    });
+    expect(chatStreamRequests).toHaveLength(0);
+    expect(chatSessionCreateRequests).toHaveLength(0);
+  });
+
+  test('runs a Chat conversation loop ask turn and auto-sends the final transcript', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatDocumentUploadEnabled: false,
+      chatStreamRequests,
+      chatSessionCreateRequests,
+    });
+
+    await page.goto('/chat');
+    await expect(page.locator('app-chat-panel')).toBeVisible();
+
+    const result = await page.evaluate(async () => {
+      const host = document.querySelector('app-chat-panel');
+      const component = (window as any).ng.getComponent(host);
+      const loopStarts: unknown[] = [];
+      const loopArmed: unknown[] = [];
+      const startTurnConfigs: Record<string, unknown>[] = [];
+      const sentDrafts: string[] = [];
+
+      component.canUseVoiceSession = () => true;
+      component.ensureVoiceSession = () => {
+        component.voiceConnection = {
+          loopStart: (payload: unknown) => loopStarts.push(payload),
+          loopArmed: (payload: unknown) => loopArmed.push(payload),
+          loopStop: () => undefined,
+          close: () => undefined,
+        };
+        return component.voiceConnection;
+      };
+      component.voiceLoop.startTurn = async (config: Record<string, unknown>) => {
+        startTurnConfigs.push({
+          autoEndpoint: config['autoEndpoint'],
+          mimeType: config['mimeType'],
+          timesliceMs: config['timesliceMs'],
+          captureMode: config['captureMode'],
+        });
+        return true;
+      };
+      component.send = () => {
+        sentDrafts.push(component.userInput);
+      };
+
+      await component.startConversationLoop();
+      component.transcribing.set(true);
+      component.handleVoiceSessionEvent({
+        id: 'evt-chat-loop-final',
+        session_id: component.chatVoiceSessionId,
+        type: 'text.final',
+        ts_ms: Date.now(),
+        sequence: 3,
+        payload: {
+          text: 'Question orale Andritz envoyée automatiquement.',
+          fallback_used: false,
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      return {
+        loopStarts,
+        loopArmed,
+        startTurnConfigs,
+        sentDrafts,
+        active: component.voiceConversationActive(),
+        paused: component.voiceConversationPaused(),
+        recording: component.recording(),
+        transcribing: component.transcribing(),
+        userInput: component.userInput,
+        voiceNotice: component.voiceNotice(),
+        oracleStage: component.voiceOracleStage(),
+      };
+    });
+
+    expect(result.active).toBe(true);
+    expect(result.paused).toBe(false);
+    expect(result.recording).toBe(true);
+    expect(result.transcribing).toBe(false);
+    expect(result.userInput).toBe('Question orale Andritz envoyée automatiquement.');
+    expect(result.sentDrafts).toEqual(['Question orale Andritz envoyée automatiquement.']);
+    expect(result.voiceNotice).toBe('Transcript ready');
+    expect(result.oracleStage).toBe('committed');
+    expect(result.loopStarts).toHaveLength(1);
+    expect(result.loopStarts[0]).toMatchObject({
+      surface: 'chat',
+      mode: 'conversation_loop',
+      auto_endpoint: true,
+    });
+    expect(result.loopArmed).toHaveLength(1);
+    expect(result.loopArmed[0]).toMatchObject({
+      surface: 'chat',
+      mode: 'conversation_loop',
+      auto_endpoint: true,
+    });
+    expect(result.startTurnConfigs).toHaveLength(1);
+    expect(result.startTurnConfigs[0]).toMatchObject({
+      autoEndpoint: true,
+      mimeType: 'audio/webm',
+      timesliceMs: 1200,
+    });
+    expect(chatStreamRequests).toHaveLength(0);
+    expect(chatSessionCreateRequests).toHaveLength(0);
+  });
+
+  test('stops the Chat conversation loop cleanly while transcription is in flight', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatDocumentUploadEnabled: false,
+      chatStreamRequests,
+      chatSessionCreateRequests,
+    });
+
+    await page.goto('/chat');
+    await expect(page.locator('app-chat-panel')).toBeVisible();
+
+    const result = await page.evaluate(() => {
+      const host = document.querySelector('app-chat-panel');
+      const component = (window as any).ng.getComponent(host);
+      const hardStops: unknown[] = [];
+      const loopStops: unknown[] = [];
+      let closeCount = 0;
+
+      component.voiceConversationActive.set(true);
+      component.voiceConversationPaused.set(false);
+      component.recording.set(false);
+      component.transcribing.set(true);
+      component.voicePartial.set('transcription partielle à nettoyer');
+      component.voiceConnection = {
+        loopStop: (payload: unknown) => loopStops.push(payload),
+        close: () => {
+          closeCount += 1;
+        },
+      };
+      component.voiceLoop.hardStop = (payload: unknown) => {
+        hardStops.push(payload);
+      };
+
+      component.stopConversationLoop('user_stop');
+
+      return {
+        active: component.voiceConversationActive(),
+        paused: component.voiceConversationPaused(),
+        recording: component.recording(),
+        transcribing: component.transcribing(),
+        partial: component.voicePartial(),
+        connection: component.voiceConnection,
+        voiceNotice: component.voiceNotice(),
+        oracleStage: component.voiceOracleStage(),
+        oracleMessage: component.voiceOracleMessage(),
+        hardStopCount: hardStops.length,
+        loopStops,
+        closeCount,
+      };
+    });
+
+    expect(result).toMatchObject({
+      active: false,
+      paused: false,
+      recording: false,
+      transcribing: false,
+      partial: '',
+      connection: null,
+      voiceNotice: 'Conversation stopped',
+      oracleStage: 'idle',
+      oracleMessage: 'Conversation loop stopped. Batch voice turns remain available.',
+      hardStopCount: 1,
+      closeCount: 1,
+    });
+    expect(result.loopStops).toEqual([{ surface: 'chat', reason: 'user_stop' }]);
+    expect(chatStreamRequests).toHaveLength(0);
+    expect(chatSessionCreateRequests).toHaveLength(0);
+  });
+
   test('ignores direct Chat drop mode when document upload is disabled', async ({ page }) => {
     const chatStreamRequests: unknown[] = [];
     const chatUploadRequests: string[] = [];
@@ -4630,6 +5089,368 @@ test.describe('Andritz mocked browser smoke', () => {
       plan_mode: 'free_conversation',
       voice_runtime: 'cascade_openai',
     });
+  });
+
+  test('keeps planned capture usable when the hint queue load fails', async ({ page }) => {
+    const captureHintQueueRequests: string[] = [];
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      captureSessionStartsActive: true,
+      captureHintQueueRequests,
+      captureHintQueueShouldFail: true,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA hint queue failure smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA hint queue failure smoke' })).toBeVisible();
+
+    await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      component.hintStack.set([{ id: 'stale-hint', hint: 'Stale hint before reload failure' }]);
+      component.refreshHintQueue('session-andritz-free-smoke', 'subtopic-alignment');
+      ng?.applyChanges?.(component);
+    });
+
+    await expect.poll(() => captureHintQueueRequests).toEqual([
+      '/knowledge-capture/sessions/session-andritz-free-smoke/hint-queue?subtopic_id=subtopic-alignment',
+    ]);
+    const state = await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      return {
+        hints: component.hintStack(),
+        notice: component.voiceNotice(),
+        noticeTone: component.voiceNoticeTone(),
+        sessionStatus: component.session()?.status,
+      };
+    });
+    expect(state).toMatchObject({
+      hints: [],
+      notice: 'Relances indisponibles pour le moment. La capture continue.',
+      noticeTone: 'warning',
+      sessionStatus: 'active',
+    });
+    await expect(page.getByRole('button', { name: /Validate plan|Valider le plan/i })).toBeVisible();
+    expect(pageErrors).toEqual([]);
+  });
+
+  test('handles capture voice turn commands once and ignores section commands in free mode', async ({ page }) => {
+    const capturePlanRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlanRequests,
+      captureSessionStartsActive: true,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA voice command free capture');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA voice command free capture' })).toBeVisible();
+
+    const result = await page.evaluate(async () => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      const voiceCommands: unknown[] = [];
+      const sectionFinishes: unknown[] = [];
+      const finishReasons: string[] = [];
+
+      component.voiceConnection = {
+        voiceCommand: (command: string, transcript: string, payload: unknown) =>
+          voiceCommands.push({ command, transcript, payload }),
+        sectionFinish: (payload: unknown) => sectionFinishes.push(payload),
+      };
+      component.finishStreamingVoiceTurn = async (reason: string) => {
+        finishReasons.push(reason);
+      };
+
+      component.currentClientTurnId = 'turn-command-free-1';
+      const endTurn = component.detectCaptureVoiceCommand('tour suivant');
+      const firstEndTurnHandled = component.handleCaptureVoiceCommand(endTurn, 'tour suivant');
+      const duplicateEndTurnHandled = component.handleCaptureVoiceCommand(endTurn, 'tour suivant');
+
+      component.currentClientTurnId = 'turn-command-free-2';
+      const endSection = component.detectCaptureVoiceCommand('section suivante');
+      const freeSectionHandled = component.handleCaptureVoiceCommand(endSection, 'section suivante');
+
+      return {
+        endTurn,
+        endSection,
+        firstEndTurnHandled,
+        duplicateEndTurnHandled,
+        freeSectionHandled,
+        finishReasons,
+        voiceCommands,
+        sectionFinishes,
+        notice: component.voiceNotice(),
+        sessionMode: component.session()?.plan?.mode,
+        sessionStatus: component.session()?.status,
+      };
+    });
+
+    expect(result).toMatchObject({
+      endTurn: 'end_turn',
+      endSection: 'end_section',
+      firstEndTurnHandled: true,
+      duplicateEndTurnHandled: true,
+      freeSectionHandled: true,
+      finishReasons: ['voice_command'],
+      sectionFinishes: [],
+      notice: 'Commande de section ignorée en capture libre. La capture continue.',
+      sessionMode: 'free_conversation',
+      sessionStatus: 'active',
+    });
+    expect(result.voiceCommands).toEqual([
+      {
+        command: 'end_turn',
+        transcript: 'tour suivant',
+        payload: { surface: 'knowledge_capture' },
+      },
+      {
+        command: 'end_section',
+        transcript: 'section suivante',
+        payload: { surface: 'knowledge_capture' },
+      },
+    ]);
+    expect(capturePlanRequests).toHaveLength(1);
+  });
+
+  test('starts pauses and resumes a free Knowledge Capture voice session without ending the turn', async ({ page }) => {
+    const capturePlanRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlanRequests,
+      captureSessionStartsActive: true,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA start pause resume capture');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA start pause resume capture' })).toBeVisible();
+
+    const result = await page.evaluate(async () => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      const loopStarts: unknown[] = [];
+      const loopArmed: unknown[] = [];
+      const audioPauses: unknown[] = [];
+      let releaseCount = 0;
+      let recorderStopCount = 0;
+
+      const connection = {
+        loopStart: (payload: unknown) => loopStarts.push(payload),
+        loopArmed: (payload: unknown) => loopArmed.push(payload),
+        audioPause: (payload: unknown) => audioPauses.push(payload),
+      };
+      component.ensureVoiceConnection = async () => {
+        component.voiceConnection = connection;
+        return connection;
+      };
+      component.ensureAudioStream = async () => true;
+      component.releaseAudioStream = () => {
+        releaseCount += 1;
+      };
+      component.startAudioRecorder = (message: string) => {
+        component.recorder = {
+          state: 'recording',
+          onstop: null,
+          ondataavailable: null,
+          stop() {
+            recorderStopCount += 1;
+            this.state = 'inactive';
+            this.onstop?.();
+          },
+        };
+        component.recording.set(true);
+        component.voiceState.set('listening');
+        component.setVoiceNotice(message, 'info');
+        return true;
+      };
+
+      await component.toggleConversationSession();
+      const afterStart = {
+        active: component.conversationSessionActive(),
+        recording: component.recording(),
+        voiceState: component.voiceState(),
+        notice: component.voiceNotice(),
+      };
+
+      component.pendingVoiceFrameSends = [Promise.resolve('tail-flushed')];
+      component.pauseMicrophone();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const afterPause = {
+        active: component.conversationSessionActive(),
+        recording: component.recording(),
+        voiceState: component.voiceState(),
+        notice: component.voiceNotice(),
+        releaseCount,
+        recorderStopCount,
+        audioPauses: [...audioPauses],
+      };
+
+      await component.toggleConversationSession();
+      const afterResume = {
+        active: component.conversationSessionActive(),
+        recording: component.recording(),
+        voiceState: component.voiceState(),
+        notice: component.voiceNotice(),
+      };
+
+      return {
+        loopStarts,
+        loopArmed,
+        audioPauses,
+        afterStart,
+        afterPause,
+        afterResume,
+        releaseCount,
+        recorderStopCount,
+        sessionStatus: component.session()?.status,
+        sessionMode: component.session()?.plan?.mode,
+      };
+    });
+
+    expect(result.afterStart).toMatchObject({
+      active: true,
+      recording: true,
+      voiceState: 'listening',
+      notice: 'Micro ouvert. Terminez le tour quand la réponse expert est complète.',
+    });
+    expect(result.afterPause).toMatchObject({
+      active: false,
+      recording: false,
+      voiceState: 'idle',
+      notice: 'Micro en pause. Aucune relance déclenchée — reprenez quand vous voulez.',
+      releaseCount: 1,
+      recorderStopCount: 1,
+    });
+    expect(result.afterResume).toMatchObject({
+      active: true,
+      recording: true,
+      voiceState: 'listening',
+      notice: 'Micro ouvert. Terminez le tour quand la réponse expert est complète.',
+    });
+    expect(result.loopStarts).toHaveLength(2);
+    expect(result.loopArmed).toHaveLength(2);
+    expect(result.audioPauses).toEqual([{ surface: 'knowledge_capture' }]);
+    expect(result.sessionStatus).toBe('active');
+    expect(result.sessionMode).toBe('free_conversation');
+    expect(capturePlanRequests).toHaveLength(1);
+  });
+
+  test('defers Knowledge Capture stop while final STT is still transcribing', async ({ page }) => {
+    const capturePlanRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlanRequests,
+      captureSessionStartsActive: true,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA pause while final STT');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA pause while final STT' })).toBeVisible();
+
+    const result = await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      const loopStops: unknown[] = [];
+      let closeCount = 0;
+      let releaseCount = 0;
+
+      component.conversationSessionActive.set(true);
+      component.recording.set(false);
+      component.transcribing.set(true);
+      component.voiceState.set('partial_transcribing');
+      component.voiceConnection = {
+        loopStop: (payload: unknown) => loopStops.push(payload),
+        close: () => {
+          closeCount += 1;
+        },
+      };
+      component.releaseAudioStream = () => {
+        releaseCount += 1;
+      };
+
+      component.stopConversation();
+      const afterStopClick = {
+        active: component.conversationSessionActive(),
+        transcribing: component.transcribing(),
+        voiceState: component.voiceState(),
+        notice: component.voiceNotice(),
+        closeCount,
+        loopStops: [...loopStops],
+        deferredLoopStop: component.deferredLoopStopAfterStreamingTurn,
+        closeDeferred: component.closeVoiceAfterStreamingTurn,
+      };
+
+      component.transcribing.set(false);
+      component.finalizeDeferredStreamingStop();
+      const afterFinalized = {
+        active: component.conversationSessionActive(),
+        transcribing: component.transcribing(),
+        voiceState: component.voiceState(),
+        notice: component.voiceNotice(),
+        closeCount,
+        releaseCount,
+        loopStops: [...loopStops],
+        connection: component.voiceConnection,
+        deferredLoopStop: component.deferredLoopStopAfterStreamingTurn,
+        closeDeferred: component.closeVoiceAfterStreamingTurn,
+      };
+
+      return {
+        afterStopClick,
+        afterFinalized,
+        sessionStatus: component.session()?.status,
+      };
+    });
+
+    expect(result.afterStopClick).toMatchObject({
+      active: false,
+      transcribing: true,
+      voiceState: 'partial_transcribing',
+      notice: 'Conversation arrêtée. Finalisation du dernier tour…',
+      closeCount: 0,
+      loopStops: [],
+      deferredLoopStop: { surface: 'knowledge_capture', reason: 'user_stop' },
+      closeDeferred: true,
+    });
+    expect(result.afterFinalized).toMatchObject({
+      active: false,
+      transcribing: false,
+      voiceState: 'idle',
+      closeCount: 1,
+      releaseCount: 1,
+      loopStops: [{ surface: 'knowledge_capture', reason: 'user_stop' }],
+      connection: null,
+      deferredLoopStop: null,
+      closeDeferred: false,
+    });
+    expect(result.sessionStatus).toBe('active');
+    expect(capturePlanRequests).toHaveLength(1);
   });
 
   test('falls back to written capture when the microphone is unavailable in no-plan mode', async ({ page }) => {
