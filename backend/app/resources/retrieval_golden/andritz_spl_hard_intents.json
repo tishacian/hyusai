@@ -30,6 +30,7 @@
       "id": "hi_002_ambiguous_kd724_partial_ref",
       "query": "Quels projets utilisent la pompe KD724 ?",
       "collection": "andritz-notices-techniques-spl-pilot",
+      "_comment_inventory": "transversal_inventory case: the additive project_code facet enumerates every project whose chunks mention the discriminating term ['kd724']. Verified live 2026-06-24 via retrieve_rag_context (balanced, andritz workspace, single collection): total_projects=136, top buckets (by chunk_count) include BHX100/AKI500/TEK100. min_total_projects=100 is a conservative floor (well below 136); must_include pins the high-count head buckets that merging across collections can only reinforce. KUT100 legitimately appears for the bare KD724 term (so it is NOT excluded here, unlike the precise URACA-KD724-G query); MOG400 is absent. dense_policy stayed 'fast_scoped_dense' (NOT catalogue_inventory) so forbidden_route is orthogonal and KEPT. answer_profile arms the facet in the live runner (harness-only).",
       "expected_sources": [
         "KD724"
       ],
@@ -37,11 +38,17 @@
         "KD724"
       ],
       "expected_intent": "content_search",
+      "answer_profile": "transversal_inventory",
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "fr",
       "expected_distinct_documents": 2,
-      "expected_prompt_type": "factual"
+      "expected_prompt_type": "factual",
+      "expected_inventory": {
+        "min_total_projects": 100,
+        "must_include_projects": ["BHX100", "AKI500", "TEK100"],
+        "must_exclude_projects": ["MOG400"]
+      }
     },
     {
       "id": "hi_003_compare_continental_pollrich_aki300",

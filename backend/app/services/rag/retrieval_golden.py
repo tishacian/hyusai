@@ -21,6 +21,36 @@ DEFAULT_GOLDEN_BATCH = (
 )
 
 
+def _parse_expected_inventory(raw: Any) -> dict[str, Any] | None:
+    """Normalise a golden case's optional positive inventory expectation.
+
+    Returns ``None`` (evaluator no-op) for anything that is not a mapping, so a
+    case without the key is entirely unaffected. Project codes are upper-cased
+    and stripped to match the ``project_code`` payload values produced by the
+    facet; ``expected_terms`` is preserved verbatim (compared as an ordered list
+    against the facet ``terms``) and, when omitted, imposes no terms constraint.
+    """
+    if not isinstance(raw, Mapping):
+        return None
+
+    def _codes(key: str) -> tuple[str, ...]:
+        return tuple(
+            str(item).strip().upper()
+            for item in raw.get(key) or ()
+            if str(item).strip()
+        )
+
+    expected_terms = raw.get("expected_terms")
+    return {
+        "min_total_projects": max(0, int(raw.get("min_total_projects") or 0)),
+        "must_include_projects": _codes("must_include_projects"),
+        "must_exclude_projects": _codes("must_exclude_projects"),
+        "expected_terms": tuple(str(term) for term in expected_terms)
+        if expected_terms is not None
+        else None,
+    }
+
+
 @dataclass(frozen=True)
 class RetrievalGoldenCase:
     id: str
@@ -85,6 +115,31 @@ class RetrievalGoldenCase:
     # the fast (patterns-only) path. The full path needs the embedder, so the
     # offline runner only honours it when embeddings are available.
     requires_coherence: bool = False
+    # Answer-profile hint forwarded verbatim into the retrieval request by
+    # ``to_request`` (harness-only). Setting ``transversal_inventory`` arms the
+    # additive cross-project inventory facet in the live runner so a case's
+    # ``expected_inventory`` can actually be evaluated. It is read ONLY by
+    # ``rag.context._should_build_project_inventory``; dense_policy/intent derive
+    # from the query (``corpus_planner.classify_intent``), so this never perturbs
+    # the route-based assertions (``forbidden_route``).
+    answer_profile: str | None = None
+    # Positive expectation for the additive cross-project inventory facet
+    # (``transversal_inventory`` answer-profile). When set, the evaluator reads
+    # ``context["project_inventory"]`` (shape from
+    # ``project_inventory.build_project_inventory``) and fails the case when the
+    # exhaustive enumeration is absent or violates any sub-constraint:
+    #   ``min_total_projects``    -> ``total_projects`` must be >= this floor
+    #   ``must_include_projects`` -> every code must appear in the enumeration
+    #   ``must_exclude_projects`` -> none of these codes may appear
+    #   ``expected_terms``        -> facet ``terms`` must equal this list (omitted
+    #                                -> no terms constraint)
+    # ``None`` (the default) is a no-op, so every existing case is unaffected and
+    # the facet is only contract-checked where a case opts in. This is the
+    # POSITIVE counterpart to ``forbidden_route``: ``catalogue_inventory`` is a
+    # dense_policy ROUTE (the old failure mode of answering from an inventory
+    # summary instead of document evidence); ``project_inventory`` is an ADDITIVE
+    # payload facet that does NOT change the route — so a case keeps both.
+    expected_inventory: Mapping[str, Any] | None = None
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "RetrievalGoldenCase":
@@ -120,6 +175,8 @@ class RetrievalGoldenCase:
             ),
             prompt_type_ambiguous=bool(payload.get("prompt_type_ambiguous") or False),
             requires_coherence=bool(payload.get("requires_coherence") or False),
+            answer_profile=str(payload["answer_profile"]) if payload.get("answer_profile") else None,
+            expected_inventory=_parse_expected_inventory(payload.get("expected_inventory")),
         )
 
     def to_request(self) -> dict[str, Any]:
@@ -134,6 +191,10 @@ class RetrievalGoldenCase:
             request["context"] = {
                 "conversation_history": [dict(item) for item in self.conversation_history]
             }
+        if self.answer_profile:
+            # Forwarded so the live runner arms the additive inventory facet for
+            # transversal_inventory cases; harness-only, no serving-path effect.
+            request["answer_profile"] = self.answer_profile
         return request
 
 
@@ -256,6 +317,65 @@ def _distinct_content_count(context: Mapping[str, Any], *, top_n: int) -> int:
     return len(contents)
 
 
+def _evaluate_inventory_expectation(
+    expectation: Mapping[str, Any], context: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Score the additive project-inventory facet against a positive expectation.
+
+    Reads ``context["project_inventory"]`` (the payload ``rag.context`` attaches
+    for transversal_inventory questions, shape from
+    ``project_inventory.build_project_inventory``). A missing facet is itself a
+    shortfall: opting into ``expected_inventory`` asserts the exhaustive
+    enumeration is present AND satisfies every sub-constraint.
+    """
+    inventory = context.get("project_inventory")
+    present = isinstance(inventory, Mapping) and bool(inventory)
+    total: int | None = None
+    project_codes: set[str] = set()
+    terms: list[str] = []
+    if present:
+        try:
+            total = int(inventory.get("total_projects"))
+        except (TypeError, ValueError):
+            total = None
+        for entry in inventory.get("projects") or []:
+            if isinstance(entry, Mapping):
+                code = str(entry.get("project_code") or "").strip().upper()
+                if code:
+                    project_codes.add(code)
+        terms = [str(term) for term in inventory.get("terms") or []]
+
+    min_total = int(expectation.get("min_total_projects") or 0)
+    must_include = list(expectation.get("must_include_projects") or ())
+    must_exclude = list(expectation.get("must_exclude_projects") or ())
+    expected_terms = expectation.get("expected_terms")
+
+    missing_projects = [code for code in must_include if code not in project_codes]
+    forbidden_projects = [code for code in must_exclude if code in project_codes]
+    total_shortfall = min_total > 0 and (total is None or total < min_total)
+    terms_mismatch = expected_terms is not None and list(expected_terms) != terms
+
+    shortfall = (
+        not present
+        or total_shortfall
+        or bool(missing_projects)
+        or bool(forbidden_projects)
+        or terms_mismatch
+    )
+    return {
+        "present": present,
+        "total_projects": total,
+        "min_total_projects": min_total,
+        "total_shortfall": total_shortfall,
+        "missing_projects": missing_projects,
+        "forbidden_projects": forbidden_projects,
+        "terms": terms,
+        "expected_terms": list(expected_terms) if expected_terms is not None else None,
+        "terms_mismatch": terms_mismatch,
+        "shortfall": shortfall,
+    }
+
+
 def evaluate_retrieval_golden_case(
     case: RetrievalGoldenCase,
     context: Mapping[str, Any],
@@ -303,6 +423,11 @@ def evaluate_retrieval_golden_case(
         case.expected_distinct_content > 0
         and distinct_content < case.expected_distinct_content
     )
+    inventory_report = None
+    inventory_shortfall = False
+    if case.expected_inventory:
+        inventory_report = _evaluate_inventory_expectation(case.expected_inventory, context)
+        inventory_shortfall = bool(inventory_report["shortfall"])
     passed = (
         len(matched_sources) >= min(case.min_expected_sources, max(len(expected_sources), 1))
         and not missing_evidence_terms
@@ -311,6 +436,7 @@ def evaluate_retrieval_golden_case(
         and not diagnostic_mismatches
         and not diversity_shortfall
         and not content_diversity_shortfall
+        and not inventory_shortfall
     )
     return {
         "id": case.id,
@@ -327,6 +453,8 @@ def evaluate_retrieval_golden_case(
         "diversity_shortfall": diversity_shortfall,
         "distinct_content": distinct_content,
         "content_diversity_shortfall": content_diversity_shortfall,
+        "inventory_shortfall": inventory_shortfall,
+        "inventory_report": inventory_report,
         "dense_policy": dense_policy or None,
         "retrieval_decision_trace": dict(retrieval_decision_trace)
         if isinstance(retrieval_decision_trace, Mapping)

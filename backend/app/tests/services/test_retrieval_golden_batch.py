@@ -297,6 +297,165 @@ def test_evaluator_enforces_expected_distinct_content():
     assert result["passed"] is True
 
 
+# --- positive project-inventory expectation (transversal_inventory facet) -----
+
+
+def _inventory_case(expected_inventory, **overrides):
+    payload = {
+        "id": "synthetic_inventory",
+        "query": "Quels projets utilisent une pompe URACA ?",
+        "collection": "andritz-notices-techniques-spl-pilot",
+        "expected_sources": ["uraca"],
+        "expected_evidence_terms": ["uraca"],
+        "expected_intent": "transversal_inventory",
+        "answer_profile": "transversal_inventory",
+        "expected_inventory": expected_inventory,
+    }
+    payload.update(overrides)
+    return RetrievalGoldenCase.from_mapping(payload)
+
+
+def _inventory_context(inventory):
+    # Satisfies the source + evidence + route checks so ONLY the inventory branch
+    # decides pass/fail.
+    context = {
+        "chunks": ["URACA pump documentation across multiple projects"],
+        "metadatas": [{"document_filename": "uraca pump overview.pdf"}],
+        "retrieval_trace": {"selected_sources": [{"document_filename": "uraca pump overview.pdf"}]},
+        "metrics": {"dense_policy": "fast_scoped_dense"},
+    }
+    if inventory is not None:
+        context["project_inventory"] = inventory
+    return context
+
+
+def _uraca_inventory(total=133, codes=("AVA100", "NAN330", "NBD100", "BHX100"), terms=("uraca",)):
+    return {
+        "terms": list(terms),
+        "total_projects": total,
+        "projects": [{"project_code": code, "chunk_count": 1} for code in codes],
+        "collections_faceted": 1,
+    }
+
+
+def test_evaluator_passes_when_inventory_meets_expectation():
+    # Project codes are matched case-insensitively (lowercase expectation clears
+    # the upper-cased payload codes), terms equal, total above the floor, no
+    # forbidden member present.
+    case = _inventory_case(
+        {
+            "min_total_projects": 100,
+            "must_include_projects": ["ava100", "NAN330"],
+            "must_exclude_projects": ["KUT100", "MOG400"],
+            "expected_terms": ["uraca"],
+        }
+    )
+    result = evaluate_retrieval_golden_case(case, _inventory_context(_uraca_inventory()))
+
+    assert result["passed"] is True
+    assert result["inventory_shortfall"] is False
+    report = result["inventory_report"]
+    assert report["present"] is True
+    assert report["total_projects"] == 133
+    assert report["missing_projects"] == []
+    assert report["forbidden_projects"] == []
+    assert report["terms_mismatch"] is False
+
+
+def test_evaluator_fails_when_inventory_missing():
+    # Opting into expected_inventory asserts the facet is PRESENT: a context with
+    # no project_inventory (facet did not fire) is a shortfall even though every
+    # other signal is satisfied.
+    case = _inventory_case({"min_total_projects": 100, "must_include_projects": ["AVA100"]})
+    result = evaluate_retrieval_golden_case(case, _inventory_context(None))
+
+    assert result["passed"] is False
+    assert result["inventory_shortfall"] is True
+    assert result["inventory_report"]["present"] is False
+
+
+def test_evaluator_fails_on_total_below_floor():
+    case = _inventory_case({"min_total_projects": 100})
+    result = evaluate_retrieval_golden_case(case, _inventory_context(_uraca_inventory(total=40)))
+
+    assert result["passed"] is False
+    assert result["inventory_report"]["total_shortfall"] is True
+
+
+def test_evaluator_fails_on_missing_required_project():
+    case = _inventory_case({"must_include_projects": ["ZZZ999"]})
+    result = evaluate_retrieval_golden_case(case, _inventory_context(_uraca_inventory()))
+
+    assert result["passed"] is False
+    assert result["inventory_report"]["missing_projects"] == ["ZZZ999"]
+
+
+def test_evaluator_fails_on_forbidden_project_present():
+    case = _inventory_case({"must_exclude_projects": ["KUT100"]})
+    inventory = _uraca_inventory(codes=("AVA100", "KUT100", "NBD100"))
+    result = evaluate_retrieval_golden_case(case, _inventory_context(inventory))
+
+    assert result["passed"] is False
+    assert result["inventory_report"]["forbidden_projects"] == ["KUT100"]
+
+
+def test_evaluator_fails_on_terms_mismatch():
+    case = _inventory_case({"expected_terms": ["uraca", "kd724"]})
+    result = evaluate_retrieval_golden_case(case, _inventory_context(_uraca_inventory()))
+
+    assert result["passed"] is False
+    assert result["inventory_report"]["terms_mismatch"] is True
+
+
+def test_inventory_expectation_is_backward_compatible_noop():
+    # A case WITHOUT expected_inventory never trips the branch, even when a
+    # project_inventory payload happens to be present (and when it is absent).
+    plain = _diversity_case()
+    assert plain.expected_inventory is None
+
+    with_facet = evaluate_retrieval_golden_case(
+        plain, dict(_diversity_context(["g150 operating instructions.pdf"]), project_inventory=_uraca_inventory())
+    )
+    assert with_facet["inventory_shortfall"] is False
+    assert with_facet["inventory_report"] is None
+
+    without_facet = evaluate_retrieval_golden_case(
+        plain, _diversity_context(["g150 operating instructions.pdf"])
+    )
+    assert without_facet["inventory_shortfall"] is False
+    assert without_facet["inventory_report"] is None
+
+
+def test_to_request_forwards_answer_profile_only_when_set():
+    inventory_case = _inventory_case({"min_total_projects": 1})
+    assert inventory_case.to_request()["answer_profile"] == "transversal_inventory"
+    # A plain case does not inject the key (no serving-path perturbation).
+    assert "answer_profile" not in _diversity_case().to_request()
+
+
+def test_inventory_batches_carry_positive_contract_and_keep_forbidden_route():
+    # div_009 and hi_002 genuinely enumerate projects: they now carry the
+    # positive expected_inventory AND keep forbidden_route (the additive facet
+    # does not change dense_policy, so catalogue_inventory stays a valid guard).
+    diversity = {c.id: c for c in load_retrieval_golden_cases(_batch_path("andritz_spl_diversity.json"))}
+    hard = {c.id: c for c in load_retrieval_golden_cases(_batch_path("andritz_spl_hard_intents.json"))}
+
+    div_009 = diversity["div_009_uraca_kd724_chapters_multiproject"]
+    assert div_009.answer_profile == "transversal_inventory"
+    assert div_009.forbidden_route == "catalogue_inventory"
+    assert div_009.expected_inventory["min_total_projects"] == 3
+    assert div_009.expected_inventory["must_include_projects"] == ("TEK100", "COL100", "PHP02")
+    assert div_009.expected_inventory["must_exclude_projects"] == ("KUT100", "MOG400")
+
+    hi_002 = hard["hi_002_ambiguous_kd724_partial_ref"]
+    assert hi_002.answer_profile == "transversal_inventory"
+    assert hi_002.forbidden_route == "catalogue_inventory"
+    assert hi_002.expected_inventory["min_total_projects"] == 100
+    assert set(hi_002.expected_inventory["must_include_projects"]) == {"BHX100", "AKI500", "TEK100"}
+    # KUT100 legitimately appears for bare KD724 -> not excluded here.
+    assert "KUT100" not in hi_002.expected_inventory["must_exclude_projects"]
+
+
 def test_source_facets_are_family_rules_not_answer_mappings():
     facets = active_source_family_facets("Peux-tu retrouver la Spare Parts List du projet ACO150 ?")
     assert {facet.key for facet in facets} >= {"spare_parts_list"}

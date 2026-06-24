@@ -145,6 +145,7 @@
       "id": "div_009_uraca_kd724_chapters_multiproject",
       "query": "Sur quels projets retrouve-t-on la documentation des pompes URACA KD724-G ?",
       "collection": "andritz-notices-techniques-spl-pilot",
+      "_comment_inventory": "transversal_inventory case: the additive project_code facet (project_inventory.py) enumerates the projects whose chunks match the AND of the discriminating terms ['documentation','uraca','kd724g']. Verified live 2026-06-24 via retrieve_rag_context (balanced, andritz workspace, single collection): total_projects=3 -> exactly {TEK100, COL100, PHP02}; the Turkish URACA false positives KUT100/MOG400 are correctly absent. dense_policy stayed 'fast_scoped_dense' (NOT catalogue_inventory) so forbidden_route is orthogonal and KEPT. answer_profile arms the facet in the live runner (harness-only; does not affect intent/dense_policy). min_total_projects is a conservative floor (= the exact live count).",
       "expected_sources": [
         "KD724"
       ],
@@ -152,11 +153,17 @@
         "KD724"
       ],
       "expected_intent": "source_lookup",
+      "answer_profile": "transversal_inventory",
       "forbidden_route": "catalogue_inventory",
       "latency_profile": "balanced",
       "language": "fr",
       "expected_distinct_documents": 0,
-      "expected_distinct_content": 3
+      "expected_distinct_content": 3,
+      "expected_inventory": {
+        "min_total_projects": 3,
+        "must_include_projects": ["TEK100", "COL100", "PHP02"],
+        "must_exclude_projects": ["KUT100", "MOG400"]
+      }
     },
     {
       "id": "div_010_lh2_list_manual_vacuum_drive",
