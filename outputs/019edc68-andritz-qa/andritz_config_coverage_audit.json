@@ -1,0 +1,1161 @@
+{
+  "generated_at": "2026-06-24T03:54:09.626Z",
+  "scope": {
+    "workspace": "andritz",
+    "systems": [
+      "Chat Recherche",
+      "Knowledge Capture",
+      "Collections",
+      "SFTP Andritz"
+    ],
+    "safety": "static configuration-to-feature audit only; no browser, backend, VM, SFTP, collection, vector or object-store mutation"
+  },
+  "matrix": {
+    "feature_count": 101
+  },
+  "configuration": {
+    "group_count": 32,
+    "missing_source_count": 0,
+    "missing_feature_ref_count": 0,
+    "groups": [
+      {
+        "key": "workspace.source_scopes",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "source scopes",
+          "collection_slugs",
+          "top_k",
+          "table_profile_key",
+          "document_profile_key"
+        ],
+        "feature_ids": [
+          "CHT-015",
+          "COL-005",
+          "COL-021"
+        ],
+        "source_found": true,
+        "first_line": 186,
+        "token_locations": [
+          {
+            "token": "source scopes",
+            "found": true,
+            "line": 186
+          },
+          {
+            "token": "collection_slugs",
+            "found": true,
+            "line": 19
+          },
+          {
+            "token": "top_k",
+            "found": true,
+            "line": 21
+          },
+          {
+            "token": "table_profile_key",
+            "found": true,
+            "line": 23
+          },
+          {
+            "token": "document_profile_key",
+            "found": true,
+            "line": 24
+          }
+        ]
+      },
+      {
+        "key": "workspace.knowledge_guides",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "Knowledge guide",
+          "guide_key",
+          "markdown",
+          "publishGuide"
+        ],
+        "feature_ids": [
+          "COL-011",
+          "CHT-015"
+        ],
+        "source_found": true,
+        "first_line": 331,
+        "token_locations": [
+          {
+            "token": "Knowledge guide",
+            "found": true,
+            "line": 331
+          },
+          {
+            "token": "guide_key",
+            "found": true,
+            "line": 41
+          },
+          {
+            "token": "markdown",
+            "found": true,
+            "line": 44
+          },
+          {
+            "token": "publishGuide",
+            "found": true,
+            "line": 378
+          }
+        ]
+      },
+      {
+        "key": "workspace.chat_defaults",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "ChatSettingsDraft",
+          "prompt_pack",
+          "placeholder",
+          "context_mode"
+        ],
+        "feature_ids": [
+          "CHT-001",
+          "CHT-003",
+          "CHT-015"
+        ],
+        "source_found": true,
+        "first_line": 57,
+        "token_locations": [
+          {
+            "token": "ChatSettingsDraft",
+            "found": true,
+            "line": 57
+          },
+          {
+            "token": "prompt_pack",
+            "found": true,
+            "line": 61
+          },
+          {
+            "token": "placeholder",
+            "found": true,
+            "line": 60
+          },
+          {
+            "token": "context_mode",
+            "found": true,
+            "line": 54
+          }
+        ]
+      },
+      {
+        "key": "workspace.assistant_profiles",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "assistant_profiles",
+          "assistant_profile_default",
+          "default_knowledge_scope",
+          "voice_loop"
+        ],
+        "feature_ids": [
+          "CHT-015",
+          "CHT-021",
+          "KCAP-010"
+        ],
+        "source_found": true,
+        "first_line": 1527,
+        "token_locations": [
+          {
+            "token": "assistant_profiles",
+            "found": true,
+            "line": 1527
+          },
+          {
+            "token": "assistant_profile_default",
+            "found": true,
+            "line": 1363
+          },
+          {
+            "token": "default_knowledge_scope",
+            "found": true,
+            "line": 167
+          },
+          {
+            "token": "voice_loop",
+            "found": true,
+            "line": 174
+          }
+        ]
+      },
+      {
+        "key": "workspace.action_packs",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "WorkspaceActionSettingsDraft",
+          "enabled_packs_text",
+          "hidden_actions_text"
+        ],
+        "feature_ids": [
+          "CHT-003",
+          "CHT-021"
+        ],
+        "source_found": true,
+        "first_line": 102,
+        "token_locations": [
+          {
+            "token": "WorkspaceActionSettingsDraft",
+            "found": true,
+            "line": 102
+          },
+          {
+            "token": "enabled_packs_text",
+            "found": true,
+            "line": 103
+          },
+          {
+            "token": "hidden_actions_text",
+            "found": true,
+            "line": 106
+          }
+        ]
+      },
+      {
+        "key": "workspace.voice_loop_modes",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "VoiceLoopSettingsDraft",
+          "default_mode",
+          "session_loop",
+          "realtime"
+        ],
+        "feature_ids": [
+          "CHT-011",
+          "CHT-018",
+          "KCAP-010"
+        ],
+        "source_found": true,
+        "first_line": 68,
+        "token_locations": [
+          {
+            "token": "VoiceLoopSettingsDraft",
+            "found": true,
+            "line": 68
+          },
+          {
+            "token": "default_mode",
+            "found": true,
+            "line": 20
+          },
+          {
+            "token": "session_loop",
+            "found": true,
+            "line": 64
+          },
+          {
+            "token": "realtime",
+            "found": true,
+            "line": 64
+          }
+        ]
+      },
+      {
+        "key": "workspace.voice_capture_robustness",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "capture_mode",
+          "auto_capture_mode_enabled",
+          "rms_threshold",
+          "endpoint_grace_ms"
+        ],
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-010",
+          "KCAP-011"
+        ],
+        "source_found": true,
+        "first_line": 70,
+        "token_locations": [
+          {
+            "token": "capture_mode",
+            "found": true,
+            "line": 70
+          },
+          {
+            "token": "auto_capture_mode_enabled",
+            "found": true,
+            "line": 71
+          },
+          {
+            "token": "rms_threshold",
+            "found": true,
+            "line": 86
+          },
+          {
+            "token": "endpoint_grace_ms",
+            "found": true,
+            "line": 87
+          }
+        ]
+      },
+      {
+        "key": "workspace.voice_vad_timing",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "silence_ms",
+          "dictation_silence_ms",
+          "min_speech_ms",
+          "vad_hangover_ms",
+          "vad_min_silence_frames_ms"
+        ],
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-011"
+        ],
+        "source_found": true,
+        "first_line": 80,
+        "token_locations": [
+          {
+            "token": "silence_ms",
+            "found": true,
+            "line": 80
+          },
+          {
+            "token": "dictation_silence_ms",
+            "found": true,
+            "line": 81
+          },
+          {
+            "token": "min_speech_ms",
+            "found": true,
+            "line": 82
+          },
+          {
+            "token": "vad_hangover_ms",
+            "found": true,
+            "line": 88
+          },
+          {
+            "token": "vad_min_silence_frames_ms",
+            "found": true,
+            "line": 90
+          }
+        ]
+      },
+      {
+        "key": "workspace.voice_loop_behaviour",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "auto_send_final_transcript",
+          "auto_endpoint",
+          "auto_rearm_after_tts",
+          "barge_in"
+        ],
+        "feature_ids": [
+          "CHT-011",
+          "CHT-018",
+          "KCAP-010"
+        ],
+        "source_found": true,
+        "first_line": 72,
+        "token_locations": [
+          {
+            "token": "auto_send_final_transcript",
+            "found": true,
+            "line": 72
+          },
+          {
+            "token": "auto_endpoint",
+            "found": true,
+            "line": 73
+          },
+          {
+            "token": "auto_rearm_after_tts",
+            "found": true,
+            "line": 74
+          },
+          {
+            "token": "barge_in",
+            "found": true,
+            "line": 75
+          }
+        ]
+      },
+      {
+        "key": "workspace.voice_commands",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "commands_enabled",
+          "trigger_word",
+          "command_packs_text",
+          "stop_phrases_text"
+        ],
+        "feature_ids": [
+          "CHT-018",
+          "KCAP-036"
+        ],
+        "source_found": true,
+        "first_line": 76,
+        "token_locations": [
+          {
+            "token": "commands_enabled",
+            "found": true,
+            "line": 76
+          },
+          {
+            "token": "trigger_word",
+            "found": true,
+            "line": 77
+          },
+          {
+            "token": "command_packs_text",
+            "found": true,
+            "line": 78
+          },
+          {
+            "token": "stop_phrases_text",
+            "found": true,
+            "line": 79
+          }
+        ]
+      },
+      {
+        "key": "workspace.voice_output",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "VoiceOutputSettingsDraft",
+          "latency_profile",
+          "flush_first_chars",
+          "flush_timeout_ms",
+          "interrupt_on_user_speech"
+        ],
+        "feature_ids": [
+          "CHT-012"
+        ],
+        "source_found": true,
+        "first_line": 93,
+        "token_locations": [
+          {
+            "token": "VoiceOutputSettingsDraft",
+            "found": true,
+            "line": 93
+          },
+          {
+            "token": "latency_profile",
+            "found": true,
+            "line": 94
+          },
+          {
+            "token": "flush_first_chars",
+            "found": true,
+            "line": 96
+          },
+          {
+            "token": "flush_timeout_ms",
+            "found": true,
+            "line": 98
+          },
+          {
+            "token": "interrupt_on_user_speech",
+            "found": true,
+            "line": 99
+          }
+        ]
+      },
+      {
+        "key": "workspace.table_intelligence",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "TableProfileDraft",
+          "metric_aliases_text",
+          "require_compatible_units",
+          "require_cell_citations"
+        ],
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "source_found": true,
+        "first_line": 109,
+        "token_locations": [
+          {
+            "token": "TableProfileDraft",
+            "found": true,
+            "line": 109
+          },
+          {
+            "token": "metric_aliases_text",
+            "found": true,
+            "line": 114
+          },
+          {
+            "token": "require_compatible_units",
+            "found": true,
+            "line": 116
+          },
+          {
+            "token": "require_cell_citations",
+            "found": true,
+            "line": 119
+          }
+        ]
+      },
+      {
+        "key": "workspace.document_intelligence",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "DocumentProfileDraft",
+          "max_candidate_facts",
+          "max_evidence_rows"
+        ],
+        "feature_ids": [
+          "COL-010",
+          "COL-013"
+        ],
+        "source_found": true,
+        "first_line": 128,
+        "token_locations": [
+          {
+            "token": "DocumentProfileDraft",
+            "found": true,
+            "line": 128
+          },
+          {
+            "token": "max_candidate_facts",
+            "found": true,
+            "line": 133
+          },
+          {
+            "token": "max_evidence_rows",
+            "found": true,
+            "line": 134
+          }
+        ]
+      },
+      {
+        "key": "workspace.ocr_settings",
+        "file": "frontend-ng/src/app/features/workspace/chat-knowledge-settings.component.ts",
+        "tokens": [
+          "OcrSettingsDraft",
+          "provider_priority_text",
+          "scan_detection",
+          "openai_vision_enabled"
+        ],
+        "feature_ids": [
+          "COL-007",
+          "COL-010"
+        ],
+        "source_found": true,
+        "first_line": 137,
+        "token_locations": [
+          {
+            "token": "OcrSettingsDraft",
+            "found": true,
+            "line": 137
+          },
+          {
+            "token": "provider_priority_text",
+            "found": true,
+            "line": 139
+          },
+          {
+            "token": "scan_detection",
+            "found": true,
+            "line": 143
+          },
+          {
+            "token": "openai_vision_enabled",
+            "found": true,
+            "line": 149
+          }
+        ]
+      },
+      {
+        "key": "client.capture_mode_persistence",
+        "file": "frontend-ng/src/app/core/voice-capture-config.ts",
+        "tokens": [
+          "capture_mode",
+          "auto_capture_mode_enabled",
+          "voiceCaptureStorageKey",
+          "resolveVoiceCaptureConfig"
+        ],
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-010",
+          "KCAP-011"
+        ],
+        "source_found": true,
+        "first_line": 4,
+        "token_locations": [
+          {
+            "token": "capture_mode",
+            "found": true,
+            "line": 4
+          },
+          {
+            "token": "auto_capture_mode_enabled",
+            "found": true,
+            "line": 5
+          },
+          {
+            "token": "voiceCaptureStorageKey",
+            "found": true,
+            "line": 73
+          },
+          {
+            "token": "resolveVoiceCaptureConfig",
+            "found": true,
+            "line": 79
+          }
+        ]
+      },
+      {
+        "key": "client.vad_controller_metrics",
+        "file": "frontend-ng/src/app/core/voice-loop-controller.service.ts",
+        "tokens": [
+          "capture_mode",
+          "endpoint_candidate",
+          "endpoint_confirmed",
+          "requestData"
+        ],
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-011",
+          "KCAP-037"
+        ],
+        "source_found": true,
+        "first_line": 104,
+        "token_locations": [
+          {
+            "token": "capture_mode",
+            "found": true,
+            "line": 104
+          },
+          {
+            "token": "endpoint_candidate",
+            "found": true,
+            "line": 354
+          },
+          {
+            "token": "endpoint_confirmed",
+            "found": true,
+            "line": 377
+          },
+          {
+            "token": "requestData",
+            "found": true,
+            "line": 408
+          }
+        ]
+      },
+      {
+        "key": "voice.session_runtime_selection",
+        "file": "backend/app/services/voice_session_gateway.py",
+        "tokens": [
+          "provider",
+          "runtime",
+          "model",
+          "language",
+          "fallback_policy"
+        ],
+        "feature_ids": [
+          "CHT-011",
+          "CHT-012",
+          "KCAP-009"
+        ],
+        "source_found": true,
+        "first_line": 3,
+        "token_locations": [
+          {
+            "token": "provider",
+            "found": true,
+            "line": 3
+          },
+          {
+            "token": "runtime",
+            "found": true,
+            "line": 3
+          },
+          {
+            "token": "model",
+            "found": true,
+            "line": 25
+          },
+          {
+            "token": "language",
+            "found": true,
+            "line": 82
+          },
+          {
+            "token": "fallback_policy",
+            "found": true,
+            "line": 130
+          }
+        ]
+      },
+      {
+        "key": "voice.session_oracle_options",
+        "file": "backend/app/services/voice_session_gateway.py",
+        "tokens": [
+          "tandem_oracle",
+          "live_partial_stt_enabled",
+          "live_questions_enabled",
+          "partial_stt_min_interval_ms"
+        ],
+        "feature_ids": [
+          "KCAP-012",
+          "KCAP-014",
+          "KCAP-037"
+        ],
+        "source_found": true,
+        "first_line": 52,
+        "token_locations": [
+          {
+            "token": "tandem_oracle",
+            "found": true,
+            "line": 52
+          },
+          {
+            "token": "live_partial_stt_enabled",
+            "found": true,
+            "line": 145
+          },
+          {
+            "token": "live_questions_enabled",
+            "found": true,
+            "line": 146
+          },
+          {
+            "token": "partial_stt_min_interval_ms",
+            "found": true,
+            "line": 147
+          }
+        ]
+      },
+      {
+        "key": "voice.oracle_throttling_options",
+        "file": "backend/app/services/voice_session_gateway.py",
+        "tokens": [
+          "min_interval_ms",
+          "min_delta_chars",
+          "VoiceTandemOracle"
+        ],
+        "feature_ids": [
+          "KCAP-014"
+        ],
+        "source_found": true,
+        "first_line": 147,
+        "token_locations": [
+          {
+            "token": "min_interval_ms",
+            "found": true,
+            "line": 147
+          },
+          {
+            "token": "min_delta_chars",
+            "found": true,
+            "line": 502
+          },
+          {
+            "token": "VoiceTandemOracle",
+            "found": true,
+            "line": 52
+          }
+        ]
+      },
+      {
+        "key": "backend.rag_retrieval_deadlines",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "rag_fast_retrieval_deadline_seconds",
+          "rag_deep_retrieval_deadline_seconds",
+          "rag_auto_deep_retrieval_enabled"
+        ],
+        "feature_ids": [
+          "CHT-009",
+          "CHT-010",
+          "KCAP-013",
+          "COL-008"
+        ],
+        "source_found": true,
+        "first_line": 113,
+        "token_locations": [
+          {
+            "token": "rag_fast_retrieval_deadline_seconds",
+            "found": true,
+            "line": 113
+          },
+          {
+            "token": "rag_deep_retrieval_deadline_seconds",
+            "found": true,
+            "line": 114
+          },
+          {
+            "token": "rag_auto_deep_retrieval_enabled",
+            "found": true,
+            "line": 115
+          }
+        ]
+      },
+      {
+        "key": "backend.chat_stream_limits",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "chat_history_token_budget",
+          "chat_stream_timeout_seconds"
+        ],
+        "feature_ids": [
+          "CHT-007",
+          "CHT-014"
+        ],
+        "source_found": true,
+        "first_line": 208,
+        "token_locations": [
+          {
+            "token": "chat_history_token_budget",
+            "found": true,
+            "line": 208
+          },
+          {
+            "token": "chat_stream_timeout_seconds",
+            "found": true,
+            "line": 209
+          }
+        ]
+      },
+      {
+        "key": "backend.voice_runtime_catalog",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "voice_runtime_default_provider",
+          "voice_runtime_allowed_providers",
+          "voice_realtime_default_transport"
+        ],
+        "feature_ids": [
+          "CHT-011",
+          "CHT-012",
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "source_found": true,
+        "first_line": 245,
+        "token_locations": [
+          {
+            "token": "voice_runtime_default_provider",
+            "found": true,
+            "line": 245
+          },
+          {
+            "token": "voice_runtime_allowed_providers",
+            "found": true,
+            "line": 246
+          },
+          {
+            "token": "voice_realtime_default_transport",
+            "found": true,
+            "line": 248
+          }
+        ]
+      },
+      {
+        "key": "backend.voice_realtime_stt_flags",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "voice_realtime_stt_enabled",
+          "voice_realtime_stt_workspace_slugs",
+          "voice_realtime_stt_max_turn_ms"
+        ],
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "source_found": true,
+        "first_line": 263,
+        "token_locations": [
+          {
+            "token": "voice_realtime_stt_enabled",
+            "found": true,
+            "line": 263
+          },
+          {
+            "token": "voice_realtime_stt_workspace_slugs",
+            "found": true,
+            "line": 264
+          },
+          {
+            "token": "voice_realtime_stt_max_turn_ms",
+            "found": true,
+            "line": 275
+          }
+        ]
+      },
+      {
+        "key": "backend.voice_oracle_worker",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "voice_oracle_live_questions_retrieval_enabled",
+          "voice_oracle_retrieval_via_worker",
+          "voice_oracle_retrieval_timeout_seconds"
+        ],
+        "feature_ids": [
+          "KCAP-014",
+          "KCAP-037"
+        ],
+        "source_found": true,
+        "first_line": 290,
+        "token_locations": [
+          {
+            "token": "voice_oracle_live_questions_retrieval_enabled",
+            "found": true,
+            "line": 290
+          },
+          {
+            "token": "voice_oracle_retrieval_via_worker",
+            "found": true,
+            "line": 286
+          },
+          {
+            "token": "voice_oracle_retrieval_timeout_seconds",
+            "found": true,
+            "line": 296
+          }
+        ]
+      },
+      {
+        "key": "backend.voice_transcript_rewrite",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "voice_transcript_rewrite_enabled",
+          "voice_transcript_rewrite_timeout_ms",
+          "voice_transcript_glossary_max_terms"
+        ],
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-012"
+        ],
+        "source_found": true,
+        "first_line": 335,
+        "token_locations": [
+          {
+            "token": "voice_transcript_rewrite_enabled",
+            "found": true,
+            "line": 335
+          },
+          {
+            "token": "voice_transcript_rewrite_timeout_ms",
+            "found": true,
+            "line": 337
+          },
+          {
+            "token": "voice_transcript_glossary_max_terms",
+            "found": true,
+            "line": 338
+          }
+        ]
+      },
+      {
+        "key": "backend.voice_partial_stt_interval",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "voice_partial_stt_min_interval_ms"
+        ],
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-012"
+        ],
+        "source_found": true,
+        "first_line": 352,
+        "token_locations": [
+          {
+            "token": "voice_partial_stt_min_interval_ms",
+            "found": true,
+            "line": 352
+          }
+        ]
+      },
+      {
+        "key": "backend.secure_deposit_enablement",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "secure_deposit_enabled_workspace_slugs",
+          "secure_deposit_public_base_url",
+          "secure_deposit_session_ttl_seconds"
+        ],
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-002",
+          "SFTP-015"
+        ],
+        "source_found": true,
+        "first_line": 448,
+        "token_locations": [
+          {
+            "token": "secure_deposit_enabled_workspace_slugs",
+            "found": true,
+            "line": 448
+          },
+          {
+            "token": "secure_deposit_public_base_url",
+            "found": true,
+            "line": 449
+          },
+          {
+            "token": "secure_deposit_session_ttl_seconds",
+            "found": true,
+            "line": 451
+          }
+        ]
+      },
+      {
+        "key": "backend.secure_deposit_file_policy",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "secure_deposit_default_max_file_size_mb",
+          "secure_deposit_allowed_extensions",
+          "secure_deposit_archive_promotion_max_files"
+        ],
+        "feature_ids": [
+          "SFTP-003",
+          "SFTP-008",
+          "SFTP-009",
+          "SFTP-011"
+        ],
+        "source_found": true,
+        "first_line": 452,
+        "token_locations": [
+          {
+            "token": "secure_deposit_default_max_file_size_mb",
+            "found": true,
+            "line": 452
+          },
+          {
+            "token": "secure_deposit_allowed_extensions",
+            "found": true,
+            "line": 453
+          },
+          {
+            "token": "secure_deposit_archive_promotion_max_files",
+            "found": true,
+            "line": 455
+          }
+        ]
+      },
+      {
+        "key": "backend.secure_deposit_storage",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "secure_deposit_storage_dir",
+          "secure_deposit_sftp_temp_dir"
+        ],
+        "feature_ids": [
+          "SFTP-003",
+          "SFTP-005",
+          "SFTP-010"
+        ],
+        "source_found": true,
+        "first_line": 454,
+        "token_locations": [
+          {
+            "token": "secure_deposit_storage_dir",
+            "found": true,
+            "line": 454
+          },
+          {
+            "token": "secure_deposit_sftp_temp_dir",
+            "found": true,
+            "line": 459
+          }
+        ]
+      },
+      {
+        "key": "backend.secure_deposit_sftp_server",
+        "file": "backend/app/core/config.py",
+        "tokens": [
+          "secure_deposit_sftp_host",
+          "secure_deposit_sftp_port",
+          "secure_deposit_sftp_host_key_path"
+        ],
+        "feature_ids": [
+          "SFTP-004",
+          "SFTP-014"
+        ],
+        "source_found": true,
+        "first_line": 456,
+        "token_locations": [
+          {
+            "token": "secure_deposit_sftp_host",
+            "found": true,
+            "line": 456
+          },
+          {
+            "token": "secure_deposit_sftp_port",
+            "found": true,
+            "line": 457
+          },
+          {
+            "token": "secure_deposit_sftp_host_key_path",
+            "found": true,
+            "line": 458
+          }
+        ]
+      },
+      {
+        "key": "service.secure_deposit_workspace_gate",
+        "file": "backend/app/services/secure_deposit.py",
+        "tokens": [
+          "secure_deposit",
+          "enabled_workspace_slugs",
+          "settings"
+        ],
+        "feature_ids": [
+          "SFTP-015"
+        ],
+        "source_found": true,
+        "first_line": 31,
+        "token_locations": [
+          {
+            "token": "secure_deposit",
+            "found": true,
+            "line": 31
+          },
+          {
+            "token": "enabled_workspace_slugs",
+            "found": true,
+            "line": 111
+          },
+          {
+            "token": "settings",
+            "found": true,
+            "line": 29
+          }
+        ]
+      },
+      {
+        "key": "service.secure_deposit_reconciliation",
+        "file": "backend/app/services/secure_deposit_operations.py",
+        "tokens": [
+          "SFTP_RECONCILIATION_JOB_KIND",
+          "sftp_upload_sidecar_path",
+          "run_sftp_reconciliation_job"
+        ],
+        "feature_ids": [
+          "SFTP-010",
+          "SFTP-016"
+        ],
+        "source_found": true,
+        "first_line": 20,
+        "token_locations": [
+          {
+            "token": "SFTP_RECONCILIATION_JOB_KIND",
+            "found": true,
+            "line": 20
+          },
+          {
+            "token": "sftp_upload_sidecar_path",
+            "found": true,
+            "line": 27
+          },
+          {
+            "token": "run_sftp_reconciliation_job",
+            "found": true,
+            "line": 110
+          }
+        ]
+      }
+    ],
+    "missing_sources": [],
+    "missing_feature_refs": []
+  },
+  "status": "pass"
+}

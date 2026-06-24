@@ -1,0 +1,572 @@
+{
+  "generated_at": "2026-06-24T03:54:09.641Z",
+  "scope": {
+    "workspace": "andritz",
+    "systems": [
+      "Chat Recherche",
+      "Knowledge Capture",
+      "Collections",
+      "SFTP Andritz"
+    ],
+    "safety": "static IAM permission-to-feature audit only; no browser, backend, VM, SFTP, collection, vector or object-store mutation"
+  },
+  "matrix": {
+    "feature_count": 101
+  },
+  "permissions": {
+    "manifest_permission_count": 36,
+    "manifest_uncovered_count": 0,
+    "frontend_gate_count": 7,
+    "frontend_gate_uncovered_count": 0,
+    "missing_feature_ref_count": 0,
+    "manifest_permissions": [
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "voice_runtime",
+        "action": "read",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 63,
+        "feature_ids": [
+          "KCAP-009",
+          "CHT-011"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "capture_session",
+        "action": "create",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 64,
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-002",
+          "KCAP-004"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "capture_session",
+        "action": "read",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 65,
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "capture_session",
+        "action": "read",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 66,
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-035"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "capture_session",
+        "action": "update",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 67,
+        "feature_ids": [
+          "KCAP-006",
+          "KCAP-027",
+          "KCAP-031"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "capture_session",
+        "action": "update",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 68,
+        "feature_ids": [
+          "KCAP-006",
+          "KCAP-027",
+          "KCAP-031"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "capture_session",
+        "action": "execute",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 69,
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-008",
+          "KCAP-010",
+          "KCAP-011",
+          "KCAP-012",
+          "KCAP-019"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "capture_session",
+        "action": "execute",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 70,
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-008",
+          "KCAP-010",
+          "KCAP-011",
+          "KCAP-012",
+          "KCAP-019"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "knowledge_proposal",
+        "action": "read",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 71,
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-024",
+          "KCAP-038"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "knowledge_proposal",
+        "action": "read",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 72,
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-024",
+          "KCAP-038"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "knowledge_proposal",
+        "action": "submit_review",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 73,
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-024"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "knowledge_proposal",
+        "action": "submit_review",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 74,
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-024"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "knowledge_proposal",
+        "action": "review_decide",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 75,
+        "feature_ids": [
+          "KCAP-024"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "knowledge_proposal",
+        "action": "chat_correct",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 76,
+        "feature_ids": [
+          "CHT-013"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "knowledge_proposal",
+        "action": "trigger_ingestion",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 77,
+        "feature_ids": [
+          "KCAP-025"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "workspace",
+        "action": "manage_members",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 78,
+        "feature_ids": [
+          "KCAP-001"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "policy",
+        "action": "manage_policies",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 79,
+        "feature_ids": [
+          "KCAP-001"
+        ]
+      },
+      {
+        "capability_id": "expert_knowledge_capture",
+        "resource_kind": "audit_log",
+        "action": "read",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 80,
+        "feature_ids": [
+          "KCAP-030"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_link",
+        "action": "create",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 87,
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-002"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_link",
+        "action": "read",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 88,
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-005"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_link",
+        "action": "read_all",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 89,
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-005"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_link",
+        "action": "update",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 90,
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_link",
+        "action": "update",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 91,
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_link",
+        "action": "revoke",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 92,
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_link",
+        "action": "revoke",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 93,
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_file",
+        "action": "read",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 94,
+        "feature_ids": [
+          "SFTP-005",
+          "SFTP-006",
+          "SFTP-011"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_file",
+        "action": "read_all",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 95,
+        "feature_ids": [
+          "SFTP-005",
+          "SFTP-006",
+          "SFTP-010",
+          "SFTP-016"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_file",
+        "action": "promote",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 96,
+        "feature_ids": [
+          "SFTP-008",
+          "SFTP-009",
+          "SFTP-013"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_file",
+        "action": "download_archive",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 97,
+        "feature_ids": [
+          "SFTP-011"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_file",
+        "action": "operate",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 98,
+        "feature_ids": [
+          "SFTP-010",
+          "SFTP-016"
+        ]
+      },
+      {
+        "capability_id": "secure_deposit",
+        "resource_kind": "deposit_config",
+        "action": "manage",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 99,
+        "feature_ids": [
+          "SFTP-015",
+          "SFTP-017"
+        ]
+      },
+      {
+        "capability_id": "voice2voice_interaction",
+        "resource_kind": "voice_runtime",
+        "action": "read",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 106,
+        "feature_ids": [
+          "CHT-011",
+          "CHT-012",
+          "KCAP-009"
+        ]
+      },
+      {
+        "capability_id": "agentium_actions",
+        "resource_kind": "action",
+        "action": "read",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 113,
+        "feature_ids": [
+          "CHT-003",
+          "CHT-021"
+        ]
+      },
+      {
+        "capability_id": "agentium_actions",
+        "resource_kind": "action",
+        "action": "resolve",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 114,
+        "feature_ids": [
+          "CHT-003",
+          "CHT-021"
+        ]
+      },
+      {
+        "capability_id": "agentium_actions",
+        "resource_kind": "action",
+        "action": "execute",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 115,
+        "feature_ids": [
+          "CHT-003",
+          "CHT-021",
+          "SFTP-008"
+        ]
+      },
+      {
+        "capability_id": "agentium_actions",
+        "resource_kind": "action",
+        "action": "manage",
+        "file": "backend/app/services/iam/manifest.py",
+        "line": 116,
+        "feature_ids": [
+          "CHT-003",
+          "CHT-021"
+        ]
+      }
+    ],
+    "frontend_gates": [
+      {
+        "resource_kind": "capture_session",
+        "action": "create",
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 5395,
+        "feature_ids": [
+          "KCAP-001",
+          "KCAP-002",
+          "KCAP-004"
+        ]
+      },
+      {
+        "resource_kind": "capture_session",
+        "action": "update",
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 5399,
+        "feature_ids": [
+          "KCAP-006",
+          "KCAP-027",
+          "KCAP-031"
+        ]
+      },
+      {
+        "resource_kind": "capture_session",
+        "action": "execute",
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 5405,
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-008",
+          "KCAP-010",
+          "KCAP-011",
+          "KCAP-012",
+          "KCAP-019"
+        ]
+      },
+      {
+        "resource_kind": "knowledge_proposal",
+        "action": "submit_review",
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 5411,
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-024"
+        ]
+      },
+      {
+        "resource_kind": "knowledge_proposal",
+        "action": "review_decide",
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 5421,
+        "feature_ids": [
+          "KCAP-024"
+        ]
+      },
+      {
+        "resource_kind": "knowledge_proposal",
+        "action": "trigger_ingestion",
+        "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+        "line": 5426,
+        "feature_ids": [
+          "KCAP-025"
+        ]
+      },
+      {
+        "resource_kind": "knowledge_proposal",
+        "action": "chat_correct",
+        "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+        "line": 3189,
+        "feature_ids": [
+          "CHT-013"
+        ]
+      }
+    ],
+    "condition_coverage": {
+      "checked_tokens": [
+        {
+          "file": "backend/app/services/iam/engine.py",
+          "token": "owner_match",
+          "found": true,
+          "line": 99
+        },
+        {
+          "file": "backend/app/services/iam/engine.py",
+          "token": "second_eye_ingestion",
+          "found": true,
+          "line": 111
+        },
+        {
+          "file": "backend/app/services/iam/engine.py",
+          "token": "WORKSPACE_PERMISSION_DENIED",
+          "found": true,
+          "line": 69
+        },
+        {
+          "file": "backend/app/services/iam/engine.py",
+          "token": "emit_audit_event",
+          "found": true,
+          "line": 16
+        },
+        {
+          "file": "backend/app/api/v1/endpoints/iam.py",
+          "token": "iter_permissions()",
+          "found": true,
+          "line": 131
+        },
+        {
+          "file": "backend/app/api/v1/endpoints/iam.py",
+          "token": "CAPTURE_MANIFEST.capability_id",
+          "found": true,
+          "line": 85
+        },
+        {
+          "file": "frontend-ng/src/app/core/permissions.service.ts",
+          "token": "allowed_for_subject",
+          "found": true,
+          "line": 11
+        },
+        {
+          "file": "frontend-ng/src/app/core/permissions.service.ts",
+          "token": "conditionsPass",
+          "found": true,
+          "line": 59
+        },
+        {
+          "file": "frontend-ng/src/app/core/permissions.service.ts",
+          "token": "second_eye_ingestion",
+          "found": true,
+          "line": 92
+        }
+      ],
+      "missing_tokens": [],
+      "note": "Secure Deposit permissions are enforced server-side through the secure_deposit manifest; /iam/matrix currently enumerates the capture manifest used by Knowledge Capture and Chat correction UI gates."
+    },
+    "uncovered_manifest_permissions": [],
+    "uncovered_frontend_gates": [],
+    "missing_feature_refs": []
+  },
+  "status": "pass"
+}

@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J32", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A91:I175", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A86:F165", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A96:I180", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A91:F170", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-24";
 
@@ -4370,6 +4370,76 @@ const executionEvidence = [
     notes:
       "Adds repeatable discovery evidence for Chat Recherche, Knowledge Capture, Collections, SFTP, voice/LiveKit, contexts and durable chat sessions: every extracted scoped backend endpoint maps to an existing Feature ID, and the curated frontend surface route list references only existing Feature IDs.",
   },
+  {
+    id: "EXEC-2026-06-24-AUDIT-002",
+    date: "2026-06-24",
+    command:
+      "/Users/thib/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node outputs/019edc68-andritz-qa/audit_andritz_frontend_action_coverage.mjs",
+    result: "Static frontend action audit passed: 339 scoped bindings covered, 0 uncovered, 0 missing feature refs",
+    duration: "< 1s",
+    warnings:
+      "Static audit only; it proves template action-to-feature documentation coverage, not runtime correctness. 1 low-level binding is mapped by component-level fallback where the action is a local UI state toggle.",
+    safetyScope:
+      "Static local frontend template and matrix audit only. The script reads scoped Angular component files plus the matrix generator, writes andritz_frontend_action_coverage_audit.json, and performs no browser launch, backend call, VM access, SFTP access, collection mutation, vector-store mutation or object-store mutation.",
+    notes:
+      "Adds repeatable discovery evidence for Chat Recherche, Knowledge Capture, Collections and SFTP frontend surfaces: extracted click/submit/change/input/key action bindings in scoped templates map to existing Feature IDs, including route entrypoints, voice controls, capture/report controls, collection browsing and SFTP deposit/promotion/polling actions.",
+  },
+  {
+    id: "EXEC-2026-06-24-AUDIT-003",
+    date: "2026-06-24",
+    command:
+      "/Users/thib/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node outputs/019edc68-andritz-qa/audit_andritz_frontend_api_coverage.mjs",
+    result: "Static frontend API audit passed: 111 scoped API references covered, 0 uncovered, 0 missing feature refs",
+    duration: "< 1s",
+    warnings:
+      "Static audit only; it proves frontend API-reference-to-feature documentation coverage, not backend runtime correctness, payload validity or permission behaviour.",
+    safetyScope:
+      "Static local frontend source and matrix audit only. The script reads scoped Angular/core TypeScript files plus the matrix generator, writes andritz_frontend_api_coverage_audit.json, and performs no browser launch, backend call, VM access, SFTP access, collection mutation, vector-store mutation or object-store mutation.",
+    notes:
+      "Adds repeatable discovery evidence for Chat Recherche, Knowledge Capture, Collections and SFTP frontend API interactions: scoped /api/v1 and ApiService references for chat streaming, sessions, contexts, LiveKit/voice, capture, document collections, guides, document preview, SFTP links/deposits/operations and deposit portal upload map to existing Feature IDs.",
+  },
+  {
+    id: "EXEC-2026-06-24-AUDIT-004",
+    date: "2026-06-24",
+    command:
+      "/Users/thib/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node outputs/019edc68-andritz-qa/audit_andritz_config_coverage.mjs",
+    result: "Static configuration audit passed: 32 scoped config groups covered, 0 missing source refs, 0 missing feature refs",
+    duration: "< 1s",
+    warnings:
+      "Static audit only; it proves configuration-key-to-feature documentation coverage, not runtime validation, migration compatibility or environment correctness.",
+    safetyScope:
+      "Static local source and matrix audit only. The script reads scoped frontend/backend source files plus the matrix generator, writes andritz_config_coverage_audit.json, and performs no browser launch, backend call, VM access, SFTP access, collection mutation, vector-store mutation or object-store mutation.",
+    notes:
+      "Adds repeatable discovery evidence for Chat Recherche, Knowledge Capture, Collections and SFTP configuration options: workspace source scopes, guides, chat defaults, assistant profiles, voice loop/VAD/voice output, table/document/OCR profiles, voice session oracle/STT options, backend RAG/voice flags and secure-deposit enablement/file/storage/SFTP settings map to existing Feature IDs.",
+  },
+  {
+    id: "EXEC-2026-06-24-AUDIT-005",
+    date: "2026-06-24",
+    command:
+      "/Users/thib/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node outputs/019edc68-andritz-qa/audit_andritz_permission_coverage.mjs",
+    result: "Static permission audit passed: 36 manifest permissions covered, 7 frontend gates covered, 0 uncovered, 0 missing feature refs",
+    duration: "< 1s",
+    warnings:
+      "Static audit only; it proves IAM permission-to-feature documentation coverage, not authenticated runtime decisions. /iam/matrix enumerates the capture manifest for Knowledge Capture/Chat gates; Secure Deposit is enforced server-side through its own manifest.",
+    safetyScope:
+      "Static local IAM source and matrix audit only. The script reads IAM manifests, authorization engine tokens, frontend permission gates and the matrix generator, writes andritz_permission_coverage_audit.json, and performs no browser launch, backend call, VM access, SFTP access, collection mutation, vector-store mutation or object-store mutation.",
+    notes:
+      "Adds repeatable security-case discovery evidence for Knowledge Capture, Chat correction, voice runtime and Secure Deposit: capture_session, knowledge_proposal, voice_runtime, deposit_link, deposit_file, deposit_config and action permissions map to existing Feature IDs, and frontend gates use the shared PermissionsService condition handling.",
+  },
+  {
+    id: "EXEC-2026-06-24-AUDIT-006",
+    date: "2026-06-24",
+    command:
+      "/Users/thib/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node outputs/019edc68-andritz-qa/audit_andritz_event_coverage.mjs",
+    result: "Static runtime event audit passed: 36 event/state groups covered, 0 missing source refs, 0 missing feature refs",
+    duration: "< 1s",
+    warnings:
+      "Static audit only; it proves runtime event-to-feature documentation coverage, not timing, ordering, websocket delivery, SSE transport or browser rendering correctness.",
+    safetyScope:
+      "Static local source and matrix audit only. The script reads Chat SSE, VoiceSession, VoiceSessionGateway and Knowledge Capture source files plus the matrix generator, writes andritz_event_coverage_audit.json, and performs no browser launch, backend call, VM access, SFTP access, collection mutation, vector-store mutation or object-store mutation.",
+    notes:
+      "Adds repeatable state-machine discovery evidence for Chat Recherche and Knowledge Capture: SSE chunks, voice websocket controls, transcript partial/final events, runtime metrics, oracle events, section detection, conversation finalization, audio output and persisted Knowledge Capture ledger events map to existing Feature IDs.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -6946,6 +7016,46 @@ const phaseRows = [
     `${executionEvidence[174].result}; supporting artifact andritz_scope_coverage_audit.json written.`,
     executionEvidence[174].safetyScope,
     "Continue recursive discovery beyond primary scoped endpoints: template-only UI states, hidden feature flags and authenticated real-backend read-only journeys still require separate evidence.",
+  ],
+  [
+    executionEvidence[175].date,
+    "Phase 1/6 scoped frontend action-to-feature audit",
+    "Added and executed a static coverage audit that extracts scoped Angular template actions and verifies every binding maps to an existing Chat/KCAP/Collections/SFTP feature.",
+    `${executionEvidence[175].result}; supporting artifact andritz_frontend_action_coverage_audit.json written.`,
+    executionEvidence[175].safetyScope,
+    "Continue recursive discovery beyond template bindings: hidden feature flags, service-only behaviours and authenticated real-backend read-only journeys still require separate evidence.",
+  ],
+  [
+    executionEvidence[176].date,
+    "Phase 1/6 scoped frontend API-to-feature audit",
+    "Added and executed a static coverage audit that extracts scoped frontend API references and verifies every interaction maps to an existing Chat/KCAP/Collections/SFTP feature.",
+    `${executionEvidence[176].result}; supporting artifact andritz_frontend_api_coverage_audit.json written.`,
+    executionEvidence[176].safetyScope,
+    "Continue recursive discovery beyond explicit API references: hidden feature flags, service-only state machines and authenticated real-backend read-only journeys still require separate evidence.",
+  ],
+  [
+    executionEvidence[177].date,
+    "Phase 1/6 scoped configuration-to-feature audit",
+    "Added and executed a static coverage audit that verifies scoped Chat/KCAP/Collections/SFTP configuration groups are sourced in code and mapped to existing Feature IDs.",
+    `${executionEvidence[177].result}; supporting artifact andritz_config_coverage_audit.json written.`,
+    executionEvidence[177].safetyScope,
+    "Continue recursive discovery beyond explicit config groups: role-specific UX states, service-only state machines and authenticated read-only journeys still require separate evidence.",
+  ],
+  [
+    executionEvidence[178].date,
+    "Phase 1/2 scoped permission-to-feature audit",
+    "Added and executed a static coverage audit that verifies IAM manifest permissions and frontend permission gates map to existing Chat/KCAP/Collections/SFTP Feature IDs.",
+    `${executionEvidence[178].result}; supporting artifact andritz_permission_coverage_audit.json written.`,
+    executionEvidence[178].safetyScope,
+    "Continue recursive discovery with authenticated read-only role journeys; static permission coverage does not replace real workspace role smoke checks.",
+  ],
+  [
+    executionEvidence[179].date,
+    "Phase 1/2 scoped runtime event-to-feature audit",
+    "Added and executed a static coverage audit that verifies Chat SSE, voice websocket and Knowledge Capture ledger events are sourced in code and mapped to existing Feature IDs.",
+    `${executionEvidence[179].result}; supporting artifact andritz_event_coverage_audit.json written.`,
+    executionEvidence[179].safetyScope,
+    "Continue recursive discovery with runtime ordering and authenticated read-only journeys; static event coverage does not prove delivery latency or UI timing.",
   ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);

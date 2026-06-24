@@ -1,0 +1,1410 @@
+{
+  "generated_at": "2026-06-24T03:54:09.698Z",
+  "scope": {
+    "workspace": "andritz",
+    "systems": [
+      "Chat Recherche",
+      "Knowledge Capture",
+      "Collections",
+      "SFTP Andritz"
+    ],
+    "safety": "static runtime event-to-feature audit only; no browser, backend, VM, SFTP, collection, vector or object-store mutation"
+  },
+  "matrix": {
+    "feature_count": 101
+  },
+  "events": {
+    "group_count": 36,
+    "missing_source_count": 0,
+    "missing_feature_ref_count": 0,
+    "groups": [
+      {
+        "key": "chat.sse.text",
+        "feature_ids": [
+          "CHT-007"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "chunk_type?: 'text'"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "chunk.chunk_type === 'text'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 13,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "chunk_type?: 'text'",
+            "found": true,
+            "line": 13
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "chunk.chunk_type === 'text'",
+            "found": true,
+            "line": 5822
+          }
+        ]
+      },
+      {
+        "key": "chat.sse.session",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "chunk.chunk_type === 'session'"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "this.chatSessionId = sessionId"
+          }
+        ],
+        "source_found": true,
+        "first_line": 5817,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "chunk.chunk_type === 'session'",
+            "found": true,
+            "line": 5817
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "this.chatSessionId = sessionId",
+            "found": true,
+            "line": 5819
+          }
+        ]
+      },
+      {
+        "key": "chat.sse.decision_step",
+        "feature_ids": [
+          "CHT-007"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "decision_step?: unknown"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "chunk.chunk_type === 'decision_step'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 15,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "decision_step?: unknown",
+            "found": true,
+            "line": 15
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "chunk.chunk_type === 'decision_step'",
+            "found": true,
+            "line": 5826
+          }
+        ]
+      },
+      {
+        "key": "chat.sse.retrieval",
+        "feature_ids": [
+          "CHT-009",
+          "CHT-010"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "chunk.chunk_type === 'retrieval'"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "deep_queued"
+          }
+        ],
+        "source_found": true,
+        "first_line": 5830,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "chunk.chunk_type === 'retrieval'",
+            "found": true,
+            "line": 5830
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "deep_queued",
+            "found": true,
+            "line": 5833
+          }
+        ]
+      },
+      {
+        "key": "chat.sse.sources",
+        "feature_ids": [
+          "CHT-008"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "sources?: unknown"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "chunk.sources && Array.isArray(chunk.sources)"
+          }
+        ],
+        "source_found": true,
+        "first_line": 16,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "sources?: unknown",
+            "found": true,
+            "line": 16
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "chunk.sources && Array.isArray(chunk.sources)",
+            "found": true,
+            "line": 5810
+          }
+        ]
+      },
+      {
+        "key": "chat.sse.eval_pending_run",
+        "feature_ids": [
+          "CHT-017"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "run_id?: string"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "if (chunk.run_id) turnRunId = chunk.run_id"
+          }
+        ],
+        "source_found": true,
+        "first_line": 22,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "run_id?: string",
+            "found": true,
+            "line": 22
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "if (chunk.run_id) turnRunId = chunk.run_id",
+            "found": true,
+            "line": 5816
+          }
+        ]
+      },
+      {
+        "key": "chat.sse.error_done",
+        "feature_ids": [
+          "CHT-007"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "chunk_type?: 'text' | 'decision_step' | 'error'"
+          },
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "subject.next({ type: 'done' })"
+          }
+        ],
+        "source_found": true,
+        "first_line": 13,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "chunk_type?: 'text' | 'decision_step' | 'error'",
+            "found": true,
+            "line": 13
+          },
+          {
+            "file": "frontend-ng/src/app/core/sse.service.ts",
+            "token": "subject.next({ type: 'done' })",
+            "found": true,
+            "line": 58
+          }
+        ]
+      },
+      {
+        "key": "voice.ws.contract",
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-009"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "export type VoiceSessionEventType"
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "async def _send("
+          }
+        ],
+        "source_found": true,
+        "first_line": 7,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "export type VoiceSessionEventType",
+            "found": true,
+            "line": 7
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "async def _send(",
+            "found": true,
+            "line": 2492
+          }
+        ]
+      },
+      {
+        "key": "voice.session.ready",
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-009"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"session.ready\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'session.ready'"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'session.ready'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 434,
+        "token_locations": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"session.ready\"",
+            "found": true,
+            "line": 434
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'session.ready'",
+            "found": true,
+            "line": 9376
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'session.ready'",
+            "found": true,
+            "line": 7727
+          }
+        ]
+      },
+      {
+        "key": "voice.loop.controls",
+        "feature_ids": [
+          "CHT-018",
+          "KCAP-010"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'loop.start'"
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"loop.start\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'loop.start' || event.type === 'loop.resume'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 10,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'loop.start'",
+            "found": true,
+            "line": 10
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"loop.start\"",
+            "found": true,
+            "line": 529
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'loop.start' || event.type === 'loop.resume'",
+            "found": true,
+            "line": 7764
+          }
+        ]
+      },
+      {
+        "key": "voice.client.audio",
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-011"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'audio.frame'"
+          },
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'audio.endpoint.auto'"
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "event_type == \"audio.frame\""
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "event_type in {\"audio.endpoint\", \"audio.endpoint.auto\"}"
+          }
+        ],
+        "source_found": true,
+        "first_line": 16,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'audio.frame'",
+            "found": true,
+            "line": 16
+          },
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'audio.endpoint.auto'",
+            "found": true,
+            "line": 19
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "event_type == \"audio.frame\"",
+            "found": true,
+            "line": 555
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "event_type in {\"audio.endpoint\", \"audio.endpoint.auto\"}",
+            "found": true,
+            "line": 558
+          }
+        ]
+      },
+      {
+        "key": "voice.pause_without_commit",
+        "feature_ids": [
+          "KCAP-010",
+          "KCAP-011"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'audio.pause'"
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "event_type == \"audio.pause\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "send audio.pause"
+          }
+        ],
+        "source_found": true,
+        "first_line": 17,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'audio.pause'",
+            "found": true,
+            "line": 17
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "event_type == \"audio.pause\"",
+            "found": true,
+            "line": 563
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "send audio.pause",
+            "found": true,
+            "line": 10252
+          }
+        ]
+      },
+      {
+        "key": "voice.transcript.partial",
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-012"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"transcript.partial\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'text.partial' || event.type === 'transcript.partial'"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'text.partial' || event.type === 'transcript.partial'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 994,
+        "token_locations": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"transcript.partial\"",
+            "found": true,
+            "line": 994
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'text.partial' || event.type === 'transcript.partial'",
+            "found": true,
+            "line": 9386
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'text.partial' || event.type === 'transcript.partial'",
+            "found": true,
+            "line": 7732
+          }
+        ]
+      },
+      {
+        "key": "voice.text.final",
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-012"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"text.final\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'text.final'"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'text.final'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 641,
+        "token_locations": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"text.final\"",
+            "found": true,
+            "line": 641
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'text.final'",
+            "found": true,
+            "line": 9438
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'text.final'",
+            "found": true,
+            "line": 7742
+          }
+        ]
+      },
+      {
+        "key": "voice.runtime.metric",
+        "feature_ids": [
+          "KCAP-037",
+          "CHT-011"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"runtime.metric\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'runtime.metric'"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'runtime.metric'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 512,
+        "token_locations": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"runtime.metric\"",
+            "found": true,
+            "line": 512
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'runtime.metric'",
+            "found": true,
+            "line": 9650
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'runtime.metric'",
+            "found": true,
+            "line": 7790
+          }
+        ]
+      },
+      {
+        "key": "voice.client.metric",
+        "feature_ids": [
+          "KCAP-037",
+          "CHT-011"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'client.metric'"
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"voice.client_metric\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "emitCaptureClientMetric"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "emitVoiceClientMetric"
+          }
+        ],
+        "source_found": true,
+        "first_line": 15,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'client.metric'",
+            "found": true,
+            "line": 15
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"voice.client_metric\"",
+            "found": true,
+            "line": 714
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "emitCaptureClientMetric",
+            "found": true,
+            "line": 10700
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "emitVoiceClientMetric",
+            "found": true,
+            "line": 7105
+          }
+        ]
+      },
+      {
+        "key": "voice.oracle.delta",
+        "feature_ids": [
+          "KCAP-014",
+          "KCAP-037"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"oracle.delta\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'oracle.delta' || event.type === 'oracle.superseded'"
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'oracle.delta'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 647,
+        "token_locations": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"oracle.delta\"",
+            "found": true,
+            "line": 647
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'oracle.delta' || event.type === 'oracle.superseded'",
+            "found": true,
+            "line": 9600
+          },
+          {
+            "file": "frontend-ng/src/app/features/chat/chat-panel.component.ts",
+            "token": "event.type === 'oracle.delta'",
+            "found": true,
+            "line": 7801
+          }
+        ]
+      },
+      {
+        "key": "voice.oracle.action_commit",
+        "feature_ids": [
+          "KCAP-014"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"oracle.action\""
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"oracle.commit\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'oracle.action'"
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'oracle.commit'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 648,
+        "token_locations": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"oracle.action\"",
+            "found": true,
+            "line": 648
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"oracle.commit\"",
+            "found": true,
+            "line": 649
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'oracle.action'",
+            "found": true,
+            "line": 9610
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'oracle.commit'",
+            "found": true,
+            "line": 9641
+          }
+        ]
+      },
+      {
+        "key": "voice.oracle.questions",
+        "feature_ids": [
+          "KCAP-014",
+          "KCAP-023"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"oracle.questions\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'oracle.questions'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 1981,
+        "token_locations": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"oracle.questions\"",
+            "found": true,
+            "line": 1981
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'oracle.questions'",
+            "found": true,
+            "line": 9371
+          }
+        ]
+      },
+      {
+        "key": "voice.section.active",
+        "feature_ids": [
+          "KCAP-006",
+          "KCAP-013"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'section.active'"
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"section.active\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'section.active'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 22,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'section.active'",
+            "found": true,
+            "line": 22
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"section.active\"",
+            "found": true,
+            "line": 1301
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'section.active'",
+            "found": true,
+            "line": 9535
+          }
+        ]
+      },
+      {
+        "key": "voice.conversation.step",
+        "feature_ids": [
+          "KCAP-019",
+          "KCAP-020",
+          "KCAP-039"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"conversation.step\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'conversation.step'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 2105,
+        "token_locations": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"conversation.step\"",
+            "found": true,
+            "line": 2105
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'conversation.step'",
+            "found": true,
+            "line": 9517
+          }
+        ]
+      },
+      {
+        "key": "voice.capture.finalize.progress",
+        "feature_ids": [
+          "KCAP-019",
+          "KCAP-020"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"capture.finalize.progress\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'capture.finalize.progress'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 2143,
+        "token_locations": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"capture.finalize.progress\"",
+            "found": true,
+            "line": 2143
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'capture.finalize.progress'",
+            "found": true,
+            "line": 9499
+          }
+        ]
+      },
+      {
+        "key": "voice.audio.out",
+        "feature_ids": [
+          "CHT-012",
+          "KCAP-010"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"audio.out\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'audio.out'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 2224,
+        "token_locations": [
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"audio.out\"",
+            "found": true,
+            "line": 2224
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'audio.out'",
+            "found": true,
+            "line": 9646
+          }
+        ]
+      },
+      {
+        "key": "voice.session.error",
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-009"
+        ],
+        "tokens": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'session.error'"
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"session.error\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 42,
+        "token_locations": [
+          {
+            "file": "frontend-ng/src/app/core/voice-session.service.ts",
+            "token": "'session.error'",
+            "found": true,
+            "line": 42
+          },
+          {
+            "file": "backend/app/services/voice_session_gateway.py",
+            "token": "\"session.error\"",
+            "found": true,
+            "line": 2488
+          }
+        ]
+      },
+      {
+        "key": "kc.event.plan_dialogue",
+        "feature_ids": [
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"plan_dialogue_turn\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"oracle_topic_refresh\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 1717,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"plan_dialogue_turn\"",
+            "found": true,
+            "line": 1717
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"oracle_topic_refresh\"",
+            "found": true,
+            "line": 1731
+          }
+        ]
+      },
+      {
+        "key": "kc.event.plan_created_amended_approved",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-005",
+          "KCAP-006"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_plan_created\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_plan_amended\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_plan_approved\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 1835,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_plan_created\"",
+            "found": true,
+            "line": 1835
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_plan_amended\"",
+            "found": true,
+            "line": 1950
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_plan_approved\"",
+            "found": true,
+            "line": 5469
+          }
+        ]
+      },
+      {
+        "key": "kc.event.question_bank",
+        "feature_ids": [
+          "KCAP-006",
+          "KCAP-032"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"question_bank_generating\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"question_bank_ready\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 1981,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"question_bank_generating\"",
+            "found": true,
+            "line": 1981
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"question_bank_ready\"",
+            "found": true,
+            "line": 2075
+          }
+        ]
+      },
+      {
+        "key": "kc.event.hints",
+        "feature_ids": [
+          "KCAP-013",
+          "KCAP-032"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"hint_pushed\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"hint_resolved\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"hint_deferred\""
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'capture.hint_pushed'"
+          }
+        ],
+        "source_found": true,
+        "first_line": 2328,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"hint_pushed\"",
+            "found": true,
+            "line": 2328
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"hint_resolved\"",
+            "found": true,
+            "line": 2453
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"hint_deferred\"",
+            "found": true,
+            "line": 2515
+          },
+          {
+            "file": "frontend-ng/src/app/features/knowledge/knowledge-capture.component.ts",
+            "token": "event.type === 'capture.hint_pushed'",
+            "found": true,
+            "line": 9629
+          }
+        ]
+      },
+      {
+        "key": "kc.event.pause_resume_close",
+        "feature_ids": [
+          "KCAP-007",
+          "KCAP-019"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_session_paused\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_session_resumed\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_session_completed\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 2597,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_session_paused\"",
+            "found": true,
+            "line": 2597
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_session_resumed\"",
+            "found": true,
+            "line": 2626
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_session_completed\"",
+            "found": true,
+            "line": 2868
+          }
+        ]
+      },
+      {
+        "key": "kc.event.documents",
+        "feature_ids": [
+          "KCAP-015",
+          "KCAP-016",
+          "KCAP-017",
+          "KCAP-021"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_document_uploaded\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_document_viewed\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 4548,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_document_uploaded\"",
+            "found": true,
+            "line": 4548
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"capture_document_viewed\"",
+            "found": true,
+            "line": 4579
+          }
+        ]
+      },
+      {
+        "key": "kc.event.turns",
+        "feature_ids": [
+          "KCAP-008",
+          "KCAP-012",
+          "KCAP-030"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"stt_final\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"expert_turn_finalized\" if speaker == \"expert\" else \"transcript_turn_recorded\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"transcript_amended\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 5621,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"stt_final\"",
+            "found": true,
+            "line": 5621
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"expert_turn_finalized\" if speaker == \"expert\" else \"transcript_turn_recorded\"",
+            "found": true,
+            "line": 5669
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"transcript_amended\"",
+            "found": true,
+            "line": 8071
+          }
+        ]
+      },
+      {
+        "key": "kc.event.proposal",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-024",
+          "KCAP-025",
+          "KCAP-034"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"proposal_generated\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"proposal_reviewed\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"proposal_report_edited\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"kc.proposal.published\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 5908,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"proposal_generated\"",
+            "found": true,
+            "line": 5908
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"proposal_reviewed\"",
+            "found": true,
+            "line": 6310
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"proposal_report_edited\"",
+            "found": true,
+            "line": 7566
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"kc.proposal.published\"",
+            "found": true,
+            "line": 3125
+          }
+        ]
+      },
+      {
+        "key": "kc.event.open_questions",
+        "feature_ids": [
+          "KCAP-023"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"proposal_open_question_status_updated\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"proposal_open_question_answered\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 6436,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"proposal_open_question_status_updated\"",
+            "found": true,
+            "line": 6436
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"proposal_open_question_answered\"",
+            "found": true,
+            "line": 7502
+          }
+        ]
+      },
+      {
+        "key": "kc.event.retrieval_prefetch",
+        "feature_ids": [
+          "KCAP-013"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"retrieval_prefetch_started\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=event_type"
+          }
+        ],
+        "source_found": true,
+        "first_line": 7834,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"retrieval_prefetch_started\"",
+            "found": true,
+            "line": 7834
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=event_type",
+            "found": true,
+            "line": 7938
+          }
+        ]
+      },
+      {
+        "key": "kc.event.quality",
+        "feature_ids": [
+          "KCAP-029"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"quality_item_deferred\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 1263,
+        "token_locations": [
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"quality_item_deferred\"",
+            "found": true,
+            "line": 1263
+          }
+        ]
+      },
+      {
+        "key": "kc.event.chat_correction",
+        "feature_ids": [
+          "CHT-013"
+        ],
+        "tokens": [
+          {
+            "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+            "token": "event_type=\"kc.chat_correction.created\""
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"chat_correction_voice\""
+          }
+        ],
+        "source_found": true,
+        "first_line": 2376,
+        "token_locations": [
+          {
+            "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+            "token": "event_type=\"kc.chat_correction.created\"",
+            "found": true,
+            "line": 2376
+          },
+          {
+            "file": "backend/app/services/knowledge_capture.py",
+            "token": "event_type=\"chat_correction_voice\"",
+            "found": true,
+            "line": 6187
+          }
+        ]
+      }
+    ],
+    "missing_sources": [],
+    "missing_feature_refs": []
+  },
+  "status": "pass"
+}
