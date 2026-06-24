@@ -3118,6 +3118,144 @@ test.describe('Andritz mocked browser smoke', () => {
     });
   });
 
+  test('keeps a jittered Chat voice final and emits client chunk-gap metrics', async ({ page }) => {
+    const chatStreamRequests: unknown[] = [];
+    const chatSessionCreateRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      chatDocumentUploadEnabled: false,
+      chatStreamRequests,
+      chatSessionCreateRequests,
+    });
+
+    await page.goto('/chat');
+    await expect(page.locator('app-chat-panel')).toBeVisible();
+
+    const voiceMetrics = await page.evaluate(() => {
+      const host = document.querySelector('app-chat-panel');
+      const component = (window as any).ng.getComponent(host);
+      const metrics: Record<string, unknown>[] = [];
+      component.chatVoiceSessionId = 'chat-jitter-session';
+      component.voiceTurnId = 'turn-chat-jitter';
+      component.voiceConnection = {
+        clientMetric: (payload: Record<string, unknown>) => metrics.push(payload),
+      };
+      component.voiceConversationActive.set(true);
+      component.voiceConversationPaused.set(false);
+      component.voiceAutoSend.set(true);
+      component.transcribing.set(true);
+      component.voicePartial.set('partiel avant jitter');
+      component.emitVoiceClientMetric({
+        metric: 'chunk_gap_ms',
+        value_ms: 3800,
+        chunk_gap_ms: 3800,
+        chunk_size: 4096,
+      });
+      component.handleVoiceSessionEvent({
+        id: 'evt-chat-jitter-final',
+        session_id: 'chat-jitter-session',
+        type: 'text.final',
+        ts_ms: Date.now(),
+        sequence: 4,
+        payload: {
+          text: 'La pompe reprend correctement apres un trou reseau.',
+          fallback_used: false,
+        },
+      });
+      return metrics;
+    });
+
+    expect(voiceMetrics).toHaveLength(1);
+    expect(voiceMetrics[0]).toMatchObject({
+      surface: 'chat',
+      turn_id: 'turn-chat-jitter',
+      metric: 'chunk_gap_ms',
+      chunk_gap_ms: 3800,
+      chunk_size: 4096,
+    });
+    await expect.poll(() => chatSessionCreateRequests.length).toBe(1);
+    await expect.poll(() => chatStreamRequests.length).toBe(1);
+    expect(chatStreamRequests[0]).toMatchObject({
+      query: 'La pompe reprend correctement apres un trou reseau.',
+      stream: true,
+      include_sources: true,
+    });
+    await expect(page.getByText('La pompe reprend correctement apres un trou reseau.')).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA answer with cited source')).toBeVisible();
+  });
+
+  test('interrupts Chat TTS on speech while keeping the voice loop armed', async ({ page }) => {
+    await installAndritzMocks(page, {
+      chatDocumentUploadEnabled: false,
+    });
+
+    await page.goto('/chat');
+    await expect(page.locator('app-chat-panel')).toBeVisible();
+
+    const result = await page.evaluate(async () => {
+      const host = document.querySelector('app-chat-panel');
+      const component = (window as any).ng.getComponent(host);
+      const bargeIns: unknown[] = [];
+      const ttsInterrupts: unknown[] = [];
+      const loopArmed: unknown[] = [];
+      let resetCount = 0;
+      let startCount = 0;
+      let capturedConfig: Record<string, any> | null = null;
+
+      component.voiceTransport.set('backend_ws');
+      component.voiceConversationActive.set(true);
+      component.voiceConversationPaused.set(false);
+      component.voiceConnection = {
+        bargeIn: (payload?: unknown) => bargeIns.push(payload || {}),
+        ttsInterrupted: (payload: unknown) => ttsInterrupts.push(payload),
+        loopArmed: (payload: unknown) => loopArmed.push(payload),
+      };
+      component.ttsPlayback.reset = (_force?: boolean) => {
+        resetCount += 1;
+        component.ttsSpeaking.set(false);
+        component.ttsPaused.set(false);
+      };
+      component.voiceLoop.startTurn = async (config: Record<string, any>) => {
+        startCount += 1;
+        capturedConfig = config;
+        return true;
+      };
+
+      const started = await component.startVoiceTurn(true);
+      component.ttsSpeaking.set(true);
+      component.ttsPaused.set(false);
+      capturedConfig?.onSpeechStart?.();
+
+      return {
+        started,
+        startCount,
+        recording: component.recording(),
+        ttsSpeaking: component.ttsSpeaking(),
+        resetCount,
+        bargeIns,
+        ttsInterrupts,
+        loopArmed,
+        oracleMessage: component.voiceOracleMessage(),
+      };
+    });
+
+    expect(result).toMatchObject({
+      started: true,
+      startCount: 1,
+      recording: true,
+      ttsSpeaking: false,
+      resetCount: 1,
+      oracleMessage: 'Speech detected. The assistant will submit after silence.',
+    });
+    expect(result.bargeIns).toHaveLength(1);
+    expect(result.ttsInterrupts).toEqual([{ reason: 'user_speech', surface: 'chat' }]);
+    expect(result.loopArmed).toHaveLength(1);
+    expect(result.loopArmed[0]).toMatchObject({
+      surface: 'chat',
+      mode: 'conversation_loop',
+      auto_endpoint: true,
+    });
+  });
+
   test('ignores direct Chat drop mode when document upload is disabled', async ({ page }) => {
     const chatStreamRequests: unknown[] = [];
     const chatUploadRequests: string[] = [];
@@ -5447,6 +5585,58 @@ test.describe('Andritz mocked browser smoke', () => {
       visual_context: null,
     });
     await expect(noteInput).toHaveValue('');
+  });
+
+  test('finishes a no-plan capture with material into a structured report without publishing', async ({ page }) => {
+    const captureTurnRequests: unknown[] = [];
+    const captureClosureRequests: unknown[] = [];
+    let publishRequests = 0;
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.endsWith('/api/v1/knowledge-capture/proposals/proposal-andritz-qa/publish')) {
+        publishRequests += 1;
+      }
+    });
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureTurnRequests,
+      captureClosureRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA no-plan structured finish smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Andritz QA no-plan structured finish smoke' })).toBeVisible();
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+
+    const noteText = 'La fiche doit garder une synthese structuree sans publication.';
+    const noteInput = captureDocuments.getByPlaceholder('Note écrite liée au tour ou à la vue active...');
+    await noteInput.fill(noteText);
+    await captureDocuments.getByRole('button', { name: /Ajouter la note/i }).click();
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: noteText,
+      turn_kind: 'complement',
+      input_modality: 'text',
+      document_refs: [],
+      visual_context: null,
+    });
+
+    await page.getByRole('button', { name: /Terminer la capture|Finish capture/i }).click();
+
+    await expect.poll(() => captureClosureRequests.length).toBe(1);
+    expect(captureClosureRequests[0]).toMatchObject({ action: 'finish' });
+    await expect(page.locator('body')).toContainText(/Rapport final éditable|Editable final report/i);
+    await expect(page.locator('body')).toContainText(/Synthèse de la capture|Synthese de la capture/i);
+    await expect(page.locator('body')).toContainText(/Synthetic Andritz QA fact for explicit publication guard/i);
+    await expect(page.getByRole('button', { name: /Continuer vers publication|Continue to publication/i })).toBeVisible();
+    expect(publishRequests).toBe(0);
   });
 
   test('keeps no-plan capture in-session when finalization fails', async ({ page }) => {
