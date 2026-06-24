@@ -258,6 +258,55 @@ async def test_allowed_extension_policy_is_case_insensitive_for_public_and_sftp_
     assert blocked.exists()
 
 
+@pytest.mark.asyncio
+async def test_public_deposit_upload_accepts_supported_file_and_rejects_without_ghost_rows(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="QA upload",
+        expires_at=None,
+        max_file_size_mb=1,
+        allowed_extensions=["pdf"],
+    )
+
+    accepted = await receive_file(
+        db_session,
+        link=link,
+        upload=UploadFile(filename="Manual.pdf", file=BytesIO(b"%PDF synthetic manual")),
+    )
+
+    with pytest.raises(HTTPException) as unsupported:
+        await receive_file(
+            db_session,
+            link=link,
+            upload=UploadFile(filename="loader.exe", file=BytesIO(b"MZ")),
+        )
+    with pytest.raises(HTTPException) as too_large:
+        await receive_file(
+            db_session,
+            link=link,
+            upload=UploadFile(filename="huge.pdf", file=BytesIO(b"x" * (1024 * 1024 + 1))),
+        )
+
+    rows = db_session.query(DepositFile).filter(DepositFile.access_link_id == link.id).all()
+    staged_paths = list((tmp_path / "store").rglob("*"))
+
+    assert accepted.filename == "Manual.pdf"
+    assert accepted.status == "received"
+    assert unsupported.value.status_code == 415
+    assert too_large.value.status_code == 413
+    assert [row.filename for row in rows] == ["Manual.pdf"]
+    assert all(path.name != "huge.pdf" for path in staged_paths)
+    assert all(not path.name.endswith(".part") for path in staged_paths)
+
+
 def test_sftp_server_rejects_read_and_delete_operations():
     class PermissionDenied(Exception):
         pass
@@ -632,6 +681,57 @@ async def test_promote_legacy_xls_is_rejected_without_text_fallback(db_session, 
     assert exc.value.status_code == 422
     assert row.status == "received"
     assert db_session.query(KnowledgeCollection).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_promote_already_promoted_file_is_rejected_without_duplicate_collection_work(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr(settings, "secure_deposit_storage_dir", str(tmp_path / "store"))
+    workspace, user = _workspace_user(db_session)
+    link, _ = create_link(
+        db_session,
+        workspace=workspace,
+        user=user,
+        label="Already promoted guard",
+        expires_at=None,
+        max_file_size_mb=30 * 1024,
+        allowed_extensions=[],
+    )
+    staged = tmp_path / "manual.pdf"
+    staged.write_bytes(b"%PDF already promoted")
+    row = record_staged_file_from_path(
+        db_session,
+        link=link,
+        source_path=staged,
+        filename="1-NON-WOVENS/FRANCE/manual.pdf",
+        content_type="application/pdf",
+        actor=f"sftp:{link.access_id}",
+        transport="sftp",
+    )
+    row.status = "promoted"
+    row.promoted_collection_slug = "andritz-existing"
+    row.promotion_result = {"status": "done", "collection_slug": "andritz-existing"}
+    db_session.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        await promote_file_to_collection(
+            db_session,
+            deposit_file=row,
+            workspace=workspace,
+            user=user,
+            collection_slug="andritz-duplicate-target",
+        )
+
+    db_session.refresh(row)
+    assert exc.value.status_code == 409
+    assert row.status == "promoted"
+    assert row.promoted_collection_slug == "andritz-existing"
+    assert row.promotion_result == {"status": "done", "collection_slug": "andritz-existing"}
+    assert db_session.query(KnowledgeCollection).count() == 0
+    assert db_session.query(WorkerJob).count() == 0
 
 
 def test_preview_deposit_file_returns_docx_text(db_session, monkeypatch, tmp_path):

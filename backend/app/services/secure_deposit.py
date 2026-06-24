@@ -1610,6 +1610,12 @@ async def receive_file(
                 severity="warning",
                 details={"access_id": link.access_id, "filename": filename, "reason": "file_too_large"},
             )
+        db.delete(file)
+        db.flush()
+        raise
+    except Exception:
+        db.delete(file)
+        db.flush()
         raise
     file.object_key = object_key
     file.size_bytes = size_bytes
