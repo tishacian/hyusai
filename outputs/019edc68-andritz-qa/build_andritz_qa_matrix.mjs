@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J32", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A90:I170", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A85:F160", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A90:I174", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A85:F164", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-24";
 
@@ -4287,6 +4287,62 @@ const executionEvidence = [
     notes:
       "Adds Knowledge Capture pause/resume coverage: start and resume emit loopStart/loopArmed and keep the session active, pause flushes tail frames before audio.pause without ending the turn, and stop during final STT defers loopStop/connection close until deferred finalization.",
   },
+  {
+    id: "EXEC-2026-06-24-FE-120",
+    date: "2026-06-24",
+    command:
+      "E2E_CHROMIUM_EXECUTABLE=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" E2E_BASE_URL=http://127.0.0.1:4201 npx playwright test e2e/tests/06-andritz-mocked-shell.spec.ts -g \"creates a no-plan capture|finishes an empty planned capture section|handles capture voice turn commands once\"",
+    result: "3 passed, 0 failed",
+    duration: "4.2s",
+    warnings:
+      "Local mocked Playwright run emitted existing NO_COLOR/FORCE_COLOR warnings. Earlier targeted attempts exposed two test-expectation issues: the planned session was still in plan validation before start, and the active planned-session mock intentionally includes one synthetic transcript row; both expectations were corrected before the passing run.",
+    safetyScope:
+      "Local mocked Andritz browser smoke only. The cases use synthetic Knowledge Capture sessions, in-page mocked /api/v1 responses and stubbed voiceConnection methods. They contact no backend, VM, real microphone, real audio device, real Andritz/SFTP production data, collection, vector or object store, and verify no-plan section controls stay hidden, an empty planned section sends only section.finish without creating transcript turns, and free-conversation section voice commands do not trigger section.finish.",
+    notes:
+      "Adds Knowledge Capture section-control coverage: free conversation remains conversation-only without plan/section controls, and planned empty-section finish is graceful and non-mutating for transcript turns.",
+  },
+  {
+    id: "EXEC-2026-06-24-FE-121",
+    date: "2026-06-24",
+    command:
+      "E2E_CHROMIUM_EXECUTABLE=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" E2E_BASE_URL=http://127.0.0.1:4201 npx playwright test e2e/tests/06-andritz-mocked-shell.spec.ts -g \"opens the persisted report when the finalization done event is lost\"",
+    result: "1 passed, 0 failed",
+    duration: "2.7s",
+    warnings:
+      "Local mocked Playwright run emitted existing NO_COLOR/FORCE_COLOR warnings. The test shortens only the in-browser 8s done-stage fallback timer to keep the smoke fast while preserving the same fallback logic and mocked API contract.",
+    safetyScope:
+      "Local mocked Andritz browser smoke only. The case uses a synthetic free-conversation Knowledge Capture session, in-page mocked /api/v1 responses, a fixture proposal returned by GET /knowledge-capture/proposals?session_id=session-andritz-free-smoke and direct component event simulation. It contacts no backend, VM, real microphone, real audio device, real Andritz/SFTP production data, collection, vector or object store, and verifies no publish request is sent.",
+    notes:
+      "Adds Knowledge Capture finalization fallback coverage: when the final pass reports stage=done but the proposal-bearing conversation.step is lost, the UI fetches the persisted proposal, exits the finalization loader and opens the structured report.",
+  },
+  {
+    id: "EXEC-2026-06-24-FE-122",
+    date: "2026-06-24",
+    command:
+      "E2E_CHROMIUM_EXECUTABLE=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" E2E_BASE_URL=http://127.0.0.1:4201 npx playwright test e2e/tests/06-andritz-mocked-shell.spec.ts -g \"opens a Knowledge Capture report source preview\"",
+    result: "1 passed, 0 failed",
+    duration: "3.0s",
+    warnings:
+      "Local mocked Playwright run emitted existing NO_COLOR/FORCE_COLOR warnings.",
+    safetyScope:
+      "Local mocked Andritz browser smoke only. The case uses a synthetic accepted Knowledge Capture proposal, an in-page mocked report source pointing to doc-andritz-qa in collection andritz-qa and the mocked rich-preview endpoint. It contacts no backend, VM, real Andritz/SFTP production data, collection, vector or object store, and verifies no publish request is sent.",
+    notes:
+      "Adds Knowledge Capture structured-report source coverage: a report source chip opens the rich preview with collection_name, filename, referenced page and highlight preserved.",
+  },
+  {
+    id: "EXEC-2026-06-24-FE-123",
+    date: "2026-06-24",
+    command:
+      "E2E_CHROMIUM_EXECUTABLE=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" E2E_BASE_URL=http://127.0.0.1:4201 npx playwright test e2e/tests/06-andritz-mocked-shell.spec.ts -g \"keeps voice capture references on the latest page\"",
+    result: "1 passed, 0 failed",
+    duration: "2.8s",
+    warnings:
+      "Local mocked Playwright run emitted existing NO_COLOR/FORCE_COLOR warnings.",
+    safetyScope:
+      "Local mocked Andritz browser smoke only. The case uses a synthetic free-conversation capture session, a mocked capture document upload/preview/view flow, direct component view-change simulation and voiceFrameMeta inspection. It contacts no backend, VM, real microphone, real audio device, real Andritz/SFTP production data, collection, vector or object store, and creates no proposal, publish, SFTP or collection mutation.",
+    notes:
+      "Adds Knowledge Capture active-document voice coverage: rapid page changes during an active recording keep the final page as the active view and voice payload document_refs/visual_context.",
+  },
 ];
 
 function pass(testId, note, evidenceIndex = 0) {
@@ -4580,10 +4636,13 @@ const executedTestResults = new Map([
   pass("KCAP-015-T03", "Mapped to local Playwright mocked unsupported-capture-document smoke proving backend rejection detail is shown and no fake document state is created.", 48),
   pass("KCAP-015-T04", "Mapped to local Playwright mocked capture-document-upload-failure smoke proving failed upload shows a recoverable warning, creates no fake document/preview/view, and keeps written capture usable without document_refs.", 45),
   pass("KCAP-016-T01", "Mapped to capture document view API test recording active page/view metadata and returning it through the documents list endpoint.", 6),
+  pass("KCAP-016-T02", "Mapped to local Playwright mocked rapid-page-change smoke proving rapid preview page changes during recording persist each view and keep the final active page visible without UI lock.", 172),
   pass("KCAP-016-T03", "Mapped to local Playwright mocked capture-document-preview-unavailable smoke proving preview 404 shows a recoverable drawer error and capture text remains usable.", 49),
   pass("KCAP-016-T04", "Mapped to local Playwright mocked written-note-active-document smoke proving the capture document preview is scoped, /documents/view records page 1, and /turns carries document_refs plus visual_context without real upload.", 44),
   pass("KCAP-016-T05", "Mapped to local Playwright mocked capture-document-view-logging-failure smoke proving failed /documents/view does not block a written turn with optimistic document_refs.", 47),
+  pass("KCAP-017-T01", "Mapped to local Playwright mocked voice active-page smoke proving voiceFrameMeta carries the active document page in document_refs and visual_context.", 172),
   pass("KCAP-017-T02", "Mapped to typed capture turn API test preserving document_refs and visual_context for an active slide.", 6),
+  pass("KCAP-017-T03", "Mapped to local Playwright mocked switch-page-during-turn smoke proving page changes during an active recording update the voice payload to the latest page deterministically.", 172),
   pass("KCAP-017-T04", "Mapped to local Playwright mocked multi-document active-view smoke proving a written note after switching documents references only the latest active document.", 46),
   pass("KCAP-017-T05", "Mapped to local Playwright mocked guided-plan active-document written capture smoke proving a typed complement keeps question_id=q-safety-stop while carrying document_refs and visual_context for the active document page.", 94),
   pass("KCAP-017-T06", "Mapped to local Playwright voice transport contract proving audio.frame/audio.endpoint carry active document_refs plus visual_context over both backend WebSocket and LiveKit fallback paths, with the full mocked Andritz browser suite rerun in the same lot.", 96),
@@ -4615,11 +4674,15 @@ const executedTestResults = new Map([
   pass("KCAP-010-T02", "Mapped to local frontend voice-capture contract proving manual_safe disables auto_endpoint while keeping robust VAD safeguards.", 161),
   pass("KCAP-010-T03", "Mapped to local frontend voice-capture contract proving robust mode does not reduce existing longer silence/min-speech/grace/hangover settings.", 161),
   pass("KCAP-018-T01", "Mapped to section.finish/finalize_capture_section and gateway section-finish tests that synthesize a planned section without losing transcript state.", 8),
+  pass("KCAP-018-T02", "Mapped to local Playwright mocked planned-section smoke proving an empty active section can send section.finish for the current plan position without creating any new transcript turn.", 169),
+  pass("KCAP-018-T03", "Mapped to local Playwright mocked no-plan/free-mode smokes proving free conversation hides plan-only section controls and ignores section voice commands without sending section.finish.", 169),
   pass("KCAP-019-T03", "Mapped to local Playwright mocked empty no-plan finish smoke proving proposal=null stays in the active capture surface, shows a recoverable no-report message, and sends no publish request.", 91),
   pass("KCAP-019-T04", "Mapped to local Playwright mocked no-plan finalization-failure smoke proving a failed closure/finalization request stays on the active capture session, shows a recoverable error, preserves the written turn payload, and sends no publish request.", 90),
   pass("KCAP-020-T01", "Mapped to finalize_capture service tests building proposal plan_structure and section synthesis.", 8),
+  pass("KCAP-020-T02", "Mapped to local Playwright mocked finalization done-stage fallback smoke proving a lost proposal-ready event triggers a persisted-proposal fetch and opens the report without publishing.", 170),
   pass("KCAP-020-T03", "Mapped to concurrent/failure-tolerant finalization tests proving multi-section synthesis continues when one section reformulation fails.", 8),
   pass("KCAP-021-T01", "Mapped to free-conversation finalization and pseudo-section synthesis tests producing a structured report topic.", 8),
+  pass("KCAP-021-T02", "Mapped to local Playwright mocked structured-report source preview smoke proving a report source opens rich-preview with collection, filename, page and highlight preserved without publishing.", 171),
   pass("KCAP-021-T03", "Mapped to malformed/no-topic structure fallback tests that materialize a session pseudo-topic from facts/synthesis.", 8),
   pass("KCAP-022-T01", "Mapped to report instruction service test updating current report markdown and recommended ingestion without publishing.", 8),
   pass("KCAP-022-T02", "Mapped to report instruction service test proving blank/whitespace instructions raise a validation error without mutating the proposal payload or recording an edit event.", 139),
@@ -6806,6 +6869,38 @@ const phaseRows = [
     `${executionEvidence[168].result}; ${mappedPassedCountForEvidence(executionEvidence[168].id)} workbook test cases mapped as Pass; no production data touched.`,
     executionEvidence[168].safetyScope,
     "Continue with remaining KCAP document-reference, long-turn/finalization/report-source and SFTP long-session gaps using mocks or explicit read-only checks only.",
+  ],
+  [
+    executionEvidence[169].date,
+    "Phase 5 Knowledge Capture section-control smoke",
+    "Added local mocked browser coverage proving no-plan capture hides plan-only section controls and planned empty-section finish emits only section.finish without adding transcript turns.",
+    `${executionEvidence[169].result}; ${mappedPassedCountForEvidence(executionEvidence[169].id)} workbook test cases mapped as Pass; no production data touched.`,
+    executionEvidence[169].safetyScope,
+    "Continue with remaining KCAP document-reference, long-turn/finalization/report-source and SFTP long-session gaps using mocks or explicit read-only checks only.",
+  ],
+  [
+    executionEvidence[170].date,
+    "Phase 5 Knowledge Capture finalization fallback smoke",
+    "Added local mocked browser coverage proving a lost proposal-ready conversation.step after finalization done falls back to fetching the persisted proposal and opens the structured report.",
+    `${executionEvidence[170].result}; ${mappedPassedCountForEvidence(executionEvidence[170].id)} workbook test case mapped as Pass; no production data touched.`,
+    executionEvidence[170].safetyScope,
+    "Continue with remaining KCAP document-reference, long-turn/report-source and SFTP long-session gaps using mocks or explicit read-only checks only.",
+  ],
+  [
+    executionEvidence[171].date,
+    "Phase 5 Knowledge Capture report-source preview smoke",
+    "Added local mocked browser coverage proving a structured report source chip opens the rich preview at the referenced page with highlight text preserved.",
+    `${executionEvidence[171].result}; ${mappedPassedCountForEvidence(executionEvidence[171].id)} workbook test case mapped as Pass; no production data touched.`,
+    executionEvidence[171].safetyScope,
+    "Continue with remaining KCAP document-reference, long-turn and SFTP long-session gaps using mocks or explicit read-only checks only.",
+  ],
+  [
+    executionEvidence[172].date,
+    "Phase 5 Knowledge Capture rapid document-view voice smoke",
+    "Added local mocked browser coverage proving rapid page changes during an active capture recording persist every view and keep the latest page in voiceFrameMeta document_refs/visual_context.",
+    `${executionEvidence[172].result}; ${mappedPassedCountForEvidence(executionEvidence[172].id)} workbook test cases mapped as Pass; no production data touched.`,
+    executionEvidence[172].safetyScope,
+    "Continue with remaining long-turn voice/VAD and SFTP long-session gaps using mocks or explicit read-only checks only.",
   ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);

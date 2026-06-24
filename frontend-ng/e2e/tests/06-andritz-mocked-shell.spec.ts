@@ -502,7 +502,16 @@ function acceptedCaptureProposal() {
               },
             ],
             subtopics: [],
-            sources: [],
+            sources: [
+              {
+                title: 'Andritz QA safe document',
+                filename: 'andritz-qa-safe.pdf',
+                document_id: 'doc-andritz-qa',
+                collection: 'andritz-qa',
+                page: 2,
+                preview: 'Synthetic Andritz QA source snippet.',
+              },
+            ],
             open_questions: [],
           },
         ],
@@ -5025,6 +5034,55 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.locator('body')).toContainText(/Andritz QA accepted capture report/i);
   });
 
+  test('opens a Knowledge Capture report source preview at the referenced page', async ({ page }) => {
+    const sourcePreviewRequests: string[] = [];
+    let publishRequests = 0;
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.endsWith('/api/v1/knowledge-capture/proposals/proposal-andritz-qa/publish')) {
+        publishRequests += 1;
+      }
+    });
+    await installAndritzMocks(page, {
+      acceptedProposal: true,
+      sourcePreviewRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /Andritz QA accepted capture report/i }).click();
+    await expect(page.getByRole('heading', { name: /Andritz QA accepted capture report/i })).toBeVisible();
+    await expect(page.locator('body')).toContainText(/Rapport final éditable|Editable final report/i);
+
+    await page.getByRole('button', { name: /Andritz QA safe document · page 2/i }).click();
+
+    await expect.poll(() => sourcePreviewRequests.length).toBe(1);
+    const params = new URLSearchParams(sourcePreviewRequests[0].replace(/^\?/, ''));
+    expect(params.get('collection_name')).toBe('andritz-qa');
+    expect(params.get('filename')).toBe('andritz-qa-safe.pdf');
+    await expect(page.getByRole('heading', { name: /Andritz QA safe document · page 2/i })).toBeVisible();
+    await expect(page.getByText('Synthetic Andritz QA source preview full text.')).toBeVisible();
+    await expect(page.locator('#omnirag-hl-anchor')).toContainText('Synthetic Andritz QA source snippet.');
+
+    const previewState = await page.evaluate(() => {
+      const host = document.querySelector('app-knowledge-capture');
+      const component = (window as any).ng?.getComponent?.(host);
+      return {
+        open: component?.sourcePreviewOpen?.(),
+        page: component?.sourcePreviewPage?.(),
+        highlight: component?.sourcePreviewHighlight?.(),
+        title: component?.sourcePreviewTitle?.(),
+      };
+    });
+
+    expect(previewState).toMatchObject({
+      open: true,
+      page: 2,
+      highlight: 'Synthetic Andritz QA source snippet.',
+      title: 'Andritz QA safe document · page 2',
+    });
+    expect(publishRequests).toBe(0);
+  });
+
   test('keeps Knowledge Capture preparation blocked when the title is blank', async ({ page }) => {
     const capturePlanRequests: unknown[] = [];
     await installAndritzMocks(page, { capturePlanRequests });
@@ -5083,6 +5141,8 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.getByRole('heading', { name: 'Andritz QA free conversation smoke' })).toBeVisible();
     await expect(page.locator('body')).toContainText(/Conversation libre|Free conversation/i);
     await expect(page.getByRole('button', { name: /^Plan$/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Terminer la section|Finish section/i })).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText(/Position\s+1\. Maintenance Andritz/i);
     expect(capturePlanRequests).toHaveLength(1);
     expect(capturePlanRequests[0]).toMatchObject({
       title: 'Andritz QA free conversation smoke',
@@ -5143,6 +5203,70 @@ test.describe('Andritz mocked browser smoke', () => {
     });
     await expect(page.getByRole('button', { name: /Validate plan|Valider le plan/i })).toBeVisible();
     expect(pageErrors).toEqual([]);
+  });
+
+  test('finishes an empty planned capture section without creating transcript turns', async ({ page }) => {
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      capturePlannedSession: true,
+      captureSessionStartsActive: true,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA empty planned section smoke');
+    await page.getByRole('button', { name: /Avec plan|With plan/i }).click();
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA empty planned section smoke' })).toBeVisible();
+    await page.getByRole('button', { name: /Valider le plan|Validate plan/i }).click();
+    await page.getByRole('button', { name: /^Parler$|^Speak$/i }).click();
+    await expect(page.getByRole('button', { name: /Terminer la section|Finish section/i })).toBeVisible();
+
+    const result = await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      const sectionFinishes: unknown[] = [];
+      component.voiceConnection = {
+        sectionFinish: (payload: unknown) => sectionFinishes.push(payload),
+      };
+
+      const session = component.session();
+      if (!session) throw new Error('Capture session not found');
+      const beforeTranscriptLength = session.transcript?.length || 0;
+      component.finishCurrentSection(session);
+
+      return {
+        sectionFinishes,
+        beforeTranscriptLength,
+        afterTranscriptLength: component.session()?.transcript?.length || 0,
+        voiceState: component.voiceState(),
+        notice: component.voiceNotice(),
+        currentSectionValue: component.currentSectionValue(),
+        sessionStatus: component.session()?.status,
+      };
+    });
+
+    expect(result).toMatchObject({
+      beforeTranscriptLength: 1,
+      afterTranscriptLength: 1,
+      voiceState: 'thinking',
+      notice: 'Section terminée. L’IA va vous demander si vous souhaitez continuer.',
+      currentSectionValue: 'topic-maintenance|subtopic-alignment',
+      sessionStatus: 'active',
+    });
+    expect(result.sectionFinishes).toEqual([
+      {
+        topic_id: 'topic-maintenance',
+        subtopic_id: 'subtopic-alignment',
+        surface: 'knowledge_capture',
+      },
+    ]);
+    expect(captureTurnRequests).toHaveLength(0);
   });
 
   test('handles capture voice turn commands once and ignores section commands in free mode', async ({ page }) => {
@@ -6326,6 +6450,99 @@ test.describe('Andritz mocked browser smoke', () => {
     });
   });
 
+  test('keeps voice capture references on the latest page after rapid preview changes', async ({ page }) => {
+    const captureDocumentUploadRequests: string[] = [];
+    const captureDocumentPreviewRequests: string[] = [];
+    const captureDocumentViewRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureDocumentUploadRequests,
+      captureDocumentPreviewRequests,
+      captureDocumentViewRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA rapid page voice reference smoke');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+    await captureDocuments.locator('input[type="file"]').setInputFiles({
+      name: 'andritz-capture-reference.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('Synthetic Andritz capture reference PDF content.'),
+    });
+    await expect.poll(() => captureDocumentUploadRequests.length).toBe(1);
+    await page.getByRole('button', { name: /Andritz capture reference/i }).click();
+    await expect.poll(() => captureDocumentPreviewRequests.length).toBe(1);
+    await expect.poll(() => captureDocumentViewRequests.length).toBe(1);
+
+    const state = await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      component.currentClientTurnId = 'turn-rapid-doc-page';
+      component.recording.set(true);
+      component.transcribing.set(false);
+
+      for (const pageNumber of [2, 3, 4]) {
+        component.onSourcePreviewViewChanged({
+          kind: 'pdf',
+          filename: 'andritz-capture-reference.pdf',
+          page: pageNumber,
+        });
+      }
+
+      const meta = component.voiceFrameMeta('manual');
+      const activeView = component.activeCaptureDocumentView();
+      ng?.applyChanges?.(component);
+      return {
+        activeView,
+        meta,
+        activeLabel: component.captureDocumentViewLabel(activeView),
+        sourcePreviewPage: component.sourcePreviewPage(),
+        recording: component.recording(),
+      };
+    });
+
+    await expect.poll(() => captureDocumentViewRequests.length).toBe(4);
+    expect(captureDocumentViewRequests.map((entry) => (entry as { page?: number }).page)).toEqual([1, 2, 3, 4]);
+    await expect(captureDocuments.getByText(/Vue active : Andritz capture reference · page 4/i)).toBeVisible();
+    expect(state).toMatchObject({
+      activeLabel: 'Andritz capture reference · page 4',
+      sourcePreviewPage: 4,
+      recording: true,
+      activeView: expect.objectContaining({
+        document_id: 'doc-capture-reference',
+        filename: 'andritz-capture-reference.pdf',
+        page: 4,
+        association_mode: 'active_view',
+      }),
+      meta: expect.objectContaining({
+        turn_id: 'turn-rapid-doc-page',
+        content_type: 'audio/webm',
+        visual_context: expect.objectContaining({
+          document_id: 'doc-capture-reference',
+          filename: 'andritz-capture-reference.pdf',
+          page: 4,
+          association_mode: 'active_view',
+        }),
+        document_refs: [
+          expect.objectContaining({
+            document_id: 'doc-capture-reference',
+            filename: 'andritz-capture-reference.pdf',
+            page: 4,
+            association_mode: 'active_view',
+          }),
+        ],
+      }),
+    });
+  });
+
   test('keeps written capture references scoped to the latest active document', async ({ page }) => {
     const captureDocumentUploadRequests: string[] = [];
     const captureDocumentPreviewRequests: string[] = [];
@@ -6733,6 +6950,86 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.locator('body')).toContainText(/Synthèse de la capture|Synthese de la capture/i);
     await expect(page.locator('body')).toContainText(/Synthetic Andritz QA fact for explicit publication guard/i);
     await expect(page.getByRole('button', { name: /Continuer vers publication|Continue to publication/i })).toBeVisible();
+    expect(publishRequests).toBe(0);
+  });
+
+  test('opens the persisted report when the finalization done event is lost', async ({ page }) => {
+    const proposalRequests: string[] = [];
+    let publishRequests = 0;
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.endsWith('/api/v1/knowledge-capture/proposals')) {
+        proposalRequests.push(`${request.method()} ${url.pathname}${url.search}`);
+      }
+      if (url.pathname.endsWith('/api/v1/knowledge-capture/proposals/proposal-andritz-qa/publish')) {
+        publishRequests += 1;
+      }
+    });
+    await installAndritzMocks(page, {
+      acceptedProposal: true,
+      captureSessionStartsActive: true,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA lost done-event fallback');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA lost done-event fallback' })).toBeVisible();
+
+    const finalizingState = await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      const win = window as any;
+      const originalSetTimeout = win.setTimeout;
+      win.setTimeout = (handler: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) =>
+        originalSetTimeout(handler, timeout === 8000 ? 25 : timeout, ...args);
+      component.setProposal(null);
+      component.beginCaptureFinalizing();
+      component.handleVoiceSessionEvent({
+        type: 'capture.finalize.progress',
+        payload: {
+          stage: 'done',
+          label: 'Synthèse finale persistée, attente de l’événement rapport.',
+        },
+      });
+      win.setTimeout = originalSetTimeout;
+      ng?.applyChanges?.(component);
+      return {
+        captureFinalizing: component.captureFinalizing(),
+        activeSurface: component.activeSurface(),
+        hasProposal: Boolean(component.proposal()),
+      };
+    });
+
+    expect(finalizingState).toMatchObject({
+      captureFinalizing: true,
+      activeSurface: 'session',
+      hasProposal: false,
+    });
+    await expect(page.locator('body')).toContainText(/Synthèse finale|Synthese finale/i);
+    await expect.poll(() => proposalRequests.some((entry) => entry.includes('session_id=session-andritz-free-smoke'))).toBe(true);
+    await expect(page.locator('body')).toContainText(/Rapport final éditable|Editable final report/i);
+    await expect(page.locator('body')).toContainText(/Synthetic Andritz QA fact for explicit publication guard/i);
+
+    const recoveredState = await page.evaluate(() => {
+      const host = document.querySelector('app-knowledge-capture');
+      const component = (window as any).ng?.getComponent?.(host);
+      return {
+        captureFinalizing: component?.captureFinalizing?.(),
+        activeSurface: component?.activeSurface?.(),
+        proposalId: component?.proposal?.()?.id || null,
+      };
+    });
+
+    expect(recoveredState).toMatchObject({
+      captureFinalizing: false,
+      activeSurface: 'review',
+      proposalId: 'proposal-andritz-qa',
+    });
     expect(publishRequests).toBe(0);
   });
 
