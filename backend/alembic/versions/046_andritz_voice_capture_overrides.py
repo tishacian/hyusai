@@ -12,7 +12,7 @@ Set-if-absent and idempotent: existing operator-tuned values are never
 clobbered, and re-running changes nothing. Modelled on
 ``042_andritz_disable_review`` / ``044_andritz_business_nav``.
 
-Revision ID: 046_andritz_voice_capture_overrides
+Revision ID: 046_andritz_voice_overrides
 Revises: 045_fact_text_trgm_index
 Create Date: 2026-06-24
 """
@@ -26,7 +26,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "046_andritz_voice_capture_overrides"
+revision = "046_andritz_voice_overrides"
 down_revision = "045_fact_text_trgm_index"
 branch_labels = None
 depends_on = None
