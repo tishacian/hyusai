@@ -138,6 +138,125 @@ test.describe('voice capture VAD contract', () => {
       endpoint_reason: 'silence',
     });
   });
+
+  test('long continuous speech flushes audio at max turn without becoming no-speech', async () => {
+    const originalMediaRecorder = (globalThis as any).MediaRecorder;
+    const originalWindow = (globalThis as any).window;
+    const originalRequestAnimationFrame = (globalThis as any).requestAnimationFrame;
+    const originalCancelAnimationFrame = (globalThis as any).cancelAnimationFrame;
+    let requestDataCount = 0;
+    let stopCount = 0;
+
+    class FakeMediaRecorder {
+      static isTypeSupported() {
+        return true;
+      }
+
+      state: 'inactive' | 'recording' = 'inactive';
+      ondataavailable: ((event: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+
+      constructor(_stream: MediaStream, _options?: MediaRecorderOptions) {}
+
+      start(_timesliceMs?: number) {
+        this.state = 'recording';
+      }
+
+      requestData() {
+        requestDataCount += 1;
+        this.ondataavailable?.({
+          data: new Blob(['continuous speech frame'], { type: 'audio/webm' }),
+        });
+      }
+
+      stop() {
+        if (this.state !== 'recording') return;
+        stopCount += 1;
+        this.state = 'inactive';
+        this.onstop?.();
+      }
+    }
+
+    class FakeAnalyser {
+      fftSize = 1024;
+      smoothingTimeConstant = 0;
+      private frameCount = 0;
+
+      getByteTimeDomainData(data: Uint8Array) {
+        this.frameCount += 1;
+        const amplitude = this.frameCount <= 2 ? 1 : 127;
+        for (let i = 0; i < data.length; i += 1) {
+          data[i] = i % 2 === 0 ? 128 + amplitude : 128 - amplitude;
+        }
+      }
+    }
+
+    class FakeAudioContext {
+      state: AudioContextState = 'running';
+
+      createAnalyser() {
+        return new FakeAnalyser();
+      }
+
+      createMediaStreamSource(_stream: MediaStream) {
+        return {
+          connect: (_node: unknown) => undefined,
+          disconnect: () => undefined,
+        };
+      }
+
+      async close() {
+        this.state = 'closed';
+      }
+    }
+
+    const controller = new VoiceLoopController('vad-max-turn-contract');
+    const endpoints: { blob: Blob; reason: string }[] = [];
+    const notices: (string | null)[] = [];
+    const states: string[] = [];
+
+    try {
+      (globalThis as any).MediaRecorder = FakeMediaRecorder;
+      (globalThis as any).window = {
+        ...(originalWindow || {}),
+        AudioContext: FakeAudioContext,
+        webkitAudioContext: FakeAudioContext,
+      };
+      (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) =>
+        setTimeout(() => callback(performance.now()), 40);
+      (globalThis as any).cancelAnimationFrame = (id: ReturnType<typeof setTimeout>) => clearTimeout(id);
+
+      const started = await controller.startTurn({
+        autoEndpoint: true,
+        captureMode: 'normal',
+        maxTurnMs: 300,
+        minSpeechMs: 50,
+        vadCalibrationMs: 0,
+        stream: { getTracks: () => [] } as unknown as MediaStream,
+        releaseStreamOnStop: false,
+        onEndpoint: (blob, reason) => endpoints.push({ blob, reason }),
+        onNotice: (notice) => notices.push(notice),
+        onState: (state) => states.push(state),
+      });
+
+      expect(started).toBe(true);
+      await expect.poll(() => endpoints.length, { timeout: 1000 }).toBe(1);
+
+      expect(endpoints[0].reason).toBe('max_turn');
+      expect(endpoints[0].blob.size).toBeGreaterThan(0);
+      expect(requestDataCount).toBeGreaterThanOrEqual(1);
+      expect(stopCount).toBe(1);
+      expect(notices).toContain('Max voice turn reached');
+      expect(notices).not.toContain('No speech detected');
+      expect(states).toContain('endpointing');
+    } finally {
+      controller.dispose();
+      (globalThis as any).MediaRecorder = originalMediaRecorder;
+      (globalThis as any).window = originalWindow;
+      (globalThis as any).requestAnimationFrame = originalRequestAnimationFrame;
+      (globalThis as any).cancelAnimationFrame = originalCancelAnimationFrame;
+    }
+  });
 });
 
 test.describe('voice command detector contract', () => {

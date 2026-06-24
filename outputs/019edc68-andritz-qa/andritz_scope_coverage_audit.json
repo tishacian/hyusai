@@ -1,0 +1,1303 @@
+{
+  "generated_at": "2026-06-24T03:28:36.053Z",
+  "scope": {
+    "workspace": "andritz",
+    "systems": [
+      "Chat Recherche",
+      "Knowledge Capture",
+      "Collections",
+      "SFTP Andritz"
+    ],
+    "safety": "static code and matrix audit only; no backend, VM, SFTP, collection, vector or object-store mutation"
+  },
+  "matrix": {
+    "feature_count": 101
+  },
+  "backend": {
+    "endpoint_count": 127,
+    "uncovered_count": 0,
+    "missing_feature_ref_count": 0,
+    "endpoints": [
+      {
+        "method": "POST",
+        "path": "/chat/completion",
+        "file": "backend/app/api/v1/endpoints/chat.py",
+        "feature_ids": [
+          "CHT-016"
+        ],
+        "coverage_rule": "^POST \\/chat\\/completion$"
+      },
+      {
+        "method": "POST",
+        "path": "/chat/deep-retrieval-jobs",
+        "file": "backend/app/api/v1/endpoints/chat.py",
+        "feature_ids": [
+          "CHT-009"
+        ],
+        "coverage_rule": "^POST \\/chat\\/deep-retrieval-jobs$"
+      },
+      {
+        "method": "POST",
+        "path": "/chat/retrieval-plan-preview",
+        "file": "backend/app/api/v1/endpoints/chat.py",
+        "feature_ids": [
+          "CHT-010"
+        ],
+        "coverage_rule": "^POST \\/chat\\/retrieval-plan-preview$"
+      },
+      {
+        "method": "POST",
+        "path": "/chat/stream",
+        "file": "backend/app/api/v1/endpoints/chat.py",
+        "feature_ids": [
+          "CHT-007"
+        ],
+        "coverage_rule": "^POST \\/chat\\/stream$"
+      },
+      {
+        "method": "GET",
+        "path": "/contexts",
+        "file": "backend/app/api/v1/endpoints/contexts.py",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "^.* \\/contexts(?:\\/\\{ctx_id\\}(?:\\/persist)?)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/contexts",
+        "file": "backend/app/api/v1/endpoints/contexts.py",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "^.* \\/contexts(?:\\/\\{ctx_id\\}(?:\\/persist)?)?$"
+      },
+      {
+        "method": "DELETE",
+        "path": "/contexts/{ctx_id}",
+        "file": "backend/app/api/v1/endpoints/contexts.py",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "^.* \\/contexts(?:\\/\\{ctx_id\\}(?:\\/persist)?)?$"
+      },
+      {
+        "method": "GET",
+        "path": "/contexts/{ctx_id}",
+        "file": "backend/app/api/v1/endpoints/contexts.py",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "^.* \\/contexts(?:\\/\\{ctx_id\\}(?:\\/persist)?)?$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/contexts/{ctx_id}",
+        "file": "backend/app/api/v1/endpoints/contexts.py",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "^.* \\/contexts(?:\\/\\{ctx_id\\}(?:\\/persist)?)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/contexts/{ctx_id}/persist",
+        "file": "backend/app/api/v1/endpoints/contexts.py",
+        "feature_ids": [
+          "CHT-004",
+          "CHT-005",
+          "CHT-006"
+        ],
+        "coverage_rule": "^.* \\/contexts(?:\\/\\{ctx_id\\}(?:\\/persist)?)?$"
+      },
+      {
+        "method": "GET",
+        "path": "/deposit-links/{access_id}/files",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-002",
+          "SFTP-003"
+        ],
+        "coverage_rule": "^.* \\/deposit-links\\/\\{access_id\\}\\/files$"
+      },
+      {
+        "method": "POST",
+        "path": "/deposit-links/{access_id}/files",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-002",
+          "SFTP-003"
+        ],
+        "coverage_rule": "^.* \\/deposit-links\\/\\{access_id\\}\\/files$"
+      },
+      {
+        "method": "POST",
+        "path": "/deposit-links/{access_id}/session",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-002"
+        ],
+        "coverage_rule": "^.* \\/deposit-links\\/\\{access_id\\}\\/session$"
+      },
+      {
+        "method": "DELETE",
+        "path": "/documents/{document_id}",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-004"
+        ],
+        "coverage_rule": "^DELETE \\/documents\\/\\{document_id\\}$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/{document_id}/converted-preview",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-007",
+          "CHT-008",
+          "KCAP-016"
+        ],
+        "coverage_rule": "^GET \\/documents\\/(?:\\{document_id\\}\\/(?:metadata|raw|rich-preview|converted-preview)|preview\\/\\{document_id\\}|file\\/\\{document_id\\})$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/{document_id}/metadata",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-007",
+          "CHT-008",
+          "KCAP-016"
+        ],
+        "coverage_rule": "^GET \\/documents\\/(?:\\{document_id\\}\\/(?:metadata|raw|rich-preview|converted-preview)|preview\\/\\{document_id\\}|file\\/\\{document_id\\})$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/{document_id}/raw",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-007",
+          "CHT-008",
+          "KCAP-016"
+        ],
+        "coverage_rule": "^GET \\/documents\\/(?:\\{document_id\\}\\/(?:metadata|raw|rich-preview|converted-preview)|preview\\/\\{document_id\\}|file\\/\\{document_id\\})$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/{document_id}/rich-preview",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-007",
+          "CHT-008",
+          "KCAP-016"
+        ],
+        "coverage_rule": "^GET \\/documents\\/(?:\\{document_id\\}\\/(?:metadata|raw|rich-preview|converted-preview)|preview\\/\\{document_id\\}|file\\/\\{document_id\\})$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/chunks",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "^GET \\/documents\\/chunks$"
+      },
+      {
+        "method": "DELETE",
+        "path": "/documents/clear",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-018"
+        ],
+        "coverage_rule": "^DELETE \\/documents\\/clear$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/collections",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-001"
+        ],
+        "coverage_rule": "^GET \\/documents\\/collections$"
+      },
+      {
+        "method": "POST",
+        "path": "/documents/collections",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-002"
+        ],
+        "coverage_rule": "^POST \\/documents\\/collections$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/collections/{collection_id}",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-005"
+        ],
+        "coverage_rule": "^GET \\/documents\\/collections\\/\\{collection_id\\}$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/documents/collections/{collection_id}",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-016"
+        ],
+        "coverage_rule": "^PATCH \\/documents\\/collections\\/\\{collection_id\\}$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/collections/{collection_id}/diagnostics",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-006"
+        ],
+        "coverage_rule": "^GET \\/documents\\/collections\\/\\{collection_id\\}\\/diagnostics$"
+      },
+      {
+        "method": "POST",
+        "path": "/documents/collections/{collection_id}/documents",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-020"
+        ],
+        "coverage_rule": "^POST \\/documents\\/collections\\/\\{collection_id\\}\\/documents$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/collections/{collection_id}/inventory",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-005"
+        ],
+        "coverage_rule": "^GET \\/documents\\/collections\\/\\{collection_id\\}\\/inventory$"
+      },
+      {
+        "method": "POST",
+        "path": "/documents/collections/{collection_id}/retrieval-artifact-jobs",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-012"
+        ],
+        "coverage_rule": "^POST \\/documents\\/collections\\/\\{collection_id\\}\\/retrieval-artifact-jobs$"
+      },
+      {
+        "method": "DELETE",
+        "path": "/documents/collections/{collection_name}",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-004"
+        ],
+        "coverage_rule": "^DELETE \\/documents\\/collections\\/\\{collection_name\\}$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/document-facts",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-010",
+          "CHT-020"
+        ],
+        "coverage_rule": "^GET \\/documents\\/document-facts$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/file/{document_id}",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-007",
+          "CHT-008",
+          "KCAP-016"
+        ],
+        "coverage_rule": "^GET \\/documents\\/(?:\\{document_id\\}\\/(?:metadata|raw|rich-preview|converted-preview)|preview\\/\\{document_id\\}|file\\/\\{document_id\\})$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/graph",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "^GET \\/documents\\/graph$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/jobs",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-015",
+          "SFTP-016",
+          "CHT-009"
+        ],
+        "coverage_rule": "^GET \\/documents\\/jobs(?:\\/\\{job_id\\})?$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/jobs/{job_id}",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-015",
+          "SFTP-016",
+          "CHT-009"
+        ],
+        "coverage_rule": "^GET \\/documents\\/jobs(?:\\/\\{job_id\\})?$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/list",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-017",
+          "COL-023"
+        ],
+        "coverage_rule": "^GET \\/documents\\/list$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/preview/{document_id}",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-007",
+          "CHT-008",
+          "KCAP-016"
+        ],
+        "coverage_rule": "^GET \\/documents\\/(?:\\{document_id\\}\\/(?:metadata|raw|rich-preview|converted-preview)|preview\\/\\{document_id\\}|file\\/\\{document_id\\})$"
+      },
+      {
+        "method": "POST",
+        "path": "/documents/search",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-008",
+          "CHT-002"
+        ],
+        "coverage_rule": "^POST \\/documents\\/search$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/stats",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-014"
+        ],
+        "coverage_rule": "^GET \\/documents\\/stats$"
+      },
+      {
+        "method": "GET",
+        "path": "/documents/table-facts",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-009",
+          "COL-013"
+        ],
+        "coverage_rule": "^GET \\/documents\\/table-facts$"
+      },
+      {
+        "method": "POST",
+        "path": "/documents/upload",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "COL-003"
+        ],
+        "coverage_rule": "^POST \\/documents\\/upload$"
+      },
+      {
+        "method": "POST",
+        "path": "/documents/upload-batch",
+        "file": "backend/app/api/v1/endpoints/documents.py",
+        "feature_ids": [
+          "CHT-004",
+          "COL-019"
+        ],
+        "coverage_rule": "^POST \\/documents\\/upload-batch$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/chat-correction",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "CHT-013"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/chat-correction$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/fiches",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-028"
+        ],
+        "coverage_rule": "^GET \\/knowledge-capture\\/fiches$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/plan-source/extract",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-003"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/plan-source\\/extract$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/plans",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-002",
+          "KCAP-004"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/plans$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/proposals",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-038"
+        ],
+        "coverage_rule": "^GET \\/knowledge-capture\\/proposals$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/knowledge-capture/proposals/{proposal_id}/content",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-034"
+        ],
+        "coverage_rule": "^PATCH \\/knowledge-capture\\/proposals\\/\\{proposal_id\\}\\/content$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/proposals/{proposal_id}/instruction",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-022"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/proposals\\/\\{proposal_id\\}\\/instruction$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/knowledge-capture/proposals/{proposal_id}/open-questions",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-023"
+        ],
+        "coverage_rule": "^PATCH \\/knowledge-capture\\/proposals\\/\\{proposal_id\\}\\/open-questions$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/proposals/{proposal_id}/open-questions/{question_id}/answer",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-023"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/proposals\\/\\{proposal_id\\}\\/open-questions\\/\\{question_id\\}\\/answer$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/proposals/{proposal_id}/publish",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-025"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/proposals\\/\\{proposal_id\\}\\/publish$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/knowledge-capture/proposals/{proposal_id}/review",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-024"
+        ],
+        "coverage_rule": "^PATCH \\/knowledge-capture\\/proposals\\/\\{proposal_id\\}\\/review$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/sessions",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-001"
+        ],
+        "coverage_rule": "^GET \\/knowledge-capture\\/sessions$"
+      },
+      {
+        "method": "DELETE",
+        "path": "/knowledge-capture/sessions/{session_id}",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-027"
+        ],
+        "coverage_rule": "^DELETE \\/knowledge-capture\\/sessions\\/\\{session_id\\}$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{session_id}",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-035"
+        ],
+        "coverage_rule": "^GET \\/knowledge-capture\\/sessions\\/\\{session_id\\}$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/archive",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-027"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/(?:archive|unarchive)$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/closure",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-019"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/(?:closure|extend)$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{session_id}/closure-sheet",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-019"
+        ],
+        "coverage_rule": "^GET \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/closure-sheet$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/conversation-step",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-039"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/conversation-step$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{session_id}/documents",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-015",
+          "KCAP-016",
+          "KCAP-017"
+        ],
+        "coverage_rule": "^.* \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/documents(?:\\/view)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/documents",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-015",
+          "KCAP-016",
+          "KCAP-017"
+        ],
+        "coverage_rule": "^.* \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/documents(?:\\/view)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/documents/view",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-015",
+          "KCAP-016",
+          "KCAP-017"
+        ],
+        "coverage_rule": "^.* \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/documents(?:\\/view)?$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{session_id}/events",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-030"
+        ],
+        "coverage_rule": "^GET \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/events$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{session_id}/events/{event_id}/amend",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-030"
+        ],
+        "coverage_rule": "^PATCH \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/events\\/\\{event_id\\}\\/amend$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/extend",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-019"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/(?:closure|extend)$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{session_id}/flags",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-031"
+        ],
+        "coverage_rule": "^PATCH \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/flags$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{session_id}/hint-queue",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-032"
+        ],
+        "coverage_rule": "^GET \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/hint-queue$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{session_id}/oracle-questions",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-014"
+        ],
+        "coverage_rule": "^PATCH \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/oracle-questions$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/pause",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-007"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/(?:pause|resume)$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{session_id}/plan",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-006"
+        ],
+        "coverage_rule": "^PATCH \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/plan$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/plan/approve",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-006"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/plan\\/approve$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/plan/dialogue-turn",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-005"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/plan\\/dialogue-turn$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/plan/finalize",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-005"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/plan\\/finalize$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{session_id}/plan/topics",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-006"
+        ],
+        "coverage_rule": "^.* \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/plan\\/topics$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/knowledge-capture/sessions/{session_id}/plan/topics",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-006"
+        ],
+        "coverage_rule": "^.* \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/plan\\/topics$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/plan/validate-topics",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-006"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/plan\\/validate-topics$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/proposal",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-020",
+          "KCAP-026"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/proposal$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/proposal/export",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-033"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/proposal\\/export$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/sessions/{session_id}/quality-backlog",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-029"
+        ],
+        "coverage_rule": "^GET \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/quality-backlog$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/quality/defer",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-029"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/quality\\/defer$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/resume",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-007"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/(?:pause|resume)$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/retrieval-prefetch",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-013"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/retrieval-prefetch$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/start",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-007"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/start$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/turns",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-008"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/turns$"
+      },
+      {
+        "method": "POST",
+        "path": "/knowledge-capture/sessions/{session_id}/unarchive",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-027"
+        ],
+        "coverage_rule": "^POST \\/knowledge-capture\\/sessions\\/\\{session_id\\}\\/(?:archive|unarchive)$"
+      },
+      {
+        "method": "GET",
+        "path": "/knowledge-capture/voice-runtimes",
+        "file": "backend/app/api/v1/endpoints/knowledge_capture.py",
+        "feature_ids": [
+          "KCAP-009"
+        ],
+        "coverage_rule": "^GET \\/knowledge-capture\\/voice-runtimes$"
+      },
+      {
+        "method": "GET",
+        "path": "/livekit/config",
+        "file": "backend/app/api/v1/endpoints/livekit.py",
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^.* \\/livekit(?:\\/.*)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/livekit/rooms",
+        "file": "backend/app/api/v1/endpoints/livekit.py",
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^.* \\/livekit(?:\\/.*)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/livekit/sessions/{session_id}/agent/dispatch",
+        "file": "backend/app/api/v1/endpoints/livekit.py",
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^.* \\/livekit(?:\\/.*)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/livekit/token",
+        "file": "backend/app/api/v1/endpoints/livekit.py",
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^.* \\/livekit(?:\\/.*)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/livekit/webhooks",
+        "file": "backend/app/api/v1/endpoints/livekit.py",
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^.* \\/livekit(?:\\/.*)?$"
+      },
+      {
+        "method": "GET",
+        "path": "/sessions",
+        "file": "backend/app/api/v1/endpoints/sessions.py",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^.* \\/sessions(?:\\/\\{session_id\\}(?:\\/messages)?)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/sessions",
+        "file": "backend/app/api/v1/endpoints/sessions.py",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^.* \\/sessions(?:\\/\\{session_id\\}(?:\\/messages)?)?$"
+      },
+      {
+        "method": "DELETE",
+        "path": "/sessions/{session_id}",
+        "file": "backend/app/api/v1/endpoints/sessions.py",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^.* \\/sessions(?:\\/\\{session_id\\}(?:\\/messages)?)?$"
+      },
+      {
+        "method": "GET",
+        "path": "/sessions/{session_id}",
+        "file": "backend/app/api/v1/endpoints/sessions.py",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^.* \\/sessions(?:\\/\\{session_id\\}(?:\\/messages)?)?$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/sessions/{session_id}",
+        "file": "backend/app/api/v1/endpoints/sessions.py",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^.* \\/sessions(?:\\/\\{session_id\\}(?:\\/messages)?)?$"
+      },
+      {
+        "method": "GET",
+        "path": "/sessions/{session_id}/messages",
+        "file": "backend/app/api/v1/endpoints/sessions.py",
+        "feature_ids": [
+          "CHT-014"
+        ],
+        "coverage_rule": "^.* \\/sessions(?:\\/\\{session_id\\}(?:\\/messages)?)?$"
+      },
+      {
+        "method": "GET",
+        "path": "/sftp/deposits",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-005"
+        ],
+        "coverage_rule": "^GET \\/sftp\\/deposits$"
+      },
+      {
+        "method": "GET",
+        "path": "/sftp/deposits/{file_id}/archive",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-006"
+        ],
+        "coverage_rule": "^GET \\/sftp\\/deposits\\/\\{file_id\\}\\/(?:preview|archive|archive\\/member\\/preview)$"
+      },
+      {
+        "method": "GET",
+        "path": "/sftp/deposits/{file_id}/archive/member/download",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-011"
+        ],
+        "coverage_rule": "^GET \\/sftp\\/deposits\\/\\{file_id\\}\\/(?:download|archive\\/member\\/download)$"
+      },
+      {
+        "method": "GET",
+        "path": "/sftp/deposits/{file_id}/archive/member/preview",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-006"
+        ],
+        "coverage_rule": "^GET \\/sftp\\/deposits\\/\\{file_id\\}\\/(?:preview|archive|archive\\/member\\/preview)$"
+      },
+      {
+        "method": "GET",
+        "path": "/sftp/deposits/{file_id}/download",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-011"
+        ],
+        "coverage_rule": "^GET \\/sftp\\/deposits\\/\\{file_id\\}\\/(?:download|archive\\/member\\/download)$"
+      },
+      {
+        "method": "GET",
+        "path": "/sftp/deposits/{file_id}/preview",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-006"
+        ],
+        "coverage_rule": "^GET \\/sftp\\/deposits\\/\\{file_id\\}\\/(?:preview|archive|archive\\/member\\/preview)$"
+      },
+      {
+        "method": "POST",
+        "path": "/sftp/deposits/{file_id}/promote",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-008",
+          "SFTP-013"
+        ],
+        "coverage_rule": "^POST \\/sftp\\/deposits\\/\\{file_id\\}\\/promote$"
+      },
+      {
+        "method": "GET",
+        "path": "/sftp/deposits/archive",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-011"
+        ],
+        "coverage_rule": "^GET \\/sftp\\/deposits\\/archive$"
+      },
+      {
+        "method": "POST",
+        "path": "/sftp/deposits/indexing-assist",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-007",
+          "SFTP-016"
+        ],
+        "coverage_rule": "^POST \\/sftp\\/deposits\\/indexing-assist$"
+      },
+      {
+        "method": "POST",
+        "path": "/sftp/deposits/promote-bulk",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-009",
+          "SFTP-013"
+        ],
+        "coverage_rule": "^POST \\/sftp\\/deposits\\/promote-bulk$"
+      },
+      {
+        "method": "GET",
+        "path": "/sftp/health",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-014",
+          "SFTP-015"
+        ],
+        "coverage_rule": "^GET \\/sftp\\/health$"
+      },
+      {
+        "method": "GET",
+        "path": "/sftp/links",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "^.* \\/sftp\\/links(?:\\/\\{link_id\\})?(?:\\/(?:rotate|revoke))?$"
+      },
+      {
+        "method": "POST",
+        "path": "/sftp/links",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "^.* \\/sftp\\/links(?:\\/\\{link_id\\})?(?:\\/(?:rotate|revoke))?$"
+      },
+      {
+        "method": "PATCH",
+        "path": "/sftp/links/{link_id}",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "^.* \\/sftp\\/links(?:\\/\\{link_id\\})?(?:\\/(?:rotate|revoke))?$"
+      },
+      {
+        "method": "POST",
+        "path": "/sftp/links/{link_id}/revoke",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "^.* \\/sftp\\/links(?:\\/\\{link_id\\})?(?:\\/(?:rotate|revoke))?$"
+      },
+      {
+        "method": "POST",
+        "path": "/sftp/links/{link_id}/rotate",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-001",
+          "SFTP-017"
+        ],
+        "coverage_rule": "^.* \\/sftp\\/links(?:\\/\\{link_id\\})?(?:\\/(?:rotate|revoke))?$"
+      },
+      {
+        "method": "GET",
+        "path": "/sftp/operations",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-010"
+        ],
+        "coverage_rule": "^GET \\/sftp\\/operations$"
+      },
+      {
+        "method": "POST",
+        "path": "/sftp/operations/reconcile",
+        "file": "backend/app/api/v1/endpoints/secure_deposit.py",
+        "feature_ids": [
+          "SFTP-010"
+        ],
+        "coverage_rule": "^POST \\/sftp\\/operations\\/reconcile$"
+      },
+      {
+        "method": "POST",
+        "path": "/voice/realtime/calls",
+        "file": "backend/app/api/v1/endpoints/voice.py",
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^POST \\/voice\\/realtime\\/.*$"
+      },
+      {
+        "method": "POST",
+        "path": "/voice/realtime/client-secret",
+        "file": "backend/app/api/v1/endpoints/voice.py",
+        "feature_ids": [
+          "CHT-019",
+          "KCAP-009"
+        ],
+        "coverage_rule": "^POST \\/voice\\/realtime\\/.*$"
+      },
+      {
+        "method": "GET",
+        "path": "/voice/runtimes",
+        "file": "backend/app/api/v1/endpoints/voice.py",
+        "feature_ids": [
+          "KCAP-009"
+        ],
+        "coverage_rule": "^GET \\/voice\\/runtimes$"
+      },
+      {
+        "method": "WEBSOCKET",
+        "path": "/voice/sessions/{session_id}",
+        "file": "backend/app/api/v1/endpoints/voice.py",
+        "feature_ids": [
+          "KCAP-009",
+          "CHT-011",
+          "CHT-012"
+        ],
+        "coverage_rule": "^.* \\/voice\\/sessions\\/\\{session_id\\}$"
+      },
+      {
+        "method": "POST",
+        "path": "/voice/sessions/{session_id}/events",
+        "file": "backend/app/api/v1/endpoints/voice.py",
+        "feature_ids": [
+          "KCAP-037"
+        ],
+        "coverage_rule": "^POST \\/voice\\/sessions\\/\\{session_id\\}\\/events$"
+      },
+      {
+        "method": "POST",
+        "path": "/voice/synthesize",
+        "file": "backend/app/api/v1/endpoints/voice.py",
+        "feature_ids": [
+          "CHT-012"
+        ],
+        "coverage_rule": "^POST \\/voice\\/synthesize$"
+      },
+      {
+        "method": "POST",
+        "path": "/voice/transcribe",
+        "file": "backend/app/api/v1/endpoints/voice.py",
+        "feature_ids": [
+          "CHT-011",
+          "KCAP-012"
+        ],
+        "coverage_rule": "^POST \\/voice\\/transcribe$"
+      },
+      {
+        "method": "GET",
+        "path": "/workspace-jobs/",
+        "file": "backend/app/api/v1/endpoints/workspace_jobs.py",
+        "feature_ids": [
+          "COL-015",
+          "CHT-009"
+        ],
+        "coverage_rule": "^.* \\/workspace-jobs\\/?(?:\\{job_id\\}(?:\\/(?:events|transition))?)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/workspace-jobs/",
+        "file": "backend/app/api/v1/endpoints/workspace_jobs.py",
+        "feature_ids": [
+          "COL-015",
+          "CHT-009"
+        ],
+        "coverage_rule": "^.* \\/workspace-jobs\\/?(?:\\{job_id\\}(?:\\/(?:events|transition))?)?$"
+      },
+      {
+        "method": "GET",
+        "path": "/workspace-jobs/{job_id}",
+        "file": "backend/app/api/v1/endpoints/workspace_jobs.py",
+        "feature_ids": [
+          "COL-015",
+          "CHT-009"
+        ],
+        "coverage_rule": "^.* \\/workspace-jobs\\/?(?:\\{job_id\\}(?:\\/(?:events|transition))?)?$"
+      },
+      {
+        "method": "GET",
+        "path": "/workspace-jobs/{job_id}/events",
+        "file": "backend/app/api/v1/endpoints/workspace_jobs.py",
+        "feature_ids": [
+          "COL-015",
+          "CHT-009"
+        ],
+        "coverage_rule": "^.* \\/workspace-jobs\\/?(?:\\{job_id\\}(?:\\/(?:events|transition))?)?$"
+      },
+      {
+        "method": "POST",
+        "path": "/workspace-jobs/{job_id}/transition",
+        "file": "backend/app/api/v1/endpoints/workspace_jobs.py",
+        "feature_ids": [
+          "COL-015",
+          "CHT-009"
+        ],
+        "coverage_rule": "^.* \\/workspace-jobs\\/?(?:\\{job_id\\}(?:\\/(?:events|transition))?)?$"
+      }
+    ],
+    "uncovered": [],
+    "missing_feature_refs": []
+  },
+  "frontend": {
+    "route_count": 9,
+    "missing_feature_ref_count": 0,
+    "routes": [
+      {
+        "path": "/chat",
+        "feature_ids": [
+          "CHT-001",
+          "CHT-021"
+        ]
+      },
+      {
+        "path": "/workspace/:slug/chat",
+        "feature_ids": [
+          "CHT-001",
+          "CHT-021"
+        ]
+      },
+      {
+        "path": "/workspace/:slug/chat-knowledge",
+        "feature_ids": [
+          "CHT-015"
+        ]
+      },
+      {
+        "path": "/knowledge",
+        "feature_ids": [
+          "COL-001",
+          "COL-023"
+        ]
+      },
+      {
+        "path": "/knowledge/:kbId",
+        "feature_ids": [
+          "COL-005",
+          "COL-023"
+        ]
+      },
+      {
+        "path": "/knowledge/capture",
+        "feature_ids": [
+          "KCAP-001"
+        ]
+      },
+      {
+        "path": "/connectors",
+        "feature_ids": [
+          "SFTP-018"
+        ]
+      },
+      {
+        "path": "/connectors/sftp",
+        "feature_ids": [
+          "SFTP-018",
+          "SFTP-005"
+        ]
+      },
+      {
+        "path": "/deposit/:accessId",
+        "feature_ids": [
+          "SFTP-002",
+          "SFTP-003"
+        ]
+      }
+    ],
+    "missing_feature_refs": []
+  },
+  "status": "pass"
+}

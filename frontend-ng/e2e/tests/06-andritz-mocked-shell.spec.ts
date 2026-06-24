@@ -2806,6 +2806,123 @@ test.describe('Andritz mocked browser smoke', () => {
     expect(sftpOperationsReconcileRequests).toHaveLength(0);
   });
 
+  test('keeps SFTP long-session polling bounded and cleans up on teardown', async ({ page }) => {
+    const sftpPromoteRequests: unknown[] = [];
+    const sftpBulkPromoteRequests: unknown[] = [];
+    const sftpArchiveDownloadRequests: string[] = [];
+    const sftpOperationsReconcileRequests: unknown[] = [];
+    const sftpLinkMutationRequests: Array<{ path: string; body?: unknown }> = [];
+    const sftpOperationsRequests: string[] = [];
+    const sftpJobsRequests: string[] = [];
+
+    await page.addInitScript(() => {
+      const originalSetInterval = window.setInterval.bind(window);
+      const originalClearInterval = window.clearInterval.bind(window);
+      const probe = {
+        created: [] as Array<{ id: number; requested_ms: number; effective_ms: number }>,
+        cleared: [] as number[],
+      };
+      (window as unknown as { __sftpPollingProbe?: typeof probe }).__sftpPollingProbe = probe;
+      window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+        const requested = Number(timeout || 0);
+        const effective = requested === 5000 ? 50 : requested;
+        const id = originalSetInterval(handler, effective, ...args);
+        probe.created.push({ id: Number(id), requested_ms: requested, effective_ms: effective });
+        return id;
+      }) as typeof window.setInterval;
+      window.clearInterval = ((id?: number) => {
+        if (typeof id === 'number') {
+          probe.cleared.push(id);
+        }
+        return originalClearInterval(id);
+      }) as typeof window.clearInterval;
+    });
+
+    await installAndritzMocks(page, {
+      sftpDepositFiles: syntheticSftpDepositFiles(),
+      sftpOperations: syntheticSftpOperations(),
+      sftpOperationsRequests,
+      sftpJobsRequests,
+      sftpOperationsReconcileRequests,
+      sftpLinkMutationRequests,
+      sftpPromoteRequests,
+      sftpBulkPromoteRequests,
+      sftpArchiveDownloadRequests,
+    });
+
+    await page.goto('/connectors/sftp');
+
+    await expect(page.getByRole('heading', { name: /SFTP \/ Secure Deposit/i })).toBeVisible();
+    await expect.poll(async () => {
+      return page.evaluate(() => {
+        const probe = (window as unknown as {
+          __sftpPollingProbe?: {
+            created: Array<{ requested_ms: number }>;
+          };
+        }).__sftpPollingProbe;
+        return probe?.created.filter((entry) => entry.requested_ms === 5000).length || 0;
+      });
+    }).toBe(2);
+
+    await page.waitForTimeout(190);
+
+    const pollProbeBeforeNavigation = await page.evaluate(() => {
+      const probe = (window as unknown as {
+        __sftpPollingProbe?: {
+          created: Array<{ id: number; requested_ms: number; effective_ms: number }>;
+          cleared: number[];
+        };
+      }).__sftpPollingProbe;
+      return {
+        pollIntervals: probe?.created.filter((entry) => entry.requested_ms === 5000) || [],
+        cleared: probe?.cleared || [],
+      };
+    });
+    expect(pollProbeBeforeNavigation.pollIntervals).toHaveLength(2);
+    expect(pollProbeBeforeNavigation.pollIntervals.every((entry) => entry.effective_ms === 50)).toBe(true);
+    expect(sftpOperationsRequests.length).toBeGreaterThanOrEqual(2);
+    expect(sftpOperationsRequests.length).toBeLessThanOrEqual(10);
+    expect(sftpJobsRequests.length).toBeGreaterThanOrEqual(1);
+    expect(sftpJobsRequests.length).toBeLessThanOrEqual(4);
+
+    await page.locator('app-sftp-connector').evaluate((element) => {
+      const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
+      const component = ng?.getComponent?.(element) as { ngOnDestroy?: () => void } | undefined;
+      component?.ngOnDestroy?.();
+    });
+    await page.waitForTimeout(80);
+
+    const pollProbeAfterNavigation = await page.evaluate(() => {
+      const probe = (window as unknown as {
+        __sftpPollingProbe?: {
+          created: Array<{ id: number; requested_ms: number }>;
+          cleared: number[];
+        };
+      }).__sftpPollingProbe;
+      const pollIntervals = probe?.created.filter((entry) => entry.requested_ms === 5000) || [];
+      return {
+        pollIntervals,
+        cleared: probe?.cleared || [],
+      };
+    });
+    const cleared = new Set(pollProbeAfterNavigation.cleared);
+    expect(pollProbeAfterNavigation.pollIntervals).toHaveLength(2);
+    for (const interval of pollProbeAfterNavigation.pollIntervals) {
+      expect(cleared.has(interval.id)).toBe(true);
+    }
+    const operationsAfterNavigation = sftpOperationsRequests.length;
+    const jobsAfterNavigation = sftpJobsRequests.length;
+    await page.waitForTimeout(120);
+    expect(sftpOperationsRequests).toHaveLength(operationsAfterNavigation);
+    expect(sftpJobsRequests).toHaveLength(jobsAfterNavigation);
+
+    expect(sftpLinkMutationRequests).toHaveLength(0);
+    expect(sftpPromoteRequests).toHaveLength(0);
+    expect(sftpBulkPromoteRequests).toHaveLength(0);
+    expect(sftpArchiveDownloadRequests).toHaveLength(0);
+    expect(sftpOperationsReconcileRequests).toHaveLength(0);
+  });
+
   test('shows SFTP reconciliation permission denial without quarantine mutation', async ({ page }) => {
     const sftpPromoteRequests: unknown[] = [];
     const sftpBulkPromoteRequests: unknown[] = [];

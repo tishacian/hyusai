@@ -11,8 +11,8 @@ const sheetPreviewRanges = [
   ["QA Matrix", "A1:P14", "andritz_qa_matrix_qa_matrix_preview.png"],
   ["Test Backlog", "A1:L18", "andritz_qa_matrix_test_backlog_preview.png"],
   ["Defect Register", "A1:J32", "andritz_qa_matrix_defect_register_preview.png"],
-  ["Execution Log", "A90:I174", "andritz_qa_matrix_execution_log_preview.png"],
-  ["Phase Log", "A85:F164", "andritz_qa_matrix_phase_log_preview.png"],
+  ["Execution Log", "A91:I175", "andritz_qa_matrix_execution_log_preview.png"],
+  ["Phase Log", "A86:F165", "andritz_qa_matrix_phase_log_preview.png"],
 ];
 const discoveryDate = "2026-06-24";
 
@@ -4180,14 +4180,14 @@ const executionEvidence = [
     date: "2026-06-24",
     command:
       "E2E_CHROMIUM_EXECUTABLE=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" E2E_BASE_URL=http://localhost:4200 npx playwright test e2e/tests/08-voice-capture-contract.spec.ts",
-    result: "6 passed, 0 failed",
-    duration: "0.92s",
+    result: "7 passed, 0 failed",
+    duration: "1.3s",
     warnings:
       "Local mocked Playwright contract run emitted existing NO_COLOR/FORCE_COLOR warnings and Node experimental CommonJS/ESM loader warnings for Angular compiler import.",
     safetyScope:
-      "Local frontend contract tests only. The voice-capture contract uses pure TypeScript resolver/controller assertions plus fake MediaRecorder counters; it does not access microphone hardware, backend, VM, LiveKit, Andritz/SFTP production data, collection, vector or object store, and it performs no persistence or network mutation.",
+      "Local frontend contract tests only. The voice-capture contract uses pure TypeScript resolver/controller assertions plus fake MediaRecorder, fake AudioContext, fake requestAnimationFrame and fake MediaStream objects; it does not access microphone hardware, backend, VM, LiveKit, Andritz/SFTP production data, collection, vector or object store, and it performs no persistence or network mutation.",
     notes:
-      "Adds Knowledge Capture robust/manual capture-mode evidence: robust mode preserves already-conservative silence/min-speech/grace/hangover settings while lowering only RMS threshold, manual_safe disables auto_endpoint while keeping robust safeguards, and silence endpoint candidates can be cancelled/confirmed with recorder flush metrics.",
+      "Adds Knowledge Capture robust/manual/max-turn capture-mode evidence: robust mode preserves already-conservative silence/min-speech/grace/hangover settings while lowering only RMS threshold, manual_safe disables auto_endpoint while keeping robust safeguards, silence endpoint candidates can be cancelled/confirmed with recorder flush metrics, and long continuous speech flushes recorder data before a max_turn endpoint without degrading to no_speech.",
   },
   {
     id: "EXEC-2026-06-24-BE-048",
@@ -4342,6 +4342,33 @@ const executionEvidence = [
       "Local mocked Andritz browser smoke only. The case uses a synthetic free-conversation capture session, a mocked capture document upload/preview/view flow, direct component view-change simulation and voiceFrameMeta inspection. It contacts no backend, VM, real microphone, real audio device, real Andritz/SFTP production data, collection, vector or object store, and creates no proposal, publish, SFTP or collection mutation.",
     notes:
       "Adds Knowledge Capture active-document voice coverage: rapid page changes during an active recording keep the final page as the active view and voice payload document_refs/visual_context.",
+  },
+  {
+    id: "EXEC-2026-06-24-FE-124",
+    date: "2026-06-24",
+    command:
+      "E2E_CHROMIUM_EXECUTABLE=\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" E2E_BASE_URL=http://localhost:4200 npx playwright test e2e/tests/06-andritz-mocked-shell.spec.ts -g \"keeps SFTP long-session polling bounded\"",
+    result: "1 passed, 0 failed",
+    duration: "2.4s",
+    warnings:
+      "Local mocked Playwright run emitted existing NO_COLOR/FORCE_COLOR warnings. Earlier targeted attempts tightened the request-count expectation too far under accelerated timers; the final assertion focuses on bounded interval creation plus teardown cleanup.",
+    safetyScope:
+      "Local mocked Andritz browser smoke only. The case uses synthetic SFTP queue/operations responses, in-page mocked /api/v1 routes and a setInterval/clearInterval probe that accelerates 5s polls to 50ms. It contacts no backend, VM, real SFTP server, real Andritz/SFTP production data, collection, vector or object store, and asserts no link, promote, bulk-promote, archive-download or reconciliation mutation occurs.",
+    notes:
+      "Adds SFTP long-session polling coverage: the connector creates exactly one operations poll interval and one indexing-monitor interval, passive indexing polling remains bounded during accelerated long-session simulation, ngOnDestroy clears both intervals, and mocked SFTP requests stop after teardown.",
+  },
+  {
+    id: "EXEC-2026-06-24-AUDIT-001",
+    date: "2026-06-24",
+    command:
+      "/Users/thib/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node outputs/019edc68-andritz-qa/audit_andritz_scope_coverage.mjs",
+    result: "Static scope audit passed: 127 backend endpoints covered, 0 uncovered, 0 missing feature refs",
+    duration: "< 1s",
+    warnings: "Static audit only; it proves route-to-feature documentation coverage, not runtime correctness.",
+    safetyScope:
+      "Static local code and matrix audit only. The script reads scoped backend endpoint files plus the matrix generator, writes andritz_scope_coverage_audit.json, and performs no backend call, VM access, SFTP access, collection mutation, vector-store mutation or object-store mutation.",
+    notes:
+      "Adds repeatable discovery evidence for Chat Recherche, Knowledge Capture, Collections, SFTP, voice/LiveKit, contexts and durable chat sessions: every extracted scoped backend endpoint maps to an existing Feature ID, and the curated frontend surface route list references only existing Feature IDs.",
   },
 ];
 
@@ -4545,6 +4572,7 @@ const executedTestResults = new Map([
   pass("SFTP-015-T01", "Mapped to local Playwright mocked SFTP enabled-health direct-route smoke proving /connectors/sftp receives enabled health, removes the disabled warning, enables create-link controls and sends no mutation on load.", 69),
   pass("SFTP-015-T03", "Mapped to local Playwright mocked SFTP enabled-health direct-route smoke inspecting the health payload and proving no password/secret/token/private/credential/session keys are exposed.", 69),
   pass("SFTP-016-T02", "Mapped to local Playwright mocked SFTP indexing-monitor failure smoke proving /documents/jobs 500 surfaces a visible non-blocking pipeline error while keeping controls usable and avoiding link/promote/bulk/reconcile mutations.", 70),
+  pass("SFTP-016-T03", "Mapped to local Playwright mocked SFTP long-session smoke proving the connector creates one operations poll interval and one indexing-monitor interval, keeps passive indexing polls bounded under accelerated timers, and clears both intervals on component teardown without mutations.", 173),
   pass("SFTP-010-T02", "Mapped to local Playwright mocked SFTP reconciliation permission-denial smoke proving a reviewer receives a visible 403 error, controls recover, and no quarantine/promote/bulk/archive mutation occurs.", 71),
   pass("SFTP-010-T04", "Mapped to local Playwright mocked SFTP quarantine-confirmation smoke proving dismissing the confirmation dialog sends no reconcile/quarantine, promote, bulk or archive mutation.", 72),
   pass("SFTP-010-T05", "Mapped to local Playwright mocked SFTP operations-monitor failure smoke proving /sftp/operations 500 remains visible, loading clears, and no reconcile/quarantine/promote/bulk/archive mutation occurs.", 73),
@@ -4663,6 +4691,7 @@ const executedTestResults = new Map([
   pass("KCAP-008-T05", "Mapped to local Playwright mocked guided-plan section-switch written note smoke proving a typed complement follows the selected plan section question_id=q-safety-stop instead of the default q-alignment.", 93),
   pass("KCAP-011-T01", "Mapped to local Playwright voice capture contract proving a silence endpoint candidate flushes recorder data and confirms an endpoint without a real microphone.", 98),
   pass("KCAP-011-T02", "Mapped to local Playwright voice capture contract proving resumed voice during endpoint grace cancels the silence candidate and does not stop the current turn.", 98),
+  pass("KCAP-011-T03", "Mapped to local frontend voice-capture contract proving long continuous speech reaches max_turn, flushes recorder data through requestData and emits a non-empty endpoint blob without becoming no_speech.", 161),
   pass("KCAP-012-T01", "Mapped to VoiceSessionGateway partial-then-final tests with live transcript.partial and reused partial finalization.", 8),
   pass("KCAP-012-T02", "Mapped to local Playwright mocked Knowledge Capture late-partial smoke proving a transcript.partial with the current turn_id still renders as italic live text while recording=false and transcribing=true.", 99),
   pass("KCAP-012-T03", "Mapped to partial_stt and endpoint_stt runtime metric tests for empty partials, provider/reused_partial source, and separated endpoint_stt_ms.", 8),
@@ -6809,10 +6838,10 @@ const phaseRows = [
   [
     executionEvidence[161].date,
     "Phase 5 Knowledge Capture capture-mode contract",
-    "Mapped the existing local frontend voice-capture contract to Knowledge Capture robust/manual_safe behavior and reran it as fresh evidence.",
+    "Extended the local frontend voice-capture contract to Knowledge Capture robust/manual_safe/max_turn behavior and reran it as fresh evidence.",
     `${executionEvidence[161].result}; ${mappedPassedCountForEvidence(executionEvidence[161].id)} workbook test cases mapped as Pass; no production data touched.`,
     executionEvidence[161].safetyScope,
-    "Continue with remaining Chat voice dictation/loop and KCAP document-reference/section-command gaps using mocks or explicit read-only checks only.",
+    "Continue with remaining SFTP long-session polling gap using mocks or explicit read-only checks only.",
   ],
   [
     executionEvidence[162].date,
@@ -6900,7 +6929,23 @@ const phaseRows = [
     "Added local mocked browser coverage proving rapid page changes during an active capture recording persist every view and keep the latest page in voiceFrameMeta document_refs/visual_context.",
     `${executionEvidence[172].result}; ${mappedPassedCountForEvidence(executionEvidence[172].id)} workbook test cases mapped as Pass; no production data touched.`,
     executionEvidence[172].safetyScope,
-    "Continue with remaining long-turn voice/VAD and SFTP long-session gaps using mocks or explicit read-only checks only.",
+    "Continue with remaining SFTP long-session gap using mocks or explicit read-only checks only.",
+  ],
+  [
+    executionEvidence[173].date,
+    "Phase 5 SFTP long-session polling smoke",
+    "Added local mocked browser coverage proving the SFTP connector long-session pollers stay bounded and are cleared on component teardown.",
+    `${executionEvidence[173].result}; ${mappedPassedCountForEvidence(executionEvidence[173].id)} workbook test case mapped as Pass; no production data touched.`,
+    executionEvidence[173].safetyScope,
+    "All current workbook test cases are now mapped as Pass; continue recursive discovery and read-only/explicitly mocked regression checks before claiming full objective completion.",
+  ],
+  [
+    executionEvidence[174].date,
+    "Phase 1/6 scoped route-to-feature audit",
+    "Added and executed a static coverage audit that extracts scoped backend endpoints and verifies every route maps to an existing Chat/KCAP/Collections/SFTP feature.",
+    `${executionEvidence[174].result}; supporting artifact andritz_scope_coverage_audit.json written.`,
+    executionEvidence[174].safetyScope,
+    "Continue recursive discovery beyond primary scoped endpoints: template-only UI states, hidden feature flags and authenticated real-backend read-only journeys still require separate evidence.",
   ],
 ];
 writeMatrix(phase, "A1", [phaseHeaders, ...phaseRows]);
