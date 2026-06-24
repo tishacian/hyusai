@@ -45,7 +45,9 @@ from app.services.knowledge_capture import (
 )
 from app.services.capture_report_templates import (
     ANDRITZ_TEMPLATE_ID,
+    INDUSTRIAL_TEMPLATE_ID,
     build_andritz_knowledge_sheet,
+    build_knowledge_sheet_content,
     resolve_knowledge_sheet_template,
 )
 from app.services.chains.dag_validator import validate_flow
@@ -5157,12 +5159,24 @@ def test_andritz_knowledge_sheet_template_for_technical_domain(db_session):
     loaded = db_session.query(ExpertCaptureSession).filter(ExpertCaptureSession.id == session.id).first()
     events = list_capture_events(db_session, workspace_id=workspace.id, session_id=loaded.id)
     payload = structure_capture_payload(loaded, events)
-    assert payload["knowledge_sheet_template"] == ANDRITZ_TEMPLATE_ID
+    # The technical domain now resolves to the canonical industrial template id.
+    assert payload["knowledge_sheet_template"] == INDUSTRIAL_TEMPLATE_ID
     content = payload["recommended_ingestion"]["content"]
     assert "## Contexte" in content
     assert "## Décision" in content
     assert "## Owner" in content
-    assert resolve_knowledge_sheet_template(loaded) == ANDRITZ_TEMPLATE_ID
+    assert resolve_knowledge_sheet_template(loaded) == INDUSTRIAL_TEMPLATE_ID
+    # ``andritz_knowledge_v1`` stays a backward-compatible alias that still
+    # resolves to the same industrial knowledge sheet.
+    assert ANDRITZ_TEMPLATE_ID != INDUSTRIAL_TEMPLATE_ID
+    alias_sheet = build_knowledge_sheet_content(
+        ANDRITZ_TEMPLATE_ID,
+        loaded,
+        payload["captured_facts"],
+        [],
+        transcript=loaded.transcript or [],
+    )
+    assert "Fiche connaissance" in alias_sheet
     direct = build_andritz_knowledge_sheet(
         loaded,
         payload["captured_facts"],

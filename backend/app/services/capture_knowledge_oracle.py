@@ -696,6 +696,44 @@ def _resolve_finalize_llm_config(workspace_id: Optional[str] = None) -> tuple[st
     return api_key, (override or model)
 
 
+# Domain-neutral framing for the FINAL reformulation glossary alignment.
+# Workspaces specialise it via ``settings.voice.transcript_glossary_domain``
+# (e.g. an industrial vendor); the live Andritz workspace pins its legacy
+# "terminologie métier Andritz" wording through the
+# ``046_andritz_voice_capture_overrides`` migration.
+_DEFAULT_ORACLE_DOMAIN_FRAMING = "terminologie métier"
+
+
+def _resolve_oracle_domain_framing(workspace_id: Optional[str] = None) -> str:
+    """Workspace ``settings.voice.transcript_glossary_domain`` -> generic default.
+
+    Reads the raw workspace settings (not RAG presets) so the framing can be
+    pinned per workspace. Any failure falls back to the domain-neutral default,
+    keeping the finalize pass robust when no DB/workspace is available.
+    """
+    if not workspace_id:
+        return _DEFAULT_ORACLE_DOMAIN_FRAMING
+    try:
+        from app.db.base import SessionLocal
+        from app.models.workspace import Workspace
+
+        db = SessionLocal()
+        try:
+            workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+            settings_obj = getattr(workspace, "settings", None) if workspace else None
+            if isinstance(settings_obj, dict):
+                voice_cfg = settings_obj.get("voice")
+                if isinstance(voice_cfg, dict):
+                    override = str(voice_cfg.get("transcript_glossary_domain") or "").strip()
+                    if override:
+                        return override
+        finally:
+            db.close()
+    except Exception:
+        return _DEFAULT_ORACLE_DOMAIN_FRAMING
+    return _DEFAULT_ORACLE_DOMAIN_FRAMING
+
+
 async def plan_structure_llm_async(
     context: CaptureSessionContext,
     *,
@@ -1477,16 +1515,18 @@ async def reformulate_section_async(
     kb_chunks: Optional[List[str]] = None,
     static_context: Optional[str] = None,
     glossary_terms: Optional[List[str]] = None,
+    domain_framing: Optional[str] = None,
 ) -> str:
     """FINAL exhaustive LLM reformulation of one captured section.
 
     The heavy end-of-capture pass: restructures the expert's expression for the
     section, removes oral artifacts AND content repeated/rephrased across turns
     (dedupe), and aligns the vocabulary on the domain glossary
-    (``glossary_terms`` — the Tier-2 Andritz alignment, e.g. "carte" -> "card")
-    while staying faithful to the substance — it never invents facts.
-    ``static_context`` (e.g. the Andritz framing) and ``kb_chunks`` only inform
-    phrasing/terminology, never new content.
+    (``glossary_terms`` — the Tier-2 vocabulary alignment) while staying faithful
+    to the substance — it never invents facts. ``static_context`` (the per-
+    workspace framing) and ``kb_chunks`` only inform phrasing/terminology, never
+    new content. ``domain_framing`` labels the glossary's domain in the prompt;
+    when omitted it resolves from the workspace setting (generic default).
 
     Falls back to a deterministic bullet join of the statements when no LLM is
     configured, so the final phase always returns usable text.
@@ -1498,6 +1538,7 @@ async def reformulate_section_async(
     api_key, model = _resolve_finalize_llm_config(workspace_id)
     if not api_key:
         return fallback
+    domain_framing = (domain_framing or "").strip() or _resolve_oracle_domain_framing(workspace_id)
     try:
         from openai import AsyncOpenAI
 
@@ -1516,11 +1557,11 @@ async def reformulate_section_async(
                 "2) DOUBLONS : l'expert se répète et reformule d'un tour à l'autre — fusionne "
                 "les redites en UNE seule formulation (la plus complète), sans perdre aucun "
                 "détail propre à une variante. "
-                "3) VOCABULAIRE : aligne les termes sur le 'domain_glossary' (terminologie "
-                "métier Andritz) : remplace les mots mal transcrits ou approximatifs par le "
-                "terme canonique du glossaire quand le contexte le confirme (ex: 'carte' -> "
-                "'carde'), respecte la casse des acronymes. N'applique JAMAIS un terme du "
-                "glossaire si le propos ne le concerne pas. "
+                "3) VOCABULAIRE : aligne les termes sur le 'domain_glossary' "
+                f"({domain_framing}) : remplace les mots mal transcrits ou approximatifs par "
+                "le terme canonique du glossaire quand le contexte le confirme, respecte la "
+                "casse des acronymes. N'applique JAMAIS un terme du glossaire si le propos ne "
+                "le concerne pas. "
                 "N'invente AUCUNE information, ne supprime AUCUN fait substantiel, ne change "
                 "aucune valeur numérique. Le 'static_context' et les 'kb_chunks' servent "
                 "uniquement à caler la terminologie, jamais à ajouter du contenu. "

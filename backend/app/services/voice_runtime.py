@@ -314,6 +314,27 @@ def _resolve_tts_instructions(workspace_settings: Any | None, override: str | No
     return default or None
 
 
+# Generic, domain-neutral STT steering prompt. Workspaces specialise the domain
+# framing via ``settings.voice.transcript_context`` (e.g. an industrial vendor or
+# product line); the live Andritz workspace pins its exact legacy string through
+# the ``046_andritz_voice_capture_overrides`` migration.
+_DEFAULT_TRANSCRIPT_CONTEXT = "Transcription en français d'un expert industriel."
+_TRANSCRIBE_NOISE_HINT = "Ignore les bruits, la musique et les sons sans parole."
+
+
+def _resolve_transcript_context(workspace_settings: Any | None) -> str:
+    """Workspace ``settings.voice.transcript_context`` -> generic default.
+
+    An explicit empty string disables the domain framing (only the noise hint is
+    sent). Absent key falls back to the domain-neutral default.
+    """
+    voice = _voice_settings(workspace_settings)
+    if "transcript_context" in voice:
+        candidate = voice.get("transcript_context")
+        return str(candidate).strip() if candidate is not None else ""
+    return _DEFAULT_TRANSCRIPT_CONTEXT
+
+
 class CascadeVoiceRuntime:
     """OpenAI-backed cascade provider used by the production-safe path."""
 
@@ -359,9 +380,9 @@ class CascadeVoiceRuntime:
             }
             if language:
                 kwargs["language"] = language
+                context = _resolve_transcript_context(self._workspace_settings)
                 kwargs["prompt"] = (
-                    "Transcription en français d\'un expert industriel Andritz. "
-                    "Ignore les bruits, la musique et les sons sans parole."
+                    f"{context} {_TRANSCRIBE_NOISE_HINT}" if context else _TRANSCRIBE_NOISE_HINT
                 )
             result = await client.audio.transcriptions.create(
                 **kwargs,

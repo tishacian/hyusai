@@ -58,6 +58,20 @@ ANDRITZ_VOICE_LOOP = {
     "auto_rearm_after_tts": True,
     "barge_in": True,
     "commands_enabled": True,
+    # Endpointing thresholds previously hardcoded in the capture UI for the
+    # Andritz slug; now carried in settings so the de-hardcoded frontend keeps
+    # the same fast conversation cadence.
+    "silence_ms": 900,
+    "min_speech_ms": 350,
+    "max_turn_ms": 25000,
+}
+# Voice/capture domain framing pinned so the de-genericized defaults stay
+# byte-identical for the Andritz workspace (mirrors the
+# 046_andritz_voice_capture_overrides migration).
+ANDRITZ_VOICE = {
+    "transcript_context": "Transcription en français d'un expert industriel Andritz.",
+    "transcript_rewrite_context": "Nous sommes dans le contexte industriel Andritz.",
+    "transcript_glossary_domain": "terminologie métier Andritz",
 }
 
 
@@ -118,6 +132,13 @@ def _upsert_chat_profiles(workspace: Workspace, *, scope_key: str, make_default:
     voice_loop["default_mode"] = "session_loop"
     voice_loop["enabled_default"] = True
     settings["voice_loop"] = voice_loop
+
+    # Pin the voice/capture domain framing without clobbering operator edits, so
+    # the genericized backend defaults still resolve to the Andritz strings.
+    voice_cfg = _as_dict(settings.get("voice"))
+    for key, value in ANDRITZ_VOICE.items():
+        voice_cfg.setdefault(key, value)
+    settings["voice"] = voice_cfg
 
     raw_profiles = settings.get("assistant_profiles")
     profiles = [dict(profile) for profile in raw_profiles if isinstance(profile, Mapping)] if isinstance(raw_profiles, list) else []

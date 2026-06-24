@@ -352,9 +352,9 @@ class Settings(BaseSettings):
     voice_partial_stt_min_interval_ms: int = 1200
 
     # Static domain framing injected into the FINAL (end-of-section / end-of-capture)
-    # LLM reformulation only — never the live capture path. Overridable per
-    # workspace via ``workspace.settings.voice.transcript_rewrite_context``.
-    voice_transcript_rewrite_context: str = "Nous sommes dans le contexte industriel Andritz."
+    # LLM reformulation only — never the live capture path. Domain-neutral default;
+    # overridable per workspace via ``workspace.settings.voice.transcript_rewrite_context``.
+    voice_transcript_rewrite_context: str = "Nous sommes dans un contexte industriel."
 
     # Minimum NORMALIZED per-chunk relevance score for KB sources attached to
     # capture FINAL reports. Interpreted against a [0, 1]-scale signal carried in

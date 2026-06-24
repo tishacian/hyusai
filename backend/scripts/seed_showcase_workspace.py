@@ -13,12 +13,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm.attributes import flag_modified
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -32,6 +35,12 @@ from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
 from app.models.evaluation_feedback import EvaluationFeedback
 from app.models.evaluation_preset import EvaluationPreset
+from app.models.knowledge_collection import (
+    KnowledgeCollection,
+    KnowledgeCollectionSource,
+    WorkerJob,
+)
+from app.models.knowledge_guide import KnowledgeGuide
 from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.run import Run, SkillInvocation
 from app.models.sharepoint_sync_job import SharePointSyncJob
@@ -48,13 +57,159 @@ from app.services.evaluation.canonical_answer_service import (
 )
 from app.services.evaluation.feedback_service import record_feedback
 from app.services.evaluation_preset_service import DEFAULT_EVAL_CONFIG
+from app.services.knowledge_collections import (
+    create_or_get_collection,
+    record_ingested_sources,
+    update_collection_status,
+)
+from app.services.knowledge_guides import create_guide, update_guide
+from app.services.rag.knowledge_scopes import normalize_knowledge_scopes
 from app.services.recommendations.proactive_service import (
     generate_proactive_recommendations,
 )
 from app.services.skills_registry import seed_skills_and_capabilities
+from app.services.systems.bootstrap import ensure_workspace_chat_system_default
 
 
 SHOWCASE_SOURCE = "showcase_seed"
+
+
+# --- Workstream 5: universal orchestration baseline + Knowledge Capture -------
+# Everything below stays GENERIC (family=generic): no "project" concept, no
+# project codes, no project inventory and no cross-project matching. NorthForge
+# is an invented OEM and every identifier is fictional.
+NOTICES_COLLECTION = "agentium-showcase-notices"
+NOTICES_SCOPE = "agentium-showcase-notices"
+NOTICES_GUIDE_TITLE = "NorthForge Notices - Knowledge Guide"
+EXPERT_FICHE_COLLECTION = "agentium-showcase-expert-fiche"
+SHOWCASE_ADVISOR_PROFILE = "showcase_advisor"
+CAPTURE_CAPABILITY_SLUG = "expert_knowledge_capture"
+CAPTURE_CONTEXT_NAME = "Showcase Knowledge Capture Context"
+CAPTURE_SYSTEM_NAME = "Knowledge Capture"
+SHOWCASE_SEED_ACTOR = "system:showcase-seed"
+
+# Generic business_interpretation grounding with a domain-neutral disclaimer
+# (not tied to any industrial client). Demonstrates the universal default.
+SHOWCASE_BALANCED_GROUNDING = {
+    "default_mode": "balanced",
+    "allowed_modes": ["strict", "balanced"],
+    "fallback_disclaimer": (
+        "Business interpretation to confirm: indexed sources stay authoritative and "
+        "any documented value must be verified in the source notice."
+    ),
+    "strict_guard": "business_interpretation",
+}
+SHOWCASE_WORKSPACE_GROUNDING = {
+    "default_mode": "strict",
+    "allowed_modes": ["strict", "balanced"],
+    "fallback_disclaimer": SHOWCASE_BALANCED_GROUNDING["fallback_disclaimer"],
+    "strict_guard": "business_interpretation",
+}
+# Session-loop voice defaults (continuous streaming loop), generic.
+SHOWCASE_VOICE_LOOP = {
+    "default_mode": "session_loop",
+    "enabled_default": True,
+    "auto_endpoint": True,
+    "auto_send_final_transcript": True,
+    "auto_rearm_after_tts": True,
+    "barge_in": True,
+    "commands_enabled": True,
+}
+
+
+# Synthetic NorthForge product/operations corpus. Identifiers (PMP-700, BRG-22,
+# SNS-09, VORTEX-5, FLT-3, GSK-8, LUB-40) are catalog references, never projects.
+NOTICES_DOCS = {
+    "northforge-pmp-700-operating-manual.md": """# NorthForge PMP-700 Operating Manual
+
+The PMP-700 is a high-pressure process pump rated for 700 bar continuous duty.
+Nominal flow is 42 L/min at 1450 rpm. Start the pump only after the FLT-3
+filtration cartridge is seated and the suction line is primed. The PMP-700 uses
+two BRG-22 roller bearings on the drive shaft and a GSK-8 gasket on the head.
+Do not exceed the 700 bar setpoint; the relief valve opens at 735 bar.
+""",
+    "northforge-pmp-700-maintenance.md": """# NorthForge PMP-700 Maintenance Procedure
+
+Preventive maintenance for the PMP-700 runs every 2000 operating hours. Replace
+the FLT-3 filtration cartridge, inspect both BRG-22 bearings for play, and renew
+the GSK-8 head gasket. Re-lubricate the bearings with LUB-40 service grease
+(18 g per bearing). Torque the head bolts to 95 Nm in a cross pattern. Record
+the bearing temperature; a BRG-22 above 80 C indicates misalignment or wear.
+""",
+    "northforge-brg-22-bearing-service.md": """# NorthForge BRG-22 Bearing Service Notice
+
+The BRG-22 is a sealed roller bearing used on the PMP-700 pump and the VORTEX-5
+line drive. Service life is 12000 hours under LUB-40 lubrication. Replace the
+BRG-22 if radial play exceeds 0.08 mm or if running temperature stays above
+80 C. Always replace bearings in pairs on the pump drive shaft. Do not reuse a
+BRG-22 once removed.
+""",
+    "northforge-sns-09-sensor-calibration.md": """# NorthForge SNS-09 Sensor Calibration
+
+The SNS-09 family covers proximity, pressure and temperature variants. The
+proximity SNS-09 switches at 4 mm; the pressure SNS-09 spans 0-800 bar with a
+4-20 mA output; the temperature SNS-09 spans -20 to 150 C. Calibrate the
+pressure SNS-09 against a reference gauge at 0, 350 and 700 bar. A drift above
+1.5% of span requires replacement. Mount the proximity SNS-09 flush to avoid
+false triggers.
+""",
+    "northforge-vortex-5-operations-guide.md": """# NorthForge VORTEX-5 Operations Guide
+
+The VORTEX-5 is the flagship production line built around one PMP-700 pump, the
+SNS-09 sensor set and the BRG-22 line drive bearings. Normal throughput is 320
+units/hour. Start-up sequence: energize controls, confirm all SNS-09 sensors
+report healthy, prime the PMP-700, then release the line interlock. The VORTEX-5
+trips if any pressure SNS-09 exceeds 720 bar or a BRG-22 over-temperature alarm
+is raised.
+""",
+    "northforge-spare-parts-catalog.md": """# NorthForge Spare Parts Catalog
+
+Spare parts list for the VORTEX-5 line and PMP-700 pump:
+
+- PMP-700: high-pressure process pump assembly.
+- BRG-22: roller bearing (order in pairs for the pump drive).
+- SNS-09: sensor (specify proximity, pressure or temperature variant).
+- FLT-3: filtration cartridge (replace every 2000 hours).
+- GSK-8: gasket / O-ring seal kit for the pump head.
+- LUB-40: service lubricant, 400 g cartridge.
+
+Quote the part number when ordering. Lead time for PMP-700 assemblies is 6 weeks.
+""",
+    "northforge-vortex-5-commissioning-checklist.md": """# NorthForge VORTEX-5 Commissioning Checklist
+
+Before first production run on a VORTEX-5 line:
+
+1. Verify the PMP-700 relief valve opens at 735 bar.
+2. Confirm both BRG-22 bearings are greased with LUB-40.
+3. Calibrate every pressure SNS-09 at 0, 350 and 700 bar.
+4. Seat a new FLT-3 cartridge and confirm the GSK-8 gasket is in place.
+5. Run the start-up interlock test and record the trip thresholds.
+
+Sign off the checklist before releasing the line to operations.
+""",
+    "northforge-safety-conformity.md": """# NorthForge Safety and Declaration of Conformity
+
+The VORTEX-5 line and PMP-700 pump carry a declaration of conformity for the
+machinery and pressure-equipment directives. Apply lockout/tagout before any
+maintenance on the PMP-700 or BRG-22 bearings. The 700 bar circuit must be
+depressurized and verified at zero before opening the GSK-8 sealed head. Only
+trained personnel may bypass an SNS-09 safety sensor, and only during
+commissioning.
+""",
+    "northforge-troubleshooting-faq.md": """# NorthForge Troubleshooting FAQ
+
+Common faults on the VORTEX-5 line:
+
+- Low pressure at the PMP-700: check the FLT-3 cartridge for clogging and prime
+  the suction line.
+- BRG-22 over-temperature alarm: check alignment and re-grease with LUB-40.
+- Pressure SNS-09 reads drift: recalibrate, replace if drift exceeds 1.5% span.
+- Head weeping: replace the GSK-8 gasket and re-torque the head bolts to 95 Nm.
+
+If a fault references an identifier not present in the indexed notices, say so
+rather than answering from a different product.
+""",
+}
 
 
 DOCS = {
@@ -275,6 +430,7 @@ def main() -> int:
         capabilities = ensure_capabilities(db, workspace)
         systems = ensure_systems(db, workspace, capabilities, controls)
         context = ensure_context(db, workspace, systems)
+        knowledge = seed_knowledge_and_capture(db, workspace, skip_ingest=args.skip_ingest)
         doc_paths = write_docs(workspace.slug)
         if not args.skip_ingest:
             ingest_docs_best_effort(workspace.slug, doc_paths)
@@ -292,6 +448,14 @@ def main() -> int:
         print(
             f"Showcase workspace ready: slug={workspace.slug} id={workspace.id} "
             f"systems={len(systems)} runs={seeded['runs']} evals={seeded['evals']}"
+        )
+        print(
+            "Knowledge baseline ready: "
+            f"collection={knowledge['notices_collection']} scope={knowledge['scope']} "
+            f"profile={knowledge['profile']} guide={knowledge['guide_key']} "
+            f"capture_system={knowledge['capture_system_id'] or 'skipped'} "
+            f"expert_fiche={knowledge['expert_fiche_collection']} "
+            f"chat_system={knowledge['chat_system_id'] or 'skipped'}"
         )
         return 0
     finally:
@@ -317,6 +481,12 @@ def reset_workspace(db: DBSession, slug: str) -> None:
     db.query(AuditLog).filter(AuditLog.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(SharePointSyncJob).filter(SharePointSyncJob.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(WorkspaceJob).filter(WorkspaceJob.workspace_id == workspace_id).delete(synchronize_session=False)
+    # Knowledge baseline + capture rows (Workstream 5). Delete children before
+    # the knowledge_collections parent to stay FK-safe.
+    db.query(KnowledgeCollectionSource).filter(KnowledgeCollectionSource.workspace_id == workspace_id).delete(synchronize_session=False)
+    db.query(WorkerJob).filter(WorkerJob.workspace_id == workspace_id).delete(synchronize_session=False)
+    db.query(KnowledgeGuide).filter(KnowledgeGuide.workspace_id == workspace_id).delete(synchronize_session=False)
+    db.query(KnowledgeCollection).filter(KnowledgeCollection.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(SystemVersion).filter(SystemVersion.system_id.in_(system_ids)).delete(synchronize_session=False)
     db.query(Run).filter(Run.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(System).filter(System.workspace_id == workspace_id).delete(synchronize_session=False)
@@ -1572,6 +1742,409 @@ def ingest_docs_best_effort(workspace_slug: str, paths: List[Path]) -> None:
             print(f"WARN: document ingestion skipped/failed: {exc}")
 
     asyncio.run(_run())
+
+
+# --- Workstream 5 helpers -----------------------------------------------------
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def write_notices_docs(workspace_slug: str) -> List[Path]:
+    root = Path("/tmp") / "agentium_showcase_notices" / workspace_slug
+    root.mkdir(parents=True, exist_ok=True)
+    paths: List[Path] = []
+    for name, content in NOTICES_DOCS.items():
+        path = root / name
+        path.write_text(content, encoding="utf-8")
+        paths.append(path)
+    return paths
+
+
+def ensure_notices_collection(db: DBSession, workspace: Workspace) -> KnowledgeCollection:
+    return create_or_get_collection(
+        db,
+        workspace=workspace,
+        name="NorthForge Notices (Showcase)",
+        description=(
+            "Synthetic NorthForge product and operations notices for the universal "
+            "retrieval demo. No customer data and no project concept."
+        ),
+        slug=NOTICES_COLLECTION,
+    )
+
+
+def ensure_expert_fiche_collection(db: DBSession, workspace: Workspace) -> KnowledgeCollection:
+    return create_or_get_collection(
+        db,
+        workspace=workspace,
+        name="NorthForge Expert Fiches (Showcase)",
+        description=(
+            "Destination collection for validated expert-capture fiches in the "
+            "showcase workspace."
+        ),
+        slug=EXPERT_FICHE_COLLECTION,
+    )
+
+
+def ingest_notices_best_effort(
+    db: DBSession,
+    workspace: Workspace,
+    collection: KnowledgeCollection,
+    paths: List[Path],
+) -> None:
+    async def _run() -> List[Dict[str, Any]]:
+        from app.services.rag.document_service import DocumentService
+
+        svc = DocumentService(collection_name=collection.slug, workspace_slug=workspace.slug)
+        results: List[Dict[str, Any]] = []
+        for path in paths:
+            res = await svc.ingest_document(
+                str(path),
+                chunk_size=500,
+                chunk_overlap=50,
+                collection_slug=collection.slug,
+                workspace_id=workspace.id,
+                collection_id=collection.id,
+            )
+            results.append(res or {})
+        return results
+
+    try:
+        results = asyncio.run(_run())
+        document_names = [path.name for path in paths]
+        chunk_total = sum(int((res or {}).get("chunks_processed") or 0) for res in results)
+        record_ingested_sources(
+            db,
+            collection=collection,
+            ingest_result={"results": results},
+            document_names=document_names,
+            origin=SHOWCASE_SOURCE,
+        )
+        update_collection_status(
+            db,
+            collection.id,
+            status="ready",
+            document_names=document_names,
+            document_count=len(document_names),
+            chunk_count=chunk_total,
+        )
+        db.commit()
+        print(
+            f"Ingested {len(paths)} NorthForge notices into collection={collection.slug} "
+            f"chunks={chunk_total}"
+        )
+    except Exception as exc:  # noqa: BLE001 - ingestion is best-effort
+        db.rollback()
+        print(f"WARN: notices ingestion skipped/failed: {exc}")
+
+
+def _notices_guide_markdown() -> str:
+    return (_repo_root() / "docs" / "showcase-notices-knowledge-guide.md").read_text(encoding="utf-8")
+
+
+def publish_notices_guide(db: DBSession, workspace: Workspace, *, collection_slug: str) -> str:
+    markdown = _notices_guide_markdown()
+    user = SimpleNamespace(id=None, email=SHOWCASE_SEED_ACTOR, username=SHOWCASE_SEED_ACTOR)
+    existing = (
+        db.query(KnowledgeGuide)
+        .filter(
+            KnowledgeGuide.workspace_id == workspace.id,
+            KnowledgeGuide.target_type == "collection",
+            KnowledgeGuide.target_ref == collection_slug,
+            KnowledgeGuide.title == NOTICES_GUIDE_TITLE,
+            KnowledgeGuide.is_current.is_(True),
+        )
+        .first()
+    )
+    if existing:
+        guide = update_guide(
+            db,
+            workspace,
+            existing.guide_key,
+            patch={"markdown": markdown, "status": "published"},
+            user=user,
+        )
+        return guide.guide_key
+    guide = create_guide(
+        db,
+        workspace,
+        target_type="collection",
+        target_ref=collection_slug,
+        title=NOTICES_GUIDE_TITLE,
+        markdown=markdown,
+        status="published",
+        user=user,
+    )
+    return guide.guide_key
+
+
+def _showcase_profile_defaults(scope_key: str) -> Dict[str, Any]:
+    return {
+        "key": SHOWCASE_ADVISOR_PROFILE,
+        "label": "Showcase Advisor",
+        "subtitle": "NorthForge notices · grounded product & operations answers",
+        "default_knowledge_scope": scope_key,
+        "executive_mode": False,
+        "tone": "technical_advisor",
+        "grounding": dict(SHOWCASE_BALANCED_GROUNDING),
+    }
+
+
+def upsert_showcase_chat_settings(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    scope_key: str,
+    collection_slug: str,
+    expert_fiche_collection: str,
+) -> None:
+    """Stamp generic family, scope, advisor profile, grounding, source_policy
+    and voice-loop defaults so the workspace chat System reflects the UNIVERSAL
+    template (no project concept)."""
+    settings = dict(workspace.settings or {})
+    # Keep the family GENERIC so the chat System resolves the universal default
+    # template rather than any industrial opt-in layer.
+    settings["family"] = "generic"
+
+    chat = _as_dict(settings.get("chat"))
+    chat["grounding"] = {**SHOWCASE_WORKSPACE_GROUNDING, **_as_dict(chat.get("grounding"))}
+    settings["chat"] = chat
+
+    voice_loop = {**SHOWCASE_VOICE_LOOP, **_as_dict(settings.get("voice_loop"))}
+    voice_loop["default_mode"] = "session_loop"
+    voice_loop["enabled_default"] = True
+    settings["voice_loop"] = voice_loop
+
+    # Universal source policy: generic preservation + Knowledge Capture wiring.
+    # No prefer_exact_references / reject_cross_project_sources / project terms.
+    source_policy = _as_dict(settings.get("source_policy"))
+    source_policy.update(
+        {
+            "mode": "workspace_scoped",
+            "require_citations": True,
+            "preserve_user_terms": True,
+            "preserve_reference_types": ["document_name", "part_number", "identifier"],
+            "expert_fiche_collection": expert_fiche_collection,
+            "expert_review_required": True,
+            "expert_fiche_correction_enabled": True,
+        }
+    )
+    settings["source_policy"] = source_policy
+
+    scopes = normalize_knowledge_scopes(settings.get("knowledge_scopes"))
+    next_scope = {
+        "key": scope_key,
+        "label": "NorthForge Notices",
+        "description": (
+            "Synthetic NorthForge product and operations notices for the universal "
+            "retrieval demo."
+        ),
+        "collection_slugs": [collection_slug],
+        "default_mode": "chah",
+        "top_k": 8,
+        "is_default": True,
+    }
+    scopes = [scope for scope in scopes if scope["key"] != scope_key]
+    for scope in scopes:
+        scope["is_default"] = False
+    scopes.append(next_scope)
+    settings["knowledge_scopes"] = scopes
+
+    raw_profiles = settings.get("assistant_profiles")
+    profiles = (
+        [dict(profile) for profile in raw_profiles if isinstance(profile, Mapping)]
+        if isinstance(raw_profiles, list)
+        else []
+    )
+    profiles = [p for p in profiles if str(p.get("key") or "") != SHOWCASE_ADVISOR_PROFILE]
+    profiles.append(_showcase_profile_defaults(scope_key))
+    settings["assistant_profiles"] = profiles
+    settings["assistant_profile_default"] = SHOWCASE_ADVISOR_PROFILE
+
+    workspace.settings = settings
+    flag_modified(workspace, "settings")
+    db.add(workspace)
+
+
+def ensure_capture_context(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    collection_slug: str,
+) -> Context:
+    context = (
+        db.query(Context)
+        .filter(Context.workspace_id == workspace.id, Context.name == CAPTURE_CONTEXT_NAME)
+        .first()
+    )
+    payload = {
+        "data_refs": [collection_slug],
+        "memory_refs": ["expert_fiche_proposals", "capture_review_queue"],
+        "history_refs": ["showcase_capture_sessions"],
+        "environment_state": {
+            # Knowledge Capture reads context.environment_state.collection to
+            # ground interviews on the connected knowledge base.
+            "collection": collection_slug,
+            "collection_name": collection_slug,
+            "industry": "enterprise services",
+            "region": "EU",
+            "capture_domain": "product_operations",
+        },
+        "business_constraints": {
+            "expert_review_required": True,
+            "hitl_before_publish": True,
+            "no_unverified_claims": True,
+        },
+        "permissions": {"personas": ["operator", "expert", "quality_owner", "admin"]},
+        "ephemeral": False,
+    }
+    if context:
+        for key, value in payload.items():
+            setattr(context, key, value)
+    else:
+        context = Context(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            name=CAPTURE_CONTEXT_NAME,
+            **payload,
+        )
+        db.add(context)
+    db.flush()
+    return context
+
+
+def ensure_capture_system(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    capability: Capability,
+    context: Context,
+    collection_slug: str,
+    expert_fiche_collection: str,
+) -> System:
+    system = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.name == CAPTURE_SYSTEM_NAME)
+        .first()
+    )
+    payload = {
+        "objective": (
+            "Run guided expert interviews that turn tacit product and operations "
+            "knowledge into reviewable knowledge-base fiches, grounded in the "
+            "NorthForge notices."
+        ),
+        "capability_id": capability.id,
+        "skill_ids": list(capability.skill_ids or []),
+        "flow_definition": {},
+        "settings": {
+            "showcase_seed": True,
+            "surface": "system",
+            "system_type": "knowledge_capture",
+            "brand": "Agentium Showcase",
+            "capture": {
+                "source_collection": collection_slug,
+                "expert_fiche_collection": expert_fiche_collection,
+                "expert_review_required": True,
+            },
+        },
+        "execution_mode": "human_augmented",
+        "execution_profile": {
+            "showcase_seed": True,
+            "persona": "knowledge_capture",
+            "hitl": True,
+        },
+        "coordination_pattern": "single_agent",
+        "context_id": context.id,
+        "status": "active",
+        "created_by": "showcase-seed",
+        "default_prompt_type": "analytical",
+        "default_model": "gpt-4o-mini",
+        "retrieval_mode_default": "chah",
+    }
+    if system:
+        for key, value in payload.items():
+            setattr(system, key, value)
+        system.updated_at = datetime.utcnow()
+    else:
+        system = System(id=str(uuid4()), workspace_id=workspace.id, name=CAPTURE_SYSTEM_NAME, **payload)
+        db.add(system)
+        db.flush()
+    ensure_system_version(db, workspace, system, {})
+    return system
+
+
+def seed_knowledge_and_capture(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    skip_ingest: bool,
+) -> Dict[str, Any]:
+    """Workstream 5: universal retrieval baseline + Knowledge Capture wiring.
+
+    Idempotent and reset-safe. Creates the synthetic notices collection, the
+    expert-fiche destination, the published Knowledge Guide, the generic
+    scope/profile/source_policy, the capture Context + System, and refreshes the
+    workspace chat System so the universal template is visualizable.
+    """
+    notices = ensure_notices_collection(db, workspace)
+    expert_fiche = ensure_expert_fiche_collection(db, workspace)
+    db.commit()
+
+    upsert_showcase_chat_settings(
+        db,
+        workspace,
+        scope_key=NOTICES_SCOPE,
+        collection_slug=notices.slug,
+        expert_fiche_collection=expert_fiche.slug,
+    )
+    db.commit()
+
+    guide_key = publish_notices_guide(db, workspace, collection_slug=notices.slug)
+    db.commit()
+
+    capture_system_id: Optional[str] = None
+    capability = (
+        db.query(Capability).filter(Capability.slug == CAPTURE_CAPABILITY_SLUG).first()
+    )
+    if capability is None:
+        print(
+            f"WARN: capability '{CAPTURE_CAPABILITY_SLUG}' not seeded; "
+            "skipping Knowledge Capture System wiring"
+        )
+    else:
+        capture_context = ensure_capture_context(db, workspace, collection_slug=notices.slug)
+        capture_system = ensure_capture_system(
+            db,
+            workspace,
+            capability=capability,
+            context=capture_context,
+            collection_slug=notices.slug,
+            expert_fiche_collection=expert_fiche.slug,
+        )
+        capture_context.system_id = capture_system.id
+        db.add(capture_context)
+        db.commit()
+        capture_system_id = capture_system.id
+
+    chat_system = ensure_workspace_chat_system_default(db, workspace.id)
+
+    if not skip_ingest:
+        paths = write_notices_docs(workspace.slug)
+        ingest_notices_best_effort(db, workspace, notices, paths)
+
+    return {
+        "notices_collection": notices.slug,
+        "expert_fiche_collection": expert_fiche.slug,
+        "guide_key": guide_key,
+        "scope": NOTICES_SCOPE,
+        "profile": SHOWCASE_ADVISOR_PROFILE,
+        "capture_system_id": capture_system_id,
+        "chat_system_id": chat_system.id if chat_system else None,
+    }
 
 
 def seed_story(

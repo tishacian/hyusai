@@ -819,7 +819,7 @@ interface ProposalFact {
                     <input
                       class="w-full rounded bg-black/30 border border-white/10 px-3 py-2.5 text-sm text-white"
                       [(ngModel)]="newContextName"
-                      placeholder="Contexte notices BBA120"
+                      placeholder="Contexte notices techniques"
                     />
                   </div>
                 </div>
@@ -4053,17 +4053,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   readonly workspaceVoiceLoopConfig = computed<WorkspaceVoiceLoopConfig>(() => {
     const settings = this.asRecord(this.workspace.current()?.settings);
     const voiceLoop = this.asRecord(settings['voice_loop']);
-    const workspaceSlug = String(this.workspace.current()?.slug || this.workspace.currentSlug() || '').toLowerCase();
-    const andritzDefaults: WorkspaceVoiceLoopConfig =
-      workspaceSlug === 'andritz'
-        ? { silence_ms: 900, min_speech_ms: 350, max_turn_ms: 25000 }
-        : {};
+    // Endpointing thresholds (silence_ms, min_speech_ms, max_turn_ms) are
+    // workspace configuration carried in settings.voice_loop, not a per-slug
+    // hardcode; Andritz keeps them via its seeded/pinned voice_loop defaults.
     return {
       auto_endpoint: true,
       auto_rearm_after_tts: true,
       barge_in: true,
       commands_enabled: true,
-      ...andritzDefaults,
       ...voiceLoop,
     } as WorkspaceVoiceLoopConfig;
   });
@@ -11830,7 +11827,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const grouping: Array<{ label: string; stages: string[] }> = [
       { label: 'Restructuration selon le plan', stages: ['start', 'restructure'] },
       { label: 'Nettoyage des doublons', stages: ['dedupe'] },
-      { label: 'Alignement vocabulaire Andritz', stages: ['vocabulary'] },
+      { label: 'Alignement vocabulaire métier', stages: ['vocabulary'] },
       { label: 'Reformulation des sections', stages: ['reformulate', 'questions', 'section'] },
       { label: 'Assemblage du rapport', stages: ['report', 'done'] },
     ];

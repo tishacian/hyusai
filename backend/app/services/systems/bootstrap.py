@@ -78,7 +78,22 @@ def _as_list(value: Any) -> List[Any]:
 def _workspace_family(workspace: Workspace) -> str:
     from app.services.workspace_features import workspace_family
 
-    return workspace_family(workspace)
+    family = workspace_family(workspace)
+    # The opt-in industrial layer is selected by an explicit ``industrial`` family
+    # stamp. ``workspace_family`` does not (yet) list it in ``KNOWN_FAMILIES`` and
+    # would fall back to the "generic" heuristic, so honour the raw stamp here
+    # without widening the global family vocabulary.
+    if family == "generic":
+        stamped = str(_as_dict(getattr(workspace, "settings", None)).get("family") or "").strip().lower()
+        if stamped == "industrial":
+            return "industrial"
+    return family
+
+
+# Families that opt into the industrial layer (project/equipment guardrails +
+# ``industrial_answer_policy``). Andritz maps onto it via ``family == "andritz"``;
+# the universal default never carries the "project" concept.
+INDUSTRIAL_FAMILIES = {"andritz", "industrial"}
 
 
 def _profile_by_key(settings: Dict[str, Any], key: Optional[str]) -> Dict[str, Any]:
@@ -199,8 +214,11 @@ def _workspace_chat_profile(workspace: Workspace) -> Dict[str, Any]:
         "mode": "workspace_scoped",
         "require_citations": True,
         "preserve_user_terms": True,
+        # Universally-safe reference preservation only — NO "project" (that is an
+        # opt-in industrial concept layered in below for industrial families).
+        "preserve_reference_types": ["document_name", "part_number", "identifier"],
     }
-    if family == "andritz":
+    if family in INDUSTRIAL_FAMILIES:
         source_policy.update(
             {
                 "mode": "industrial_grounding",
@@ -245,7 +263,10 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
     def prompt_contract() -> Dict[str, object]:
         try:
             from app.agents.procurement_agent import BALANCED_GROUNDING_APPENDIX, SYSTEM_PROMPT
-            from app.services.industrial_answer_profile import industrial_answer_policy
+            from app.services.industrial_answer_profile import (
+                default_answer_policy,
+                industrial_answer_policy,
+            )
             from app.services.system_prompts import SYSTEM_PROMPT_TEMPLATES, SystemPromptType
 
             factual_template = SYSTEM_PROMPT_TEMPLATES.get(SystemPromptType.FACTUAL, "")
@@ -255,8 +276,8 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
                 "Answer questions accurately and concisely using the retrieved context.\n"
                 "When the context contains relevant information, cite it specifically.\n"
                 "If no relevant context is available, say so clearly rather than guessing.\n"
-                "Do not reproduce generic supplier-document footers such as \"contact Andritz for more information\" "
-                "as advice in the chat; Agentium users in the Andritz workspace are already Andritz experts.\n\n"
+                "Do not reproduce generic supplier-document footers such as \"contact the supplier for more information\" "
+                "as advice in the chat; the workspace users are already domain experts.\n\n"
                 "Be professional, precise, and helpful."
             )
             BALANCED_GROUNDING_APPENDIX = (
@@ -272,9 +293,32 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
                 "Context: {context}\n\nQuestion: {question}\n\n"
                 "Provide a clear factual response based on the context."
             )
-            from app.services.industrial_answer_profile import industrial_answer_policy
+            from app.services.industrial_answer_profile import (
+                default_answer_policy,
+                industrial_answer_policy,
+            )
 
-        answer_policy = industrial_answer_policy()
+        # The universal default carries the domain-neutral answer policy; the
+        # project/equipment industrial policy is applied only for opt-in
+        # industrial families (Andritz maps onto it). This keeps the "project"
+        # concept out of every other workspace and the showcase.
+        is_industrial = str(profile.get("family") or "") in INDUSTRIAL_FAMILIES
+        answer_policy = industrial_answer_policy() if is_industrial else default_answer_policy()
+        answer_shaping_instructions = [
+            "Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".",
+            "Use numeric source ids after the answer when workspace sources exist; do not emit raw filename references as citations.",
+            "For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.",
+            "If retrieved content is thin or contradictory, name the gap explicitly.",
+            "Do not end with generic supplier/contact boilerplate unless the user asked for contacts.",
+            "For precise factual questions, answer only the requested value/reference with unit and condition when available.",
+            "Never expose internal retrieval mechanics, chunk counts, scores, model names or database names in the user-facing answer.",
+        ]
+        if is_industrial:
+            # Cross-project equipment inventories are an industrial-only concern.
+            answer_shaping_instructions.insert(
+                6,
+                "For cross-project equipment inventories, consolidate all documented matches and do not present a partial sample as exhaustive.",
+            )
         return {
             "default_prompt_type": "factual",
             "default_answer_profile": answer_policy["default_answer_profile"],
@@ -285,16 +329,7 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
             "reasoning_template_factual": factual_template,
             "rag_user_prompt_builder": "app.agents.procurement_agent._build_rag_user_prompt",
             "system_prompt_builder": "app.agents.procurement_agent._system_prompt_with_grounding",
-            "answer_shaping_instructions": [
-                "Start with the direct factual answer or synthesis; do not open with discovery phrases such as \"I found\" or \"the documents indicate\".",
-                "Use numeric source ids after the answer when workspace sources exist; do not emit raw filename references as citations.",
-                "For broad questions, synthesize by theme instead of listing every retrieved excerpt; use 3 to 5 key points only when useful.",
-                "If retrieved content is thin or contradictory, name the gap explicitly.",
-                "Do not end with generic Andritz contact boilerplate unless the user asked for contacts.",
-                "For precise industrial facts, answer only the requested value/reference with unit and condition when available.",
-                "For cross-project equipment inventories, consolidate all documented matches and do not present a partial sample as exhaustive.",
-                "Never expose internal retrieval mechanics, chunk counts, scores, model names or database names in the user-facing answer.",
-            ],
+            "answer_shaping_instructions": answer_shaping_instructions,
         }
 
     prompts = prompt_contract()

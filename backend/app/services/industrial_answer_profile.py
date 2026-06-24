@@ -69,6 +69,30 @@ DEFAULT_INDUSTRIAL_ANSWER_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 
+# The forbidden internal vocabulary is platform-level (chunk/score/rag/llm/…),
+# not domain-specific, so the universal default policy reuses it verbatim.
+FORBIDDEN_INTERNAL_TERMS: list[str] = [
+    "chunk",
+    "chunks",
+    "score",
+    "score vectoriel",
+    "vectoriel",
+    "base vectorielle",
+    "rag",
+    "llm",
+    "moteur llm",
+    "moteur rag",
+    "base indexée",
+    "documents indexés",
+    "occurrence",
+    "occurrences",
+    "taux de confiance",
+    "confidence",
+    "retrieval",
+    "qdrant",
+]
+
+
 DEFAULT_INDUSTRIAL_ANSWER_POLICY: dict[str, Any] = {
     "key": "industrial_answer_profile_v1",
     "default_answer_profile": "precise_fact",
@@ -80,30 +104,75 @@ DEFAULT_INDUSTRIAL_ANSWER_POLICY: dict[str, Any] = {
         "Prefer concise paragraphs for direct answers; use lists only for inventories, comparisons or explicitly list-shaped requests.",
         "Never invent a value, part number, equipment reference or project relationship.",
     ],
-    "forbidden_internal_terms": [
-        "chunk",
-        "chunks",
-        "score",
-        "score vectoriel",
-        "vectoriel",
-        "base vectorielle",
-        "rag",
-        "llm",
-        "moteur llm",
-        "moteur rag",
-        "base indexée",
-        "documents indexés",
-        "occurrence",
-        "occurrences",
-        "taux de confiance",
-        "confidence",
-        "retrieval",
-        "qdrant",
-    ],
+    "forbidden_internal_terms": list(FORBIDDEN_INTERNAL_TERMS),
     "no_internal_mechanics": True,
     "no_absence_then_answer": True,
     "citation_policy": "numeric_source_ids_only",
     "profiles": DEFAULT_INDUSTRIAL_ANSWER_PROFILES,
+}
+
+
+# ---------------------------------------------------------------------------
+# Universal default answer policy (domain-neutral) — no "project"/"equipment"
+# profiles. It reuses the SAME generic shaping prompt and post-hoc guards as the
+# industrial policy (``answer_policy_prompt`` / ``apply_answer_policy_to_text``)
+# so every workspace inherits the proven answer hygiene without the industrial
+# project concept. The industrial layer stays an explicit opt-in.
+# ---------------------------------------------------------------------------
+DEFAULT_NEUTRAL_ANSWER_PROFILES: dict[str, dict[str, Any]] = {
+    "precise_fact": {
+        "label": "Precise fact",
+        "instructions": [
+            "Answer only the asked fact.",
+            "Start directly with the factual answer; do not open with a discovery or source-finding preamble.",
+            "Return the value with its unit and condition when available.",
+            "Do not add unrequested background or neighbouring context unless asked.",
+        ],
+    },
+    "summary": {
+        "label": "Summary",
+        "instructions": [
+            "Lead with the factual synthesis, not with how the information was found.",
+            "Produce a complete structured synthesis of the available information.",
+            "Group similar facts by theme and remove repetitions.",
+            "Do not produce an undifferentiated catalogue of snippets; use compact paragraphs or grouped bullets only when they clarify the answer.",
+        ],
+    },
+    "comparison": {
+        "label": "Comparison",
+        "instructions": [
+            "Compare the requested items in a concise table.",
+            "Only compare dimensions that are available in the provided context.",
+            "Name gaps instead of filling them by analogy.",
+        ],
+    },
+    "insufficient_context": {
+        "label": "Insufficient context",
+        "instructions": [
+            "State clearly that no exploitable documentary information is available.",
+            "Do not add facts after an absence statement.",
+            "Do not invent values, references or identifiers.",
+        ],
+    },
+}
+
+
+DEFAULT_NEUTRAL_ANSWER_POLICY: dict[str, Any] = {
+    "key": "default_answer_profile_v1",
+    "default_answer_profile": "precise_fact",
+    "principles": [
+        "Answer only the user question.",
+        "Use documentary context as the only source for workspace-specific facts.",
+        "Consolidate multi-document facts into one coherent answer and remove duplicates.",
+        "Start with the factual answer, not with phrases such as \"I found\" or \"the sources indicate\".",
+        "Prefer concise paragraphs for direct answers; use lists only for inventories, comparisons or explicitly list-shaped requests.",
+        "Never invent a value, reference or identifier.",
+    ],
+    "forbidden_internal_terms": list(FORBIDDEN_INTERNAL_TERMS),
+    "no_internal_mechanics": True,
+    "no_absence_then_answer": True,
+    "citation_policy": "numeric_source_ids_only",
+    "profiles": DEFAULT_NEUTRAL_ANSWER_PROFILES,
 }
 
 
@@ -199,7 +268,26 @@ class AnswerProfileDecision:
 def industrial_answer_policy() -> dict[str, Any]:
     return {
         **DEFAULT_INDUSTRIAL_ANSWER_POLICY,
+        "forbidden_internal_terms": list(FORBIDDEN_INTERNAL_TERMS),
         "profiles": {key: dict(value) for key, value in DEFAULT_INDUSTRIAL_ANSWER_PROFILES.items()},
+    }
+
+
+def default_answer_policy() -> dict[str, Any]:
+    """Domain-neutral answer policy for the universal default chat orchestration.
+
+    Carries only the universally-safe profiles (``precise_fact``, ``summary``,
+    ``comparison``, ``insufficient_context``) and reuses the same generic answer
+    shaping (:func:`answer_policy_prompt`) and post-hoc guards
+    (:func:`apply_answer_policy_to_text`) as the industrial policy. It omits the
+    industrial ``project_summary`` / ``transversal_inventory`` /
+    ``equipment_detail`` profiles, so the "project" concept stays an opt-in
+    industrial layer rather than leaking into every workspace.
+    """
+    return {
+        **DEFAULT_NEUTRAL_ANSWER_POLICY,
+        "forbidden_internal_terms": list(FORBIDDEN_INTERNAL_TERMS),
+        "profiles": {key: dict(value) for key, value in DEFAULT_NEUTRAL_ANSWER_PROFILES.items()},
     }
 
 

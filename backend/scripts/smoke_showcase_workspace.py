@@ -88,6 +88,8 @@ def main() -> int:
         ("audit", "/api/v1/audit?limit=100", lambda d: d.get("total", 0) >= 10 and any(str(row.get("event_type", "")).startswith("translation_suite.") for row in d.get("items", []) or d.get("logs", []))),
         ("translation observability", "/api/v1/observability/workspace-overview?window=7d", lambda d: any(s.get("name") == "Translation Suite" for s in d.get("systems", [])) and any(str(j.get("kind", "")).startswith("translation_suite") for j in d.get("jobs", []))),
         ("document search", "/api/v1/documents/search", lambda d: d.get("total", 0) >= 1, "POST", {"query": "enterprise SLA", "top_k": 3, "collection_name": "documents"}),
+        ("notices knowledge guide", "/api/v1/knowledge/guides?target_type=collection&target_ref=agentium-showcase-notices", lambda d: any(g.get("target_ref") == "agentium-showcase-notices" and g.get("status") == "published" for g in d.get("items", []))),
+        ("notices document search", "/api/v1/documents/search", lambda d: d.get("total", 0) >= 1, "POST", {"query": "PMP-700 relief valve setpoint", "top_k": 3, "collection_name": "agentium-showcase-notices"}),
     ]
     for item in checks:
         label, path, predicate = item[:3]

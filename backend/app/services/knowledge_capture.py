@@ -7700,12 +7700,12 @@ async def _compute_section_finalize_async(
     )
     from app.services.voice_transcript_glossary import correct_transcript_segment_tier1
 
-    # 2) Tier-2 vocabulary alignment: the Andritz domain glossary is wired into
+    # 2) Tier-2 vocabulary alignment: the workspace domain glossary is wired into
     # the FINAL pass (deterministic Tier-1 repair on the inputs + glossary terms
     # handed to the reformulation prompt), not the live path.
     await _notify_finalize_progress(
         progress,
-        {"stage": "vocabulary", "label": "Alignement vocabulaire Andritz…", "section_label": label},
+        {"stage": "vocabulary", "label": "Alignement vocabulaire métier…", "section_label": label},
     )
     glossary = _resolve_final_glossary(prep["glossary_workspace"], prep["glossary_session"], chunks)
     glossary_terms: List[str] = list(glossary.terms) if glossary is not None else []

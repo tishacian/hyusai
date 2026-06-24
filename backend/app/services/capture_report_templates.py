@@ -6,7 +6,12 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from app.models.expert_capture import ExpertCaptureSession
 
+# Canonical id for the industrial knowledge sheet. ``andritz_knowledge_v1`` is
+# kept as a backward-compatible alias so legacy/stored ids still resolve to the
+# same industrial sheet.
+INDUSTRIAL_TEMPLATE_ID = "industrial_v1"
 ANDRITZ_TEMPLATE_ID = "andritz_knowledge_v1"
+_INDUSTRIAL_TEMPLATE_IDS = frozenset({INDUSTRIAL_TEMPLATE_ID, ANDRITZ_TEMPLATE_ID})
 DEFAULT_TEMPLATE_ID = "default"
 
 _CONDITION_TERMS = re.compile(
@@ -32,7 +37,7 @@ def resolve_knowledge_sheet_template(session: ExpertCaptureSession) -> str:
         "andritz",
         "industrial",
     }:
-        return ANDRITZ_TEMPLATE_ID
+        return INDUSTRIAL_TEMPLATE_ID
     return DEFAULT_TEMPLATE_ID
 
 
@@ -44,7 +49,7 @@ def build_knowledge_sheet_content(
     *,
     transcript: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
-    if template_id == ANDRITZ_TEMPLATE_ID:
+    if template_id in _INDUSTRIAL_TEMPLATE_IDS:
         return build_andritz_knowledge_sheet(
             session,
             captured_facts,

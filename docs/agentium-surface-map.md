@@ -55,6 +55,31 @@ The Mission Room uses the Agentium Workspace App pattern: `workspace_app_shell =
 while auth, audit, IAM, chat overlay, workspace switch and blueprint export remain
 platform-governed.
 
+## Default chat orchestration baseline vs industrial opt-in
+
+The transverse workspace chat is a real, inspectable `System` in every
+workspace (variant `chat_transverse_v1`, materialized by
+`ensure_workspace_chat_system_default` in
+`backend/app/services/systems/bootstrap.py`). The proven, domain-neutral RAG
+orchestration is now the **default baseline** every workspace inherits, while
+the "project" concept and industrial guardrails are an **opt-in `industrial`
+family layer**.
+
+| Layer | Who gets it | Answer policy | Source policy highlights |
+|---|---|---|---|
+| Universal default | every workspace (e.g. `family=generic`, the showcase) | `default_answer_policy()` — `precise_fact` / `summary` / `comparison` / `insufficient_context` | `require_citations`, `preserve_user_terms`, `preserve_reference_types=[document_name, part_number, identifier]` (NO `project`) |
+| Industrial opt-in | `family in {andritz, industrial}` | `industrial_answer_policy()` — adds `project_summary` / `transversal_inventory` / `equipment_detail` | adds `prefer_exact_references`, `reject_cross_project_sources`, `project` in `preserve_reference_types`, `require_project_code_match` |
+
+The same retrieval funnel (hybrid dense+sparse, C-HAH, MMR, candidate headroom,
+optional Deep Search), flow nodes and knowledge-guide-driven retrieval policy
+are shared by both layers; only the answer policy and source policy differ.
+Andritz maps onto the industrial layer (`family=andritz`) and stays
+byte-identical (voice/capture strings are pinned by migration
+`046_andritz_voice_capture_overrides`). The `agentium-showcase` workspace
+demonstrates the universal baseline with the synthetic
+`agentium-showcase-notices` collection — see `docs/showcase-workspace.md` and
+`docs/showcase-notices-knowledge-guide.md`.
+
 ## API Stability States
 
 | Status | Rule |
