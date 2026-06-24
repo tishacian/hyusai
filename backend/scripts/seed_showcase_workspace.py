@@ -412,6 +412,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workspace-slug", default="agentium-showcase")
     parser.add_argument("--workspace-name", default="Agentium Showcase")
     parser.add_argument("--owner-email", default="thibaud.ishacian@datategy.net")
+    parser.add_argument(
+        "--smoke-user",
+        default="alice@acme.test",
+        help="Demo persona provisioned as a workspace member so the documented smoke runs out of the box; set empty to skip",
+    )
     parser.add_argument("--reset", action="store_true")
     parser.add_argument("--skip-ingest", action="store_true")
     return parser.parse_args()
@@ -425,7 +430,9 @@ def main() -> int:
         if args.reset:
             reset_workspace(db, args.workspace_slug)
         workspace = ensure_workspace(db, args.workspace_slug, args.workspace_name)
-        owner = ensure_owner(db, workspace, args.owner_email)
+        owner = ensure_member(db, workspace, args.owner_email, role="owner")
+        if args.smoke_user and args.smoke_user != args.owner_email:
+            ensure_member(db, workspace, args.smoke_user, role="owner")
         seed_skills_and_capabilities(db)
         ensure_eval_preset(db, workspace)
         controls = ensure_policies(db, workspace)
@@ -530,7 +537,7 @@ def ensure_workspace(db: DBSession, slug: str, name: str) -> Workspace:
     return ws
 
 
-def ensure_owner(db: DBSession, workspace: Workspace, email: str) -> User:
+def ensure_member(db: DBSession, workspace: Workspace, email: str, role: str = "owner") -> User:
     user = (
         db.query(User)
         .filter((User.email == email) | (User.username == email))
@@ -556,7 +563,7 @@ def ensure_owner(db: DBSession, workspace: Workspace, email: str) -> User:
         .first()
     )
     if not membership:
-        db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role="owner"))
+        db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role=role))
         db.commit()
     return user
 
