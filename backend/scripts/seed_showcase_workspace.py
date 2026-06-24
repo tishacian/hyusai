@@ -41,7 +41,9 @@ from app.models.knowledge_collection import (
     WorkerJob,
 )
 from app.models.knowledge_guide import KnowledgeGuide
+from app.models.intelligence import FeedSource, SafetyFilter, SemanticTarget
 from app.models.policy import AdaptivePolicy, ControlPolicy
+from app.models.rag_preset import RagPreset
 from app.models.run import Run, SkillInvocation
 from app.models.sharepoint_sync_job import SharePointSyncJob
 from app.models.skill import Skill
@@ -49,7 +51,7 @@ from app.models.system import System
 from app.models.system_version import SystemVersion
 from app.models.user import Session as ChatSession
 from app.models.user import Message, User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceIAMConfig, WorkspaceMember
 from app.models.workspace_job import WorkspaceJob
 from app.services.audit_logger import emit_audit_event
 from app.services.evaluation.canonical_answer_service import (
@@ -495,6 +497,12 @@ def reset_workspace(db: DBSession, slug: str) -> None:
     db.query(AdaptivePolicy).filter(AdaptivePolicy.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(EvaluationPreset).filter(EvaluationPreset.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(Capability).filter(Capability.workspace_id == workspace_id).delete(synchronize_session=False)
+    # Workspace-scoped config/intelligence rows with a direct FK to workspaces.
+    db.query(RagPreset).filter(RagPreset.workspace_id == workspace_id).delete(synchronize_session=False)
+    db.query(SafetyFilter).filter(SafetyFilter.workspace_id == workspace_id).delete(synchronize_session=False)
+    db.query(SemanticTarget).filter(SemanticTarget.workspace_id == workspace_id).delete(synchronize_session=False)
+    db.query(FeedSource).filter(FeedSource.workspace_id == workspace_id).delete(synchronize_session=False)
+    db.query(WorkspaceIAMConfig).filter(WorkspaceIAMConfig.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace_id).delete(synchronize_session=False)
     db.query(Workspace).filter(Workspace.id == workspace_id).delete(synchronize_session=False)
     db.commit()
