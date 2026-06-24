@@ -206,6 +206,7 @@ import {
   Cloud,
   Phone,
   MapPin,
+  Pin,
   Inbox,
   Camera,
 } from 'lucide-angular';
@@ -409,6 +410,7 @@ const ICONS = {
   Cloud,
   Phone,
   MapPin,
+  Pin,
   Inbox,
   Camera,
   // Aliases — sentinel-ci prompt_pack + chat-panel use Lucide-style kebab

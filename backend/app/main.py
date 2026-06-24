@@ -1,6 +1,7 @@
 """FastAPI application entry point"""
 
 import asyncio
+import mimetypes
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -229,6 +230,13 @@ def _ready_qdrant_check() -> dict[str, str | int | bool]:
     except Exception as exc:  # noqa: BLE001
         return {"status": "error", "error": str(exc)[:160], **_ready_retrieval_sparse_config()}
 
+
+# Older deployment Pythons predate the stdlib `.mjs`/`.wasm` mimetype entries, so
+# StaticFiles would serve them as application/octet-stream — which browsers reject
+# for ES module scripts (strict MIME). pdf.js ships its worker/viewer as `.mjs`, so
+# register the JS/Wasm types explicitly before mounting the SPA.
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("application/wasm", ".wasm")
 
 # Serve frontend static files (catch-all, must be LAST)
 frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"

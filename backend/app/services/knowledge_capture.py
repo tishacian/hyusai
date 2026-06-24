@@ -4150,6 +4150,152 @@ def _normalize_capture_document_refs(
     return normalized
 
 
+# Deictic / "as you can see" trigger phrases (FR, configurable). Detection only
+# fires when a turn ALSO carries at least one document view, so the cost in
+# session is a single regex match. The list can be overridden via
+# ``settings.capture_deictic_phrases`` (env / workspace tuning) without code change.
+_CAPTURE_DEICTIC_PHRASES_FR: Tuple[str, ...] = (
+    "cette page",
+    "cette slide",
+    "cette diapo",
+    "cette diapositive",
+    "cette image",
+    "cette figure",
+    "ce schema",
+    "ce schéma",
+    "ce tableau",
+    "ce graphe",
+    "ce graphique",
+    "cette courbe",
+    "ce diagramme",
+    "cette photo",
+    "cette capture",
+    "ce document",
+    "ce doc",
+    "cette vue",
+    "cette section",
+    "ce passage",
+    "cet ecran",
+    "cet écran",
+    "a l'ecran",
+    "à l'écran",
+    "comme on le voit",
+    "comme on voit",
+    "comme vous le voyez",
+    "comme vous voyez",
+    "vous voyez",
+    "regardez",
+    "ici",
+    "là",
+    # EN equivalents (transcript may be English).
+    "this page",
+    "this slide",
+    "this image",
+    "this figure",
+    "this chart",
+    "this graph",
+    "this table",
+    "this diagram",
+    "this document",
+    "as you can see",
+    "as we can see",
+    "you can see",
+    "look here",
+    "on screen",
+)
+
+_CAPTURE_DEICTIC_PATTERN: Optional[re.Pattern[str]] = None
+
+
+def _capture_deictic_pattern() -> re.Pattern[str]:
+    global _CAPTURE_DEICTIC_PATTERN
+    if _CAPTURE_DEICTIC_PATTERN is not None:
+        return _CAPTURE_DEICTIC_PATTERN
+    phrases: Iterable[str] = _CAPTURE_DEICTIC_PHRASES_FR
+    try:
+        from app.core.config import settings as cfg
+
+        override = getattr(cfg, "capture_deictic_phrases", None)
+        if isinstance(override, (list, tuple)) and override:
+            phrases = [str(item).strip() for item in override if str(item).strip()]
+    except Exception:  # noqa: BLE001 - config override is best-effort.
+        phrases = _CAPTURE_DEICTIC_PHRASES_FR
+    ordered = sorted({p for p in phrases if p}, key=len, reverse=True)
+    pattern = r"\b(?:" + "|".join(re.escape(p) for p in ordered) + r")\b"
+    _CAPTURE_DEICTIC_PATTERN = re.compile(pattern, re.IGNORECASE)
+    return _CAPTURE_DEICTIC_PATTERN
+
+
+def _detect_capture_deictic_phrase(text: Optional[str]) -> Optional[str]:
+    """Return the first deictic trigger phrase found in ``text`` (or None)."""
+    if not text or not str(text).strip():
+        return None
+    match = _capture_deictic_pattern().search(str(text))
+    return match.group(0).strip() if match else None
+
+
+# Per-view index lifecycle exposed to the frontend chips. Ordered so the journal
+# (referenced) never downgrades a doc the batch already queued/indexed.
+CAPTURE_INDEX_STATUSES = ("not_indexed", "referenced", "queued", "indexed", "failed")
+_CAPTURE_INDEX_RANK = {"not_indexed": 0, "referenced": 1, "queued": 2, "indexed": 3}
+
+
+def _capture_document_keys(item: Mapping[str, Any]) -> List[str]:
+    keys: List[str] = []
+    for value in (item.get("document_id"), item.get("filename")):
+        text = str(value or "").strip().lower()
+        if text and text not in keys:
+            keys.append(text)
+    return keys
+
+
+def _capture_view_key(ref: Mapping[str, Any]) -> str:
+    doc = str(ref.get("document_id") or ref.get("filename") or "").strip().lower()
+    return "|".join(
+        [doc]
+        + [str(ref.get(part) or "") for part in ("page", "slide", "image_index")]
+    )
+
+
+def _mark_capture_document_index_status(
+    session: ExpertCaptureSession,
+    *,
+    document_keys: Iterable[str],
+    status: str,
+    only_upgrade: bool = True,
+) -> bool:
+    """Set ``index_status`` on the matching capture document state entry.
+
+    Returns True when a document row was updated. ``only_upgrade`` keeps the
+    monotonic lifecycle (e.g. a deictic ``referenced`` never overwrites a doc the
+    finalize batch already moved to ``queued``/``indexed``); ``failed`` is always
+    applied so the UI surfaces errors.
+    """
+    wanted = {str(key).strip().lower() for key in document_keys if str(key).strip()}
+    if not wanted:
+        return False
+    metrics = dict(session.metrics or {})
+    state = _capture_documents_state(session)
+    documents = [dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)]
+    changed = False
+    for entry in documents:
+        if not (set(_capture_document_keys(entry)) & wanted):
+            continue
+        current = str(entry.get("index_status") or "not_indexed")
+        if only_upgrade and status != "failed":
+            if _CAPTURE_INDEX_RANK.get(status, 0) <= _CAPTURE_INDEX_RANK.get(current, 0):
+                continue
+        if current != status:
+            entry["index_status"] = status
+            changed = True
+    if changed:
+        state["documents"] = documents
+        metrics["capture_documents"] = state
+        session.metrics = metrics
+        flag_modified(session, "metrics")
+    return changed
+
+
 def _source_key(source: Dict[str, Any]) -> str:
     return "|".join(
         str(source.get(part) or "").strip().lower()
@@ -4534,12 +4680,16 @@ def register_capture_documents(
             "collection": collection,
             "collection_name": collection,
             "status": item.get("status") or "queued",
+            "index_status": item.get("index_status") or "not_indexed",
+            "full_share": bool(item.get("full_share")),
             "chunks_processed": item.get("chunks_processed") or 0,
             "job_id": item.get("job_id"),
             "uploaded_at": item.get("uploaded_at") or now,
             "uploaded_by_user_id": actor_user_id,
         }
-        normalized_docs.append({key: value for key, value in doc.items() if value is not None})
+        normalized_docs.append(
+            {key: value for key, value in doc.items() if value is not None or key == "full_share"}
+        )
     state = _upsert_capture_document_state(session, collection=collection, documents=normalized_docs)
     for doc in normalized_docs:
         _record_capture_event(
@@ -4585,6 +4735,482 @@ def record_capture_document_view(
     db.commit()
     db.refresh(session)
     return {"session": serialize_session(session), "event": serialize_event(event), "active_view": ref}
+
+
+def _journaled_view_counts(db: DBSession, *, session_id: str) -> Dict[str, int]:
+    """Count distinct journaled views (dedup by doc+page/slide/image) per doc.
+
+    Keyed by both ``document_id`` and ``filename`` (lowercased) so a doc whose
+    state entry only carries one of the two still resolves its count.
+    """
+    rows = (
+        db.query(ExpertCaptureEvent)
+        .filter(
+            ExpertCaptureEvent.session_id == session_id,
+            ExpertCaptureEvent.event_type == "capture_view_referenced",
+        )
+        .all()
+    )
+    views_by_doc: Dict[str, set[str]] = {}
+    for row in rows:
+        meta = row.meta_data or {}
+        view_key = "|".join(str(meta.get(part) or "") for part in ("page", "slide", "image_index"))
+        for doc_key in _capture_document_keys(meta):
+            views_by_doc.setdefault(doc_key, set()).add(view_key)
+    return {doc_key: len(view_keys) for doc_key, view_keys in views_by_doc.items()}
+
+
+def build_capture_documents_collection(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session: ExpertCaptureSession,
+) -> Dict[str, Any]:
+    """Build the capture session documents collection (GET shape).
+
+    Merges the persisted ``capture_documents`` state with the live collection
+    source ledger and decorates each doc with the shared contract fields:
+    ``index_status`` (not_indexed|referenced|queued|indexed|failed),
+    ``referenced_views_count`` (distinct journaled views) and ``full_share``.
+    """
+    state = _capture_documents_state(session)
+    collection = state.get("collection") or capture_document_collection_slug(session.id)
+    documents: List[Dict[str, Any]] = [
+        dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)
+    ]
+    from fastapi import HTTPException
+
+    try:
+        from app.services.knowledge_collections import (
+            collection_source_rows,
+            get_collection_or_404,
+        )
+
+        collection_row = get_collection_or_404(db, workspace_id=workspace_id, collection_ref=str(collection))
+        state_by_name = {
+            str(item.get("filename") or item.get("document_id") or "").lower(): dict(item)
+            for item in documents
+            if isinstance(item, dict) and (item.get("filename") or item.get("document_id"))
+        }
+        ledger_documents: List[Dict[str, Any]] = []
+        for row in collection_source_rows(db, collection=collection_row):
+            metadata = dict(row.source_metadata or {})
+            document_id = metadata.get("document_id") or row.normalized_name or row.filename or row.id
+            previous = state_by_name.get(str(row.filename or row.normalized_name or "").lower()) or {}
+            ledger_documents.append(
+                {
+                    **previous,
+                    "document_id": str(document_id),
+                    "filename": row.filename,
+                    "title": previous.get("title") or row.filename,
+                    "collection": collection_row.slug,
+                    "collection_name": collection_row.slug,
+                    "status": row.status,
+                    "chunks_processed": int(row.chunk_count or 0),
+                    "mime_type": row.mime_type,
+                    "source_kind": row.source_kind,
+                    "source_id": row.id,
+                }
+            )
+        if ledger_documents:
+            documents = ledger_documents
+    except HTTPException as exc:  # collection not created yet (store-only upload pending)
+        if getattr(exc, "status_code", None) != 404:
+            raise
+
+    view_counts = _journaled_view_counts(db, session_id=session.id)
+    for doc in documents:
+        doc_keys = _capture_document_keys(doc)
+        referenced = max((view_counts.get(key, 0) for key in doc_keys), default=0)
+        doc["referenced_views_count"] = referenced
+        doc["full_share"] = bool(doc.get("full_share"))
+        index_status = str(doc.get("index_status") or "not_indexed")
+        if index_status not in CAPTURE_INDEX_STATUSES:
+            index_status = "not_indexed"
+        # A doc with journaled views is at least ``referenced`` even if the state
+        # entry predates this field (older sessions / direct ledger rows).
+        if referenced > 0 and _CAPTURE_INDEX_RANK.get(index_status, 0) < _CAPTURE_INDEX_RANK["referenced"]:
+            index_status = "referenced"
+        doc["index_status"] = index_status
+
+    return {
+        "collection": collection,
+        "collection_name": collection,
+        "documents": documents,
+        "active_view": state.get("active_view"),
+    }
+
+
+def set_capture_documents_full_share(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    document_ids: Iterable[str],
+    actor_user_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Mark the chosen capture docs ``full_share=true`` (end-of-capture triage).
+
+    The request body is the complete selection: listed docs get
+    ``full_share=true``, the rest ``false``. No ingestion happens here — the
+    background finalize batch reads these flags. Returns the updated documents
+    collection (same shape as the GET endpoint).
+    """
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
+    wanted = {str(value).strip().lower() for value in (document_ids or []) if str(value).strip()}
+    metrics = dict(session.metrics or {})
+    state = _capture_documents_state(session)
+    documents = [dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)]
+    changed = False
+    for entry in documents:
+        selected = bool(set(_capture_document_keys(entry)) & wanted)
+        if bool(entry.get("full_share")) != selected:
+            entry["full_share"] = selected
+            changed = True
+    if changed:
+        state["documents"] = documents
+        metrics["capture_documents"] = state
+        session.metrics = metrics
+        flag_modified(session, "metrics")
+        db.commit()
+        db.refresh(session)
+    return build_capture_documents_collection(db, workspace_id=workspace_id, session=session)
+
+
+_CAPTURE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+_CAPTURE_OFFICE_EXTENSIONS = {".pptx", ".ppt", ".doc", ".docx", ".odp", ".odt", ".ods", ".xlsx", ".xls"}
+
+
+def _set_capture_finalize_state(session: ExpertCaptureSession, finalize_state: Dict[str, Any]) -> None:
+    metrics = dict(session.metrics or {})
+    state = _capture_documents_state(session)
+    state["finalize_index"] = finalize_state
+    metrics["capture_documents"] = state
+    session.metrics = metrics
+    flag_modified(session, "metrics")
+
+
+def _extract_single_pdf_page(pdf_bytes: bytes, *, page: int, out_path: Path) -> bool:
+    """Write a single-page PDF (1-based ``page``) to ``out_path``. Returns success."""
+    try:
+        import io
+
+        from PyPDF2 import PdfReader, PdfWriter
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        total = len(reader.pages)
+        if total <= 0:
+            return False
+        index = max(0, min(int(page) - 1, total - 1))
+        writer = PdfWriter()
+        writer.add_page(reader.pages[index])
+        with open(out_path, "wb") as handle:
+            writer.write(handle)
+        return True
+    except Exception as exc:  # noqa: BLE001 - extraction failures degrade to whole-doc.
+        _logger.warning("capture_view_pdf_page_extract_failed: %s", exc)
+        return False
+
+
+def _extract_capture_view_file(
+    original: bytes,
+    filename: str,
+    *,
+    page: Optional[int],
+    slide: Optional[int],
+    image_index: Optional[int],
+    tmp_dir: Path,
+) -> Optional[str]:
+    """Materialize the referenced VIEW from the original document to a temp file.
+
+    PDF page / pptx slide (office->pdf then page) / image. Falls back to the
+    whole document when the view cannot be isolated. Returns the temp path.
+    """
+    name = Path(filename or "document").name
+    ext = Path(name).suffix.lower()
+    stem = Path(name).stem or "document"
+    target_page = _positive_int(page) or _positive_int(slide)
+
+    if ext in _CAPTURE_IMAGE_EXTENSIONS:
+        out = tmp_dir / name
+        out.write_bytes(original)
+        return str(out)
+
+    if ext == ".pdf":
+        if target_page:
+            out = tmp_dir / f"{stem}-p{target_page}.pdf"
+            if _extract_single_pdf_page(original, page=target_page, out_path=out):
+                return str(out)
+        out = tmp_dir / name
+        out.write_bytes(original)
+        return str(out)
+
+    if ext in _CAPTURE_OFFICE_EXTENSIONS:
+        try:
+            from app.api.v1.endpoints.documents import _office_preview_pdf_bytes
+
+            pdf_bytes = _office_preview_pdf_bytes(original, name)
+        except Exception as exc:  # noqa: BLE001 - keep the original if conversion fails.
+            _logger.warning("capture_view_office_convert_failed: %s", exc)
+            out = tmp_dir / name
+            out.write_bytes(original)
+            return str(out)
+        if target_page:
+            out = tmp_dir / f"{stem}-slide{target_page}.pdf"
+            if _extract_single_pdf_page(pdf_bytes, page=target_page, out_path=out):
+                return str(out)
+        out = tmp_dir / f"{stem}.pdf"
+        out.write_bytes(pdf_bytes)
+        return str(out)
+
+    out = tmp_dir / name
+    out.write_bytes(original)
+    return str(out)
+
+
+async def _run_capture_finalize_index_async(
+    db_factory,
+    *,
+    workspace_id: str,
+    session_id: str,
+) -> Dict[str, Any]:
+    """Background batch: index the journaled views + the full-share docs.
+
+    Decoupled from the report return (the report cites sources from the journaled
+    refs directly). Idempotent: views/full docs already indexed are skipped, and a
+    ``running`` guard prevents concurrent double-runs. Per-doc ``index_status``
+    transitions queued -> indexed/failed so GET documents reflects progress.
+    """
+    import shutil
+
+    from app.core.settings_manager import get_resolved_settings
+    from app.models.workspace import Workspace
+    from app.services.knowledge_collections import get_collection_or_404, resolve_original_key
+    from app.services.object_store import get_object_store
+    from app.services.rag.document_service import DocumentService
+    from app.services.rag.vector_store_config import resolve_vector_db_type
+
+    db = db_factory()
+    tmp_dir = Path(tempfile.mkdtemp(prefix="agentium-capture-view-"))
+    try:
+        try:
+            session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
+        except ValueError:
+            return {"status": "skipped", "reason": "session_not_found"}
+
+        state = _capture_documents_state(session)
+        finalize_state = dict(state.get("finalize_index") or {})
+        if finalize_state.get("status") == "running":
+            return {"status": "skipped", "reason": "already_running"}
+
+        view_rows = (
+            db.query(ExpertCaptureEvent)
+            .filter(
+                ExpertCaptureEvent.session_id == session_id,
+                ExpertCaptureEvent.event_type == "capture_view_referenced",
+            )
+            .order_by(ExpertCaptureEvent.sequence.asc())
+            .all()
+        )
+        views_by_key: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        for row in view_rows:
+            meta = dict(row.meta_data or {})
+            views_by_key.setdefault(_capture_view_key(meta), meta)
+
+        documents = [dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)]
+        full_share_docs = [doc for doc in documents if doc.get("full_share")]
+        if not views_by_key and not full_share_docs:
+            finalize_state.update({"status": "done", "finished_at": datetime.utcnow().isoformat(), "indexed": 0})
+            _set_capture_finalize_state(session, finalize_state)
+            db.commit()
+            return {"status": "noop"}
+
+        collection_slug = state.get("collection") or capture_document_collection_slug(session_id)
+        try:
+            collection_row = get_collection_or_404(db, workspace_id=workspace_id, collection_ref=str(collection_slug))
+        except Exception:  # noqa: BLE001 - nothing was ever stored.
+            return {"status": "skipped", "reason": "collection_missing"}
+
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        if not workspace:
+            return {"status": "skipped", "reason": "workspace_missing"}
+
+        already_views = set(finalize_state.get("indexed_view_keys") or [])
+        already_full = set(finalize_state.get("indexed_full_docs") or [])
+        finalize_state.update(
+            {
+                "status": "running",
+                "started_at": datetime.utcnow().isoformat(),
+                "indexed_view_keys": sorted(already_views),
+                "indexed_full_docs": sorted(already_full),
+            }
+        )
+        _set_capture_finalize_state(session, finalize_state)
+        db.commit()
+
+        app_settings = get_resolved_settings(workspace_id=workspace_id)
+        doc_service = DocumentService(
+            collection_name=collection_row.slug,
+            vector_db_type=resolve_vector_db_type(app_settings),
+            workspace_slug=workspace.slug,
+        )
+        store = get_object_store()
+
+        def _read_original(filename: str) -> Optional[bytes]:
+            if not filename:
+                return None
+            try:
+                key = resolve_original_key(collection_row, Path(str(filename)).name, store=store)
+                if not store.exists(key):
+                    return None
+                return store.read_bytes(key)
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning("capture_view_original_read_failed: %s", exc)
+                return None
+
+        indexed_count = 0
+        for doc in documents:
+            doc_keys = set(_capture_document_keys(doc))
+            if not doc_keys:
+                continue
+            doc_views = [
+                meta
+                for key, meta in views_by_key.items()
+                if (set(_capture_document_keys(meta)) & doc_keys) and key not in already_views
+            ]
+            is_full = bool(doc.get("full_share")) and not (doc_keys & already_full)
+            if not doc_views and not is_full:
+                continue
+
+            _mark_capture_document_index_status(session, document_keys=doc_keys, status="queued", only_upgrade=False)
+            db.commit()
+
+            filename = doc.get("filename") or next((meta.get("filename") for meta in doc_views if meta.get("filename")), None)
+            original = _read_original(str(filename or ""))
+            doc_failed = False
+
+            if original is None:
+                doc_failed = True
+            else:
+                for meta in doc_views:
+                    view_key = _capture_view_key(meta)
+                    try:
+                        view_path = _extract_capture_view_file(
+                            original,
+                            str(filename or meta.get("filename") or "document"),
+                            page=meta.get("page") or meta.get("page_number"),
+                            slide=meta.get("slide"),
+                            image_index=meta.get("image_index"),
+                            tmp_dir=tmp_dir,
+                        )
+                        if not view_path:
+                            doc_failed = True
+                            continue
+                        document_metadata = {
+                            key: value
+                            for key, value in {
+                                "capture_view": True,
+                                "capture_session_id": session_id,
+                                "document_id": meta.get("document_id") or doc.get("document_id"),
+                                "source_filename": filename,
+                                "page": meta.get("page") or meta.get("page_number"),
+                                "slide": meta.get("slide"),
+                                "image_index": meta.get("image_index"),
+                                "turn_id": meta.get("turn_id"),
+                                "timecode_ms": meta.get("timecode_ms"),
+                                "statement": meta.get("statement"),
+                                "origin": "capture_view_index",
+                            }.items()
+                            if value is not None
+                        }
+                        result = await doc_service.ingest_document(
+                            view_path,
+                            document_metadata=document_metadata,
+                            collection_slug=collection_row.slug,
+                            workspace_id=workspace_id,
+                            collection_id=collection_row.id,
+                        )
+                        if result.get("status") == "error":
+                            doc_failed = True
+                        else:
+                            already_views.add(view_key)
+                            indexed_count += 1
+                    except Exception as exc:  # noqa: BLE001 - one bad view must not abort the batch.
+                        _logger.warning("capture_view_index_failed: %s", exc)
+                        doc_failed = True
+
+                if is_full:
+                    try:
+                        full_path = tmp_dir / Path(str(filename)).name
+                        full_path.write_bytes(original)
+                        result = await doc_service.ingest_document(
+                            str(full_path),
+                            document_metadata={
+                                "capture_full_share": True,
+                                "capture_session_id": session_id,
+                                "document_id": doc.get("document_id"),
+                                "source_filename": filename,
+                                "origin": "capture_full_share_index",
+                            },
+                            collection_slug=collection_row.slug,
+                            workspace_id=workspace_id,
+                            collection_id=collection_row.id,
+                        )
+                        if result.get("status") == "error":
+                            doc_failed = True
+                        else:
+                            already_full |= doc_keys
+                            indexed_count += 1
+                    except Exception as exc:  # noqa: BLE001
+                        _logger.warning("capture_full_share_index_failed: %s", exc)
+                        doc_failed = True
+
+            # Re-load through the live session object before mutating state again.
+            _mark_capture_document_index_status(
+                session,
+                document_keys=doc_keys,
+                status="failed" if doc_failed else "indexed",
+                only_upgrade=False,
+            )
+            finalize_state["indexed_view_keys"] = sorted(already_views)
+            finalize_state["indexed_full_docs"] = sorted(already_full)
+            _set_capture_finalize_state(session, finalize_state)
+            db.commit()
+
+        finalize_state.update(
+            {
+                "status": "done",
+                "finished_at": datetime.utcnow().isoformat(),
+                "indexed": indexed_count,
+                "indexed_view_keys": sorted(already_views),
+                "indexed_full_docs": sorted(already_full),
+            }
+        )
+        _set_capture_finalize_state(session, finalize_state)
+        db.commit()
+        return {"status": "done", "indexed": indexed_count}
+    except Exception as exc:  # noqa: BLE001 - never crash the worker thread.
+        _logger.exception("capture_finalize_index_failed: %s", exc)
+        try:
+            db.rollback()
+            session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
+            finalize_state = dict(_capture_documents_state(session).get("finalize_index") or {})
+            finalize_state.update({"status": "failed", "error": str(exc), "finished_at": datetime.utcnow().isoformat()})
+            _set_capture_finalize_state(session, finalize_state)
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+        return {"status": "failed", "error": str(exc)}
+    finally:
+        db.close()
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def run_capture_finalize_index(db_factory, *, workspace_id: str, session_id: str) -> Dict[str, Any]:
+    """Synchronous entrypoint (BackgroundTasks / worker thread) for the batch."""
+    return asyncio.run(
+        _run_capture_finalize_index_async(db_factory, workspace_id=workspace_id, session_id=session_id)
+    )
 
 
 def _fact_from_turn(turn: Dict[str, Any], evaluations: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
@@ -5699,6 +6325,69 @@ def append_turn(
     turn["source_event_id"] = event.id
     turn["text_raw"] = text
     turn["text_status"] = event.status
+
+    # Deictic mention journaling (voice + text): when the expert references the
+    # shown view(s) ("comme on le voit sur cette page"...) AND the turn carries
+    # document view(s), journal an append-only ``capture_view_referenced`` event
+    # per distinct view. This is the ONLY in-session work: a regex + a ledger
+    # write. No conversion, no embedding, no worker dispatch (deferred to the
+    # background finalize batch). Referenced docs move to ``index_status`` =
+    # ``referenced`` so the chips reflect it live.
+    view_references: List[Dict[str, Any]] = []
+    if speaker == "expert" and normalized_document_refs:
+        trigger_phrase = _detect_capture_deictic_phrase(text)
+        if trigger_phrase:
+            seen_view_keys: set[str] = set()
+            for ref in normalized_document_refs:
+                view_key = _capture_view_key(ref)
+                if view_key in seen_view_keys:
+                    continue
+                seen_view_keys.add(view_key)
+                collection_slug = (
+                    ref.get("collection")
+                    or ref.get("collection_name")
+                    or capture_document_collection_slug(session.id)
+                )
+                payload = {
+                    "document_id": ref.get("document_id"),
+                    "collection": collection_slug,
+                    "collection_name": collection_slug,
+                    "filename": ref.get("filename"),
+                    "title": ref.get("title") or ref.get("filename") or ref.get("document_id"),
+                    "page": ref.get("page") or ref.get("page_number"),
+                    "slide": ref.get("slide"),
+                    "image_index": ref.get("image_index"),
+                    "timecode_ms": ref.get("timecode_ms") or timecode_ms,
+                    "turn_id": turn["id"],
+                    "statement": text,
+                    "trigger_phrase": trigger_phrase,
+                    "association_mode": ref.get("association_mode") or "active_view",
+                }
+                payload = {key: value for key, value in payload.items() if value is not None}
+                view_event = _record_capture_event(
+                    db,
+                    session=session,
+                    event_type="capture_view_referenced",
+                    speaker="expert",
+                    question_id=question_id,
+                    source="capture_document",
+                    status="accepted",
+                    parent_event_id=event.id,
+                    created_by=actor_user_id,
+                    meta_data=payload,
+                )
+                # Surface the ledger position (sequence) inside the payload so the
+                # realtime push and the report citations share one shape.
+                enriched = {**payload, "event_id": view_event.id, "event_sequence": view_event.sequence}
+                view_event.meta_data = enriched
+                flag_modified(view_event, "meta_data")
+                _mark_capture_document_index_status(
+                    session,
+                    document_keys=_capture_document_keys(ref),
+                    status="referenced",
+                )
+                view_references.append(enriched)
+
     if persist_transcript:
         # Keep the materialized cache in sync. When prior silent turns deferred the
         # rewrite, catch up from the ledger (the new turn's event is already
@@ -5839,6 +6528,7 @@ def append_turn(
         "next_prompt": next_prompt,
         "next_question_id": (next_question or {}).get("id") if speaker == "expert" else None,
         "system_prompt_event_id": system_prompt_event_id,
+        "view_references": view_references,
     }
 
 

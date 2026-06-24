@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { firstValueFrom, Subscription } from 'rxjs';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { ApiService, CaptureDocumentViewRequest, PublishedCaptureFiche } from '@app/core/api.service';
+import { ApiService, CaptureDocumentViewRequest, CaptureTurnResponse, CaptureViewReference, PublishedCaptureFiche } from '@app/core/api.service';
 import { I18nService } from '@app/core/i18n.service';
 import { LiveKitConversationConnection, LiveKitConversationService } from '@app/core/livekit-conversation.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
@@ -169,12 +169,8 @@ interface SystemOption {
   flow_definition?: Record<string, unknown>;
 }
 
-interface TurnResponse {
+interface TurnResponse extends CaptureTurnResponse {
   session: CaptureSession;
-  next_prompt?: string | null;
-  next_question_id?: string | null;
-  system_prompt_event_id?: string | null;
-  evaluation?: { verdict: string; score: number; follow_up?: string } | null;
 }
 
 interface CaptureEvent {
@@ -366,6 +362,13 @@ interface CaptureReportStructureNode {
   subtopics?: CaptureReportStructureNode[];
 }
 
+/**
+ * Per-document indexing lifecycle shared with the backend. During the session
+ * we only ever surface `not_indexed` / `referenced`; `queued` / `indexed` /
+ * `failed` belong to the end-of-capture background batch.
+ */
+type CaptureIndexStatus = 'not_indexed' | 'referenced' | 'queued' | 'indexed' | 'failed';
+
 interface CaptureSessionDocument {
   document_id?: string | null;
   filename?: string | null;
@@ -375,6 +378,34 @@ interface CaptureSessionDocument {
   status?: string | null;
   chunks_processed?: number | null;
   job_id?: string | null;
+  /** Indexing lifecycle state (shared contract with the backend). */
+  index_status?: CaptureIndexStatus | null;
+  /** Number of journaled view references pointing at this document. */
+  referenced_views_count?: number | null;
+  /** Selected for full-document ingestion by the end-of-capture batch. */
+  full_share?: boolean | null;
+}
+
+/** A document view pinned to the omni-composer ("en focus"). */
+interface CapturePinnedView {
+  key: string;
+  document_id: string | null;
+  collection: string | null;
+  filename: string | null;
+  title: string | null;
+  page?: number | null;
+  slide?: number | null;
+  image_index?: number | null;
+  association_mode?: string;
+}
+
+/** Live "reference journalisée" micro-feedback raised on capture.view.referenced. */
+interface CaptureReferenceToast {
+  id: string;
+  label: string;
+  document_id: string | null;
+  /** Whether the receipt optimistically bumped the chip (for local undo). */
+  bumped_chip: boolean;
 }
 
 interface CaptureDocumentsResponse {
@@ -1843,12 +1874,12 @@ interface ProposalFact {
                       <div class="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <p class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">Documents de capture</p>
-                          @if (activeCaptureDocumentView(); as view) {
+                          @if (pinnedCaptureDocumentViews().length; as pinCount) {
                             <p class="mt-1 text-xs text-cyan-100">
-                              Vue active : {{ captureDocumentViewLabel(view) }}
+                              {{ pinCount }} {{ pinCount > 1 ? 'pièces épinglées' : 'pièce épinglée' }} — portées par chaque tour.
                             </p>
                           } @else {
-                            <p class="mt-1 text-xs text-gray-500">Associez une page, une slide ou une image au fil de capture.</p>
+                            <p class="mt-1 text-xs text-gray-500">Épinglez une page, une slide ou une image pour l'illustrer au fil de capture.</p>
                           }
                         </div>
                         <input
@@ -1872,43 +1903,97 @@ interface ProposalFact {
                       @if (captureDocuments().length) {
                         <div class="mt-3 flex flex-wrap gap-2">
                           @for (doc of captureDocuments(); track captureDocumentTrack(doc, $index)) {
-                            <button
-                              type="button"
-                              class="inline-flex max-w-full items-center gap-2 rounded bg-black/20 px-2.5 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
-                              (click)="previewCaptureDocument(doc)"
+                            <div
+                              class="inline-flex max-w-full items-center gap-2 rounded bg-black/20 px-2.5 py-1.5 text-xs text-gray-200 ring-1"
+                              [class]="isCaptureDocumentPinned(doc) ? 'ring-brand-300/40 bg-brand-500/10' : 'ring-white/10'"
                             >
-                              <app-icon name="file-text" [size]="13" class="text-cyan-200" />
-                              <span class="truncate">{{ captureDocumentLabel(doc) }}</span>
-                              <span class="text-[10px] text-gray-500">{{ doc.status || 'ready' }}</span>
-                            </button>
+                              <button
+                                type="button"
+                                class="inline-flex min-w-0 items-center gap-2 hover:text-white"
+                                title="Aperçu (épingle la vue)"
+                                (click)="previewCaptureDocument(doc)"
+                              >
+                                <app-icon name="file-text" [size]="13" class="text-cyan-200" />
+                                <span class="truncate">{{ captureDocumentLabel(doc) }}</span>
+                              </button>
+                              <span class="inline-flex items-center gap-1 text-[10px] text-gray-400" [title]="captureDocumentIndexLabel(doc)">
+                                <span class="h-1.5 w-1.5 rounded-full" [class]="captureDocumentIndexDotClass(doc)"></span>
+                                {{ captureDocumentIndexLabel(doc) }}
+                                @if (captureReferencedViewsCount(doc); as refs) {
+                                  <span class="text-brand-200">· {{ refs }}</span>
+                                }
+                              </span>
+                              <button
+                                type="button"
+                                class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ring-1"
+                                [class]="isCaptureDocumentPinned(doc)
+                                  ? 'bg-brand-500/20 text-brand-100 ring-brand-300/30'
+                                  : 'bg-white/5 text-gray-300 ring-white/10 hover:bg-white/10'"
+                                [attr.aria-pressed]="isCaptureDocumentPinned(doc)"
+                                [disabled]="!canCaptureUpdate(s)"
+                                (click)="togglePinCaptureDocument(doc)"
+                              >
+                                <app-icon name="pin" [size]="11" />
+                                {{ isCaptureDocumentPinned(doc) ? 'Désépingler' : 'Épingler' }}
+                              </button>
+                            </div>
                           }
                         </div>
                       }
-                      <div class="mt-3 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                    </section>
+                  }
+                  @if (sessionHasStarted(s)) {
+                    <section class="rounded border border-white/10 bg-white/[0.03] p-3 space-y-3">
+                      @if (pinnedCaptureDocumentViews().length) {
+                        <div class="flex flex-wrap items-center gap-2">
+                          <span class="ck-mono text-[9px] uppercase tracking-wider text-gray-500">Focus</span>
+                          @for (pin of pinnedCaptureDocumentViews(); track pin.key) {
+                            <span
+                              class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] ring-1"
+                              [class]="pin.key === focusedPinKey()
+                                ? 'bg-brand-500/20 text-brand-100 ring-brand-300/40'
+                                : 'bg-white/5 text-gray-300 ring-white/10'"
+                            >
+                              <button type="button" class="inline-flex items-center gap-1.5" (click)="focusCapturePin(pin.key)">
+                                <app-icon name="pin" [size]="11" />
+                                {{ capturePinLabel(pin) }}
+                              </button>
+                              <button
+                                type="button"
+                                class="inline-flex items-center justify-center rounded-full hover:text-white"
+                                [attr.aria-label]="'Retirer ' + capturePinLabel(pin)"
+                                (click)="unpinCaptureView(pin.key)"
+                              >
+                                <app-icon name="x" [size]="11" />
+                              </button>
+                            </span>
+                          }
+                          <span class="text-[10px] text-gray-500">
+                            ({{ pinnedCaptureDocumentViews().length }} {{ pinnedCaptureDocumentViews().length > 1 ? 'pièces en focus' : 'pièce en focus' }})
+                          </span>
+                        </div>
+                      }
+                      <div class="flex items-end gap-2">
                         <textarea
-                          class="min-h-16 rounded bg-black/30 border border-white/10 px-3 py-2 text-xs text-white leading-relaxed"
-                          [(ngModel)]="writtenCaptureDraft"
-                          placeholder="Note écrite liée au tour ou à la vue active..."
+                          class="flex-1 min-h-12 max-h-40 rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white leading-relaxed"
+                          rows="2"
+                          [(ngModel)]="answer"
+                          (ngModelChange)="onAnswerDraftChange()"
+                          (keydown)="onCaptureComposerKeydown($event, s)"
+                          [placeholder]="captureComposerPlaceholder(s)"
                         ></textarea>
                         <button
                           type="button"
-                          class="inline-flex items-center justify-center gap-2 rounded bg-cyan-500/20 px-3 py-2 text-xs font-semibold text-cyan-100 ring-1 ring-cyan-300/20 hover:bg-cyan-500/30 disabled:opacity-50"
-                          [disabled]="!writtenCaptureDraft.trim() || !canCaptureUpdate(s)"
-                          (click)="sendWrittenCaptureNote(s)"
+                          class="inline-flex shrink-0 items-center justify-center gap-2 rounded bg-brand-500 hover:bg-brand-400 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                          [disabled]="!answer.trim() || !canCaptureUpdate(s)"
+                          [title]="captureComposerSendHint(s)"
+                          (click)="submitCaptureExpression(s)"
                         >
-                          <app-icon name="send" [size]="13" />
-                          Ajouter la note
+                          <app-icon name="send" [size]="14" />
+                          Envoyer
                         </button>
                       </div>
                     </section>
-                  }
-                  @if (showAnswerComposer(s)) {
-                    <textarea
-                      class="w-full min-h-28 rounded bg-black/30 border border-white/10 px-4 py-3 text-sm text-white leading-relaxed"
-                      [(ngModel)]="answer"
-                      (ngModelChange)="onAnswerDraftChange()"
-                      placeholder="Saisir ou corriger la réponse expert avant évaluation..."
-                    ></textarea>
                   }
                 </div>
 
@@ -1943,7 +2028,7 @@ interface ProposalFact {
                           class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-sm font-semibold text-emerald-100 ring-1 ring-emerald-400/20 disabled:opacity-50 sm:w-auto"
                           [disabled]="closureActionLoading() || transcribing()"
                           title="Clôt toutes les sections restantes et lance la phase finale (proposition)."
-                          (click)="finishCapture(s)"
+                          (click)="openCaptureTriage(s)"
                         >
                           <app-icon name="flag" [size]="14" /> Terminer la capture
                         </button>
@@ -1970,14 +2055,6 @@ interface ProposalFact {
                       </button>
                     }
                     @if (showAnswerComposer(s)) {
-                      <button
-                        type="button"
-                        class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50 sm:w-auto"
-                        [disabled]="!answer.trim() || !canCaptureUpdate(s)"
-                        (click)="sendAnswer(s)"
-                      >
-                        <app-icon name="send" [size]="14" /> {{ captureAnswerActionLabel(s) }}
-                      </button>
                       <button
                         type="button"
                         class="inline-flex w-full items-center justify-center gap-2 px-3 py-2.5 rounded bg-white/5 hover:bg-white/10 text-sm text-gray-200 ring-1 ring-white/10 disabled:opacity-50 sm:w-auto"
@@ -2959,6 +3036,25 @@ interface ProposalFact {
               }
             </div>
 
+            <!-- Discrete, non-blocking background-indexing status (does not gate
+                 reading the report — citations come from journaled references). -->
+            @if (captureBackgroundIndexing(); as idx) {
+              @if (idx.visible) {
+                <div class="flex items-center gap-3 rounded border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <app-icon name="loader-2" [size]="13" class="text-brand-300 animate-spin shrink-0" />
+                  <div class="min-w-0 flex-1">
+                    <p class="text-[11px] text-gray-300">Indexation en arrière-plan — {{ idx.indexed }}/{{ idx.total }} vue(s)/doc(s)</p>
+                    <div class="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/5">
+                      <div class="h-full rounded-full bg-brand-400 transition-all duration-700" [style.width.%]="idx.total ? (idx.indexed / idx.total) * 100 : 0"></div>
+                    </div>
+                  </div>
+                  @if (idx.failed) {
+                    <span class="text-[11px] text-red-300 shrink-0">{{ idx.failed }} échec(s)</span>
+                  }
+                </div>
+              }
+            }
+
             <div class="space-y-3">
               <div class="flex items-center justify-between gap-3">
                 <label class="block text-[10px] uppercase tracking-wider text-brand-300">{{ i18n.t('capture.review.final_report') }}</label>
@@ -3743,6 +3839,87 @@ interface ProposalFact {
       </div>
     }
 
+    <!-- End-of-capture triage: choose which docs to share in FULL. Views shown
+         during the session are already journaled; this only adds full ingestion. -->
+    @if (captureTriageOpen()) {
+      <div class="fixed inset-0 z-[75] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <section class="w-full max-w-lg rounded-lg bg-gray-950 ring-1 ring-white/10 shadow-2xl p-6 space-y-5">
+          <div>
+            <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-300">Terminer la capture</p>
+            <h2 class="mt-0.5 text-base font-semibold text-white">Que partager en entier dans la base ?</h2>
+            <p class="mt-1 text-xs text-gray-500">Les vues que vous avez montrées sont déjà journalisées.</p>
+          </div>
+          <div class="space-y-2 max-h-72 overflow-auto">
+            @for (doc of captureDocuments(); track captureDocumentTrack(doc, $index)) {
+              <label class="flex items-center justify-between gap-3 rounded border border-white/10 bg-white/[0.03] px-3 py-2.5 cursor-pointer hover:bg-white/[0.06]">
+                <span class="flex items-center gap-2 min-w-0">
+                  <app-icon name="file-text" [size]="14" class="text-cyan-200 shrink-0" />
+                  <span class="truncate text-sm text-gray-100">{{ captureDocumentLabel(doc) }}</span>
+                </span>
+                <span class="flex items-center gap-3 shrink-0">
+                  @if (captureReferencedViewsCount(doc); as refs) {
+                    <span class="text-[11px] text-brand-200">{{ refs }} {{ refs > 1 ? 'vues référencées' : 'vue référencée' }}</span>
+                  } @else {
+                    <span class="text-[11px] text-gray-500">0 vue</span>
+                  }
+                  <span class="inline-flex items-center gap-1.5 text-[11px] text-gray-300">
+                    <input
+                      type="checkbox"
+                      class="accent-brand-400"
+                      [checked]="isTriageDocSelected(doc)"
+                      (change)="toggleTriageDoc(doc)"
+                    />
+                    partager tout
+                  </span>
+                </span>
+              </label>
+            }
+          </div>
+          <div class="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              class="inline-flex items-center gap-2 rounded bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-gray-200 ring-1 ring-white/10"
+              (click)="skipCaptureTriage()"
+            >
+              Passer
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center gap-2 rounded bg-brand-500 hover:bg-brand-400 px-3 py-2 text-sm font-semibold text-white"
+              (click)="confirmCaptureTriage()"
+            >
+              <app-icon name="flag" [size]="14" /> Terminer et générer
+            </button>
+          </div>
+        </section>
+      </div>
+    }
+
+    <!-- Non-blocking "référence journalisée" micro-feedback (3-4s, reversible). -->
+    @if (captureReferenceToast(); as toast) {
+      <div class="fixed bottom-6 left-1/2 z-[85] -translate-x-1/2" role="status" aria-live="polite">
+        <div class="flex items-center gap-3 rounded-full bg-gray-900/95 px-4 py-2.5 text-sm text-gray-100 ring-1 ring-brand-300/30 shadow-2xl backdrop-blur">
+          <app-icon name="pin" [size]="14" class="text-brand-200" />
+          <span>Référence journalisée — {{ toast.label }}</span>
+          <button
+            type="button"
+            class="rounded px-2 py-0.5 text-xs font-semibold text-brand-200 hover:text-brand-100 hover:bg-white/10"
+            (click)="undoCaptureReference()"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center justify-center rounded-full text-gray-400 hover:text-white"
+            aria-label="Fermer"
+            (click)="dismissCaptureReferenceToast()"
+          >
+            <app-icon name="x" [size]="13" />
+          </button>
+        </div>
+      </div>
+    }
+
     <app-document-preview
       [open]="sourcePreviewOpen()"
       [previewUrl]="sourcePreviewUrl()"
@@ -3935,7 +4112,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   contextId = '';
   systemId = '';
   answer = '';
-  writtenCaptureDraft = '';
   selectedKnowledgeCollection = '';
   newContextName = '';
   selectedDomain = 'technical';
@@ -4189,8 +4365,20 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   readonly captureDocuments = signal<CaptureSessionDocument[]>([]);
   readonly captureDocumentsCollection = signal<string | null>(null);
   readonly captureDocumentsUploading = signal(false);
-  readonly activeCaptureDocumentView = signal<Record<string, unknown> | null>(null);
+  // Multi-pin model: every turn (voice or text) carries ALL pinned views; the
+  // focused pin is the one whose page follows the preview navigation.
+  readonly pinnedCaptureDocumentViews = signal<CapturePinnedView[]>([]);
+  readonly focusedPinKey = signal<string | null>(null);
   readonly sourcePreviewCaptureDocument = signal<CaptureSessionDocument | null>(null);
+  // Non-blocking "reference journalisée" micro-feedback (toast + Undo) raised by
+  // the realtime `capture.view.referenced` event. Local-only undo (no backend
+  // undo endpoint in the shared contract): reverts the optimistic chip bump.
+  readonly captureReferenceToast = signal<CaptureReferenceToast | null>(null);
+  private captureReferenceToastTimer: ReturnType<typeof setTimeout> | null = null;
+  // End-of-capture triage modal: choose which docs to share in full.
+  readonly captureTriageOpen = signal(false);
+  readonly captureTriageSelection = signal<Set<string>>(new Set());
+  private captureTriageSession: CaptureSession | null = null;
   // FINAL-phase gating: true between capture.finish and the proposal-ready
   // conversation.step. While true the report screen stays locked behind the
   // finalization loader, whose stage label follows the gateway's honest
@@ -4389,7 +4577,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.sessionTitle = '';
     this.objective = '';
     this.answer = '';
-    this.writtenCaptureDraft = '';
     this.expertProfile = 'Expert métier';
     this.durationMinutes = 20;
     this.durationUnlimited.set(false);
@@ -4456,10 +4643,14 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.lastEventSequence = null;
     this.hintStack.set([]);
     this.activeSubtopicId.set(null);
-    this.writtenCaptureDraft = '';
     this.captureDocuments.set([]);
     this.captureDocumentsCollection.set(null);
-    this.activeCaptureDocumentView.set(null);
+    this.pinnedCaptureDocumentViews.set([]);
+    this.focusedPinKey.set(null);
+    this.dismissCaptureReferenceToast();
+    this.captureTriageOpen.set(false);
+    this.captureTriageSelection.set(new Set());
+    this.captureTriageSession = null;
     this.sourcePreviewCaptureDocument.set(null);
     this.questionBankStatus.set('idle');
     this.planNotice.set(null);
@@ -4486,7 +4677,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.pendingLiveCommits.set([]);
     this.relanceAnnotations.set([]);
     this.answer = '';
-    this.writtenCaptureDraft = '';
     this.currentClientTurnId = null;
     this.transcriptAtBottom.set(true);
   }
@@ -5880,6 +6070,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         if (typed.next_question_id) {
           this.selectedQuestionId.set(typed.next_question_id);
         }
+        // Text turn: deictic references are journaled synchronously here (no WS).
+        this.handleTurnViewReferences(typed);
         this.answer = '';
         this.currentClientTurnId = null;
         this.interruptionOfEventId.set(null);
@@ -5892,11 +6084,22 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       });
   }
 
-  sendWrittenCaptureNote(session: CaptureSession): void {
-    const text = this.writtenCaptureDraft.trim();
+  /**
+   * Unified omni-composer submit. Routes the typed expression the same way a
+   * voice turn flows: in manual mode it is an evaluated answer (`sendAnswer`),
+   * otherwise it is a silent text turn (input_modality `text`,
+   * compute_evaluation=false). Both carry every pinned view via
+   * `activeCaptureDocumentFields()`.
+   */
+  submitCaptureExpression(session: CaptureSession): void {
+    const text = this.answer.trim();
     if (!text) return;
     if (!this.canCaptureUpdate(session)) {
       this.setVoiceNotice('Votre rôle ne permet pas de modifier cette session de capture.', 'error');
+      return;
+    }
+    if (this.conversationMode() === 'manual' || this.textFallbackActive()) {
+      this.sendAnswer(session);
       return;
     }
     const documentFields = this.activeCaptureDocumentFields();
@@ -5910,6 +6113,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         interruption_of_event_id: this.interruptionOfEventId(),
         turn_kind: this.interruptionOfEventId() ? 'correction' : 'complement',
         input_modality: 'text',
+        compute_evaluation: false,
         ...documentFields,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -5917,14 +6121,36 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         next: (res) => {
           const typed = res as TurnResponse;
           this.session.set(typed.session);
-          this.writtenCaptureDraft = '';
+          // Text turn: deictic references are journaled synchronously here (no WS).
+          this.handleTurnViewReferences(typed);
+          this.answer = '';
+          this.interruptionOfEventId.set(null);
           this.refreshEvents(typed.session.id);
-          this.setVoiceNotice('Note écrite ajoutée à la capture.', 'info');
         },
         error: () => {
-          this.setVoiceNotice('Impossible d’ajouter la note écrite.', 'error');
+          this.setVoiceNotice('Impossible d’enregistrer cette expression écrite.', 'error');
         },
       });
+  }
+
+  /** Enter sends the composer, Shift+Enter inserts a newline. */
+  onCaptureComposerKeydown(event: KeyboardEvent, session: CaptureSession): void {
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    event.preventDefault();
+    this.submitCaptureExpression(session);
+  }
+
+  captureComposerPlaceholder(_session: CaptureSession): string {
+    if (this.conversationMode() === 'manual' || this.textFallbackActive()) {
+      return 'Saisir ou corriger la réponse expert avant évaluation…';
+    }
+    return 'Écrire ou parler… (Entrée pour envoyer, Maj+Entrée pour un retour à la ligne)';
+  }
+
+  captureComposerSendHint(_session: CaptureSession): string {
+    return this.conversationMode() === 'manual' || this.textFallbackActive()
+      ? 'Envoyer la réponse pour évaluation.'
+      : 'Enregistrer cette expression écrite comme un tour de capture.';
   }
 
   textEvents(): CaptureEvent[] {
@@ -8571,6 +8797,8 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
         this.lastEvaluation.set(typed.evaluation || null);
         this.nextPrompt.set(typed.next_prompt || null);
         this.lastSystemPromptEventId.set(typed.system_prompt_event_id || null);
+        // Text turn: deictic references are journaled synchronously here (no WS).
+        this.handleTurnViewReferences(typed);
         this.answer = '';
         this.currentClientTurnId = null;
         this.interruptionOfEventId.set(null);
@@ -9494,6 +9722,12 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       const committedSession = this.session();
       if (committedSession) this.refreshEvents(committedSession.id);
       this.scheduleConversationResume(this.voiceLoopCooldownMs());
+      return;
+    }
+    if (event.type === 'capture.view.referenced') {
+      // A deictic mention was journaled by the backend: non-blocking toast +
+      // optimistic chip bump (status `referenced`, view count +1).
+      this.handleCaptureViewReferencedEvent(payload);
       return;
     }
     if (event.type === 'capture.finalize.progress') {
@@ -11017,7 +11251,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     const collection = String(payload.collection || payload.collection_name || '').trim();
     if (collection) this.captureDocumentsCollection.set(collection);
     this.captureDocuments.set((payload.documents || []).filter((doc) => Boolean(doc)));
-    this.activeCaptureDocumentView.set(payload.active_view || null);
+    // Pins are client-driven (multi-pin focus tray); drop any pin whose document
+    // is no longer part of the session.
+    const known = new Set(this.captureDocuments().map((doc) => this.pinKeyFor(doc)).filter(Boolean));
+    if (this.pinnedCaptureDocumentViews().some((pin) => !known.has(pin.key))) {
+      this.pinnedCaptureDocumentViews.update((pins) => pins.filter((pin) => known.has(pin.key)));
+      if (!this.pinnedCaptureDocumentViews().some((pin) => pin.key === this.focusedPinKey())) {
+        this.focusedPinKey.set(this.pinnedCaptureDocumentViews()[0]?.key ?? null);
+      }
+    }
     if (payload.session) {
       this.session.set(payload.session);
     }
@@ -11079,6 +11321,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     this.sourcePreviewPage.set(1);
     this.sourcePreviewHighlight.set(null);
     this.sourcePreviewOpen.set(true);
+    // Previewing a doc pins (and focuses) it so the next turn carries this view.
     this.persistCaptureDocumentView(doc, { page: 1, association_mode: 'active_view' });
   }
 
@@ -11092,7 +11335,95 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
     });
   }
 
+  // --- Multi-pin focus tray --------------------------------------------------
+
+  private pinKeyFor(doc: { document_id?: string | null; filename?: string | null }): string {
+    return String(doc.document_id || doc.filename || '').trim();
+  }
+
+  private docToPinSeed(doc: CaptureSessionDocument): CapturePinnedView {
+    const collection = String(doc.collection || doc.collection_name || this.captureDocumentsCollection() || '').trim();
+    return {
+      key: this.pinKeyFor(doc),
+      document_id: doc.document_id || null,
+      collection: collection || null,
+      filename: doc.filename || null,
+      title: doc.title || doc.filename || doc.document_id || null,
+      association_mode: 'active_view',
+    };
+  }
+
+  private upsertPin(seed: CapturePinnedView, patch: Partial<CapturePinnedView>): CapturePinnedView {
+    const existing = this.pinnedCaptureDocumentViews().find((pin) => pin.key === seed.key);
+    const pin: CapturePinnedView = { ...(existing ?? seed), ...patch, key: seed.key };
+    this.pinnedCaptureDocumentViews.update((pins) => {
+      const idx = pins.findIndex((p) => p.key === seed.key);
+      if (idx === -1) return [...pins, pin];
+      const next = pins.slice();
+      next[idx] = pin;
+      return next;
+    });
+    return pin;
+  }
+
+  /** Pin (creating or updating) a document view and make it the focused pin. */
+  private pinCaptureDocument(doc: CaptureSessionDocument, patch: Partial<CapturePinnedView> = {}): CapturePinnedView {
+    const cleaned: Partial<CapturePinnedView> = {};
+    if (patch.page !== undefined) cleaned.page = patch.page;
+    if (patch.slide !== undefined) cleaned.slide = patch.slide;
+    if (patch.image_index !== undefined) cleaned.image_index = patch.image_index;
+    if (patch.association_mode !== undefined) cleaned.association_mode = patch.association_mode;
+    const pin = this.upsertPin(this.docToPinSeed(doc), cleaned);
+    this.focusedPinKey.set(pin.key);
+    return pin;
+  }
+
+  isCaptureDocumentPinned(doc: CaptureSessionDocument): boolean {
+    const key = this.pinKeyFor(doc);
+    return Boolean(key) && this.pinnedCaptureDocumentViews().some((pin) => pin.key === key);
+  }
+
+  /** Chip toggle: pin/focus an untracked doc, or remove an existing pin. */
+  togglePinCaptureDocument(doc: CaptureSessionDocument): void {
+    const key = this.pinKeyFor(doc);
+    if (!key) return;
+    if (this.isCaptureDocumentPinned(doc)) {
+      this.unpinCaptureView(key);
+    } else {
+      this.pinCaptureDocument(doc);
+    }
+  }
+
+  unpinCaptureView(key: string): void {
+    this.pinnedCaptureDocumentViews.update((pins) => pins.filter((pin) => pin.key !== key));
+    if (this.focusedPinKey() === key) {
+      this.focusedPinKey.set(this.pinnedCaptureDocumentViews()[0]?.key ?? null);
+    }
+  }
+
+  focusCapturePin(key: string): void {
+    if (this.pinnedCaptureDocumentViews().some((pin) => pin.key === key)) {
+      this.focusedPinKey.set(key);
+    }
+  }
+
+  capturePinLabel(pin: CapturePinnedView): string {
+    const title = String(pin.title || pin.filename || pin.document_id || 'Document').trim();
+    if (pin.slide) return `${title} · slide ${pin.slide}`;
+    if (pin.page) return `${title} · p.${pin.page}`;
+    if (pin.image_index != null) return `${title} · image ${pin.image_index + 1}`;
+    return title;
+  }
+
   private persistCaptureDocumentView(doc: CaptureSessionDocument, patch: Partial<CaptureDocumentViewRequest>): void {
+    // Always pin locally so every subsequent turn carries this view, even when
+    // the (best-effort) server-side view log fails.
+    this.pinCaptureDocument(doc, {
+      page: patch.page ?? undefined,
+      slide: patch.slide ?? undefined,
+      image_index: patch.image_index ?? undefined,
+      association_mode: patch.association_mode || 'active_view',
+    });
     const session = this.session();
     if (!session) return;
     const collection = String(doc.collection || doc.collection_name || this.captureDocumentsCollection() || '').trim();
@@ -11104,14 +11435,15 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       title: doc.title || doc.filename || doc.document_id || null,
       ...patch,
     };
-    this.activeCaptureDocumentView.set(body as Record<string, unknown>);
     this.api
       .recordCaptureDocumentView(session.id, body)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (payload) => {
           const typed = payload as CaptureDocumentsResponse;
-          if (typed.active_view) this.activeCaptureDocumentView.set(typed.active_view);
+          if (typed.documents) {
+            this.captureDocuments.set(typed.documents.filter((entry) => Boolean(entry)));
+          }
           if (typed.session) this.session.set(typed.session);
         },
         error: () => {
@@ -11120,24 +11452,285 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       });
   }
 
-  private activeCaptureDocumentRef(): Record<string, unknown> | null {
-    const view = this.activeCaptureDocumentView();
-    if (!view) return null;
-    return {
-      ...view,
-      association_mode: String(view['association_mode'] || 'active_view'),
+  private pinToRef(pin: CapturePinnedView): Record<string, unknown> {
+    const ref: Record<string, unknown> = {
+      document_id: pin.document_id,
+      collection: pin.collection,
+      collection_name: pin.collection,
+      filename: pin.filename,
+      title: pin.title,
+      association_mode: pin.association_mode || 'active_view',
     };
+    if (pin.page != null) ref['page'] = pin.page;
+    if (pin.slide != null) ref['slide'] = pin.slide;
+    if (pin.image_index != null) ref['image_index'] = pin.image_index;
+    return ref;
   }
 
+  /** Every pinned view rides on each turn; the focused pin is the visual_context. */
   private activeCaptureDocumentFields(): {
     document_refs: Record<string, unknown>[];
     visual_context: Record<string, unknown> | null;
   } {
-    const ref = this.activeCaptureDocumentRef();
+    const pins = this.pinnedCaptureDocumentViews();
+    if (!pins.length) return { document_refs: [], visual_context: null };
+    const focusKey = this.focusedPinKey();
+    const focus = pins.find((pin) => pin.key === focusKey) || pins[0];
     return {
-      document_refs: ref ? [ref] : [],
-      visual_context: ref,
+      document_refs: pins.map((pin) => this.pinToRef(pin)),
+      visual_context: this.pinToRef(focus),
     };
+  }
+
+  // --- Index status (per-doc chip) ------------------------------------------
+
+  captureDocumentIndexStatus(doc: CaptureSessionDocument): CaptureIndexStatus {
+    const status = String(doc.index_status || '').trim() as CaptureIndexStatus;
+    if (status === 'referenced' || status === 'queued' || status === 'indexed' || status === 'failed') {
+      return status;
+    }
+    return 'not_indexed';
+  }
+
+  captureDocumentIndexLabel(doc: CaptureSessionDocument): string {
+    switch (this.captureDocumentIndexStatus(doc)) {
+      case 'referenced':
+        return 'référencé';
+      case 'queued':
+        return 'en file';
+      case 'indexed':
+        return 'indexé';
+      case 'failed':
+        return 'échec';
+      default:
+        return 'non indexé';
+    }
+  }
+
+  captureDocumentIndexDotClass(doc: CaptureSessionDocument): string {
+    switch (this.captureDocumentIndexStatus(doc)) {
+      case 'referenced':
+        return 'bg-brand-300';
+      case 'queued':
+        return 'bg-amber-300 animate-pulse';
+      case 'indexed':
+        return 'bg-emerald-400';
+      case 'failed':
+        return 'bg-red-400';
+      default:
+        return 'bg-gray-600';
+    }
+  }
+
+  captureReferencedViewsCount(doc: CaptureSessionDocument): number {
+    const value = Number(doc.referenced_views_count ?? 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+
+  // --- "Référence journalisée" toast (capture.view.referenced) --------------
+
+  /**
+   * Single convergence point for a journaled deictic view reference, fed by the
+   * realtime WS event (voice turns) AND the turn HTTP response (text turns). Do
+   * not feed both for the same turn: voice = WS only, text = HTTP only.
+   */
+  private applyJournaledViewReference(ref: CaptureViewReference): void {
+    const documentId = String(ref.document_id || '').trim() || null;
+    const title = String(ref.title || ref.filename || 'Document').trim();
+    const page = this.coercePage(ref.page ?? ref.slide);
+    const imageIndex = this.coercePage(
+      typeof ref.image_index === 'number' ? ref.image_index + 1 : ref.image_index,
+    );
+    let label = title;
+    if (page) label = `${title} p.${page}`;
+    else if (imageIndex) label = `${title} image ${imageIndex}`;
+    // Optimistic chip bump: mark the doc referenced and count the view.
+    const bumped = this.bumpReferencedDocument(documentId);
+    this.showCaptureReferenceToast({
+      id: String(ref.turn_id || Date.now()),
+      label,
+      document_id: documentId,
+      bumped_chip: bumped,
+    });
+  }
+
+  /** WS path (voice turns): the gateway pushes one reference per event. */
+  private handleCaptureViewReferencedEvent(payload: Record<string, any>): void {
+    this.applyJournaledViewReference(payload as CaptureViewReference);
+  }
+
+  /** HTTP path (text turns): the turn response carries the journaled references. */
+  private handleTurnViewReferences(response: CaptureTurnResponse): void {
+    for (const ref of response.view_references || []) {
+      this.applyJournaledViewReference(ref);
+    }
+  }
+
+  private bumpReferencedDocument(documentId: string | null): boolean {
+    if (!documentId) return false;
+    let bumped = false;
+    this.captureDocuments.update((docs) =>
+      docs.map((doc) => {
+        if (String(doc.document_id || '').trim() !== documentId) return doc;
+        bumped = true;
+        const status = this.captureDocumentIndexStatus(doc);
+        return {
+          ...doc,
+          index_status: status === 'not_indexed' ? 'referenced' : doc.index_status,
+          referenced_views_count: this.captureReferencedViewsCount(doc) + 1,
+        };
+      }),
+    );
+    return bumped;
+  }
+
+  private showCaptureReferenceToast(toast: CaptureReferenceToast): void {
+    if (this.captureReferenceToastTimer) clearTimeout(this.captureReferenceToastTimer);
+    this.captureReferenceToast.set(toast);
+    this.captureReferenceToastTimer = setTimeout(() => {
+      this.captureReferenceToast.set(null);
+      this.captureReferenceToastTimer = null;
+    }, 4000);
+  }
+
+  dismissCaptureReferenceToast(): void {
+    if (this.captureReferenceToastTimer) {
+      clearTimeout(this.captureReferenceToastTimer);
+      this.captureReferenceToastTimer = null;
+    }
+    this.captureReferenceToast.set(null);
+  }
+
+  /**
+   * Reverts the optimistic chip bump locally. There is no backend undo endpoint
+   * in the shared contract, so the journaled reference itself persists server-side
+   * until the end-of-capture batch; this only walks back the live chip feedback.
+   */
+  undoCaptureReference(): void {
+    const toast = this.captureReferenceToast();
+    if (toast?.bumped_chip && toast.document_id) {
+      const documentId = toast.document_id;
+      this.captureDocuments.update((docs) =>
+        docs.map((doc) => {
+          if (String(doc.document_id || '').trim() !== documentId) return doc;
+          const count = Math.max(0, this.captureReferencedViewsCount(doc) - 1);
+          return {
+            ...doc,
+            referenced_views_count: count,
+            index_status: count === 0 && doc.index_status === 'referenced' ? 'not_indexed' : doc.index_status,
+          };
+        }),
+      );
+    }
+    this.dismissCaptureReferenceToast();
+  }
+
+  // --- End-of-capture triage (full-share selection) -------------------------
+
+  /** Non-blocking, discrete background-indexing summary for the report screen. */
+  readonly captureBackgroundIndexing = computed(() => {
+    const docs = this.captureDocuments();
+    let queued = 0;
+    let indexed = 0;
+    let failed = 0;
+    let active = 0;
+    for (const doc of docs) {
+      const status = this.captureDocumentIndexStatus(doc);
+      if (status === 'queued') {
+        queued += 1;
+        active += 1;
+      } else if (status === 'indexed') {
+        indexed += 1;
+        active += 1;
+      } else if (status === 'failed') {
+        failed += 1;
+        active += 1;
+      }
+    }
+    const total = queued + indexed + failed;
+    return { queued, indexed, failed, total, visible: active > 0 && queued + failed > 0 };
+  });
+
+  /** Triggered by "Terminer la capture": triage which docs to share in full. */
+  openCaptureTriage(session: CaptureSession): void {
+    if (!this.captureDocuments().length) {
+      this.finishCapture(session);
+      return;
+    }
+    this.captureTriageSession = session;
+    const preselected = new Set(
+      this.captureDocuments()
+        .filter((doc) => doc.full_share)
+        .map((doc) => String(doc.document_id || doc.filename || '').trim())
+        .filter(Boolean),
+    );
+    this.captureTriageSelection.set(preselected);
+    this.captureTriageOpen.set(true);
+  }
+
+  captureTriageDocId(doc: CaptureSessionDocument): string {
+    return String(doc.document_id || doc.filename || '').trim();
+  }
+
+  isTriageDocSelected(doc: CaptureSessionDocument): boolean {
+    return this.captureTriageSelection().has(this.captureTriageDocId(doc));
+  }
+
+  toggleTriageDoc(doc: CaptureSessionDocument): void {
+    const id = this.captureTriageDocId(doc);
+    if (!id) return;
+    const next = new Set(this.captureTriageSelection());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.captureTriageSelection.set(next);
+  }
+
+  closeCaptureTriage(): void {
+    this.captureTriageOpen.set(false);
+  }
+
+  /** "Passer": no full documents — only journaled views will be indexed. */
+  skipCaptureTriage(): void {
+    const session = this.captureTriageSession;
+    this.captureTriageOpen.set(false);
+    this.captureTriageSession = null;
+    if (session) this.finishCapture(session);
+  }
+
+  /** "Terminer et générer": persist full-share choices, then finalize. */
+  confirmCaptureTriage(): void {
+    const session = this.captureTriageSession;
+    if (!session) {
+      this.captureTriageOpen.set(false);
+      return;
+    }
+    const documentIds = Array.from(this.captureTriageSelection());
+    const proceed = () => {
+      this.captureTriageOpen.set(false);
+      this.captureTriageSession = null;
+      this.finishCapture(session);
+    };
+    if (!documentIds.length) {
+      proceed();
+      return;
+    }
+    // Optimistically reflect the choice; the report opens regardless of the
+    // selection call's result (indexing is a background concern).
+    this.captureDocuments.update((docs) =>
+      docs.map((doc) =>
+        documentIds.includes(this.captureTriageDocId(doc)) ? { ...doc, full_share: true } : doc,
+      ),
+    );
+    this.api
+      .setCaptureDocumentsFullShare(session.id, documentIds)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (payload) => this.applyCaptureDocuments(payload as CaptureDocumentsResponse),
+        error: () => {
+          // The selection is best-effort; never block finalization on it.
+        },
+      });
+    proceed();
   }
 
   // --- FINAL-phase loader (capture.finish gating) ---------------------------

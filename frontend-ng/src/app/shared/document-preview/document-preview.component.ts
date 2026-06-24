@@ -10,8 +10,13 @@ import { NgxExtendedPdfViewerModule, NgxExtendedPdfViewerService, pdfDefaultOpti
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { HIGHLIGHT_ANCHOR_ID, cellMatchesNeedle, escapeText, highlightPlainText, markRangeInDom, normalizeNeedleForCells, pdfFindPhrase } from './highlight-text.util';
 
-// pdf.js runtime assets are copied to /assets/pdfjs by angular.json.
-pdfDefaultOptions.assetsFolder = 'assets/pdfjs';
+// pdf.js runtime assets are copied to /assets/pdfjs by angular.json. ngx only
+// treats an assetsFolder containing "://" as absolute — a bare "assets/pdfjs"
+// becomes "./assets/pdfjs", resolved against the CURRENT route, so it 404s on
+// deep routes (e.g. /chat) and the worker/viewer never load (blank viewer).
+// An absolute URL built from document.baseURI is route- and baseHref-safe.
+pdfDefaultOptions.assetsFolder =
+  typeof document !== 'undefined' ? new URL('assets/pdfjs', document.baseURI).href : 'assets/pdfjs';
 
 interface RichDocumentPreview {
   kind: 'text' | 'html' | 'spreadsheet' | 'image' | 'pdf' | 'binary';
@@ -160,7 +165,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                     [src]="pdfUrl"
                     [page]="normalizedPage() || 1"
                     [textLayer]="true"
-                    [height]="'100%'"
+                    [height]="'72vh'"
                     backgroundColor="#0b1220"
                     [showSidebarButton]="false"
                     [showOpenFileButton]="false"

@@ -39,6 +39,7 @@ from app.services.knowledge_capture import (
     get_session,
     is_capture_text_noise,
     process_capture_partial_hints,
+    run_capture_finalize_index,
     serialize_proposal,
     serialize_session,
     set_active_capture_section,
@@ -1690,7 +1691,7 @@ class VoiceSessionGateway:
                 # Silent capture path: skip the evaluate/relance work (computed
                 # then thrown away here) and fold the per-turn voice_stream metrics
                 # into append_turn's single commit (no second get_session+commit).
-                append_turn(
+                turn_result = append_turn(
                     db,
                     workspace_id=workspace.id,
                     session_id=capture_session_id,
@@ -1718,6 +1719,29 @@ class VoiceSessionGateway:
                     voice_stream_metrics={**latency},
                 )
                 turn_to_prompt_ms = int((time.perf_counter() - turn_started) * 1000)
+            # Realtime feedback for journaled deictic view references ("comme on le
+            # voit sur cette page"...). One lightweight push per referenced view on
+            # the same stream that carries turns/questions, so the chips can flash
+            # "référence journalisée" without polling.
+            for ref in (turn_result or {}).get("view_references") or []:
+                await self._send(
+                    websocket,
+                    state,
+                    "capture.view.referenced",
+                    {
+                        "session_id": capture_session_id,
+                        "document_id": ref.get("document_id"),
+                        "filename": ref.get("filename"),
+                        "title": ref.get("title"),
+                        "page": ref.get("page"),
+                        "slide": ref.get("slide"),
+                        "image_index": ref.get("image_index"),
+                        "turn_id": ref.get("turn_id"),
+                        "timecode_ms": ref.get("timecode_ms"),
+                        "statement": ref.get("statement"),
+                        "trigger_phrase": ref.get("trigger_phrase"),
+                    },
+                )
             # Accumulate the committed expert text for the live grounded-question
             # context, scoped to the active plan section: switching sections
             # resets the buffer (and the questions, which belong to the old one).
@@ -2166,6 +2190,22 @@ class VoiceSessionGateway:
                 refreshed = self._capture_session(db, workspace.id, state.session_id)
                 if refreshed:
                     session_payload = serialize_session(refreshed)
+                # Background indexing batch (referenced views + full-share docs),
+                # decoupled from the report return: the report is sent below from
+                # the journaled refs while indexing runs off-loop in a worker
+                # thread. Idempotent + guarded against concurrent runs.
+                from app.db.base import SessionLocal
+
+                index_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        run_capture_finalize_index,
+                        SessionLocal,
+                        workspace_id=workspace.id,
+                        session_id=capture_session.id,
+                    )
+                )
+                state.finalize_tasks.add(index_task)
+                index_task.add_done_callback(state.finalize_tasks.discard)
             except Exception as exc:
                 logger.warning("voice_capture_finish_failed", error=str(exc), session_id=state.session_id)
                 db.rollback()

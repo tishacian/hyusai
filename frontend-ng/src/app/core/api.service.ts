@@ -50,8 +50,46 @@ export interface CaptureTurnRequest {
   interruption_of_event_id?: string | null;
   turn_kind?: 'answer' | 'correction' | 'complement';
   input_modality?: 'voice' | 'text';
+  /**
+   * When ``false`` the turn is journaled without triggering the evaluation
+   * loop — used by the unified composer for silent text expressions (the
+   * written equivalent of a free-conversation voice turn).
+   */
+  compute_evaluation?: boolean;
   document_refs?: Record<string, unknown>[];
   visual_context?: Record<string, unknown> | null;
+}
+
+/**
+ * A journaled deictic view reference. Shared shape between the realtime
+ * `capture.view.referenced` WS event (voice turns) and the `view_references`
+ * array returned synchronously in the turn HTTP response (text turns).
+ */
+export interface CaptureViewReference {
+  session_id?: string | null;
+  document_id?: string | null;
+  filename?: string | null;
+  title?: string | null;
+  page?: number | null;
+  slide?: number | null;
+  image_index?: number | null;
+  turn_id?: string | null;
+  timecode_ms?: number | null;
+  statement?: string | null;
+  trigger_phrase?: string | null;
+}
+
+/**
+ * Response of `POST .../turns` (addCaptureTurn). `view_references` carries the
+ * deictic references the backend journaled for THIS text turn (voice turns get
+ * the same payload over the WS instead). Empty/absent when nothing was journaled.
+ */
+export interface CaptureTurnResponse {
+  next_prompt?: string | null;
+  next_question_id?: string | null;
+  system_prompt_event_id?: string | null;
+  evaluation?: { verdict: string; score: number; follow_up?: string } | null;
+  view_references?: CaptureViewReference[];
 }
 
 export interface CaptureDocumentViewRequest {
@@ -656,8 +694,8 @@ export class ApiService {
     return this.post(`/knowledge-capture/sessions/${sessionId}/start`);
   }
 
-  addCaptureTurn(sessionId: string, body: CaptureTurnRequest): Observable<unknown> {
-    return this.post(`/knowledge-capture/sessions/${sessionId}/turns`, body);
+  addCaptureTurn(sessionId: string, body: CaptureTurnRequest): Observable<CaptureTurnResponse> {
+    return this.post<CaptureTurnResponse>(`/knowledge-capture/sessions/${sessionId}/turns`, body);
   }
 
   listCaptureDocuments(sessionId: string): Observable<unknown> {
@@ -672,6 +710,18 @@ export class ApiService {
 
   recordCaptureDocumentView(sessionId: string, body: CaptureDocumentViewRequest): Observable<unknown> {
     return this.post(`/knowledge-capture/sessions/${sessionId}/documents/view`, body);
+  }
+
+  /**
+   * End-of-capture selection: mark which uploaded documents should be ingested
+   * in full by the background batch (in addition to the views journaled during
+   * the session). Returns the updated documents collection (same shape as the
+   * GET endpoint), so the caller can refresh chip statuses.
+   */
+  setCaptureDocumentsFullShare(sessionId: string, documentIds: string[]): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/documents/full-share`, {
+      document_ids: documentIds,
+    });
   }
 
   listCaptureEvents(sessionId: string, afterSequence?: number, businessOnly = false): Observable<unknown> {

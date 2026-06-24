@@ -410,13 +410,17 @@ def test_capture_text_turn_api_preserves_document_refs(db_session, monkeypatch):
     assert finalized["metadata"]["document_refs"][0]["slide"] == 3
 
 
-def test_capture_document_upload_api_queues_document_without_worker_side_effects(db_session, tmp_path, monkeypatch):
+def test_capture_document_upload_api_stores_only_without_ingestion(db_session, tmp_path, monkeypatch):
+    """Upload must STORE the originals only — no ingestion, no worker dispatch.
+
+    The session collection stays empty until the end-of-capture background batch;
+    each doc is registered with ``index_status=not_indexed``.
+    """
     from app.core.config import settings
     from app.models.knowledge_collection import KnowledgeCollectionSource, WorkerJob
     from app.services.knowledge_collections import get_collection_or_404, original_key
     from app.services.object_store import get_object_store
 
-    monkeypatch.setattr(settings, "document_ingest_async_enabled", True)
     monkeypatch.setattr(settings, "object_store_backend", "local")
     monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
     workspace = Workspace(id="ws-kc-api-doc-upload", name="KC API Doc Upload", slug="kc-api-doc-upload")
@@ -425,13 +429,6 @@ def test_capture_document_upload_api_queues_document_without_worker_side_effects
     db_session.commit()
     seed_skills_and_capabilities(db_session)
 
-    dispatched: list[tuple[str, str, dict]] = []
-
-    def _fake_dispatch(_db, job, *, allow_inline_fallback=True):  # noqa: ANN001, ARG001
-        dispatched.append((job.id, job.kind, dict(job.result or {})))
-        return f"task-{job.id}"
-
-    monkeypatch.setattr(knowledge_capture, "dispatch_worker_job", _fake_dispatch)
     client = _client(db_session, workspace, user, monkeypatch)
     created = client.post(
         "/api/v1/knowledge-capture/plans",
@@ -459,18 +456,13 @@ def test_capture_document_upload_api_queues_document_without_worker_side_effects
     assert body["collection"] == f"capture-session-{session_id}"
     documents_by_name = {doc["filename"]: doc for doc in body["documents"]}
     assert set(documents_by_name) == {"manuel.pdf", "photo.png"}
-    assert {doc["status"] for doc in documents_by_name.values()} == {"queued"}
+    # Store-only: no ingestion happened, so the shared contract fields reflect a
+    # not-yet-indexed doc with zero referenced views and no full-share selection.
+    assert {doc["index_status"] for doc in documents_by_name.values()} == {"not_indexed"}
+    assert {doc["referenced_views_count"] for doc in documents_by_name.values()} == {0}
+    assert {doc["full_share"] for doc in documents_by_name.values()} == {False}
     assert {doc["chunks_processed"] for doc in documents_by_name.values()} == {0}
-    job_id = documents_by_name["manuel.pdf"]["job_id"]
-    assert job_id
-    assert documents_by_name["photo.png"]["job_id"] == job_id
-    assert dispatched == [(job_id, "document_ingest_index", {
-        "ingest_options": {
-            "mode": "incremental",
-            "document_names": ["manuel.pdf", "photo.png"],
-            "capture_session_id": session_id,
-        }
-    })]
+    assert all("job_id" not in doc for doc in documents_by_name.values())
 
     collection = get_collection_or_404(db_session, workspace_id=workspace.id, collection_ref=body["collection"])
     assert get_object_store().exists(original_key(collection, "manuel.pdf"))
@@ -488,9 +480,13 @@ def test_capture_document_upload_api_queues_document_without_worker_side_effects
     assert {source.status for source in sources} == {"queued"}
     assert {source.origin for source in sources} == {"capture_session_upload"}
     assert {source.source_metadata["capture_session_id"] for source in sources} == {session_id}
-    job = db_session.query(WorkerJob).filter(WorkerJob.id == job_id).one()
-    assert job.kind == "document_ingest_index"
-    assert job.result["ingest_options"]["document_names"] == ["manuel.pdf", "photo.png"]
+    # No worker job is created on the upload path anymore.
+    jobs = (
+        db_session.query(WorkerJob)
+        .filter(WorkerJob.workspace_id == workspace.id, WorkerJob.collection_id == collection.id)
+        .all()
+    )
+    assert jobs == []
 
     events = client.get(
         f"/api/v1/knowledge-capture/sessions/{session_id}/events",
@@ -501,7 +497,184 @@ def test_capture_document_upload_api_queues_document_without_worker_side_effects
     assert len(upload_events) == 2
     assert {event["source"] for event in upload_events} == {"capture_document"}
     assert {event["metadata"]["filename"] for event in upload_events} == {"manuel.pdf", "photo.png"}
-    assert {event["metadata"]["job_id"] for event in upload_events} == {job_id}
+    assert {event["metadata"]["index_status"] for event in upload_events} == {"not_indexed"}
+
+
+def _upload_capture_docs(client, session_id):
+    return client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/documents",
+        files=[
+            ("files", ("manuel.pdf", b"%PDF-1.4\ncapture document\n", "application/pdf")),
+            ("files", ("photo.png", b"\x89PNG\r\n\x1a\ncapture image\n", "image/png")),
+        ],
+    )
+
+
+def test_capture_deictic_reference_is_journaled_and_exposed(db_session, tmp_path, monkeypatch):
+    """A deictic turn ("comme on le voit sur cette page") carrying a view must
+    journal a capture_view_referenced event, return view_references, and flip the
+    doc's index_status to ``referenced`` with referenced_views_count exposed."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace = Workspace(id="ws-kc-api-ref", name="KC API Ref", slug="kc-api-ref")
+    user = User(id="user-kc-api-ref", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture référencée",
+            "objective": "Capturer une observation située dans un support.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    collection_slug = _upload_capture_docs(client, session_id).json()["collection"]
+
+    ref = {
+        "document_id": "manuel.pdf",
+        "filename": "manuel.pdf",
+        "collection": collection_slug,
+        "title": "Manuel ligne BBA",
+        "page": 3,
+        "association_mode": "active_view",
+    }
+    turn = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "ref-turn-1",
+            "text": "Comme on le voit sur cette page, le rendement passe à 92%.",
+            "document_refs": [ref],
+            "visual_context": ref,
+        },
+    )
+    assert turn.status_code == 200
+    refs = turn.json()["view_references"]
+    assert len(refs) == 1
+    assert refs[0]["document_id"] == "manuel.pdf"
+    assert refs[0]["page"] == 3
+    assert refs[0]["turn_id"] == "ref-turn-1"
+    assert refs[0]["trigger_phrase"]
+    assert refs[0]["statement"].startswith("Comme on le voit")
+
+    events = client.get(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/events",
+        params={"event_type": "capture_view_referenced"},
+    )
+    journaled = events.json()["events"]
+    assert len(journaled) == 1
+    meta = journaled[0]["metadata"]
+    assert meta["document_id"] == "manuel.pdf"
+    assert meta["page"] == 3
+    assert meta["turn_id"] == "ref-turn-1"
+    assert meta["trigger_phrase"]
+    assert meta["statement"]
+    assert meta["event_sequence"]
+    assert meta["association_mode"] == "active_view"
+
+    listed = client.get(f"/api/v1/knowledge-capture/sessions/{session_id}/documents")
+    docs = {doc["filename"]: doc for doc in listed.json()["documents"]}
+    assert docs["manuel.pdf"]["index_status"] == "referenced"
+    assert docs["manuel.pdf"]["referenced_views_count"] == 1
+    assert docs["manuel.pdf"]["full_share"] is False
+    assert docs["photo.png"]["index_status"] == "not_indexed"
+    assert docs["photo.png"]["referenced_views_count"] == 0
+
+    # End-of-capture triage: mark a doc to share in full (no ingestion here).
+    shared = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/documents/full-share",
+        json={"document_ids": ["manuel.pdf"]},
+    )
+    assert shared.status_code == 200
+    shared_docs = {doc["filename"]: doc for doc in shared.json()["documents"]}
+    assert shared_docs["manuel.pdf"]["full_share"] is True
+    assert shared_docs["photo.png"]["full_share"] is False
+
+
+def test_capture_finalize_index_indexes_referenced_views_and_full_docs(db_session, tmp_path, monkeypatch):
+    """The background batch extracts/indexes the journaled views + the full-share
+    docs and transitions each doc's index_status queued -> indexed."""
+    from app.core.config import settings
+    from app.db.base import SessionLocal
+    from app.services.knowledge_capture import run_capture_finalize_index
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace = Workspace(id="ws-kc-api-fin", name="KC API Fin", slug="kc-api-fin")
+    user = User(id="user-kc-api-fin", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    ingest_calls: list[tuple[str, dict]] = []
+
+    class _FakeDocService:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def ingest_document(self, path, **kwargs):
+            ingest_calls.append((path, dict(kwargs.get("document_metadata") or {})))
+            return {"status": "success", "document_id": "fake", "chunks_processed": 1}
+
+    monkeypatch.setattr("app.services.rag.document_service.DocumentService", _FakeDocService)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture finalisée",
+            "objective": "Indexer les vues référencées en fin de capture.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    collection_slug = _upload_capture_docs(client, session_id).json()["collection"]
+
+    ref = {"document_id": "manuel.pdf", "filename": "manuel.pdf", "collection": collection_slug, "page": 3}
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "fin-turn-1",
+            "text": "Regardez cette page : la séquence impose une purge de 30 s.",
+            "document_refs": [ref],
+            "visual_context": ref,
+        },
+    )
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/documents/full-share",
+        json={"document_ids": ["photo.png"]},
+    )
+
+    result = run_capture_finalize_index(SessionLocal, workspace_id=workspace.id, session_id=session_id)
+    assert result["status"] == "done"
+    # One ingest for the referenced PDF view + one for the full-share image.
+    origins = sorted(meta.get("origin") for _, meta in ingest_calls)
+    assert "capture_view_index" in origins
+    assert "capture_full_share_index" in origins
+
+    listed = client.get(f"/api/v1/knowledge-capture/sessions/{session_id}/documents")
+    docs = {doc["filename"]: doc for doc in listed.json()["documents"]}
+    assert docs["manuel.pdf"]["index_status"] == "indexed"
+    assert docs["photo.png"]["index_status"] == "indexed"
+
+    # Idempotent: a second run does no further ingestion.
+    ingest_calls.clear()
+    again = run_capture_finalize_index(SessionLocal, workspace_id=workspace.id, session_id=session_id)
+    assert again["status"] in {"done", "noop"}
+    assert ingest_calls == []
 
 
 def test_free_conversation_proposal_endpoint_returns_structured_topic(db_session, monkeypatch):

@@ -9,7 +9,6 @@ from __future__ import annotations
 import base64
 import binascii
 import os
-import shutil
 import tempfile
 import uuid
 from collections.abc import Mapping
@@ -22,9 +21,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
-from app.core.config import settings
 from app.core.logging import get_logger
-from app.core.settings_manager import get_resolved_settings
 from app.core.iam.dependencies import current_membership, enforce_permission
 from app.core.iam.roles import WORKSPACE_CONTRIBUTOR, normalize_role_template
 from app.services.iam.manifest import REVIEW_ROLES
@@ -50,6 +47,7 @@ from app.services.knowledge_capture import (
     apply_proposal_report_instruction,
     apply_session_closure_action,
     approve_capture_plan,
+    build_capture_documents_collection,
     build_chat_correction_acknowledgement,
     build_open_questions,
     build_quality_backlog,
@@ -79,10 +77,12 @@ from app.services.knowledge_capture import (
     record_capture_document_view,
     register_capture_documents,
     review_proposal,
+    run_capture_finalize_index,
     serialize_event,
     serialize_proposal,
     serialize_session,
     session_has_proposal_material,
+    set_capture_documents_full_share,
     start_session,
     summarize_chat_correction_theme,
     warm_capture_context_cache,
@@ -94,18 +94,11 @@ from app.services.knowledge_capture import (
     validate_plan_topics,
 )
 from app.services.knowledge_collections import (
-    collection_source_rows,
     create_or_get_collection,
-    create_worker_job,
-    get_collection_or_404,
     original_key,
-    record_ingested_sources,
     update_collection_status,
     upsert_collection_source,
 )
-from app.services.rag.document_service import DocumentService
-from app.services.rag.vector_store_config import resolve_vector_db_type
-from app.services.worker_dispatch import dispatch_worker_job
 from app.services.voice_runtime import list_voice_runtime_providers
 
 router = APIRouter()
@@ -466,6 +459,10 @@ class CaptureTurnRequest(BaseModel):
     input_modality: Literal["voice", "text"] = "text"
     document_refs: List[Dict[str, Any]] = Field(default_factory=list)
     visual_context: Optional[Dict[str, Any]] = None
+
+
+class CaptureFullShareRequest(BaseModel):
+    document_ids: List[str] = Field(default_factory=list)
 
 
 class CaptureDocumentViewRequest(BaseModel):
@@ -967,51 +964,7 @@ async def list_capture_session_documents(
             resource_attrs=_session_attrs(session),
             audit_prefix="kc",
         )
-        state = dict((session.metrics or {}).get("capture_documents") or {})
-        collection = state.get("collection") or capture_document_collection_slug(session_id)
-        documents = list(state.get("documents") or [])
-        try:
-            collection_row = get_collection_or_404(
-                db,
-                workspace_id=workspace.id,
-                collection_ref=str(collection),
-            )
-            state_by_name = {
-                str(item.get("filename") or item.get("document_id") or "").lower(): dict(item)
-                for item in documents
-                if isinstance(item, dict) and (item.get("filename") or item.get("document_id"))
-            }
-            ledger_documents: List[Dict[str, Any]] = []
-            for row in collection_source_rows(db, collection=collection_row):
-                metadata = dict(row.source_metadata or {})
-                document_id = metadata.get("document_id") or row.normalized_name or row.filename or row.id
-                previous = state_by_name.get(str(row.filename or row.normalized_name or "").lower()) or {}
-                ledger_documents.append(
-                    {
-                        **previous,
-                        "document_id": str(document_id),
-                        "filename": row.filename,
-                        "title": previous.get("title") or row.filename,
-                        "collection": collection_row.slug,
-                        "collection_name": collection_row.slug,
-                        "status": row.status,
-                        "chunks_processed": int(row.chunk_count or 0),
-                        "mime_type": row.mime_type,
-                        "source_kind": row.source_kind,
-                        "source_id": row.id,
-                    }
-                )
-            if ledger_documents:
-                documents = ledger_documents
-        except HTTPException as exc:
-            if exc.status_code != 404:
-                raise
-        return {
-            "collection": collection,
-            "collection_name": collection,
-            "documents": documents,
-            "active_view": state.get("active_view"),
-        }
+        return build_capture_documents_collection(db, workspace_id=workspace.id, session=session)
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc
 
@@ -1024,9 +977,15 @@ async def upload_capture_session_documents(
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ) -> Dict[str, Any]:
+    """Store the uploaded originals ONLY — no ingestion during the session.
+
+    Per the fluid-capture pipeline the session collection stays empty until the
+    end-of-capture background batch: here we persist the original bytes, register
+    each doc in the ``capture_documents`` state with ``index_status=not_indexed``
+    and record the upload event. No DocumentService ingestion, no worker dispatch.
+    """
     if not files:
         raise HTTPException(status_code=422, detail="At least one file is required")
-    temp_dirs: List[str] = []
     try:
         session = get_session(db, workspace_id=workspace.id, session_id=session_id)
         enforce_permission(
@@ -1047,127 +1006,48 @@ async def upload_capture_session_documents(
             created_by_user_id=user.id,
             slug=collection_slug,
         )
+        store = get_object_store()
+        existing_names = list(collection.document_names or [])
         documents: List[Dict[str, Any]] = []
-        if settings.document_ingest_async_enabled:
-            store = get_object_store()
-            existing_names = list(collection.document_names or [])
-            uploaded_names: List[str] = []
-            for file in files:
-                safe_name = Path(file.filename or "upload").name.replace("/", "_").replace("\\", "_")
-                content = await file.read()
-                store.write_bytes(original_key(collection, safe_name), content)
-                upsert_collection_source(
-                    db,
-                    collection=collection,
-                    filename=safe_name,
-                    status="queued",
-                    mime_type=file.content_type,
-                    origin="capture_session_upload",
-                    size_bytes=len(content),
-                    source_metadata={
-                        "capture_session_id": session_id,
-                        "uploaded_by_user_id": user.id,
-                        "source": "capture_session_upload",
-                    },
-                )
-                if safe_name not in existing_names:
-                    existing_names.append(safe_name)
-                uploaded_names.append(safe_name)
-            update_collection_status(
-                db,
-                collection.id,
-                status="queued",
-                document_names=existing_names,
-                document_count=len(existing_names),
-            )
-            job = create_worker_job(db, workspace_id=workspace.id, collection_id=collection.id, kind="document_ingest_index")
-            job.result = {
-                "ingest_options": {
-                    "mode": "incremental",
-                    "document_names": uploaded_names,
-                    "capture_session_id": session_id,
-                }
-            }
-            db.commit()
-            dispatch_worker_job(db, job)
-            db.commit()
-            documents = [
-                {
-                    "document_id": None,
-                    "filename": filename,
-                    "status": "queued",
-                    "chunks_processed": 0,
-                    "job_id": job.id,
-                }
-                for filename in uploaded_names
-            ]
-        else:
-            store = get_object_store()
-            file_paths: List[str] = []
-            document_names: List[str] = []
-            for file in files:
-                safe_name = Path(file.filename or "upload").name.replace("/", "_").replace("\\", "_")
-                tmp_dir = tempfile.mkdtemp()
-                temp_dirs.append(tmp_dir)
-                tmp_path = os.path.join(tmp_dir, safe_name)
-                with open(tmp_path, "wb") as out:
-                    shutil.copyfileobj(file.file, out)
-                store.write_bytes(original_key(collection, safe_name), Path(tmp_path).read_bytes())
-                file_paths.append(tmp_path)
-                document_names.append(safe_name)
-            app_settings = get_resolved_settings(workspace_id=workspace.id)
-            doc_service = DocumentService(
-                collection_name=collection.slug,
-                vector_db_type=resolve_vector_db_type(app_settings),
-                workspace_slug=workspace.slug,
-            )
-            result = await doc_service.ingest_documents_batch(file_paths)
-            documents = [
-                {
-                    "document_id": row.get("document_id"),
-                    "filename": row.get("filename") or (document_names[index] if index < len(document_names) else None),
-                    "status": row.get("status"),
-                    "chunks_processed": row.get("chunks_processed") or 0,
-                }
-                for index, row in enumerate(result.get("results") or [])
-                if isinstance(row, dict)
-            ]
-            existing_names = list(collection.document_names or [])
-            for name in document_names:
-                if name not in existing_names:
-                    existing_names.append(name)
-            update_collection_status(
-                db,
-                collection.id,
-                status="ready" if not result.get("failed") else "error",
-                document_names=existing_names,
-                document_count=len(existing_names),
-                chunk_count=sum(int(item.get("chunks_processed") or 0) for item in documents),
-            )
-            record_ingested_sources(
+        for file in files:
+            safe_name = Path(file.filename or "upload").name.replace("/", "_").replace("\\", "_")
+            content = await file.read()
+            store.write_bytes(original_key(collection, safe_name), content)
+            upsert_collection_source(
                 db,
                 collection=collection,
-                ingest_result=result,
-                document_names=document_names,
+                filename=safe_name,
+                status="queued",
+                mime_type=file.content_type,
                 origin="capture_session_upload",
+                size_bytes=len(content),
+                source_metadata={
+                    "capture_session_id": session_id,
+                    "uploaded_by_user_id": user.id,
+                    "source": "capture_session_upload",
+                },
             )
-            for doc in documents:
-                if doc.get("filename"):
-                    upsert_collection_source(
-                        db,
-                        collection=collection,
-                        filename=str(doc["filename"]),
-                        status="ready" if doc.get("status") == "success" else str(doc.get("status") or "error"),
-                        origin="capture_session_upload",
-                        chunk_count=int(doc.get("chunks_processed") or 0),
-                        source_metadata={
-                            "document_id": doc.get("document_id"),
-                            "capture_session_id": session_id,
-                            "uploaded_by_user_id": user.id,
-                            "source": "capture_session_upload",
-                        },
-                    )
-            db.commit()
+            if safe_name not in existing_names:
+                existing_names.append(safe_name)
+            documents.append(
+                {
+                    "document_id": safe_name,
+                    "filename": safe_name,
+                    "status": "stored",
+                    "index_status": "not_indexed",
+                    "chunks_processed": 0,
+                }
+            )
+        # Collection metadata is tracked, but the collection stays un-ingested
+        # ("queued" = stored, awaiting the end-of-capture batch).
+        update_collection_status(
+            db,
+            collection.id,
+            status="queued",
+            document_names=existing_names,
+            document_count=len(existing_names),
+        )
+        db.commit()
         registered = register_capture_documents(
             db,
             workspace_id=workspace.id,
@@ -1176,20 +1056,16 @@ async def upload_capture_session_documents(
             documents=documents,
             actor_user_id=user.id,
         )
-        return {
-            "collection": collection.slug,
-            "collection_name": collection.slug,
-            "documents": registered.get("documents") or documents,
-            "session": registered.get("session"),
-        }
+        return build_capture_documents_collection(
+            db,
+            workspace_id=workspace.id,
+            session=get_session(db, workspace_id=workspace.id, session_id=session_id),
+        ) | {"session": registered.get("session")}
     except ValueError as exc:
         raise _http_error_from_value_error(exc) from exc
     except Exception as exc:  # noqa: BLE001
         logger.error("capture document upload failed", exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    finally:
-        for tmp_dir in temp_dirs:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 @router.post("/sessions/{session_id}/documents/view")
@@ -1218,6 +1094,42 @@ async def record_capture_session_document_view(
             workspace_id=workspace.id,
             session_id=session_id,
             view=payload,
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/documents/full-share")
+async def select_capture_session_full_share(
+    session_id: str,
+    body: CaptureFullShareRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """End-of-capture triage: mark which docs to index in FULL.
+
+    Records the ``full_share`` selection on ``capture_documents`` state; no
+    ingestion happens here (the background finalize batch reads the flags).
+    Returns the updated documents collection (same shape as GET documents).
+    """
+    try:
+        session = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="update",
+            resource_attrs=_session_attrs(session),
+            audit_prefix="kc",
+        )
+        return set_capture_documents_full_share(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            document_ids=body.document_ids,
             actor_user_id=user.id,
         )
     except ValueError as exc:
@@ -1397,6 +1309,7 @@ async def amend_session_event(
 @router.post("/sessions/{session_id}/proposal")
 async def create_capture_proposal(
     session_id: str,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
@@ -1440,6 +1353,7 @@ async def create_capture_proposal(
         user=user,
         proposal=proposal,
     )
+    _schedule_capture_finalize_index(background_tasks, workspace_id=workspace.id, session_id=session_id)
     return serialize_proposal(proposal)
 
 
@@ -1910,6 +1824,29 @@ def capture_plan_finalize(
     return serialize_session(finalized, surface="plan")
 
 
+def _schedule_capture_finalize_index(
+    background_tasks: BackgroundTasks,
+    *,
+    workspace_id: str,
+    session_id: str,
+) -> None:
+    """Queue the end-of-capture indexing batch after the response is sent.
+
+    Decoupled from the report return: the report cites sources from the journaled
+    refs directly, while this batch extracts/indexes the referenced views and the
+    full-share docs in the background. The job is idempotent and guards against
+    concurrent double-runs, so triggering from every finalize path is safe.
+    """
+    from app.db.base import SessionLocal
+
+    background_tasks.add_task(
+        run_capture_finalize_index,
+        SessionLocal,
+        workspace_id=workspace_id,
+        session_id=session_id,
+    )
+
+
 def _run_question_bank_generation(
     db_factory,
     *,
@@ -2172,6 +2109,7 @@ async def get_capture_closure_sheet(
 async def apply_capture_session_closure(
     session_id: str,
     body: SessionClosureRequest,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
@@ -2188,6 +2126,11 @@ async def apply_capture_session_closure(
             audit_prefix="kc",
         )
         normalized_action = (body.action or "finish").strip().lower()
+        if normalized_action == "finish":
+            # The capture is wrapping up: kick the background indexing batch
+            # (referenced views + full-share docs) regardless of which finalize
+            # branch runs below. Idempotent + decoupled from the report return.
+            _schedule_capture_finalize_index(background_tasks, workspace_id=workspace.id, session_id=session_id)
         if normalized_action == "finish" and is_free_conversation_session(session) and session_has_proposal_material(
             db,
             workspace_id=workspace.id,

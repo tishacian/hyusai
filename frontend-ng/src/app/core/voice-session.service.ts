@@ -22,6 +22,7 @@ export type VoiceSessionEventType =
   | 'section.active'
   | 'section.finish'
   | 'capture.finish'
+  | 'capture.view.referenced'
   | 'tts.started'
   | 'tts.ended'
   | 'tts.interrupted'
