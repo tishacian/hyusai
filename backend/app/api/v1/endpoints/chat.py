@@ -1098,6 +1098,46 @@ def _clean_system_retrieval_filter_value(value: Any) -> Any:
     return None
 
 
+def _sanitize_workspace_collection_filters(
+    db: Session,
+    *,
+    workspace_id: str,
+    retrieval_filters: Any,
+) -> Dict[str, Any]:
+    if not isinstance(retrieval_filters, dict):
+        return {}
+
+    from app.models.knowledge_collection import KnowledgeCollection
+
+    sanitized = dict(retrieval_filters)
+    for key in ("collection_slug", "collection"):
+        raw_value = sanitized.get(key)
+        if raw_value is None:
+            continue
+        is_many = isinstance(raw_value, (list, tuple, set))
+        values = raw_value if is_many else [raw_value]
+        resolved: list[str] = []
+        for value in values:
+            collection_ref = str(value or "").strip()
+            if not collection_ref:
+                continue
+            collection = (
+                db.query(KnowledgeCollection)
+                .filter(
+                    ((KnowledgeCollection.slug == collection_ref) | (KnowledgeCollection.id == collection_ref)),
+                    KnowledgeCollection.workspace_id == workspace_id,
+                )
+                .first()
+            )
+            if collection and collection.slug not in resolved:
+                resolved.append(collection.slug)
+        if resolved:
+            sanitized[key] = resolved if is_many else resolved[0]
+        else:
+            sanitized.pop(key, None)
+    return sanitized
+
+
 def _inferred_scope_filters(state: Dict[str, Any]) -> Dict[str, Any]:
     scope = state.get("retrieval_scope")
     if not isinstance(scope, dict):
@@ -2350,6 +2390,11 @@ async def preview_retrieval_plan(
     request_dict["query"] = validated_query
     request_dict["workspace_slug"] = workspace.slug
     request_dict["workspace_id"] = workspace.id
+    request_dict["retrieval_filters"] = _sanitize_workspace_collection_filters(
+        db,
+        workspace_id=workspace.id,
+        retrieval_filters=request_dict.get("retrieval_filters"),
+    )
     if request.rag_mode_override:
         request_dict["rag_pipeline_mode"] = request.rag_mode_override
     _apply_context_to_chat_request(request_dict, chat_context)

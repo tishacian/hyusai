@@ -39,6 +39,7 @@ import {
   resolveVoiceCaptureConfig,
   voiceCaptureStorageKey,
 } from '@app/core/voice-capture-config';
+import { detectVoiceCommand as detectSharedVoiceCommand } from '@app/core/voice-command-detector';
 import { IconComponent } from '@app/shared/ui/icon.component';
 import { RuntimeHealthService } from '@app/core/runtime-health.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -7445,86 +7446,7 @@ export class ChatPanelComponent implements AfterViewInit {
   }
 
   private detectVoiceCommand(rawText: string): string | null {
-    const settings = this.workspaceVoiceLoopConfig();
-    if (settings.commands_enabled === false) return null;
-    let text = rawText
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^\p{L}\p{N}\s'-]/gu, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const triggerWord = typeof settings.trigger_word === 'string'
-      ? settings['trigger_word'].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
-      : '';
-    const hasTrigger = !!triggerWord && (text === triggerWord || text.startsWith(`${triggerWord} `));
-    if (hasTrigger) text = text.slice(triggerWord.length).trim();
-    const compact = text.replace(/\s+/g, ' ');
-    const commandText = compact.replace(/['-]/g, ' ').replace(/\s+/g, ' ').trim();
-    const genericCommandsEnabled = this.voiceCommandPackEnabled(settings, ['generic', 'fr_basic', 'workspace']);
-    if (this.isNaturalStopCommand(commandText, settings.stop_phrases, genericCommandsEnabled)) return 'stop';
-    if (!genericCommandsEnabled) return null;
-    const words = commandText.split(/\s+/).filter(Boolean);
-    if (!hasTrigger && words.length > 4) return null;
-    if (['stop', 'arrete', 'arret', 'fin', 'termine'].includes(compact)) return 'stop';
-    if (['stop', 'arrete', 'arret', 'fin', 'termine'].includes(commandText)) return 'stop';
-    if (['pause', 'mets en pause'].includes(commandText)) return 'pause';
-    if (['reprends', 'reprendre', 'continue', 'relance'].includes(commandText)) return 'resume';
-    if (['annule', 'annuler', 'cancel', 'efface'].includes(commandText)) return 'cancel';
-    if (['repete', 'repeter', 'repeat'].includes(commandText)) return 'repeat';
-    if (['reformule', 'reformuler', 'rephrase'].includes(commandText)) return 'rephrase';
-    if (commandText === 'question suivante' || commandText === 'suivant') return 'next_question';
-    if (['valider', 'valide', 'confirmer', 'confirme'].includes(commandText)) return 'validate';
-    return null;
-  }
-
-  private isNaturalStopCommand(commandText: string, configuredPhrases: unknown = null, includeDefaultPhrases = true): boolean {
-    if (!commandText) return false;
-    const customPhrases = Array.isArray(configuredPhrases)
-      ? configuredPhrases
-          .map((phrase) => this.normalizeVoiceCommandText(String(phrase)))
-          .filter(Boolean)
-      : [];
-    if (customPhrases.some((phrase) => commandText === phrase || commandText.includes(phrase))) return true;
-    if (!includeDefaultPhrases) return false;
-    return [
-      /\bon peut s arreter(?: la)?\b/,
-      /\bon peut arreter(?: la)?\b/,
-      /\bnous pouvons nous arreter(?: la)?\b/,
-      /\bon s arrete(?: la)?\b/,
-      /\bon arrete(?: la)?\b/,
-      /\bon va s arreter(?: la)?\b/,
-      /\bje vais m arreter(?: la)?\b/,
-      /\bc est bon\b.*\b(?:arreter|stop|termine|terminer|fini|fin)\b/,
-      /\bca suffit\b/,
-      /\bcela suffit\b/,
-      /\bon a fini\b/,
-      /\bc est fini\b/,
-      /\bc est termine\b/,
-      /\bfin de session\b/,
-      /\btu peux t arreter\b/,
-      /\btu peux couper\b/,
-      /\bon coupe\b/,
-    ].some((pattern) => pattern.test(commandText));
-  }
-
-  private normalizeVoiceCommandText(value: string): string {
-    return value
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^\p{L}\p{N}\s'-]/gu, ' ')
-      .replace(/['-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  private voiceCommandPackEnabled(settings: WorkspaceVoiceLoopConfig, accepted: string[]): boolean {
-    const packs = Array.isArray(settings.command_packs)
-      ? settings.command_packs.map((pack) => String(pack).trim().toLowerCase()).filter(Boolean)
-      : [];
-    if (packs.length === 0) return true;
-    return accepted.some((name) => packs.includes(name));
+    return detectSharedVoiceCommand(rawText, this.workspaceVoiceLoopConfig(), 'chat');
   }
 
   private handleVoiceCommand(command: string, transcript: string): boolean {

@@ -4218,6 +4218,155 @@ test.describe('Andritz mocked browser smoke', () => {
     });
   });
 
+  test('falls back to written capture when the microphone is unavailable in no-plan mode', async ({ page }) => {
+    const capturePlanRequests: unknown[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: {
+          getUserMedia: async () => {
+            throw new DOMException('Synthetic microphone permission denial', 'NotAllowedError');
+          },
+        },
+      });
+      (window as any).__voiceWsUrls = [];
+      (window as any).__voiceWsFrames = [];
+      class MockVoiceWebSocket {
+        static readonly CONNECTING = 0;
+        static readonly OPEN = 1;
+        static readonly CLOSING = 2;
+        static readonly CLOSED = 3;
+        readyState = MockVoiceWebSocket.OPEN;
+        onopen: ((event: Event) => void) | null = null;
+        onmessage: ((event: MessageEvent) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+        onclose: ((event: CloseEvent) => void) | null = null;
+
+        constructor(url: string) {
+          (window as any).__voiceWsUrls.push(url);
+          setTimeout(() => this.onopen?.(new Event('open')), 0);
+        }
+
+        send(frame: string): void {
+          (window as any).__voiceWsFrames.push(JSON.parse(frame));
+        }
+
+        close(): void {
+          this.readyState = MockVoiceWebSocket.CLOSED;
+          this.onclose?.(new CloseEvent('close'));
+        }
+      }
+      Object.defineProperty(window, 'WebSocket', {
+        configurable: true,
+        value: MockVoiceWebSocket,
+      });
+    });
+    await installAndritzMocks(page, {
+      capturePlanRequests,
+      captureSessionStartsActive: true,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA voice unavailable fallback');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA voice unavailable fallback' })).toBeVisible();
+    await page.getByRole('button', { name: /^Parler$|^Speak$/i }).click();
+
+    await expect(page.locator('body')).toContainText(/Micro indisponible|microphone permission|saisie guidée/i);
+    const answerComposer = page.getByPlaceholder('Saisir ou corriger la réponse expert avant évaluation...');
+    await expect(answerComposer).toBeVisible();
+    await answerComposer.fill('Note de secours saisie quand le micro est indisponible.');
+    await page.getByRole('button', { name: /Enregistrer la réponse|Add response/i }).click();
+
+    await expect.poll(() => captureTurnRequests.length).toBe(1);
+    expect(capturePlanRequests).toHaveLength(1);
+    expect(capturePlanRequests[0]).toMatchObject({
+      title: 'Andritz QA voice unavailable fallback',
+      plan_mode: 'free_conversation',
+      voice_runtime: 'cascade_openai',
+    });
+    expect(captureTurnRequests[0]).toMatchObject({
+      speaker: 'expert',
+      text: 'Note de secours saisie quand le micro est indisponible.',
+      turn_kind: 'answer',
+      input_modality: 'text',
+    });
+    const voiceFrames = await page.evaluate(() => (window as any).__voiceWsFrames || []);
+    expect(voiceFrames.map((frame: { type?: string }) => frame.type)).toContain('session.start');
+    expect(voiceFrames.map((frame: { type?: string }) => frame.type)).toContain('loop.start');
+    expect(voiceFrames.map((frame: { type?: string }) => frame.type)).not.toContain('audio.frame');
+    expect(voiceFrames.map((frame: { type?: string }) => frame.type)).not.toContain('audio.endpoint');
+  });
+
+  test('uploads a capture document while recording without stopping the voice state', async ({ page }) => {
+    const captureDocumentUploadRequests: string[] = [];
+    const captureTurnRequests: unknown[] = [];
+    await installAndritzMocks(page, {
+      captureSessionStartsActive: true,
+      captureDocumentUploadRequests,
+      captureTurnRequests,
+    });
+
+    await page.goto('/knowledge/capture');
+    await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
+    await page
+      .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
+      .fill('Andritz QA upload while recording');
+    await page.getByRole('button', { name: /^Continuer$|^Continue$/i }).click();
+    await expect(page.getByRole('heading', { name: 'Andritz QA upload while recording' })).toBeVisible();
+
+    await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      component.conversationSessionActive.set(true);
+      component.recording.set(true);
+      component.transcribing.set(false);
+      component.voiceState.set('recording');
+      component.currentClientTurnId = 'turn-upload-while-recording';
+      ng?.applyChanges?.(component);
+    });
+    await expect(page.getByRole('button', { name: /Pause micro/i })).toBeVisible();
+
+    const captureDocuments = page.locator('section').filter({ hasText: 'Documents de capture' }).first();
+    await expect(captureDocuments).toBeVisible();
+    await captureDocuments.locator('input[type="file"]').setInputFiles({
+      name: 'andritz-capture-reference.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('Synthetic Andritz upload while recording reference PDF content.'),
+    });
+
+    await expect.poll(() => captureDocumentUploadRequests.length).toBe(1);
+    await expect(page.getByRole('button', { name: /Andritz capture reference/i })).toBeVisible();
+    const voiceState = await page.evaluate(() => {
+      const ng = (window as any).ng;
+      const host = document.querySelector('app-knowledge-capture');
+      const component = ng?.getComponent?.(host);
+      if (!component) throw new Error('KnowledgeCaptureComponent instance not found');
+      return {
+        recording: component.recording(),
+        transcribing: component.transcribing(),
+        conversationSessionActive: component.conversationSessionActive(),
+        voiceState: component.voiceState(),
+        currentClientTurnId: component.currentClientTurnId,
+      };
+    });
+    expect(voiceState).toMatchObject({
+      recording: true,
+      transcribing: false,
+      conversationSessionActive: true,
+      voiceState: 'recording',
+      currentClientTurnId: 'turn-upload-while-recording',
+    });
+    expect(captureTurnRequests).toEqual([]);
+  });
+
   test('renders a late same-turn voice partial while endpoint STT is finalizing', async ({ page }) => {
     await installAndritzMocks(page, { captureSessionStartsActive: true });
 

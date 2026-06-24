@@ -4,6 +4,7 @@ import {
   resolveVoiceCaptureConfig,
   type VoiceCaptureRawConfig,
 } from '../../src/app/core/voice-capture-config';
+import { detectVoiceCommand } from '../../src/app/core/voice-command-detector';
 import { VoiceLoopController, type VoiceLoopTurnConfig } from '../../src/app/core/voice-loop-controller.service';
 
 function fakeRecordingRecorder() {
@@ -136,5 +137,51 @@ test.describe('voice capture VAD contract', () => {
       capture_mode: 'normal',
       endpoint_reason: 'silence',
     });
+  });
+});
+
+test.describe('voice command detector contract', () => {
+  const settings = { commands_enabled: true, command_packs: ['generic'] };
+
+  test('command-like content is not treated as a capture stop command', () => {
+    expect(detectVoiceCommand('fin de session', settings, 'knowledge_capture')).toBe('stop');
+    expect(detectVoiceCommand("C'est la fin de session", settings, 'knowledge_capture')).toBe('stop');
+    expect(detectVoiceCommand('assistant fin de session', { ...settings, trigger_word: 'assistant' }, 'knowledge_capture')).toBe('stop');
+
+    expect(
+      detectVoiceCommand(
+        'Dans le rapport, la fin de session doit mentionner le nettoyage du convoyeur.',
+        settings,
+        'knowledge_capture',
+      ),
+    ).toBeNull();
+    expect(
+      detectVoiceCommand(
+        'On explique ici que la fin de session ne veut pas dire arret machine.',
+        settings,
+        'chat',
+      ),
+    ).toBeNull();
+  });
+
+  test('turn and section commands require a command-shaped utterance', () => {
+    expect(detectVoiceCommand('tour suivant', settings, 'knowledge_capture')).toBe('end_turn');
+    expect(detectVoiceCommand('bon section suivante', settings, 'knowledge_capture')).toBe('end_section');
+    expect(detectVoiceCommand('on passe a la suite merci', settings, 'knowledge_capture')).toBe('end_section');
+
+    expect(
+      detectVoiceCommand(
+        'Dans la section suivante on decrit le reglage de pression.',
+        settings,
+        'knowledge_capture',
+      ),
+    ).toBeNull();
+    expect(
+      detectVoiceCommand(
+        'Le point suivant du rapport doit rester dans le meme paragraphe.',
+        settings,
+        'knowledge_capture',
+      ),
+    ).toBeNull();
   });
 });

@@ -16,6 +16,7 @@ import {
   resolveVoiceCaptureConfig,
   voiceCaptureStorageKey,
 } from '@app/core/voice-capture-config';
+import { detectVoiceCommand as detectSharedVoiceCommand } from '@app/core/voice-command-detector';
 import { VoiceTtsPlaybackService, VoiceTtsState } from '@app/core/voice-tts-playback.service';
 import { VoiceSessionConnection, VoiceSessionEvent, VoiceSessionService } from '@app/core/voice-session.service';
 import { WorkspaceService } from '@app/core/workspace.service';
@@ -11951,24 +11952,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   }
 
   private detectCaptureVoiceCommand(rawText: string): string | null {
-    const settings = this.workspaceVoiceLoopConfig();
-    if (settings.commands_enabled === false) return null;
-    let text = this.normalizeVoiceCommandText(rawText);
-    const triggerWord =
-      typeof settings.trigger_word === 'string' ? this.normalizeVoiceCommandText(settings.trigger_word) : '';
-    const hasTrigger = !!triggerWord && (text === triggerWord || text.startsWith(`${triggerWord} `));
-    if (hasTrigger) text = text.slice(triggerWord.length).trim();
-    const genericCommandsEnabled = this.voiceCommandPackEnabled(settings, ['generic', 'fr_basic', 'workspace']);
-    if (this.isNaturalStopCommand(text, settings.stop_phrases, genericCommandsEnabled)) return 'stop';
-    if (!genericCommandsEnabled) return null;
-    // Natural-phrase detection (regex, like isNaturalStopCommand) so multi-word
-    // turn/section closures stay detectable past the short-command guard below.
-    if (this.isEndSectionCommand(text)) return 'end_section';
-    if (this.isEndTurnCommand(text)) return 'end_turn';
-    const words = text.split(/\s+/).filter(Boolean);
-    if (!hasTrigger && words.length > 4) return null;
-    if (['stop', 'arrete', 'arret', 'fin', 'termine'].includes(text)) return 'stop';
-    return null;
+    return detectSharedVoiceCommand(rawText, this.workspaceVoiceLoopConfig(), 'knowledge_capture');
   }
 
   private handleCaptureVoiceCommand(command: string, transcript: string): boolean {
@@ -11995,76 +11979,6 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
       return true;
     }
     return false;
-  }
-
-  private isEndTurnCommand(commandText: string): boolean {
-    if (!commandText) return false;
-    // NOTE: never add common discourse fillers here (e.g. "voila"): the detector
-    // also runs on the trailing FINAL transcript of every turn, so a frequent
-    // word would force-commit and skip the normal turn resume on most turns.
-    return [
-      /\btour suivant\b/,
-      /\bpoint suivant\b/,
-      /\bj ai termine ce point\b/,
-    ].some((pattern) => pattern.test(commandText));
-  }
-
-  private isEndSectionCommand(commandText: string): boolean {
-    if (!commandText) return false;
-    return [
-      /\bsection suivante\b/,
-      /\bon passe a la suite\b/,
-      /\bfin de (?:la )?section\b/,
-    ].some((pattern) => pattern.test(commandText));
-  }
-
-  private isNaturalStopCommand(commandText: string, configuredPhrases: unknown = null, includeDefaultPhrases = true): boolean {
-    if (!commandText) return false;
-    const customPhrases = Array.isArray(configuredPhrases)
-      ? configuredPhrases
-          .map((phrase) => this.normalizeVoiceCommandText(String(phrase)))
-          .filter(Boolean)
-      : [];
-    if (customPhrases.some((phrase) => commandText === phrase || commandText.includes(phrase))) return true;
-    if (!includeDefaultPhrases) return false;
-    return [
-      /\bon peut s arreter(?: la)?\b/,
-      /\bon peut arreter(?: la)?\b/,
-      /\bnous pouvons nous arreter(?: la)?\b/,
-      /\bon s arrete(?: la)?\b/,
-      /\bon arrete(?: la)?\b/,
-      /\bon va s arreter(?: la)?\b/,
-      /\bje vais m arreter(?: la)?\b/,
-      /\bc est bon\b.*\b(?:arreter|stop|termine|terminer|fini|fin)\b/,
-      /\bca suffit\b/,
-      /\bcela suffit\b/,
-      /\bon a fini\b/,
-      /\bc est fini\b/,
-      /\bc est termine\b/,
-      /\bfin de session\b/,
-      /\btu peux t arreter\b/,
-      /\btu peux couper\b/,
-      /\bon coupe\b/,
-    ].some((pattern) => pattern.test(commandText));
-  }
-
-  private normalizeVoiceCommandText(value: string): string {
-    return value
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^\p{L}\p{N}\s'-]/gu, ' ')
-      .replace(/['-]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  private voiceCommandPackEnabled(settings: WorkspaceVoiceLoopConfig, accepted: string[]): boolean {
-    const packs = Array.isArray(settings.command_packs)
-      ? settings.command_packs.map((pack) => String(pack).trim().toLowerCase())
-      : [];
-    if (!packs.length) return true;
-    return packs.some((pack) => accepted.includes(pack));
   }
 
   private startAudioRecorder(openMessage: string): boolean {

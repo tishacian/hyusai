@@ -420,6 +420,50 @@ def test_retrieval_plan_preview_uses_sparse_direct_for_dense_quick_chah(db_sessi
     assert body["filters"] == {}
 
 
+def test_retrieval_plan_preview_ignores_cross_workspace_collection_scope(db_session, monkeypatch):
+    monkeypatch.setattr(chat.settings, "rag_dense_chunk_threshold", 100)
+    monkeypatch.setattr(chat.settings, "rag_dense_source_threshold", 2)
+    workspace = Workspace(id="ws-plan-visible", name="Plan Visible", slug="plan-visible")
+    other_workspace = Workspace(id="ws-plan-hidden", name="Plan Hidden", slug="plan-hidden")
+    db_session.add_all([workspace, other_workspace])
+    db_session.commit()
+    visible = create_collection(db_session, workspace=workspace, name="Visible Manuals")
+    visible.document_count = 1
+    visible.chunk_count = 12
+    workspace.settings = {
+        "knowledge_scopes": [
+            {
+                "key": "default",
+                "label": "Visible manuals",
+                "collection_slugs": [visible.slug],
+                "is_default": True,
+            }
+        ]
+    }
+    hidden = create_collection(db_session, workspace=other_workspace, name="Hidden Manuals")
+    hidden.document_count = 4
+    hidden.chunk_count = 220
+    db_session.commit()
+
+    response = _client(db_session, workspace, HappyOrchestrator(), monkeypatch).post(
+        "/chat/retrieval-plan-preview",
+        json={
+            "query": "Analyse les procedures cachees",
+            "retrieval_filters": {"collection_slug": hidden.slug},
+            "rag_pipeline_mode": "chah",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["planner_only"] is True
+    assert body["collection"] == visible.slug
+    assert hidden.slug not in body["collections"]
+    assert body["retrieval_scope"]["collections"] == [visible.slug]
+    assert body["retrieval_scope"]["source_count"] == 1
+    assert body["retrieval_scope"]["chunk_count"] == 12
+
+
 def test_chat_deep_retrieval_job_queues_worker_payload(db_session, monkeypatch):
     workspace = Workspace(id="ws-deep-job", name="Deep Job", slug="deep-job")
     db_session.add(workspace)
