@@ -4696,7 +4696,7 @@ test.describe('Andritz mocked browser smoke', () => {
     });
 
     await page.goto('/knowledge/andritz-qa');
-    await expect(page.getByText('collection=andritz-qa')).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Bindings$/ })).toBeVisible();
     await expect.poll(() => chatSystemsRequests.length).toBeGreaterThan(0);
 
     await page.getByRole('button', { name: /^Bindings$/ }).click();
@@ -4746,7 +4746,7 @@ test.describe('Andritz mocked browser smoke', () => {
     });
 
     await page.goto('/knowledge/andritz-qa');
-    await expect(page.getByText('collection=andritz-qa')).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'OCR' })).toBeVisible();
     await page.locator('app-knowledge-view').evaluate((host) => {
       const ng = (window as unknown as { ng?: { getComponent?: (el: Element) => unknown } }).ng;
       const component = ng?.getComponent?.(host) as { onTabChange?: (id: string) => void } | undefined;

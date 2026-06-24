@@ -1,0 +1,209 @@
+{
+  "generated_at": "2026-06-24T04:37:06.811Z",
+  "scope": {
+    "workspace": "andritz",
+    "systems": [
+      "Chat Recherche",
+      "Knowledge Capture",
+      "Collections",
+      "SFTP Andritz"
+    ],
+    "safety": "static execution-progress audit only; reads local matrix and safety audit, no browser, backend, VM, SFTP, collection, vector or object-store mutation"
+  },
+  "matrix": {
+    "feature_count": 101,
+    "test_count": 362,
+    "executed_test_count": 362,
+    "unexecuted_test_count": 0,
+    "execution_percent": 100
+  },
+  "execution_progress": {
+    "by_mode": {
+      "read_only_candidate": {
+        "total": 76,
+        "executed": 76,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "fixture_or_synthetic_backend": {
+        "total": 36,
+        "executed": 36,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "mocked_browser_safe": {
+        "total": 22,
+        "executed": 22,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "mutation_synthetic_or_mock_only": {
+        "total": 152,
+        "executed": 152,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "manual_safety_gate_required": {
+        "total": 59,
+        "executed": 59,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "static_local_safe": {
+        "total": 17,
+        "executed": 17,
+        "unexecuted": 0,
+        "execution_percent": 100
+      }
+    },
+    "by_scope": {
+      "Chat Recherche": {
+        "total": 68,
+        "executed": 68,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "Chat Recherche, Knowledge Capture": {
+        "total": 9,
+        "executed": 9,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "Knowledge Capture": {
+        "total": 120,
+        "executed": 120,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "Knowledge Capture, Chat Recherche": {
+        "total": 9,
+        "executed": 9,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "Knowledge Capture, Collections": {
+        "total": 6,
+        "executed": 6,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "Collections": {
+        "total": 58,
+        "executed": 58,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "Collections, Chat Recherche, Knowledge Capture": {
+        "total": 10,
+        "executed": 10,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "Collections, Chat Recherche": {
+        "total": 9,
+        "executed": 9,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "Collections, SFTP Andritz": {
+        "total": 3,
+        "executed": 3,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "SFTP Andritz": {
+        "total": 51,
+        "executed": 51,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "SFTP Andritz, Collections": {
+        "total": 16,
+        "executed": 16,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "Chat Recherche, Collections": {
+        "total": 3,
+        "executed": 3,
+        "unexecuted": 0,
+        "execution_percent": 100
+      }
+    },
+    "by_severity": {
+      "Medium": {
+        "total": 242,
+        "executed": 242,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "High": {
+        "total": 97,
+        "executed": 97,
+        "unexecuted": 0,
+        "execution_percent": 100
+      },
+      "Critical": {
+        "total": 23,
+        "executed": 23,
+        "unexecuted": 0,
+        "execution_percent": 100
+      }
+    },
+    "critical_mutation_candidate_count": 173,
+    "executed_critical_mutation_candidate_count": 173,
+    "unexecuted_critical_mutation_candidate_count": 0,
+    "open_defect_count": 0,
+    "open_critical_high_defect_count": 0,
+    "orphan_executed_ids": [],
+    "duplicate_executed_ids": [
+      {
+        "value": "SFTP-002-T01",
+        "count": 2
+      },
+      {
+        "value": "SFTP-002-T02",
+        "count": 2
+      },
+      {
+        "value": "SFTP-006-T01",
+        "count": 2
+      },
+      {
+        "value": "SFTP-006-T02",
+        "count": 2
+      },
+      {
+        "value": "SFTP-006-T03",
+        "count": 2
+      },
+      {
+        "value": "SFTP-008-T01",
+        "count": 2
+      },
+      {
+        "value": "SFTP-008-T03",
+        "count": 2
+      },
+      {
+        "value": "SFTP-009-T01",
+        "count": 2
+      },
+      {
+        "value": "SFTP-010-T01",
+        "count": 3
+      },
+      {
+        "value": "SFTP-010-T03",
+        "count": 2
+      },
+      {
+        "value": "KCAP-025-T01",
+        "count": 2
+      }
+    ],
+    "missing_safety_rows": [],
+    "recommended_next_batches": []
+  },
+  "status": "pass"
+}

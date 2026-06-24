@@ -1,0 +1,2693 @@
+{
+  "generated_at": "2026-06-24T04:37:06.807Z",
+  "scope": {
+    "workspace": "andritz",
+    "systems": [
+      "Chat Recherche",
+      "Knowledge Capture",
+      "Collections",
+      "SFTP Andritz"
+    ],
+    "safety": "static matrix test-taxonomy audit only; no browser, backend, VM, SFTP, collection, vector or object-store mutation"
+  },
+  "matrix": {
+    "feature_count": 101,
+    "test_count": 362
+  },
+  "taxonomy": {
+    "missing_test_count": 0,
+    "missing_happy_path_count": 0,
+    "missing_risk_path_count": 0,
+    "category_feature_counts": {
+      "happy": 101,
+      "error": 50,
+      "boundary": 53,
+      "invalid": 15,
+      "permission": 45,
+      "performance": 15,
+      "responsive": 4,
+      "regression": 34,
+      "destructive_safety": 5,
+      "data_integrity": 1
+    },
+    "feature_coverage": [
+      {
+        "feature_id": "CHT-001",
+        "feature_name": "Recherche chat route and business shell",
+        "scope": "Chat Recherche",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": true,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Permission/security",
+          "Responsive",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "CHT-002",
+        "feature_name": "Quick ask workspace RAG",
+        "scope": "Chat Recherche",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Boundary",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "CHT-003",
+        "feature_name": "System-scoped chat selection",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": true,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "CHT-004",
+        "feature_name": "Drop-and-ask document upload",
+        "scope": "Chat Recherche",
+        "test_count": 6,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": true
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Boundary/performance",
+          "Permission/security",
+          "Data integrity"
+        ]
+      },
+      {
+        "feature_id": "CHT-005",
+        "feature_name": "Persist ephemeral chat context",
+        "scope": "Chat Recherche",
+        "test_count": 5,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Permission/security",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "CHT-006",
+        "feature_name": "Chat source scope and session-doc mode",
+        "scope": "Chat Recherche",
+        "test_count": 12,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Validation",
+          "Regression",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "CHT-007",
+        "feature_name": "Streaming chat answer lifecycle",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Performance"
+        ]
+      },
+      {
+        "feature_id": "CHT-008",
+        "feature_name": "Chat source citations and preview drawer",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "CHT-009",
+        "feature_name": "Deep retrieval job from chat",
+        "scope": "Chat Recherche",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Performance",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "CHT-010",
+        "feature_name": "Retrieval plan preview",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": true,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "CHT-011",
+        "feature_name": "Chat voice dictation and live partials",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Performance"
+        ]
+      },
+      {
+        "feature_id": "CHT-012",
+        "feature_name": "Chat voice conversation loop and TTS controls",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "CHT-013",
+        "feature_name": "Chat correction to knowledge proposal",
+        "scope": "Chat Recherche, Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Permission/security",
+          "Validation"
+        ]
+      },
+      {
+        "feature_id": "CHT-014",
+        "feature_name": "Durable chat sessions and history",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Permission/security",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "CHT-015",
+        "feature_name": "Workspace chat knowledge settings",
+        "scope": "Chat Recherche, Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "KCAP-001",
+        "feature_name": "Capture dashboard sessions and fiches tabs",
+        "scope": "Knowledge Capture",
+        "test_count": 8,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": true,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Permission/security",
+          "Regression",
+          "Responsive"
+        ]
+      },
+      {
+        "feature_id": "KCAP-002",
+        "feature_name": "Prepare capture session",
+        "scope": "Knowledge Capture",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Validation",
+          "Error path",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "KCAP-003",
+        "feature_name": "Plan source extraction",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": true,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Boundary"
+        ]
+      },
+      {
+        "feature_id": "KCAP-004",
+        "feature_name": "Capture modes with plan, provided plan, free conversation, plan build",
+        "scope": "Knowledge Capture",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-005",
+        "feature_name": "Plan dialogue co-construction",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Validation"
+        ]
+      },
+      {
+        "feature_id": "KCAP-006",
+        "feature_name": "Plan topic editing, validation, approval",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": true,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Boundary"
+        ]
+      },
+      {
+        "feature_id": "KCAP-007",
+        "feature_name": "Start, pause, resume capture session",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "KCAP-008",
+        "feature_name": "Written capture turns",
+        "scope": "Knowledge Capture",
+        "test_count": 5,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Validation",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-009",
+        "feature_name": "Voice runtime selection and session gateway",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-010",
+        "feature_name": "Voice capture modes normal, robust, manual_safe",
+        "scope": "Knowledge Capture, Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Validation",
+          "Boundary"
+        ]
+      },
+      {
+        "feature_id": "KCAP-011",
+        "feature_name": "Adaptive VAD endpoint and client metrics",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Performance"
+        ]
+      },
+      {
+        "feature_id": "KCAP-012",
+        "feature_name": "Partial STT and final transcript orchestration",
+        "scope": "Knowledge Capture, Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Regression",
+          "Metrics"
+        ]
+      },
+      {
+        "feature_id": "KCAP-013",
+        "feature_name": "Retrieval prefetch during capture",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-014",
+        "feature_name": "Oracle live questions and statuses",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Validation"
+        ]
+      },
+      {
+        "feature_id": "KCAP-015",
+        "feature_name": "Capture document upload and list",
+        "scope": "Knowledge Capture",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": true,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Invalid input",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "KCAP-016",
+        "feature_name": "Capture document preview and active page/slide logging",
+        "scope": "Knowledge Capture",
+        "test_count": 5,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-017",
+        "feature_name": "Active document references on voice and text turns",
+        "scope": "Knowledge Capture",
+        "test_count": 7,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-018",
+        "feature_name": "Finish current section",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-019",
+        "feature_name": "Closure sheet and finish/extend/schedule actions",
+        "scope": "Knowledge Capture",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Boundary",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-020",
+        "feature_name": "Final report generation and loader",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Performance"
+        ]
+      },
+      {
+        "feature_id": "KCAP-021",
+        "feature_name": "Structured report fiche rendering",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Regression",
+          "Happy path",
+          "Boundary"
+        ]
+      },
+      {
+        "feature_id": "KCAP-022",
+        "feature_name": "Report instruction rewrite",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": true,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "KCAP-023",
+        "feature_name": "Proposal open question handling",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Validation",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "KCAP-024",
+        "feature_name": "Proposal review status",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Permission/security",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-025",
+        "feature_name": "Explicit publish proposal to knowledge",
+        "scope": "Knowledge Capture, Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Regression",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "KCAP-026",
+        "feature_name": "Free conversation structured finalization",
+        "scope": "Knowledge Capture",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Regression",
+          "Boundary",
+          "Happy path"
+        ]
+      },
+      {
+        "feature_id": "KCAP-027",
+        "feature_name": "Archive, unarchive, delete capture sessions",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": true,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Permission/security",
+          "Destructive safety"
+        ]
+      },
+      {
+        "feature_id": "KCAP-028",
+        "feature_name": "Published fiches library",
+        "scope": "Knowledge Capture, Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "KCAP-029",
+        "feature_name": "Quality backlog and defer actions",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "KCAP-030",
+        "feature_name": "Capture event ledger and amendments",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Permission/security",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "COL-001",
+        "feature_name": "Knowledge collections list",
+        "scope": "Collections",
+        "test_count": 6,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": true,
+          "responsive": true,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Performance",
+          "Error path",
+          "Regression",
+          "Responsive",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "COL-002",
+        "feature_name": "Create collection",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": true,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "COL-003",
+        "feature_name": "Upload documents to collection",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Boundary"
+        ]
+      },
+      {
+        "feature_id": "COL-004",
+        "feature_name": "Delete collection or document",
+        "scope": "Collections",
+        "test_count": 7,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": true,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Destructive safety",
+          "Permission/security",
+          "Boundary",
+          "Happy path"
+        ]
+      },
+      {
+        "feature_id": "COL-005",
+        "feature_name": "Collection inventory browse/filter/sort",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": true,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary/performance",
+          "Invalid input"
+        ]
+      },
+      {
+        "feature_id": "COL-006",
+        "feature_name": "Collection diagnostics",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Boundary"
+        ]
+      },
+      {
+        "feature_id": "COL-007",
+        "feature_name": "Document rich/raw/converted preview",
+        "scope": "Collections, Chat Recherche, Knowledge Capture",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Security",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "COL-008",
+        "feature_name": "Search inside collection",
+        "scope": "Collections",
+        "test_count": 5,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Permission/security",
+          "Error path",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "COL-009",
+        "feature_name": "Table facts explorer",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "COL-010",
+        "feature_name": "Document and OCR facts explorer",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "COL-011",
+        "feature_name": "Knowledge guides",
+        "scope": "Collections, Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "COL-012",
+        "feature_name": "Retrieval artifact jobs",
+        "scope": "Collections, Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": true,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Performance"
+        ]
+      },
+      {
+        "feature_id": "COL-013",
+        "feature_name": "Document and table query APIs",
+        "scope": "Collections, Chat Recherche, Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "COL-014",
+        "feature_name": "Collection stats, chunks, and embedding graph",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "COL-015",
+        "feature_name": "Worker job monitoring",
+        "scope": "Collections, SFTP Andritz",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "SFTP-001",
+        "feature_name": "Secure deposit link management",
+        "scope": "SFTP Andritz",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Security",
+          "Permission/security",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "SFTP-002",
+        "feature_name": "Public deposit session authentication",
+        "scope": "SFTP Andritz",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": true,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Security"
+        ]
+      },
+      {
+        "feature_id": "SFTP-003",
+        "feature_name": "Public deposit file upload",
+        "scope": "SFTP Andritz",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": true,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Invalid input"
+        ]
+      },
+      {
+        "feature_id": "SFTP-004",
+        "feature_name": "SFTP upload server write-only flow",
+        "scope": "SFTP Andritz",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Security",
+          "Boundary"
+        ]
+      },
+      {
+        "feature_id": "SFTP-005",
+        "feature_name": "Deposit queue folders, search, pagination, status filters",
+        "scope": "SFTP Andritz",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Performance",
+          "Boundary",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "SFTP-006",
+        "feature_name": "Deposit file preview and archive browsing",
+        "scope": "SFTP Andritz",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Security",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "SFTP-007",
+        "feature_name": "Deposit indexing assist",
+        "scope": "SFTP Andritz",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "SFTP-008",
+        "feature_name": "Promote single deposit file to collection",
+        "scope": "SFTP Andritz, Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "SFTP-009",
+        "feature_name": "Bulk promote deposit files",
+        "scope": "SFTP Andritz, Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Boundary/performance"
+        ]
+      },
+      {
+        "feature_id": "SFTP-010",
+        "feature_name": "SFTP operations monitor and reconciliation",
+        "scope": "SFTP Andritz",
+        "test_count": 6,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": true,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Permission/security",
+          "Destructive safety",
+          "Regression",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "SFTP-011",
+        "feature_name": "Deposit downloads and archives",
+        "scope": "SFTP Andritz",
+        "test_count": 5,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Permission/security",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "SFTP-012",
+        "feature_name": "Andritz SPL wave import planning and execution",
+        "scope": "SFTP Andritz, Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": true,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Destructive safety"
+        ]
+      },
+      {
+        "feature_id": "SFTP-013",
+        "feature_name": "Target collection selection for SFTP promote",
+        "scope": "SFTP Andritz, Collections",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": true,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "SFTP-014",
+        "feature_name": "Secure deposit workspace enablement and extension policy",
+        "scope": "SFTP Andritz",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Security",
+          "Validation"
+        ]
+      },
+      {
+        "feature_id": "CHT-016",
+        "feature_name": "Non-streaming chat completion fallback",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "CHT-017",
+        "feature_name": "Chat answer feedback and quality hooks",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "CHT-018",
+        "feature_name": "Chat voice commands",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "CHT-019",
+        "feature_name": "LiveKit voice control plane",
+        "scope": "Chat Recherche, Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Security"
+        ]
+      },
+      {
+        "feature_id": "CHT-020",
+        "feature_name": "Chat document metadata facts panel",
+        "scope": "Chat Recherche, Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Boundary"
+        ]
+      },
+      {
+        "feature_id": "CHT-021",
+        "feature_name": "Chat overlay, command palette, and workspace focus route",
+        "scope": "Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Regression",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "KCAP-031",
+        "feature_name": "Capture session flags",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": true,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "KCAP-032",
+        "feature_name": "Hint queue for guided capture",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "KCAP-033",
+        "feature_name": "Proposal markdown export",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-034",
+        "feature_name": "Direct proposal content edit",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-035",
+        "feature_name": "Capture session detail reload and deep resume",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "KCAP-036",
+        "feature_name": "Capture voice commands for turn, section, and session control",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Regression"
+        ]
+      },
+      {
+        "feature_id": "KCAP-037",
+        "feature_name": "Capture runtime metrics and latency audit",
+        "scope": "Knowledge Capture, Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary/performance",
+          "Validation"
+        ]
+      },
+      {
+        "feature_id": "KCAP-038",
+        "feature_name": "Capture proposal listing and filtering",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "KCAP-039",
+        "feature_name": "Conversation-only autonomous capture loop",
+        "scope": "Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "COL-016",
+        "feature_name": "Update collection metadata",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": true,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "COL-017",
+        "feature_name": "Legacy/global document list endpoint",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary/performance",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "COL-018",
+        "feature_name": "Global document clear safety",
+        "scope": "Collections",
+        "test_count": 4,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": true,
+          "destructive_safety": true,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Destructive safety",
+          "Permission/security",
+          "Regression",
+          "Happy path"
+        ]
+      },
+      {
+        "feature_id": "COL-019",
+        "feature_name": "Batch document upload",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Boundary/performance"
+        ]
+      },
+      {
+        "feature_id": "COL-020",
+        "feature_name": "Add documents to existing collection",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "COL-021",
+        "feature_name": "Knowledge scopes configuration",
+        "scope": "Collections, Chat Recherche, Knowledge Capture",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": false,
+          "invalid": true,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Invalid input",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "COL-022",
+        "feature_name": "Collection source bindings to systems/flows",
+        "scope": "Collections, Chat Recherche",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Permission/security"
+        ]
+      },
+      {
+        "feature_id": "COL-023",
+        "feature_name": "Knowledge page document browse drawer",
+        "scope": "Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": true,
+          "invalid": false,
+          "permission": false,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Boundary"
+        ]
+      },
+      {
+        "feature_id": "SFTP-015",
+        "feature_name": "Secure deposit health",
+        "scope": "SFTP Andritz",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Security"
+        ]
+      },
+      {
+        "feature_id": "SFTP-016",
+        "feature_name": "SFTP indexing monitor",
+        "scope": "SFTP Andritz, Collections",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": false,
+          "performance": true,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Error path",
+          "Performance"
+        ]
+      },
+      {
+        "feature_id": "SFTP-017",
+        "feature_name": "Secure deposit link copy and external handoff UX",
+        "scope": "SFTP Andritz",
+        "test_count": 3,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": true,
+          "boundary": false,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": false,
+          "regression": false,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Security",
+          "Error path"
+        ]
+      },
+      {
+        "feature_id": "SFTP-018",
+        "feature_name": "Connectors catalogue SFTP entry and enablement gate",
+        "scope": "SFTP Andritz",
+        "test_count": 7,
+        "has_tests": true,
+        "has_happy_path": true,
+        "has_risk_path": true,
+        "category_hits": {
+          "happy": true,
+          "error": false,
+          "boundary": true,
+          "invalid": false,
+          "permission": true,
+          "performance": false,
+          "responsive": true,
+          "regression": true,
+          "destructive_safety": false,
+          "data_integrity": false
+        },
+        "test_types": [
+          "Happy path",
+          "Boundary",
+          "Permission/security",
+          "Regression",
+          "Responsive"
+        ]
+      }
+    ],
+    "missing_tests": [],
+    "missing_happy_path": [],
+    "missing_risk_path": []
+  },
+  "status": "pass"
+}
