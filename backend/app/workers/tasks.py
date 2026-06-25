@@ -46,6 +46,18 @@ def rag_retrieve_context(payload: dict) -> dict:
     return run_rag_retrieve_context(payload)
 
 
+@celery_app.task(name="agentium.subflow_run")
+def subflow_run(child_run_id: str) -> dict:
+    """Execute a delegated child run (P4 multi-agent fan-out).
+
+    Thin wrapper over ``run_engine.engine.run_subflow_child`` so the heavy
+    engine import stays lazy (keeps worker boot light and avoids import cycles).
+    """
+    from app.services.run_engine.engine import run_subflow_child
+
+    return run_subflow_child(child_run_id)
+
+
 @celery_app.task(name="agentium.visual_snapshot_capture")
 def visual_snapshot_capture(job_id: str) -> dict:
     return run_visual_capture_job(job_id)
