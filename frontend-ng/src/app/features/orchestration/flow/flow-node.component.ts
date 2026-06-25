@@ -6,6 +6,12 @@
  * connector directives it renders (`fNodeInput` / `fNodeOutput`) resolve the
  * `F_NODE` token from the host element injector.
  *
+ * The card carries `fDragHandle`: Foblex 18.6 only starts a node-move drag when
+ * the pointer-down element has a `.f-drag-handle` ancestor (older versions made
+ * the whole node draggable by default). Without it the node merely selects and
+ * never moves. Ports stay connection-only because the connection-create
+ * preparation runs before the node-drag preparation.
+ *
  * P2: the runtime status badge is driven by the backend manifest's
  * `runtime_status` / `operational` for this node (the real "configured?"
  * verdict). The shared `FlowManifestService` provides it without coupling the
@@ -43,6 +49,7 @@ interface RuntimeBadge {
   styleUrl: './flow-node.component.scss',
   template: `
     <div
+      fDragHandle
       class="ck-flow-node"
       [class.is-selected]="selected()"
       [class.is-active]="runActive()"
