@@ -1,0 +1,9 @@
+{
+  "projectId": "f5b415cf-7cff-4057-a147-ef55209b13da",
+  "projectName": "Agentium — Tokens & Styling",
+  "shape": "package",
+  "mode": "styling-only",
+  "localDir": "ds-bundle",
+  "readmeHeader": ".design-sync/conventions.md",
+  "note": "Off-script styling-only import. frontend-ng is an Angular app, not a React component library, so Claude Design (React) cannot render its components. We sync the design-token layer (Tailwind theme + SCSS :root vars), brand utility classes, and locally-bundled fonts so the design agent's React output stays on-brand. See .design-sync/NOTES.md."
+}
