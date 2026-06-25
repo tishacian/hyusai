@@ -29,8 +29,8 @@
   --ck-fg-1:         #f2f5f8;
   --ck-fg-2:         #c8cdd4;
   --ck-fg-3:         #8891a0;
-  --ck-fg-4:         #5a6270;
-  --ck-fg-5:         #3a4049;
+  --ck-fg-4:         #7b8391;   /* AA: >=4.5:1 on dark panels (secondary/caption text) */
+  --ck-fg-5:         #606874;   /* faint tier: >=3:1 (large/bold text, UI elements, borders) */
 
   /* ---- SIGNALS (semantic palette) ---- */
   --ck-signal-pos:    #34d399;
@@ -114,8 +114,8 @@ html:not(.dark),
   --ck-fg-1:        #0a0c10;
   --ck-fg-2:        #2a2f36;
   --ck-fg-3:        #5c6370;
-  --ck-fg-4:        #8a909a;
-  --ck-fg-5:        #b8bcc3;
+  --ck-fg-4:        #656b78;   /* AA: >=4.5:1 on light panels (secondary/caption text) */
+  --ck-fg-5:        #868d99;   /* faint tier: >=3:1 on panel surfaces */
 
   --ck-signal-pos:    #0e9f6e;
   --ck-signal-neg:    #d93a52;

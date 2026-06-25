@@ -14,7 +14,7 @@ export const systemsRoutes: Routes = [
   {
     path: ':systemId/flow',
     loadComponent: () =>
-      import('../orchestration/workflow-editor.component').then((m) => m.WorkflowEditorComponent),
+      import('../orchestration/flow/flow-builder.component').then((m) => m.FlowBuilderComponent),
   },
   {
     path: ':systemId/capture',

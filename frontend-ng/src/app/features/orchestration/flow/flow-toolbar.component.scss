@@ -1,0 +1,142 @@
+:host {
+  display: block;
+}
+
+.ck-flow-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--ck-bg-panel) 80%, transparent);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  flex-wrap: wrap;
+}
+
+.ck-flow-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ck-flow-toolbar__meta {
+  font: 10px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+.ck-flow-toolbar__dirty {
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.12em;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: var(--ck-on-signal);
+  background: var(--ck-signal-warn, #f5b84a);
+}
+
+/* Explicit save-state pill (saved / unsaved / saving / error). */
+.ck-flow-toolbar__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+
+  app-icon {
+    display: inline-flex;
+  }
+
+  &.is-saved {
+    color: var(--ck-fg-3, #8891a0);
+    border-color: var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  }
+  &.is-unsaved {
+    color: var(--ck-on-signal, #1a1d23);
+    background: var(--ck-signal-warn, #f5b84a);
+  }
+  &.is-saving {
+    color: var(--ck-fg-2, #c8cdd4);
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.16));
+
+    app-icon {
+      animation: ckFlowSpin 0.9s linear infinite;
+    }
+  }
+  &.is-error {
+    color: var(--ck-on-signal, #1a1d23);
+    background: var(--ck-signal-neg, #e5484d);
+  }
+}
+
+@keyframes ckFlowSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ck-flow-toolbar__sep {
+  width: 1px;
+  height: 18px;
+  background: var(--ck-stroke-2, rgba(255, 255, 255, 0.1));
+  margin: 0 2px;
+}
+
+.ck-flow-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  color: var(--ck-fg-2, #c8cdd4);
+  cursor: pointer;
+  transition:
+    color var(--ck-dur-fast) var(--ck-ease-out),
+    border-color var(--ck-dur-fast) var(--ck-ease-out),
+    background var(--ck-dur-fast) var(--ck-ease-out);
+
+  span {
+    font: 600 10px / 1 var(--ck-font-mono, monospace);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  &:hover:not(:disabled) {
+    color: var(--ck-fg-1);
+    border-color: var(--ck-stroke-3);
+    background: var(--ck-tint-soft);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool);
+    outline-offset: 1px;
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &--danger:hover:not(:disabled) {
+    color: var(--ck-signal-neg);
+    border-color: color-mix(in srgb, var(--ck-signal-neg) 50%, transparent);
+  }
+
+  &--accent {
+    color: var(--ck-signal-cool, #6ea8fe);
+    border-color: color-mix(in srgb, var(--ck-signal-cool, #6ea8fe) 45%, transparent);
+
+    &:hover:not(:disabled) {
+      color: var(--ck-fg-1);
+      border-color: var(--ck-signal-cool, #6ea8fe);
+      background: color-mix(in srgb, var(--ck-signal-cool, #6ea8fe) 14%, transparent);
+    }
+  }
+}

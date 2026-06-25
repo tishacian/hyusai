@@ -1,0 +1,208 @@
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.flow-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 600px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.flow-builder__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.flow-builder__crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 11px / 1 var(--ck-font-mono, monospace);
+  color: var(--ck-fg-4, #5a6270);
+}
+
+.flow-builder__crumb {
+  color: var(--ck-fg-3, #8891a0);
+  text-decoration: none;
+
+  &:hover {
+    color: var(--ck-fg-1, #f2f5f8);
+  }
+}
+
+.flow-builder__sep {
+  color: var(--ck-fg-5, #3a4049);
+}
+
+.flow-builder__here {
+  color: var(--ck-fg-2, #c8cdd4);
+}
+
+.flow-builder__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ck-fg-1, #f2f5f8);
+}
+
+.flow-builder__toolbar {
+  flex-shrink: 0;
+}
+
+.flow-builder__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  gap: 12px;
+
+  &.is-inspecting {
+    grid-template-columns: 232px 1fr 372px;
+  }
+}
+
+.flow-builder__palette {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.flow-builder__canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.flow-builder__inspector {
+  min-height: 0;
+  border-radius: var(--ck-radius-md, 6px);
+  overflow: hidden;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+}
+
+/* On-handle insertion menu — a small floating palette anchored at the drop
+   point (viewport coords). The backdrop swallows the next click to close. */
+.flow-builder__handle-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.flow-builder__handle-menu {
+  position: fixed;
+  z-index: 61;
+  min-width: 180px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  background: var(--ck-bg-1, #11151b);
+  box-shadow: var(--ck-shadow-panel, 0 12px 32px rgba(0, 0, 0, 0.45));
+}
+
+.flow-builder__handle-title {
+  padding: 4px 8px 6px;
+  font: 600 9px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4, #7b8391);
+}
+
+.flow-builder__handle-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--ck-fg-2, #c8cdd4);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--ck-radius-sm, 4px);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ck-tint-faint, rgba(255, 255, 255, 0.04));
+    border-color: var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  }
+  &:focus-visible {
+    outline: none;
+    border-color: var(--ck-signal-cool, #7dd3fc);
+  }
+}
+
+.flow-builder__handle-empty {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--ck-fg-4, #7b8391);
+}
+
+/* Bottom execution terminal — in-layout (not a fixed overlay) so it resizes
+   the canvas body rather than covering it. Toggled via the run controls. */
+.flow-builder__terminal {
+  flex-shrink: 0;
+  height: clamp(180px, 32vh, 320px);
+  min-height: 0;
+  animation: flowTerminalIn 200ms var(--ck-ease-out, ease-out);
+}
+
+@keyframes flowTerminalIn {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Responsive — at ~1024px the inspector becomes a slide-over so the canvas
+   keeps usable width; the palette narrows. */
+@media (max-width: 1024px) {
+  .flow-builder__body,
+  .flow-builder__body.is-inspecting {
+    grid-template-columns: 180px 1fr;
+  }
+
+  .flow-builder__inspector {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(380px, 90vw);
+    z-index: 45;
+    box-shadow: var(--ck-shadow-panel);
+    animation: flowInspectorIn 200ms var(--ck-ease-out, ease-out);
+  }
+}
+
+@media (max-width: 720px) {
+  .flow-builder__body,
+  .flow-builder__body.is-inspecting {
+    grid-template-columns: 1fr;
+  }
+  .flow-builder__palette {
+    max-height: 160px;
+  }
+}
+
+@keyframes flowInspectorIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}

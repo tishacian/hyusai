@@ -1,0 +1,222 @@
+/* Custom Foblex node — tokenised on --ck-* only (no Material, no ad-hoc hex). */
+
+:host {
+  display: block;
+  /* Foblex sizes the node host to its content; give a sensible min. */
+  min-width: 196px;
+}
+
+.ck-flow-node {
+  --tone: var(--ck-signal-cool);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 196px;
+  padding: 12px 16px;
+  border-radius: var(--ck-radius-lg, 10px);
+  background: var(--ck-bg-panel-hi, #11161c);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  box-shadow: var(--ck-shadow-card);
+  color: var(--ck-fg-1, #f2f5f8);
+  cursor: grab;
+  transition:
+    border-color var(--ck-dur-fast, 120ms) var(--ck-ease-out),
+    box-shadow var(--ck-dur-fast, 120ms) var(--ck-ease-out),
+    transform var(--ck-dur-fast, 120ms) var(--ck-ease-out);
+
+  &[data-tone='cyan'] { --tone: var(--ck-signal-cool); }
+  &[data-tone='violet'] { --tone: var(--ck-signal-violet); }
+  &[data-tone='emerald'] { --tone: var(--ck-signal-pos); }
+  &[data-tone='amber'] { --tone: var(--ck-signal-warn); }
+  &[data-tone='rose'] { --tone: var(--ck-signal-neg); }
+  &[data-tone='brand'] { --tone: var(--ck-signal-cool); }
+
+  &:hover {
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+    box-shadow: var(--ck-shadow-popover);
+  }
+
+  /* Selected — store-driven (.is-selected) and Foblex marquee (.f-selected). */
+  &.is-selected {
+    border-color: var(--tone);
+    box-shadow:
+      0 0 0 1px var(--tone),
+      var(--ck-shadow-popover);
+  }
+
+  /* Run overlay — this node is the one the walker is currently on. */
+  &.is-active {
+    border-color: var(--ck-signal-cool, #7dd3fc);
+    box-shadow:
+      0 0 0 1px var(--ck-signal-cool, #7dd3fc),
+      var(--ck-glow-cool);
+    animation: ckNodePulse 1.1s var(--ck-ease-in-out) infinite;
+  }
+
+  /* Armed breakpoint — red rail accent so it reads even when deselected. */
+  &.has-breakpoint .ck-flow-node__bar {
+    background: var(--ck-signal-neg, #ef5a6f);
+  }
+}
+
+@keyframes ckNodePulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px var(--ck-signal-cool, #7dd3fc),
+      var(--ck-shadow-card);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px var(--ck-signal-cool, #7dd3fc),
+      var(--ck-glow-cool);
+  }
+}
+
+/* Per-node breakpoint dot (visible only while debug mode is armed). */
+.ck-flow-node__bp {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  border: 1.5px solid var(--ck-signal-neg, #ef5a6f);
+  transition:
+    background var(--ck-dur-fast, 120ms) var(--ck-ease-out),
+    transform var(--ck-dur-fast, 120ms) var(--ck-ease-out);
+
+  &:hover {
+    transform: scale(1.2);
+    background: rgba(239, 90, 111, 0.3);
+  }
+  &.is-on {
+    background: var(--ck-signal-neg, #ef5a6f);
+    box-shadow: var(--ck-glow-neg);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool, #7dd3fc);
+    outline-offset: 2px;
+  }
+}
+
+:host(.f-selected) .ck-flow-node {
+  border-color: var(--tone);
+  box-shadow:
+    0 0 0 1px var(--tone),
+    var(--ck-shadow-popover);
+}
+
+.ck-flow-node__bar {
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--tone);
+}
+
+.ck-flow-node__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ck-flow-node__pill {
+  font: 600 9px / 1.2 var(--ck-font-mono, monospace);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ck-fg-2, #c8cdd4);
+}
+
+.ck-flow-node__badge {
+  font: 600 8px / 1 var(--ck-font-mono, monospace);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--ck-stroke-2);
+  color: var(--ck-fg-2);
+
+  &[data-status='bound'],
+  &[data-status='operational'] {
+    color: var(--ck-on-signal);
+    background: var(--ck-signal-pos);
+    border-color: transparent;
+  }
+  &[data-status='stub'],
+  &[data-status='manifest_only'] {
+    color: var(--ck-on-signal);
+    background: var(--ck-signal-warn);
+    border-color: transparent;
+  }
+  &[data-status='unbound'] {
+    color: var(--ck-on-signal);
+    background: var(--ck-signal-neg);
+    border-color: transparent;
+  }
+}
+
+.ck-flow-node__title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--ck-fg-1, #f2f5f8);
+}
+
+.ck-flow-node__desc {
+  font: 11px / 1.35 var(--ck-font-mono, monospace);
+  color: var(--ck-fg-3, #8891a0);
+  word-break: break-word;
+  max-width: 240px;
+}
+
+/* Ports / connectors */
+.ck-flow-port {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--ck-bg-void, #05070a);
+  border: 2px solid var(--ck-fg-4, #5a6270);
+  transform: translateY(-50%);
+  transition:
+    border-color var(--ck-dur-fast) var(--ck-ease-out),
+    box-shadow var(--ck-dur-fast) var(--ck-ease-out),
+    transform var(--ck-dur-fast) var(--ck-ease-out);
+  cursor: crosshair;
+
+  &.ck-flow-port--in {
+    left: -7px;
+  }
+  &.ck-flow-port--out {
+    right: -7px;
+  }
+
+  &:hover {
+    border-color: var(--ck-signal-cool, #7dd3fc);
+    box-shadow: var(--ck-glow-cool);
+    transform: translateY(-50%) scale(1.25);
+  }
+}
+
+.ck-flow-node[data-tone='violet'] .ck-flow-port--out { border-color: var(--ck-signal-violet); }
+.ck-flow-node[data-tone='emerald'] .ck-flow-port--out { border-color: var(--ck-signal-pos); }
+.ck-flow-node[data-tone='amber'] .ck-flow-port--out { border-color: var(--ck-signal-warn); }
+.ck-flow-node[data-tone='rose'] .ck-flow-port--out { border-color: var(--ck-signal-neg); }
+.ck-flow-node[data-tone='cyan'] .ck-flow-port--out { border-color: var(--ck-signal-cool); }
+
+/* Foblex marks connectable targets while dragging a connection. */
+.ck-flow-port.f-node-input-connected,
+.ck-flow-port.f-node-output-connected {
+  background: var(--ck-signal-cool);
+  border-color: var(--ck-signal-cool);
+}
+:host-context(f-flow.f-connections-dragging) .ck-flow-port.f-connector-connectable {
+  border-color: var(--ck-signal-pos);
+  box-shadow: var(--ck-glow-pos);
+}

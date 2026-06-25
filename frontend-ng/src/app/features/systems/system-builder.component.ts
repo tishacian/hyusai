@@ -870,7 +870,7 @@ export class SystemBuilderComponent implements OnInit {
   readonly editingSystem = signal<System | null>(null);
   readonly flowExtended = signal(false);
   readonly flowSource = signal<'form' | 'flow'>('form');
-  /** Sections frozen in read-only because Drawflow added custom nodes. */
+  /** Sections frozen in read-only because the Flow builder added custom nodes. */
   readonly lockedSections = signal<Set<CanvasSectionKey>>(new Set());
 
   readonly ragPipelines = RAG_PIPELINES;
@@ -1293,7 +1293,7 @@ export class SystemBuilderComponent implements OnInit {
   /**
    * Hydrate the builder state from an existing System (edit mode).
    * Locks Skills + Policy sections when the flow is marked
-   * `extended` so the user can't silently overwrite Drawflow work.
+   * `extended` so the user can't silently overwrite Flow-authored work.
    */
   private hydrateFromSystem(sys: System): void {
     this.editingSystem.set(sys);

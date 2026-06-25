@@ -23,12 +23,10 @@
             ],
             "styles": [
               "node_modules/ngx-toastr/toastr.css",
+              "node_modules/@foblex/flow/styles/default.scss",
               "src/styles.scss"
             ],
-            "scripts": [],
-            "allowedCommonJsDependencies": [
-              "drawflow"
-            ]
+            "scripts": []
           },
           "configurations": {
             "production": {

@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 
 /**
  * Flow serialization — the contract between `/systems/new` (Form) and
- * `/orchestration` (Drawflow / Flow).
+ * `/orchestration` (Flow builder).
  *
  * `flow_definition` is a free-form JSON on the `System` model. Today it
  * comes in two shapes in the wild:
@@ -26,10 +26,10 @@ import { Injectable } from '@angular/core';
  *     (`builder.objective`, `builder.capability`, …). Every section of
  *     the builder canvas maps to exactly one node.
  *   - `flowToForm(flow, current)` reads those canonical ids back. If
- *     the flow carries **extra** nodes (user-authored in Drawflow), it
- *     returns `extended: true` so the builder can lock the affected
- *     sections with an "Edited in Flow" badge — we never silently drop
- *     operator intent.
+ *     the flow carries **extra** nodes (user-authored in the Flow
+ *     builder), it returns `extended: true` so the builder can lock the
+ *     affected sections with an "Edited in Flow" badge — we never
+ *     silently drop operator intent.
  *   - `source` (`'form' | 'flow'`) tracks who wrote last. The builder
  *     sets it to `'form'` on launch; `/orchestration` sets it to
  *     `'flow'` on save.
@@ -83,6 +83,54 @@ export interface NodePort {
 }
 
 /**
+ * A typed variable selector into the run's data membrane (v3).
+ *
+ * `node_id` is either an upstream node id whose output the value is read
+ * from, OR one of the reserved namespaces below; `path` walks into that
+ * source's output object (e.g. `['retrieval', 'sources', '0', 'id']`).
+ *
+ * Reserved namespaces (NOT node ids) — addressable from any node:
+ *   - `workspace` : workspace-scoped settings / context.
+ *   - `system`    : the running System's static config (model, policy…).
+ *   - `run`       : per-run inputs (the trigger payload, run id…).
+ *   - `node`      : self-reference to the current node's own scope.
+ *
+ * Backward-compat: `inputs_map` still accepts a legacy dot-path string
+ * (e.g. `"session.objective"`); v2 flows keep those untouched. The
+ * typed `VariableRef` form is the v3 enrichment — both shapes coexist.
+ */
+export interface VariableRef {
+  node_id: string;
+  path: string[];
+}
+
+/** Reserved variable namespaces that resolve outside the node graph. */
+export const RESERVED_VARIABLE_NAMESPACES: readonly string[] = [
+  'workspace',
+  'system',
+  'run',
+  'node',
+] as const;
+
+/**
+ * True only when BOTH schemas are known primitives and they are
+ * incompatible. Unknown / `ref:`-style / non-primitive schemas are not
+ * comparable and never flagged. `number`/`integer` are treated as
+ * compatible. This is the SINGLE source of truth for primitive dataflow
+ * compatibility — `validateFlow` (the `port_type_mismatch` check) and the
+ * variable-picker candidate filter both consume it, so the design-time
+ * checklist and the picker can never disagree.
+ */
+export function primitivesIncompatible(a: string, b: string): boolean {
+  const primitives = new Set(['string', 'number', 'integer', 'boolean', 'object', 'array']);
+  if (!primitives.has(a) || !primitives.has(b)) return false;
+  if (a === b) return false;
+  const numeric = new Set(['number', 'integer']);
+  if (numeric.has(a) && numeric.has(b)) return false;
+  return true;
+}
+
+/**
  * Kind-specific config payload. Typed as a discriminated union for
  * IDE support, but always persisted as a free-form bag so forward-
  * compatibility is cheap.
@@ -90,8 +138,13 @@ export interface NodePort {
 export interface TaskNodeConfig {
   skill_id?: string | null;
   skill_slug?: string;
-  /** Map input port name → expression against the context bag. */
-  inputs_map?: Record<string, string>;
+  /**
+   * Map input port name → source value. Either a legacy dot-path string
+   * (v2) or a typed {@link VariableRef} selector (v3). Both forms are
+   * preserved verbatim across normalize — the v2→v3 backfill never
+   * rewrites legacy strings.
+   */
+  inputs_map?: Record<string, string | VariableRef>;
   /** Map output port name → context key to write. */
   outputs_map?: Record<string, string>;
 }
@@ -169,7 +222,7 @@ export interface CanonicalFlowNode {
   outputs?: NodePort[];
   /** Kind-specific config. Shape depends on `kind`. */
   config?: KindConfig;
-  /** Pixel position — only meaningful for Drawflow. */
+  /** Pixel position on the canvas. */
   position?: { x: number; y: number };
 }
 
@@ -243,7 +296,10 @@ export interface CanonicalFlow {
   template_name?: string;
 
   /** Optional schema version for the flow itself — lets us evolve the
-   *  shape with safe migrations. Current = 2 (v1 = Vague A/B, v2 = C). */
+   *  shape with safe migrations. Current = 3 (v1 = Vague A/B, v2 = C,
+   *  v3 = variable-membrane: typed ports + `VariableRef` selectors).
+   *  `normalize()` performs an idempotent, non-destructive v2→v3
+   *  backfill so older flows keep working unchanged. */
   schema_version?: number;
 }
 
@@ -261,6 +317,10 @@ export interface FlowValidationIssue {
     | 'cycle_detected'
     | 'unreachable_node'
     | 'port_type_mismatch'
+    // v3: a ``config.inputs_map`` VariableRef points at a node_id/port
+    // that is not a reserved namespace and not present upstream. Warn
+    // level — design-time hint, never blocks a save.
+    | 'variable_unresolved'
     | 'hitl_no_prompt'
     | 'loop_no_budget'
     | 'retry_no_target'
@@ -313,28 +373,6 @@ const CANONICAL_NODE_IDS: readonly CanonicalNodeId[] = [
 ] as const;
 
 const CANONICAL_ID_SET = new Set<string>(CANONICAL_NODE_IDS);
-
-/** Minimal Drawflow JSON shape (we only read/write the parts we use). */
-export interface DrawflowNode {
-  id: number;
-  name: string;
-  data: Record<string, unknown>;
-  class?: string;
-  html?: string;
-  typenode?: boolean;
-  inputs: Record<string, { connections: { node: string; input?: string; output?: string }[] }>;
-  outputs: Record<string, { connections: { node: string; input?: string; output?: string }[] }>;
-  pos_x: number;
-  pos_y: number;
-}
-
-export interface DrawflowGraph {
-  drawflow: {
-    Home: {
-      data: Record<string, DrawflowNode>;
-    };
-  };
-}
 
 @Injectable({ providedIn: 'root' })
 export class FlowSerializerService {
@@ -423,7 +461,7 @@ export class FlowSerializerService {
     return {
       source: 'form',
       extended: false,
-      schema_version: 2,
+      schema_version: 3,
       nodes,
       edges,
       policy: this.policyFromDraft(draft),
@@ -501,163 +539,6 @@ export class FlowSerializerService {
   }
 
   /**
-   * Materialize a canonical flow into a Drawflow graph that can be
-   * `drawflow.import()`-ed directly. Canonical node ids are re-numbered
-   * into integer keys as Drawflow expects, with a lookup preserved on
-   * each node's `data.canonical_id` so the reverse projection is
-   * deterministic.
-   */
-  materialize(flow: CanonicalFlow): DrawflowGraph {
-    const data: Record<string, DrawflowNode> = {};
-    const idToNum = new Map<string, number>();
-    const outgoing = new Map<string, CanonicalFlowEdge[]>();
-    const incoming = new Map<string, CanonicalFlowEdge[]>();
-    for (const n of flow.nodes) {
-      outgoing.set(n.id, []);
-      incoming.set(n.id, []);
-    }
-    for (const edge of flow.edges) {
-      outgoing.get(edge.from)?.push(edge);
-      incoming.get(edge.to)?.push(edge);
-    }
-    flow.nodes.forEach((n, idx) => {
-      const num = idx + 1;
-      idToNum.set(n.id, num);
-      const kind = n.kind ?? 'task';
-      const inputCount = kind === 'source' ? 0 : Math.max(1, incoming.get(n.id)?.length ?? 0);
-      const outputCount = kind === 'sink' ? 0 : Math.max(1, outgoing.get(n.id)?.length ?? 0);
-      data[String(num)] = {
-        id: num,
-        name: String(n.type),
-        class: `flow-node flow-node-${n.type} flow-kind-${kind}`,
-        html: this.nodeHtml(n),
-        typenode: false,
-        data: {
-          ...(n.data ?? {}),
-          canonical_id: n.id,
-          canonical_type: n.type,
-          canonical_kind: kind,
-          canonical_config: n.config ?? null,
-          canonical_inputs: n.inputs ?? null,
-          canonical_outputs: n.outputs ?? null,
-          canonical_edge_meta: (outgoing.get(n.id) ?? []).map((edge) => ({ ...edge })),
-        },
-        inputs: this.makePorts('input', inputCount),
-        outputs: this.makePorts('output', outputCount),
-        pos_x: n.position?.x ?? 60 + idx * 260,
-        pos_y: n.position?.y ?? 80,
-      };
-    });
-
-    const outIndex = new Map<string, number>();
-    for (const edge of flow.edges) {
-      const fromNum = idToNum.get(edge.from);
-      const toNum = idToNum.get(edge.to);
-      if (!fromNum || !toNum) continue;
-      const fromNode = data[String(fromNum)];
-      const toNode = data[String(toNum)];
-      const nextOut = (outIndex.get(edge.from) ?? 0) + 1;
-      outIndex.set(edge.from, nextOut);
-      const outputName = fromNode.outputs[`output_${nextOut}`] ? `output_${nextOut}` : 'output_1';
-      const inputName = toNode.inputs['input_1'] ? 'input_1' : Object.keys(toNode.inputs)[0];
-      if (!outputName || !inputName) continue;
-      fromNode.outputs[outputName].connections.push({
-        node: String(toNum),
-        output: inputName,
-      });
-      toNode.inputs[inputName].connections.push({
-        node: String(fromNum),
-        input: outputName,
-      });
-    }
-
-    return { drawflow: { Home: { data } } };
-  }
-
-  /**
-   * Read a Drawflow graph back into a canonical flow, preserving
-   * `canonical_id` markers we wrote at materialize time. Nodes that
-   * were added in Drawflow without a canonical id keep their
-   * drawflow-generated id and are flagged as `custom`.
-   */
-  project(graph: DrawflowGraph): CanonicalFlow {
-    const raw = graph?.drawflow?.Home?.data ?? {};
-    const numToCanonical = new Map<string, string>();
-    const nodes: CanonicalFlowNode[] = [];
-    let hasExtra = false;
-
-    for (const [key, node] of Object.entries(raw)) {
-      const canonicalId = (node.data?.['canonical_id'] as string) || `flow.${key}`;
-      const type =
-        (node.data?.['canonical_type'] as string) || node.name || 'custom';
-      const kind = (node.data?.['canonical_kind'] as NodeKind) || 'task';
-      const config = (node.data?.['canonical_config'] as KindConfig) || undefined;
-      const inputs = (node.data?.['canonical_inputs'] as NodePort[]) || undefined;
-      const outputs = (node.data?.['canonical_outputs'] as NodePort[]) || undefined;
-      if (!CANONICAL_ID_SET.has(canonicalId) && type !== 'source' && type !== 'sink') {
-        hasExtra = true;
-      }
-      numToCanonical.set(key, canonicalId);
-      const {
-        canonical_id: _ci,
-        canonical_type: _ct,
-        canonical_kind: _ck,
-        canonical_config: _cc,
-        canonical_inputs: _cin,
-        canonical_outputs: _cout,
-        canonical_edge_meta: _cem,
-        ...rest
-      } = node.data ?? {};
-      nodes.push({
-        id: canonicalId,
-        type,
-        kind,
-        label: this.extractLabel(node),
-        data: rest,
-        config,
-        inputs,
-        outputs,
-        position: { x: node.pos_x, y: node.pos_y },
-      });
-    }
-
-    const edges: CanonicalFlowEdge[] = [];
-    for (const [key, node] of Object.entries(raw)) {
-      const fromId = numToCanonical.get(key);
-      if (!fromId) continue;
-      const edgeMeta = Array.isArray(node.data?.['canonical_edge_meta'])
-        ? (node.data?.['canonical_edge_meta'] as CanonicalFlowEdge[])
-        : [];
-      const usedMeta = new Set<number>();
-      for (const out of Object.values(node.outputs ?? {})) {
-        for (const conn of out.connections ?? []) {
-          const toId = numToCanonical.get(conn.node);
-          if (!toId) continue;
-          const metaIndex = edgeMeta.findIndex(
-            (edge, idx) => !usedMeta.has(idx) && edge.from === fromId && edge.to === toId,
-          );
-          const meta = metaIndex >= 0 ? edgeMeta[metaIndex] : undefined;
-          if (metaIndex >= 0) usedMeta.add(metaIndex);
-          edges.push({
-            ...(meta ?? {}),
-            from: fromId,
-            to: toId,
-            kind: meta?.kind ?? 'data',
-          });
-        }
-      }
-    }
-
-    return {
-      source: 'flow',
-      extended: hasExtra,
-      schema_version: 2,
-      nodes,
-      edges,
-    };
-  }
-
-  /**
    * Merge a freshly-projected flow with the semantic sidecars that the
    * form wrote last. Called right before persisting — we keep the
    * `collections`/`rag_mode`/`policy` mirrors in sync with whatever the
@@ -685,18 +566,61 @@ export class FlowSerializerService {
 
   /**
    * Ensure every node carries a `kind` (defaults to `'task'`) and has
-   * the minimal shape downstream consumers expect. Also back-fills a
-   * `schema_version` marker when absent. Idempotent.
+   * the minimal shape downstream consumers expect. Performs an
+   * idempotent, non-destructive v2→v3 backfill:
+   *   - stamps `schema_version: 3` (keeps a higher version if present);
+   *   - infers a node's typed input/output ports from the `data` edges
+   *     that name a port (`from_port`/`to_port`) when the node declares
+   *     none — so a node that participates in dataflow gets an explicit
+   *     signature;
+   *   - leaves legacy `inputs_map` dot-path strings exactly as-is (no
+   *     destructive rewrite to `VariableRef`).
+   * Idempotent: a second pass sees the ports already present and skips.
    */
   normalize(flow: CanonicalFlow): CanonicalFlow {
-    const nodes = flow.nodes.map((n) => this.normalizeNode(n));
     const edges = flow.edges.map((e) => ({
       ...e,
       kind: e.kind ?? 'data',
     }));
+
+    // Collect port names named by data edges, per node + direction.
+    const inferredIn = new Map<string, Set<string>>();
+    const inferredOut = new Map<string, Set<string>>();
+    for (const e of edges) {
+      if (e.kind !== 'data') continue;
+      if (e.to_port) {
+        (inferredIn.get(e.to) ?? inferredIn.set(e.to, new Set()).get(e.to)!).add(e.to_port);
+      }
+      if (e.from_port) {
+        (inferredOut.get(e.from) ?? inferredOut.set(e.from, new Set()).get(e.from)!).add(
+          e.from_port,
+        );
+      }
+    }
+
+    const nodes = flow.nodes.map((n) => {
+      const base = this.normalizeNode(n);
+      const wantIn = (base.inputs?.length ?? 0) === 0 && inferredIn.has(base.id);
+      const wantOut = (base.outputs?.length ?? 0) === 0 && inferredOut.has(base.id);
+      if (!wantIn && !wantOut) return base;
+      return {
+        ...base,
+        inputs: wantIn
+          ? [...inferredIn.get(base.id)!].map((name) => ({ name, schema: 'object' }))
+          : base.inputs,
+        outputs: wantOut
+          ? [...inferredOut.get(base.id)!].map((name) => ({ name, schema: 'object' }))
+          : base.outputs,
+      };
+    });
+
+    const sv =
+      typeof flow.schema_version === 'number' && flow.schema_version >= 3
+        ? flow.schema_version
+        : 3;
     return {
       ...flow,
-      schema_version: flow.schema_version ?? 2,
+      schema_version: sv,
       nodes,
       edges,
     };
@@ -837,7 +761,101 @@ export class FlowSerializerService {
       });
     }
 
+    // v3 — data-membrane diagnostics (both warn level; never block a
+    // save). Kept in lockstep with the backend ``dag_validator``.
+    const byId = new Map(flow.nodes.map((n) => [n.id, n] as const));
+
+    // port_type_mismatch: a kind='data' edge whose from_port/to_port
+    // reference declared ports with incompatible *primitive* schemas.
+    flow.edges.forEach((e, idx) => {
+      if ((e.kind ?? 'data') !== 'data') return;
+      if (!e.from_port || !e.to_port) return;
+      const src = byId.get(e.from);
+      const dst = byId.get(e.to);
+      if (!src || !dst) return; // already reported as dangling_edge
+      const outPort = (src.outputs ?? []).find((p) => p.name === e.from_port);
+      const inPort = (dst.inputs ?? []).find((p) => p.name === e.to_port);
+      if (!outPort || !inPort) return; // can't compare undeclared ports
+      if (primitivesIncompatible(outPort.schema, inPort.schema)) {
+        issues.push({
+          level: 'warn',
+          edge_index: idx,
+          code: 'port_type_mismatch',
+          message: `Edge ${e.from}.${e.from_port} (${outPort.schema}) → ${e.to}.${e.to_port} (${inPort.schema}) connects incompatible types.`,
+        });
+      }
+    });
+
+    // variable_unresolved: a config.inputs_map VariableRef points at a
+    // node_id/port not present upstream. Legacy dot-path strings are
+    // skipped (they are resolved by the run engine, not the graph).
+    for (const n of flow.nodes) {
+      const inputsMap = (n.config as Record<string, unknown> | undefined)?.['inputs_map'];
+      if (!inputsMap || typeof inputsMap !== 'object') continue;
+      let ancestors: Set<string> | null = null;
+      for (const [port, raw] of Object.entries(inputsMap as Record<string, unknown>)) {
+        if (!this.isVariableRef(raw)) continue;
+        const ref = raw as VariableRef;
+        if (RESERVED_VARIABLE_NAMESPACES.includes(ref.node_id)) continue;
+        if (!ids.has(ref.node_id)) {
+          issues.push({
+            level: 'warn',
+            node_id: n.id,
+            code: 'variable_unresolved',
+            message: `Input "${port}" references unknown node "${ref.node_id}".`,
+          });
+          continue;
+        }
+        if (ancestors === null) ancestors = this.ancestorsOf(n.id, rev);
+        if (!ancestors.has(ref.node_id)) {
+          issues.push({
+            level: 'warn',
+            node_id: n.id,
+            code: 'variable_unresolved',
+            message: `Input "${port}" reads from "${ref.node_id}", which is not upstream of "${n.id}".`,
+          });
+          continue;
+        }
+        const srcOutputs = byId.get(ref.node_id)?.outputs ?? [];
+        const head = ref.path[0];
+        if (srcOutputs.length > 0 && head && !srcOutputs.some((p) => p.name === head)) {
+          issues.push({
+            level: 'warn',
+            node_id: n.id,
+            code: 'variable_unresolved',
+            message: `Input "${port}" reads port "${head}" not declared on "${ref.node_id}".`,
+          });
+        }
+      }
+    }
+
     return issues;
+  }
+
+  /** A value is a typed VariableRef (v3) iff it carries a string
+   *  `node_id` and an array `path`; anything else (incl. legacy dot-path
+   *  strings) is treated as opaque and skipped by validation. */
+  private isVariableRef(value: unknown): value is VariableRef {
+    return (
+      !!value &&
+      typeof value === 'object' &&
+      typeof (value as { node_id?: unknown }).node_id === 'string' &&
+      Array.isArray((value as { path?: unknown }).path)
+    );
+  }
+
+  /** Backward-reachable set (ancestors) of `nodeId` over the reverse
+   *  adjacency built from the (purified) edge list. */
+  private ancestorsOf(nodeId: string, rev: Map<string, string[]>): Set<string> {
+    const seen = new Set<string>();
+    const stack = [...(rev.get(nodeId) ?? [])];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      stack.push(...(rev.get(cur) ?? []));
+    }
+    return seen;
   }
 
   /**
@@ -974,104 +992,6 @@ export class FlowSerializerService {
       default:
         return 'auto';
     }
-  }
-
-  private nodeHtml(n: CanonicalFlowNode): string {
-    const label = this.escape(n.label ?? String(n.type));
-    const description = this.escape(this.nodeDescription(n));
-    const typeLabel = this.escape(this.nodeTypeLabel(n));
-    const tone = this.nodeTone(n);
-    const kind = n.kind ?? 'task';
-    return `
-      <div class="df-node df-tone-${tone} df-kind-${kind}">
-        <div class="df-node-bar"></div>
-        <div class="df-node-head">
-          <span class="df-node-icon"></span>
-          <span class="df-node-pill">${typeLabel}</span>
-        </div>
-        <div class="df-node-title">${label}</div>
-        <div class="df-node-body mono">${description}</div>
-      </div>`;
-  }
-
-  private extractLabel(node: DrawflowNode): string {
-    const raw = node.html ?? '';
-    const title = raw.match(/class="df-node-title"[^>]*>([^<]+)</);
-    if (title?.[1]) return title[1].trim();
-    const legacy = raw.match(/class="fn-title"[^>]*>([^<]+)</);
-    if (legacy?.[1]) return legacy[1].trim();
-    const match = raw.match(/>(.*?)</);
-    return match?.[1] ?? node.name ?? '';
-  }
-
-  private makePorts(
-    prefix: 'input' | 'output',
-    count: number,
-  ): Record<string, { connections: { node: string; input?: string; output?: string }[] }> {
-    const ports: Record<string, { connections: { node: string; input?: string; output?: string }[] }> = {};
-    for (let i = 1; i <= count; i += 1) {
-      ports[`${prefix}_${i}`] = { connections: [] };
-    }
-    return ports;
-  }
-
-  private nodeDescription(n: CanonicalFlowNode): string {
-    const data = n.data ?? {};
-    const cfg = (n.config ?? {}) as Record<string, unknown>;
-    const explicit = data['description'];
-    if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
-    const runtime = cfg['runtime_ref'] ?? data['runtime_ref'];
-    if (typeof runtime === 'string' && runtime.trim()) return runtime.trim();
-    const skill = cfg['skill_slug'];
-    if (typeof skill === 'string' && skill.trim()) return skill.trim();
-    return String(n.type);
-  }
-
-  private nodeTypeLabel(n: CanonicalFlowNode): string {
-    const cfg = (n.config ?? {}) as Record<string, unknown>;
-    if (typeof cfg['skill_slug'] === 'string' && cfg['skill_slug']) return 'SKILL';
-    if (typeof cfg['runtime_ref'] === 'string' && cfg['runtime_ref']) return 'RUNTIME';
-    switch (n.kind ?? 'task') {
-      case 'source':
-        return 'TRIGGER';
-      case 'sink':
-        return 'OUTPUT';
-      case 'decision':
-        return 'ROUTER';
-      case 'hitl':
-        return 'HITL';
-      default:
-        return String(n.type).toUpperCase().slice(0, 14);
-    }
-  }
-
-  private nodeTone(n: CanonicalFlowNode): 'brand' | 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose' {
-    switch (n.kind ?? 'task') {
-      case 'source':
-      case 'sink':
-        return 'emerald';
-      case 'decision':
-      case 'fork':
-      case 'join':
-      case 'subflow':
-        return 'violet';
-      case 'loop':
-      case 'retry':
-      case 'hitl':
-        return 'amber';
-      default:
-        break;
-    }
-    const type = String(n.type);
-    if (type === 'guardrail') return 'rose';
-    if (type === 'retrieve') return 'violet';
-    if (type === 'llm') return 'cyan';
-    if (type === 'tool') return 'emerald';
-    return 'cyan';
-  }
-
-  private escape(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   private str(v: unknown, fallback: string): string {

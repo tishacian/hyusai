@@ -1,0 +1,136 @@
+/* Design-time validation checklist — tokenised on --ck-* (AA contrast).
+   display:contents so the host adds no flex gap when the strip is clean
+   (renders nothing) — the inner .ck-vstrip is the real flex item. */
+:host {
+  display: contents;
+}
+
+.ck-vstrip {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--ck-stroke-1, rgba(255, 255, 255, 0.04));
+  border-radius: var(--ck-radius-md, 6px);
+  background: var(--ck-bg-inset, #0a0d11);
+  font-family: var(--ck-font-mono, monospace);
+  max-height: 168px;
+}
+
+.ck-vstrip__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ck-vstrip__eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ck-fg-4, #7b8391);
+}
+
+.ck-vstrip__count {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+
+  &[data-level='error'] {
+    color: var(--ck-signal-neg, #ef5a6f);
+    border-color: color-mix(in srgb, var(--ck-signal-neg, #ef5a6f) 40%, transparent);
+  }
+  &[data-level='warn'] {
+    color: var(--ck-signal-warn, #f5b84a);
+    border-color: color-mix(in srgb, var(--ck-signal-warn, #f5b84a) 40%, transparent);
+  }
+}
+
+.ck-vstrip__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.ck-vstrip__row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--ck-radius-sm, 4px);
+  cursor: pointer;
+  color: var(--ck-fg-2, #c8cdd4);
+  transition:
+    background var(--ck-dur-fast, 120ms) var(--ck-ease-out),
+    border-color var(--ck-dur-fast, 120ms) var(--ck-ease-out);
+
+  &:hover:not(:disabled) {
+    background: var(--ck-tint-faint, rgba(255, 255, 255, 0.04));
+    border-color: var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  }
+  &:focus-visible {
+    outline: none;
+    border-color: var(--ck-signal-cool, #7dd3fc);
+    box-shadow: 0 0 0 1px var(--ck-signal-cool, #7dd3fc);
+  }
+  &:disabled {
+    cursor: default;
+    opacity: 0.85;
+  }
+}
+
+.ck-vstrip__dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ck-fg-4, #7b8391);
+
+  &[data-level='error'] {
+    background: var(--ck-signal-neg, #ef5a6f);
+  }
+  &[data-level='warn'] {
+    background: var(--ck-signal-warn, #f5b84a);
+  }
+}
+
+.ck-vstrip__msg {
+  flex: 1 1 auto;
+  font-size: 11.5px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ck-vstrip__code {
+  flex-shrink: 0;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--ck-fg-4, #7b8391);
+}
+
+.ck-vstrip__tag {
+  flex-shrink: 0;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: var(--ck-fg-3, #8891a0);
+  background: var(--ck-tint-faint, rgba(255, 255, 255, 0.04));
+}

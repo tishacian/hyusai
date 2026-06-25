@@ -1,0 +1,73 @@
+/* Foblex canvas host — fills its container; tokenised background + minimap. */
+
+:host {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      color-mix(in srgb, var(--ck-signal-cool) 6%, transparent),
+      transparent 60%
+    ),
+    var(--ck-bg-base, #07090c);
+  border-radius: var(--ck-radius-md, 6px);
+  overflow: hidden;
+}
+
+f-flow {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Foblex's circle background pattern — tint the dots with our token. */
+:host ::ng-deep f-background .f-background {
+  color: var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+}
+
+/* Connections — route them with our cool token + readable weight. */
+:host ::ng-deep .f-connection .f-connection-path {
+  stroke: var(--ck-fg-4, #5a6270);
+  stroke-width: 2;
+  transition: stroke var(--ck-dur-fast, 120ms) var(--ck-ease-out);
+}
+:host ::ng-deep .f-connection:hover .f-connection-path,
+:host ::ng-deep .f-connection.f-selected .f-connection-path {
+  stroke: var(--ck-signal-cool, #7dd3fc);
+  stroke-width: 2.5;
+}
+:host ::ng-deep .f-connection .f-connection-drag-handle {
+  fill: var(--ck-signal-cool, #7dd3fc);
+}
+
+/* The live "drag to connect" preview line. */
+:host ::ng-deep f-connection-for-create .f-connection-path {
+  stroke: var(--ck-signal-cool, #7dd3fc);
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+
+/* Minimap — dock bottom-right, tokenised chrome. */
+:host ::ng-deep f-minimap {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 208px;
+  height: 144px;
+  background: color-mix(in srgb, var(--ck-bg-panel) 88%, transparent);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-md, 6px);
+  box-shadow: var(--ck-shadow-card);
+  overflow: hidden;
+
+  .f-minimap-node {
+    fill: var(--ck-fg-4, #5a6270);
+  }
+  .f-minimap-view {
+    fill: color-mix(in srgb, var(--ck-signal-cool) 16%, transparent);
+    stroke: var(--ck-signal-cool, #7dd3fc);
+  }
+}
