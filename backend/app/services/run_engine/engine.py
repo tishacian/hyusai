@@ -34,6 +34,7 @@ from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.run import Run, SkillInvocation
 from app.models.skill import Skill
 from app.models.system import System
+from app.services.membrane.spec import MembraneSpec, resolve_membrane_spec
 from app.services.outcome.derive import derive_outcome
 from app.services.skills_registry import resolve as resolve_skill
 
@@ -82,6 +83,63 @@ def schedule_run(run_id: str) -> None:
         loop.create_task(_entry())
     except Exception as exc:  # noqa: BLE001
         logger.exception("run_engine.schedule_run failed", run_id=run_id, error=str(exc))
+
+
+def run_subflow_child(child_run_id: str) -> Dict[str, Any]:
+    """Synchronous entry point to execute a delegated child run (P4).
+
+    Used by the ``agentium.subflow_run`` Celery task. Picks the DAG or
+    sequential walker for the child System and drives it on its own event loop,
+    mirroring :func:`schedule_run`.
+    """
+    from .dag import execute_run_dag, should_use_dag  # noqa: WPS433
+
+    async def _entry() -> Dict[str, Any]:
+        use_dag = False
+        db = SessionLocal()
+        try:
+            run = db.query(Run).filter(Run.id == child_run_id).first()
+            if run:
+                system = db.query(System).filter(System.id == run.system_id).first()
+                use_dag = bool(system and should_use_dag(system))
+        finally:
+            db.close()
+        if use_dag:
+            return await execute_run_dag(child_run_id)
+        return await execute_run(child_run_id)
+
+    return asyncio.run(_entry())
+
+
+def schedule_subflow_run(child_run_id: str) -> Optional[str]:
+    """Dispatch a delegated child run.
+
+    Prefers the Celery task (``agentium.subflow_run``) for true fan-out; if
+    Celery is unavailable (no broker, eager tests) it falls back to executing
+    the child in-process. Returns the Celery task id when queued, else ``None``.
+    The synchronous subflow node merges output via the in-process path; this
+    helper exists for asynchronous fan-out delegation.
+    """
+    try:
+        from app.workers.tasks import subflow_run as subflow_task  # noqa: WPS433
+
+        async_result = subflow_task.delay(child_run_id)
+        return getattr(async_result, "id", None)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "run_engine.schedule_subflow_run: celery dispatch failed, running in-process",
+            child_run_id=child_run_id,
+            error=str(exc),
+        )
+        try:
+            run_subflow_child(child_run_id)
+        except Exception as inner:  # noqa: BLE001
+            logger.exception(
+                "run_engine.schedule_subflow_run: in-process fallback failed",
+                child_run_id=child_run_id,
+                error=str(inner),
+            )
+        return None
 
 
 async def execute_run(run_id: str) -> Dict[str, Any]:
@@ -221,6 +279,7 @@ async def _execute_task_node(
     control: Optional[ControlPolicy],
     last_output: Dict[str, Any],
     node_id: Optional[str] = None,
+    resolved_input: Optional[Dict[str, Any]] = None,
 ) -> Optional[SkillInvocation]:
     """Invoke one Skill and persist its SkillInvocation ledger row.
 
@@ -232,24 +291,46 @@ async def _execute_task_node(
 
     ``node_id`` (optional) attaches a DAG node identifier into the invocation
     ``trace`` so the UI can correlate per-node timing in the Run detail view.
+
+    ``resolved_input`` (P1, optional) is an explicit skill input the DAG walker
+    already resolved against the typed :class:`VariablePool` (a node carrying an
+    ``inputs_map``). When supplied it is used verbatim; otherwise we fall back to
+    the legacy merge heuristic via :func:`_build_skill_input` — the path the
+    sequential walker (and DAG nodes with no maps) always takes, so behaviour is
+    unchanged for them.
     """
-    if control and control.allowed_skills and slug not in control.allowed_skills:
+    # Membrane capability facet (P3). The effective allow-list is read through
+    # the membrane: when no explicit ``membrane_spec`` exists it mirrors
+    # ``control.allowed_skills`` exactly (byte-identical to the pre-membrane
+    # block); an authoritative spec may tighten it. Fail-soft — a malformed
+    # spec degrades to the legacy control check, never crashing the run.
+    blocked, membrane_authoritative = _membrane_skill_blocked(control, slug)
+    if blocked:
         _log_decision(
             db,
             scope="system",
             target_id=ctx.get("system_id"),
             kind="policy_block",
-            rationale={"skill": slug, "reason": "not_in_allowed_skills"},
+            rationale={
+                "skill": slug,
+                "reason": "not_in_allowed_skills",
+                "membrane": membrane_authoritative,
+            },
         )
         return None
 
+    skill_input = (
+        dict(resolved_input)
+        if resolved_input is not None
+        else _build_skill_input(slug, run.input_ref or {}, last_output, ctx)
+    )
     invocation = SkillInvocation(
         id=str(uuid4()),
         run_id=run.id,
         skill_slug=slug,
         status="running",
         started_at=datetime.utcnow(),
-        input_ref=_build_skill_input(slug, run.input_ref or {}, last_output, ctx),
+        input_ref=skill_input,
         trace={"node_id": node_id} if node_id else {},
     )
     db.add(invocation)
@@ -452,28 +533,69 @@ def _should_stop_adaptive(
     return False
 
 
+def _safe_membrane(control: Optional[ControlPolicy]) -> MembraneSpec:
+    """Resolve the membrane, degrading to an empty derived spec on error.
+
+    Read-through by default: with no explicit ``membrane_spec`` the returned
+    spec mirrors ``control``'s own fields, so callers see identical values.
+    """
+    try:
+        return resolve_membrane_spec(control=control)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("membrane: resolve failed, using empty spec", error=str(exc))
+        return MembraneSpec()
+
+
+def _membrane_skill_blocked(
+    control: Optional[ControlPolicy], slug: str
+) -> tuple[bool, bool]:
+    """Return ``(blocked, authoritative)`` for the membrane capability facet.
+
+    Effective allow-list = ``spec.capabilities.allowed_skills`` which equals
+    ``control.allowed_skills`` when the spec is derived — so the block is
+    byte-identical to the legacy ``allowed_skills`` gate unless an authoritative
+    spec tightened the list.
+    """
+    spec = _safe_membrane(control)
+    allowed = spec.capabilities.allowed_skills
+    return (bool(allowed) and slug not in allowed, spec.authoritative)
+
+
 def _apply_control_postchecks(
     db: DBSession, system: System, run: Run, control: ControlPolicy
 ) -> None:
-    """Annotate the run when a hard guardrail was breached."""
+    """Annotate (or, opt-in, abort) the run when a hard guardrail was breached.
+
+    Valve thresholds are read through the membrane: derived specs mirror
+    ``control``'s ``max_cost_per_decision`` / ``max_latency_ms`` exactly, so
+    breach detection is unchanged. The membrane *valves* facet adds an opt-in
+    ``hard_abort`` upgrade — when an authoritative spec sets it, a breach fails
+    the run instead of merely logging a ``policy_breach`` Decision. Default
+    (``hard_abort=False``) behaviour is byte-identical to before.
+    """
+    valves = _safe_membrane(control).valves
     breaches: List[str] = []
-    if control.max_cost_per_decision is not None and (run.cost_internal or 0) > float(
-        control.max_cost_per_decision
+    if valves.max_cost_per_decision is not None and (run.cost_internal or 0) > float(
+        valves.max_cost_per_decision
     ):
         breaches.append("max_cost_per_decision")
-    if control.max_latency_ms is not None and (run.duration_ms or 0) > float(
-        control.max_latency_ms
+    if valves.max_latency_ms is not None and (run.duration_ms or 0) > float(
+        valves.max_latency_ms
     ):
         breaches.append("max_latency_ms")
     if not breaches:
         return
+    hard_abort = bool(valves.hard_abort)
     _log_decision(
         db,
         scope="system",
         target_id=system.id,
         kind="policy_breach",
-        rationale={"breaches": breaches, "run_id": run.id},
+        rationale={"breaches": breaches, "run_id": run.id, "hard_abort": hard_abort},
     )
+    if hard_abort:
+        run.status = "failed"
+        run.error = run.error or f"membrane_valve_breach:{','.join(breaches)}"
 
 
 def _log_decision(

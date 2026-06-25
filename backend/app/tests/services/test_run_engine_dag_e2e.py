@@ -532,12 +532,13 @@ async def test_hitl_reject_propagates_to_tail(db_session, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 7 — Subflow inlined
+# 7 — Subflow delegates to a real child Run (P4)
 # ---------------------------------------------------------------------------
-async def test_subflow_inlines_target_system_skills(db_session, monkeypatch):
-    """A ``subflow`` node resolves the target System and executes its
-    bound skills inside the parent run, persisting their invocations on
-    the parent run_id."""
+async def test_subflow_creates_child_run(db_session, monkeypatch):
+    """A ``subflow`` node now creates a child ``Run(parent_run_id=parent)`` for
+    the target System, executes it as its own walker (the child owns the
+    SkillInvocation ledger), and merges the child output back at the subflow
+    node. Provenance (parent_run_id + delegation_node_id) is preserved."""
     async def inner_a(inp, ctx):
         return {"a": "A"}
 
@@ -576,16 +577,136 @@ async def test_subflow_inlines_target_system_skills(db_session, monkeypatch):
     assert summary["status"] == "completed"
 
     db_session.expire_all()
-    invocations = (
+    # The parent run carries NO target skills — they live on the child.
+    parent_invocations = (
         db_session.query(SkillInvocation)
         .filter(SkillInvocation.run_id == run.id)
+        .all()
+    )
+    assert [i.skill_slug for i in parent_invocations] == []
+
+    # A child run was created, linked to the parent and the target System.
+    child = (
+        db_session.query(Run)
+        .filter(Run.parent_run_id == run.id, Run.system_id == target.id)
+        .first()
+    )
+    assert child is not None
+    assert child.input_ref.get("_delegation", {}).get("delegation_node_id") == "sf"
+
+    child_invocations = (
+        db_session.query(SkillInvocation)
+        .filter(SkillInvocation.run_id == child.id)
         .order_by(SkillInvocation.started_at.asc())
         .all()
     )
-    # Subflow inlined both target skills into the parent run's ledger.
-    assert [i.skill_slug for i in invocations] == ["inner_a_v1", "inner_b_v1"]
-    assert all(i.status == "completed" for i in invocations)
+    assert [i.skill_slug for i in child_invocations] == ["inner_a_v1", "inner_b_v1"]
+    assert all(i.status == "completed" for i in child_invocations)
 
     run = db_session.query(Run).filter(Run.id == run.id).first()
-    # The subflow wrapper stamps the target system id into its output.
+    # The subflow node stamps target id + child run id and merges child output.
     assert run.output_ref.get("subflow_system_id") == target.id
+    assert run.output_ref.get("child_run_id") == child.id
+    assert run.output_ref.get("b") == "B"
+
+
+# ---------------------------------------------------------------------------
+# 8 — Subflow whose child contains a HITL is resume-aware (P4 follow-up)
+# ---------------------------------------------------------------------------
+async def test_subflow_child_hitl_resumes_without_duplicate_child(db_session, monkeypatch):
+    """A subflow whose *child* run pauses for HITL must, on parent resume,
+    drive that SAME child to completion — never spawn a second child Run.
+
+    This pins the P4 follow-up: the child run id is recorded in the parent
+    ``WalkerState`` and survives the pause, so ``_run_subflow`` reuses it on
+    re-entry instead of re-delegating from scratch.
+    """
+    async def child_tail(inp, ctx):
+        return {"child_done": True, "approved": ctx.get("hitl_approved")}
+
+    _install_fake_registry(monkeypatch, {"child_tail_v1": child_tail})
+    _mk_skill(db_session, "child_tail_v1")
+
+    # Child System owns a HITL gate before its tail task. The ``hitl`` control
+    # node routes the child to the DAG walker (so it can pause/resume).
+    child_flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "csrc", "kind": "source"},
+            {"id": "ch", "kind": "hitl", "config": {"prompt": "child approve?"}},
+            {"id": "ct", "kind": "task", "config": {"skill_slug": "child_tail_v1"}},
+            {"id": "csink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "csrc", "to": "ch"},
+            {"from": "ch", "to": "ct"},
+            {"from": "ct", "to": "csink"},
+        ],
+    }
+    target = _mk_system(db_session, flow=child_flow)
+
+    parent_flow = {
+        "schema_version": 2,
+        "nodes": [
+            {"id": "src", "kind": "source"},
+            {"id": "sf", "kind": "subflow", "config": {"system_id": target.id}},
+            {"id": "sink", "kind": "sink"},
+        ],
+        "edges": [
+            {"from": "src", "to": "sf"},
+            {"from": "sf", "to": "sink"},
+        ],
+    }
+    parent = _mk_system(db_session, flow=parent_flow)
+    run = _mk_run(db_session, parent)
+
+    # First pass: child pauses at its HITL → the parent pause is surfaced.
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == "hitl_pending"
+    child_decision_id = summary.get("awaiting_decision")
+    assert child_decision_id
+
+    db_session.expire_all()
+    children = (
+        db_session.query(Run).filter(Run.parent_run_id == run.id).all()
+    )
+    assert len(children) == 1, "exactly one child run should exist after the pause"
+    child = children[0]
+    child_id = child.id
+    assert child.status == "hitl_pending"
+
+    # The pending decision belongs to the CHILD run (its own HITL gate).
+    dec = db_session.query(Decision).filter(Decision.id == child_decision_id).first()
+    assert dec is not None
+    assert dec.target_id == child_id
+    dec.status = "accepted"
+    db_session.commit()
+
+    # Parent resume: must drive the SAME child to completion, no new child.
+    resumed = await resume_run_dag(run.id, decision_id=child_decision_id)
+    assert resumed["status"] == "completed"
+
+    db_session.expire_all()
+    children_after = (
+        db_session.query(Run).filter(Run.parent_run_id == run.id).all()
+    )
+    assert len(children_after) == 1, "parent resume must NOT spawn a duplicate child"
+    assert children_after[0].id == child_id
+    assert children_after[0].status == "completed"
+
+    run = db_session.query(Run).filter(Run.id == run.id).first()
+    assert run.status == "completed"
+    # Parent settles with the child's merged output (post-HITL tail), keyed to
+    # the original child run id.
+    assert run.output_ref.get("child_run_id") == child_id
+    assert run.output_ref.get("child_done") is True
+    assert run.output_ref.get("approved") is True
+
+    # The child ran its tail skill exactly once (no re-delegation / replay).
+    child_invocations = (
+        db_session.query(SkillInvocation)
+        .filter(SkillInvocation.run_id == child_id)
+        .all()
+    )
+    assert [i.skill_slug for i in child_invocations] == ["child_tail_v1"]
+    assert all(i.status == "completed" for i in child_invocations)

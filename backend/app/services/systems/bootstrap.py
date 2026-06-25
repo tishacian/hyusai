@@ -786,7 +786,7 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
         "source": "system_seed",
         "template_id": WORKSPACE_CHAT_VARIANT,
         "template_name": "Workspace Chat Transverse",
-        "schema_version": 2,
+        "schema_version": 3,
         "nodes": nodes,
         "edges": edges,
         "ui": {
@@ -1423,7 +1423,7 @@ def _expert_capture_flow_definition(skills: Dict[str, Skill]) -> Dict[str, objec
         {"from": "skill.audit_log", "to": "sink.knowledge_update", "kind": "control"},
     ]
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "variant": "expert_knowledge_capture",
         "source": "flow",
         "extended": True,

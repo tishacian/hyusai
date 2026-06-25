@@ -39,10 +39,15 @@ from app.db.base import SessionLocal
 from app.models.capability import Capability
 from app.models.decision import Decision
 from app.models.run import Run, SkillInvocation
-from app.models.skill import Skill
 from app.models.system import System
 
 from .condition import ConditionError, evaluate as evaluate_condition
+from .variable_pool import (
+    VariablePool,
+    apply_inputs_map,
+    apply_outputs_map,
+    resolve_selector,
+)
 from .engine import (
     _apply_control_postchecks,
     _build_initial_ctx,
@@ -53,6 +58,7 @@ from .engine import (
     _load_control_policy,
     _log_decision,
     _should_stop_adaptive,
+    execute_run,
 )
 from .events import bus as event_bus
 
@@ -74,9 +80,13 @@ _CONTROL_KINDS: Tuple[str, ...] = (
 
 
 def should_use_dag(system: System) -> bool:
-    """Return True when ``system.flow_definition`` is a v2 DAG with real
-    control nodes. Legacy / empty flows fall through to the sequential
-    walker so behaviour is unchanged for pre-C6 Systems.
+    """Return True when ``system.flow_definition`` is a v2+ DAG with real
+    control nodes. Accepts ``schema_version >= 2`` (v2 *and* the v3
+    variable-membrane shape — the typed-port / ``VariableRef`` extensions
+    are additive and parse identically here). v1 / legacy / empty flows
+    fall through to the sequential walker so behaviour is unchanged for
+    pre-C6 Systems, and a v2/v3 task-only graph (no control nodes) still
+    routes to the sequential walker exactly as before.
     """
     flow = getattr(system, "flow_definition", None) or {}
     if not isinstance(flow, dict):
@@ -207,6 +217,12 @@ class WalkerState:
     accumulated_ms: float = 0.0
     total_cost: float = 0.0
 
+    # P1 — typed variable pool. Seeded at run start with the reserved
+    # namespaces (run / system / workspace) and grown by ``apply_outputs_map``
+    # as nodes settle, so downstream ``inputs_map`` selectors can read it.
+    # Serialised in ``to_payload`` so HITL / debug resume rehydrates it.
+    pool: VariablePool = field(default_factory=VariablePool)
+
     # Debugger state (C8). ``debug_mode`` is one of:
     #   * None         → no debugger, walker runs freely.
     #   * "step"       → pause after every non-source/sink node.
@@ -217,6 +233,14 @@ class WalkerState:
     # directly to the next flag.
     debug_mode: Optional[str] = None
     breakpoints: Set[str] = field(default_factory=set)
+
+    # P4 follow-up — subflow resume bookkeeping. Maps a ``subflow`` node id to
+    # the child ``Run.id`` it delegated to. Persisted in ``to_payload`` so that
+    # when a child run pauses for HITL (gating the parent), a parent resume can
+    # find the *existing* child and resume / reuse it instead of spawning a
+    # duplicate. Empty dict for flows without subflows; absent in pre-P4
+    # checkpoints (``from_payload`` tolerates the omission).
+    subflow_children: Dict[str, str] = field(default_factory=dict)
 
     def to_payload(self) -> Dict[str, Any]:
         return {
@@ -230,6 +254,8 @@ class WalkerState:
             "total_cost": self.total_cost,
             "debug_mode": self.debug_mode,
             "breakpoints": sorted(self.breakpoints),
+            "pool": self.pool.to_dict(),
+            "subflow_children": dict(self.subflow_children),
         }
 
     @classmethod
@@ -248,6 +274,11 @@ class WalkerState:
         state.total_cost = float(payload.get("total_cost") or 0.0)
         state.debug_mode = payload.get("debug_mode") or None
         state.breakpoints = set(payload.get("breakpoints") or [])
+        state.pool = VariablePool.from_dict(payload.get("pool") or {})
+        # Backward-compatible: pre-P4-follow-up checkpoints have no
+        # ``subflow_children`` key — default to an empty mapping so old
+        # paused runs still rehydrate and resume.
+        state.subflow_children = dict(payload.get("subflow_children") or {})
         return state
 
 
@@ -289,6 +320,7 @@ async def execute_run_dag(run_id: str) -> Dict[str, Any]:
             pending_counts={nid: len(graph.in_edges[nid]) for nid in graph.nodes},
             start_monotonic=time.monotonic(),
         )
+        _seed_pool(state.pool, run, system)
         # Pick up optional debugger config from the run input. Shape:
         #   run.input_ref["_debug"] = {"mode": "step"|"breakpoints",
         #                              "breakpoints": ["n1", "n3"]}
@@ -370,6 +402,16 @@ async def resume_run_dag(
         adaptive = _load_adaptive_policy(db, system)
 
         hitl_node_id = pause_cp.get("node_id")
+        paused_node = graph.nodes.get(hitl_node_id) if hitl_node_id else None
+        # A subflow node pauses the parent when its *child* run hits a HITL.
+        # That pause must NOT be settled here as if it were a plain ``hitl``
+        # node: the operator's verdict belongs to the child run. Instead we
+        # leave the subflow node un-settled (its pending count is still 0 and
+        # it is not in ``done``) so the walker re-reaches it; the resume-aware
+        # ``_run_subflow`` then drives the recorded child to completion rather
+        # than spawning a duplicate child Run.
+        is_subflow_pause = paused_node is not None and paused_node.kind == "subflow"
+
         dec = None
         target_decision_id = decision_id or pause_cp.get("decision_id")
         if target_decision_id:
@@ -377,7 +419,11 @@ async def resume_run_dag(
         approved = bool(dec and dec.status in ("accepted", "applied"))
         rejected = bool(dec and dec.status == "rejected")
 
-        if hitl_node_id and hitl_node_id in graph.nodes:
+        if is_subflow_pause:
+            # Nothing to settle for the parent — the child resume (driven by
+            # ``_run_subflow`` on re-entry) owns the decision and its own ctx.
+            pass
+        elif hitl_node_id and hitl_node_id in graph.nodes:
             state.node_outputs[hitl_node_id] = {
                 "approved": approved,
                 "rejected": rejected,
@@ -550,7 +596,18 @@ def _settle_node(
     if outcome.get("pause"):
         return
     state.done.add(node_id)
-    state.node_outputs[node_id] = outcome.get("output") or {}
+    node_output = outcome.get("output") or {}
+    state.node_outputs[node_id] = node_output
+    # P1 — publish this node's output into the typed pool. We always expose
+    # the node's own output under its node id (so downstream selectors of the
+    # form ``{node_id, path}`` resolve) and, when the node declared an
+    # ``outputs_map``, also write the mapped namespaced slices. Both are no-ops
+    # for downstream behaviour on legacy flows (nothing reads the pool unless
+    # a node has an ``inputs_map``).
+    node = graph.nodes.get(node_id)
+    if node is not None:
+        state.pool.set_namespace(node_id, node_output if isinstance(node_output, dict) else {})
+        apply_outputs_map(node.config, node_output, state.pool)
     inactive = set(outcome.get("inactive_branches") or [])
     for edge in graph.out_edges.get(node_id, []):
         label = edge.branch_label or ""
@@ -825,6 +882,19 @@ async def _execute_node(
     if merged_input:
         state.ctx.update({k: v for k, v in merged_input.items() if v is not None})
 
+    # P1 — resolve ``config.inputs_map`` selectors against the typed pool.
+    # When the map is empty/absent ``node_input`` is the same object as
+    # ``merged_input`` and ``maps_present`` is False, so every handler stays
+    # byte-identical to the pre-P1 flat-merge path.
+    maps_present = bool(
+        isinstance(node.config, dict) and node.config.get("inputs_map")
+    )
+    node_input = (
+        apply_inputs_map(node.config, state.pool, merged_input)
+        if maps_present
+        else merged_input
+    )
+
     invocations_before = len(state.invocation_ids)
     result: Dict[str, Any] = {}
     try:
@@ -834,46 +904,48 @@ async def _execute_node(
             return result
 
         if node.kind == "sink":
-            result = {"output": merged_input}
+            result = {"output": node_input}
             return result
 
         if node.kind == "task":
             result = await _run_task(
-                db, run, node, state, control=control, upstream=merged_input
+                db, run, node, state, control=control,
+                upstream=node_input, resolved=maps_present,
             )
             return result
 
         if node.kind == "decision":
-            result = _run_decision(node, graph, state, merged_input)
+            result = _run_decision(node, graph, state, node_input)
             return result
 
         if node.kind == "fork":
-            result = {"output": merged_input}
+            result = _run_fork(node, graph, state, node_input)
             return result
 
         if node.kind == "join":
-            result = _run_join(node, merged_input)
+            result = _run_join(node, graph, state)
             return result
 
         if node.kind == "retry":
             result = await _run_retry(
-                db, run, node, state, control=control, upstream=merged_input
+                db, run, node, state, control=control,
+                upstream=node_input, resolved=maps_present,
             )
             return result
 
         if node.kind == "loop":
             result = await _run_loop(
-                db, run, node, state, control=control, upstream=merged_input
+                db, run, node, state, control=control, upstream=node_input
             )
             return result
 
         if node.kind == "hitl":
-            result = _run_hitl(db, run, node, state, upstream=merged_input)
+            result = _run_hitl(db, run, node, state, control=control, upstream=node_input)
             return result
 
         if node.kind == "subflow":
             result = await _run_subflow(
-                db, run, node, state, control=control, upstream=merged_input
+                db, run, node, state, control=control, upstream=node_input
             )
             return result
 
@@ -881,7 +953,7 @@ async def _execute_node(
         logger.warning(
             "dag_engine: unknown node kind", run_id=run.id, node_id=node.id, kind=node.kind
         )
-        result = {"output": merged_input}
+        result = {"output": node_input}
         return result
     finally:
         # Enrich node_end with whatever we learned during execution so
@@ -914,6 +986,7 @@ async def _run_task(
     *,
     control,
     upstream: Optional[Dict[str, Any]] = None,
+    resolved: bool = False,
 ) -> Dict[str, Any]:
     slug = node.skill_slug
     if not slug:
@@ -921,6 +994,9 @@ async def _run_task(
         # the merged upstream output so downstream nodes still receive data.
         return {"output": upstream or {}}
     last_output = upstream or {}
+    # When the node declared an ``inputs_map`` the upstream has already been
+    # resolved against the pool — pass it explicitly so the engine uses it
+    # verbatim instead of re-deriving via ``_build_skill_input``.
     invocation = await _execute_task_node(
         db,
         run,
@@ -929,6 +1005,7 @@ async def _run_task(
         control=control,
         last_output=last_output,
         node_id=node.id,
+        resolved_input=last_output if resolved else None,
     )
     if invocation is None:
         # Blocked by allowed_skills — keep passthrough so the DAG can still
@@ -967,7 +1044,7 @@ def _run_decision(
         label = b.get("label") or ""
         cond = b.get("condition") or ""
         try:
-            value = evaluate_condition(cond, ctx_with_input)
+            value = evaluate_condition(cond, ctx_with_input, pool=state.pool)
         except ConditionError as exc:
             evaluations.append({"label": label, "error": str(exc), "value": False})
             value = False
@@ -993,15 +1070,61 @@ def _run_decision(
     }
 
 
-def _run_join(node: DagNode, merged_input: Dict[str, Any]) -> Dict[str, Any]:
-    """Strategy ``all`` is the default and is satisfied by the dependency
-    counter. Strategies ``any`` / ``race`` are acknowledged but degrade to
-    ``all`` in this first cut — the join still executes once the last
-    predecessor settles. Output = merged predecessor outputs.
+def _run_fork(
+    node: DagNode, graph: DagGraph, state: WalkerState, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Fan the fork input out to each outgoing branch (P4).
+
+    Beyond the legacy pass-through, we publish a *branch-scoped* pool namespace
+    (``<fork_id>.<branch_label>``) per outgoing edge so a branch can address its
+    own slice with a typed selector, and surface the branch labels on the
+    output. Backward-compatible: the merged payload still flows downstream, so a
+    fork with no branch labels behaves exactly as before.
+    """
+    payload = payload or {}
+    branch_labels: List[str] = []
+    for edge in graph.out_edges.get(node.id, []):
+        label = edge.branch_label or edge.target
+        if label not in branch_labels:
+            branch_labels.append(label)
+        state.pool.set([node.id, str(label)], payload)
+    return {"output": {**payload, "_fork_branches": branch_labels}}
+
+
+def _run_join(node: DagNode, graph: DagGraph, state: WalkerState) -> Dict[str, Any]:
+    """Typed merge of the join's live predecessors, keyed by ``branch_label`` (P4).
+
+    The dependency counter still gates *when* the join fires (once its pending
+    predecessors settle). Strategies now diverge on the OUTPUT:
+
+    * ``all`` (default): deep merge of every live branch output (legacy shape,
+      plus a ``_branches`` map so consumers can read a single branch).
+    * ``any`` / ``race``: the first non-empty live branch wins (no longer a
+      silent degrade to ``all``).
+
+    Dead branches (killed by an upstream decision/fork) are excluded.
     """
     config = node.config or {}
     strategy = config.get("strategy") or "all"
-    return {"output": {**merged_input, "_join_strategy": strategy}}
+    branch_outputs: Dict[str, Any] = {}
+    merged: Dict[str, Any] = {}
+    for edge in graph.in_edges.get(node.id, []):
+        if (edge.source, edge.target, edge.branch_label) in state.dead_edges:
+            continue
+        out = state.node_outputs.get(edge.source) or {}
+        label = edge.branch_label or edge.source
+        branch_outputs[str(label)] = out
+        if isinstance(out, dict):
+            merged.update(out)
+    if strategy in ("any", "race"):
+        primary = next((v for v in branch_outputs.values() if v), {})
+        body = dict(primary) if isinstance(primary, dict) else {"value": primary}
+        return {
+            "output": {**body, "_join_strategy": strategy, "_branches": branch_outputs}
+        }
+    return {
+        "output": {**merged, "_join_strategy": strategy, "_branches": branch_outputs}
+    }
 
 
 async def _run_retry(
@@ -1012,6 +1135,7 @@ async def _run_retry(
     *,
     control,
     upstream: Optional[Dict[str, Any]] = None,
+    resolved: bool = False,
 ) -> Dict[str, Any]:
     config = node.config or {}
     max_attempts = int(config.get("max_attempts") or 3)
@@ -1030,6 +1154,7 @@ async def _run_retry(
             control=control,
             last_output=last_output,
             node_id=node.id,
+            resolved_input=last_output if resolved else None,
         )
         if invocation is None:
             return {"output": last_output}
@@ -1113,6 +1238,7 @@ async def _run_loop(
                 if evaluate_condition(
                     break_on,
                     {**iter_ctx, **(iterations[-1]["output"] or {})},
+                    pool=state.pool,
                 ):
                     break
             except ConditionError:
@@ -1131,18 +1257,38 @@ def _run_hitl(
     node: DagNode,
     state: WalkerState,
     *,
+    control=None,
     upstream: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Persist a ``proposed`` Decision, then ask the walker to pause."""
+    """Persist a ``proposed`` Decision, then ask the walker to pause.
+
+    Membrane outbound facet (P3): the resolved outbound gate (read-through —
+    derived from ``source_policy`` / control when no explicit spec) is recorded
+    on the Decision rationale so the gate verdict is auditable. This is purely
+    additive — a ``hitl`` node always pauses regardless.
+    """
     config = node.config or {}
     prompt = config.get("prompt") or f"Approval required for step {node.label or node.id}"
     approvers = config.get("approvers") or []
     merged = upstream or {}
+    membrane_gate: Dict[str, Any] = {}
+    try:
+        from app.services.membrane.spec import resolve_membrane_spec
+
+        spec = resolve_membrane_spec(control=control)
+        membrane_gate = {
+            "authoritative": spec.authoritative,
+            "expert_review_required": spec.outbound.expert_review_required,
+            "gate_if_confidence_below": spec.outbound.gate_if_confidence_below,
+        }
+    except Exception:  # noqa: BLE001 — provenance only, never block the gate.
+        membrane_gate = {}
     rationale = {
         "node_id": node.id,
         "node_label": node.label,
         "prompt": prompt,
         "approvers": approvers,
+        "membrane_gate": membrane_gate,
         "ctx_snapshot": _sanitize(state.ctx),
         "upstream": _sanitize(merged),
     }
@@ -1163,6 +1309,52 @@ def _run_hitl(
     }
 
 
+def _build_subflow_input(
+    config: Dict[str, Any], upstream: Dict[str, Any], pool: VariablePool
+) -> Dict[str, Any]:
+    """Map ``config.input_map`` selectors into the child run's ``input_ref``.
+
+    ``input_map`` maps ``child_input_key → selector`` (dot-path / VariableRef /
+    list), resolved against the parent pool with the upstream merge as fallback.
+    When absent, the whole upstream merge becomes the child input (so a plain
+    subflow still forwards its inputs).
+    """
+    input_map = config.get("input_map") or config.get("inputs_map") or {}
+    upstream = upstream or {}
+    if not isinstance(input_map, dict) or not input_map:
+        return dict(upstream)
+    resolved: Dict[str, Any] = {}
+    for key, selector in input_map.items():
+        value = resolve_selector(selector, pool, default=None)
+        if value is None:
+            value = upstream.get(str(key))
+        resolved[str(key)] = value
+    return resolved
+
+
+def _delegation_blocked(control, target: System) -> bool:
+    """Typed-edge delegation ACL (P4) via the membrane capability facet.
+
+    Inert unless an *authoritative* membrane declares a non-empty
+    ``capabilities.allowed_delegations`` — then the target System must be listed
+    (by id or ``subflow:<id>`` token). Derived / unset specs allow all
+    delegations, so existing flows are unchanged.
+    """
+    try:
+        from app.services.membrane.spec import resolve_membrane_spec
+
+        spec = resolve_membrane_spec(control=control)
+    except Exception:  # noqa: BLE001 — fail-soft: never block on resolver error.
+        return False
+    if not spec.authoritative:
+        return False
+    allowed = spec.capabilities.allowed_delegations
+    if not allowed:
+        return False
+    tokens = {target.id, f"subflow:{target.id}", target.name}
+    return tokens.isdisjoint(set(allowed))
+
+
 async def _run_subflow(
     db: DBSession,
     run: Run,
@@ -1172,14 +1364,39 @@ async def _run_subflow(
     control,
     upstream: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Execute the target System's sequential skill sequence as a nested
-    task list under the current Run. Avoids DAG re-entrancy on purpose for
-    this first cut (subflow-of-subflow is handled naïvely by flattening).
+    """Delegate to the target System as a real child ``Run`` (P4).
+
+    Creates ``Run(parent_run_id=run.id)`` for the target System, maps
+    ``config.input_map`` into its ``input_ref`` (stamping ``delegation_node_id``
+    there so provenance needs no DDL), executes it IN-PROCESS as its own DAG (or
+    the sequential walker), and merges the child output back at this node. If the
+    child pauses for HITL, the pause surfaces to the parent so the join is gated.
+
+    Resume-aware / idempotent (P4 follow-up): the child ``Run.id`` is recorded
+    in ``state.subflow_children[node.id]`` *before* execution so it survives the
+    parent's HITL pause. On a parent resume the walker re-reaches this node and
+    we reuse the recorded child — resuming it if it is still ``hitl_pending`` or
+    settling with its output if it already completed — instead of spawning a
+    brand-new child Run.
     """
     config = node.config or {}
     target_id = config.get("system_id")
     if not target_id:
         return {"output": {}}
+
+    # Resume / replay: a child was already spawned for this node on a prior
+    # pass. Continue it rather than delegating from scratch.
+    recorded_child_id = state.subflow_children.get(node.id)
+    if recorded_child_id:
+        outcome = await _continue_subflow_child(
+            db, node, state, recorded_child_id, target_id
+        )
+        if outcome is not None:
+            return outcome
+        # Recorded child vanished (should not happen) — drop the stale mapping
+        # and fall through to recreate so the run can still make progress.
+        state.subflow_children.pop(node.id, None)
+
     target = db.query(System).filter(System.id == target_id).first()
     if not target:
         logger.warning(
@@ -1189,37 +1406,168 @@ async def _run_subflow(
             system_id=target_id,
         )
         return {"output": {"_error": "subflow_system_not_found"}}
-    # Naïve: inline the target System's skill_ids.
-    skill_ids: List[str] = list(target.skill_ids or [])
-    if not skill_ids:
-        return {"output": {"_error": "subflow_no_skills"}}
-    rows = db.query(Skill).filter(Skill.id.in_(skill_ids)).all()
-    by_id = {s.id: s for s in rows}
-    slugs = [by_id[i].slug for i in skill_ids if i in by_id]
 
-    last_output = upstream or {}
-    for slug in slugs:
-        invocation = await _execute_task_node(
+    if _delegation_blocked(control, target):
+        _log_decision(
             db,
-            run,
-            state.ctx,
-            slug,
-            control=control,
-            last_output=last_output,
-            node_id=node.id,
+            scope="run",
+            target_id=run.id,
+            kind="policy_block",
+            rationale={
+                "delegation": target_id,
+                "node_id": node.id,
+                "reason": "delegation_not_in_membrane_acl",
+            },
         )
-        if invocation is None:
-            continue
-        state.invocation_ids.append(invocation.id)
-        state.total_cost += invocation.cost or 0.0
-        if invocation.status == "completed":
-            last_output = invocation.output_ref or {}
-    return {"output": {"subflow_system_id": target_id, **(last_output or {})}}
+        return {"output": {"_error": "delegation_blocked", "subflow_system_id": target_id}}
+
+    child_input = _build_subflow_input(config, upstream or {}, state.pool)
+    # Provenance: carry the delegating node id inside the child input_ref to
+    # avoid a DDL migration (Run already has parent_run_id).
+    child_input["_delegation"] = {"parent_run_id": run.id, "delegation_node_id": node.id}
+
+    child = Run(
+        workspace_id=run.workspace_id,
+        system_id=target_id,
+        parent_run_id=run.id,
+        input_ref=child_input,
+        status="pending",
+        trigger="subflow",
+    )
+    db.add(child)
+    db.commit()
+    child_id = child.id
+    # Record the mapping BEFORE executing so that if the child pauses for HITL
+    # the parent's serialised checkpoint already carries the child run id and a
+    # later resume can find it (rather than spawning a duplicate).
+    state.subflow_children[node.id] = child_id
+
+    # Execute the child as its own graph (in-process). Celery fan-out is wired
+    # via ``schedule_subflow_run`` but the synchronous path is what merges back.
+    if should_use_dag(target):
+        child_summary = await execute_run_dag(child_id)
+    else:
+        child_summary = await execute_run(child_id)
+
+    return _subflow_outcome(db, node, state, child_id, target_id, child_summary)
+
+
+async def _continue_subflow_child(
+    db: DBSession,
+    node: DagNode,
+    state: WalkerState,
+    child_id: str,
+    target_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Resume or reuse an already-spawned subflow child (idempotent replay).
+
+    Returns the node outcome dict, or ``None`` when the recorded child run no
+    longer exists so the caller can recreate it. Never spawns a new child and
+    never re-runs a child that already produced a terminal output.
+    """
+    # The child ran/committed in its own session; force a fresh read of status.
+    child = db.query(Run).filter(Run.id == child_id).first()
+    if child is None:
+        return None
+    db.refresh(child)
+    status = child.status
+
+    if status == "hitl_pending":
+        # Drive the existing child forward via its OWN resume path. The child
+        # reads the decision id from its own pause checkpoint, so the operator
+        # approval recorded against that Decision is what unblocks it.
+        child_summary = await resume_run_dag(child_id)
+        return _subflow_outcome(db, node, state, child_id, target_id, child_summary)
+
+    if status in ("running", "pending"):
+        # Defensive: a synchronous in-process child should already be terminal
+        # or paused. If we somehow re-enter while it is mid-flight, continue it
+        # rather than creating a duplicate.
+        target = db.query(System).filter(System.id == child.system_id).first()
+        if target is not None and should_use_dag(target):
+            child_summary = await execute_run_dag(child_id)
+        else:
+            child_summary = await execute_run(child_id)
+        return _subflow_outcome(db, node, state, child_id, target_id, child_summary)
+
+    # completed / failed / cancelled → reuse the terminal output. Never re-run.
+    return _settle_subflow_output(db, state, child_id, target_id)
+
+
+def _subflow_outcome(
+    db: DBSession,
+    node: DagNode,
+    state: WalkerState,
+    child_id: str,
+    target_id: str,
+    child_summary: Any,
+) -> Dict[str, Any]:
+    """Translate a child run summary into a subflow node outcome.
+
+    A child still awaiting HITL surfaces as a parent pause (gating the join);
+    otherwise the child's merged output settles the subflow node.
+    """
+    if isinstance(child_summary, dict) and child_summary.get("status") == "hitl_pending":
+        return {
+            "pause": True,
+            "node_id": node.id,
+            "decision_id": child_summary.get("awaiting_decision"),
+            "prompt": child_summary.get("prompt")
+            or f"Subflow {target_id} awaiting approval",
+            "child_run_id": child_id,
+        }
+    return _settle_subflow_output(db, state, child_id, target_id)
+
+
+def _settle_subflow_output(
+    db: DBSession,
+    state: WalkerState,
+    child_id: str,
+    target_id: str,
+) -> Dict[str, Any]:
+    """Read the committed child output (in its own session) and merge it back."""
+    # The child ran in its OWN session; expire the stale identity-mapped row so
+    # we read the committed output_ref / cost rather than the pending snapshot.
+    fresh = db.query(Run).filter(Run.id == child_id).first()
+    if fresh is not None:
+        db.refresh(fresh)
+    child_output = (fresh.output_ref if fresh else None) or {}
+    state.total_cost += float(fresh.cost_internal or 0.0) if fresh else 0.0
+    return {
+        "output": {
+            "subflow_system_id": target_id,
+            "child_run_id": child_id,
+            **(child_output if isinstance(child_output, dict) else {}),
+        }
+    }
 
 
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+def _seed_pool(pool: VariablePool, run: Run, system: System) -> None:
+    """Seed the reserved namespaces (``run`` / ``system`` / ``workspace``).
+
+    ``inputs_map`` selectors such as ``run.query`` or
+    ``system.voice_runtime.provider`` resolve against these. Node-output
+    buckets (e.g. ``capture.gaps``) are filled later by ``apply_outputs_map``.
+    """
+    input_ref = run.input_ref if isinstance(run.input_ref, dict) else {}
+    pool.set_namespace("run", {**input_ref, "id": run.id, "input": input_ref})
+    system_settings = system.settings if isinstance(getattr(system, "settings", None), dict) else {}
+    pool.set_namespace(
+        "system",
+        {
+            **system_settings,
+            "id": system.id,
+            "default_model": getattr(system, "default_model", None),
+            "default_prompt_type": getattr(system, "default_prompt_type", None),
+            "retrieval_mode_default": getattr(system, "retrieval_mode_default", None),
+        },
+    )
+    pool.set_namespace("workspace", {"id": run.workspace_id})
+
+
 def _merge_predecessor_outputs(
     graph: DagGraph, state: WalkerState, node_id: str
 ) -> Dict[str, Any]:

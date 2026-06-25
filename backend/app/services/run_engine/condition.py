@@ -28,11 +28,18 @@ True
 from __future__ import annotations
 
 import ast
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class ConditionError(ValueError):
     """Raised when a condition expression is invalid or unsafe."""
+
+
+# Reserved namespaces a predicate may address as ``<namespace>.<key>`` when a
+# variable pool is supplied (e.g. ``run.approved``, ``system.default_model``).
+# Mirrors ``variable_pool.RESERVED_NAMESPACES`` but kept local to avoid an
+# import cycle (condition.py is imported by dag.py alongside variable_pool).
+_POOL_NAMESPACES = ("workspace", "system", "run", "node")
 
 
 _ALLOWED_BOOL_OPS = (ast.And, ast.Or)
@@ -49,11 +56,17 @@ _ALLOWED_CMP_OPS = (
 _ALLOWED_UNARY_OPS = (ast.Not, ast.USub, ast.UAdd)
 
 
-def evaluate(expression: str, ctx: Dict[str, Any]) -> bool:
+def evaluate(expression: str, ctx: Dict[str, Any], *, pool: Optional[Any] = None) -> bool:
     """Safely evaluate ``expression`` against ``ctx``.
 
     Returns a boolean. Empty / whitespace-only expressions evaluate to
     ``True`` (conventionally "no guard, fall through").
+
+    ``pool`` (P1, optional) is a :class:`~app.services.run_engine.variable_pool.VariablePool`.
+    When supplied, ``<namespace>.<key>`` attribute references against the
+    reserved namespaces resolve through the pool, so decision predicates can
+    read namespaced selectors (e.g. ``run.approved``). When ``pool`` is ``None``
+    only the legacy ``ctx.<key>`` form is accepted — behaviour is unchanged.
     """
     if expression is None:
         return True
@@ -64,15 +77,15 @@ def evaluate(expression: str, ctx: Dict[str, Any]) -> bool:
         tree = ast.parse(text, mode="eval")
     except SyntaxError as exc:
         raise ConditionError(f"invalid condition syntax: {exc.msg}") from exc
-    value = _walk(tree.body, ctx)
+    value = _walk(tree.body, ctx, pool)
     return bool(value)
 
 
-def _walk(node: ast.AST, ctx: Dict[str, Any]) -> Any:
+def _walk(node: ast.AST, ctx: Dict[str, Any], pool: Optional[Any] = None) -> Any:
     if isinstance(node, ast.BoolOp):
         if not isinstance(node.op, _ALLOWED_BOOL_OPS):
             raise ConditionError(f"unsupported boolean op {type(node.op).__name__}")
-        values = [_walk(v, ctx) for v in node.values]
+        values = [_walk(v, ctx, pool) for v in node.values]
         if isinstance(node.op, ast.And):
             result: Any = True
             for v in values:
@@ -90,7 +103,7 @@ def _walk(node: ast.AST, ctx: Dict[str, Any]) -> Any:
     if isinstance(node, ast.UnaryOp):
         if not isinstance(node.op, _ALLOWED_UNARY_OPS):
             raise ConditionError(f"unsupported unary op {type(node.op).__name__}")
-        operand = _walk(node.operand, ctx)
+        operand = _walk(node.operand, ctx, pool)
         if isinstance(node.op, ast.Not):
             return not operand
         if isinstance(node.op, ast.USub):
@@ -98,11 +111,11 @@ def _walk(node: ast.AST, ctx: Dict[str, Any]) -> Any:
         return +operand
 
     if isinstance(node, ast.Compare):
-        left = _walk(node.left, ctx)
+        left = _walk(node.left, ctx, pool)
         for op, comparator in zip(node.ops, node.comparators):
             if not isinstance(op, _ALLOWED_CMP_OPS):
                 raise ConditionError(f"unsupported comparison {type(op).__name__}")
-            right = _walk(comparator, ctx)
+            right = _walk(comparator, ctx, pool)
             if not _cmp(op, left, right):
                 return False
             left = right
@@ -114,19 +127,23 @@ def _walk(node: ast.AST, ctx: Dict[str, Any]) -> Any:
         raise ConditionError(f"unsupported literal of type {type(node.value).__name__}")
 
     if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-        return [_walk(e, ctx) for e in node.elts]
+        return [_walk(e, ctx, pool) for e in node.elts]
 
     if isinstance(node, ast.Name):
         return _lookup(ctx, node.id)
 
     if isinstance(node, ast.Attribute):
-        # Only ``ctx.<key>`` — no deeper attribute chains.
         if (
             isinstance(node.value, ast.Name)
-            and node.value.id in ("ctx", "context")
             and isinstance(node.attr, str)
         ):
-            return _lookup(ctx, node.attr)
+            base = node.value.id
+            # ``ctx.<key>`` / ``context.<key>`` — legacy ctx access.
+            if base in ("ctx", "context"):
+                return _lookup(ctx, node.attr)
+            # ``<namespace>.<key>`` — pool-backed namespaced selector (P1).
+            if pool is not None and base in _POOL_NAMESPACES:
+                return pool.get([base, node.attr])
         raise ConditionError(
             "only top-level ctx.<key> attribute access is allowed"
         )
