@@ -52,6 +52,8 @@ export interface CaptureFeedItem {
   /** True while a streaming transcript is still partial. */
   partial: boolean;
   ts_ms: number;
+  /** Backend ledger position (hydrated entries only); tiebreaks equal `ts_ms`. */
+  seq?: number | null;
   turn_id?: string | null;
   /** Present when `kind === 'anchor'`: the journaled deictic reference. */
   view?: CaptureViewReference;
@@ -650,6 +652,7 @@ export class CaptureEngine {
         text: entry.text ?? '',
         partial: false,
         ts_ms: entry.ts_ms ?? Date.now(),
+        seq: entry.seq ?? null,
         turn_id: entry.turn_id ?? null,
         ...(entry.view ? { view: entry.view } : {}),
       }));
@@ -673,7 +676,9 @@ export class CaptureEngine {
         const prev = byKey.get(key);
         byKey.set(key, prev ? { ...prev, ...item } : item);
       }
-      return Array.from(byKey.values()).sort((a, b) => a.ts_ms - b.ts_ms);
+      return Array.from(byKey.values()).sort(
+        (a, b) => a.ts_ms - b.ts_ms || (a.seq ?? 0) - (b.seq ?? 0),
+      );
     });
   }
 
@@ -710,11 +715,16 @@ export class CaptureEngine {
     const sessionId = this._sessionId();
     if (!sessionId || !eventId) return;
     const optimisticStatus = this.statusForAction(body.action);
+    const priorStatus = optimisticStatus
+      ? this._viewReferences().find((r) => r.event_id === eventId)?.status ?? null
+      : null;
     if (optimisticStatus) this.patchViewStatus(eventId, optimisticStatus);
     try {
       const updated = await firstValueFrom(this.api.updateCaptureView(sessionId, eventId, body));
       if (updated) this.ingestViewReference({ ...updated, event_id: updated.event_id ?? eventId });
     } catch (error) {
+      // The POST failed: undo the optimistic patch so the chip reflects reality.
+      if (optimisticStatus) this.patchViewStatus(eventId, priorStatus);
       this._lastError.set(this.errorMessage(error));
     }
   }
@@ -1010,9 +1020,9 @@ export class CaptureEngine {
     }
   }
 
-  private patchViewStatus(eventId: string, status: CaptureAnchorStatus): void {
+  private patchViewStatus(eventId: string, status: CaptureAnchorStatus | null): void {
     this._viewReferences.update((refs) =>
-      refs.map((r) => (r.event_id === eventId ? { ...r, status } : r)),
+      refs.map((r) => (r.event_id === eventId ? { ...r, status: status ?? undefined } : r)),
     );
   }
 

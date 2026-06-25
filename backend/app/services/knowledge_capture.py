@@ -4831,6 +4831,10 @@ def _journaled_view_counts(db: DBSession, *, session_id: str) -> Dict[str, int]:
     views_by_doc: Dict[str, set[str]] = {}
     for row in rows:
         meta = row.meta_data or {}
+        # Discarded anchors are excluded from the finalize batch, so they must not
+        # inflate ``referenced_views_count`` in the documents API / triage UI either.
+        if str(meta.get("status") or "").strip().lower() == "discarded":
+            continue
         view_key = "|".join(str(meta.get(part) or "") for part in ("page", "slide", "image_index"))
         for doc_key in _capture_document_keys(meta):
             views_by_doc.setdefault(doc_key, set()).add(view_key)
@@ -5030,9 +5034,14 @@ def update_capture_view_anchor(
             meta["filename"] = filename
         if title is not None:
             meta["title"] = title
+        # Re-target the view locator atomically: a rebind picks one concrete view,
+        # so a field omitted by the correction must be cleared rather than left
+        # carrying the previous binding's page/slide/image_index.
         for key, value in (("page", page), ("slide", slide), ("image_index", image_index)):
             if value is not None:
                 meta[key] = value
+            else:
+                meta.pop(key, None)
         meta["view_kind"] = _capture_view_kind(meta)
         meta["status"] = "confirmed"
         meta["confidence"] = 1.0
@@ -9666,6 +9675,7 @@ def build_capture_feed(
                     "text": text,
                     "partial": False,
                     "ts_ms": ts_ms,
+                    "seq": event.sequence,
                     "turn_id": turn_id,
                     "event_id": event.id,
                 }
@@ -9688,6 +9698,7 @@ def build_capture_feed(
                     ),
                     "partial": False,
                     "ts_ms": ts_ms,
+                    "seq": event.sequence,
                     "turn_id": meta.get("turn_id"),
                     "event_id": event.id,
                     "view": view,

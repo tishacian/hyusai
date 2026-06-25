@@ -119,10 +119,14 @@ export class CaptureFilShellComponent {
     void this.engine.loadDocuments();
     const status = (info.status ?? '').toLowerCase();
     if (['completed', 'published', 'archived'].includes(status)) {
+      // Terminal sessions never open a live WS, so hydrate the Fil + anchors
+      // from the backend feed projection or the report renders empty.
+      void this.engine.hydrateFeed();
       this.surface.set('review');
     } else if (['draft', 'planning', 'plan_ready'].includes(status)) {
       this.surface.set('plan');
     } else {
+      // connect() hydrates the feed before subscribing to live WS events.
       void this.engine.connect(info.id);
       this.surface.set('session');
     }
@@ -130,6 +134,8 @@ export class CaptureFilShellComponent {
 
   /** Bidirectional provenance: "Revoir l'instant capté" jumps back to Le Fil. */
   protected onRevisit(_ref: CaptureViewReference): void {
+    // Revisiting a terminal session (no live WS): make sure the Fil is hydrated.
+    if (!this.engine.feed().length) void this.engine.hydrateFeed();
     this.surface.set('session');
   }
 }

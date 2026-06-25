@@ -106,6 +106,8 @@ export interface CaptureFeedEntry {
   text: string;
   partial: boolean;
   ts_ms: number | null;
+  /** Authoritative ledger position; tiebreaks entries sharing a millisecond. */
+  seq?: number | null;
   turn_id?: string | null;
   event_id?: string | null;
   view?: CaptureViewReference;
