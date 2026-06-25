@@ -99,8 +99,8 @@ import { FlowPersistenceService, type SaveState } from './flow-persistence.servi
         <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="fit.emit()" title="Fit to view" aria-label="Fit to view">
           <app-icon name="maximize" [size]="14" /><span>Fit</span>
         </button>
-        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="autoLayout.emit()" title="Auto-layout (Dagre)" aria-label="Auto-layout">
-          <app-icon name="layout-grid" [size]="14" /><span>Layout</span>
+        <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="autoLayout.emit()" title="Auto-arrange — repositions all nodes (Ctrl/Cmd+Z to undo)" aria-label="Auto-arrange all nodes">
+          <app-icon name="layout-grid" [size]="14" /><span>Arrange</span>
         </button>
         <button type="button" class="ck-flow-toolbar__btn ck-flow-toolbar__btn--wide" (click)="cycleRouting.emit()" [title]="'Routing: ' + routingLabel()" aria-label="Cycle routing">
           <app-icon name="git-branch" [size]="14" /><span>{{ routingLabel() }}</span>
