@@ -27,6 +27,7 @@ import {
   EFLayoutDirection,
   FCanvasComponent,
   FFlowModule,
+  FLayoutController,
   type FCreateConnectionEvent,
   type FReassignConnectionEvent,
   type FSelectionChangeEvent,
@@ -58,6 +59,13 @@ export interface ConnectFromHandleEvent {
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FFlowModule, FlowNodeComponent],
+  // Foblex 18.6 made `FLayoutEngine` (the base of `DagreLayoutEngine`) inject
+  // `FLayoutController` at field-init, and that token is NOT `providedIn:'root'`
+  // (it ships only via `provideFLayout()`). Since we instantiate the engine
+  // directly (`new DagreLayoutEngine()`), we must provide the controller here or
+  // the field-init `inject(FLayoutController)` throws NG0201 — a black screen on
+  // this route. The controller stays passive (engine mode is MANUAL).
+  providers: [FLayoutController],
   styleUrl: './flow-canvas.component.scss',
   template: `
     <f-flow
