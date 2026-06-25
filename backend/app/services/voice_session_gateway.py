@@ -1730,6 +1730,7 @@ class VoiceSessionGateway:
                     "capture.view.referenced",
                     {
                         "session_id": capture_session_id,
+                        "event_id": ref.get("event_id"),
                         "document_id": ref.get("document_id"),
                         "filename": ref.get("filename"),
                         "title": ref.get("title"),
@@ -1740,6 +1741,8 @@ class VoiceSessionGateway:
                         "timecode_ms": ref.get("timecode_ms"),
                         "statement": ref.get("statement"),
                         "trigger_phrase": ref.get("trigger_phrase"),
+                        "status": ref.get("status"),
+                        "confidence": ref.get("confidence"),
                     },
                 )
             # Accumulate the committed expert text for the live grounded-question

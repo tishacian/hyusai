@@ -510,6 +510,22 @@ def _upload_capture_docs(client, session_id):
     )
 
 
+def _patch_capture_doc_service(monkeypatch):
+    """Stub DocumentService.ingest_document, returning the captured ingest calls."""
+    ingest_calls: list[tuple[str, dict]] = []
+
+    class _FakeDocService:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def ingest_document(self, path, **kwargs):
+            ingest_calls.append((path, dict(kwargs.get("document_metadata") or {})))
+            return {"status": "success", "document_id": "fake", "chunks_processed": 1}
+
+    monkeypatch.setattr("app.services.rag.document_service.DocumentService", _FakeDocService)
+    return ingest_calls
+
+
 def test_capture_deictic_reference_is_journaled_and_exposed(db_session, tmp_path, monkeypatch):
     """A deictic turn ("comme on le voit sur cette page") carrying a view must
     journal a capture_view_referenced event, return view_references, and flip the
@@ -600,6 +616,97 @@ def test_capture_deictic_reference_is_journaled_and_exposed(db_session, tmp_path
     assert shared_docs["photo.png"]["full_share"] is False
 
 
+def test_capture_feed_projection_speak_note_anchor(db_session, tmp_path, monkeypatch):
+    """GET /feed projects the event ledger into ordered speak|note|anchor entries
+    (D1 step C), carrying anchor status/confidence, so the Fil can hydrate on
+    load/resume before appending live WS events."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace = Workspace(id="ws-kc-api-feed", name="KC API Feed", slug="kc-api-feed")
+    user = User(id="user-kc-api-feed", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture Fil",
+            "objective": "Projeter le fil d'événements.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    collection_slug = _upload_capture_docs(client, session_id).json()["collection"]
+
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "voice",
+            "client_turn_id": "feed-voice-1",
+            "text": "On règle d'abord la pression de purge.",
+        },
+    )
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "feed-note-1",
+            "text": "Note: vérifier la calibration mensuelle.",
+        },
+    )
+    ref = {
+        "document_id": "manuel.pdf",
+        "filename": "manuel.pdf",
+        "collection": collection_slug,
+        "title": "Manuel ligne BBA",
+        "page": 3,
+        "association_mode": "active_view",
+    }
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "feed-anchor-1",
+            "text": "Comme on le voit sur cette page, le rendement passe à 92%.",
+            "document_refs": [ref],
+            "visual_context": ref,
+        },
+    )
+
+    feed_resp = client.get(f"/api/v1/knowledge-capture/sessions/{session_id}/feed")
+    assert feed_resp.status_code == 200
+    feed = feed_resp.json()["feed"]
+    assert [entry["kind"] for entry in feed] == ["speak", "note", "note", "anchor"]
+
+    speak = feed[0]
+    assert speak["channel"] == "voice"
+    assert speak["text"].startswith("On règle")
+    assert speak["turn_id"] == "feed-voice-1"
+
+    note = feed[1]
+    assert note["channel"] == "text"
+    assert note["turn_id"] == "feed-note-1"
+
+    anchor = feed[3]
+    assert anchor["channel"] == "text"
+    assert anchor["turn_id"] == "feed-anchor-1"
+    view = anchor["view"]
+    assert view["document_id"] == "manuel.pdf"
+    assert view["page"] == 3
+    assert view["status"] == "confirmed"
+    assert view["confidence"] == 1.0
+    assert view["event_id"] == anchor["event_id"]
+
+
 def test_capture_finalize_index_indexes_referenced_views_and_full_docs(db_session, tmp_path, monkeypatch):
     """The background batch extracts/indexes the journaled views + the full-share
     docs and transitions each doc's index_status queued -> indexed."""
@@ -675,6 +782,371 @@ def test_capture_finalize_index_indexes_referenced_views_and_full_docs(db_sessio
     again = run_capture_finalize_index(SessionLocal, workspace_id=workspace.id, session_id=session_id)
     assert again["status"] in {"done", "noop"}
     assert ingest_calls == []
+
+
+def test_capture_anchor_confidence_at_journaling(db_session, tmp_path, monkeypatch):
+    """One distinct view in a deictic turn => confirmed/1.0; >=2 distinct views =>
+    lowconf/0.5. status/confidence land in the view_references, the journaled
+    event meta_data, and the event.confidence column."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace = Workspace(id="ws-kc-api-conf", name="KC API Conf", slug="kc-api-conf")
+    user = User(id="user-kc-api-conf", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture confiance",
+            "objective": "Vérifier la confiance déterministe des ancres.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    collection_slug = _upload_capture_docs(client, session_id).json()["collection"]
+
+    single_ref = {"document_id": "manuel.pdf", "filename": "manuel.pdf", "collection": collection_slug, "page": 3}
+    single = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "conf-1",
+            "text": "Comme on le voit sur cette page, le rendement monte à 92%.",
+            "document_refs": [single_ref],
+            "visual_context": single_ref,
+        },
+    )
+    single_refs = single.json()["view_references"]
+    assert len(single_refs) == 1
+    assert single_refs[0]["status"] == "confirmed"
+    assert single_refs[0]["confidence"] == 1.0
+    assert single_refs[0]["view_kind"] == "page"
+    assert single_refs[0]["event_id"]
+
+    multi = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "conf-2",
+            "text": "Comme on le voit sur cette page, la tendance se confirme.",
+            "document_refs": [
+                {"document_id": "manuel.pdf", "filename": "manuel.pdf", "collection": collection_slug, "page": 5},
+                {"document_id": "manuel.pdf", "filename": "manuel.pdf", "collection": collection_slug, "page": 8},
+            ],
+        },
+    )
+    multi_refs = multi.json()["view_references"]
+    assert len(multi_refs) == 2
+    assert {ref["status"] for ref in multi_refs} == {"lowconf"}
+    assert {ref["confidence"] for ref in multi_refs} == {0.5}
+    assert all(ref["event_id"] for ref in multi_refs)
+
+    events = client.get(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/events",
+        params={"event_type": "capture_view_referenced"},
+    ).json()["events"]
+    by_page = {event["metadata"].get("page"): event for event in events}
+    assert by_page[3]["metadata"]["status"] == "confirmed"
+    assert by_page[3]["metadata"]["confidence"] == 1.0
+    assert by_page[3]["confidence"] == "1.0"
+    assert by_page[5]["metadata"]["status"] == "lowconf"
+    assert by_page[5]["metadata"]["confidence"] == 0.5
+    assert by_page[5]["confidence"] == "0.5"
+
+
+def test_capture_view_update_endpoint_confirm_discard_rebind(db_session, tmp_path, monkeypatch):
+    """POST views/{event_id} confirms, discards and rebinds a journaled anchor,
+    persisting status/confidence (and rebound doc/view fields) on the event."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace = Workspace(id="ws-kc-api-view-update", name="KC API View Update", slug="kc-api-view-update")
+    user = User(id="user-kc-api-view-update", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture correction ancre",
+            "objective": "Corriger une ancre journalisée.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    collection_slug = _upload_capture_docs(client, session_id).json()["collection"]
+
+    turn = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "view-update-1",
+            "text": "Comme on le voit sur cette page, deux étapes se confirment.",
+            "document_refs": [
+                {"document_id": "manuel.pdf", "filename": "manuel.pdf", "collection": collection_slug, "page": 5},
+                {"document_id": "manuel.pdf", "filename": "manuel.pdf", "collection": collection_slug, "page": 8},
+            ],
+        },
+    )
+    by_page = {ref["page"]: ref for ref in turn.json()["view_references"]}
+    event_a = by_page[5]["event_id"]
+    event_b = by_page[8]["event_id"]
+
+    confirmed = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/views/{event_a}",
+        json={"action": "confirm"},
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "confirmed"
+    assert confirmed.json()["confidence"] == 1.0
+
+    discarded = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/views/{event_b}",
+        json={"action": "discard"},
+    )
+    assert discarded.status_code == 200
+    assert discarded.json()["status"] == "discarded"
+
+    rebound = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/views/{event_a}",
+        json={"action": "rebind", "document_id": "photo.png", "filename": "photo.png", "page": 9, "title": "Manuel page 9"},
+    )
+    assert rebound.status_code == 200
+    rebound_body = rebound.json()
+    assert rebound_body["status"] == "confirmed"
+    assert rebound_body["confidence"] == 1.0
+    assert rebound_body["document_id"] == "photo.png"
+    assert rebound_body["filename"] == "photo.png"
+    assert rebound_body["page"] == 9
+    assert rebound_body["title"] == "Manuel page 9"
+    assert rebound_body["view_kind"] == "page"
+
+    events = client.get(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/events",
+        params={"event_type": "capture_view_referenced"},
+    ).json()["events"]
+    by_id = {event["id"]: event for event in events}
+    assert by_id[event_a]["metadata"]["status"] == "confirmed"
+    assert by_id[event_a]["metadata"]["page"] == 9
+    assert by_id[event_a]["confidence"] == "1.0"
+    assert by_id[event_b]["metadata"]["status"] == "discarded"
+
+    missing = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/views/does-not-exist",
+        json={"action": "confirm"},
+    )
+    assert missing.status_code == 404
+
+
+def test_capture_finalize_excludes_discarded_views(db_session, tmp_path, monkeypatch):
+    """A discarded anchor is excluded from the background finalize batch; the
+    remaining (confirmed) views are still indexed."""
+    from app.core.config import settings
+    from app.db.base import SessionLocal
+    from app.services.knowledge_capture import run_capture_finalize_index
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace = Workspace(id="ws-kc-api-fin-discard", name="KC API Fin Discard", slug="kc-api-fin-discard")
+    user = User(id="user-kc-api-fin-discard", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    ingest_calls = _patch_capture_doc_service(monkeypatch)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture finalize discard",
+            "objective": "Exclure une ancre rejetée de l'indexation.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    collection_slug = _upload_capture_docs(client, session_id).json()["collection"]
+
+    turn = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "fin-discard-1",
+            "text": "Regardez cette page : deux passages sont cités.",
+            "document_refs": [
+                {"document_id": "manuel.pdf", "filename": "manuel.pdf", "collection": collection_slug, "page": 3},
+                {"document_id": "manuel.pdf", "filename": "manuel.pdf", "collection": collection_slug, "page": 7},
+            ],
+        },
+    )
+    by_page = {ref["page"]: ref for ref in turn.json()["view_references"]}
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/views/{by_page[3]['event_id']}",
+        json={"action": "discard"},
+    )
+
+    result = run_capture_finalize_index(SessionLocal, workspace_id=workspace.id, session_id=session_id)
+    assert result["status"] == "done"
+    view_pages = sorted(
+        meta.get("page") for _, meta in ingest_calls if meta.get("origin") == "capture_view_index"
+    )
+    assert view_pages == [7]
+
+
+def test_capture_finalize_honors_share_level_none_excerpt_full(db_session, tmp_path, monkeypatch):
+    """share_level drives the finalize batch: none => skipped, excerpt => views
+    only, full => views + whole original document."""
+    from app.core.config import settings
+    from app.db.base import SessionLocal
+    from app.services.knowledge_capture import run_capture_finalize_index
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace = Workspace(id="ws-kc-api-share-level", name="KC API Share Level", slug="kc-api-share-level")
+    user = User(id="user-kc-api-share-level", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    ingest_calls = _patch_capture_doc_service(monkeypatch)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture share level",
+            "objective": "Honorer share_level à la finalisation.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    collection_slug = _upload_capture_docs(client, session_id).json()["collection"]
+
+    manuel_ref = {"document_id": "manuel.pdf", "filename": "manuel.pdf", "collection": collection_slug, "page": 3}
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "share-level-1",
+            "text": "Comme on le voit sur cette page, la séquence est validée.",
+            "document_refs": [manuel_ref],
+            "visual_context": manuel_ref,
+        },
+    )
+    photo_ref = {"document_id": "photo.png", "filename": "photo.png", "collection": collection_slug, "image_index": 1}
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "share-level-2",
+            "text": "Comme on le voit sur cette image, le défaut est visible.",
+            "document_refs": [photo_ref],
+            "visual_context": photo_ref,
+        },
+    )
+
+    triaged = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/documents/share-level",
+        json={
+            "items": [
+                {"document_id": "manuel.pdf", "share_level": "full"},
+                {"document_id": "photo.png", "share_level": "none"},
+            ]
+        },
+    )
+    assert triaged.status_code == 200
+    triaged_docs = {doc["filename"]: doc for doc in triaged.json()["documents"]}
+    assert triaged_docs["manuel.pdf"]["share_level"] == "full"
+    assert triaged_docs["manuel.pdf"]["full_share"] is True
+    assert triaged_docs["photo.png"]["share_level"] == "none"
+    assert triaged_docs["photo.png"]["full_share"] is False
+
+    result = run_capture_finalize_index(SessionLocal, workspace_id=workspace.id, session_id=session_id)
+    assert result["status"] == "done"
+    origins = sorted(meta.get("origin") for _, meta in ingest_calls)
+    # manuel.pdf (full): referenced view + whole doc; photo.png (none): skipped.
+    assert origins == ["capture_full_share_index", "capture_view_index"]
+    assert {meta.get("source_filename") for _, meta in ingest_calls} == {"manuel.pdf"}
+
+    docs = {doc["filename"]: doc for doc in client.get(f"/api/v1/knowledge-capture/sessions/{session_id}/documents").json()["documents"]}
+    assert docs["manuel.pdf"]["index_status"] == "indexed"
+    assert docs["photo.png"]["share_level"] == "none"
+    assert docs["photo.png"]["index_status"] == "referenced"
+
+
+def test_capture_share_level_excerpt_indexes_views_only(db_session, tmp_path, monkeypatch):
+    """share_level=excerpt (default) indexes only the referenced views, never the
+    whole original document."""
+    from app.core.config import settings
+    from app.db.base import SessionLocal
+    from app.services.knowledge_capture import run_capture_finalize_index
+
+    monkeypatch.setattr(settings, "object_store_backend", "local")
+    monkeypatch.setattr(settings, "object_store_base_path", str(tmp_path / "objects"))
+    workspace = Workspace(id="ws-kc-api-excerpt", name="KC API Excerpt", slug="kc-api-excerpt")
+    user = User(id="user-kc-api-excerpt", username="operator", email="operator@example.test")
+    db_session.add_all([workspace, user])
+    db_session.commit()
+    seed_skills_and_capabilities(db_session)
+
+    ingest_calls = _patch_capture_doc_service(monkeypatch)
+
+    client = _client(db_session, workspace, user, monkeypatch)
+    created = client.post(
+        "/api/v1/knowledge-capture/plans",
+        json={
+            "title": "Capture excerpt",
+            "objective": "Indexer uniquement les vues en excerpt.",
+            "duration_minutes": 0,
+            "plan_mode": "free_conversation",
+        },
+    )
+    session_id = created.json()["id"]
+    client.post(f"/api/v1/knowledge-capture/sessions/{session_id}/start")
+    collection_slug = _upload_capture_docs(client, session_id).json()["collection"]
+
+    manuel_ref = {"document_id": "manuel.pdf", "filename": "manuel.pdf", "collection": collection_slug, "page": 3}
+    client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/turns",
+        json={
+            "speaker": "expert",
+            "input_modality": "text",
+            "client_turn_id": "excerpt-1",
+            "text": "Comme on le voit sur cette page, la valeur cible est atteinte.",
+            "document_refs": [manuel_ref],
+            "visual_context": manuel_ref,
+        },
+    )
+
+    docs = {doc["filename"]: doc for doc in client.get(f"/api/v1/knowledge-capture/sessions/{session_id}/documents").json()["documents"]}
+    assert docs["manuel.pdf"]["share_level"] == "excerpt"
+
+    result = run_capture_finalize_index(SessionLocal, workspace_id=workspace.id, session_id=session_id)
+    assert result["status"] == "done"
+    origins = sorted(meta.get("origin") for _, meta in ingest_calls)
+    assert origins == ["capture_view_index"]
 
 
 def test_free_conversation_proposal_endpoint_returns_structured_topic(db_session, monkeypatch):

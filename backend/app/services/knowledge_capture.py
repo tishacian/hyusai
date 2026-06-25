@@ -4257,6 +4257,76 @@ def _capture_view_key(ref: Mapping[str, Any]) -> str:
     )
 
 
+def _capture_view_kind(ref: Mapping[str, Any]) -> str:
+    """Classify the referenced view (page|slide|image|document)."""
+    if _positive_int(ref.get("page") or ref.get("page_number")):
+        return "page"
+    if _positive_int(ref.get("slide") or ref.get("slide_number")):
+        return "slide"
+    if _positive_int(ref.get("image_index")):
+        return "image"
+    return "document"
+
+
+# End-of-capture sharing intent per document. ``excerpt`` (default) indexes only
+# the referenced views; ``full`` adds the whole original; ``none`` keeps the doc
+# citable in the report but out of the KB index.
+CAPTURE_SHARE_LEVELS = ("full", "excerpt", "none")
+
+
+def _normalize_share_level(value: Any, *, default: str = "excerpt") -> str:
+    text = str(value or "").strip().lower()
+    return text if text in CAPTURE_SHARE_LEVELS else default
+
+
+def _doc_share_level(doc: Mapping[str, Any]) -> str:
+    """Read a doc's authoritative ``share_level`` with ``full_share`` retro-read.
+
+    ``share_level`` wins when present; otherwise the legacy boolean
+    ``full_share`` maps True->``full`` / False->``excerpt``.
+    """
+    if doc.get("share_level"):
+        return _normalize_share_level(doc.get("share_level"))
+    return "full" if bool(doc.get("full_share")) else "excerpt"
+
+
+def _apply_capture_share_levels(
+    session: ExpertCaptureSession,
+    *,
+    levels_by_key: Mapping[str, str],
+) -> bool:
+    """Apply ``{doc_key: share_level}`` onto the capture documents state.
+
+    Keeps the legacy ``full_share`` boolean in sync (``full`` => True). Returns
+    True when at least one document entry changed.
+    """
+    wanted = {
+        str(key).strip().lower(): _normalize_share_level(level)
+        for key, level in (levels_by_key or {}).items()
+        if str(key).strip()
+    }
+    if not wanted:
+        return False
+    metrics = dict(session.metrics or {})
+    state = _capture_documents_state(session)
+    documents = [dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)]
+    changed = False
+    for entry in documents:
+        match = next((wanted[key] for key in _capture_document_keys(entry) if key in wanted), None)
+        if match is None:
+            continue
+        if _doc_share_level(entry) != match or entry.get("share_level") != match:
+            entry["share_level"] = match
+            entry["full_share"] = match == "full"
+            changed = True
+    if changed:
+        state["documents"] = documents
+        metrics["capture_documents"] = state
+        session.metrics = metrics
+        flag_modified(session, "metrics")
+    return changed
+
+
 def _mark_capture_document_index_status(
     session: ExpertCaptureSession,
     *,
@@ -4673,6 +4743,7 @@ def register_capture_documents(
         document_id = str(item.get("document_id") or "").strip()
         if not (filename or document_id):
             continue
+        share_level = _doc_share_level(item) if (item.get("share_level") or item.get("full_share")) else "excerpt"
         doc = {
             "document_id": document_id or None,
             "filename": filename or None,
@@ -4681,14 +4752,20 @@ def register_capture_documents(
             "collection_name": collection,
             "status": item.get("status") or "queued",
             "index_status": item.get("index_status") or "not_indexed",
-            "full_share": bool(item.get("full_share")),
+            # ``share_level`` is authoritative; ``full_share`` kept for v0 back-compat.
+            "share_level": share_level,
+            "full_share": share_level == "full",
             "chunks_processed": item.get("chunks_processed") or 0,
             "job_id": item.get("job_id"),
             "uploaded_at": item.get("uploaded_at") or now,
             "uploaded_by_user_id": actor_user_id,
         }
         normalized_docs.append(
-            {key: value for key, value in doc.items() if value is not None or key == "full_share"}
+            {
+                key: value
+                for key, value in doc.items()
+                if value is not None or key in ("full_share", "share_level")
+            }
         )
     state = _upsert_capture_document_state(session, collection=collection, documents=normalized_docs)
     for doc in normalized_docs:
@@ -4823,7 +4900,9 @@ def build_capture_documents_collection(
         doc_keys = _capture_document_keys(doc)
         referenced = max((view_counts.get(key, 0) for key in doc_keys), default=0)
         doc["referenced_views_count"] = referenced
-        doc["full_share"] = bool(doc.get("full_share"))
+        share_level = _doc_share_level(doc)
+        doc["share_level"] = share_level
+        doc["full_share"] = share_level == "full"
         index_status = str(doc.get("index_status") or "not_indexed")
         if index_status not in CAPTURE_INDEX_STATUSES:
             index_status = "not_indexed"
@@ -4841,6 +4920,36 @@ def build_capture_documents_collection(
     }
 
 
+def set_capture_documents_share_level(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    items: Iterable[Mapping[str, Any]],
+    actor_user_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Set per-document ``share_level`` (end-of-capture triage).
+
+    ``items`` is a list of ``{document_id, share_level}``: each listed doc is
+    updated, docs not listed keep their existing level (default ``excerpt``). No
+    ingestion happens here — the background finalize batch reads ``share_level``.
+    Returns the updated documents collection (same shape as the GET endpoint).
+    """
+    session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
+    levels_by_key: Dict[str, str] = {}
+    for item in items or []:
+        if not isinstance(item, Mapping):
+            continue
+        key = str(item.get("document_id") or item.get("filename") or "").strip().lower()
+        if not key:
+            continue
+        levels_by_key[key] = _normalize_share_level(item.get("share_level"))
+    if _apply_capture_share_levels(session, levels_by_key=levels_by_key):
+        db.commit()
+        db.refresh(session)
+    return build_capture_documents_collection(db, workspace_id=workspace_id, session=session)
+
+
 def set_capture_documents_full_share(
     db: DBSession,
     *,
@@ -4849,32 +4958,92 @@ def set_capture_documents_full_share(
     document_ids: Iterable[str],
     actor_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Mark the chosen capture docs ``full_share=true`` (end-of-capture triage).
+    """v0 alias over ``share_level`` (``True``->``full`` / ``False``->``excerpt``).
 
-    The request body is the complete selection: listed docs get
-    ``full_share=true``, the rest ``false``. No ingestion happens here — the
-    background finalize batch reads these flags. Returns the updated documents
-    collection (same shape as the GET endpoint).
+    The request body is the complete selection: listed docs become ``full``, the
+    rest ``excerpt``. No ingestion happens here — the background finalize batch
+    reads the resulting ``share_level``. Returns the updated documents collection.
     """
     session = get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
     wanted = {str(value).strip().lower() for value in (document_ids or []) if str(value).strip()}
-    metrics = dict(session.metrics or {})
     state = _capture_documents_state(session)
     documents = [dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)]
-    changed = False
+    levels_by_key: Dict[str, str] = {}
     for entry in documents:
-        selected = bool(set(_capture_document_keys(entry)) & wanted)
-        if bool(entry.get("full_share")) != selected:
-            entry["full_share"] = selected
-            changed = True
-    if changed:
-        state["documents"] = documents
-        metrics["capture_documents"] = state
-        session.metrics = metrics
-        flag_modified(session, "metrics")
+        for key in _capture_document_keys(entry):
+            levels_by_key[key] = "full" if key in wanted else "excerpt"
+    if _apply_capture_share_levels(session, levels_by_key=levels_by_key):
         db.commit()
         db.refresh(session)
     return build_capture_documents_collection(db, workspace_id=workspace_id, session=session)
+
+
+def update_capture_view_anchor(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+    event_id: str,
+    action: str,
+    document_id: Optional[str] = None,
+    collection: Optional[str] = None,
+    filename: Optional[str] = None,
+    title: Optional[str] = None,
+    page: Optional[int] = None,
+    slide: Optional[int] = None,
+    image_index: Optional[int] = None,
+    actor_user_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Correct a journaled anchor (``capture_view_referenced``).
+
+    ``confirm`` => status=confirmed/confidence=1.0; ``discard`` => status=discarded
+    (kept out of the finalize batch); ``rebind`` => re-target the doc/view fields
+    then status=confirmed/confidence=1.0. Returns the updated view ref dict.
+    """
+    get_session(db, workspace_id=workspace_id, session_id=session_id, materialize=False)
+    event = (
+        db.query(ExpertCaptureEvent)
+        .filter(
+            ExpertCaptureEvent.workspace_id == workspace_id,
+            ExpertCaptureEvent.session_id == session_id,
+            ExpertCaptureEvent.id == event_id,
+            ExpertCaptureEvent.event_type == "capture_view_referenced",
+        )
+        .first()
+    )
+    if not event:
+        raise ValueError("Capture view reference not found")
+    meta = dict(event.meta_data or {})
+    if action == "confirm":
+        meta["status"] = "confirmed"
+        meta["confidence"] = 1.0
+        event.confidence = "1.0"
+    elif action == "discard":
+        meta["status"] = "discarded"
+    elif action == "rebind":
+        if document_id is not None:
+            meta["document_id"] = document_id
+        if collection is not None:
+            meta["collection"] = collection
+            meta["collection_name"] = collection
+        if filename is not None:
+            meta["filename"] = filename
+        if title is not None:
+            meta["title"] = title
+        for key, value in (("page", page), ("slide", slide), ("image_index", image_index)):
+            if value is not None:
+                meta[key] = value
+        meta["view_kind"] = _capture_view_kind(meta)
+        meta["status"] = "confirmed"
+        meta["confidence"] = 1.0
+        event.confidence = "1.0"
+    else:
+        raise ValueError(f"Unsupported view anchor action: {action}")
+    event.meta_data = meta
+    flag_modified(event, "meta_data")
+    db.commit()
+    db.refresh(event)
+    return dict(event.meta_data or {})
 
 
 _CAPTURE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
@@ -5015,11 +5184,14 @@ async def _run_capture_finalize_index_async(
         views_by_key: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         for row in view_rows:
             meta = dict(row.meta_data or {})
+            # Discarded anchors (operator correction) never reach the index.
+            if str(meta.get("status") or "").strip().lower() == "discarded":
+                continue
             views_by_key.setdefault(_capture_view_key(meta), meta)
 
         documents = [dict(item) for item in (state.get("documents") or []) if isinstance(item, dict)]
-        full_share_docs = [doc for doc in documents if doc.get("full_share")]
-        if not views_by_key and not full_share_docs:
+        full_docs = [doc for doc in documents if _doc_share_level(doc) == "full"]
+        if not views_by_key and not full_docs:
             finalize_state.update({"status": "done", "finished_at": datetime.utcnow().isoformat(), "indexed": 0})
             _set_capture_finalize_state(session, finalize_state)
             db.commit()
@@ -5073,12 +5245,16 @@ async def _run_capture_finalize_index_async(
             doc_keys = set(_capture_document_keys(doc))
             if not doc_keys:
                 continue
+            share_level = _doc_share_level(doc)
+            # ``none`` keeps the doc citable in the report but out of the KB index.
+            if share_level == "none":
+                continue
             doc_views = [
                 meta
                 for key, meta in views_by_key.items()
                 if (set(_capture_document_keys(meta)) & doc_keys) and key not in already_views
             ]
-            is_full = bool(doc.get("full_share")) and not (doc_keys & already_full)
+            is_full = share_level == "full" and not (doc_keys & already_full)
             if not doc_views and not is_full:
                 continue
 
@@ -6337,6 +6513,14 @@ def append_turn(
     if speaker == "expert" and normalized_document_refs:
         trigger_phrase = _detect_capture_deictic_phrase(text)
         if trigger_phrase:
+            # Deterministic anchor confidence (D2 phase 1): a single distinct view
+            # in the turn is unambiguous (confirmed); >=2 distinct views make the
+            # deictic target ambiguous (lowconf, below the 0.7 threshold).
+            distinct_view_keys = {_capture_view_key(ref) for ref in normalized_document_refs}
+            if len(distinct_view_keys) <= 1:
+                anchor_status, anchor_confidence = "confirmed", 1.0
+            else:
+                anchor_status, anchor_confidence = "lowconf", 0.5
             seen_view_keys: set[str] = set()
             for ref in normalized_document_refs:
                 view_key = _capture_view_key(ref)
@@ -6362,6 +6546,9 @@ def append_turn(
                     "statement": text,
                     "trigger_phrase": trigger_phrase,
                     "association_mode": ref.get("association_mode") or "active_view",
+                    "status": anchor_status,
+                    "confidence": anchor_confidence,
+                    "view_kind": _capture_view_kind(ref),
                 }
                 payload = {key: value for key, value in payload.items() if value is not None}
                 view_event = _record_capture_event(
@@ -6372,6 +6559,7 @@ def append_turn(
                     question_id=question_id,
                     source="capture_document",
                     status="accepted",
+                    confidence=str(anchor_confidence),
                     parent_event_id=event.id,
                     created_by=actor_user_id,
                     meta_data=payload,
@@ -9399,6 +9587,113 @@ def _transcript_from_events(events: Iterable[ExpertCaptureEvent]) -> List[Dict[s
             turn["text_amended"] = amended
         turns.append(turn)
     return turns
+
+
+_FEED_EVENT_TYPES = (*_TURN_EVENT_TYPES, "capture_view_referenced")
+
+
+def _capture_feed_view_ref(event: ExpertCaptureEvent, meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Shape a journaled ``capture_view_referenced`` event into the anchor view
+    ref the Fil timeline binds to (mirrors the realtime WS / HTTP push shape)."""
+    confidence = meta.get("confidence")
+    if confidence is None and event.confidence is not None:
+        try:
+            confidence = float(event.confidence)
+        except (TypeError, ValueError):
+            confidence = None
+    collection = meta.get("collection") or meta.get("collection_name")
+    return {
+        "session_id": event.session_id,
+        "event_id": event.id,
+        "document_id": meta.get("document_id"),
+        "collection": collection,
+        "collection_name": collection,
+        "filename": meta.get("filename"),
+        "title": meta.get("title"),
+        "page": meta.get("page"),
+        "slide": meta.get("slide"),
+        "image_index": meta.get("image_index"),
+        "turn_id": meta.get("turn_id"),
+        "timecode_ms": meta.get("timecode_ms"),
+        "statement": meta.get("statement"),
+        "trigger_phrase": meta.get("trigger_phrase"),
+        "status": meta.get("status") or "confirmed",
+        "confidence": confidence,
+        "view_kind": meta.get("view_kind"),
+        "association_mode": meta.get("association_mode"),
+    }
+
+
+def build_capture_feed(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    session_id: str,
+) -> List[Dict[str, Any]]:
+    """Project the append-only event ledger into the ordered "Le Fil" feed (D1
+    step C): one typed entry per ``speak`` (voice turn) / ``note`` (text turn) /
+    ``anchor`` (deictic ``capture_view_referenced``) event, carrying the anchor
+    status/confidence. The Fil hydrates from this on session load/resume, then
+    keeps appending live WS events (WS stays the live source of truth)."""
+    rows = (
+        db.query(ExpertCaptureEvent)
+        .filter(
+            ExpertCaptureEvent.workspace_id == workspace_id,
+            ExpertCaptureEvent.session_id == session_id,
+            ExpertCaptureEvent.event_type.in_(_FEED_EVENT_TYPES),
+        )
+        .order_by(ExpertCaptureEvent.sequence.asc(), ExpertCaptureEvent.created_at.asc())
+        .all()
+    )
+    turn_channel: Dict[str, str] = {}
+    feed: List[Dict[str, Any]] = []
+    for event in rows:
+        meta = event.meta_data or {}
+        ts_ms = int(event.created_at.timestamp() * 1000) if event.created_at else None
+        if event.event_type in _TURN_EVENT_TYPES:
+            channel = "text" if (meta.get("input_modality") or "voice") == "text" else "voice"
+            turn_channel[event.id] = channel
+            text = _effective_event_text(event)
+            if not text:
+                continue
+            turn_id = meta.get("turn_id") or event.id
+            feed.append(
+                {
+                    "id": turn_id,
+                    "kind": "note" if channel == "text" else "speak",
+                    "channel": channel,
+                    "speaker": event.speaker,
+                    "text": text,
+                    "partial": False,
+                    "ts_ms": ts_ms,
+                    "turn_id": turn_id,
+                    "event_id": event.id,
+                }
+            )
+        else:
+            view = _capture_feed_view_ref(event, meta)
+            channel = turn_channel.get(event.parent_event_id or "", "voice")
+            feed.append(
+                {
+                    "id": event.id,
+                    "kind": "anchor",
+                    "channel": channel,
+                    "speaker": event.speaker,
+                    "text": (
+                        view.get("statement")
+                        or view.get("trigger_phrase")
+                        or view.get("title")
+                        or view.get("filename")
+                        or "view referenced"
+                    ),
+                    "partial": False,
+                    "ts_ms": ts_ms,
+                    "turn_id": meta.get("turn_id"),
+                    "event_id": event.id,
+                    "view": view,
+                }
+            )
+    return feed
 
 
 def _read_transcript(

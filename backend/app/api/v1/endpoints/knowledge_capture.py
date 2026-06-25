@@ -48,6 +48,7 @@ from app.services.knowledge_capture import (
     apply_session_closure_action,
     approve_capture_plan,
     build_capture_documents_collection,
+    build_capture_feed,
     build_chat_correction_acknowledgement,
     build_open_questions,
     build_quality_backlog,
@@ -83,7 +84,9 @@ from app.services.knowledge_capture import (
     serialize_session,
     session_has_proposal_material,
     set_capture_documents_full_share,
+    set_capture_documents_share_level,
     start_session,
+    update_capture_view_anchor,
     summarize_chat_correction_theme,
     warm_capture_context_cache,
     update_oracle_question_statuses,
@@ -463,6 +466,26 @@ class CaptureTurnRequest(BaseModel):
 
 class CaptureFullShareRequest(BaseModel):
     document_ids: List[str] = Field(default_factory=list)
+
+
+class CaptureShareLevelItem(BaseModel):
+    document_id: str
+    share_level: Literal["full", "excerpt", "none"]
+
+
+class CaptureShareLevelRequest(BaseModel):
+    items: List[CaptureShareLevelItem] = Field(default_factory=list)
+
+
+class CaptureViewUpdateRequest(BaseModel):
+    action: Literal["confirm", "discard", "rebind"]
+    document_id: Optional[str] = None
+    collection: Optional[str] = None
+    filename: Optional[str] = None
+    title: Optional[str] = None
+    page: Optional[int] = Field(default=None, ge=1)
+    slide: Optional[int] = Field(default=None, ge=1)
+    image_index: Optional[int] = Field(default=None, ge=1)
 
 
 class CaptureDocumentViewRequest(BaseModel):
@@ -1136,6 +1159,86 @@ async def select_capture_session_full_share(
         raise _http_error_from_value_error(exc) from exc
 
 
+@router.post("/sessions/{session_id}/documents/share-level")
+async def select_capture_session_share_level(
+    session_id: str,
+    body: CaptureShareLevelRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """End-of-capture triage: set each doc's ``share_level`` {full|excerpt|none}.
+
+    Records the per-doc selection on ``capture_documents`` state; no ingestion
+    happens here (the background finalize batch reads ``share_level``). Returns
+    the updated documents collection (same shape as GET documents).
+    """
+    try:
+        session = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="update",
+            resource_attrs=_session_attrs(session),
+            audit_prefix="kc",
+        )
+        return set_capture_documents_share_level(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            items=[item.model_dump() for item in body.items],
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+
+
+@router.post("/sessions/{session_id}/views/{event_id}")
+async def update_capture_session_view(
+    session_id: str,
+    event_id: str,
+    body: CaptureViewUpdateRequest,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Correct a journaled anchor: confirm / discard / rebind.
+
+    Patches the ``capture_view_referenced`` event ``meta_data`` (status,
+    confidence, and on rebind the doc/view target). Returns the updated view ref.
+    """
+    try:
+        session = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="update",
+            resource_attrs=_session_attrs(session),
+            audit_prefix="kc",
+        )
+        return update_capture_view_anchor(
+            db,
+            workspace_id=workspace.id,
+            session_id=session_id,
+            event_id=event_id,
+            action=body.action,
+            document_id=body.document_id,
+            collection=body.collection,
+            filename=body.filename,
+            title=body.title,
+            page=body.page,
+            slide=body.slide,
+            image_index=body.image_index,
+            actor_user_id=user.id,
+        )
+    except ValueError as exc:
+        raise _http_error_from_value_error(exc) from exc
+
+
 @router.post("/sessions/{session_id}/retrieval-prefetch")
 async def prefetch_session_retrieval(
     session_id: str,
@@ -1271,6 +1374,34 @@ async def list_session_events(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"events": [serialize_event(row) for row in rows]}
+
+
+@router.get("/sessions/{session_id}/feed")
+async def get_session_feed(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Typed projection of the event ledger into the ordered "Le Fil" feed (D1
+    step C): ``speak`` (voice turn) / ``note`` (text turn) / ``anchor`` (deictic
+    reference, with status + confidence). The Fil hydrates from this on load /
+    resume, then appends live WS events."""
+    try:
+        session = get_session(db, workspace_id=workspace.id, session_id=session_id)
+        enforce_permission(
+            db,
+            user=user,
+            workspace=workspace,
+            resource_kind="capture_session",
+            action="read",
+            resource_attrs=_session_attrs(session),
+            audit_prefix="kc",
+        )
+        feed = build_capture_feed(db, workspace_id=workspace.id, session_id=session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"feed": feed}
 
 
 @router.patch("/sessions/{session_id}/events/{event_id}/amend")

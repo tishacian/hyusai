@@ -255,7 +255,8 @@ type KbTabId =
         actions
         type="button"
         (click)="onTabChange('guides')"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500/10 hover:bg-brand-500/15 ring-1 ring-brand-500/25 text-brand-200 transition"
+        class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
+        style="color:var(--ck-signal-cool); border-color:var(--ck-stroke-hot);"
       >
         <app-icon name="book-open" [size]="14" /> Guide
       </button>
@@ -263,7 +264,7 @@ type KbTabId =
         actions
         type="button"
         (click)="onTabChange('table-facts')"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
       >
         <app-icon name="table" [size]="14" /> Table facts
       </button>
@@ -271,26 +272,26 @@ type KbTabId =
         actions
         type="button"
         (click)="onTabChange('bindings')"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
       >
         <app-icon name="link" [size]="14" /> Bindings
       </button>
       <a
         actions
         routerLink="/knowledge"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition"
+        class="ck-btn-soft inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
       >
         <app-icon name="arrow-left" [size]="14" /> Back
       </a>
     </ck-object-header>
 
     @if (!loading() && docCount() === 0 && chunkCount() === 0) {
-      <div class="mb-4 rounded-md border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+      <div class="mb-4 rounded-md border px-4 py-3 text-sm ck-warn" style="border-color:rgba(245, 184, 74, 0.25); background:rgba(245, 184, 74, 0.10);">
         Collection vide ou non indexée : elle ne peut pas encore alimenter la recherche ni la capture.
       </div>
     }
     @if (!loadingBindings() && bindings().length === 0) {
-      <div class="mb-4 rounded-md border border-brand-400/20 bg-brand-500/10 px-4 py-3 text-sm text-brand-100">
+      <div class="mb-4 rounded-md border px-4 py-3 text-sm ck-cool" style="border-color:rgba(125, 211, 252, 0.20); background:rgba(125, 211, 252, 0.10);">
         Aucun système n’utilise cette collection pour l’instant. Créez ou mettez à jour un Context pour la rendre disponible dans Capture.
       </div>
     }
@@ -302,75 +303,75 @@ type KbTabId =
       ariaLabel="Knowledge facets"
     >
       <ck-tab id="overview" label="Overview">
-        <section class="t-card t-elevated rounded-md p-5 space-y-4">
+        <section class="ck-surface rounded-md p-5 space-y-4">
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Documents</div>
-              <div class="text-lg font-semibold text-white tabular-nums">{{ loading() ? '…' : docCount() }}</div>
+              <div class="ck-label">Documents</div>
+              <div class="text-lg font-semibold ck-fg-1 tabular-nums">{{ loading() ? '…' : docCount() }}</div>
             </div>
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Chunks</div>
-              <div class="text-lg font-semibold text-white tabular-nums">{{ loading() ? '…' : chunkCount() }}</div>
+              <div class="ck-label">Chunks</div>
+              <div class="text-lg font-semibold ck-fg-1 tabular-nums">{{ loading() ? '…' : chunkCount() }}</div>
             </div>
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Vector DB</div>
-              <div class="text-lg font-semibold text-white">{{ vectorDbType() || '—' }}</div>
+              <div class="ck-label">Vector DB</div>
+              <div class="text-lg font-semibold ck-fg-1">{{ vectorDbType() || '—' }}</div>
             </div>
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Embedding dim</div>
-              <div class="text-lg font-semibold text-white tabular-nums">{{ vectorDim() ?? '—' }}</div>
+              <div class="ck-label">Embedding dim</div>
+              <div class="text-lg font-semibold ck-fg-1 tabular-nums">{{ vectorDim() ?? '—' }}</div>
             </div>
           </div>
-          <div class="text-xs text-gray-400 leading-relaxed max-w-2xl border-t border-white/5 pt-4">
+          <div class="text-xs ck-fg-3 leading-relaxed max-w-2xl border-t ck-bd-1 pt-4">
             The collection holds embedded chunks of source documents. Presets (RAG,
             CHAH, HAH) decide how it is consumed by a System at run time. Last
             ingestion time is tracked per document in the Sources tab.
           </div>
-          <div class="grid gap-3 border-t border-white/5 pt-4 md:grid-cols-3">
-            <article class="rounded border border-white/10 bg-black/20 p-3">
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Status</div>
-              <div class="mt-1 text-sm font-semibold text-white">{{ collectionStatus() || '—' }}</div>
-              <p class="mt-1 text-[11px] text-gray-500">Ledger status for this Knowledge collection.</p>
+          <div class="grid gap-3 border-t ck-bd-1 pt-4 md:grid-cols-3">
+            <article class="ck-inset rounded p-3">
+              <div class="ck-label">Status</div>
+              <div class="mt-1 text-sm font-semibold ck-fg-1">{{ collectionStatus() || '—' }}</div>
+              <p class="mt-1 text-[11px] ck-fg-4">Ledger status for this Knowledge collection.</p>
             </article>
-            <article class="rounded border border-white/10 bg-black/20 p-3">
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Embedding model</div>
-              <div class="mt-1 break-all text-sm font-semibold text-white">{{ embeddingModel() || '—' }}</div>
-              <p class="mt-1 text-[11px] text-gray-500">Vectorization model recorded by ingestion.</p>
+            <article class="ck-inset rounded p-3">
+              <div class="ck-label">Embedding model</div>
+              <div class="mt-1 break-all text-sm font-semibold ck-fg-1">{{ embeddingModel() || '—' }}</div>
+              <p class="mt-1 text-[11px] ck-fg-4">Vectorization model recorded by ingestion.</p>
             </article>
-            <article class="rounded border border-white/10 bg-black/20 p-3">
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Chunking</div>
-              <div class="mt-1 text-sm font-semibold text-white">{{ chunkingMethod() || '—' }}</div>
-              <p class="mt-1 text-[11px] text-gray-500">Method used to segment source documents.</p>
+            <article class="ck-inset rounded p-3">
+              <div class="ck-label">Chunking</div>
+              <div class="mt-1 text-sm font-semibold ck-fg-1">{{ chunkingMethod() || '—' }}</div>
+              <p class="mt-1 text-[11px] ck-fg-4">Method used to segment source documents.</p>
             </article>
           </div>
           <div class="flex items-center gap-2 flex-wrap text-xs pt-2">
-            <p class="text-[11px] text-gray-500">
-              Lens: <span class="font-mono text-brand-300">{{ lens() }}</span>
+            <p class="text-[11px] ck-fg-4">
+              Lens: <span class="font-mono ck-cool">{{ lens() }}</span>
             </p>
           </div>
           @if (diagnostics()) {
-            <div class="grid gap-3 border-t border-white/5 pt-4 md:grid-cols-4">
-              <article class="rounded border border-white/10 bg-black/20 p-3">
-                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Density</div>
-                <div class="mt-1 text-sm font-semibold" [class.text-amber-200]="diagnostics()?.dense" [class.text-emerald-200]="!diagnostics()?.dense">
+            <div class="grid gap-3 border-t ck-bd-1 pt-4 md:grid-cols-4">
+              <article class="ck-inset rounded p-3">
+                <div class="ck-label">Density</div>
+                <div class="mt-1 text-sm font-semibold" [class.ck-warn]="diagnostics()?.dense" [class.ck-pos]="!diagnostics()?.dense">
                   {{ diagnostics()?.dense ? 'Dense corpus' : 'Standard corpus' }}
                 </div>
-                <p class="mt-1 text-[11px] text-gray-500">Threshold: 100k chunks or 5k sources.</p>
+                <p class="mt-1 text-[11px] ck-fg-4">Threshold: 100k chunks or 5k sources.</p>
               </article>
-              <article class="rounded border border-white/10 bg-black/20 p-3">
-                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Vector points</div>
-                <div class="mt-1 text-sm font-semibold text-white tabular-nums">{{ diagnostics()?.vector_points ?? '—' }}</div>
-                <p class="mt-1 text-[11px] text-gray-500">Qdrant points currently addressable.</p>
+              <article class="ck-inset rounded p-3">
+                <div class="ck-label">Vector points</div>
+                <div class="mt-1 text-sm font-semibold ck-fg-1 tabular-nums">{{ diagnostics()?.vector_points ?? '—' }}</div>
+                <p class="mt-1 text-[11px] ck-fg-4">Qdrant points currently addressable.</p>
               </article>
-              <article class="rounded border border-white/10 bg-black/20 p-3">
-                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Ledger chunks</div>
-                <div class="mt-1 text-sm font-semibold text-white tabular-nums">{{ diagnostics()?.ledger_chunk_sum ?? '—' }}</div>
-                <p class="mt-1 text-[11px] text-gray-500">Chunk sum from active sources.</p>
+              <article class="ck-inset rounded p-3">
+                <div class="ck-label">Ledger chunks</div>
+                <div class="mt-1 text-sm font-semibold ck-fg-1 tabular-nums">{{ diagnostics()?.ledger_chunk_sum ?? '—' }}</div>
+                <p class="mt-1 text-[11px] ck-fg-4">Chunk sum from active sources.</p>
               </article>
-              <article class="rounded border p-3" [class.border-emerald-400/25]="diagnostics()?.drift_status === 'ok'" [class.border-amber-400/25]="diagnostics()?.drift_status !== 'ok'" [class.bg-emerald-500/10]="diagnostics()?.drift_status === 'ok'" [class.bg-amber-500/10]="diagnostics()?.drift_status !== 'ok'">
-                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Drift</div>
-                <div class="mt-1 text-sm font-semibold text-white tabular-nums">{{ diagnostics()?.drift ?? '—' }}</div>
-                <p class="mt-1 text-[11px] text-gray-500">{{ diagnostics()?.drift_status || 'unknown' }}</p>
+              <article class="rounded border p-3" [class.ck-okbox]="diagnostics()?.drift_status === 'ok'" [class.ck-warnbox]="diagnostics()?.drift_status !== 'ok'">
+                <div class="ck-label">Drift</div>
+                <div class="mt-1 text-sm font-semibold ck-fg-1 tabular-nums">{{ diagnostics()?.drift ?? '—' }}</div>
+                <p class="mt-1 text-[11px] ck-fg-4">{{ diagnostics()?.drift_status || 'unknown' }}</p>
               </article>
             </div>
           }
@@ -378,13 +379,13 @@ type KbTabId =
       </ck-tab>
 
       <ck-tab id="sources" label="Sources">
-        <section class="t-card rounded-md p-4 mb-4">
+        <section class="ck-surface rounded-md p-4 mb-4">
           <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_140px_140px_170px]">
             <label class="block">
-              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Search sources</span>
+              <span class="ck-label mb-1 block">Search sources</span>
               <input
                 type="search"
-                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-3 py-2 text-sm"
                 placeholder="Filename, type, extension…"
                 [value]="sourceQuery()"
                 (input)="sourceQuery.set($any($event.target).value)"
@@ -392,9 +393,9 @@ type KbTabId =
               />
             </label>
             <label class="block">
-              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Kind</span>
+              <span class="ck-label mb-1 block">Kind</span>
               <select
-                class="w-full rounded bg-black/25 border border-white/10 px-2 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-2 py-2 text-sm"
                 [value]="sourceKindFilter()"
                 (change)="sourceKindFilter.set($any($event.target).value); loadSources(0)"
               >
@@ -405,9 +406,9 @@ type KbTabId =
               </select>
             </label>
             <label class="block">
-              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Extension</span>
+              <span class="ck-label mb-1 block">Extension</span>
               <select
-                class="w-full rounded bg-black/25 border border-white/10 px-2 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-2 py-2 text-sm"
                 [value]="sourceExtensionFilter()"
                 (change)="sourceExtensionFilter.set($any($event.target).value); loadSources(0)"
               >
@@ -418,9 +419,9 @@ type KbTabId =
               </select>
             </label>
             <label class="block">
-              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Status</span>
+              <span class="ck-label mb-1 block">Status</span>
               <select
-                class="w-full rounded bg-black/25 border border-white/10 px-2 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-2 py-2 text-sm"
                 [value]="sourceStatusFilter()"
                 (change)="sourceStatusFilter.set($any($event.target).value); loadSources(0)"
               >
@@ -432,9 +433,9 @@ type KbTabId =
             </label>
             <div class="grid grid-cols-[1fr_auto] gap-2">
               <label class="block">
-                <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Sort</span>
+                <span class="ck-label mb-1 block">Sort</span>
                 <select
-                  class="w-full rounded bg-black/25 border border-white/10 px-2 py-2 text-sm text-white outline-none focus:border-brand-400"
+                  class="w-full ck-field-input rounded px-2 py-2 text-sm"
                   [value]="sourceSort()"
                   (change)="sourceSort.set($any($event.target).value); loadSources(0)"
                 >
@@ -449,18 +450,18 @@ type KbTabId =
                 type="button"
                 title="Toggle sort direction"
                 aria-label="Toggle sort direction"
-                class="mt-5 inline-flex h-9 w-9 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                class="ck-iconbtn mt-5 h-9 w-9"
                 (click)="toggleSourceSortDir()"
               >
                 <app-icon [name]="sourceSortDir() === 'asc' ? 'arrow-up' : 'arrow-down'" [size]="14" />
               </button>
             </div>
           </div>
-          <div class="mt-3 flex items-center justify-between gap-3 text-xs text-gray-500">
+          <div class="mt-3 flex items-center justify-between gap-3 text-xs ck-fg-4">
             <span>{{ sourceTotal() }} filtered / {{ sourceGlobalTotal() }} total sources</span>
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+              class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
               (click)="loadSources(0)"
             >
               <app-icon name="search" [size]="13" /> Apply
@@ -468,7 +469,7 @@ type KbTabId =
           </div>
         </section>
         @if (loadingSources()) {
-          <div class="t-card rounded-md p-5 text-center text-gray-400 text-sm">
+          <div class="ck-surface rounded-md p-5 text-center ck-fg-3 text-sm">
             <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
             Loading sources…
           </div>
@@ -479,9 +480,9 @@ type KbTabId =
             description="Upload documents to this collection from the Knowledge index."
           />
         } @else {
-          <div class="t-card rounded-md overflow-hidden">
+          <div class="ck-surface rounded-md overflow-hidden">
             <table class="w-full text-sm">
-              <thead class="text-[10px] uppercase tracking-wider text-gray-500 bg-black/20">
+              <thead class="text-[10px] uppercase tracking-wider ck-fg-4 ck-bg-inset">
                 <tr>
                   <th class="text-left px-4 py-2 font-semibold">Filename</th>
                   <th class="text-right px-4 py-2 font-semibold">Chunks</th>
@@ -492,16 +493,16 @@ type KbTabId =
               </thead>
               <tbody>
                 @for (s of sources(); track s.document_id) {
-                  <tr class="border-t border-white/5 hover:bg-white/5 transition">
-                    <td class="px-4 py-2.5 text-white truncate max-w-xs">{{ s.filename }}</td>
-                    <td class="px-4 py-2.5 text-right tabular-nums text-gray-300">{{ s.chunk_count ?? '—' }}</td>
-                    <td class="px-4 py-2.5 text-gray-400 text-xs">{{ s.mime_type || '—' }}</td>
-                    <td class="px-4 py-2.5 text-gray-400 text-xs">{{ s.uploaded_at ? (s.uploaded_at | slice:0:10) : '—' }}</td>
+                  <tr class="ck-rowi border-t ck-bd-1 transition">
+                    <td class="px-4 py-2.5 ck-fg-1 truncate max-w-xs">{{ s.filename }}</td>
+                    <td class="px-4 py-2.5 text-right tabular-nums ck-fg-2">{{ s.chunk_count ?? '—' }}</td>
+                    <td class="px-4 py-2.5 ck-fg-3 text-xs">{{ s.mime_type || '—' }}</td>
+                    <td class="px-4 py-2.5 ck-fg-3 text-xs">{{ s.uploaded_at ? (s.uploaded_at | slice:0:10) : '—' }}</td>
                     <td class="px-4 py-2.5 text-right">
                       <button
                         type="button"
                         title="Preview source document"
-                        class="inline-flex items-center justify-center rounded p-1.5 text-gray-400 ring-1 ring-white/10 hover:bg-white/10 hover:text-white"
+                        class="ck-iconbtn p-1.5"
                         (click)="previewDocument(s)"
                       >
                         <app-icon name="eye" [size]="14" />
@@ -511,7 +512,7 @@ type KbTabId =
                 }
               </tbody>
             </table>
-            <div class="flex items-center justify-between gap-3 border-t border-white/5 px-4 py-3 text-xs text-gray-400">
+            <div class="flex items-center justify-between gap-3 border-t ck-bd-1 px-4 py-3 text-xs ck-fg-3">
               <span class="font-mono">
                 {{ sourceOffset() + 1 }}–{{ sourceOffset() + sources().length }} / {{ sourceTotal() }}
               </span>
@@ -520,7 +521,7 @@ type KbTabId =
                   type="button"
                   title="Previous page"
                   aria-label="Previous page"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                  class="ck-iconbtn h-7 w-7"
                   [disabled]="loadingSources() || sourceOffset() === 0"
                   (click)="loadSources(sourceOffset() > sourcePageSize ? sourceOffset() - sourcePageSize : 0)"
                 >
@@ -530,7 +531,7 @@ type KbTabId =
                   type="button"
                   title="Next page"
                   aria-label="Next page"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                  class="ck-iconbtn h-7 w-7"
                   [disabled]="loadingSources() || !sourcesHasMore()"
                   (click)="loadSources(sourceOffset() + sourcePageSize)"
                 >
@@ -543,70 +544,71 @@ type KbTabId =
       </ck-tab>
 
       <ck-tab id="chunks" label="Chunks">
-        <section class="t-card rounded-md p-5 space-y-4">
+        <section class="ck-surface rounded-md p-5 space-y-4">
           <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Total chunks</div>
-              <div class="text-xl font-semibold text-white tabular-nums">{{ loading() ? '…' : chunkCount() }}</div>
+              <div class="ck-label">Total chunks</div>
+              <div class="text-xl font-semibold ck-fg-1 tabular-nums">{{ loading() ? '…' : chunkCount() }}</div>
             </div>
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Avg chunks / doc</div>
-              <div class="text-xl font-semibold text-white tabular-nums">{{ avgChunksPerDoc() }}</div>
+              <div class="ck-label">Avg chunks / doc</div>
+              <div class="text-xl font-semibold ck-fg-1 tabular-nums">{{ avgChunksPerDoc() }}</div>
             </div>
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Vector dim</div>
-              <div class="text-xl font-semibold text-white tabular-nums">{{ vectorDim() ?? '—' }}</div>
+              <div class="ck-label">Vector dim</div>
+              <div class="text-xl font-semibold ck-fg-1 tabular-nums">{{ vectorDim() ?? '—' }}</div>
             </div>
           </div>
 
           @if (topSources().length > 0) {
-            <div class="border-t border-white/5 pt-3">
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 mb-2">
+            <div class="border-t ck-bd-1 pt-3">
+              <div class="ck-mono text-[10px] uppercase tracking-wider ck-fg-4 mb-2">
                 Top sources by chunks
               </div>
               <div class="space-y-1.5">
                 @for (s of topSources(); track s.document_id) {
                   <div class="flex items-center gap-3 text-xs">
-                    <div class="flex-1 min-w-0 truncate text-gray-200">{{ s.filename }}</div>
-                    <div class="w-48 bg-white/5 h-1.5 rounded overflow-hidden">
+                    <div class="flex-1 min-w-0 truncate ck-fg-2">{{ s.filename }}</div>
+                    <div class="w-48 ck-bg-inset h-1.5 rounded overflow-hidden">
                       <div
-                        class="h-full bg-brand-500"
+                        class="h-full"
+                        style="background:var(--ck-signal-cool);"
                         [style.width.%]="distributionPct(s.chunk_count)"
                       ></div>
                     </div>
-                    <div class="w-10 text-right text-gray-400 tabular-nums">{{ s.chunk_count ?? 0 }}</div>
+                    <div class="w-10 text-right ck-fg-3 tabular-nums">{{ s.chunk_count ?? 0 }}</div>
                   </div>
                 }
               </div>
             </div>
           }
           @if (chunkBucketRows().length > 0) {
-            <div class="grid gap-2 border-t border-white/5 pt-3 md:grid-cols-6">
+            <div class="grid gap-2 border-t ck-bd-1 pt-3 md:grid-cols-6">
               @for (bucket of chunkBucketRows(); track bucket.label) {
-                <article class="rounded border border-white/10 bg-black/20 p-3">
-                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ bucket.label }}</div>
-                  <div class="mt-1 text-sm font-semibold text-white tabular-nums">{{ bucket.sources }}</div>
-                  <p class="mt-1 text-[11px] text-gray-500">{{ bucket.chunks }} chunks</p>
+                <article class="ck-inset rounded p-3">
+                  <div class="ck-label">{{ bucket.label }}</div>
+                  <div class="mt-1 text-sm font-semibold ck-fg-1 tabular-nums">{{ bucket.sources }}</div>
+                  <p class="mt-1 text-[11px] ck-fg-4">{{ bucket.chunks }} chunks</p>
                 </article>
               }
             </div>
           }
           @if (chunkPercentiles()['p50'] !== undefined) {
-            <div class="flex flex-wrap gap-2 border-t border-white/5 pt-3 text-xs text-gray-400">
-              <span class="rounded bg-white/5 px-2 py-1 ring-1 ring-white/10">p50 {{ chunkPercentiles()['p50'] }}</span>
-              <span class="rounded bg-white/5 px-2 py-1 ring-1 ring-white/10">p90 {{ chunkPercentiles()['p90'] }}</span>
-              <span class="rounded bg-white/5 px-2 py-1 ring-1 ring-white/10">p95 {{ chunkPercentiles()['p95'] }}</span>
-              <span class="rounded bg-white/5 px-2 py-1 ring-1 ring-white/10">p99 {{ chunkPercentiles()['p99'] }}</span>
+            <div class="flex flex-wrap gap-2 border-t ck-bd-1 pt-3 text-xs ck-fg-3">
+              <span class="ck-chip rounded px-2 py-1">p50 {{ chunkPercentiles()['p50'] }}</span>
+              <span class="ck-chip rounded px-2 py-1">p90 {{ chunkPercentiles()['p90'] }}</span>
+              <span class="ck-chip rounded px-2 py-1">p95 {{ chunkPercentiles()['p95'] }}</span>
+              <span class="ck-chip rounded px-2 py-1">p99 {{ chunkPercentiles()['p99'] }}</span>
             </div>
           }
         </section>
 
-        <section class="t-card rounded-md overflow-hidden mt-4">
-          <div class="px-5 py-4 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
+        <section class="ck-surface rounded-md overflow-hidden mt-4">
+          <div class="px-5 py-4 border-b ck-bd-1 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Indexed chunks</div>
-              <h3 class="mt-1 text-base font-semibold text-white">Browse embedded chunks</h3>
-              <p class="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
+              <div class="ck-label" style="color:var(--ck-signal-cool);">Indexed chunks</div>
+              <h3 class="mt-1 text-base font-semibold ck-fg-1">Browse embedded chunks</h3>
+              <p class="mt-1 max-w-2xl text-xs leading-relaxed ck-fg-3">
                 The exact text segments stored in the vector index, with their retrieval locators
                 (chunk index, section, page). This is what chat actually cites.
               </p>
@@ -615,7 +617,7 @@ type KbTabId =
               <select
                 [value]="chunkDocFilter()"
                 (change)="onChunkDocFilterChange($event)"
-                class="rounded bg-white/5 px-2 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 max-w-[220px]"
+                class="ck-field-input rounded px-2 py-1.5 text-xs max-w-[220px]"
               >
                 <option value="">All documents</option>
                 @for (s of sources(); track s.document_id) {
@@ -625,7 +627,7 @@ type KbTabId =
               <button
                 type="button"
                 (click)="loadChunks(0)"
-                class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
               >
                 <app-icon name="refresh-cw" [size]="13" /> Load
               </button>
@@ -633,46 +635,46 @@ type KbTabId =
           </div>
 
           @if (loadingChunks()) {
-            <div class="p-5 text-center text-gray-400 text-sm">
+            <div class="p-5 text-center ck-fg-3 text-sm">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               Loading chunks…
             </div>
           } @else if (chunks().length === 0) {
-            <div class="p-5 text-center text-gray-500 text-sm">
+            <div class="p-5 text-center ck-fg-4 text-sm">
               No chunks loaded yet. Use “Load” to fetch chunk bodies.
             </div>
           } @else {
             @if (chunkNavigationNote()) {
-              <div class="border-b border-amber-400/15 bg-amber-500/10 px-5 py-2 text-xs text-amber-100">
+              <div class="border-b px-5 py-2 text-xs ck-warn" style="border-color:rgba(245, 184, 74, 0.20); background:rgba(245, 184, 74, 0.10);">
                 {{ chunkNavigationNote() }}
               </div>
             }
-            <ul class="divide-y divide-white/5">
+            <ul class="ck-divide">
               @for (c of chunks(); track c.point_id) {
                 <li class="px-5 py-3.5 space-y-2">
-                  <div class="flex flex-wrap items-center gap-2 text-[10px] text-gray-500">
-                    <span class="rounded bg-white/5 px-1.5 py-0.5 font-mono text-gray-300 ring-1 ring-white/10">#{{ c.chunk_index ?? '—' }}</span>
-                    <span class="truncate max-w-[260px] text-gray-300">{{ c.document_filename || '—' }}</span>
+                  <div class="flex flex-wrap items-center gap-2 text-[10px] ck-fg-4">
+                    <span class="ck-chip rounded px-1.5 py-0.5 font-mono ck-fg-2">#{{ c.chunk_index ?? '—' }}</span>
+                    <span class="truncate max-w-[260px] ck-fg-2">{{ c.document_filename || '—' }}</span>
                     @if (c.section_path) {
-                      <span class="text-brand-300">§ {{ c.section_path }}</span>
+                      <span class="ck-cool">§ {{ c.section_path }}</span>
                     }
                     @if (c.page) {
                       <span>p.{{ c.page }}</span>
                     }
                     @if (c.semantic_type) {
-                      <span class="rounded bg-brand-500/10 px-1.5 py-0.5 text-brand-200">{{ c.semantic_type }}</span>
+                      <span class="rounded px-1.5 py-0.5" style="background:rgba(125, 211, 252, 0.12); color:var(--ck-signal-cool);">{{ c.semantic_type }}</span>
                     }
                     <span class="ml-auto tabular-nums">{{ c.content_length }} chars</span>
                   </div>
-                  <p class="text-xs leading-relaxed text-gray-200 whitespace-pre-wrap">{{ c.content }}{{ c.truncated ? '…' : '' }}</p>
+                  <p class="text-xs leading-relaxed ck-fg-2 whitespace-pre-wrap">{{ c.content }}{{ c.truncated ? '…' : '' }}</p>
                 </li>
               }
             </ul>
-            <div class="px-5 py-3 border-t border-white/5 flex items-center justify-between text-xs text-gray-400">
+            <div class="px-5 py-3 border-t ck-bd-1 flex items-center justify-between text-xs ck-fg-3">
               <span>
                 Showing {{ chunkOffset() + 1 }}–{{ chunkOffset() + chunks().length }} / {{ chunkTotal() || '—' }}
                 @if (!chunkTotalExact()) {
-                  <span class="text-amber-200">(estimated)</span>
+                  <span class="ck-warn">(estimated)</span>
                 }
               </span>
               <div class="flex items-center gap-2">
@@ -680,7 +682,7 @@ type KbTabId =
                   type="button"
                   [disabled]="chunkOffset() === 0"
                   (click)="loadChunks(chunkOffset() - chunkPageSize)"
-                  class="rounded px-2 py-1 ring-1 ring-white/10 hover:bg-white/5 disabled:opacity-40"
+                  class="ck-btn-soft rounded px-2 py-1"
                 >
                   <app-icon name="chevron-left" [size]="12" /> Prev
                 </button>
@@ -688,7 +690,7 @@ type KbTabId =
                   type="button"
                   [disabled]="!chunksHasMore()"
                   (click)="loadChunks(chunkOffset() + chunkPageSize)"
-                  class="rounded px-2 py-1 ring-1 ring-white/10 hover:bg-white/5 disabled:opacity-40"
+                  class="ck-btn-soft rounded px-2 py-1"
                 >
                   Next <app-icon name="chevron-right" [size]="12" />
                 </button>
@@ -708,32 +710,32 @@ type KbTabId =
       </ck-tab>
 
       <ck-tab id="structure" label="Structure">
-        <section class="t-card rounded-md overflow-hidden">
-          <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
+        <section class="ck-surface rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b ck-bd-1 flex items-start justify-between gap-3">
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+              <div class="ck-label" style="color:var(--ck-signal-cool);">
                 Document intelligence
               </div>
-              <h3 class="mt-1 text-base font-semibold text-white">Extracted document structure</h3>
-              <p class="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
+              <h3 class="mt-1 text-base font-semibold ck-fg-1">Extracted document structure</h3>
+              <p class="mt-1 max-w-2xl text-xs leading-relaxed ck-fg-3">
                 Headings, procedures, warnings and tables are extracted from PDF, DOCX,
                 Markdown and HTML manuals so retrieval can cite pages and sections, not only chunks.
               </p>
-              <p class="mt-2 text-[11px] text-gray-500">
+              <p class="mt-2 text-[11px] ck-fg-4">
                 {{ documentFacts().length }} loaded / {{ documentFactTotal() }} total document facts
               </p>
             </div>
             <button
               type="button"
               (click)="loadDocumentFacts()"
-              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+              class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-2 text-xs font-medium"
             >
               <app-icon name="refresh-cw" [size]="13" /> Refresh
             </button>
           </div>
 
           @if (loadingDocumentFacts()) {
-            <div class="p-5 text-sm text-gray-400">
+            <div class="p-5 text-sm ck-fg-3">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               Loading document structure…
             </div>
@@ -746,31 +748,31 @@ type KbTabId =
           } @else {
             <div class="grid gap-4 p-5 lg:grid-cols-3">
               @for (group of documentStructureGroups(); track group.type) {
-                <article class="rounded border border-white/10 bg-black/20 p-4">
-                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ group.type }}</div>
-                  <div class="mt-1 text-2xl font-semibold text-white tabular-nums">{{ group.count }}</div>
-                  <p class="mt-2 text-xs text-gray-500">{{ group.hint }}</p>
+                <article class="ck-inset rounded p-4">
+                  <div class="ck-label">{{ group.type }}</div>
+                  <div class="mt-1 text-2xl font-semibold ck-fg-1 tabular-nums">{{ group.count }}</div>
+                  <p class="mt-2 text-xs ck-fg-4">{{ group.hint }}</p>
                 </article>
               }
             </div>
-            <div class="divide-y divide-white/5 border-t border-white/5">
+            <div class="ck-divide border-t ck-bd-1">
               @for (fact of structurePreviewFacts(); track documentFactKey(fact, $index)) {
-                <article class="px-5 py-4 hover:bg-white/[0.03] transition">
-                  <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-                    <span class="ck-mono rounded bg-brand-500/10 px-2 py-1 text-brand-300 ring-1 ring-brand-500/20">
+                <article class="ck-rowi px-5 py-4 transition">
+                  <div class="flex flex-wrap items-center gap-2 text-[11px] ck-fg-4">
+                    <span class="ck-mono rounded px-2 py-1" style="background:rgba(125, 211, 252, 0.12); color:var(--ck-signal-cool);">
                       {{ fact.semantic_type || 'document_fact' }}
                     </span>
                     @if (fact.page) {
                       <span>Page {{ fact.page }}</span>
                     }
                     @if (fact.section_path) {
-                      <span class="truncate">Section: <span class="text-gray-300">{{ fact.section_path }}</span></span>
+                      <span class="truncate">Section: <span class="ck-fg-2">{{ fact.section_path }}</span></span>
                     }
                   </div>
-                  <h4 class="mt-2 text-sm font-medium text-white truncate">
+                  <h4 class="mt-2 text-sm font-medium ck-fg-1 truncate">
                     {{ fact.document_filename || 'Document source' }}
                   </h4>
-                  <p class="mt-2 text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">{{ fact.content }}</p>
+                  <p class="mt-2 text-xs leading-relaxed ck-fg-2 whitespace-pre-wrap">{{ fact.content }}</p>
                 </article>
               }
             </div>
@@ -779,34 +781,34 @@ type KbTabId =
       </ck-tab>
 
       <ck-tab id="facts" label="Facts">
-        <section class="t-card rounded-md overflow-hidden">
-          <div class="px-5 py-4 border-b border-white/5 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+        <section class="ck-surface rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b ck-bd-1 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+              <div class="ck-label" style="color:var(--ck-signal-cool);">
                 Generic fact layer
               </div>
-              <h3 class="mt-1 text-base font-semibold text-white">Document facts</h3>
-              <p class="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
+              <h3 class="mt-1 text-base font-semibold ck-fg-1">Document facts</h3>
+              <p class="mt-1 max-w-2xl text-xs leading-relaxed ck-fg-3">
                 Browse extracted procedures, warnings, parameters, definitions and evidence locators.
                 These facts complement table facts and vector chunks.
               </p>
-              <p class="mt-2 text-[11px] text-gray-500">
+              <p class="mt-2 text-[11px] ck-fg-4">
                 {{ documentFacts().length }} loaded / {{ documentFactTotal() }} total document facts
               </p>
             </div>
             <button
               type="button"
               (click)="loadDocumentFacts()"
-              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+              class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-2 text-xs font-medium"
             >
               <app-icon name="refresh-cw" [size]="13" /> Refresh facts
             </button>
           </div>
-          <div class="grid gap-3 border-b border-white/5 px-5 py-4 md:grid-cols-[minmax(0,1fr)_240px]">
+          <div class="grid gap-3 border-b ck-bd-1 px-5 py-4 md:grid-cols-[minmax(0,1fr)_240px]">
             <label class="block">
-              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Search</span>
+              <span class="ck-label mb-1 block">Search</span>
               <input
-                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-3 py-2 text-sm"
                 type="search"
                 placeholder="Procedure, warning, parameter, section…"
                 [value]="documentFactQuery()"
@@ -815,9 +817,9 @@ type KbTabId =
               />
             </label>
             <label class="block">
-              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Type</span>
+              <span class="ck-label mb-1 block">Type</span>
               <select
-                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-3 py-2 text-sm"
                 [value]="documentFactType()"
                 (change)="documentFactType.set($any($event.target).value); loadDocumentFacts(0)"
               >
@@ -832,7 +834,7 @@ type KbTabId =
             </label>
           </div>
           @if (loadingDocumentFacts()) {
-            <div class="p-5 text-sm text-gray-400">
+            <div class="p-5 text-sm ck-fg-3">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               Loading document facts…
             </div>
@@ -843,11 +845,11 @@ type KbTabId =
               description="Re-index manual/procedure sources with Document Intelligence enabled, then refresh this tab."
             />
           } @else {
-            <div class="divide-y divide-white/5">
+            <div class="ck-divide">
               @for (fact of documentFacts(); track documentFactKey(fact, $index)) {
-                <article class="px-5 py-4 hover:bg-white/[0.03] transition">
-                  <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-                    <span class="ck-mono rounded bg-brand-500/10 px-2 py-1 text-brand-300 ring-1 ring-brand-500/20">
+                <article class="ck-rowi px-5 py-4 transition">
+                  <div class="flex flex-wrap items-center gap-2 text-[11px] ck-fg-4">
+                    <span class="ck-mono rounded px-2 py-1" style="background:rgba(125, 211, 252, 0.12); color:var(--ck-signal-cool);">
                       {{ fact.semantic_type || 'document_fact' }}
                     </span>
                     @if (fact.document_type) {
@@ -863,38 +865,38 @@ type KbTabId =
                       <span>Table {{ fact.table_index }}</span>
                     }
                   </div>
-                  <h4 class="mt-2 text-sm font-medium text-white truncate">
+                  <h4 class="mt-2 text-sm font-medium ck-fg-1 truncate">
                     {{ fact.document_filename || 'Document source' }}
                   </h4>
                   @if (fact.section_path) {
-                    <p class="mt-1 text-[11px] text-gray-500 truncate">{{ fact.section_path }}</p>
+                    <p class="mt-1 text-[11px] ck-fg-4 truncate">{{ fact.section_path }}</p>
                   }
                   <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
                     @if (fact.subject) {
-                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">subject: {{ fact.subject }}</span>
+                      <span class="ck-chip rounded px-2 py-1 ck-fg-2">subject: {{ fact.subject }}</span>
                     }
                     @if (fact.predicate) {
-                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">predicate: {{ fact.predicate }}</span>
+                      <span class="ck-chip rounded px-2 py-1 ck-fg-2">predicate: {{ fact.predicate }}</span>
                     }
                     @if (fact.value_raw) {
-                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">value: {{ fact.value_raw }}</span>
+                      <span class="ck-chip rounded px-2 py-1 ck-fg-2">value: {{ fact.value_raw }}</span>
                     }
                     @if (fact.unit) {
-                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">unit: {{ fact.unit }}</span>
+                      <span class="ck-chip rounded px-2 py-1 ck-fg-2">unit: {{ fact.unit }}</span>
                     }
                   </div>
-                  <p class="mt-3 text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">{{ fact.content }}</p>
+                  <p class="mt-3 text-xs leading-relaxed ck-fg-2 whitespace-pre-wrap">{{ fact.content }}</p>
                 </article>
               }
             </div>
-            <div class="flex items-center justify-between border-t border-white/5 px-5 py-3 text-xs text-gray-400">
+            <div class="flex items-center justify-between border-t ck-bd-1 px-5 py-3 text-xs ck-fg-3">
               <span>{{ documentFactOffset() + 1 }}–{{ documentFactOffset() + documentFacts().length }} / {{ documentFactTotal() }}</span>
               <div class="flex items-center gap-1.5">
                 <button
                   type="button"
                   title="Previous page"
                   aria-label="Previous page"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                  class="ck-iconbtn h-7 w-7"
                   [disabled]="loadingDocumentFacts() || documentFactOffset() === 0"
                   (click)="loadDocumentFacts(documentFactOffset() > documentFactPageSize ? documentFactOffset() - documentFactPageSize : 0)"
                 >
@@ -904,7 +906,7 @@ type KbTabId =
                   type="button"
                   title="Next page"
                   aria-label="Next page"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                  class="ck-iconbtn h-7 w-7"
                   [disabled]="loadingDocumentFacts() || !documentFactsHasMore()"
                   (click)="loadDocumentFacts(documentFactOffset() + documentFactPageSize)"
                 >
@@ -917,35 +919,35 @@ type KbTabId =
       </ck-tab>
 
       <ck-tab id="ocr" label="OCR">
-        <section class="t-card rounded-md overflow-hidden">
-          <div class="px-5 py-4 border-b border-white/5 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+        <section class="ck-surface rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b ck-bd-1 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+              <div class="ck-label" style="color:var(--ck-signal-cool);">
                 Visual document intelligence
               </div>
-              <h3 class="mt-1 text-base font-semibold text-white">OCR / visual evidence</h3>
-              <p class="mt-1 max-w-2xl text-xs leading-relaxed text-gray-400">
+              <h3 class="mt-1 text-base font-semibold ck-fg-1">OCR / visual evidence</h3>
+              <p class="mt-1 max-w-2xl text-xs leading-relaxed ck-fg-3">
                 Inspect text extracted from scanned PDFs and images. V1 stores OCR blocks as
                 document facts, V1.5 exposes them here, and V2 can route/enrich through
                 service providers such as PP-OCR, Tesseract or vision fallback.
               </p>
-              <p class="mt-2 text-[11px] text-gray-500">
+              <p class="mt-2 text-[11px] ck-fg-4">
                 {{ ocrFacts().length }} loaded / {{ ocrFactTotal() }} total OCR or visual facts
               </p>
             </div>
             <button
               type="button"
               (click)="loadOcrFacts()"
-              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+              class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-2 text-xs font-medium"
             >
               <app-icon name="refresh-cw" [size]="13" /> Refresh OCR
             </button>
           </div>
-          <div class="grid gap-3 border-b border-white/5 px-5 py-4 md:grid-cols-[minmax(0,1fr)_220px]">
+          <div class="grid gap-3 border-b ck-bd-1 px-5 py-4 md:grid-cols-[minmax(0,1fr)_220px]">
             <label class="block">
-              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Search OCR text</span>
+              <span class="ck-label mb-1 block">Search OCR text</span>
               <input
-                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-3 py-2 text-sm"
                 type="search"
                 placeholder="Text, warning, label, OCR block…"
                 [value]="ocrFactQuery()"
@@ -954,9 +956,9 @@ type KbTabId =
               />
             </label>
             <label class="block">
-              <span class="ck-mono mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Visual type</span>
+              <span class="ck-label mb-1 block">Visual type</span>
               <select
-                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-3 py-2 text-sm"
                 [value]="ocrFactType()"
                 (change)="ocrFactType.set($any($event.target).value); loadOcrFacts()"
               >
@@ -969,7 +971,7 @@ type KbTabId =
             </label>
           </div>
           @if (loadingOcrFacts()) {
-            <div class="p-5 text-sm text-gray-400">
+            <div class="p-5 text-sm ck-fg-3">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               Loading OCR evidence…
             </div>
@@ -982,42 +984,42 @@ type KbTabId =
           } @else {
             <div class="grid gap-4 p-5 md:grid-cols-4">
               @for (row of ocrSummaryRows(); track row.label) {
-                <article class="rounded border border-white/10 bg-black/20 p-3">
-                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ row.label }}</div>
-                  <div class="mt-1 text-xl font-semibold text-white tabular-nums">{{ row.value }}</div>
-                  <p class="mt-1 text-[11px] text-gray-500">{{ row.hint }}</p>
+                <article class="ck-inset rounded p-3">
+                  <div class="ck-label">{{ row.label }}</div>
+                  <div class="mt-1 text-xl font-semibold ck-fg-1 tabular-nums">{{ row.value }}</div>
+                  <p class="mt-1 text-[11px] ck-fg-4">{{ row.hint }}</p>
                 </article>
               }
             </div>
-            <div class="divide-y divide-white/5 border-t border-white/5">
+            <div class="ck-divide border-t ck-bd-1">
               @for (fact of ocrFacts(); track ocrFactKey(fact, $index)) {
-                <article class="px-5 py-4 hover:bg-white/[0.03] transition">
-                  <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-                    <span class="ck-mono rounded bg-brand-500/10 px-2 py-1 text-brand-300 ring-1 ring-brand-500/20">
+                <article class="ck-rowi px-5 py-4 transition">
+                  <div class="flex flex-wrap items-center gap-2 text-[11px] ck-fg-4">
+                    <span class="ck-mono rounded px-2 py-1" style="background:rgba(125, 211, 252, 0.12); color:var(--ck-signal-cool);">
                       {{ fact.semantic_type || 'ocr' }}
                     </span>
                     @if (fact.page) {
                       <span>Page {{ fact.page }}</span>
                     }
                     @if (ocrProviderLabel(fact)) {
-                      <span>Provider: <span class="text-gray-300">{{ ocrProviderLabel(fact) }}</span></span>
+                      <span>Provider: <span class="ck-fg-2">{{ ocrProviderLabel(fact) }}</span></span>
                     }
                     @if (ocrConfidenceLabel(fact)) {
-                      <span>Confidence: <span class="text-gray-300">{{ ocrConfidenceLabel(fact) }}</span></span>
+                      <span>Confidence: <span class="ck-fg-2">{{ ocrConfidenceLabel(fact) }}</span></span>
                     }
                     @if (ocrBoxLabel(fact)) {
-                      <span>Box: <span class="font-mono text-gray-300">{{ ocrBoxLabel(fact) }}</span></span>
+                      <span>Box: <span class="font-mono ck-fg-2">{{ ocrBoxLabel(fact) }}</span></span>
                     }
                   </div>
-                  <h4 class="mt-2 text-sm font-medium text-white truncate">
+                  <h4 class="mt-2 text-sm font-medium ck-fg-1 truncate">
                     {{ fact.document_filename || 'Visual source' }}
                   </h4>
                   @if (fact.section_path) {
-                    <p class="mt-1 text-[11px] text-gray-500 truncate">{{ fact.section_path }}</p>
+                    <p class="mt-1 text-[11px] ck-fg-4 truncate">{{ fact.section_path }}</p>
                   }
-                  <p class="mt-3 text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">{{ fact.content || fact.value_raw }}</p>
+                  <p class="mt-3 text-xs leading-relaxed ck-fg-2 whitespace-pre-wrap">{{ fact.content || fact.value_raw }}</p>
                   @if (ocrWarningLabel(fact)) {
-                    <p class="mt-2 rounded border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-100">
+                    <p class="mt-2 rounded border px-2 py-1 text-[11px] ck-warn" style="border-color:rgba(245, 184, 74, 0.20); background:rgba(245, 184, 74, 0.10);">
                       {{ ocrWarningLabel(fact) }}
                     </p>
                   }
@@ -1029,34 +1031,34 @@ type KbTabId =
       </ck-tab>
 
       <ck-tab id="table-facts" label="Table facts">
-        <section class="t-card rounded-md overflow-hidden">
-          <div class="px-5 py-4 border-b border-white/5 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+        <section class="ck-surface rounded-md overflow-hidden">
+          <div class="px-5 py-4 border-b ck-bd-1 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+              <div class="ck-label" style="color:var(--ck-signal-cool);">
                 Spreadsheet intelligence
               </div>
-              <h3 class="mt-1 text-base font-semibold text-white">Structured table facts</h3>
-              <p class="mt-1 text-xs text-gray-400 max-w-2xl">
+              <h3 class="mt-1 text-base font-semibold ck-fg-1">Structured table facts</h3>
+              <p class="mt-1 text-xs ck-fg-3 max-w-2xl">
                 Browse the indexed workbook facts used by chat: schema, row chunks,
                 cell facts, table facts and semantic sentences with sheet/cell metadata.
               </p>
-              <p class="mt-2 text-[11px] text-gray-500">
+              <p class="mt-2 text-[11px] ck-fg-4">
                 {{ tableFacts().length }} loaded / {{ tableFactTotal() }} total table facts
               </p>
             </div>
             <button
               type="button"
               (click)="loadTableFacts()"
-              class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+              class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-2 text-xs font-medium"
             >
               <app-icon name="refresh-cw" [size]="13" /> Refresh facts
             </button>
           </div>
-          <div class="px-5 py-4 border-b border-white/5 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
+          <div class="px-5 py-4 border-b ck-bd-1 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
             <label class="block">
-              <span class="ck-mono block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Search</span>
+              <span class="ck-label block mb-1">Search</span>
               <input
-                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-3 py-2 text-sm"
                 type="search"
                 placeholder="Sheet, label, cell, value…"
                 [value]="tableFactQuery()"
@@ -1065,9 +1067,9 @@ type KbTabId =
               />
             </label>
             <label class="block">
-              <span class="ck-mono block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Type</span>
+              <span class="ck-label block mb-1">Type</span>
               <select
-                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-3 py-2 text-sm"
                 [value]="tableFactType()"
                 (change)="tableFactType.set($any($event.target).value); loadTableFacts(0)"
               >
@@ -1080,9 +1082,9 @@ type KbTabId =
               </select>
             </label>
             <label class="block">
-              <span class="ck-mono block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Sheet</span>
+              <span class="ck-label block mb-1">Sheet</span>
               <input
-                class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                class="w-full ck-field-input rounded px-3 py-2 text-sm"
                 type="search"
                 placeholder="Def strips"
                 [value]="tableFactSheet()"
@@ -1092,12 +1094,12 @@ type KbTabId =
             </label>
           </div>
           @if (!loadingTableFacts() && tableFacts().length > 0) {
-            <div class="px-5 py-2 border-b border-white/5 text-[11px] text-gray-500">
+            <div class="px-5 py-2 border-b ck-bd-1 text-[11px] ck-fg-4">
               {{ visibleTableFacts().length }} résultat(s) affiché(s) sur {{ tableFactTotal() }} total. Les faits suspects restent visibles pour audit.
             </div>
           }
           @if (loadingTableFacts()) {
-            <div class="p-5 text-sm text-gray-400">
+            <div class="p-5 text-sm ck-fg-3">
               <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
               Loading table facts…
             </div>
@@ -1108,57 +1110,57 @@ type KbTabId =
               description="Aucun fait ne correspond aux filtres. Ré-indexez les fichiers Excel si la collection devrait en contenir."
             />
           } @else {
-            <div class="divide-y divide-white/5">
+            <div class="ck-divide">
               @for (fact of visibleTableFacts(); track factKey(fact, $index)) {
-                <article class="px-5 py-4 hover:bg-white/[0.03] transition">
-                  <div class="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-                    <span class="ck-mono rounded bg-brand-500/10 px-2 py-1 text-brand-300 ring-1 ring-brand-500/20">
+                <article class="ck-rowi px-5 py-4 transition">
+                  <div class="flex flex-wrap items-center gap-2 text-[11px] ck-fg-4">
+                    <span class="ck-mono rounded px-2 py-1" style="background:rgba(125, 211, 252, 0.12); color:var(--ck-signal-cool);">
                       {{ fact.semantic_type || 'spreadsheet' }}
                     </span>
                     @if (fact.sheet_name) {
-                      <span>Sheet: <span class="text-gray-300">{{ fact.sheet_name }}</span></span>
+                      <span>Sheet: <span class="ck-fg-2">{{ fact.sheet_name }}</span></span>
                     }
                     @if (fact.cell_ref || fact.cell_range) {
-                      <span>Cell: <span class="font-mono text-gray-300">{{ fact.cell_ref || fact.cell_range }}</span></span>
+                      <span>Cell: <span class="font-mono ck-fg-2">{{ fact.cell_ref || fact.cell_range }}</span></span>
                     }
                     @if (fact.unit) {
-                      <span>Unit: <span class="text-gray-300">{{ fact.unit }}</span></span>
+                      <span>Unit: <span class="ck-fg-2">{{ fact.unit }}</span></span>
                     }
                   </div>
-                  <h4 class="mt-2 text-sm font-medium text-white truncate">
+                  <h4 class="mt-2 text-sm font-medium ck-fg-1 truncate">
                     {{ fact.document_filename || 'Spreadsheet source' }}
                   </h4>
                   <div class="mt-2 flex flex-wrap gap-2 text-[11px]">
                     @for (warning of tableFactWarnings(fact); track warning) {
-                      <span class="rounded border border-amber-400/25 bg-amber-500/10 px-2 py-1 text-amber-200">{{ warning }}</span>
+                      <span class="rounded border px-2 py-1 ck-warn" style="border-color:rgba(245, 184, 74, 0.25); background:rgba(245, 184, 74, 0.10);">{{ warning }}</span>
                     }
                     @if (fact.row_label) {
-                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">row: {{ fact.row_label }}</span>
+                      <span class="ck-chip rounded px-2 py-1 ck-fg-2">row: {{ fact.row_label }}</span>
                     }
                     @if (fact.column_header) {
-                      <span class="rounded bg-white/5 px-2 py-1 text-gray-300">column: {{ fact.column_header }}</span>
+                      <span class="ck-chip rounded px-2 py-1 ck-fg-2">column: {{ fact.column_header }}</span>
                     }
                     @if (fact.table_region_id) {
-                      <span class="rounded bg-white/5 px-2 py-1 text-gray-500">region: {{ fact.table_region_id }}</span>
+                      <span class="ck-chip rounded px-2 py-1 ck-fg-4">region: {{ fact.table_region_id }}</span>
                     }
                   </div>
-                  <p class="mt-3 text-xs leading-relaxed text-gray-300 whitespace-pre-wrap">
+                  <p class="mt-3 text-xs leading-relaxed ck-fg-2 whitespace-pre-wrap">
                     {{ fact.content }}
                   </p>
                   @if (fact.interpretation_note) {
-                    <p class="mt-2 text-[11px] text-amber-200/80">{{ fact.interpretation_note }}</p>
+                    <p class="mt-2 text-[11px] ck-warn">{{ fact.interpretation_note }}</p>
                   }
                 </article>
               }
             </div>
-            <div class="flex items-center justify-between border-t border-white/5 px-5 py-3 text-xs text-gray-400">
+            <div class="flex items-center justify-between border-t ck-bd-1 px-5 py-3 text-xs ck-fg-3">
               <span>{{ tableFactOffset() + 1 }}–{{ tableFactOffset() + tableFacts().length }} / {{ tableFactTotal() }}</span>
               <div class="flex items-center gap-1.5">
                 <button
                   type="button"
                   title="Previous page"
                   aria-label="Previous page"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                  class="ck-iconbtn h-7 w-7"
                   [disabled]="loadingTableFacts() || tableFactOffset() === 0"
                   (click)="loadTableFacts(tableFactOffset() > tableFactPageSize ? tableFactOffset() - tableFactPageSize : 0)"
                 >
@@ -1168,7 +1170,7 @@ type KbTabId =
                   type="button"
                   title="Next page"
                   aria-label="Next page"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40"
+                  class="ck-iconbtn h-7 w-7"
                   [disabled]="loadingTableFacts() || !tableFactsHasMore()"
                   (click)="loadTableFacts(tableFactOffset() + tableFactPageSize)"
                 >
@@ -1181,14 +1183,14 @@ type KbTabId =
       </ck-tab>
 
       <ck-tab id="guides" label="Guides">
-        <section class="t-card rounded-md overflow-hidden mb-4">
-          <div class="px-5 py-4 border-b border-white/5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <section class="ck-surface rounded-md overflow-hidden mb-4">
+          <div class="px-5 py-4 border-b ck-bd-1 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+              <div class="ck-label" style="color:var(--ck-signal-cool);">
                 Collection guide
               </div>
-              <h3 class="mt-1 text-base font-semibold text-white">Markdown interpretation guide</h3>
-              <p class="mt-1 text-xs text-gray-400 max-w-2xl">
+              <h3 class="mt-1 text-base font-semibold ck-fg-1">Markdown interpretation guide</h3>
+              <p class="mt-1 text-xs ck-fg-3 max-w-2xl">
                 Explain how to read this collection. Guides help query expansion
                 and prompting, but raw table/document facts remain the proof.
               </p>
@@ -1198,7 +1200,7 @@ type KbTabId =
                 type="button"
                 (click)="saveCollectionGuide('draft')"
                 [disabled]="savingGuide()"
-                class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-50"
+                class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-2 text-xs font-medium disabled:opacity-50"
               >
                 <app-icon name="save" [size]="13" /> Save draft
               </button>
@@ -1206,70 +1208,70 @@ type KbTabId =
                 type="button"
                 (click)="saveCollectionGuide('published')"
                 [disabled]="savingGuide()"
-                class="inline-flex items-center gap-1.5 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-black hover:bg-brand-400 disabled:opacity-50"
+                class="ck-btn-primary inline-flex items-center gap-1.5 rounded px-3 py-2 text-xs font-semibold"
               >
                 <app-icon name="check" [size]="13" /> Publish
               </button>
             </div>
           </div>
           <div class="grid gap-0 lg:grid-cols-2">
-            <div class="p-5 border-b border-white/5 lg:border-b-0 lg:border-r">
+            <div class="p-5 border-b ck-bd-1 lg:border-b-0 lg:border-r">
               <label class="block">
-                <span class="ck-mono block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Title</span>
+                <span class="ck-label block mb-1">Title</span>
                 <input
-                  class="w-full rounded bg-black/25 border border-white/10 px-3 py-2 text-sm text-white outline-none focus:border-brand-400"
+                  class="w-full ck-field-input rounded px-3 py-2 text-sm"
                   [value]="guideTitle()"
                   (input)="guideTitle.set($any($event.target).value)"
                 />
               </label>
               <label class="block mt-3">
-                <span class="ck-mono block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Markdown</span>
+                <span class="ck-label block mb-1">Markdown</span>
                 <textarea
-                  class="min-h-[28rem] w-full rounded bg-black/25 border border-white/10 px-3 py-2 font-mono text-xs leading-relaxed text-gray-200 outline-none focus:border-brand-400"
+                  class="ck-field-textarea min-h-[28rem] w-full rounded px-3 py-2 text-xs leading-relaxed"
                   [value]="guideMarkdown()"
                   (input)="guideMarkdown.set($any($event.target).value)"
                 ></textarea>
               </label>
               @if (guideError()) {
-                <p class="mt-2 text-xs text-red-300">{{ guideError() }}</p>
+                <p class="mt-2 text-xs ck-neg">{{ guideError() }}</p>
               }
             </div>
             <div class="p-5">
-              <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 mb-2">Preview</div>
-              <div class="min-h-[28rem] max-h-[36rem] overflow-auto rounded bg-black/25 p-4 text-sm leading-relaxed text-gray-300">
+              <div class="ck-mono text-[10px] uppercase tracking-wider ck-fg-4 mb-2">Preview</div>
+              <div class="ck-scroll ck-inset min-h-[28rem] max-h-[36rem] overflow-auto rounded p-4 text-sm leading-relaxed ck-fg-2">
                 @for (block of guideMarkdownBlocks(guideMarkdown()); track $index) {
                   @if (block.kind === 'h1') {
-                    <h1 class="mb-3 text-xl font-semibold text-white">{{ block.text }}</h1>
+                    <h1 class="mb-3 text-xl font-semibold ck-fg-1">{{ block.text }}</h1>
                   } @else if (block.kind === 'h2') {
-                    <h2 class="mt-5 mb-2 text-base font-semibold text-white">{{ block.text }}</h2>
+                    <h2 class="mt-5 mb-2 text-base font-semibold ck-fg-1">{{ block.text }}</h2>
                   } @else if (block.kind === 'h3') {
-                    <h3 class="mt-4 mb-1 text-sm font-semibold text-brand-100">{{ block.text }}</h3>
+                    <h3 class="mt-4 mb-1 text-sm font-semibold ck-cool">{{ block.text }}</h3>
                   } @else if (block.kind === 'li') {
-                    <p class="pl-4 text-xs text-gray-300 before:content-['•'] before:mr-2 before:text-brand-300">{{ block.text }}</p>
+                    <p class="ck-li pl-4 text-xs ck-fg-2 before:content-['•'] before:mr-2">{{ block.text }}</p>
                   } @else {
-                    <p class="mb-2 text-xs text-gray-300">{{ block.text }}</p>
+                    <p class="mb-2 text-xs ck-fg-2">{{ block.text }}</p>
                   }
                 } @empty {
-                  <p class="text-xs text-gray-500">No Markdown yet.</p>
+                  <p class="text-xs ck-fg-4">No Markdown yet.</p>
                 }
               </div>
               <div class="mt-4">
-                <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 mb-2">Versions</div>
+                <div class="ck-mono text-[10px] uppercase tracking-wider ck-fg-4 mb-2">Versions</div>
                 @if (collectionGuideVersions().length === 0) {
-                  <p class="text-xs text-gray-500">No saved versions yet.</p>
+                  <p class="text-xs ck-fg-4">No saved versions yet.</p>
                 } @else {
                   <div class="space-y-2">
                     @for (guide of collectionGuideVersions(); track guide.id) {
                       <button
                         type="button"
                         (click)="loadGuideIntoEditor(guide)"
-                        class="w-full rounded border border-white/10 bg-white/5 px-3 py-2 text-left hover:bg-white/10"
+                        class="ck-rowi w-full rounded border ck-bd-2 px-3 py-2 text-left"
                       >
                         <div class="flex items-center justify-between gap-2">
-                          <span class="text-xs font-medium text-white">v{{ guide.version }} · {{ guide.status }}</span>
-                          <span class="text-[11px] text-gray-500">{{ guide.created_at ? (guide.created_at | slice:0:10) : '—' }}</span>
+                          <span class="text-xs font-medium ck-fg-1">v{{ guide.version }} · {{ guide.status }}</span>
+                          <span class="text-[11px] ck-fg-4">{{ guide.created_at ? (guide.created_at | slice:0:10) : '—' }}</span>
                         </div>
-                        <p class="mt-1 truncate text-[11px] text-gray-500">{{ guide.title }}</p>
+                        <p class="mt-1 truncate text-[11px] ck-fg-4">{{ guide.title }}</p>
                       </button>
                     }
                   </div>
@@ -1288,39 +1290,39 @@ type KbTabId =
         } @else {
           <section class="space-y-3">
             @for (row of guideRows(); track row.guide.id) {
-              <article class="t-card rounded-md overflow-hidden">
-                <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
+              <article class="ck-surface rounded-md overflow-hidden">
+                <div class="px-5 py-4 border-b ck-bd-1 flex items-start justify-between gap-3">
                   <div class="min-w-0">
-                    <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">
+                    <div class="ck-label" style="color:var(--ck-signal-cool);">
                       {{ row.binding_kind === 'scope' ? 'Scope guide' : 'Collection guide' }} · {{ row.binding_label }}
                     </div>
-                    <h3 class="mt-1 text-base font-semibold text-white truncate">{{ row.guide.title }}</h3>
-                    <p class="mt-1 text-xs text-gray-500">
+                    <h3 class="mt-1 text-base font-semibold ck-fg-1 truncate">{{ row.guide.title }}</h3>
+                    <p class="mt-1 text-xs ck-fg-4">
                       v{{ row.guide.version }} · {{ row.guide.status }} @if (row.guide.published_at) { · published {{ row.guide.published_at | slice:0:10 }} }
                     </p>
                   </div>
                   <a
                     [routerLink]="['/workspace', workspaceSlug(), 'chat-knowledge']"
-                    class="inline-flex shrink-0 items-center gap-1.5 rounded bg-white/5 px-3 py-2 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                    class="ck-btn-soft inline-flex shrink-0 items-center gap-1.5 rounded px-3 py-2 text-xs font-medium"
                   >
                     <app-icon name="pencil" [size]="13" /> Edit in settings
                   </a>
                 </div>
-                <div class="max-h-[34rem] overflow-auto bg-black/20 p-5 text-sm leading-relaxed text-gray-300">
+                <div class="ck-scroll ck-bg-inset max-h-[34rem] overflow-auto p-5 text-sm leading-relaxed ck-fg-2">
                   @for (block of guideMarkdownBlocks(row.guide.markdown || row.guide.snippet || ''); track $index) {
                     @if (block.kind === 'h1') {
-                      <h1 class="mb-3 text-xl font-semibold text-white">{{ block.text }}</h1>
+                      <h1 class="mb-3 text-xl font-semibold ck-fg-1">{{ block.text }}</h1>
                     } @else if (block.kind === 'h2') {
-                      <h2 class="mt-5 mb-2 text-base font-semibold text-white">{{ block.text }}</h2>
+                      <h2 class="mt-5 mb-2 text-base font-semibold ck-fg-1">{{ block.text }}</h2>
                     } @else if (block.kind === 'h3') {
-                      <h3 class="mt-4 mb-1 text-sm font-semibold text-brand-100">{{ block.text }}</h3>
+                      <h3 class="mt-4 mb-1 text-sm font-semibold ck-cool">{{ block.text }}</h3>
                     } @else if (block.kind === 'li') {
-                      <p class="pl-4 text-xs text-gray-300 before:content-['•'] before:mr-2 before:text-brand-300">{{ block.text }}</p>
+                      <p class="ck-li pl-4 text-xs ck-fg-2 before:content-['•'] before:mr-2">{{ block.text }}</p>
                     } @else {
-                      <p class="mb-2 text-xs text-gray-300">{{ block.text }}</p>
+                      <p class="mb-2 text-xs ck-fg-2">{{ block.text }}</p>
                     }
                   } @empty {
-                    <p class="text-xs text-gray-500">No Markdown content.</p>
+                    <p class="text-xs ck-fg-4">No Markdown content.</p>
                   }
                 </div>
               </article>
@@ -1331,66 +1333,66 @@ type KbTabId =
 
       <ck-tab id="diagnostics" label="Diagnostics">
         <section class="grid gap-4 lg:grid-cols-2">
-          <article class="t-card rounded-md p-5">
-            <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Index health</div>
-            <h3 class="mt-1 text-base font-semibold text-white">Collection diagnostics</h3>
+          <article class="ck-surface rounded-md p-5">
+            <div class="ck-label" style="color:var(--ck-signal-cool);">Index health</div>
+            <h3 class="mt-1 text-base font-semibold ck-fg-1">Collection diagnostics</h3>
             @if (loadingDiagnostics()) {
-              <p class="mt-3 text-sm text-gray-400">
+              <p class="mt-3 text-sm ck-fg-3">
                 <app-icon name="loader-2" [size]="14" class="mr-2 inline-block animate-spin" />
                 Loading corpus diagnostics…
               </p>
             }
             <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
               @for (row of diagnosticRows(); track row.label) {
-                <div class="rounded border border-white/10 bg-black/20 p-3">
-                  <dt class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ row.label }}</dt>
-                  <dd class="mt-1 text-lg font-semibold text-white tabular-nums">{{ row.value }}</dd>
-                  <p class="mt-1 text-[11px] text-gray-500">{{ row.hint }}</p>
+                <div class="ck-inset rounded p-3">
+                  <dt class="ck-label">{{ row.label }}</dt>
+                  <dd class="mt-1 text-lg font-semibold ck-fg-1 tabular-nums">{{ row.value }}</dd>
+                  <p class="mt-1 text-[11px] ck-fg-4">{{ row.hint }}</p>
                 </div>
               }
             </dl>
             @if (diagnostics()) {
               <div class="mt-4 grid gap-3 text-xs md:grid-cols-3">
-                <div class="rounded border border-white/10 bg-black/20 p-3">
-                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Zero chunks</div>
-                  <div class="mt-1 text-lg font-semibold text-white">{{ diagnostics()?.zero_chunk_sources ?? 0 }}</div>
+                <div class="ck-inset rounded p-3">
+                  <div class="ck-label">Zero chunks</div>
+                  <div class="mt-1 text-lg font-semibold ck-fg-1">{{ diagnostics()?.zero_chunk_sources ?? 0 }}</div>
                 </div>
-                <div class="rounded border border-white/10 bg-black/20 p-3">
-                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Errors</div>
-                  <div class="mt-1 text-lg font-semibold text-white">{{ diagnostics()?.error_sources ?? 0 }}</div>
+                <div class="ck-inset rounded p-3">
+                  <div class="ck-label">Errors</div>
+                  <div class="mt-1 text-lg font-semibold ck-fg-1">{{ diagnostics()?.error_sources ?? 0 }}</div>
                 </div>
-                <div class="rounded border border-white/10 bg-black/20 p-3">
-                  <div class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Heavy sources</div>
-                  <div class="mt-1 text-lg font-semibold text-white">{{ diagnostics()?.heavy_sources ?? 0 }}</div>
+                <div class="ck-inset rounded p-3">
+                  <div class="ck-label">Heavy sources</div>
+                  <div class="mt-1 text-lg font-semibold ck-fg-1">{{ diagnostics()?.heavy_sources ?? 0 }}</div>
                 </div>
               </div>
             }
           </article>
-          <article class="t-card rounded-md p-5">
-            <div class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Retrieval layers</div>
-            <h3 class="mt-1 text-base font-semibold text-white">How this collection is queried</h3>
-            <div class="mt-4 space-y-3 text-xs leading-relaxed text-gray-400">
+          <article class="ck-surface rounded-md p-5">
+            <div class="ck-label" style="color:var(--ck-signal-cool);">Retrieval layers</div>
+            <h3 class="mt-1 text-base font-semibold ck-fg-1">How this collection is queried</h3>
+            <div class="mt-4 space-y-3 text-xs leading-relaxed ck-fg-3">
               @for (row of featureRows(); track row.label) {
-                <article class="rounded border border-white/10 bg-black/20 p-3">
+                <article class="ck-inset rounded p-3">
                   <div class="flex items-center justify-between gap-3">
-                    <span class="font-medium text-gray-200">{{ row.label }}</span>
-                    <span class="rounded px-2 py-0.5 font-mono text-[10px]" [class.bg-emerald-500/10]="row.state === 'available'" [class.text-emerald-200]="row.state === 'available'" [class.bg-white/5]="row.state !== 'available'" [class.text-gray-400]="row.state !== 'available'">
+                    <span class="font-medium ck-fg-2">{{ row.label }}</span>
+                    <span class="rounded px-2 py-0.5 font-mono text-[10px]" [class.ck-posbg]="row.state === 'available'" [class.ck-pos]="row.state === 'available'" [class.ck-bg-inset]="row.state !== 'available'" [class.ck-fg-3]="row.state !== 'available'">
                       {{ row.state }}
                     </span>
                   </div>
                   @if (row.reason) {
-                    <p class="mt-2 text-gray-500">{{ row.reason }}</p>
+                    <p class="mt-2 ck-fg-4">{{ row.reason }}</p>
                   }
                 </article>
               }
-              <p class="rounded border border-white/10 bg-black/20 p-3 font-mono text-[11px] text-gray-300">
+              <p class="ck-inset rounded p-3 font-mono text-[11px] ck-fg-2">
                 collection={{ kbId }} · vector={{ vectorDbType() || 'unknown' }} · docs={{ docCount() }} · chunks={{ chunkCount() }} · drift={{ diagnostics()?.drift ?? '—' }}
               </p>
-              <article class="rounded border border-white/10 bg-black/20 p-3">
+              <article class="ck-inset rounded p-3">
                 <div class="flex flex-wrap items-center justify-between gap-3">
-                  <span class="font-medium text-gray-200">Retrieval artifacts</span>
+                  <span class="font-medium ck-fg-2">Retrieval artifacts</span>
                   @if (retrievalArtifactJob(); as job) {
-                    <span class="rounded bg-white/5 px-2 py-0.5 font-mono text-[10px] text-gray-300">
+                    <span class="ck-chip rounded px-2 py-0.5 font-mono text-[10px] ck-fg-2">
                       {{ artifactJobLabel(job) }}
                     </span>
                   }
@@ -1398,7 +1400,7 @@ type KbTabId =
                 <div class="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                    class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
                     [disabled]="artifactJobLaunching() !== null"
                     title="Rebuild document/section summary artifacts"
                     (click)="launchRetrievalArtifactJob('summary_index_rebuild')"
@@ -1412,7 +1414,7 @@ type KbTabId =
                   </button>
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                    class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
                     [disabled]="artifactJobLaunching() !== null"
                     title="Rebuild production sparse retrieval artifact"
                     (click)="launchRetrievalArtifactJob('sparse_index_rebuild')"
@@ -1426,7 +1428,7 @@ type KbTabId =
                   </button>
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1.5 rounded bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+                    class="ck-btn-soft inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium"
                     [disabled]="artifactJobLaunching() !== null"
                     title="Prepare experimental Qdrant sparse reindex job"
                     (click)="launchRetrievalArtifactJob('qdrant_sparse_reindex')"
@@ -1440,50 +1442,50 @@ type KbTabId =
                   </button>
                 </div>
                 @if (artifactJobError()) {
-                  <p class="mt-2 text-[11px] text-red-300">{{ artifactJobError() }}</p>
+                  <p class="mt-2 text-[11px] ck-neg">{{ artifactJobError() }}</p>
                 }
                 @if (retrievalArtifactJob(); as job) {
                   <dl class="mt-3 grid gap-2 text-[11px] md:grid-cols-3">
                     <div>
-                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Status</dt>
-                      <dd class="text-gray-300">{{ job.status || 'queued' }}</dd>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Status</dt>
+                      <dd class="ck-fg-2">{{ job.status || 'queued' }}</dd>
                     </div>
                     <div>
-                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Progress</dt>
-                      <dd class="text-gray-300 tabular-nums">{{ job.progress ?? 0 }}%</dd>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Progress</dt>
+                      <dd class="ck-fg-2 tabular-nums">{{ job.progress ?? 0 }}%</dd>
                     </div>
                     <div>
-                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Stage</dt>
-                      <dd class="text-gray-300">{{ job.stage || job.result?.['stage'] || 'queued' }}</dd>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Stage</dt>
+                      <dd class="ck-fg-2">{{ job.stage || job.result?.['stage'] || 'queued' }}</dd>
                     </div>
                   </dl>
                 }
               </article>
               @if (diagnostics()?.offline_clustering) {
-                <article class="rounded border border-white/10 bg-black/20 p-3">
+                <article class="ck-inset rounded p-3">
                   <div class="flex items-center justify-between gap-3">
-                    <span class="font-medium text-gray-200">Offline clustering artifact</span>
-                    <span class="rounded px-2 py-0.5 font-mono text-[10px]" [class.bg-amber-500/10]="diagnostics()?.offline_clustering?.state === 'recommended'" [class.text-amber-200]="diagnostics()?.offline_clustering?.state === 'recommended'" [class.bg-white/5]="diagnostics()?.offline_clustering?.state !== 'recommended'" [class.text-gray-400]="diagnostics()?.offline_clustering?.state !== 'recommended'">
+                    <span class="font-medium ck-fg-2">Offline clustering artifact</span>
+                    <span class="rounded px-2 py-0.5 font-mono text-[10px]" [class.ck-warnbox]="diagnostics()?.offline_clustering?.state === 'recommended'" [class.ck-warn]="diagnostics()?.offline_clustering?.state === 'recommended'" [class.ck-bg-inset]="diagnostics()?.offline_clustering?.state !== 'recommended'" [class.ck-fg-3]="diagnostics()?.offline_clustering?.state !== 'recommended'">
                       {{ diagnostics()?.offline_clustering?.state || 'unknown' }}
                     </span>
                   </div>
-                  <p class="mt-2 text-gray-500">{{ diagnostics()?.offline_clustering?.reason }}</p>
+                  <p class="mt-2 ck-fg-4">{{ diagnostics()?.offline_clustering?.reason }}</p>
                   <dl class="mt-3 grid gap-2 text-[11px] md:grid-cols-2">
                     <div>
-                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Launch</dt>
-                      <dd class="text-gray-300">{{ diagnostics()?.offline_clustering?.launch_policy || 'manual_only' }}</dd>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Launch</dt>
+                      <dd class="ck-fg-2">{{ diagnostics()?.offline_clustering?.launch_policy || 'manual_only' }}</dd>
                     </div>
                     <div>
-                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Sample</dt>
-                      <dd class="text-gray-300 tabular-nums">{{ diagnostics()?.offline_clustering?.default_sample ?? '—' }}</dd>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Sample</dt>
+                      <dd class="ck-fg-2 tabular-nums">{{ diagnostics()?.offline_clustering?.default_sample ?? '—' }}</dd>
                     </div>
                     <div class="md:col-span-2">
-                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Artifact</dt>
-                      <dd class="break-all font-mono text-gray-300">{{ diagnostics()?.offline_clustering?.artifact_key || '—' }}</dd>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Artifact</dt>
+                      <dd class="break-all font-mono ck-fg-2">{{ diagnostics()?.offline_clustering?.artifact_key || '—' }}</dd>
                     </div>
                     <div class="md:col-span-2">
-                      <dt class="ck-mono uppercase tracking-wider text-gray-600">Stratification</dt>
-                      <dd class="text-gray-300">{{ (diagnostics()?.offline_clustering?.stratification || []).join(', ') || '—' }}</dd>
+                      <dt class="ck-mono uppercase tracking-wider ck-fg-5">Stratification</dt>
+                      <dd class="ck-fg-2">{{ (diagnostics()?.offline_clustering?.stratification || []).join(', ') || '—' }}</dd>
                     </div>
                   </dl>
                 </article>
@@ -1495,7 +1497,7 @@ type KbTabId =
 
       <ck-tab id="bindings" label="Bindings">
         @if (loadingBindings()) {
-          <div class="t-card rounded-md p-5 text-center text-gray-400 text-sm">
+          <div class="ck-surface rounded-md p-5 text-center ck-fg-3 text-sm">
             <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
             Scanning Systems…
           </div>
@@ -1508,21 +1510,21 @@ type KbTabId =
         } @else {
           <ul class="space-y-2">
             @for (sys of bindings(); track sys.id) {
-              <li class="t-card rounded-md p-4 flex items-center gap-3">
-                <div class="w-9 h-9 rounded bg-brand-500/15 text-brand-400 ring-1 ring-brand-500/30 flex items-center justify-center shrink-0">
+              <li class="ck-surface rounded-md p-4 flex items-center gap-3">
+                <div class="w-9 h-9 rounded flex items-center justify-center shrink-0" style="background:rgba(125, 211, 252, 0.15); color:var(--ck-signal-cool);">
                   <app-icon name="cube" [size]="16" />
                 </div>
                 <div class="flex-1 min-w-0">
                   <a
                     [routerLink]="['/systems', sys.id]"
-                    class="text-sm font-medium text-white hover:text-brand-300 transition truncate block"
+                    class="ck-link text-sm font-medium transition truncate block"
                   >
                     {{ sys.name }}
                   </a>
-                  <div class="text-[11px] text-gray-500 truncate">{{ sys.objective || '—' }}</div>
+                  <div class="text-[11px] ck-fg-4 truncate">{{ sys.objective || '—' }}</div>
                 </div>
                 <span
-                  class="ck-mono text-[10px] uppercase tracking-wider px-2 py-1 rounded bg-white/5 text-gray-400"
+                  class="ck-label px-2 py-1 rounded ck-bg-inset"
                 >
                   {{ sys.retrieval_mode_default || 'auto' }}
                 </span>
@@ -1541,6 +1543,134 @@ type KbTabId =
       (closed)="closePreview()"
     />
   `,
+  styles: [`
+    /* Cockpit DS-C — component-scoped helpers (token-driven; mirrors auth/exemplar pattern). */
+    .ck-field-input,
+    .ck-field-select,
+    .ck-field-textarea {
+      background: var(--ck-bg-inset);
+      border: 1px solid var(--ck-stroke-2);
+      border-radius: var(--ck-radius-sm);
+      color: var(--ck-fg-1);
+      font-family: var(--ck-font-sans);
+      outline: none;
+      transition:
+        border-color var(--ck-dur-fast) var(--ck-ease-out),
+        box-shadow var(--ck-dur-fast) var(--ck-ease-out),
+        background var(--ck-dur-fast) var(--ck-ease-out);
+    }
+    .ck-field-input::placeholder,
+    .ck-field-textarea::placeholder { color: var(--ck-fg-4); }
+    .ck-field-input:focus,
+    .ck-field-select:focus,
+    .ck-field-textarea:focus {
+      border-color: var(--ck-stroke-hot);
+      background: var(--ck-bg-panel-hi);
+      box-shadow: 0 0 0 1px var(--ck-signal-cool);
+    }
+    .ck-field-textarea { font-family: var(--ck-font-mono); }
+
+    .ck-btn-soft,
+    .ck-btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.375rem;
+      border-radius: var(--ck-radius-sm);
+      cursor: pointer;
+      transition:
+        background var(--ck-dur-fast) var(--ck-ease-out),
+        color var(--ck-dur-fast) var(--ck-ease-out),
+        border-color var(--ck-dur-fast) var(--ck-ease-out);
+    }
+    .ck-btn-soft {
+      background: var(--ck-bg-panel-hi);
+      border: 1px solid var(--ck-stroke-2);
+      color: var(--ck-fg-2);
+    }
+    .ck-btn-soft:hover:not(:disabled) {
+      background: var(--ck-bg-inset);
+      color: var(--ck-fg-1);
+      border-color: var(--ck-stroke-3);
+    }
+    .ck-btn-soft:disabled { opacity: 0.4; cursor: not-allowed; }
+    .ck-btn-primary {
+      background: linear-gradient(180deg, rgba(125, 211, 252, 0.22), rgba(125, 211, 252, 0.12));
+      border: 1px solid var(--ck-stroke-hot);
+      color: var(--ck-fg-1);
+      font-weight: 600;
+    }
+    .ck-btn-primary:hover:not(:disabled) {
+      background: linear-gradient(180deg, rgba(125, 211, 252, 0.30), rgba(125, 211, 252, 0.18));
+      border-color: rgba(125, 211, 252, 0.55);
+    }
+    .ck-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .ck-btn-ghost {
+      background: transparent;
+      border: 0;
+      color: var(--ck-fg-3);
+      border-radius: var(--ck-radius-sm);
+      cursor: pointer;
+      transition: color var(--ck-dur-fast), background var(--ck-dur-fast);
+    }
+    .ck-btn-ghost:hover:not(:disabled) { color: var(--ck-fg-1); background: var(--ck-bg-panel-hi); }
+
+    .ck-iconbtn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--ck-radius-sm);
+      background: var(--ck-bg-panel-hi);
+      border: 1px solid var(--ck-stroke-2);
+      color: var(--ck-fg-3);
+      cursor: pointer;
+      transition:
+        background var(--ck-dur-fast) var(--ck-ease-out),
+        color var(--ck-dur-fast) var(--ck-ease-out);
+    }
+    .ck-iconbtn:hover:not(:disabled) { background: var(--ck-bg-inset); color: var(--ck-fg-1); }
+    .ck-iconbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .ck-iconbtn-danger:hover:not(:disabled) { color: var(--ck-signal-neg); }
+
+    .ck-ghost-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ck-fg-3);
+      border-radius: var(--ck-radius-sm);
+      cursor: pointer;
+      transition: color var(--ck-dur-fast), background var(--ck-dur-fast);
+    }
+    .ck-ghost-icon:hover { color: var(--ck-fg-1); background: var(--ck-bg-panel-hi); }
+    .ck-ghost-icon-danger:hover { color: var(--ck-signal-neg); }
+
+    .ck-divide > * + * { border-top: 1px solid var(--ck-stroke-2); }
+    .ck-rowi { transition: background var(--ck-dur-fast) var(--ck-ease-out); }
+    .ck-rowi:hover { background: var(--ck-bg-panel-hi); }
+
+    /* Token-driven color / surface helpers for the dense facet panels. */
+    .ck-fg-1 { color: var(--ck-fg-1); }
+    .ck-fg-2 { color: var(--ck-fg-2); }
+    .ck-fg-3 { color: var(--ck-fg-3); }
+    .ck-fg-4 { color: var(--ck-fg-4); }
+    .ck-fg-5 { color: var(--ck-fg-5); }
+    .ck-cool { color: var(--ck-signal-cool); }
+    .ck-warn { color: var(--ck-signal-warn); }
+    .ck-pos { color: var(--ck-signal-pos); }
+    .ck-neg { color: var(--ck-signal-neg); }
+    .ck-bd-1 { border-color: var(--ck-stroke-1); }
+    .ck-bd-2 { border-color: var(--ck-stroke-2); }
+    .ck-bg-inset { background: var(--ck-bg-inset); }
+    .ck-bg-code { background: var(--ck-bg-code); }
+    .ck-chip { background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); }
+    .ck-posbg { background: rgba(52, 211, 153, 0.10); }
+    .ck-okbox { border-color: var(--ck-signal-pos); background: rgba(52, 211, 153, 0.10); }
+    .ck-warnbox { border-color: var(--ck-signal-warn); background: rgba(245, 184, 74, 0.10); }
+    .ck-link { color: var(--ck-fg-1); transition: color var(--ck-dur-fast) var(--ck-ease-out); }
+    .ck-link:hover { color: var(--ck-signal-cool); }
+    .ck-li::before { color: var(--ck-signal-cool); }
+  `],
 })
 export class KnowledgeViewComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);

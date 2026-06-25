@@ -82,20 +82,20 @@ interface PlottedEdge {
   imports: [IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="rounded-md border border-white/10 bg-white/[0.03]">
-      <div class="flex flex-col gap-3 border-b border-white/5 p-4 lg:flex-row lg:items-end lg:justify-between">
+    <section class="ck-surface">
+      <div class="flex flex-col gap-3 p-4 lg:flex-row lg:items-end lg:justify-between" style="border-bottom:1px solid var(--ck-stroke-2);">
         <div>
-          <p class="text-[10px] uppercase tracking-[0.18em] text-cyan-300">Embedding map</p>
-          <h3 class="mt-1 text-sm font-semibold text-white">{{ collection() || 'Collection' }}</h3>
-          <p class="mt-1 text-xs text-gray-500">
+          <p class="ck-label" style="color:var(--ck-signal-cool); letter-spacing:0.18em;">Embedding map</p>
+          <h3 class="mt-1 text-sm font-semibold" style="color:var(--ck-fg-1);">{{ collection() || 'Collection' }}</h3>
+          <p class="mt-1 text-xs" style="color:var(--ck-fg-4);">
             {{ graphSummary() }}
           </p>
         </div>
         <div class="flex flex-wrap items-end gap-2">
           <label class="block">
-            <span class="mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Sample</span>
+            <span class="ck-label mb-1 block">Sample</span>
             <select
-              class="rounded bg-black/30 px-2 py-1.5 text-xs text-gray-200 ring-1 ring-white/10"
+              class="ck-field-select px-2 py-1.5 text-xs"
               [value]="sample()"
               (change)="sample.set(+($any($event.target).value || 300))"
             >
@@ -105,9 +105,9 @@ interface PlottedEdge {
             </select>
           </label>
           <label class="block">
-            <span class="mb-1 block text-[10px] uppercase tracking-wider text-gray-500">Source</span>
+            <span class="ck-label mb-1 block">Source</span>
             <select
-              class="max-w-[260px] rounded bg-black/30 px-2 py-1.5 text-xs text-gray-200 ring-1 ring-white/10"
+              class="ck-field-select max-w-[260px] px-2 py-1.5 text-xs"
               [value]="documentId()"
               (change)="documentId.set($any($event.target).value)"
             >
@@ -121,7 +121,7 @@ interface PlottedEdge {
             type="button"
             title="Refresh map"
             aria-label="Refresh map"
-            class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+            class="ck-iconbtn h-8 w-8"
             (click)="loadGraph()"
           >
             <app-icon name="refresh-cw" [size]="14" />
@@ -130,32 +130,32 @@ interface PlottedEdge {
       </div>
 
       @if (loading()) {
-        <div class="p-8 text-center text-sm text-gray-400">
+        <div class="p-8 text-center text-sm" style="color:var(--ck-fg-3);">
           <app-icon name="loader-2" [size]="14" class="mr-2 inline-block animate-spin" />
           Loading sampled graph…
         </div>
       } @else if (error()) {
-        <div class="p-6 text-sm text-amber-100">
+        <div class="p-6 text-sm" style="color:var(--ck-signal-warn);">
           {{ error() }}
         </div>
       } @else if (!graph()?.supported) {
-        <div class="p-6 text-sm text-gray-400">
+        <div class="p-6 text-sm" style="color:var(--ck-fg-3);">
           Embedding graph is not available for this vector store.
         </div>
       } @else if (!graph()?.nodes?.length) {
-        <div class="p-6 text-sm text-gray-500">
+        <div class="p-6 text-sm" style="color:var(--ck-fg-4);">
           No sampled vectors returned for this collection.
         </div>
       } @else {
         <div class="grid gap-0 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div class="min-h-[460px] border-b border-white/5 bg-black/20 lg:border-b-0 lg:border-r">
-            <div class="flex items-center justify-between gap-2 border-b border-white/5 px-4 py-2">
+          <div class="ck-graph-pane min-h-[460px]" style="background:var(--ck-bg-inset);">
+            <div class="flex items-center justify-between gap-2 px-4 py-2" style="border-bottom:1px solid var(--ck-stroke-2);">
               <div class="flex items-center gap-1.5">
                 <button
                   type="button"
                   title="Zoom out"
                   aria-label="Zoom out"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10"
+                  class="ck-iconbtn h-7 w-7"
                   (click)="zoom.set(clamp(zoom() - 0.2, 0.8, 2.4))"
                 >
                   <app-icon name="minus" [size]="13" />
@@ -165,7 +165,8 @@ interface PlottedEdge {
                   min="0.8"
                   max="2.4"
                   step="0.1"
-                  class="w-24 accent-cyan-300"
+                  class="w-24"
+                  style="accent-color:var(--ck-signal-cool);"
                   [value]="zoom()"
                   (input)="zoom.set(+$any($event.target).value)"
                 />
@@ -173,26 +174,26 @@ interface PlottedEdge {
                   type="button"
                   title="Zoom in"
                   aria-label="Zoom in"
-                  class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 text-gray-300 ring-1 ring-white/10 hover:bg-white/10"
+                  class="ck-iconbtn h-7 w-7"
                   (click)="zoom.set(clamp(zoom() + 0.2, 0.8, 2.4))"
                 >
                   <app-icon name="plus" [size]="13" />
                 </button>
               </div>
               <div class="flex items-center gap-1.5">
-                <button type="button" title="Pan left" aria-label="Pan left" class="map-btn" (click)="panX.set(panX() - 5)">
+                <button type="button" title="Pan left" aria-label="Pan left" class="ck-iconbtn h-7 w-7" (click)="panX.set(panX() - 5)">
                   <app-icon name="chevron-left" [size]="13" />
                 </button>
-                <button type="button" title="Pan up" aria-label="Pan up" class="map-btn" (click)="panY.set(panY() - 5)">
+                <button type="button" title="Pan up" aria-label="Pan up" class="ck-iconbtn h-7 w-7" (click)="panY.set(panY() - 5)">
                   <app-icon name="chevron-up" [size]="13" />
                 </button>
-                <button type="button" title="Pan down" aria-label="Pan down" class="map-btn" (click)="panY.set(panY() + 5)">
+                <button type="button" title="Pan down" aria-label="Pan down" class="ck-iconbtn h-7 w-7" (click)="panY.set(panY() + 5)">
                   <app-icon name="chevron-down" [size]="13" />
                 </button>
-                <button type="button" title="Pan right" aria-label="Pan right" class="map-btn" (click)="panX.set(panX() + 5)">
+                <button type="button" title="Pan right" aria-label="Pan right" class="ck-iconbtn h-7 w-7" (click)="panX.set(panX() + 5)">
                   <app-icon name="chevron-right" [size]="13" />
                 </button>
-                <button type="button" title="Reset view" aria-label="Reset view" class="map-btn" (click)="resetView()">
+                <button type="button" title="Reset view" aria-label="Reset view" class="ck-iconbtn h-7 w-7" (click)="resetView()">
                   <app-icon name="crosshair" [size]="13" />
                 </button>
               </div>
@@ -201,23 +202,22 @@ interface PlottedEdge {
               <g [attr.transform]="viewTransform()">
                 @for (edge of plottedEdges(); track edge.key) {
                   <line
+                    class="ck-edge"
                     [attr.x1]="edge.x1"
                     [attr.y1]="edge.y1"
                     [attr.x2]="edge.x2"
                     [attr.y2]="edge.y2"
                     [attr.stroke-opacity]="edgeOpacity(edge.weight)"
-                    stroke="rgb(34 211 238)"
                     stroke-width="0.12"
                   />
                 }
                 @for (node of graph()?.nodes || []; track node.id) {
                   <circle
-                    class="cursor-pointer transition hover:stroke-white"
+                    class="ck-node cursor-pointer transition"
                     [attr.cx]="pointX(node)"
                     [attr.cy]="pointY(node)"
                     r="0.9"
                     [attr.fill]="nodeColor(node)"
-                    stroke="rgba(255,255,255,0.35)"
                     stroke-width="0.15"
                     (click)="selectNode(node)"
                   >
@@ -229,35 +229,35 @@ interface PlottedEdge {
           </div>
           <aside class="space-y-3 p-4">
             <div class="grid grid-cols-2 gap-2 text-xs">
-              <div class="rounded border border-white/10 bg-black/20 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Sample</div>
-                <div class="mt-1 font-semibold text-white tabular-nums">{{ graph()?.sample || 0 }} / {{ graph()?.total_chunks || '—' }}</div>
+              <div class="ck-inset rounded p-3">
+                <div class="ck-label">Sample</div>
+                <div class="mt-1 font-semibold tabular-nums" style="color:var(--ck-fg-1);">{{ graph()?.sample || 0 }} / {{ graph()?.total_chunks || '—' }}</div>
                 @if (graph()?.sample_capped) {
-                  <div class="mt-1 text-[10px] text-amber-100">cap {{ graph()?.sample_cap }}</div>
+                  <div class="mt-1 text-[10px]" style="color:var(--ck-signal-warn);">cap {{ graph()?.sample_cap }}</div>
                 }
               </div>
-              <div class="rounded border border-white/10 bg-black/20 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Projection</div>
-                <div class="mt-1 font-semibold text-white">{{ graph()?.projection || '—' }}</div>
+              <div class="ck-inset rounded p-3">
+                <div class="ck-label">Projection</div>
+                <div class="mt-1 font-semibold" style="color:var(--ck-fg-1);">{{ graph()?.projection || '—' }}</div>
               </div>
-              <div class="rounded border border-white/10 bg-black/20 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Vector dim</div>
-                <div class="mt-1 font-semibold text-white tabular-nums">{{ graph()?.vector_dim || '—' }}</div>
+              <div class="ck-inset rounded p-3">
+                <div class="ck-label">Vector dim</div>
+                <div class="mt-1 font-semibold tabular-nums" style="color:var(--ck-fg-1);">{{ graph()?.vector_dim || '—' }}</div>
               </div>
-              <div class="rounded border border-white/10 bg-black/20 p-3">
-                <div class="text-[10px] uppercase tracking-wider text-gray-500">Edges</div>
-                <div class="mt-1 font-semibold text-white tabular-nums">{{ graph()?.edges?.length || 0 }}</div>
+              <div class="ck-inset rounded p-3">
+                <div class="ck-label">Edges</div>
+                <div class="mt-1 font-semibold tabular-nums" style="color:var(--ck-fg-1);">{{ graph()?.edges?.length || 0 }}</div>
               </div>
             </div>
             @for (warning of graph()?.warnings || []; track warning) {
-              <p class="rounded border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+              <p class="rounded px-3 py-2 text-xs" style="border:1px solid rgba(245,184,74,0.25); background:rgba(245,184,74,0.10); color:var(--ck-signal-warn);">
                 {{ warning }}
               </p>
             }
             @if (selectedNode()) {
-              <article class="rounded border border-cyan-300/20 bg-cyan-300/10 p-3 text-xs">
-                <div class="font-medium text-white truncate">{{ selectedNode()?.document_filename || 'Sampled chunk' }}</div>
-                <div class="mt-1 flex flex-wrap gap-1.5 text-[10px] text-cyan-100/80">
+              <article class="rounded p-3 text-xs" style="border:1px solid rgba(125,211,252,0.25); background:rgba(125,211,252,0.08);">
+                <div class="font-medium truncate" style="color:var(--ck-fg-1);">{{ selectedNode()?.document_filename || 'Sampled chunk' }}</div>
+                <div class="mt-1 flex flex-wrap gap-1.5 text-[10px]" style="color:var(--ck-signal-cool);">
                   @if (selectedNode()?.chunk_index !== null && selectedNode()?.chunk_index !== undefined) {
                     <span>#{{ selectedNode()?.chunk_index }}</span>
                   }
@@ -269,12 +269,12 @@ interface PlottedEdge {
                   }
                 </div>
                 @if (selectedNode()?.section_path) {
-                  <p class="mt-2 truncate text-cyan-100/80">{{ selectedNode()?.section_path }}</p>
+                  <p class="mt-2 truncate" style="color:var(--ck-fg-2);">{{ selectedNode()?.section_path }}</p>
                 }
-                <p class="mt-2 leading-relaxed text-gray-200">{{ selectedNode()?.snippet || 'No snippet.' }}</p>
+                <p class="mt-2 leading-relaxed" style="color:var(--ck-fg-2);">{{ selectedNode()?.snippet || 'No snippet.' }}</p>
                 <button
                   type="button"
-                  class="mt-3 inline-flex items-center gap-1.5 rounded bg-cyan-300/15 px-2.5 py-1.5 text-xs font-medium text-cyan-100 ring-1 ring-cyan-300/25 hover:bg-cyan-300/20"
+                  class="ck-btn-soft mt-3 px-2.5 py-1.5 text-xs font-medium"
                   (click)="selectNode(selectedNode()!)"
                 >
                   <app-icon name="eye" [size]="13" /> Preview source
@@ -288,20 +288,130 @@ interface PlottedEdge {
   `,
   styles: [
     `
-      .map-btn {
-        align-items: center;
-        background: rgb(255 255 255 / 0.05);
-        border-radius: 0.25rem;
-        color: rgb(209 213 219);
+      /* Cockpit DS-C — component-scoped helpers (token-driven; mirrors auth/exemplar pattern). */
+      .ck-field-input,
+      .ck-field-select,
+      .ck-field-textarea {
+        background: var(--ck-bg-inset);
+        border: 1px solid var(--ck-stroke-2);
+        border-radius: var(--ck-radius-sm);
+        color: var(--ck-fg-1);
+        font-family: var(--ck-font-sans);
+        outline: none;
+        transition:
+          border-color var(--ck-dur-fast) var(--ck-ease-out),
+          box-shadow var(--ck-dur-fast) var(--ck-ease-out),
+          background var(--ck-dur-fast) var(--ck-ease-out);
+      }
+      .ck-field-input::placeholder,
+      .ck-field-textarea::placeholder { color: var(--ck-fg-4); }
+      .ck-field-input:focus,
+      .ck-field-select:focus,
+      .ck-field-textarea:focus {
+        border-color: var(--ck-stroke-hot);
+        background: var(--ck-bg-panel-hi);
+        box-shadow: 0 0 0 1px var(--ck-signal-cool);
+      }
+      .ck-field-textarea { font-family: var(--ck-font-mono); }
+      .ck-field-select {
+        appearance: none;
+        -webkit-appearance: none;
+        background-image:
+          linear-gradient(45deg, transparent 50%, var(--ck-fg-4) 50%),
+          linear-gradient(135deg, var(--ck-fg-4) 50%, transparent 50%);
+        background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+        background-size: 5px 5px, 5px 5px;
+        background-repeat: no-repeat;
+        padding-right: 1.75rem;
+      }
+
+      .ck-btn-soft,
+      .ck-btn-primary {
         display: inline-flex;
-        height: 1.75rem;
+        align-items: center;
         justify-content: center;
-        width: 1.75rem;
-        box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+        gap: 0.375rem;
+        border-radius: var(--ck-radius-sm);
+        cursor: pointer;
+        transition:
+          background var(--ck-dur-fast) var(--ck-ease-out),
+          color var(--ck-dur-fast) var(--ck-ease-out),
+          border-color var(--ck-dur-fast) var(--ck-ease-out);
       }
-      .map-btn:hover {
-        background: rgb(255 255 255 / 0.1);
+      .ck-btn-soft {
+        background: var(--ck-bg-panel-hi);
+        border: 1px solid var(--ck-stroke-2);
+        color: var(--ck-fg-2);
       }
+      .ck-btn-soft:hover:not(:disabled) {
+        background: var(--ck-bg-inset);
+        color: var(--ck-fg-1);
+        border-color: var(--ck-stroke-3);
+      }
+      .ck-btn-soft:disabled { opacity: 0.4; cursor: not-allowed; }
+      .ck-btn-primary {
+        background: linear-gradient(180deg, rgba(125, 211, 252, 0.22), rgba(125, 211, 252, 0.12));
+        border: 1px solid var(--ck-stroke-hot);
+        color: var(--ck-fg-1);
+        font-weight: 600;
+      }
+      .ck-btn-primary:hover:not(:disabled) {
+        background: linear-gradient(180deg, rgba(125, 211, 252, 0.30), rgba(125, 211, 252, 0.18));
+        border-color: rgba(125, 211, 252, 0.55);
+      }
+      .ck-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .ck-iconbtn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--ck-radius-sm);
+        background: var(--ck-bg-panel-hi);
+        border: 1px solid var(--ck-stroke-2);
+        color: var(--ck-fg-3);
+        cursor: pointer;
+        transition:
+          background var(--ck-dur-fast) var(--ck-ease-out),
+          color var(--ck-dur-fast) var(--ck-ease-out);
+      }
+      .ck-iconbtn:hover:not(:disabled) { background: var(--ck-bg-inset); color: var(--ck-fg-1); }
+      .ck-iconbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+      .ck-iconbtn-danger:hover:not(:disabled) { color: var(--ck-signal-neg); }
+
+      .ck-btn-ghost {
+        background: transparent;
+        border: 0;
+        color: var(--ck-fg-3);
+        border-radius: var(--ck-radius-sm);
+        cursor: pointer;
+        transition: color var(--ck-dur-fast), background var(--ck-dur-fast);
+      }
+      .ck-btn-ghost:hover:not(:disabled) { color: var(--ck-fg-1); background: var(--ck-bg-panel-hi); }
+
+      .ck-ghost-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--ck-fg-3);
+        border-radius: var(--ck-radius-sm);
+        cursor: pointer;
+        transition: color var(--ck-dur-fast), background var(--ck-dur-fast);
+      }
+      .ck-ghost-icon:hover { color: var(--ck-fg-1); background: var(--ck-bg-panel-hi); }
+      .ck-ghost-icon-danger:hover { color: var(--ck-signal-neg); }
+
+      .ck-divide > * + * { border-top: 1px solid var(--ck-stroke-2); }
+      .ck-rowi { transition: background var(--ck-dur-fast) var(--ck-ease-out); }
+      .ck-rowi:hover { background: var(--ck-bg-panel-hi); }
+
+      /* Embedding scatter — cockpit signal palette. */
+      .ck-graph-pane { border-bottom: 1px solid var(--ck-stroke-2); }
+      @media (min-width: 1024px) {
+        .ck-graph-pane { border-bottom: 0; border-right: 1px solid var(--ck-stroke-2); }
+      }
+      .ck-edge { stroke: var(--ck-signal-cool); }
+      .ck-node { stroke: var(--ck-stroke-3); }
+      .ck-node:hover { stroke: var(--ck-fg-1); }
     `,
   ],
 })

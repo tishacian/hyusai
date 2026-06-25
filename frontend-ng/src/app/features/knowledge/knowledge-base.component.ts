@@ -90,7 +90,7 @@ interface SearchResult {
       <button
         actions
         type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+        class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
         (click)="openGlobalSearch()"
       >
         <app-icon name="search" [size]="14" /> Search
@@ -98,7 +98,7 @@ interface SearchResult {
       <a
         actions
         routerLink="/knowledge/capture"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+        class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
         title="Lancer une capture de connaissances"
       >
         <app-icon name="mic" [size]="14" /> Capture
@@ -106,7 +106,7 @@ interface SearchResult {
       <button
         actions
         type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+        class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
         [class.opacity-50]="collectionsError()"
         [class.cursor-not-allowed]="collectionsError()"
         [disabled]="!!collectionsError()"
@@ -121,7 +121,7 @@ interface SearchResult {
         [class.opacity-50]="collectionsError()"
         [class.cursor-not-allowed]="collectionsError()"
         [disabled]="!!collectionsError()"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+        class="ck-btn-primary inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
       >
         <app-icon name="cloud-upload" [size]="14" /> Upload
       </button>
@@ -132,9 +132,8 @@ interface SearchResult {
       class="relative rounded-md p-8 text-center mb-6 transition-colors group"
       [class.border-2]="true"
       [class.border-dashed]="true"
-      [class.border-white\\/10]="!dragging()"
-      [class.border-brand-500\\/60]="dragging()"
-      [class.bg-brand-500\\/5]="dragging()"
+      [class.ck-drop-idle]="!dragging()"
+      [class.ck-drop-active]="dragging()"
       [class.cursor-pointer]="!collectionsError()"
       [class.cursor-not-allowed]="collectionsError()"
       [class.opacity-60]="collectionsError()"
@@ -154,17 +153,18 @@ interface SearchResult {
       />
       <div class="flex items-center justify-center gap-4">
         <div
-          class="w-12 h-12 rounded-md flex items-center justify-center bg-white/[0.04] ring-1 ring-brand-400/25 text-brand-300 group-hover:bg-white/[0.06] transition shrink-0"
+          class="w-12 h-12 rounded-md flex items-center justify-center shrink-0"
+          style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-hot); color:var(--ck-signal-cool);"
         >
           <app-icon name="cloud-upload" [size]="22" />
         </div>
         <div class="text-left">
-          <div class="text-sm font-medium text-white">
+          <div class="text-sm font-medium" style="color:var(--ck-fg-1);">
             Drop files here or
-            <span class="text-brand-400">click to browse</span>
-            <span class="text-gray-500 ml-2">→ target: </span>
+            <span style="color:var(--ck-signal-cool);">click to browse</span>
+            <span class="ml-2" style="color:var(--ck-fg-4);">→ target: </span>
             <select
-              class="knowledge-select knowledge-select-inline ml-1"
+              class="ck-field-select ck-field-select-inline ml-1"
               [(ngModel)]="uploadTarget"
               [disabled]="!!collectionsError()"
               (click)="$event.stopPropagation()"
@@ -177,13 +177,14 @@ interface SearchResult {
               }
             </select>
           </div>
-          <p class="text-xs text-gray-500 mt-0.5">PDF · TXT · MD · DOCX · CSV · JSON</p>
+          <p class="text-xs mt-0.5" style="color:var(--ck-fg-4);">PDF · TXT · MD · DOCX · CSV · JSON</p>
         </div>
       </div>
 
       @if (uploading()) {
         <div
-          class="absolute inset-x-4 bottom-3 flex items-center gap-2 justify-center text-xs text-brand-300"
+          class="absolute inset-x-4 bottom-3 flex items-center gap-2 justify-center text-xs"
+          style="color:var(--ck-signal-cool);"
         >
           <app-icon name="loader-2" [size]="14" class="animate-spin" />
           Ingesting {{ uploadCount() }} file(s)…
@@ -191,23 +192,26 @@ interface SearchResult {
       }
     </div>
 
-    <section class="t-card t-elevated rounded-md p-5 mb-6 border border-brand-500/20 bg-brand-500/[0.03]">
+    <section
+      class="ck-surface rounded-md p-5 mb-6"
+      style="border-color:var(--ck-stroke-hot); background:linear-gradient(180deg, rgba(125, 211, 252, 0.05), transparent);"
+    >
       <div class="flex items-start justify-between gap-4">
         <div class="space-y-1">
-          <div class="ck-mono text-[10px] uppercase tracking-[0.14em] text-brand-300">
+          <div class="ck-mono text-[10px] uppercase tracking-[0.14em]" style="color:var(--ck-signal-cool);">
             Capture de connaissances
           </div>
-          <h2 class="text-base font-semibold text-white">
+          <h2 class="text-base font-semibold" style="color:var(--ck-fg-1);">
             Préparer un échange et produire un rapport relu.
           </h2>
-          <p class="text-sm text-gray-400 max-w-3xl">
+          <p class="text-sm max-w-3xl" style="color:var(--ck-fg-3);">
             Lancez une session, rattachez une collection documentaire et publiez un rapport final
             après relecture.
           </p>
         </div>
         <a
           routerLink="/knowledge/capture"
-          class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+          class="ck-btn-primary shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
         >
           <app-icon name="arrow-right" [size]="14" /> Démarrer une capture
         </a>
@@ -218,14 +222,14 @@ interface SearchResult {
     @if (loadingCollections()) {
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         @for (_ of [0, 1, 2, 3, 4, 5]; track $index) {
-          <div class="t-card t-elevated rounded-md p-5 animate-pulse">
-            <div class="h-4 w-32 bg-white/5 rounded mb-2"></div>
-            <div class="h-3 w-20 bg-white/5 rounded"></div>
+          <div class="ck-surface rounded-md p-5 animate-pulse">
+            <div class="h-4 w-32 rounded mb-2" style="background:var(--ck-bg-inset);"></div>
+            <div class="h-3 w-20 rounded" style="background:var(--ck-bg-inset);"></div>
           </div>
         }
       </div>
     } @else if (collectionsError()) {
-      <div class="t-card t-elevated rounded-md">
+      <div class="ck-surface rounded-md">
         <app-empty-state
           icon="circle-alert"
           title="Unable to load collections"
@@ -233,7 +237,7 @@ interface SearchResult {
         >
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+            class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
             (click)="loadCollections()"
           >
             <app-icon name="refresh-cw" [size]="14" /> Retry
@@ -241,7 +245,7 @@ interface SearchResult {
         </app-empty-state>
       </div>
     } @else if (collections().length === 0) {
-      <div class="t-card t-elevated rounded-md">
+      <div class="ck-surface rounded-md">
         <app-empty-state
           icon="database"
           title="No collections yet"
@@ -251,16 +255,17 @@ interface SearchResult {
     } @else {
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         @for (doc of collections(); track doc.name) {
-          <div class="t-card t-elevated rounded-md p-5 group">
+          <div class="ck-surface rounded-md p-5 group">
             <div class="flex items-start gap-3 mb-4">
               <div
-                class="w-10 h-10 rounded-md flex items-center justify-center bg-white/[0.04] ring-1 ring-brand-400/25 text-brand-300 shrink-0"
+                class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
+                style="background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-hot); color:var(--ck-signal-cool);"
               >
                 <app-icon name="folder" [size]="18" />
               </div>
               <div class="flex-1 min-w-0">
-                <h3 class="font-semibold text-white truncate">{{ doc.name }}</h3>
-                <div class="text-xs text-gray-500 mt-0.5 flex items-center gap-3">
+                <h3 class="font-semibold truncate" style="color:var(--ck-fg-1);">{{ doc.name }}</h3>
+                <div class="text-xs mt-0.5 flex items-center gap-3" style="color:var(--ck-fg-4);">
                   <span class="flex items-center gap-1">
                     <app-icon name="file-text" [size]="11" />
                     {{ doc.docs }} docs
@@ -278,27 +283,27 @@ interface SearchResult {
               <div class="flex items-center gap-1">
                 <a
                   [routerLink]="['/knowledge', doc.name]"
-                  class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition inline-flex items-center"
+                  class="ck-ghost-icon p-1.5 rounded inline-flex items-center"
                   title="Open collection detail"
                 >
                   <app-icon name="external-link" [size]="14" />
                 </a>
                 <button
-                  class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition"
+                  class="ck-ghost-icon p-1.5 rounded"
                   title="Browse documents"
                   (click)="openBrowse(doc.name)"
                 >
                   <app-icon name="folder" [size]="14" />
                 </button>
                 <button
-                  class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition"
+                  class="ck-ghost-icon p-1.5 rounded"
                   title="Search in this collection"
                   (click)="openSearchIn(doc.name)"
                 >
                   <app-icon name="search" [size]="14" />
                 </button>
                 <button
-                  class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-red-400 transition"
+                  class="ck-ghost-icon ck-ghost-icon-danger p-1.5 rounded"
                   title="Delete collection"
                   (click)="requestDeleteCollection(doc.name)"
                 >
@@ -324,7 +329,7 @@ interface SearchResult {
           <select
             [(ngModel)]="searchCollectionDraft"
             name="scoll"
-            class="knowledge-select"
+            class="ck-field-select px-2.5 py-2 text-xs"
           >
             <option value="">All</option>
             @for (c of collections(); track c.name) {
@@ -336,20 +341,20 @@ interface SearchResult {
             name="sq"
             type="text"
             placeholder="Ask semantic question…"
-            class="flex-1 bg-white/5 ring-1 ring-white/10 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-brand-400"
+            class="ck-field-input flex-1 rounded px-3 py-2 text-sm"
             autocomplete="off"
           />
           <button
             type="submit"
-            class="bg-brand-500 hover:bg-brand-600 rounded px-3 py-2 text-sm font-medium text-white flex items-center gap-1.5 disabled:opacity-50"
+            class="ck-btn-primary rounded px-3 py-2 text-sm font-medium flex items-center gap-1.5"
             [disabled]="!searchQuery.trim() || searching()"
           >
             <app-icon [name]="searching() ? 'loader-2' : 'search'" [size]="14" [class.animate-spin]="searching()" />
             Search
           </button>
         </div>
-        <label class="flex items-center gap-2 text-xs text-gray-400 mt-2 cursor-pointer">
-          <input type="checkbox" [(ngModel)]="useHybrid" name="sh" class="accent-brand-500" />
+        <label class="flex items-center gap-2 text-xs mt-2 cursor-pointer" style="color:var(--ck-fg-3);">
+          <input type="checkbox" [(ngModel)]="useHybrid" name="sh" style="accent-color:var(--ck-signal-cool);" />
           Use hybrid (sparse + vector)
         </label>
       </form>
@@ -366,21 +371,22 @@ interface SearchResult {
 
       <ul class="space-y-2">
         @for (r of searchResults(); track $index) {
-          <li class="rounded bg-black/20 ring-1 ring-white/5 p-3">
+          <li class="ck-inset rounded p-3">
             <div class="flex items-center justify-between mb-1">
-              <div class="text-[11px] text-gray-500 truncate flex items-center gap-1">
+              <div class="text-[11px] truncate flex items-center gap-1" style="color:var(--ck-fg-4);">
                 <app-icon name="file-text" [size]="11" />
                 {{ r.metadata?.filename ?? 'unknown' }}
               </div>
               @if (isNum(r.score)) {
                 <span
-                  class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-300"
+                  class="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                  style="background:rgba(125, 211, 252, 0.12); color:var(--ck-signal-cool);"
                 >
                   {{ r.score!.toFixed(3) }}
                 </span>
               }
             </div>
-            <div class="text-xs text-gray-200 leading-relaxed line-clamp-5">
+            <div class="text-xs leading-relaxed line-clamp-5" style="color:var(--ck-fg-2);">
               {{ r.content || r.text }}
             </div>
           </li>
@@ -399,7 +405,7 @@ interface SearchResult {
       @if (browseLoading()) {
         <div class="space-y-2">
           @for (_ of [0, 1, 2, 3]; track $index) {
-            <div class="h-10 rounded bg-white/5 animate-pulse"></div>
+            <div class="h-10 rounded animate-pulse" style="background:var(--ck-bg-inset);"></div>
           }
         </div>
       } @else if (browseError()) {
@@ -410,7 +416,7 @@ interface SearchResult {
         >
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-white/5 text-gray-200 hover:bg-white/10 ring-1 ring-white/10 transition"
+            class="ck-btn-soft inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium"
             (click)="loadBrowsePage(browseOffset())"
           >
             <app-icon name="refresh-cw" [size]="14" /> Retry
@@ -419,7 +425,7 @@ interface SearchResult {
       } @else if (browseDocs().length === 0) {
         <app-empty-state icon="file-text" title="Empty collection" description="Upload documents to this collection." />
       } @else {
-        <div class="mb-3 flex items-center justify-between gap-2 text-xs text-gray-400">
+        <div class="mb-3 flex items-center justify-between gap-2 text-xs" style="color:var(--ck-fg-3);">
           <span class="font-mono">
             {{ browseOffset() + 1 }}–{{ browseOffset() + browseDocs().length }} / {{ browseTotal() }}
           </span>
@@ -428,7 +434,7 @@ interface SearchResult {
               type="button"
               title="Previous page"
               aria-label="Previous page"
-              class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+              class="ck-iconbtn h-7 w-7"
               [disabled]="browseLoading() || browseOffset() === 0"
               (click)="loadBrowsePage(browseOffset() > browsePageSize ? browseOffset() - browsePageSize : 0)"
             >
@@ -438,7 +444,7 @@ interface SearchResult {
               type="button"
               title="Next page"
               aria-label="Next page"
-              class="inline-flex h-7 w-7 items-center justify-center rounded bg-white/5 ring-1 ring-white/10 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5"
+              class="ck-iconbtn h-7 w-7"
               [disabled]="browseLoading() || !browseHasMore()"
               (click)="loadBrowsePage(browseOffset() + browsePageSize)"
             >
@@ -449,11 +455,12 @@ interface SearchResult {
         <ul class="space-y-2">
           @for (d of browseDocs(); track d.document_id) {
             <li
-              class="flex items-center justify-between gap-2 text-sm text-gray-200 px-3 py-2 rounded bg-black/20 ring-1 ring-white/5 group"
+              class="ck-inset flex items-center justify-between gap-2 text-sm px-3 py-2 rounded group"
+              style="color:var(--ck-fg-2);"
             >
               <div class="flex-1 min-w-0">
                 <div class="truncate">{{ d.filename }}</div>
-                <div class="text-[11px] text-gray-500 font-mono">
+                <div class="text-[11px] font-mono" style="color:var(--ck-fg-4);">
                   {{ d.chunk_count ?? 0 }} chunks
                   @if (d.mime_type) {
                     <span class="mx-1">·</span>{{ d.mime_type }}
@@ -462,14 +469,14 @@ interface SearchResult {
               </div>
               <div class="flex items-center gap-0.5 shrink-0 opacity-70 group-hover:opacity-100">
                 <button
-                  class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-brand-400 transition"
+                  class="ck-ghost-icon p-1.5 rounded"
                   title="Preview"
                   (click)="previewDoc(d)"
                 >
                   <app-icon name="eye" [size]="13" />
                 </button>
                 <button
-                  class="p-1.5 rounded hover:bg-red-500/10 text-gray-400 hover:text-red-400 transition"
+                  class="ck-ghost-icon ck-ghost-icon-danger p-1.5 rounded"
                   title="Delete document"
                   (click)="requestDeleteDoc(d)"
                 >
@@ -493,26 +500,27 @@ interface SearchResult {
       @if (previewLoading()) {
         <div class="space-y-2">
           @for (_ of [0, 1, 2, 3, 4, 5, 6]; track $index) {
-            <div class="h-3 rounded bg-white/5 animate-pulse"></div>
+            <div class="h-3 rounded animate-pulse" style="background:var(--ck-bg-inset);"></div>
           }
         </div>
       } @else if (previewError()) {
-        <div class="text-sm text-red-400">{{ previewError() }}</div>
+        <div class="text-sm" style="color:var(--ck-signal-neg);">{{ previewError() }}</div>
       } @else if (previewDownloadUrl()) {
-        <div class="text-sm text-gray-300 mb-3">
+        <div class="text-sm mb-3" style="color:var(--ck-fg-2);">
           This document is a binary file. Open or download it to view.
         </div>
         <a
           [href]="previewDownloadUrl()!"
           target="_blank"
           rel="noreferrer"
-          class="inline-flex items-center gap-1.5 px-3 py-2 rounded bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium"
+          class="ck-btn-primary inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium"
         >
           <app-icon name="external-link" [size]="14" /> Open file
         </a>
       } @else {
         <pre
-          class="text-[11px] leading-relaxed text-gray-200 whitespace-pre-wrap font-mono bg-black/30 rounded p-3 max-h-[70vh] overflow-auto"
+          class="ck-scroll text-[11px] leading-relaxed whitespace-pre-wrap font-mono rounded p-3 max-h-[70vh] overflow-auto"
+          style="background:var(--ck-bg-code); color:var(--ck-fg-2); border:1px solid var(--ck-stroke-2);"
         >{{ previewContent() }}</pre>
       }
     </app-drawer>
@@ -520,19 +528,21 @@ interface SearchResult {
     <!-- Create collection dialog -->
     @if (createOpen()) {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" (click)="createOpen.set(false)"></div>
+        <div class="absolute inset-0 backdrop-blur-sm" style="background:var(--ck-scrim);" (click)="createOpen.set(false)"></div>
         <div
-          class="relative glass-blur rounded-lg border border-white/10 shadow-elevated max-w-md w-full p-6"
+          class="ck-surface-hi relative max-w-md w-full p-6"
+          style="border-radius:var(--ck-radius-lg); box-shadow:var(--ck-shadow-panel);"
         >
           <div class="flex items-start gap-4 mb-4">
             <div
-              class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/15 text-brand-400 shrink-0"
+              class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
+              style="background:rgba(125, 211, 252, 0.15); color:var(--ck-signal-cool);"
             >
               <app-icon name="folder-plus" [size]="20" />
             </div>
             <div class="flex-1">
-              <h2 class="text-base font-semibold text-white mb-1">New collection</h2>
-              <p class="text-sm text-gray-400">
+              <h2 class="text-base font-semibold mb-1" style="color:var(--ck-fg-1);">New collection</h2>
+              <p class="text-sm" style="color:var(--ck-fg-3);">
                 Collections isolate your documents. Names are workspace-scoped.
               </p>
             </div>
@@ -541,7 +551,7 @@ interface SearchResult {
             type="text"
             [(ngModel)]="newCollectionDraftValue"
             placeholder="e.g. policies, research"
-            class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+            class="ck-field-input w-full px-3 py-2 rounded text-sm"
             (keyup.enter)="createCollection()"
             autofocus
           />
@@ -549,7 +559,7 @@ interface SearchResult {
             <button
               type="button"
               (click)="createOpen.set(false)"
-              class="px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-white/5 rounded"
+              class="ck-btn-ghost px-4 py-2 text-sm rounded"
             >
               Cancel
             </button>
@@ -557,7 +567,7 @@ interface SearchResult {
               type="button"
               (click)="createCollection()"
               [disabled]="!newCollectionDraftValue.trim() || creating()"
-              class="px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded disabled:opacity-40 flex items-center gap-1.5"
+              class="ck-btn-primary px-4 py-2 text-sm font-medium rounded flex items-center gap-1.5"
             >
               <app-icon
                 [name]="creating() ? 'loader-2' : 'plus'"
@@ -593,37 +603,131 @@ interface SearchResult {
     />
   `,
   styles: [`
-    .knowledge-select {
+    /* Cockpit DS-C — component-scoped helpers (token-driven; mirrors auth/exemplar pattern). */
+    .ck-field-input,
+    .ck-field-select,
+    .ck-field-textarea {
+      background: var(--ck-bg-inset);
+      border: 1px solid var(--ck-stroke-2);
+      border-radius: var(--ck-radius-sm);
+      color: var(--ck-fg-1);
+      font-family: var(--ck-font-sans);
+      outline: none;
+      transition:
+        border-color var(--ck-dur-fast) var(--ck-ease-out),
+        box-shadow var(--ck-dur-fast) var(--ck-ease-out),
+        background var(--ck-dur-fast) var(--ck-ease-out);
+    }
+    .ck-field-input::placeholder,
+    .ck-field-textarea::placeholder { color: var(--ck-fg-4); }
+    .ck-field-input:focus,
+    .ck-field-select:focus,
+    .ck-field-textarea:focus {
+      border-color: var(--ck-stroke-hot);
+      background: var(--ck-bg-panel-hi);
+      box-shadow: 0 0 0 1px var(--ck-signal-cool);
+    }
+    .ck-field-textarea { font-family: var(--ck-font-mono); }
+    .ck-field-select {
       appearance: none;
-      min-height: 2rem;
-      border-radius: 0.375rem;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      background-color: rgba(2, 6, 23, 0.72);
+      -webkit-appearance: none;
+      padding-left: 0.625rem;
+      padding-right: 1.75rem;
       background-image:
-        linear-gradient(45deg, transparent 50%, rgba(148, 163, 184, 0.9) 50%),
-        linear-gradient(135deg, rgba(148, 163, 184, 0.9) 50%, transparent 50%);
-      background-position:
-        calc(100% - 14px) 50%,
-        calc(100% - 9px) 50%;
+        linear-gradient(45deg, transparent 50%, var(--ck-fg-4) 50%),
+        linear-gradient(135deg, var(--ck-fg-4) 50%, transparent 50%);
+      background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
       background-size: 5px 5px, 5px 5px;
       background-repeat: no-repeat;
-      color: #e5e7eb;
-      font-size: 0.75rem;
-      line-height: 1rem;
-      padding: 0.5rem 2rem 0.5rem 0.625rem;
     }
 
-    .knowledge-select-inline {
+    .ck-btn-soft,
+    .ck-btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.375rem;
+      border-radius: var(--ck-radius-sm);
+      cursor: pointer;
+      transition:
+        background var(--ck-dur-fast) var(--ck-ease-out),
+        color var(--ck-dur-fast) var(--ck-ease-out),
+        border-color var(--ck-dur-fast) var(--ck-ease-out);
+    }
+    .ck-btn-soft {
+      background: var(--ck-bg-panel-hi);
+      border: 1px solid var(--ck-stroke-2);
+      color: var(--ck-fg-2);
+    }
+    .ck-btn-soft:hover:not(:disabled) {
+      background: var(--ck-bg-inset);
+      color: var(--ck-fg-1);
+      border-color: var(--ck-stroke-3);
+    }
+    .ck-btn-soft:disabled { opacity: 0.4; cursor: not-allowed; }
+    .ck-btn-primary {
+      background: linear-gradient(180deg, rgba(125, 211, 252, 0.22), rgba(125, 211, 252, 0.12));
+      border: 1px solid var(--ck-stroke-hot);
+      color: var(--ck-fg-1);
+      font-weight: 600;
+    }
+    .ck-btn-primary:hover:not(:disabled) {
+      background: linear-gradient(180deg, rgba(125, 211, 252, 0.30), rgba(125, 211, 252, 0.18));
+      border-color: rgba(125, 211, 252, 0.55);
+    }
+    .ck-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .ck-btn-ghost {
+      background: transparent;
+      border: 0;
+      color: var(--ck-fg-3);
+      border-radius: var(--ck-radius-sm);
+      cursor: pointer;
+      transition: color var(--ck-dur-fast), background var(--ck-dur-fast);
+    }
+    .ck-btn-ghost:hover:not(:disabled) { color: var(--ck-fg-1); background: var(--ck-bg-panel-hi); }
+
+    .ck-iconbtn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--ck-radius-sm);
+      background: var(--ck-bg-panel-hi);
+      border: 1px solid var(--ck-stroke-2);
+      color: var(--ck-fg-3);
+      cursor: pointer;
+      transition:
+        background var(--ck-dur-fast) var(--ck-ease-out),
+        color var(--ck-dur-fast) var(--ck-ease-out);
+    }
+    .ck-iconbtn:hover:not(:disabled) { background: var(--ck-bg-inset); color: var(--ck-fg-1); }
+    .ck-iconbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .ck-iconbtn-danger:hover:not(:disabled) { color: var(--ck-signal-neg); }
+
+    .ck-ghost-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ck-fg-3);
+      border-radius: var(--ck-radius-sm);
+      cursor: pointer;
+      transition: color var(--ck-dur-fast), background var(--ck-dur-fast);
+    }
+    .ck-ghost-icon:hover { color: var(--ck-fg-1); background: var(--ck-bg-panel-hi); }
+    .ck-ghost-icon-danger:hover { color: var(--ck-signal-neg); }
+
+    .ck-divide > * + * { border-top: 1px solid var(--ck-stroke-2); }
+    .ck-rowi { transition: background var(--ck-dur-fast) var(--ck-ease-out); }
+    .ck-rowi:hover { background: var(--ck-bg-panel-hi); }
+
+    /* Knowledge index — dropzone + inline select. */
+    .ck-drop-idle { border-color: var(--ck-stroke-2); background: transparent; }
+    .ck-drop-active { border-color: var(--ck-stroke-hot); background: rgba(125, 211, 252, 0.06); }
+    .ck-field-select-inline {
       min-height: 1.5rem;
       padding-top: 0.125rem;
       padding-bottom: 0.125rem;
       font-size: 0.6875rem;
-    }
-
-    .knowledge-select:focus {
-      outline: none;
-      border-color: rgba(103, 232, 249, 0.42);
-      box-shadow: 0 0 0 1px rgba(103, 232, 249, 0.24);
     }
   `],
 })

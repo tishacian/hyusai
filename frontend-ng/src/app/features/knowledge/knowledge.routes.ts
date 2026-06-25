@@ -4,7 +4,7 @@ export const knowledgeRoutes: Routes = [
   {
     path: 'capture',
     loadComponent: () =>
-      import('./knowledge-capture.component').then((m) => m.KnowledgeCaptureComponent),
+      import('./capture-fil/capture-router.component').then((m) => m.CaptureRouterComponent),
   },
   {
     path: '',

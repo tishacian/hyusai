@@ -77,6 +77,102 @@ export interface CaptureViewReference {
   timecode_ms?: number | null;
   statement?: string | null;
   trigger_phrase?: string | null;
+  /** Journaled capture event id — addresses this anchor for updateCaptureView. */
+  event_id?: string | null;
+  /**
+   * Anchor lifecycle status (D2). `pending` is purely client-side (ghost
+   * countdown); the backend journals `confirmed` (1 distinct view) or
+   * `lowconf` (>=2 views, confidence < 0.7); `discarded` is a user correction.
+   */
+  status?: CaptureAnchorStatus;
+  /** Deterministic confidence of the deictic resolution (1.0 = single view). */
+  confidence?: number | null;
+}
+
+/** Anchor lifecycle status shared with the backend journaling contract (D2). */
+export type CaptureAnchorStatus = 'pending' | 'confirmed' | 'lowconf' | 'discarded';
+
+/**
+ * One entry of the backend "Le Fil" feed projection (D1 step C). The event
+ * ledger is projected server-side into ordered `speak | note | anchor` entries
+ * so the Fil can hydrate on session load/resume before appending live WS
+ * events. Mirrors the {@link CaptureFeedItem} the engine binds to.
+ */
+export interface CaptureFeedEntry {
+  id: string;
+  kind: 'speak' | 'note' | 'anchor';
+  channel: 'voice' | 'text';
+  speaker: string | null;
+  text: string;
+  partial: boolean;
+  ts_ms: number | null;
+  turn_id?: string | null;
+  event_id?: string | null;
+  view?: CaptureViewReference;
+}
+
+/** Document share scope for the end-of-capture triage (D5). Default `excerpt`. */
+export type CaptureShareLevel = 'full' | 'excerpt' | 'none';
+
+/**
+ * Per-document indexing lifecycle shared with the backend. During the session
+ * we only ever surface `not_indexed` / `referenced`; `queued` / `indexed` /
+ * `failed` belong to the end-of-capture background batch.
+ *
+ * Lifted out of the v0 monolith so the new `capture-fil/` experience can bind
+ * to a stable contract without importing from the frozen component.
+ */
+export type CaptureIndexStatus = 'not_indexed' | 'referenced' | 'queued' | 'indexed' | 'failed';
+
+/** A document attached to a capture session (uploaded or referenced). */
+export interface CaptureSessionDocument {
+  document_id?: string | null;
+  filename?: string | null;
+  title?: string | null;
+  collection?: string | null;
+  collection_name?: string | null;
+  status?: string | null;
+  chunks_processed?: number | null;
+  job_id?: string | null;
+  /** Indexing lifecycle state (shared contract with the backend). */
+  index_status?: CaptureIndexStatus | null;
+  /** Number of journaled view references pointing at this document. */
+  referenced_views_count?: number | null;
+  /**
+   * Share scope chosen at end-of-capture triage (D5). Replaces the v0
+   * boolean `full_share` (kept for retro-read of legacy sessions).
+   */
+  share_level?: CaptureShareLevel;
+  /** Legacy v0 flag — `true` maps to `share_level: 'full'`. */
+  full_share?: boolean | null;
+}
+
+/** A document view pinned to the omni-composer / "en scène". */
+export interface CapturePinnedView {
+  key: string;
+  document_id: string | null;
+  collection: string | null;
+  filename: string | null;
+  title: string | null;
+  page?: number | null;
+  slide?: number | null;
+  image_index?: number | null;
+  association_mode?: string;
+}
+
+/** Body for `POST .../views/{event_id}` — anchor correction (D2 / T0.3). */
+export interface CaptureViewUpdateRequest {
+  action: 'confirm' | 'discard' | 'rebind';
+  document_id?: string | null;
+  page?: number | null;
+  slide?: number | null;
+  image_index?: number | null;
+}
+
+/** One item of the end-of-capture share-level triage payload (D5 / T0.1). */
+export interface CaptureShareLevelItem {
+  document_id: string;
+  share_level: CaptureShareLevel;
 }
 
 /**
@@ -722,6 +818,41 @@ export class ApiService {
     return this.post(`/knowledge-capture/sessions/${sessionId}/documents/full-share`, {
       document_ids: documentIds,
     });
+  }
+
+  /**
+   * End-of-capture triage (D5 / T0.1): set the share scope per document.
+   * Replaces the boolean `full-share` selection with `{full, excerpt, none}`.
+   * Returns the updated documents collection (same shape as the GET endpoint).
+   */
+  setCaptureShareLevel(sessionId: string, items: CaptureShareLevelItem[]): Observable<unknown> {
+    return this.post(`/knowledge-capture/sessions/${sessionId}/documents/share-level`, { items });
+  }
+
+  /**
+   * Anchor correction (D2 / T0.3): confirm / discard / rebind a journaled
+   * deictic view reference, addressed by its capture event id. Returns the
+   * updated reference so the caller can refresh the anchor chip.
+   */
+  updateCaptureView(
+    sessionId: string,
+    eventId: string,
+    body: CaptureViewUpdateRequest,
+  ): Observable<CaptureViewReference> {
+    return this.post<CaptureViewReference>(
+      `/knowledge-capture/sessions/${sessionId}/views/${eventId}`,
+      body,
+    );
+  }
+
+  /**
+   * Typed projection of the event ledger into the ordered "Le Fil" feed (D1
+   * step C): `speak | note | anchor` entries with anchor status/confidence.
+   * The Fil hydrates from this on session load/resume, then keeps appending
+   * live WS events (WS stays the live source of truth).
+   */
+  getCaptureFeed(sessionId: string): Observable<{ feed: CaptureFeedEntry[] }> {
+    return this.get<{ feed: CaptureFeedEntry[] }>(`/knowledge-capture/sessions/${sessionId}/feed`);
   }
 
   listCaptureEvents(sessionId: string, afterSequence?: number, businessOnly = false): Observable<unknown> {
