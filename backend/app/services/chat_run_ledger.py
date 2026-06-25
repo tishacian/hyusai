@@ -97,6 +97,12 @@ def enrich_chat_run_ledger(
         run.efficiency = derived.efficiency
         run.value_source = derived.value_source.value
 
+    # Membrane provenance facet (P3). Attach an audit block to the ledger's
+    # ``audit_log_v1`` invocation trace — ONLY when an authoritative membrane
+    # spec is configured for the run's System, so workspaces without a membrane
+    # (the common case) keep their ledger byte-for-byte unchanged.
+    _attach_membrane_provenance(db, run, invocations, source_count=_source_count(sources))
+
     db.flush()
     return {
         "capability_id": run.capability_id,
@@ -107,6 +113,61 @@ def enrich_chat_run_ledger(
         "cost_internal": run.cost_internal,
         "value_estimated": run.value_estimated,
     }
+
+
+def _source_count(sources: Any) -> Optional[int]:
+    return len(sources) if isinstance(sources, list) else None
+
+
+def _attach_membrane_provenance(
+    db: DBSession,
+    run: Run,
+    invocations: list[SkillInvocation],
+    *,
+    source_count: Optional[int] = None,
+) -> None:
+    """Stamp a membrane provenance block onto the audit invocation trace.
+
+    Fail-soft and gated on an *authoritative* spec: with no explicit
+    ``membrane_spec`` the resolver derives a non-authoritative spec and this is
+    a complete no-op (ledger unchanged). When a membrane is configured (Andritz
+    via migration 047), the block records the resolved facets + the ObjectStore
+    artifact prefix for downstream audit.
+    """
+    try:
+        from app.models.policy import ControlPolicy
+        from app.services.membrane.spec import resolve_membrane_spec
+
+        control = None
+        if run.system_id:
+            system = db.query(System).filter(System.id == run.system_id).first()
+            if system and system.control_policy_id:
+                control = (
+                    db.query(ControlPolicy)
+                    .filter(ControlPolicy.id == system.control_policy_id)
+                    .first()
+                )
+        spec = resolve_membrane_spec(control=control)
+        if not spec.authoritative:
+            return
+        prefix = spec.provenance.object_store_prefix or f"membrane/{run.workspace_id}/{run.id}/"
+        provenance = {
+            "authoritative": True,
+            "source_count": source_count,
+            "inbound": spec.inbound.to_dict(),
+            "outbound": spec.outbound.to_dict(),
+            "provenance": {**spec.provenance.to_dict(), "object_store_prefix": prefix},
+            "decision": run.decision,
+            "confidence": run.confidence,
+        }
+        target = next(
+            (inv for inv in invocations if inv.skill_slug == "audit_log_v1"),
+            invocations[-1] if invocations else None,
+        )
+        if target is not None:
+            target.trace = {**(target.trace or {}), "membrane": provenance}
+    except Exception:  # noqa: BLE001 — provenance is best-effort, never break chat.
+        return
 
 
 def _resolve_capability(db: DBSession, run: Run) -> Optional[Capability]:

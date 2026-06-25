@@ -449,6 +449,37 @@ def _include_expert_fiche_collection(
     return collections
 
 
+def _apply_membrane_inbound_collections(
+    collections: list[str],
+    *,
+    source_policy: Any,
+) -> list[str]:
+    """Membrane inbound facet — restrict the searched collections to the
+    authoritative allowlist (P3).
+
+    Read-through and inert by default: a workspace with no explicit
+    ``membrane_spec`` (the common case, incl. derived specs) keeps the full
+    collection set byte-for-byte. Only an *authoritative* spec carrying a
+    non-empty ``inbound.collection_allowlist`` filters the set (order-preserving
+    intersection); if the intersection is empty we fall back to the original
+    collections rather than searching nothing.
+    """
+    if not isinstance(source_policy, Mapping):
+        return collections
+    try:
+        from app.services.membrane.spec import resolve_membrane_spec
+
+        spec = resolve_membrane_spec(source_policy=source_policy)
+    except Exception:  # noqa: BLE001 — fail-soft, never break retrieval.
+        return collections
+    allowlist = spec.inbound.collection_allowlist
+    if not spec.authoritative or not allowlist:
+        return collections
+    allowed = set(allowlist)
+    filtered = [c for c in collections if c in allowed]
+    return filtered or collections
+
+
 def _deep_rewrite_variants(request: Mapping[str, Any], profile: Mapping[str, Any]) -> list[str] | None:
     """LLM-rewritten query joins the retrieval fan-out on the deep path only.
 
@@ -738,6 +769,10 @@ def get_retrieval_profile(request: dict[str, Any]) -> dict[str, Any]:
     collections = _include_expert_fiche_collection(
         collections,
         workspace_slug=request.get("workspace_slug"),
+        source_policy=request.get("source_policy"),
+    )
+    collections = _apply_membrane_inbound_collections(
+        collections,
         source_policy=request.get("source_policy"),
     )
     vector_db_type = resolve_vector_db_type(app_settings)

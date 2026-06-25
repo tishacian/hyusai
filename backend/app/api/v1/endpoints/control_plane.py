@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session as DBSession
 
 from app.api.v1.endpoints.impact import _aggregate
@@ -16,6 +16,7 @@ from app.core.auth import get_current_workspace
 from app.db.base import get_db
 from app.models.policy import AdaptivePolicy, ControlPolicy
 from app.models.workspace import Workspace
+from app.services.membrane.spec import MembraneSpec
 
 router = APIRouter()
 
@@ -31,6 +32,27 @@ class ControlPolicyBody(BaseModel):
     allowed_models: List[str] = []
     allowed_skills: List[str] = []
     extra: Dict[str, Any] = {}
+
+    @field_validator("extra")
+    @classmethod
+    def _validate_membrane_spec(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalise ``extra["membrane_spec"]`` through the typed MembraneSpec.
+
+        ``extra`` still passes through free-form; only the reserved
+        ``membrane_spec`` key is parsed/canonicalised so a malformed facet is
+        rejected at the API boundary instead of silently mis-enforcing. Absent
+        key → untouched (read-through path).
+        """
+        if not isinstance(value, dict):
+            return value
+        raw = value.get("membrane_spec")
+        if raw is None:
+            return value
+        if not isinstance(raw, dict):
+            raise ValueError("membrane_spec must be an object")
+        value = dict(value)
+        value["membrane_spec"] = MembraneSpec.from_dict(raw).to_dict()
+        return value
 
 
 def _serialize_cp(p: ControlPolicy) -> Dict[str, Any]:
