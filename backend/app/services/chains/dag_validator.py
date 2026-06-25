@@ -15,6 +15,17 @@ E3.1 adds two checks that the frontend declared but never emitted:
   typical leftover of a half-finished drag/drop that the builder
   forgot to wire up.
 
+P0 (variable-membrane / schema_version 3) adds two warn-level checks,
+also declared on the frontend and emitted here in lockstep:
+
+- ``port_type_mismatch``: a ``kind='data'`` edge whose ``from_port`` /
+  ``to_port`` reference declared ports with incompatible primitive
+  schemas.
+- ``variable_unresolved``: a ``config.inputs_map`` typed ``VariableRef``
+  (``{node_id, path}``) pointing at a node_id/port that is neither a
+  reserved namespace nor present upstream. Legacy dot-path strings are
+  left untouched (resolved by the run engine, not the graph).
+
 The result is a list of ``ValidationIssue`` dicts, shaped identically
 to the frontend ``FlowValidationIssue`` so the editor can display
 server-side errors without translating anything.
@@ -121,6 +132,76 @@ def _reachable_from(
         seen.add(node)
         stack.extend(adj.get(node, ()))
     return seen
+
+
+# --- v3 variable-membrane helpers (kept in lockstep with the frontend
+# ``FlowSerializer.validateFlow``: same codes, same warn level, same
+# semantics). -------------------------------------------------------------
+_PRIMITIVE_SCHEMAS: Set[str] = {
+    "string",
+    "number",
+    "integer",
+    "boolean",
+    "object",
+    "array",
+}
+
+# Reserved variable namespaces that resolve outside the node graph
+# (mirror of ``RESERVED_VARIABLE_NAMESPACES`` on the frontend).
+_RESERVED_VARIABLE_NAMESPACES: Set[str] = {"workspace", "system", "run", "node"}
+
+
+def _ports(node: Mapping[str, Any], key: str) -> Dict[str, Optional[str]]:
+    """Map declared port name → primitive schema (or ``None``)."""
+    out: Dict[str, Optional[str]] = {}
+    raw = node.get(key)
+    if isinstance(raw, list):
+        for port in raw:
+            if isinstance(port, Mapping):
+                name = port.get("name")
+                schema = port.get("schema")
+                if isinstance(name, str) and name:
+                    out[name] = schema if isinstance(schema, str) else None
+    return out
+
+
+def _primitives_incompatible(a: Optional[str], b: Optional[str]) -> bool:
+    """True only when BOTH schemas are known primitives and incompatible.
+    Unknown / ``ref:``-style schemas are not comparable. ``number`` and
+    ``integer`` are treated as compatible.
+    """
+    if a not in _PRIMITIVE_SCHEMAS or b not in _PRIMITIVE_SCHEMAS:
+        return False
+    if a == b:
+        return False
+    numeric = {"number", "integer"}
+    if a in numeric and b in numeric:
+        return False
+    return True
+
+
+def _ancestors(node_id: str, rev: Mapping[str, Sequence[str]]) -> Set[str]:
+    """Backward-reachable set (ancestors) over the purified reverse edges."""
+    seen: Set[str] = set()
+    stack = list(rev.get(node_id, ()))
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        stack.extend(rev.get(cur, ()))
+    return seen
+
+
+def _is_variable_ref(value: Any) -> bool:
+    """A typed v3 ``VariableRef`` carries a string ``node_id`` and a list
+    ``path``; legacy dot-path strings are opaque and skipped.
+    """
+    return (
+        isinstance(value, Mapping)
+        and isinstance(value.get("node_id"), str)
+        and isinstance(value.get("path"), list)
+    )
 
 
 def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
@@ -318,6 +399,97 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
                         level="error",
                         code="node_orphan",
                         message=f"Node {node.get('label') or nid!r} is disconnected (no inbound nor outbound edge).",
+                        node_id=nid,
+                    )
+                )
+
+    # --- v3 data-membrane diagnostics (warn level; never block a save) ---
+    nodes_by_id: Dict[str, Mapping[str, Any]] = {}
+    for node in nodes:
+        nid = _node_id(node)
+        if nid:
+            nodes_by_id[nid] = node
+
+    # port_type_mismatch: a kind='data' edge whose from_port/to_port
+    # reference declared ports with incompatible *primitive* schemas.
+    for idx, edge in enumerate(edges):
+        if str(edge.get("kind") or "data") != "data":
+            continue
+        from_port = edge.get("from_port")
+        to_port = edge.get("to_port")
+        if not isinstance(from_port, str) or not isinstance(to_port, str):
+            continue
+        src = nodes_by_id.get(edge.get("from"))
+        dst = nodes_by_id.get(edge.get("to"))
+        if src is None or dst is None:
+            continue  # already reported as dangling_edge
+        out_schema = _ports(src, "outputs").get(from_port)
+        in_schema = _ports(dst, "inputs").get(to_port)
+        if out_schema is None or in_schema is None:
+            continue  # can't compare undeclared ports
+        if _primitives_incompatible(out_schema, in_schema):
+            issues.append(
+                ValidationIssue(
+                    level="warn",
+                    code="port_type_mismatch",
+                    message=(
+                        f"Edge {edge.get('from')}.{from_port} ({out_schema}) → "
+                        f"{edge.get('to')}.{to_port} ({in_schema}) connects incompatible types."
+                    ),
+                    edge_index=idx,
+                )
+            )
+
+    # variable_unresolved: a config.inputs_map VariableRef points at a
+    # node_id/port not present upstream. Legacy dot-path strings skipped.
+    for node in nodes:
+        nid = _node_id(node)
+        if not nid:
+            continue
+        cfg = node.get("config") or {}
+        if not isinstance(cfg, Mapping):
+            continue
+        inputs_map = cfg.get("inputs_map")
+        if not isinstance(inputs_map, Mapping):
+            continue
+        ancestors: Optional[Set[str]] = None
+        for port, raw in inputs_map.items():
+            if not _is_variable_ref(raw):
+                continue
+            ref_node = raw.get("node_id")
+            path = raw.get("path") or []
+            if ref_node in _RESERVED_VARIABLE_NAMESPACES:
+                continue
+            if ref_node not in ids:
+                issues.append(
+                    ValidationIssue(
+                        level="warn",
+                        code="variable_unresolved",
+                        message=f"Input {port!r} references unknown node {ref_node!r}.",
+                        node_id=nid,
+                    )
+                )
+                continue
+            if ancestors is None:
+                ancestors = _ancestors(nid, rev)
+            if ref_node not in ancestors:
+                issues.append(
+                    ValidationIssue(
+                        level="warn",
+                        code="variable_unresolved",
+                        message=f"Input {port!r} reads from {ref_node!r}, which is not upstream of {nid!r}.",
+                        node_id=nid,
+                    )
+                )
+                continue
+            src_outputs = _ports(nodes_by_id.get(ref_node, {}), "outputs")
+            head = path[0] if path else None
+            if src_outputs and head and head not in src_outputs:
+                issues.append(
+                    ValidationIssue(
+                        level="warn",
+                        code="variable_unresolved",
+                        message=f"Input {port!r} reads port {head!r} not declared on {ref_node!r}.",
                         node_id=nid,
                     )
                 )

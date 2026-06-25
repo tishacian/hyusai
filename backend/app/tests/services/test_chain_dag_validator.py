@@ -212,3 +212,166 @@ def test_single_standalone_node_is_valid() -> None:
         "edges": [],
     }
     assert validate_flow(flow) == []
+
+
+# ---------------------------------------------------------------------------
+# P0 — variable-membrane (schema_version 3) checks. Kept in lockstep with the
+# frontend ``FlowSerializer.validateFlow``: same codes, same warn level.
+# ---------------------------------------------------------------------------
+
+
+def test_port_type_mismatch_warns_on_incompatible_primitives() -> None:
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "a", "kind": "source", "outputs": [{"name": "out", "schema": "string"}]},
+            {
+                "id": "b",
+                "kind": "task",
+                "config": {"skill_id": "s"},
+                "inputs": [{"name": "in", "schema": "number"}],
+            },
+        ],
+        "edges": [
+            {"from": "a", "to": "b", "kind": "data", "from_port": "out", "to_port": "in"},
+        ],
+    }
+    issues = validate_flow(flow)
+    assert "port_type_mismatch" in _codes(issues)
+    assert not has_errors(issues)  # warn level only
+
+
+def test_port_type_mismatch_silent_on_compatible_and_numeric_widening() -> None:
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "a", "kind": "source", "outputs": [{"name": "out", "schema": "integer"}]},
+            {
+                "id": "b",
+                "kind": "task",
+                "config": {"skill_id": "s"},
+                "inputs": [{"name": "in", "schema": "number"}],
+            },
+        ],
+        "edges": [
+            {"from": "a", "to": "b", "kind": "data", "from_port": "out", "to_port": "in"},
+        ],
+    }
+    assert "port_type_mismatch" not in _codes(validate_flow(flow))
+
+
+def test_port_type_mismatch_silent_on_portless_or_ref_schemas() -> None:
+    # Portless data edges (the seeded-flow shape) and non-primitive
+    # ``ref:`` schemas are not comparable -> no diagnostic.
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "a", "kind": "source", "outputs": [{"name": "out", "schema": "ref:chat.req"}]},
+            {
+                "id": "b",
+                "kind": "task",
+                "config": {"skill_id": "s"},
+                "inputs": [{"name": "in", "schema": "string"}],
+            },
+        ],
+        "edges": [
+            # carries ports but source schema is a non-primitive ref
+            {"from": "a", "to": "b", "kind": "data", "from_port": "out", "to_port": "in"},
+            # portless edge -> skipped entirely
+            {"from": "a", "to": "b", "kind": "data"},
+        ],
+    }
+    assert "port_type_mismatch" not in _codes(validate_flow(flow))
+
+
+def test_variable_unresolved_warns_on_unknown_node() -> None:
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {
+                "id": "b",
+                "kind": "task",
+                "config": {
+                    "skill_id": "s",
+                    "inputs_map": {"q": {"node_id": "ghost", "path": ["value"]}},
+                },
+            },
+        ],
+        "edges": [],
+    }
+    issues = validate_flow(flow)
+    assert "variable_unresolved" in _codes(issues)
+    assert not has_errors(issues)
+
+
+def test_variable_unresolved_warns_when_not_upstream() -> None:
+    # ``later`` exists but is downstream of ``b`` -> not a valid source.
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "a", "kind": "source"},
+            {
+                "id": "b",
+                "kind": "task",
+                "config": {
+                    "skill_id": "s",
+                    "inputs_map": {"q": {"node_id": "later", "path": ["value"]}},
+                },
+            },
+            {"id": "later", "kind": "task", "config": {"skill_id": "s2"}},
+        ],
+        "edges": [
+            {"from": "a", "to": "b", "kind": "control"},
+            {"from": "b", "to": "later", "kind": "control"},
+        ],
+    }
+    assert "variable_unresolved" in _codes(validate_flow(flow))
+
+
+def test_variable_unresolved_silent_for_reserved_namespace_and_legacy_strings() -> None:
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "a", "kind": "source", "outputs": [{"name": "goal", "schema": "string"}]},
+            {
+                "id": "b",
+                "kind": "task",
+                "config": {
+                    "skill_id": "s",
+                    "inputs_map": {
+                        # reserved namespace -> resolves outside the graph
+                        "ws": {"node_id": "workspace", "path": ["settings", "x"]},
+                        # valid upstream ref hitting a declared output port
+                        "goal": {"node_id": "a", "path": ["goal"]},
+                        # legacy dot-path string -> opaque, never flagged
+                        "legacy": "session.objective",
+                    },
+                },
+            },
+        ],
+        "edges": [
+            {"from": "a", "to": "b", "kind": "data"},
+        ],
+    }
+    assert "variable_unresolved" not in _codes(validate_flow(flow))
+
+
+def test_variable_unresolved_warns_on_missing_declared_port() -> None:
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "a", "kind": "source", "outputs": [{"name": "goal", "schema": "string"}]},
+            {
+                "id": "b",
+                "kind": "task",
+                "config": {
+                    "skill_id": "s",
+                    "inputs_map": {"q": {"node_id": "a", "path": ["nope"]}},
+                },
+            },
+        ],
+        "edges": [
+            {"from": "a", "to": "b", "kind": "data"},
+        ],
+    }
+    assert "variable_unresolved" in _codes(validate_flow(flow))

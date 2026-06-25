@@ -12,7 +12,7 @@ from app.models.workspace_job import WorkspaceJob
 
 def test_showcase_seed_builds_pmi_translation_suite_story(db_session):
     workspace = seed.ensure_workspace(db_session, "agentium-showcase-test", "Agentium Showcase Test")
-    owner = seed.ensure_owner(db_session, workspace, "owner@example.test")
+    owner = seed.ensure_member(db_session, workspace, "owner@example.test", role="owner")
     seed.seed_skills_and_capabilities(db_session)
     seed.ensure_eval_preset(db_session, workspace)
     policies = seed.ensure_policies(db_session, workspace)
