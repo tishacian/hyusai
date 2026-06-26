@@ -2,8 +2,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  ElementRef,
   EventEmitter,
   Output,
+  ViewChild,
   computed,
   inject,
   signal,
@@ -14,11 +16,22 @@ import { ApiService } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine, type CaptureSessionInfo } from '../capture-engine';
 
+interface PlanSubtopic {
+  id?: string;
+  title?: string;
+  objective?: string;
+  prompt?: string;
+  status?: string;
+}
+
 interface PlanTopic {
   id?: string;
   title?: string;
   objective?: string;
   prompt?: string;
+  status?: string;
+  knowledge_refs?: unknown[];
+  subtopics?: PlanSubtopic[];
 }
 
 interface PlanNotice {
@@ -26,15 +39,19 @@ interface PlanNotice {
   text: string;
 }
 
+type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down';
+
 /**
  * Launch surface — builds the plan (with-plan mode) and owns the single,
- * explicit Start. Restores the v0 plan-creation capabilities that the first
- * cockpit rewrite dropped: **editable topics**, a **dialogue assistant**
- * (typed instruction → `planDialogueTurn`), **document import** (extract → same
- * instruction path), and **dictation** (record → `transcribeAudio` → text).
+ * explicit Start. Restores the **v0 hierarchical outline**: topics and
+ * subtopics edited as an indented outline (`1.` / `   1.1.`) with indent /
+ * outdent / renumber / move controls, plus a **dialogue assistant** that keeps
+ * the existing plan as its base ("ajoute telle section" mutates n-1, never
+ * restarts from scratch — the current topics are persisted first, then the
+ * instruction is applied server-side). Dictation and document import feed the
+ * same instruction path.
  *
- * Pieces shown by the expert are uploaded **in-session** (La Scène), not here:
- * this surface is about framing/launching, not about session artefacts.
+ * Pieces shown by the expert are uploaded **in-session** (La Scène), not here.
  */
 @Component({
   selector: 'app-capture-fil-plan',
@@ -65,53 +82,37 @@ interface PlanNotice {
           </div>
         </div>
       } @else {
-        <!-- Editable plan topics -->
+        <!-- Hierarchical outline editor (topics + subtopics) -->
         <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:18px; display:flex; flex-direction:column; gap:12px;">
-          <div style="display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <span class="ck-mono" style="font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-fg-4);">
-              Sujets du plan · {{ topics().length }}
+              Plan · {{ topics().length }} sujet{{ topics().length > 1 ? 's' : '' }}
             </span>
-            <button
-              type="button"
-              (click)="addTopic()"
-              style="margin-left:auto; display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); cursor:pointer; font-size:12px; color:var(--ck-fg-2); background:transparent;"
-            >
-              <ck-glyph name="bolt" [size]="13" color="currentColor" /> Ajouter un sujet
-            </button>
+            <div style="margin-left:auto; display:inline-flex; align-items:center; gap:6px;">
+              <button type="button" (click)="applyFormat('outdent')" title="Désindenter (Maj+Tab)" [style]="iconBtn"><ck-glyph name="zoom-out" [size]="13" color="currentColor" /></button>
+              <button type="button" (click)="applyFormat('indent')" title="Indenter (Tab) — créer un sous-sujet" [style]="iconBtn"><ck-glyph name="zoom-in" [size]="13" color="currentColor" /></button>
+              <button type="button" (click)="applyFormat('renumber')" title="Renuméroter" [style]="iconBtn"><ck-glyph name="ledger" [size]="13" color="currentColor" /></button>
+              <button type="button" (click)="applyFormat('move_up')" title="Monter" [style]="iconBtn"><ck-glyph name="arrow-up" [size]="13" color="currentColor" /></button>
+              <button type="button" (click)="applyFormat('move_down')" title="Descendre" [style]="iconBtn"><ck-glyph name="arrow-down" [size]="13" color="currentColor" /></button>
+            </div>
           </div>
 
-          @if (topics().length === 0) {
-            <div style="font-size:12.5px; color:var(--ck-fg-4); font-style:italic;">
-              Aucun sujet pour l'instant. Décrivez les points à couvrir ci-dessous (texte, dictée ou import de
-              document) pour générer le plan — ou ajoutez les sujets à la main.
-            </div>
-          }
-
-          @for (t of topics(); track $index) {
-            <div
-              style="display:flex; gap:10px; align-items:center; padding:8px 12px; border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2);"
-              [title]="t.objective || t.prompt || ''"
-            >
-              <span class="ck-mono" style="font-size:11px; color:var(--ck-signal-cool);">{{ $index + 1 }}</span>
-              <input
-                [value]="t.title || ''"
-                (input)="updateTopic($index, 'title', $any($event.target).value)"
-                placeholder="Titre du sujet"
-                style="flex:1; min-width:0; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-sm); background:var(--ck-bg-base); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:13.5px; font-weight:600; padding:7px 10px;"
-              />
-              <button
-                type="button"
-                (click)="removeTopic($index)"
-                title="Retirer ce sujet"
-                style="flex:none; display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border-radius:var(--ck-radius-sm); border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-4); cursor:pointer;"
-              >
-                <ck-glyph name="x" [size]="13" color="currentColor" />
-              </button>
-            </div>
-          }
+          <textarea
+            #outlineEditor
+            rows="10"
+            [value]="outlineText()"
+            (input)="onOutlineInput($any($event.target).value)"
+            (keydown)="onOutlineKeydown($event)"
+            spellcheck="false"
+            placeholder="1. Premier sujet&#10;   1.1. Sous-sujet&#10;2. Deuxième sujet"
+            style="resize:vertical; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-mono); font-size:13px; line-height:1.6; padding:12px 14px; min-height:200px;"
+          ></textarea>
+          <div class="ck-mono" style="font-size:10.5px; color:var(--ck-fg-5);">
+            Tab pour créer un sous-sujet, Maj+Tab pour remonter d'un niveau. La numérotation se met à jour automatiquement.
+          </div>
         </div>
 
-        <!-- Dialogue assistant: instruction (typed / dictated / imported) -->
+        <!-- Dialogue assistant: keeps the current plan as base (n-1) -->
         <div class="ck-surface" style="border-radius:var(--ck-radius-lg); padding:18px; display:flex; flex-direction:column; gap:10px;">
           <div style="display:flex; align-items:center; gap:8px;">
             <ck-glyph name="pulse" [size]="15" color="var(--ck-signal-violet)" />
@@ -131,7 +132,7 @@ interface PlanNotice {
             [value]="instruction()"
             (input)="instruction.set($any($event.target).value)"
             [disabled]="dialogueLoading()"
-            placeholder="Décrivez un sujet ou donnez une instruction (« ajoute un sujet sur… », « reformule… »). L'assistant met à jour le plan."
+            placeholder="Donnez une instruction (« ajoute une section sur… », « ajoute un sous-sujet à 2 », « reformule… »). Le plan ci-dessus est conservé comme base."
             style="resize:vertical; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; line-height:1.5; padding:10px 12px;"
           ></textarea>
 
@@ -152,7 +153,7 @@ interface PlanNotice {
             <label
               style="display:inline-flex; align-items:center; gap:7px; padding:8px 12px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); cursor:pointer; font-size:12.5px; color:var(--ck-fg-2);"
               [style.opacity]="dialogueLoading() || extracting() ? 0.5 : 1"
-              [title]="'Importer un document (notes, plan) : son contenu est appliqué comme instruction de plan.'"
+              [title]="'Importer un document (notes, plan) : son contenu est appliqué comme instruction, le plan actuel reste la base.'"
             >
               <ck-glyph name="layers" [size]="14" color="currentColor" />
               {{ extracting() ? 'Extraction…' : 'Importer un document' }}
@@ -167,7 +168,7 @@ interface PlanNotice {
               [style.opacity]="dialogueLoading() || !instruction().trim() ? 0.5 : 1"
             >
               <ck-glyph name="arrow-right" [size]="13" color="currentColor" />
-              {{ dialogueLoading() ? 'Envoi…' : 'Envoyer' }}
+              {{ dialogueLoading() ? 'Envoi…' : 'Appliquer' }}
             </button>
           </div>
 
@@ -209,8 +210,13 @@ export class CaptureFilPlanComponent {
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
 
+  @ViewChild('outlineEditor') private outlineEditor?: ElementRef<HTMLTextAreaElement>;
+
   /** Emitted once the realtime leg is connecting — shell shows the session. */
   @Output() started = new EventEmitter<void>();
+
+  protected readonly iconBtn =
+    'display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:var(--ck-radius-sm); border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer;';
 
   protected readonly busy = signal(false);
   protected readonly dialogueLoading = signal(false);
@@ -222,6 +228,8 @@ export class CaptureFilPlanComponent {
   protected readonly instruction = signal('');
   protected readonly nextPrompt = signal<string | null>(null);
   protected readonly topics = signal<PlanTopic[]>([]);
+  /** Free-text editing buffer; null means "serialize from topics()". */
+  protected readonly outlineDraft = signal<string | null>(null);
 
   protected readonly sessionId = this.engine.sessionId;
   protected readonly title = computed(() => this.engine.session()?.title ?? 'Plan de capture');
@@ -238,6 +246,10 @@ export class CaptureFilPlanComponent {
     );
   });
 
+  protected readonly outlineText = computed(
+    () => this.outlineDraft() ?? this.serializeOutline(this.topics()),
+  );
+
   private recorder: MediaRecorder | null = null;
   private chunks: Blob[] = [];
 
@@ -246,37 +258,249 @@ export class CaptureFilPlanComponent {
     this.destroyRef.onDestroy(() => this.abortRecorder());
   }
 
-  // ---- plan topics -------------------------------------------------------
+  // ---- plan topics (hierarchical) ----------------------------------------
 
   private topicsFromSession(): PlanTopic[] {
     const plan = this.engine.session()?.plan ?? null;
     const topics = (plan as { topics?: PlanTopic[] } | null)?.topics;
-    return Array.isArray(topics) ? topics.map((t) => ({ ...t })) : [];
+    return Array.isArray(topics) ? topics.map((t) => this.cloneTopic(t)) : [];
   }
 
-  protected addTopic(): void {
-    this.topics.update((list) => [...list, { title: '', objective: '' }]);
+  private cloneTopic(t: PlanTopic): PlanTopic {
+    return {
+      ...t,
+      subtopics: Array.isArray(t.subtopics) ? t.subtopics.map((s) => ({ ...s })) : [],
+    };
   }
 
-  protected removeTopic(index: number): void {
-    this.topics.update((list) => list.filter((_, i) => i !== index));
-  }
-
-  protected updateTopic(index: number, field: 'title' | 'objective', value: string): void {
-    this.topics.update((list) =>
-      list.map((t, i) => (i === index ? { ...t, [field]: value } : t)),
-    );
+  /** Reflect the textarea edit into the structured topics (preserving n-1 base). */
+  protected onOutlineInput(text: string): void {
+    this.outlineDraft.set(text);
+    this.topics.set(this.parseOutline(text, this.topics()));
   }
 
   private async persistTopics(): Promise<void> {
     const sessionId = this.engine.sessionId();
-    const topics = this.topics().filter((t) => (t.title || '').trim() || (t.objective || '').trim());
+    const topics = this.topics().filter((t) => (t.title || '').trim() || (t.subtopics || []).length);
     if (!sessionId || !topics.length) return;
     await firstValueFrom(
       this.api
         .updateCapturePlanTopics(sessionId, topics as unknown as Record<string, unknown>[])
         .pipe(takeUntilDestroyed(this.destroyRef)),
     );
+  }
+
+  // ---- outline serialize / parse (ported from v0) ------------------------
+
+  private serializeOutline(topics: PlanTopic[]): string {
+    return topics
+      .map((topic, topicIndex) => {
+        const lines = [`${topicIndex + 1}. ${topic.title ?? ''}`];
+        const subtopics = topic.subtopics || [];
+        const visible = subtopics.filter((s) => {
+          const title = (s.title || '').trim();
+          return title && !(subtopics.length === 1 && title === topic.title && !s.objective);
+        });
+        visible.forEach((s, i) => lines.push(`   ${topicIndex + 1}.${i + 1}. ${s.title}`));
+        return lines.join('\n');
+      })
+      .join('\n');
+  }
+
+  private parseOutline(text: string, fallbackTopics: PlanTopic[]): PlanTopic[] {
+    const topics: PlanTopic[] = [];
+    let current: PlanTopic | null = null;
+    const addTopic = (title: string): PlanTopic => {
+      const index = topics.length;
+      const fallback = fallbackTopics[index];
+      const topic: PlanTopic = {
+        id: fallback?.id || `t-${String(index + 1).padStart(2, '0')}`,
+        title: title.trim() || `Sujet ${index + 1}`,
+        objective: fallback?.objective || '',
+        prompt: fallback?.prompt,
+        status: fallback?.status,
+        knowledge_refs: fallback?.knowledge_refs || [],
+        subtopics: [],
+      };
+      topics.push(topic);
+      current = topic;
+      return topic;
+    };
+    const addSubtopic = (title: string): void => {
+      const topic = current || addTopic('Plan');
+      const subtopics = topic.subtopics || [];
+      const fallback = fallbackTopics[topics.length - 1]?.subtopics?.[subtopics.length];
+      subtopics.push({
+        id: fallback?.id || `${topic.id}-sub-${String(subtopics.length + 1).padStart(2, '0')}`,
+        title: title.trim() || `Sous-sujet ${subtopics.length + 1}`,
+        objective: fallback?.objective || '',
+        prompt: fallback?.prompt,
+        status: fallback?.status || 'pending',
+      });
+      topic.subtopics = subtopics;
+    };
+
+    for (const rawLine of text.split(/\r?\n/)) {
+      if (!rawLine.trim()) continue;
+      const indent = rawLine.length - rawLine.trimStart().length;
+      const line = rawLine.trim();
+      const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+      if (heading) {
+        if (heading[1].length === 1) addTopic(heading[2]);
+        else addSubtopic(heading[2]);
+        continue;
+      }
+      const dotted = /^(\d+(?:\.\d+)+)[.)]?\s+(.+)$/.exec(line);
+      if (dotted) {
+        if (dotted[1].includes('.')) addSubtopic(dotted[2]);
+        else addTopic(dotted[2]);
+        continue;
+      }
+      const numbered = /^\d+[.)]\s+(.+)$/.exec(line);
+      if (numbered) {
+        addTopic(numbered[1]);
+        continue;
+      }
+      const alpha = /^[a-zA-Z][.)]\s+(.+)$/.exec(line);
+      if (alpha) {
+        addSubtopic(alpha[1]);
+        continue;
+      }
+      const bullet = /^[-*•·▪◦]\s+(.+)$/.exec(line);
+      if (bullet) {
+        if (!current) addTopic(bullet[1]);
+        else addSubtopic(bullet[1]);
+        continue;
+      }
+      if (!current || indent === 0) addTopic(line);
+      else addSubtopic(line);
+    }
+    return topics;
+  }
+
+  // ---- outline formatting (toolbar + keyboard) ---------------------------
+
+  protected applyFormat(action: OutlineAction): void {
+    const textarea = this.outlineEditor?.nativeElement;
+    if (!textarea) return;
+    const original = textarea.value || this.outlineText();
+    const lines = original.split('\n');
+    const range = this.selectedLines(original, textarea.selectionStart || 0, textarea.selectionEnd || 0);
+    let nextLines = [...lines];
+    let nextStart = range.startLine;
+    let nextEnd = range.endLine;
+    const count = range.endLine - range.startLine + 1;
+
+    if (action === 'renumber') {
+      nextLines = this.renumberLines(nextLines);
+    } else if (action === 'move_up') {
+      if (range.startLine === 0) return;
+      const selected = nextLines.splice(range.startLine, count);
+      nextLines.splice(range.startLine - 1, 0, ...selected);
+      nextStart -= 1;
+      nextEnd -= 1;
+    } else if (action === 'move_down') {
+      if (range.endLine >= nextLines.length - 1) return;
+      const selected = nextLines.splice(range.startLine, count);
+      nextLines.splice(range.startLine + 1, 0, ...selected);
+      nextStart += 1;
+      nextEnd += 1;
+    } else {
+      nextLines = nextLines.map((line, index) =>
+        index < range.startLine || index > range.endLine ? line : this.formatLine(line, action),
+      );
+      nextLines = this.renumberLines(nextLines);
+    }
+
+    const nextText = nextLines.join('\n');
+    textarea.value = nextText;
+    this.onOutlineInput(nextText);
+    const selStart = this.lineOffset(nextLines, nextStart);
+    const selEnd = this.lineOffset(nextLines, nextEnd) + (nextLines[nextEnd]?.length || 0);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(Math.max(0, selStart), Math.max(0, selEnd));
+    });
+  }
+
+  protected onOutlineKeydown(event: KeyboardEvent): void {
+    const textarea = event.target as HTMLTextAreaElement | null;
+    if (!textarea) return;
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      this.applyIndentShortcut(textarea, event.shiftKey ? 'outdent' : 'indent');
+    }
+  }
+
+  private applyIndentShortcut(textarea: HTMLTextAreaElement, action: 'indent' | 'outdent'): void {
+    const original = textarea.value || this.outlineText();
+    const start = textarea.selectionStart || 0;
+    const end = textarea.selectionEnd || start;
+    const range = this.selectedLines(original, start, end);
+    const lines = original.split('\n');
+    for (let index = range.startLine; index <= range.endLine; index += 1) {
+      lines[index] = this.formatLine(lines[index] || '', action);
+    }
+    const nextLines = this.renumberLines(lines);
+    const nextText = nextLines.join('\n');
+    textarea.value = nextText;
+    this.onOutlineInput(nextText);
+    const selStart = this.lineOffset(nextLines, range.startLine);
+    const selEnd = this.lineOffset(nextLines, range.endLine) + (nextLines[range.endLine]?.length || 0);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(Math.max(0, selStart), Math.max(0, selEnd));
+    });
+  }
+
+  private selectedLines(text: string, start: number, end: number): { startLine: number; endLine: number } {
+    const safeStart = Math.max(0, Math.min(start, text.length));
+    const rawEnd = Math.max(safeStart, Math.min(end, text.length));
+    const safeEnd = rawEnd > safeStart && text[rawEnd - 1] === '\n' ? rawEnd - 1 : rawEnd;
+    return {
+      startLine: text.slice(0, safeStart).split('\n').length - 1,
+      endLine: text.slice(0, safeEnd).split('\n').length - 1,
+    };
+  }
+
+  private lineOffset(lines: string[], lineIndex: number): number {
+    let offset = 0;
+    for (let index = 0; index < lineIndex; index += 1) offset += (lines[index] || '').length + 1;
+    return offset;
+  }
+
+  private formatLine(line: string, action: 'indent' | 'outdent'): string {
+    if (action === 'indent') return `   ${line}`;
+    return line.replace(/^( {1,3}|\t)/, '');
+  }
+
+  private renumberLines(lines: string[]): string[] {
+    const counters: number[] = [];
+    let previousLevel = 0;
+    return lines.map((line) => {
+      if (!line.trim()) return line;
+      const requestedLevel = this.indentLevel(line);
+      const level = counters.length ? Math.min(requestedLevel, previousLevel + 1) : 0;
+      for (let index = 0; index < level; index += 1) counters[index] = counters[index] || 1;
+      counters[level] = (counters[level] || 0) + 1;
+      counters.length = level + 1;
+      previousLevel = level;
+      const body = this.stripMarker(line.trim()) || 'Point à préciser';
+      return `${'   '.repeat(level)}${counters.slice(0, level + 1).join('.')}. ${body}`;
+    });
+  }
+
+  private indentLevel(line: string): number {
+    const prefix = line.match(/^\s*/)?.[0] || '';
+    const width = Array.from(prefix).reduce((sum, ch) => sum + (ch === '\t' ? 3 : 1), 0);
+    if (width <= 0) return 0;
+    return Math.max(1, Math.round(width / 3));
+  }
+
+  private stripMarker(value: string): string {
+    return value
+      .replace(/^(?:#{1,6}\s+|\d+(?:\.\d+)*[.)]?\s+|[a-zA-Z][.)]\s+|[-*•·▪◦]\s+)/, '')
+      .trim();
   }
 
   // ---- dialogue assistant (typed / dictated / imported) ------------------
@@ -293,8 +517,8 @@ export class CaptureFilPlanComponent {
     this.dialogueLoading.set(true);
     this.notice.set(null);
     try {
-      // Persist current topic edits first (mirrors v0): the backend iterates the
-      // plan from the current topics + the new instruction.
+      // Persist the CURRENT plan first so the backend mutates from it (n-1 base):
+      // "ajoute telle section" augments the existing plan instead of restarting.
       await this.persistTopics();
       const payload = await firstValueFrom(
         this.api.planDialogueTurn(sessionId, { text }).pipe(takeUntilDestroyed(this.destroyRef)),
@@ -306,7 +530,9 @@ export class CaptureFilPlanComponent {
       if (body.session) {
         const info = this.toSessionInfo(body.session);
         this.engine.setSession(info);
+        // Re-sync from the freshly returned plan and drop the editing buffer.
         this.topics.set(this.topicsFromSession());
+        this.outlineDraft.set(null);
       }
       this.nextPrompt.set(body.next_prompt ?? null);
       this.instruction.set('');
