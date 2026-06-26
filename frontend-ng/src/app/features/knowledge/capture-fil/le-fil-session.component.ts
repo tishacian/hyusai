@@ -104,7 +104,7 @@ import { clockLabel } from './capture-presentation';
             class="ck-mono"
             style="writing-mode:vertical-rl; font-size:8.5px; letter-spacing:0.18em; color:var(--ck-fg-5); text-transform:uppercase; padding:8px 0;"
           >
-            le fil
+            capture
           </span>
         </div>
 

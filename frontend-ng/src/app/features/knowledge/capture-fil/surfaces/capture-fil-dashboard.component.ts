@@ -34,7 +34,7 @@ interface DashboardSession extends CaptureSessionInfo {
       <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
         <div>
           <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
-            Capture · Le Fil
+            Capture · Connaissances
           </span>
           <h2 style="margin:6px 0 0; font-size:22px; font-weight:680; color:var(--ck-fg-1);">Vos séances de capture</h2>
         </div>

@@ -109,6 +109,8 @@ export interface CaptureSessionInfo {
   status?: string | null;
   duration_minutes?: number | null;
   plan?: Record<string, unknown> | null;
+  /** `plan_build` (topics built upfront) vs `free_conversation` (no plan). */
+  plan_mode?: string | null;
   /** System this capture is scoped to (from `/systems/:id/capture`), if any. */
   system_id?: string | null;
 }

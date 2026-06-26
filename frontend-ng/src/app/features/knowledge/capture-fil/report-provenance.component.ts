@@ -108,7 +108,7 @@ interface ReportSource {
             @if (sources().length === 0) {
               <p style="font-size:13px; color:var(--ck-fg-4); font-style:italic;">
                 Aucune source pointée pour cette séance. Les affirmations sourcées apparaissent ici à mesure que des pièces sont
-                pointées dans Le Fil.
+                pointées pendant la séance.
               </p>
             }
           </div>
@@ -167,7 +167,7 @@ interface ReportSource {
               <span style="flex:1;">
                 <span style="display:block; font-size:12px; color:var(--ck-fg-1);">Revoir l'instant capté</span>
                 <span class="ck-mono" style="display:block; font-size:10px; color:var(--ck-fg-4); margin-top:2px;">
-                  dit à {{ momentOf(sel) }} dans Le Fil
+                  dit à {{ momentOf(sel) }} pendant la séance
                 </span>
               </span>
               <ck-glyph name="arrow-right" [size]="14" color="currentColor" />

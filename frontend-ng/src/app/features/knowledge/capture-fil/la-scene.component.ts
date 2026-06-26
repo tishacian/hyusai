@@ -1,5 +1,13 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import type { CaptureSessionDocument } from '@app/core/api.service';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ApiService, type CaptureSessionDocument } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine } from './capture-engine';
 import { ViewTileComponent } from './view-tile.component';
@@ -38,6 +46,15 @@ import { documentToPinnedView } from './capture-presentation';
               <ck-glyph name="x" [size]="10" color="currentColor" /> retirer
             </button>
           }
+          <label
+            class="ck-mono"
+            title="Ajouter une pièce à montrer (elle est mise en scène)"
+            style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
+            [style.opacity]="uploading() ? 0.6 : 1"
+          >
+            <ck-glyph name="bolt" [size]="10" color="currentColor" /> {{ uploading() ? 'ajout…' : 'ajouter' }}
+            <input type="file" multiple (change)="onUpload($event)" [disabled]="uploading()" style="display:none;" />
+          </label>
           @if (pinnable().length > 0) {
             <button
               type="button"
@@ -105,8 +122,11 @@ import { documentToPinnedView } from './capture-presentation';
 })
 export class LaSceneComponent {
   protected readonly engine = inject(CaptureEngine);
+  private readonly api = inject(ApiService);
+  private readonly destroyRef = inject(DestroyRef);
   protected readonly active = this.engine.activeView;
   protected readonly picking = signal(false);
+  protected readonly uploading = signal(false);
 
   /** Documents attached to the session that aren't already on scene. */
   protected readonly pinnable = computed<CaptureSessionDocument[]>(() => {
@@ -119,5 +139,36 @@ export class LaSceneComponent {
   protected pin(doc: CaptureSessionDocument): void {
     this.engine.pinView(documentToPinnedView(doc));
     this.picking.set(false);
+  }
+
+  /**
+   * Upload pieces **during** the session (not only at plan time): the freshly
+   * added documents are auto-pinned to La Scène so the expert can point at them
+   * right away.
+   */
+  protected onUpload(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = input.files;
+    const sessionId = this.engine.sessionId();
+    if (!files || !files.length || !sessionId) return;
+    const beforeKeys = new Set(this.engine.documents().map((d) => documentToPinnedView(d).key));
+    this.uploading.set(true);
+    this.api
+      .uploadCaptureDocuments(sessionId, files)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: async () => {
+          await this.engine.loadDocuments();
+          for (const doc of this.engine.documents()) {
+            const view = documentToPinnedView(doc);
+            if (!beforeKeys.has(view.key)) this.engine.pinView(view);
+          }
+          this.uploading.set(false);
+          input.value = '';
+        },
+        error: () => {
+          this.uploading.set(false);
+        },
+      });
   }
 }

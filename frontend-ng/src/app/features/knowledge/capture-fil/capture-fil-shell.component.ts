@@ -1,7 +1,8 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { PageFrameComponent, CkObjectHeaderComponent } from '@app/shared/cockpit';
+import { PageFrameComponent } from '@app/shared/cockpit';
 import type { CaptureViewReference } from '@app/core/api.service';
+import { CanonicalApiService } from '@app/core/canonical-api.service';
 import { CaptureEngine, type CaptureSessionInfo } from './capture-engine';
 import { LeFilSessionComponent } from './le-fil-session.component';
 import { ReportProvenanceComponent } from './report-provenance.component';
@@ -41,7 +42,6 @@ interface SurfaceTab {
   providers: [CaptureEngine],
   imports: [
     PageFrameComponent,
-    CkObjectHeaderComponent,
     LeFilSessionComponent,
     ReportProvenanceComponent,
     CaptureFilDashboardComponent,
@@ -50,13 +50,7 @@ interface SurfaceTab {
     CaptureFilPublishComponent,
   ],
   template: `
-    <ck-page-frame eyebrow="Knowledge · Capture" title="Le Fil" [hasActions]="false">
-      <ck-object-header
-        eyebrow="CAPTURE EXPERIENCE"
-        title="Le Fil"
-        subtitle="Expérience de capture autonome en cockpit (derrière le flag capture_experience)."
-      />
-
+    <ck-page-frame eyebrow="Knowledge · Capture" [title]="headerTitle()" [hasActions]="false">
       <nav
         class="ck-surface"
         style="display:flex; gap:4px; padding:4px; border-radius:8px; margin-bottom:16px; flex-wrap:wrap;"
@@ -65,8 +59,11 @@ interface SurfaceTab {
           <button
             type="button"
             class="ck-mono"
+            [disabled]="!tabEnabled(tab.id)"
             (click)="surface.set(tab.id)"
-            style="padding:6px 12px; border-radius:6px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; border:none; cursor:pointer;"
+            style="padding:6px 12px; border-radius:6px; font-size:10px; letter-spacing:0.14em; text-transform:uppercase; border:none;"
+            [style.cursor]="tabEnabled(tab.id) ? 'pointer' : 'not-allowed'"
+            [style.opacity]="tabEnabled(tab.id) ? 1 : 0.4"
             [style.background]="surface() === tab.id ? 'var(--ck-bg-inset)' : 'transparent'"
             [style.color]="surface() === tab.id ? 'var(--ck-fg-1)' : 'var(--ck-fg-4)'"
             [style.boxShadow]="surface() === tab.id ? 'inset 0 0 0 1px var(--ck-stroke-3)' : 'none'"
@@ -102,9 +99,20 @@ interface SurfaceTab {
 export class CaptureFilShellComponent {
   private readonly engine = inject(CaptureEngine);
   private readonly route = inject(ActivatedRoute);
+  private readonly systems = inject(CanonicalApiService);
 
   /** Active surface. Defaults to the dashboard entry point. */
   readonly surface = signal<CaptureFilSurface>('dashboard');
+
+  /**
+   * Real system name when the flow is scoped to one. "Le Fil" is the design
+   * codename of this experience, not a product name, so the header is titled
+   * after the actual system (or the generic capture label at capability level).
+   */
+  private readonly systemName = signal<string | null>(null);
+  protected readonly headerTitle = computed(
+    () => this.systemName() ?? 'Capture de connaissances',
+  );
 
   constructor() {
     // System scope: `/systems/:systemId/capture` (route param) or the stable
@@ -114,16 +122,46 @@ export class CaptureFilShellComponent {
     const systemId =
       snapshot.paramMap.get('systemId') || snapshot.queryParamMap.get('systemId');
     this.engine.setSystemId(systemId);
+
+    if (systemId) {
+      this.systems.getSystem(systemId).subscribe((sys) => {
+        if (sys?.name) this.systemName.set(sys.name);
+      });
+    }
   }
 
   protected readonly tabs: SurfaceTab[] = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'prep', label: 'Prep' },
+    { id: 'dashboard', label: 'Séances' },
+    { id: 'prep', label: 'Préparation' },
     { id: 'plan', label: 'Plan' },
-    { id: 'session', label: 'Session' },
-    { id: 'review', label: 'Review' },
-    { id: 'publish', label: 'Publish' },
+    { id: 'session', label: 'Capture' },
+    { id: 'review', label: 'Rapport' },
+    { id: 'publish', label: 'Publication' },
   ];
+
+  /**
+   * Gate the nav to a linear flow: a tab is reachable only once its prerequisite
+   * state exists. Programmatic `surface.set(...)` (resume, planReady, started)
+   * still routes freely — this only blocks manual misnavigation (e.g. landing on
+   * the live Capture before it was started, which had no Start affordance).
+   */
+  protected tabEnabled(id: CaptureFilSurface): boolean {
+    const hasSession = !!this.engine.sessionId();
+    switch (id) {
+      case 'dashboard':
+      case 'prep':
+        return true;
+      case 'plan':
+        return hasSession;
+      case 'session':
+        return this.engine.connected() || this.engine.feed().length > 0;
+      case 'review':
+      case 'publish':
+        return !!this.engine.proposalId() || this.engine.feed().length > 0;
+      default:
+        return true;
+    }
+  }
 
   /** Resume a session picked from the dashboard; route by status. */
   protected onOpenSession(info: CaptureSessionInfo): void {
