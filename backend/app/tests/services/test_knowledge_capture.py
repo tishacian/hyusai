@@ -4,8 +4,10 @@ import json
 import pytest
 
 from app.models.audit import AuditLog
+from app.models.capability import Capability
 from app.models.context import Context
 from app.models.run import Run
+from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.knowledge_capture import (
@@ -53,7 +55,11 @@ from app.services.capture_report_templates import (
 from app.services.chains.dag_validator import validate_flow
 from app.services.skills_registry.seed import seed_skills_and_capabilities
 from app.services.skills_registry.wrappers import runtime_status
-from app.services.systems.bootstrap import ensure_expert_capture_system_default
+from app.services.systems.bootstrap import (
+    EXPERT_CAPTURE_CAPABILITY_SLUG,
+    EXPERT_CAPTURE_SYSTEM_NAME,
+    ensure_expert_capture_system_default,
+)
 
 
 _WEBM_HEADER_CHUNK = b"\x1a\x45\xdf\xa3" + b"\x00" * 8
@@ -85,6 +91,86 @@ def test_seeded_expert_capture_capability_and_bound_skills(db_session):
     assert runtime_status("voice_tandem_oracle_v1") == "bound"
     assert runtime_status("knowledge_gap_analysis_v1") == "bound"
     assert runtime_status("expert_interview_plan_v1") == "bound"
+
+
+def _capture_capability(db_session) -> Capability:
+    return (
+        db_session.query(Capability)
+        .filter(Capability.slug == EXPERT_CAPTURE_CAPABILITY_SLUG)
+        .one()
+    )
+
+
+def test_expert_capture_seed_adopts_existing_capability_system(db_session):
+    """A blueprint/manual capture system must be adopted, not duplicated by name."""
+    workspace = Workspace(id="ws-capture-adopt", name="Capture Adopt", slug="capture-adopt")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+    capability = _capture_capability(db_session)
+    branded = System(
+        workspace_id=workspace.id,
+        name="Andritz Expert Knowledge Capture System",
+        objective="Branded capture",
+        capability_id=capability.id,
+        status="active",
+        created_by="alice@acme.test",
+    )
+    db_session.add(branded)
+    db_session.commit()
+
+    adopted = ensure_expert_capture_system_default(db_session, workspace.id)
+
+    assert adopted.id == branded.id
+    assert adopted.name == "Andritz Expert Knowledge Capture System"
+    active = (
+        db_session.query(System)
+        .filter(
+            System.workspace_id == workspace.id,
+            System.capability_id == capability.id,
+            System.status != "retired",
+        )
+        .all()
+    )
+    assert len(active) == 1
+    assert not any(s.name == EXPERT_CAPTURE_SYSTEM_NAME for s in active)
+
+
+def test_expert_capture_seed_retires_redundant_generic(db_session):
+    """An already-seeded generic is archived once a branded capture system exists."""
+    workspace = Workspace(id="ws-capture-dedupe", name="Capture Dedupe", slug="capture-dedupe")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+    capability = _capture_capability(db_session)
+
+    generic = ensure_expert_capture_system_default(db_session, workspace.id)
+    assert generic.name == EXPERT_CAPTURE_SYSTEM_NAME
+
+    branded = System(
+        workspace_id=workspace.id,
+        name="Andritz Expert Knowledge Capture System",
+        objective="Branded capture",
+        capability_id=capability.id,
+        status="active",
+        created_by="alice@acme.test",
+    )
+    db_session.add(branded)
+    db_session.commit()
+
+    adopted = ensure_expert_capture_system_default(db_session, workspace.id)
+
+    assert adopted.id == branded.id
+    db_session.refresh(generic)
+    assert generic.status == "retired"
+    active = (
+        db_session.query(System)
+        .filter(
+            System.workspace_id == workspace.id,
+            System.capability_id == capability.id,
+            System.status != "retired",
+        )
+        .all()
+    )
+    assert [s.id for s in active] == [branded.id]
 
 
 def test_expert_capture_system_seed_populates_flow_and_session_binding(db_session):

@@ -820,7 +820,14 @@ def _workspace_chat_flow_definition(profile: Dict[str, Any], skills: Dict[str, S
 
 
 def _find_workspace_chat_system(db: DBSession, workspace_id: str) -> Optional[System]:
-    rows = db.query(System).filter(System.workspace_id == workspace_id).all()
+    # Deterministic (oldest first) and retired-aware: archived duplicates must
+    # never be resurrected, and concurrent callers must agree on the same row.
+    rows = (
+        db.query(System)
+        .filter(System.workspace_id == workspace_id, System.status != "retired")
+        .order_by(System.created_at.asc())
+        .all()
+    )
     for system in rows:
         flow = _as_dict(system.flow_definition)
         settings = _as_dict(getattr(system, "settings", None))
@@ -828,11 +835,45 @@ def _find_workspace_chat_system(db: DBSession, workspace_id: str) -> Optional[Sy
             return system
         if settings.get("system_type") == "workspace_chat":
             return system
-    return (
+    return next((s for s in rows if s.name == WORKSPACE_CHAT_SYSTEM_NAME), None)
+
+
+def _dedupe_seeded_chat_systems(db: DBSession, workspace_id: str) -> int:
+    """Anti-double-seed guard: archive seed-created workspace-chat duplicates.
+
+    The seed find-or-create has a check-then-act window, so a concurrent boot +
+    ``/knowledge/scopes`` request race can insert two identical
+    ``chat_transverse_v1`` systems (observed: rows 2 ms apart). Keep the oldest
+    seed-created chat and ``retired`` the rest. The keep is deterministic
+    (oldest, then id), so concurrent callers converge instead of retiring each
+    other. Only rows the seed itself created are touched — manually-built or
+    other-variant (e.g. agentic) chats are never affected.
+    """
+    rows = (
         db.query(System)
-        .filter(System.workspace_id == workspace_id, System.name == WORKSPACE_CHAT_SYSTEM_NAME)
-        .first()
+        .filter(
+            System.workspace_id == workspace_id,
+            System.status != "retired",
+            System.created_by.like("system:workspace_chat_seed%"),
+        )
+        .order_by(System.created_at.asc(), System.id.asc())
+        .all()
     )
+    chat_rows = [
+        s for s in rows if _as_dict(s.flow_definition).get("variant") == WORKSPACE_CHAT_VARIANT
+    ]
+    retired = 0
+    for system in chat_rows[1:]:
+        system.status = "retired"
+        retired += 1
+    if retired:
+        logger.info(
+            "workspace_chat_system.dedupe.retired",
+            workspace_id=workspace_id,
+            retired=retired,
+            kept=chat_rows[0].id if chat_rows else None,
+        )
+    return retired
 
 
 def workspace_chat_system_id(db: DBSession, workspace_id: str) -> Optional[str]:
@@ -990,6 +1031,7 @@ def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Op
         existing.retrieval_mode_default = (
             _as_dict(profile.get("retrieval_defaults")).get("mode") or existing.retrieval_mode_default or "auto"
         )
+        _dedupe_seeded_chat_systems(db, workspace_id)
         db.commit()
         db.refresh(existing)
         return existing
@@ -1019,6 +1061,10 @@ def ensure_workspace_chat_system_default(db: DBSession, workspace_id: str) -> Op
     db.add(system)
     db.commit()
     db.refresh(system)
+    # A concurrent caller may have inserted an identical chat in the check-then-act
+    # window; collapse to the deterministic keep so /systems never shows the pair.
+    if _dedupe_seeded_chat_systems(db, workspace_id):
+        db.commit()
     logger.info(
         "workspace_chat_system_seed.created",
         workspace_id=workspace_id,
@@ -1476,16 +1522,36 @@ def ensure_expert_capture_system_default(db: DBSession, workspace_id: str) -> Op
     skill_ids = [skills[slug].id for slug in EXPERT_CAPTURE_SKILL_SLUGS if slug in skills]
     flow_definition = _expert_capture_flow_definition(skills)
 
-    existing = (
+    # Idempotent by (workspace, capability), NOT by name: a blueprint/manual
+    # capture system (e.g. "Andritz Expert Knowledge Capture System") owns the
+    # capability, so keying on the generic name seeds a second, empty "Expert
+    # Knowledge Capture" alongside it on every boot. Adopt the existing
+    # capability system instead — preferring a non-seed (manual/blueprint) one —
+    # and archive any redundant seed-created generics.
+    candidates = (
         db.query(System)
         .filter(
             System.workspace_id == workspace_id,
             System.capability_id == capability.id,
-            System.name == EXPERT_CAPTURE_SYSTEM_NAME,
+            System.status != "retired",
         )
-        .first()
+        .order_by(System.created_at.asc())
+        .all()
     )
-    if existing:
+
+    def _is_capture_seed(s: System) -> bool:
+        return str(s.created_by or "").startswith("system:expert_capture_seed")
+
+    preferred = next((s for s in candidates if not _is_capture_seed(s)), None) or (
+        candidates[0] if candidates else None
+    )
+    if preferred is not None:
+        retired = 0
+        for s in candidates:
+            if s.id != preferred.id and _is_capture_seed(s):
+                s.status = "retired"
+                retired += 1
+        existing = preferred
         flow = dict(existing.flow_definition or {})
         if flow.get("variant") != "expert_knowledge_capture":
             existing.flow_definition = flow_definition
@@ -1497,6 +1563,13 @@ def ensure_expert_capture_system_default(db: DBSession, workspace_id: str) -> Op
         existing.retrieval_mode_default = "chah"
         db.commit()
         db.refresh(existing)
+        if retired:
+            logger.info(
+                "expert_capture_system.dedupe.retired",
+                workspace_id=workspace_id,
+                retired=retired,
+                kept=existing.id,
+            )
         return existing
 
     system = System(

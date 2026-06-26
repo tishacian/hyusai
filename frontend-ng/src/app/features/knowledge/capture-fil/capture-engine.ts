@@ -109,6 +109,8 @@ export interface CaptureSessionInfo {
   status?: string | null;
   duration_minutes?: number | null;
   plan?: Record<string, unknown> | null;
+  /** System this capture is scoped to (from `/systems/:id/capture`), if any. */
+  system_id?: string | null;
 }
 
 /** Resolved deictic document context for a turn / voice frame (D3 / D6). */
@@ -165,6 +167,7 @@ export class CaptureEngine {
 
   private readonly _sessionId = signal<string | null>(null);
   private readonly _session = signal<CaptureSessionInfo | null>(null);
+  private readonly _systemId = signal<string | null>(null);
   private readonly _documents = signal<CaptureSessionDocument[]>([]);
   private readonly _proposalId = signal<string | null>(null);
   private readonly _state = signal<CaptureConnectionState>('idle');
@@ -182,6 +185,8 @@ export class CaptureEngine {
   readonly sessionId = this._sessionId.asReadonly();
   /** Richer session identity shared across the autonomous flow surfaces. */
   readonly session = this._session.asReadonly();
+  /** System scope (from `/systems/:id/capture`); null at the capability level. */
+  readonly systemId = this._systemId.asReadonly();
   /** Documents attached to the session (uploaded or referenced). */
   readonly documents = this._documents.asReadonly();
   /** Knowledge proposal id produced by {@link finalize}. */
@@ -615,10 +620,21 @@ export class CaptureEngine {
 
   // ---- session + documents store -----------------------------------------
 
+  /**
+   * Set the system scope for the autonomous flow (new sessions inherit it; the
+   * dashboard filters by it). Read from the `/systems/:id/capture` route or the
+   * `?systemId=` query param by the shell.
+   */
+  setSystemId(systemId: string | null): void {
+    this._systemId.set(systemId || null);
+  }
+
   /** Bind the engine to a session without opening the realtime leg. */
   setSession(info: CaptureSessionInfo | null): void {
     this._session.set(info);
     if (info?.id) this._sessionId.set(info.id);
+    // Resuming a system-scoped session preserves the scope for downstream lists.
+    if (info?.system_id) this._systemId.set(info.system_id);
   }
 
   /** Load (or refresh) the documents attached to the bound session. */

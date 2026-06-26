@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { PageFrameComponent, CkObjectHeaderComponent } from '@app/shared/cockpit';
 import type { CaptureViewReference } from '@app/core/api.service';
 import { CaptureEngine, type CaptureSessionInfo } from './capture-engine';
@@ -100,9 +101,20 @@ interface SurfaceTab {
 })
 export class CaptureFilShellComponent {
   private readonly engine = inject(CaptureEngine);
+  private readonly route = inject(ActivatedRoute);
 
   /** Active surface. Defaults to the dashboard entry point. */
   readonly surface = signal<CaptureFilSurface>('dashboard');
+
+  constructor() {
+    // System scope: `/systems/:systemId/capture` (route param) or the stable
+    // `/knowledge/capture?systemId=` deep link. New sessions inherit it and the
+    // dashboard filters by it; capability-level entry leaves it null.
+    const snapshot = this.route.snapshot;
+    const systemId =
+      snapshot.paramMap.get('systemId') || snapshot.queryParamMap.get('systemId');
+    this.engine.setSystemId(systemId);
+  }
 
   protected readonly tabs: SurfaceTab[] = [
     { id: 'dashboard', label: 'Dashboard' },

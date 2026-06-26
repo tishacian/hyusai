@@ -74,6 +74,44 @@ def test_workspace_chat_capability_and_system_are_seeded(db_session):
     assert count == 1
 
 
+def test_workspace_chat_dedupe_retires_concurrent_duplicates(db_session):
+    """Anti-double-seed: a check-then-act race row is archived, keeping one chat."""
+    workspace = Workspace(id="ws-chat-dedupe", name="Chat Dedupe", slug="chat-dedupe")
+    db_session.add(workspace)
+    seed_skills_and_capabilities(db_session)
+
+    first = ensure_workspace_chat_system_default(db_session, workspace.id)
+    dupe = System(
+        workspace_id=workspace.id,
+        name=first.name,
+        objective=first.objective,
+        capability_id=first.capability_id,
+        flow_definition=dict(first.flow_definition or {}),
+        settings=dict(first.settings or {}),
+        status="active",
+        created_by="system:workspace_chat_seed",
+    )
+    db_session.add(dupe)
+    db_session.commit()
+
+    kept = ensure_workspace_chat_system_default(db_session, workspace.id)
+
+    active = (
+        db_session.query(System)
+        .filter(System.workspace_id == workspace.id, System.status != "retired")
+        .all()
+    )
+    chat_active = [
+        s for s in active if (s.flow_definition or {}).get("variant") == WORKSPACE_CHAT_VARIANT
+    ]
+    assert len(chat_active) == 1
+    assert kept.id == chat_active[0].id
+    # Deterministic keep: the oldest row survives, the racing duplicate is retired.
+    assert kept.id == first.id
+    db_session.refresh(dupe)
+    assert dupe.status == "retired"
+
+
 def test_andritz_workspace_chat_inherits_industrial_profile(db_session):
     workspace = Workspace(
         id="ws-andritz-chat",

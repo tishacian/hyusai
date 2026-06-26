@@ -10,7 +10,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService } from '@app/core/api.service';
 import { GlyphComponent, TagComponent, type CkTagTone } from '@app/shared/cockpit';
-import { type CaptureSessionInfo } from '../capture-engine';
+import { CaptureEngine, type CaptureSessionInfo } from '../capture-engine';
 
 interface DashboardSession extends CaptureSessionInfo {
   last_activity?: string | null;
@@ -91,6 +91,7 @@ interface DashboardSession extends CaptureSessionInfo {
 })
 export class CaptureFilDashboardComponent {
   private readonly api = inject(ApiService);
+  private readonly engine = inject(CaptureEngine);
   private readonly destroyRef = inject(DestroyRef);
 
   @Output() newCapture = new EventEmitter<void>();
@@ -100,13 +101,19 @@ export class CaptureFilDashboardComponent {
   protected readonly sessions = signal<DashboardSession[]>([]);
 
   constructor() {
+    const systemId = this.engine.systemId();
     this.api
-      .listCaptureSessions(undefined, undefined, undefined, true)
+      .listCaptureSessions(undefined, undefined, systemId ?? undefined, true)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (payload) => {
           const rows = (payload as { sessions?: DashboardSession[] } | null)?.sessions ?? [];
-          this.sessions.set(rows);
+          // Scoped entry: drop sessions bound to a different system (the API
+          // filter also does this, but unscoped legacy rows can leak through).
+          const scoped = systemId
+            ? rows.filter((r) => !r.system_id || r.system_id === systemId)
+            : rows;
+          this.sessions.set(scoped);
           this.loading.set(false);
         },
         error: () => this.loading.set(false),

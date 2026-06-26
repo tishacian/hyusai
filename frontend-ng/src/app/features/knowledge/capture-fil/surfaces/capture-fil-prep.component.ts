@@ -168,6 +168,7 @@ export class CaptureFilPrepComponent {
       duration_minutes: this.duration(),
       voice_runtime: 'cascade_openai',
       plan_mode: this.mode(),
+      system_id: this.engine.systemId(),
     };
     this.api
       .createCapturePlan(body)
@@ -182,6 +183,7 @@ export class CaptureFilPrepComponent {
             status: (session['status'] as string) ?? 'planning',
             duration_minutes: (session['duration_minutes'] as number) ?? this.duration(),
             plan: (session['plan'] as Record<string, unknown>) ?? null,
+            system_id: (session['system_id'] as string | null) ?? this.engine.systemId(),
           };
           this.engine.setSession(info);
           void this.engine.loadDocuments();

@@ -155,6 +155,7 @@ def _serialize(s: System) -> Dict[str, Any]:
 @router.get("")
 async def list_systems(
     status: Optional[str] = None,
+    include_retired: bool = False,
     limit: int = 100,
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
@@ -162,6 +163,11 @@ async def list_systems(
     q = db.query(System).filter(System.workspace_id == workspace.id)
     if status:
         q = q.filter(System.status == status)
+    elif not include_retired:
+        # ``retired`` is the archive state: hide it from the grid unless asked,
+        # so de-duplicating seeded systems stays reversible (status flip, no
+        # row/run deletion).
+        q = q.filter(System.status != "retired")
     rows = q.order_by(System.updated_at.desc()).limit(limit).all()
     return {"systems": [_serialize(s) for s in rows]}
 
