@@ -173,12 +173,13 @@ export class CaptureFilShellComponent {
       // from the backend feed projection or the report renders empty.
       void this.engine.hydrateFeed();
       this.surface.set('review');
-    } else if (['draft', 'planning', 'plan_ready'].includes(status)) {
-      this.surface.set('plan');
     } else {
-      // connect() hydrates the feed before subscribing to live WS events.
-      void this.engine.connect(info.id);
-      this.surface.set('session');
+      // Every non-terminal session (draft / planning / plan_ready AND already
+      // in-progress) lands on the launch surface, which owns the single explicit
+      // Start/"Reprendre" affordance. We never auto-connect on open — that was
+      // the "la capture démarre directe sans bouton" regression. The launch
+      // button connects with the right (LiveKit) transport.
+      this.surface.set('plan');
     }
   }
 

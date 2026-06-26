@@ -21,6 +21,7 @@ import {
   type LiveKitConversationConnection,
   type LiveKitOpenOptions,
 } from '@app/core/livekit-conversation.service';
+import { WorkspaceService } from '@app/core/workspace.service';
 
 /**
  * CaptureEngine — the headless brain of the cockpit "Le Fil" capture
@@ -135,6 +136,7 @@ export class CaptureEngine {
   private readonly api = inject(ApiService);
   private readonly voiceSession = inject(VoiceSessionService);
   private readonly livekit = inject(LiveKitConversationService);
+  private readonly workspace = inject(WorkspaceService);
   private readonly destroyRef = inject(DestroyRef);
 
   private connection: VoiceSessionConnection | LiveKitConversationConnection | null = null;
@@ -171,6 +173,8 @@ export class CaptureEngine {
   private readonly _session = signal<CaptureSessionInfo | null>(null);
   private readonly _systemId = signal<string | null>(null);
   private readonly _documents = signal<CaptureSessionDocument[]>([]);
+  /** Session-level collection slug (fallback for per-doc preview URLs). */
+  private readonly _documentsCollection = signal<string | null>(null);
   private readonly _proposalId = signal<string | null>(null);
   private readonly _state = signal<CaptureConnectionState>('idle');
   private readonly _feed = signal<CaptureFeedItem[]>([]);
@@ -191,6 +195,8 @@ export class CaptureEngine {
   readonly systemId = this._systemId.asReadonly();
   /** Documents attached to the session (uploaded or referenced). */
   readonly documents = this._documents.asReadonly();
+  /** Session-level collection slug (preview URL fallback when a doc lacks one). */
+  readonly documentsCollection = this._documentsCollection.asReadonly();
   /** Knowledge proposal id produced by {@link finalize}. */
   readonly proposalId = this._proposalId.asReadonly();
   /** Pinned pieces — "La Scène" (D3). */
@@ -258,31 +264,111 @@ export class CaptureEngine {
     // going live, so re-entering a session shows the prior timeline and live WS
     // events upsert on top of it (WS stays the live source of truth).
     await this.hydrateFeed();
-    this.transport = options.transport === 'livekit' ? 'livekit' : 'backend_ws';
+    // Transport selection mirrors the v0 monolith: when the workspace is wired
+    // for the LiveKit voice gateway (the gpt-realtime-whisper sidecar transcribes
+    // a PUBLISHED mic track), we MUST open LiveKit and publish the mic — a plain
+    // backend_ws WebM pump delivers nothing to the realtime lane (the frames are
+    // dropped client-side), which is why "la voix n'est pas captée".
+    const transport: 'backend_ws' | 'livekit' =
+      options.transport ?? (this.preferLiveKit() ? 'livekit' : 'backend_ws');
+    this.transport = transport;
     try {
-      if (this.transport === 'livekit') {
-        const connection = await this.livekit.open(sessionId, {
-          surface: 'knowledge_capture',
-          mode: 'conversation_only',
-          publishMicrophone: options.publishMicrophone ?? false,
-          ...(options.livekit ?? {}),
-        });
+      if (transport === 'livekit') {
+        const connection = await this.openLiveKit(sessionId, options);
         this.connection = connection;
         this.subscribe(connection.events$);
-      } else {
-        const connection = this.voiceSession.open(sessionId);
-        this.connection = connection;
-        this.subscribe(connection.events$);
-        connection.start({ mode: 'conversation_only' });
+        this._state.set('connected');
+        // LiveKit publishes the mic track itself (publishMicrophone); no WebM pump.
+        return;
       }
+      const connection = this.voiceSession.open(sessionId);
+      this.connection = connection;
+      this.subscribe(connection.events$);
+      connection.start({ mode: 'conversation_only' });
       this._state.set('connected');
-      // Voice is captured continuously over the backend WS (D3). LiveKit instead
-      // publishes a mic track when `publishMicrophone` is set, so no WebM pump.
-      if (this.transport === 'backend_ws') void this.startMic();
+      // Voice is captured continuously over the backend WS (D3 cascade lane).
+      void this.startMic();
     } catch (error) {
+      // LiveKit unavailable → degrade to the backend WS so the session still opens.
+      if (transport === 'livekit') {
+        try {
+          this.transport = 'backend_ws';
+          const connection = this.voiceSession.open(sessionId);
+          this.connection = connection;
+          this.subscribe(connection.events$);
+          connection.start({ mode: 'conversation_only' });
+          this._state.set('connected');
+          this._lastError.set('Passerelle LiveKit indisponible — bascule WebSocket.');
+          void this.startMic();
+          return;
+        } catch (fallbackError) {
+          this._state.set('error');
+          this._lastError.set(this.errorMessage(fallbackError));
+          return;
+        }
+      }
       this._state.set('error');
       this._lastError.set(this.errorMessage(error));
     }
+  }
+
+  /**
+   * Open the LiveKit voice leg with the agent-dispatch + mic-publish options the
+   * realtime gateway needs (mirrors the v0 `ensureVoiceConnection` livekit path).
+   */
+  private openLiveKit(
+    sessionId: string,
+    options: CaptureConnectOptions,
+  ): Promise<LiveKitConversationConnection> {
+    return this.livekit.open(sessionId, {
+      runtime: 'cascade_openai',
+      provider: 'cascade_openai',
+      transport: 'livekit',
+      language: 'fr',
+      output_language: 'fr',
+      capability: 'voice2voice_interaction',
+      mode: 'conversation_only',
+      surface: 'knowledge_capture',
+      system_id: this._systemId(),
+      tandem_oracle: true,
+      publishMicrophone: options.publishMicrophone ?? true,
+      dispatchAgent: true,
+      requireVoiceGateway: true,
+      ...(options.livekit ?? {}),
+    });
+  }
+
+  /**
+   * True when the active workspace is configured to route voice through the
+   * LiveKit gateway (transport === 'livekit', or livekit_enabled with no explicit
+   * transport). Ported from the v0 `shouldPreferLiveKitTransport`.
+   */
+  private preferLiveKit(): boolean {
+    const settings = this.asRecord(this.workspace.current()?.settings);
+    const voiceRuntime = this.asRecord(settings['voice_runtime']);
+    const livekit = this.asRecord(settings['livekit']);
+    const livekitEnabled =
+      voiceRuntime['livekit_enabled'] === true ||
+      settings['livekit_enabled'] === true ||
+      livekit['enabled'] === true;
+    const transport = String(
+      voiceRuntime['transport'] ||
+        voiceRuntime['default_transport'] ||
+        voiceRuntime['realtime_transport'] ||
+        livekit['transport'] ||
+        livekit['default_transport'] ||
+        settings['voice_transport'] ||
+        '',
+    )
+      .trim()
+      .toLowerCase();
+    return transport === 'livekit' || (livekitEnabled && !transport);
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
   }
 
   /** Tear down the realtime connection. Safe to call repeatedly. */
@@ -701,8 +787,12 @@ export class CaptureEngine {
   }
 
   private applyDocumentsPayload(payload: unknown): void {
-    const docs = (payload as { documents?: CaptureSessionDocument[] } | null)?.documents;
-    if (Array.isArray(docs)) this._documents.set(docs.filter(Boolean));
+    const body = payload as
+      | { documents?: CaptureSessionDocument[]; collection?: string | null; collection_name?: string | null }
+      | null;
+    if (Array.isArray(body?.documents)) this._documents.set(body!.documents.filter(Boolean));
+    const collection = (body?.collection ?? body?.collection_name ?? '').toString().trim();
+    if (collection) this._documentsCollection.set(collection);
   }
 
   /** Persist the end-of-capture share-level triage (D5 / T0.1). */

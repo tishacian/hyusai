@@ -203,7 +203,7 @@ interface PlanNotice {
           [style.cursor]="busy() || !sessionId() ? 'not-allowed' : 'pointer'"
         >
           <ck-glyph name="play" [size]="14" color="currentColor" />
-          {{ busy() ? 'Démarrage…' : 'Démarrer la capture' }}
+          {{ busy() ? (isLive() ? 'Reprise…' : 'Démarrage…') : isLive() ? 'Reprendre la capture' : 'Démarrer la capture' }}
         </button>
       </div>
     </div>
@@ -234,6 +234,14 @@ export class CaptureFilPlanComponent {
   protected readonly isFree = computed(
     () => (this.engine.session()?.plan_mode ?? '') === 'free_conversation',
   );
+  /** Session already started (resume path) — the button reconnects, no re-start. */
+  protected readonly isLive = computed(() => {
+    const status = (this.engine.session()?.status ?? '').toLowerCase();
+    return (
+      !!status &&
+      !['draft', 'planning', 'plan_ready', 'completed', 'published', 'archived'].includes(status)
+    );
+  });
 
   private recorder: MediaRecorder | null = null;
   private chunks: Blob[] = [];
@@ -437,16 +445,23 @@ export class CaptureFilPlanComponent {
     if (!sessionId || this.busy()) return;
     this.busy.set(true);
     this.error.set(null);
+    const connect = () => {
+      void this.engine.connect(sessionId);
+      this.busy.set(false);
+      this.started.emit();
+    };
+    // Resume: an already-started session must NOT be re-started (idempotency /
+    // wrong-state guard) — just reconnect the realtime leg.
+    if (this.isLive()) {
+      connect();
+      return;
+    }
     const launch = () =>
       this.api
         .startCaptureSession(sessionId)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => {
-            void this.engine.connect(sessionId);
-            this.busy.set(false);
-            this.started.emit();
-          },
+          next: connect,
           error: () => {
             this.busy.set(false);
             this.error.set('Démarrage impossible.');

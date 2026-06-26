@@ -7,11 +7,12 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ApiService, type CaptureSessionDocument } from '@app/core/api.service';
+import { ApiService, type CapturePinnedView, type CaptureSessionDocument } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
+import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
 import { CaptureEngine } from './capture-engine';
 import { ViewTileComponent } from './view-tile.component';
-import { documentToPinnedView } from './capture-presentation';
+import { documentToPinnedView, viewTitle } from './capture-presentation';
 
 /**
  * La Scène (Phase 2 / D3) — one active piece "EN SCÈNE" (enlarged) plus a
@@ -23,7 +24,7 @@ import { documentToPinnedView } from './capture-presentation';
   selector: 'app-la-scene',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent, ViewTileComponent],
+  imports: [GlyphComponent, ViewTileComponent, DocumentPreviewComponent],
   template: `
     <section
       class="ck-surface"
@@ -36,6 +37,17 @@ import { documentToPinnedView } from './capture-presentation';
         </span>
         <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
           @if (active(); as a) {
+            @if (previewUrlFor(a)) {
+              <button
+                type="button"
+                class="ck-mono"
+                (click)="openPreview(a)"
+                title="Voir le document en grand"
+                style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
+              >
+                <ck-glyph name="layers" [size]="10" color="currentColor" /> voir
+              </button>
+            }
             <button
               type="button"
               class="ck-mono"
@@ -90,7 +102,13 @@ import { documentToPinnedView } from './capture-presentation';
       @if (active(); as a) {
         <div style="display:flex; justify-content:center;">
           <div style="width:100%; max-width:320px;">
-            <app-capture-view-tile [view]="a" size="xl" [active]="true" />
+            <app-capture-view-tile
+              [view]="a"
+              size="xl"
+              [active]="true"
+              [clickable]="!!previewUrlFor(a)"
+              (picked)="openPreview(a)"
+            />
           </div>
         </div>
       } @else {
@@ -118,6 +136,15 @@ import { documentToPinnedView } from './capture-presentation';
         </div>
       }
     </section>
+
+    <app-document-preview
+      [open]="previewOpen()"
+      [previewUrl]="previewUrl()"
+      [title]="previewTitle()"
+      [subtitle]="'Pièce montrée'"
+      [page]="previewPage()"
+      (closed)="previewOpen.set(false)"
+    />
   `,
 })
 export class LaSceneComponent {
@@ -127,6 +154,37 @@ export class LaSceneComponent {
   protected readonly active = this.engine.activeView;
   protected readonly picking = signal(false);
   protected readonly uploading = signal(false);
+
+  // ---- real document preview (rich-preview modal, auth-aware) -------------
+  protected readonly previewOpen = signal(false);
+  protected readonly previewUrl = signal<string | null>(null);
+  protected readonly previewTitle = signal('');
+  protected readonly previewPage = signal<number | null>(null);
+
+  /**
+   * Build the auth-aware `rich-preview` URL for a pinned piece (the modal fetches
+   * it via HttpClient so the bearer token rides along). Falls back to the
+   * session-level collection when the piece itself carries none.
+   */
+  protected previewUrlFor(view: CapturePinnedView): string | null {
+    const documentId = view.document_id;
+    const collection = view.collection ?? this.engine.documentsCollection();
+    if (!documentId || !collection) return null;
+    let url =
+      `${this.api.base}/documents/${encodeURIComponent(documentId)}/rich-preview` +
+      `?collection_name=${encodeURIComponent(collection)}`;
+    if (view.filename) url += `&filename=${encodeURIComponent(view.filename)}`;
+    return url;
+  }
+
+  protected openPreview(view: CapturePinnedView): void {
+    const url = this.previewUrlFor(view);
+    if (!url) return;
+    this.previewUrl.set(url);
+    this.previewTitle.set(viewTitle(view));
+    this.previewPage.set(view.page ?? null);
+    this.previewOpen.set(true);
+  }
 
   /** Documents attached to the session that aren't already on scene. */
   protected readonly pinnable = computed<CaptureSessionDocument[]>(() => {
