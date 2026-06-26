@@ -88,22 +88,17 @@ interface PlanNotice {
           }
 
           @for (t of topics(); track $index) {
-            <div style="display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2);">
-              <span class="ck-mono" style="font-size:11px; color:var(--ck-signal-cool); padding-top:9px;">{{ $index + 1 }}</span>
-              <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:6px;">
-                <input
-                  [value]="t.title || ''"
-                  (input)="updateTopic($index, 'title', $any($event.target).value)"
-                  placeholder="Titre du sujet"
-                  style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-sm); background:var(--ck-bg-base); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:13.5px; font-weight:600; padding:7px 10px;"
-                />
-                <input
-                  [value]="t.objective || t.prompt || ''"
-                  (input)="updateTopic($index, 'objective', $any($event.target).value)"
-                  placeholder="Objectif / question directrice (optionnel)"
-                  style="border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-sm); background:var(--ck-bg-base); color:var(--ck-fg-2); font-family:var(--ck-font-sans); font-size:12px; padding:6px 10px;"
-                />
-              </div>
+            <div
+              style="display:flex; gap:10px; align-items:center; padding:8px 12px; border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); border:1px solid var(--ck-stroke-2);"
+              [title]="t.objective || t.prompt || ''"
+            >
+              <span class="ck-mono" style="font-size:11px; color:var(--ck-signal-cool);">{{ $index + 1 }}</span>
+              <input
+                [value]="t.title || ''"
+                (input)="updateTopic($index, 'title', $any($event.target).value)"
+                placeholder="Titre du sujet"
+                style="flex:1; min-width:0; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-sm); background:var(--ck-bg-base); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:13.5px; font-weight:600; padding:7px 10px;"
+              />
               <button
                 type="button"
                 (click)="removeTopic($index)"
