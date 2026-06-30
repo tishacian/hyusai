@@ -1,7 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   ElementRef,
   EventEmitter,
   Output,
@@ -51,7 +50,26 @@ import { clockLabel } from './capture-presentation';
         </span>
         <span style="width:1px; height:18px; background:var(--ck-stroke-2);"></span>
         <span style="font-size:13px; color:var(--ck-fg-1); font-weight:600;">{{ title() }}</span>
-        <span class="ck-mono ck-tnum" style="font-size:12px; color:var(--ck-fg-3);">{{ clock() }}</span>
+        <span
+          class="ck-mono ck-tnum"
+          style="font-size:12px; font-weight:700;"
+          [style.color]="overtime() ? 'var(--ck-signal-neg)' : (lastFiveMinutes() ? 'var(--ck-signal-warn)' : 'var(--ck-fg-3)')"
+          [title]="overtime() ? 'Temps imparti dépassé' : 'Temps restant'"
+        >
+          {{ remainingLabel() }}
+        </span>
+        <button
+          type="button"
+          class="ck-mono"
+          (click)="togglePause()"
+          [title]="paused() ? 'Reprendre la capture' : 'Mettre la capture en pause'"
+          style="display:inline-flex; align-items:center; gap:5px; font-size:10px; padding:3px 8px; border-radius:999px; cursor:pointer; background:transparent;"
+          [style.border]="'1px solid ' + (paused() ? 'var(--ck-signal-warn)' : 'var(--ck-stroke-2)')"
+          [style.color]="paused() ? 'var(--ck-signal-warn)' : 'var(--ck-fg-4)'"
+        >
+          <ck-glyph [name]="paused() ? 'arrow-right' : 'pulse'" [size]="11" color="currentColor" />
+          {{ paused() ? 'Reprendre' : 'Pause' }}
+        </button>
 
         <div style="margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
           <span
@@ -89,6 +107,61 @@ import { clockLabel } from './capture-presentation';
         >
           <ck-glyph name="warn" [size]="13" color="var(--ck-signal-warn)" />
           <span style="font-size:12px; color:var(--ck-fg-2);">{{ lastError() }}</span>
+        </div>
+      }
+
+      <!-- 5-minute notice (non-blocking) -->
+      @if (lastFiveMinutes()) {
+        <div
+          style="flex:none; padding:7px 16px; background:color-mix(in oklab, var(--ck-signal-warn) 10%, var(--ck-bg-panel)); border-bottom:1px solid color-mix(in oklab, var(--ck-signal-warn) 28%, transparent); display:flex; align-items:center; gap:8px;"
+        >
+          <ck-glyph name="pulse" [size]="13" color="var(--ck-signal-warn)" />
+          <span style="font-size:12px; color:var(--ck-fg-2);">5 dernières minutes — pensez à conclure les points clés.</span>
+        </div>
+      }
+
+      <!-- closure bar (overtime, non-blocking) -->
+      @if (overtime()) {
+        <div
+          style="flex:none; display:flex; flex-direction:column; gap:10px; padding:10px 16px; background:color-mix(in oklab, var(--ck-signal-neg) 8%, var(--ck-bg-panel)); border-bottom:1px solid color-mix(in oklab, var(--ck-signal-neg) 28%, transparent);"
+        >
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <ck-glyph name="warn" [size]="14" color="var(--ck-signal-neg)" />
+            <span style="font-size:12.5px; color:var(--ck-fg-1); font-weight:600;">Temps imparti dépassé</span>
+            <div style="margin-left:auto; display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="lf-close-btn" (click)="engine.extendSession(15)">
+                <ck-glyph name="bolt" [size]="12" color="currentColor" /> Prolonger +15
+              </button>
+              <button type="button" class="lf-close-btn" (click)="scheduleFollowup()">
+                <ck-glyph name="arrow-right" [size]="12" color="currentColor" /> Programmer un suivi
+              </button>
+              <button type="button" class="lf-close-btn" (click)="toggleClosure()">
+                <ck-glyph name="layers" [size]="12" color="currentColor" /> {{ showClosure() ? 'Masquer la fiche' : 'Aperçu fiche' }}
+              </button>
+              <button
+                type="button"
+                (click)="finish.emit()"
+                style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:var(--ck-radius-md); border:none; cursor:pointer; font-weight:600; font-size:12px; background:color-mix(in oklab, var(--ck-signal-neg) 88%, transparent); color:var(--ck-on-signal);"
+              >
+                <ck-glyph name="check" [size]="12" color="currentColor" /> Terminer
+              </button>
+            </div>
+          </div>
+          @if (showClosure()) {
+            <div
+              class="ck-scroll"
+              style="max-height:240px; overflow-y:auto; padding:11px 13px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-inset);"
+            >
+              @if (engine.closureSheet(); as sheet) {
+                <pre
+                  class="ck-mono"
+                  style="margin:0; white-space:pre-wrap; word-break:break-word; font-size:11.5px; line-height:1.55; color:var(--ck-fg-2);"
+                  >{{ sheet.markdown }}</pre>
+              } @else {
+                <span style="font-size:12px; color:var(--ck-fg-4); font-style:italic;">Chargement de la fiche de clôture…</span>
+              }
+            </div>
+          }
         </div>
       }
 
@@ -325,44 +398,85 @@ import { clockLabel } from './capture-presentation';
               <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
                 Pistes de l'oracle
               </span>
-              <span class="ck-mono" style="margin-left:auto; font-size:9px; color:var(--ck-fg-5);">non bloquant</span>
+              <button
+                type="button"
+                class="ck-mono"
+                (click)="toggleOracleSuppressed()"
+                [title]="oracleSuppressed() ? 'Réafficher les pistes de l\\'oracle' : 'Masquer l\\'oracle pour cette séance'"
+                style="margin-left:auto; display:inline-flex; align-items:center; gap:5px; font-size:9px; padding:3px 8px; border-radius:999px; cursor:pointer; background:transparent;"
+                [style.border]="'1px solid ' + (oracleSuppressed() ? 'var(--ck-signal-violet)' : 'var(--ck-stroke-2)')"
+                [style.color]="oracleSuppressed() ? 'var(--ck-signal-violet)' : 'var(--ck-fg-5)'"
+              >
+                <ck-glyph [name]="oracleSuppressed() ? 'bolt' : 'x'" [size]="10" color="currentColor" />
+                {{ oracleSuppressed() ? 'Afficher' : 'Masquer' }}
+              </button>
             </div>
-            <div class="ck-scroll" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:280px;">
-              @if (openOracle().length === 0) {
-                <span style="color:var(--ck-fg-5); font-size:12px; font-style:italic;">
-                  L'oracle écoute… il déposera ici des questions d'approfondissement.
-                </span>
-              }
-              @for (q of openOracle(); track q.id) {
-                <div
-                  style="padding:10px 11px; border-radius:var(--ck-radius-md); display:flex; flex-direction:column; gap:7px;"
-                  [style.border]="'1px solid ' + (q.status === 'answered' ? 'color-mix(in oklab, var(--ck-signal-violet) 50%, transparent)' : 'var(--ck-stroke-2)')"
-                  [style.background]="q.status === 'answered' ? 'color-mix(in oklab, var(--ck-signal-violet) 9%, transparent)' : 'var(--ck-bg-inset)'"
-                >
-                  <div style="display:flex; align-items:center; gap:6px;">
-                    <ck-glyph name="bolt" [size]="12" color="var(--ck-signal-violet)" />
-                    <span class="ck-mono" style="font-size:8.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-signal-violet);">
-                      Oracle
-                    </span>
-                    <span class="ck-mono" style="margin-left:auto; font-size:9px; color:var(--ck-fg-5);">{{ stamp(q.ts_ms) }}</span>
+            @if (oracleSuppressed()) {
+              <span style="color:var(--ck-fg-5); font-size:12px; font-style:italic;">
+                Oracle masqué — il continue d'écouter en arrière-plan.
+              </span>
+            } @else {
+              <div class="ck-scroll" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto; max-height:280px;">
+                @if (openOracle().length === 0) {
+                  <span style="color:var(--ck-fg-5); font-size:12px; font-style:italic;">
+                    L'oracle écoute… il déposera ici des questions d'approfondissement.
+                  </span>
+                }
+                @for (q of openOracle(); track q.id) {
+                  <div
+                    style="padding:10px 11px; border-radius:var(--ck-radius-md); display:flex; flex-direction:column; gap:7px;"
+                    [style.border]="'1px solid ' + (q.status === 'answered' ? 'color-mix(in oklab, var(--ck-signal-violet) 50%, transparent)' : 'var(--ck-stroke-2)')"
+                    [style.background]="q.status === 'answered' ? 'color-mix(in oklab, var(--ck-signal-violet) 9%, transparent)' : 'var(--ck-bg-inset)'"
+                  >
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span
+                        [title]="isHighPriority(q.priority) ? 'Priorité haute' : 'Priorité normale'"
+                        style="flex:none; width:6px; height:6px; border-radius:999px;"
+                        [style.background]="isHighPriority(q.priority) ? 'var(--ck-signal-warn)' : 'var(--ck-fg-5)'"
+                      ></span>
+                      <span class="ck-mono" style="font-size:8.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ck-signal-violet);">
+                        Oracle
+                      </span>
+                      @if (oracleTopic(q.topic_id); as topic) {
+                        <span
+                          class="ck-mono"
+                          style="font-size:8.5px; padding:1px 6px; border-radius:999px; border:1px solid var(--ck-stroke-2); color:var(--ck-fg-4); max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                          [title]="topic"
+                        >
+                          {{ topic }}
+                        </span>
+                      }
+                      @if (q.status === 'deferred') {
+                        <span class="ck-mono" style="font-size:8.5px; color:var(--ck-signal-cool);">différée</span>
+                      }
+                      <span class="ck-mono" style="margin-left:auto; font-size:9px; color:var(--ck-fg-5);">{{ stamp(q.ts_ms) }}</span>
+                    </div>
+                    <p style="margin:0; font-size:12.5px; line-height:1.45; color:var(--ck-fg-2);">{{ q.text }}</p>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                      <button
+                        type="button"
+                        class="lf-chip"
+                        (click)="engine.setOracleStatus(q.id, q.status === 'answered' ? 'open' : 'answered')"
+                        [style.--lf-accent]="q.status === 'answered' ? 'var(--ck-signal-violet)' : null"
+                      >
+                        <ck-glyph name="layers" [size]="11" color="currentColor" /> {{ q.status === 'answered' ? 'À traiter' : 'Garder' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="lf-chip"
+                        (click)="engine.deferOracle(q.id)"
+                        [style.--lf-accent]="q.status === 'deferred' ? 'var(--ck-signal-cool)' : null"
+                      >
+                        <ck-glyph name="arrow-right" [size]="11" color="currentColor" /> Différer
+                      </button>
+                      <button type="button" class="lf-chip" (click)="engine.setOracleStatus(q.id, 'dismissed')">
+                        <ck-glyph name="x" [size]="11" color="currentColor" /> Ignorer
+                      </button>
+                    </div>
                   </div>
-                  <p style="margin:0; font-size:12.5px; line-height:1.45; color:var(--ck-fg-2);">{{ q.text }}</p>
-                  <div style="display:flex; gap:6px;">
-                    <button
-                      type="button"
-                      class="lf-chip"
-                      (click)="engine.setOracleStatus(q.id, q.status === 'answered' ? 'open' : 'answered')"
-                      [style.--lf-accent]="q.status === 'answered' ? 'var(--ck-signal-violet)' : null"
-                    >
-                      <ck-glyph name="layers" [size]="11" color="currentColor" /> {{ q.status === 'answered' ? 'À traiter' : 'Garder' }}
-                    </button>
-                    <button type="button" class="lf-chip" (click)="engine.setOracleStatus(q.id, 'dismissed')">
-                      <ck-glyph name="x" [size]="11" color="currentColor" /> Ignorer
-                    </button>
-                  </div>
-                </div>
-              }
-            </div>
+                }
+              </div>
+            }
           </div>
         </div>
       </div>
@@ -419,6 +533,24 @@ import { clockLabel } from './capture-presentation';
         color: var(--lf-accent, var(--ck-fg-2));
       }
       .lf-chip:hover {
+        background: var(--ck-tint-soft);
+      }
+      .lf-close-btn {
+        appearance: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--ck-font-sans);
+        font-size: 12px;
+        font-weight: 550;
+        padding: 6px 11px;
+        border-radius: var(--ck-radius-md);
+        cursor: pointer;
+        border: 1px solid var(--ck-stroke-2);
+        background: var(--ck-bg-inset);
+        color: var(--ck-fg-2);
+      }
+      .lf-close-btn:hover {
         background: var(--ck-tint-soft);
       }
       .lf-rail-item {
@@ -488,6 +620,18 @@ export class LeFilSessionComponent {
     this.engine.oracle().filter((q) => q.status !== 'dismissed'),
   );
 
+  // ---- session minuterie / closure (P1, v0) ------------------------------
+  protected readonly paused = this.engine.paused;
+  protected readonly overtime = this.engine.overtime;
+  protected readonly lastFiveMinutes = this.engine.lastFiveMinutes;
+  /** mm:ss countdown (prefixed with `+` once in overtime). */
+  protected readonly remainingLabel = computed(() => this.formatDuration(this.engine.remainingMs()));
+  /** Collapsible closure-sheet preview under the closure bar. */
+  protected readonly showClosure = signal(false);
+
+  // ---- oracle enrichment (P1, Option A) ----------------------------------
+  protected readonly oracleSuppressed = this.engine.oracleSuppressed;
+
   // ---- section rail (P0 #1) ----------------------------------------------
   protected readonly planTopics = this.engine.planTopics;
   protected readonly activeTopicId = this.engine.activeTopicId;
@@ -516,18 +660,10 @@ export class LeFilSessionComponent {
   /** Composer VU reflects the engine's real mic state (D3). */
   protected readonly micActive = this.engine.micActive;
 
-  /** Live wall-clock for the status bar, ticked by a timer (never reads the
-   * wall clock directly in the template — that trips ExpressionChanged in dev). */
-  protected readonly clock = signal(clockLabel(Date.now()));
-
-  private readonly destroyRef = inject(DestroyRef);
-
   constructor() {
     if (this.engine.sessionId() && this.engine.documents().length === 0) {
       void this.engine.loadDocuments();
     }
-    const timer = setInterval(() => this.clock.set(clockLabel(Date.now())), 1000);
-    this.destroyRef.onDestroy(() => clearInterval(timer));
     // Auto-scroll the Fil to the bottom on every new event (scrollTop, never scrollIntoView).
     effect(() => {
       this.engine.feed();
@@ -584,6 +720,48 @@ export class LeFilSessionComponent {
 
   protected toggleMuteWhileTyping(): void {
     this.muteWhileTyping.update((v) => !v);
+  }
+
+  // ---- session minuterie / closure (P1, v0) ------------------------------
+  protected togglePause(): void {
+    if (this.paused()) void this.engine.resume();
+    else void this.engine.pause();
+  }
+
+  protected scheduleFollowup(): void {
+    void this.engine.scheduleFollowup();
+  }
+
+  /** Toggle the closure-sheet preview; lazily load it on first open. */
+  protected toggleClosure(): void {
+    const next = !this.showClosure();
+    this.showClosure.set(next);
+    if (next && !this.engine.closureSheet()) void this.engine.loadClosureSheet();
+  }
+
+  /** Format a remaining-ms value as `mm:ss`, prefixing `+` when in overtime. */
+  private formatDuration(ms: number): string {
+    const overtime = ms < 0;
+    const total = Math.floor(Math.abs(ms) / 1000);
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    const body = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return overtime ? `+${body}` : body;
+  }
+
+  // ---- oracle enrichment (P1, Option A) ----------------------------------
+  protected toggleOracleSuppressed(): void {
+    this.engine.setOracleSuppressed(!this.oracleSuppressed());
+  }
+
+  /** Human topic label for an oracle item (null when unmappable). */
+  protected oracleTopic(topicId: string | null | undefined): string | null {
+    return this.engine.topicLabelFor(topicId);
+  }
+
+  /** Treat a high backend priority as "haute" (warn dot), else "normale". */
+  protected isHighPriority(priority: number | null | undefined): boolean {
+    return (priority ?? 0) >= 2;
   }
 
   protected onDraft(event: Event): void {

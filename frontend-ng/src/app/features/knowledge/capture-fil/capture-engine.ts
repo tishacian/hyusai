@@ -173,6 +173,14 @@ export interface CaptureDocumentContext {
   visual_context: Record<string, unknown> | null;
 }
 
+/** End-of-session closure sheet (markdown recap + structured lists). */
+export interface CaptureClosureSheet {
+  markdown: string;
+  topics?: string[];
+  captured_facts?: unknown[];
+  unresolved?: Array<{ bucket?: string; label?: string; status?: string }>;
+}
+
 const FINALIZE_IDLE: CaptureFinalizeState = {
   stage: 'idle',
   processed: 0,
@@ -240,6 +248,27 @@ export class CaptureEngine {
   private readonly _lastError = signal<string | null>(null);
   private readonly _micActive = signal(false);
   private readonly _micMuted = signal(false);
+
+  // ---- session minuterie / closure (P1, v0) ------------------------------
+  private readonly _paused = signal(false);
+  /** Cumulative extra minutes granted via {@link extendSession}. */
+  private readonly _extraMinutes = signal(0);
+  /** 1s ticker driving the countdown computeds (started at connect). */
+  private readonly _nowTick = signal(Date.now());
+  private readonly _sessionStartedAt = signal<number | null>(null);
+  /** Wall-clock when the current pause began (null while running). */
+  private readonly _pausedAt = signal<number | null>(null);
+  /** Total time spent paused so far (frozen out of the elapsed count). */
+  private readonly _pausedAccumMs = signal(0);
+  private readonly _closureSheet = signal<CaptureClosureSheet | null>(null);
+  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private static readonly TICK_MS = 1000;
+  private static readonly DEFAULT_DURATION_MIN = 30;
+  private static readonly NOTICE_WINDOW_MS = 5 * 60 * 1000;
+
+  // ---- oracle enrichment / report export (P1) ----------------------------
+  private readonly _oracleSuppressed = signal(false);
+  private readonly _reportExport = signal<string | null>(null);
 
   // ---- section steering (P0 #1) ------------------------------------------
   private readonly _activeTopicId = signal<string | null>(null);
@@ -341,6 +370,42 @@ export class CaptureEngine {
   readonly connected = computed(() => this._state() === 'connected');
   /** Mic is capturing AND not muted-while-typing — drives the composer VU (D3). */
   readonly micActive = computed(() => this._micActive() && !this._micMuted());
+
+  // ---- session minuterie / closure (P1, v0) ------------------------------
+  /** Whether the capture is currently paused (timer frozen, mic cut). */
+  readonly paused = this._paused.asReadonly();
+  /** End-of-session closure sheet (loaded on demand via {@link loadClosureSheet}). */
+  readonly closureSheet = this._closureSheet.asReadonly();
+  /** Whether the operator has globally hidden the oracle for this session. */
+  readonly oracleSuppressed = this._oracleSuppressed.asReadonly();
+  /** Last exported report markdown (for reuse/preview). */
+  readonly reportExport = this._reportExport.asReadonly();
+
+  /** Planned session length in minutes (incl. prolongations); fallback 30. */
+  readonly durationMinutes = computed(() => {
+    const base = Number(this._session()?.duration_minutes);
+    const minutes = Number.isFinite(base) && base > 0 ? base : CaptureEngine.DEFAULT_DURATION_MIN;
+    return minutes + this._extraMinutes();
+  });
+  /** Elapsed capture time (ms), with paused spans frozen out. */
+  readonly elapsedMs = computed(() => {
+    const start = this._sessionStartedAt();
+    if (start == null) return 0;
+    const now = this._nowTick();
+    let elapsed = now - start - this._pausedAccumMs();
+    const pausedAt = this._pausedAt();
+    if (pausedAt != null) elapsed -= now - pausedAt;
+    return Math.max(0, elapsed);
+  });
+  /** Remaining time before the échéance (ms); negative once in overtime. */
+  readonly remainingMs = computed(() => this.durationMinutes() * 60000 - this.elapsedMs());
+  /** True once the planned duration is exhausted. */
+  readonly overtime = computed(() => this.remainingMs() <= 0);
+  /** "5 dernières minutes" notice window (not yet in overtime). */
+  readonly lastFiveMinutes = computed(() => {
+    const remaining = this.remainingMs();
+    return remaining > 0 && remaining <= CaptureEngine.NOTICE_WINDOW_MS;
+  });
   /** Anchors filtered to the timeline-relevant (non-discarded) set. */
   readonly anchors = computed(() =>
     this._viewReferences().filter((v) => v.status !== 'discarded'),
@@ -501,8 +566,24 @@ export class CaptureEngine {
    * poll (the backend doesn't push relances live — "silent oracle" by design).
    */
   private onConnected(): void {
+    this.startTicker();
     void this.refreshHintQueue();
     this.startHintPoll();
+  }
+
+  /** Start the 1s ticker that drives the countdown computeds. */
+  private startTicker(): void {
+    this.stopTicker();
+    if (this._sessionStartedAt() == null) this._sessionStartedAt.set(Date.now());
+    this._nowTick.set(Date.now());
+    this.tickTimer = setInterval(() => this._nowTick.set(Date.now()), CaptureEngine.TICK_MS);
+  }
+
+  private stopTicker(): void {
+    if (this.tickTimer !== null) {
+      clearInterval(this.tickTimer);
+      this.tickTimer = null;
+    }
   }
 
   private startHintPoll(): void {
@@ -523,6 +604,7 @@ export class CaptureEngine {
   /** Tear down the realtime connection. Safe to call repeatedly. */
   disconnect(): void {
     this.stopHintPoll();
+    this.stopTicker();
     this.stopMic();
     this.realtimeSttActive = false;
     // A WS finalize in flight can never complete without the socket — resolve it
@@ -963,6 +1045,77 @@ export class CaptureEngine {
     }
   }
 
+  // ---- session minuterie / closure (P1, v0) ------------------------------
+
+  /** Pause the capture: freeze the countdown, cut the mic, notify the backend. */
+  async pause(): Promise<void> {
+    if (this._paused()) return;
+    this._paused.set(true);
+    this._pausedAt.set(Date.now());
+    this.stopMic();
+    const sessionId = this._sessionId();
+    if (!sessionId) return;
+    try {
+      await firstValueFrom(this.api.pauseCaptureSession(sessionId));
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  /** Resume the capture: bank the paused span, reopen the mic, notify the backend. */
+  async resume(): Promise<void> {
+    if (!this._paused()) return;
+    const pausedAt = this._pausedAt();
+    if (pausedAt != null) {
+      this._pausedAccumMs.update((acc) => acc + Math.max(0, Date.now() - pausedAt));
+    }
+    this._pausedAt.set(null);
+    this._paused.set(false);
+    void this.startMic();
+    const sessionId = this._sessionId();
+    if (!sessionId) return;
+    try {
+      await firstValueFrom(this.api.resumeCaptureSession(sessionId));
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  /** Prolong the session by `minutes` (default +15) — pushes the échéance out. */
+  async extendSession(minutes = 15): Promise<void> {
+    this._extraMinutes.update((m) => m + minutes);
+    const sessionId = this._sessionId();
+    if (!sessionId) return;
+    try {
+      await firstValueFrom(this.api.extendCaptureSession(sessionId, minutes));
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  /** Load the end-of-session closure sheet (markdown recap + structured lists). */
+  async loadClosureSheet(): Promise<void> {
+    const sessionId = this._sessionId();
+    if (!sessionId) return;
+    try {
+      const payload = await firstValueFrom(this.api.getCaptureClosureSheet(sessionId));
+      this._closureSheet.set(payload ?? null);
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  /** Programme a follow-up session at closure (non-terminal — the séance lives on). */
+  async scheduleFollowup(): Promise<void> {
+    const sessionId = this._sessionId();
+    if (!sessionId) return;
+    try {
+      await firstValueFrom(this.api.applyCaptureSessionClosure(sessionId, { action: 'schedule' }));
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
   // ---- anchors -----------------------------------------------------------
 
   /**
@@ -1126,6 +1279,48 @@ export class CaptureEngine {
     } catch (error) {
       this._lastError.set(this.errorMessage(error));
     }
+  }
+
+  /**
+   * Export the current report as Markdown via the backend, then trigger a
+   * client-side Blob download (`rapport-<titre>.md`). Memoises the markdown in
+   * {@link reportExport} for reuse.
+   */
+  async exportReport(): Promise<void> {
+    const sessionId = this._sessionId();
+    if (!sessionId) return;
+    const proposalId = this._proposalId();
+    try {
+      const payload = await firstValueFrom(
+        this.api.exportCaptureProposal(sessionId, proposalId ? { proposal_id: proposalId } : {}),
+      );
+      const markdown = payload?.markdown ?? '';
+      this._reportExport.set(markdown);
+      this.downloadMarkdown(markdown);
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  private downloadMarkdown(markdown: string): void {
+    if (typeof document === 'undefined' || typeof URL?.createObjectURL !== 'function') return;
+    const slug =
+      (this._session()?.title ?? 'rapport')
+        .toString()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'rapport';
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `rapport-${slug}.md`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   /** Answer a single open question; the backend re-synthesises and returns the proposal. */
@@ -1314,9 +1509,53 @@ export class CaptureEngine {
     this.finalizeResolver = null;
   }
 
-  /** Keep / ignore an Oracle suggestion (calm, non-blocking — D3 / §5.1). */
+  /**
+   * Keep / ignore / defer an Oracle suggestion (calm, non-blocking — D3 / §5.1).
+   * Optimistic local update + best-effort persistence to the backend so the
+   * triage survives reload.
+   */
   setOracleStatus(id: string, status: CaptureOracleItem['status']): void {
     this._oracle.update((items) => items.map((q) => (q.id === id ? { ...q, status } : q)));
+    const sessionId = this._sessionId();
+    if (!sessionId) return;
+    void firstValueFrom(
+      this.api.patchCaptureOracleQuestions(sessionId, { items: [{ question_id: id, status }] }),
+    ).catch((error: unknown) => this._lastError.set(this.errorMessage(error)));
+  }
+
+  /** Différer une piste de l'oracle (raccourci sur {@link setOracleStatus}). */
+  deferOracle(id: string): void {
+    this.setOracleStatus(id, 'deferred');
+  }
+
+  /**
+   * Masquer / réafficher globalement l'oracle pour la séance. Persists via the
+   * session `suppress_oracle_questions` flag.
+   */
+  setOracleSuppressed(suppressed: boolean): void {
+    this._oracleSuppressed.set(suppressed);
+    const sessionId = this._sessionId();
+    if (!sessionId) return;
+    void firstValueFrom(
+      this.api.patchCaptureSessionFlags(sessionId, { suppress_oracle_questions: suppressed }),
+    ).catch((error: unknown) => this._lastError.set(this.errorMessage(error)));
+  }
+
+  /**
+   * Human label for an oracle item's `topic_id`, mapped via the parsed plan
+   * tree (topics then sous-sujets). Returns null when unmappable.
+   */
+  topicLabelFor(topicId: string | null | undefined): string | null {
+    const id = (topicId ?? '').trim();
+    if (!id) return null;
+    const topics = this.planTopics();
+    const topic = topics.find((t) => t.id === id);
+    if (topic) return topic.title || topic.id;
+    for (const t of topics) {
+      const sub = (t.subtopics ?? []).find((s) => s.id === id);
+      if (sub) return sub.title || sub.id;
+    }
+    return null;
   }
 
   /** Reset all session-scoped state (e.g. when leaving the capture). */
@@ -1338,6 +1577,14 @@ export class CaptureEngine {
     this._hintQueue.set([]);
     this._publication.set(null);
     this._finalize.set(FINALIZE_IDLE);
+    this._paused.set(false);
+    this._extraMinutes.set(0);
+    this._sessionStartedAt.set(null);
+    this._pausedAt.set(null);
+    this._pausedAccumMs.set(0);
+    this._closureSheet.set(null);
+    this._oracleSuppressed.set(false);
+    this._reportExport.set(null);
     this._lastError.set(null);
     this._state.set('idle');
   }
