@@ -114,7 +114,11 @@ def main() -> int:
         (
             "chat action",
             "/api/v1/chat/completion",
-            lambda d: "OCTAVE" in json.dumps(d, ensure_ascii=False) or d.get("action_manifest_id") == "octave.priority_summary",
+            lambda d: (
+                "OCTAVE" in json.dumps(d, ensure_ascii=False)
+                or d.get("action_manifest_id") == "octave.priority_summary"
+                or (d.get("registry_action") or {}).get("action_manifest_id") == "octave.priority_summary"
+            ),
             "POST",
             {"query": "OCTAVE, donne-moi le cockpit", "stream": False, "assistant_profile": "octave_executive"},
             True,

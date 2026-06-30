@@ -21,6 +21,7 @@ from app.services.mission_room import (
     cockpit_payload,
     ensure_octocity_mission_room_workspace,
     ensure_sentinel_ci_workspace,
+    map_payload,
     navigation_payload,
     octocity_forbidden_terms_present,
     present_payload_for_workspace,
@@ -237,6 +238,9 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
     cockpit = present_payload_for_workspace(workspace, cockpit_payload(workspace, db_session))
     assert cockpit["workspace"]["slug"] == OCTOCITY_WORKSPACE_SLUG
     assert octocity_forbidden_terms_present(cockpit) == []
+
+    mission_map = present_payload_for_workspace(workspace, map_payload(workspace, db_session))
+    assert octocity_forbidden_terms_present(mission_map) == []
 
     member = db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id, user_id=owner.id).one()
     assert member.role == "owner"
