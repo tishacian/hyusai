@@ -6,7 +6,7 @@ without a migration and keeps AYA legacy handlers intact behind adapters.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 import re
 from typing import Any, Callable, Dict, Iterable, Optional
 
@@ -1345,11 +1345,81 @@ SENTINEL_AYA_SECURITY_ACTIONS = (
 )
 
 
+def _octave_text(value: str) -> str:
+    replacements = (
+        ("SENTINEL-CI", "Octocity Mission Room"),
+        ("Sentinel-CI", "Octocity Mission Room"),
+        ("sentinel-ci", "octocity"),
+        ("sentinel_ci", "octocity"),
+        ("AYA", "OCTAVE"),
+        ("Aya", "OCTAVE"),
+        ("aya", "octave"),
+        ("Vice Premier Ministre", "Directrice de Coordination"),
+        ("Vice-Premier Ministre", "Directrice de Coordination"),
+        ("Abidjan", "Meridian"),
+        ("Nawa", "Liora"),
+        ("Napié", "Auralis"),
+        ("Napie", "Auralis"),
+        ("CEDEAO", "Alliance Aurora"),
+        ("FANCI", "Garde Civique d'Asteria"),
+        ("Cote d'Ivoire", "Asteria"),
+        ("Côte d'Ivoire", "Asteria"),
+        ("cacao", "bio-composites"),
+        ("Cacao", "Bio-composites"),
+        ("cocoa", "bio-composites"),
+        ("Cocoa", "Bio-composites"),
+        ("anacarde", "fibre solaire"),
+        ("Anacarde", "Fibre solaire"),
+    )
+    text = value
+    for old, new in replacements:
+        text = text.replace(old, new)
+    return text
+
+
+def _octave_payload(value: Any) -> Any:
+    if isinstance(value, str):
+        return _octave_text(value)
+    if isinstance(value, dict):
+        return {key: _octave_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_octave_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_octave_payload(item) for item in value)
+    return value
+
+
+def _octave_aliases(actions: tuple[ActionManifest, ...], *, pack: str) -> tuple[ActionManifest, ...]:
+    aliases: list[ActionManifest] = []
+    for manifest in actions:
+        suffix = manifest.action_id.split(".", 1)[1] if "." in manifest.action_id else manifest.action_id
+        aliases.append(
+            replace(
+                manifest,
+                action_id=f"octave.{suffix}",
+                label=_octave_text(manifest.label),
+                description=_octave_text(manifest.description),
+                phrases=tuple(_octave_text(phrase) for phrase in manifest.phrases),
+                input_schema=_octave_payload(manifest.input_schema),
+                audit_event=_octave_text(manifest.audit_event),
+                pack=pack,
+                capability_template="octave_voice_command",
+            )
+        )
+    return tuple(aliases)
+
+
+OCTAVE_MISSION_ROOM_ACTIONS = _octave_aliases(SENTINEL_AYA_ACTIONS, pack="octave_mission_room_v1")
+OCTAVE_SECURITY_ACTIONS = _octave_aliases(SENTINEL_AYA_SECURITY_ACTIONS, pack="octave_security_v1")
+
+
 PACKS: Dict[str, tuple[ActionManifest, ...]] = {
     "global_voice_v1": GLOBAL_VOICE_ACTIONS,
     "andritz_industrial_v1": ANDRITZ_ACTIONS,
     "sentinel_ci_aya_v1": SENTINEL_AYA_ACTIONS,
     "sentinel_ci_aya_security_v1": SENTINEL_AYA_SECURITY_ACTIONS,
+    "octave_mission_room_v1": OCTAVE_MISSION_ROOM_ACTIONS,
+    "octave_security_v1": OCTAVE_SECURITY_ACTIONS,
 }
 
 
@@ -1504,6 +1574,10 @@ def _matches_confirm_phrase_exactly(normalized: str, manifest: ActionManifest) -
     return False
 
 
+def _action_suffix(action_id: str) -> str:
+    return action_id.split(".", 1)[1] if "." in action_id else action_id
+
+
 def _apply_tie_breakers(
     normalized: str,
     scored: list[tuple[float, ActionManifest]],
@@ -1526,18 +1600,19 @@ def _apply_tie_breakers(
     if not scored:
         raise ValueError("scored must contain at least one element")
     top_score, top_manifest = scored[0]
-    if top_manifest.action_id == "aya.show_vessel_evidence" and _CUSTOMS_HINT_RE.search(normalized):
-        customs_action_ids = {"aya.show_customs_record", "aya.draft_customs_email", "aya.propose_customs_email"}
+    top_suffix = _action_suffix(top_manifest.action_id)
+    if top_suffix == "show_vessel_evidence" and _CUSTOMS_HINT_RE.search(normalized):
+        customs_action_ids = {"show_customs_record", "draft_customs_email", "propose_customs_email"}
         for score, manifest in scored:
-            if manifest.action_id in customs_action_ids:
+            if _action_suffix(manifest.action_id) in customs_action_ids:
                 return score, manifest
     if (
-        top_manifest.action_id == "aya.explain_why"
+        top_suffix == "explain_why"
         and re.search(r"\bexplique\b", normalized)
         and _VESSEL_HINT_RE.search(normalized)
     ):
         for score, manifest in scored:
-            if manifest.action_id == "aya.show_vessel_evidence":
+            if _action_suffix(manifest.action_id) == "show_vessel_evidence":
                 return score, manifest
     # Rule 3 — S3.6 communique drafting: if aya.trace_rumor_origin wins but
     # the query also carries an explicit drafting verb and the « communique »
@@ -1546,12 +1621,12 @@ def _apply_tie_breakers(
     # rumor trace action because the « rumeur frontière nord » tokens have a
     # very high phrase score.
     if (
-        top_manifest.action_id == "aya.trace_rumor_origin"
+        top_suffix == "trace_rumor_origin"
         and _SECURITY_COMMUNIQUE_VERB_RE.search(normalized)
         and _SECURITY_COMMUNIQUE_NOUN_RE.search(normalized)
     ):
         for score, manifest in scored:
-            if manifest.action_id == "aya.draft_security_communique":
+            if _action_suffix(manifest.action_id) == "draft_security_communique":
                 return score, manifest
     return top_score, top_manifest
 
@@ -1700,11 +1775,22 @@ def _workspace_default_packs(workspace: Workspace) -> list[str]:
     slug = (workspace.slug or "").lower()
     name = (workspace.name or "").lower()
     settings = workspace.settings or {}
+    mission_room = _as_dict(settings.get("mission_room"))
     catalog = _as_dict(settings.get("catalog") or settings.get("capability_catalog"))
     enabled_caps = set(_list(catalog.get("enabled_capabilities")))
     packs: list[str] = []
     if "andritz" in slug or "andritz" in name:
         packs.append("andritz_industrial_v1")
+    if (
+        slug == "octocity-mission-room"
+        or "octocity" in slug
+        or "octocity" in name
+        or mission_room.get("profile") == "octocity_institutional_v1"
+        or settings.get("assistant_profile_default") == "octave_executive"
+        or "octave_voice_command" in enabled_caps
+    ):
+        packs.append("octave_mission_room_v1")
+        packs.append("octave_security_v1")
     if "sentinel" in slug or "sentinel" in name or "aya_voice_command" in enabled_caps:
         packs.append("sentinel_ci_aya_v1")
         # S3 security pack: opt-in by default for SENTINEL-CI workspaces so the
@@ -1724,6 +1810,9 @@ def _capability_template_packs(settings: dict[str, Any]) -> list[str]:
     if "aya_voice_command" in enabled_caps:
         packs.append("sentinel_ci_aya_v1")
         packs.append("sentinel_ci_aya_security_v1")
+    if "octave_voice_command" in enabled_caps:
+        packs.append("octave_mission_room_v1")
+        packs.append("octave_security_v1")
     if "expert_knowledge_capture" in enabled_caps or "secure_deposit" in enabled_caps:
         packs.append("andritz_industrial_v1")
     return packs
@@ -1800,6 +1889,15 @@ _WAKE_WORD_ACK_PHRASES = frozenset(
         "aya tu es presente",
         "ok aya",
         "hey aya",
+        "octave",
+        "octave tu m entends",
+        "octave tu es la",
+        "octave presente",
+        "octave ecoute",
+        "octave tu es present",
+        "octave tu es presente",
+        "ok octave",
+        "hey octave",
     }
 )
 
@@ -1820,8 +1918,8 @@ def _strip_wake_word(text: str) -> str:
         return text
     if text in _WAKE_WORD_ACK_PHRASES:
         return text
-    stripped = re.sub(r"\b(?:ok|hey)\s+aya\b", " ", text)
-    stripped = re.sub(r"\baya\b", " ", stripped)
+    stripped = re.sub(r"\b(?:ok|hey)\s+(?:aya|octave)\b", " ", text)
+    stripped = re.sub(r"\b(?:aya|octave)\b", " ", stripped)
     stripped = re.sub(r"\s+", " ", stripped).strip(" ,.:!?-")
     stripped = re.sub(r"\s+", " ", stripped).strip()
     return stripped or text

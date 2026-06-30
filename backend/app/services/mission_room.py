@@ -57,6 +57,129 @@ SENTINEL_MARITIME_INTELLIGENCE_COLLECTION = "sentinel-ci-maritime-intelligence"
 MISSION_ROOM_ROOT = "/hypervisor/mission-room"
 MISSION_ROOM_ROUTE = f"{MISSION_ROOM_ROOT}/cockpit"
 VP_SCENARIO_ID = "sentinel-ci-vp-morning-zone-nord-v1"
+OCTOCITY_WORKSPACE_SLUG = "octocity-mission-room"
+OCTOCITY_WORKSPACE_NAME = "Octocity Mission Room"
+OCTOCITY_ASSISTANT_NAME = "OCTAVE"
+OCTOCITY_MISSION_ROOM_PROFILE = "octocity_institutional_v1"
+
+
+_OCTOCITY_TEXT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("sentinel_ci_aya_security_v1", "octave_security_v1"),
+    ("sentinel_ci_aya_v1", "octave_mission_room_v1"),
+    ("sentinel_ci", "octocity"),
+    ("sentinel-ci", "octocity"),
+    ("SENTINEL-CI", OCTOCITY_WORKSPACE_NAME),
+    ("Sentinel-CI", OCTOCITY_WORKSPACE_NAME),
+    ("AYA", OCTOCITY_ASSISTANT_NAME),
+    ("aya.", "octave."),
+    ("aya_", "octave_"),
+    ("aya", "octave"),
+    ("Aya", OCTOCITY_ASSISTANT_NAME),
+    ("Monsieur le Vice Premier Ministre", "Madame la Directrice de Coordination"),
+    ("Vice Premier Ministre", "Directrice de Coordination"),
+    ("Vice-Premier Ministre", "Directrice de Coordination"),
+    ("Vice Premier minister", "Coordination Director"),
+    ("VPM", "Coordination"),
+    ("Republique de Cote d'Ivoire", "Octocity Civic Grid"),
+    ("République de Côte d'Ivoire", "Octocity Civic Grid"),
+    ("Côte d'Ivoire", "Asteria"),
+    ("Cote d'Ivoire", "Asteria"),
+    ("Ivory Coast", "Asteria"),
+    ("ivoirienne", "asterienne"),
+    ("ivoirien", "asterien"),
+    ("CI", "AS"),
+    ("Abidjan", "Meridian"),
+    ("Yamoussoukro", "Civitas"),
+    ("Bouaké", "Borealis"),
+    ("Bouake", "Borealis"),
+    ("Korhogo", "Northgate"),
+    ("Bouna", "Eastwatch"),
+    ("Kong", "Ridgepoint"),
+    ("San Pedro", "Harbor West"),
+    ("Vridi", "Quai Meridian"),
+    ("Nawa", "Liora"),
+    ("Soubre", "Solenne"),
+    ("Napié", "Auralis"),
+    ("Napie", "Auralis"),
+    ("CEDEAO", "Alliance Aurora"),
+    ("FANCI", "Garde Civique d'Asteria"),
+    ("Prefet", "Coordinateur territorial"),
+    ("Préfet", "Coordinateur territorial"),
+    ("Préfecture", "Coordination territoriale"),
+    ("prefet", "coordinateur territorial"),
+    ("préfet", "coordinateur territorial"),
+    ("préfecture", "coordination territoriale"),
+    ("cacao", "bio-composites"),
+    ("Cacao", "Bio-composites"),
+    ("cocoa", "bio-composites"),
+    ("Cocoa", "Bio-composites"),
+    ("anacarde", "fibre solaire"),
+    ("Anacarde", "Fibre solaire"),
+    ("Afrique de l'Ouest", "Arc Atlantique"),
+    ("West Africa", "Atlantic Arc"),
+    ("Sahel", "Northern Belt"),
+    ("Golfe de Guinee", "Gulf of Meridian"),
+    ("Gulf of Guinea", "Gulf of Meridian"),
+    ("Africa/Abidjan", "UTC"),
+)
+
+_OCTOCITY_FORBIDDEN_TERMS = (
+    "AYA",
+    "SENTINEL-CI",
+    "Côte d’Ivoire",
+    "Côte d'Ivoire",
+    "Cote d'Ivoire",
+    "Abidjan",
+    "Nawa",
+    "CEDEAO",
+    "FANCI",
+    "cacao",
+    "anacarde",
+)
+
+
+def mission_room_profile(workspace: Workspace | None) -> str:
+    settings = workspace.settings if workspace is not None else None
+    mission_room = (settings or {}).get("mission_room") if isinstance(settings, dict) else None
+    profile = (mission_room or {}).get("profile") if isinstance(mission_room, dict) else None
+    return str(profile or "")
+
+
+def is_octocity_mission_room(workspace: Workspace | None) -> bool:
+    return (
+        mission_room_profile(workspace) == OCTOCITY_MISSION_ROOM_PROFILE
+        or (workspace is not None and (workspace.slug or "") == OCTOCITY_WORKSPACE_SLUG)
+    )
+
+
+def present_text_for_workspace(workspace: Workspace | None, value: str) -> str:
+    """Apply workspace-specific presentation anonymization to visible strings."""
+    if not is_octocity_mission_room(workspace):
+        return value
+    text = value
+    for old, new in _OCTOCITY_TEXT_REPLACEMENTS:
+        text = text.replace(old, new)
+    return text
+
+
+def present_payload_for_workspace(workspace: Workspace | None, payload: Any) -> Any:
+    """Recursively anonymize Mission Room payload values for the Octocity profile."""
+    if not is_octocity_mission_room(workspace):
+        return payload
+    if isinstance(payload, str):
+        return present_text_for_workspace(workspace, payload)
+    if isinstance(payload, dict):
+        return {key: present_payload_for_workspace(workspace, value) for key, value in payload.items()}
+    if isinstance(payload, list):
+        return [present_payload_for_workspace(workspace, item) for item in payload]
+    if isinstance(payload, tuple):
+        return tuple(present_payload_for_workspace(workspace, item) for item in payload)
+    return payload
+
+
+def octocity_forbidden_terms_present(payload: Any) -> list[str]:
+    text = str(payload)
+    return [term for term in _OCTOCITY_FORBIDDEN_TERMS if term in text]
 
 
 SENTINEL_KNOWLEDGE_GUIDES = (
@@ -2677,6 +2800,21 @@ def _system_for_navigation_item(
 def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
     all_systems = db.query(System).filter(System.workspace_id == workspace.id).all()
     systems_by_variant = _system_map(db, workspace)
+    settings = workspace.settings if isinstance(workspace.settings, dict) else {}
+    mission_room_settings = settings.get("mission_room") if isinstance(settings.get("mission_room"), dict) else {}
+    brand = (
+        mission_room_settings.get("brand")
+        if isinstance(mission_room_settings.get("brand"), dict)
+        else settings.get("workspace_app_brand")
+        if isinstance(settings.get("workspace_app_brand"), dict)
+        else {}
+    )
+    app_label = str(settings.get("workspace_app_label") or brand.get("label") or "SENTINEL-CI")
+    assistant_label = str(
+        mission_room_settings.get("assistant_label")
+        or mission_room_settings.get("label")
+        or SENTINEL_ASSISTANT_NAME
+    )
     api_by_view = {
         "cockpit": "/api/v1/mission-room/cockpit",
         "monitor": "/api/v1/mission-room/monitor",
@@ -2712,11 +2850,13 @@ def navigation_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
     return {
         "workspace": _workspace_meta(workspace),
         "app": {
-            "label": "SENTINEL-CI",
-            "assistant_label": SENTINEL_ASSISTANT_NAME,
-            "shell": "immersive",
-            "default_route": MISSION_ROOM_ROUTE,
-            "default_view": "cockpit",
+            "label": app_label,
+            "assistant_label": assistant_label,
+            "shell": settings.get("workspace_app_shell") or "immersive",
+            "default_route": settings.get("default_route") or MISSION_ROOM_ROUTE,
+            "default_view": settings.get("workspace_app_default_view") or "cockpit",
+            "brand": brand,
+            "profile": mission_room_profile(workspace),
         },
         "items": items,
         "exit_routes": [
@@ -5624,6 +5764,7 @@ def _capability_by_slug(db: DBSession, slug: str) -> Optional[Capability]:
 
 
 def _ensure_collection(db: DBSession, workspace: Workspace, slug: str, name: str, description: str) -> None:
+    source = "octocity" if is_octocity_mission_room(workspace) else "sentinel-ci"
     existing = (
         db.query(KnowledgeCollection)
         .filter(KnowledgeCollection.workspace_id == workspace.id, KnowledgeCollection.slug == slug)
@@ -5632,6 +5773,7 @@ def _ensure_collection(db: DBSession, workspace: Workspace, slug: str, name: str
     if existing:
         existing.name = name
         existing.description = description
+        existing.chunking_params = {**(existing.chunking_params or {}), "demo": True, "source": source}
         return
     db.add(
         KnowledgeCollection(
@@ -5645,7 +5787,7 @@ def _ensure_collection(db: DBSession, workspace: Workspace, slug: str, name: str
             artifact_prefix=f"workspaces/{workspace.id}/collections/{slug}",
             embedding_model="text-embedding-3-small",
             chunking_method="semantic",
-            chunking_params={"demo": True, "source": "sentinel-ci"},
+            chunking_params={"demo": True, "source": source},
         )
     )
 
@@ -5909,7 +6051,7 @@ def _ensure_rag_preset(db: DBSession, workspace: Workspace) -> None:
     )
 
 
-def _flow(slug: str, skill_slugs: list[str], label: str) -> dict[str, Any]:
+def _flow(slug: str, skill_slugs: list[str], label: str, *, template_prefix: str = "sentinel-ci") -> dict[str, Any]:
     nodes: list[dict[str, Any]] = [
         {"id": "source.workspace_signals", "type": "source", "label": "Workspace signals", "position": {"x": 40, "y": 120}},
     ]
@@ -5934,7 +6076,7 @@ def _flow(slug: str, skill_slugs: list[str], label: str) -> dict[str, Any]:
     return {
         "schema_version": 2,
         "variant": slug,
-        "template_id": f"sentinel-ci-{slug}",
+        "template_id": f"{template_prefix}-{slug}",
         "template_name": label,
         "nodes": nodes,
         "edges": edges,
@@ -5955,6 +6097,8 @@ def _ensure_system(
     variant: str,
     execution_mode: str = "human_augmented",
     legacy_names: Optional[list[str]] = None,
+    template_prefix: str = "sentinel-ci",
+    created_by: str = "system:sentinel_ci_seed",
 ) -> Optional[System]:
     capability = _capability_by_slug(db, capability_slug)
     if not capability:
@@ -5965,7 +6109,7 @@ def _ensure_system(
         .filter(System.workspace_id == workspace.id, System.name.in_([name, *(legacy_names or [])]))
         .first()
     )
-    flow = _flow(variant, skill_slugs, name)
+    flow = _flow(variant, skill_slugs, name, template_prefix=template_prefix)
     if existing:
         existing.name = name
         existing.objective = objective
@@ -5999,7 +6143,7 @@ def _ensure_system(
         },
         coordination_pattern="multi_agent" if len(skill_slugs) > 2 else "single_agent",
         status="active",
-        created_by="system:sentinel_ci_seed",
+        created_by=created_by,
         retrieval_mode_default="chah",
     )
     db.add(system)
@@ -6538,4 +6682,591 @@ def ensure_sentinel_ci_workspace(db: DBSession) -> dict[str, int | str]:
         "systems_created": systems_created,
         "demo_artifacts_cleaned": cleaned_demo_artifacts,
         "knowledge_guides_changed": knowledge_guides_changed,
+    }
+
+
+OCTOCITY_COLLECTIONS: tuple[tuple[str, str, str], ...] = (
+    (
+        "octocity-ministerial-briefs",
+        "Octocity Mission Briefs",
+        "Synthetic institutional briefings, agenda notes and validated language for OCTAVE.",
+    ),
+    (
+        "octocity-open-intelligence",
+        "Octocity Open Intelligence",
+        "Demo-safe public signals, press syntheses and weak-signal monitoring for Octocity.",
+    ),
+    (
+        "octocity-projects",
+        "Octocity Strategic Projects",
+        "Synthetic civic project records and decision-support risk explanations.",
+    ),
+    (
+        "octocity-territorial-map",
+        "Octocity Territorial Map",
+        "Fictive regions, corridor signals and non-military action recommendations.",
+    ),
+    (
+        "octocity-knowledge-capture",
+        "Octocity Knowledge Capture Corpus",
+        "Source inventory used by Knowledge Capture for synthetic expert interviews.",
+    ),
+    (
+        "octocity-evidence-graph",
+        "Octocity Evidence Graph",
+        "Entities, sources, locations, decisions and risks connected for OCTAVE.",
+    ),
+)
+
+
+def _octocity_collection_sources() -> dict[str, list[tuple[str, int]]]:
+    return {
+        "octocity-ministerial-briefs": [
+            ("octocity-civic-brief-2026-05-25.md", 18),
+            ("octocity-agenda-synthesis-2026-05-25.md", 12),
+            ("octave-public-language-guide.md", 9),
+        ],
+        "octocity-open-intelligence": [
+            ("aurora-public-signal-digest-2026-05-25.md", 16),
+            ("meridian-social-pulse-snapshot.md", 11),
+            ("northern-belt-rumor-trace-demo.md", 14),
+        ],
+        "octocity-projects": [
+            ("liora-resilience-campus-project-note.md", 13),
+            ("meridian-harbor-logistics-corridor.md", 15),
+            ("solenne-infrastructure-risk-register.md", 10),
+        ],
+        "octocity-territorial-map": [
+            ("asteria-territorial-map-legend.md", 10),
+            ("auralis-zone-risk-reading.md", 12),
+        ],
+        "octocity-knowledge-capture": [
+            ("octocity-expert-interview-seed.md", 8),
+            ("octocity-decision-vocabulary.md", 6),
+        ],
+        "octocity-evidence-graph": [
+            ("octocity-evidence-graph-nodes.json", 22),
+            ("octocity-source-registry.json", 18),
+        ],
+    }
+
+
+def _ensure_octocity_collection_sources(db: DBSession, workspace: Workspace) -> int:
+    from app.services.knowledge_collections import upsert_collection_source
+
+    written = 0
+    for slug, source_specs in _octocity_collection_sources().items():
+        collection = (
+            db.query(KnowledgeCollection)
+            .filter(KnowledgeCollection.workspace_id == workspace.id, KnowledgeCollection.slug == slug)
+            .first()
+        )
+        if not collection:
+            continue
+        names: list[str] = []
+        chunks = 0
+        for filename, chunk_count in source_specs:
+            names.append(filename)
+            chunks += chunk_count
+            upsert_collection_source(
+                db,
+                collection=collection,
+                filename=filename,
+                status="ready",
+                origin="seed",
+                chunk_count=chunk_count,
+                source_metadata={
+                    "demo": True,
+                    "workspace_profile": OCTOCITY_MISSION_ROOM_PROFILE,
+                    "source_profile": "synthetic_institutional_demo",
+                },
+                replace_source_metadata=True,
+            )
+            written += 1
+        collection.status = "ready"
+        collection.document_names = names
+        collection.document_count = len(names)
+        collection.chunk_count = chunks
+    return written
+
+
+def _octocity_guide_specs(workspace: Workspace) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    for guide in SENTINEL_KNOWLEDGE_GUIDES:
+        spec = present_payload_for_workspace(workspace, _clone(guide))
+        if spec.get("target_type") == "scope" and spec.get("target_ref") == "vigie":
+            spec["target_ref"] = "octocity_vigie"
+        if isinstance(spec.get("guide_key"), str):
+            spec["guide_key"] = spec["guide_key"].replace("vigie", "octocity-vigie")
+        specs.append(spec)
+    specs.append(
+        {
+            "guide_key": "octocity-knowledge-capture-v1",
+            "target_type": "collection",
+            "target_ref": "octocity-knowledge-capture",
+            "title": "Guide OCTAVE - Knowledge Capture",
+            "markdown": """# Guide OCTAVE - Knowledge Capture
+
+OCTAVE conduit les entretiens de capture de connaissance dans un univers fictif. Les questions doivent rester concretes, institutionnelles et sourcees par les documents Octocity.
+
+Regles :
+- Reformuler chaque reponse en fait reutilisable, avec source ou incertitude explicite.
+- Distinguer decision, signal, hypothese, action proposee et preuve.
+- Ne jamais reintroduire de pays, ville, institution ou filiere reelle issue du workspace d'origine.
+- Produire des propositions advisory only, relues par un humain avant publication.
+""",
+        }
+    )
+    return specs
+
+
+def _ensure_octocity_knowledge_guides(db: DBSession, workspace: Workspace) -> int:
+    changed = 0
+    now = datetime.utcnow()
+    for spec in _octocity_guide_specs(workspace):
+        current = (
+            db.query(KnowledgeGuide)
+            .filter(
+                KnowledgeGuide.workspace_id == workspace.id,
+                KnowledgeGuide.guide_key == spec["guide_key"],
+                KnowledgeGuide.is_current.is_(True),
+            )
+            .first()
+        )
+        if (
+            current
+            and current.target_type == spec["target_type"]
+            and current.target_ref == spec["target_ref"]
+            and current.title == spec["title"]
+            and current.markdown == spec["markdown"]
+            and current.status == "published"
+        ):
+            continue
+        version = 1
+        supersedes_id = None
+        if current:
+            current.is_current = False
+            db.add(current)
+            version = int(current.version or 1) + 1
+            supersedes_id = current.id
+        db.add(
+            KnowledgeGuide(
+                id=str(uuid4()),
+                guide_key=spec["guide_key"],
+                workspace_id=workspace.id,
+                target_type=spec["target_type"],
+                target_ref=spec["target_ref"],
+                title=spec["title"],
+                markdown=spec["markdown"],
+                status="published",
+                version=version,
+                is_current=True,
+                supersedes_id=supersedes_id,
+                created_by_user_id=None,
+                created_at=now,
+                published_at=now,
+            )
+        )
+        changed += 1
+    return changed
+
+
+def _ensure_octocity_filter(db: DBSession, workspace: Workspace) -> None:
+    name = "Octocity demo safety"
+    existing = (
+        db.query(SafetyFilter)
+        .filter(SafetyFilter.workspace_id == workspace.id, SafetyFilter.name == name)
+        .first()
+    )
+    if existing:
+        return
+    db.add(
+        SafetyFilter(
+            id=str(uuid4()),
+            workspace_id=workspace.id,
+            name=name,
+            prompt_template=(
+                "Flag unsafe operational instructions, personal data exposure, or unsourced escalatory claims. "
+                "Allow fictional institutional briefings, demo-safe public-signal summaries and advisory recommendations."
+            ),
+            severity="flag",
+            active=True,
+        )
+    )
+
+
+def _ensure_octocity_rag_preset(db: DBSession, workspace: Workspace) -> None:
+    name = "Octocity C-HAH briefing preset"
+    config = {
+        "mode": "chah",
+        "ragPipelineMode": "chah",
+        "rag_pipeline_mode": "chah",
+        "ragVectorDBType": "qdrant",
+        "ragCollectionName": "octocity-open-intelligence",
+        "topK": 6,
+        "ragTopK": 6,
+        "promptType": "executive_briefing",
+        "asyncRetrieval": True,
+        "sourcePolicy": "sources_required",
+        "experience": {"demoSafeProviderLabels": True, "advisoryOnly": True},
+    }
+    existing_by_name = (
+        db.query(RagPreset)
+        .filter(RagPreset.workspace_id == workspace.id, RagPreset.name == name)
+        .first()
+    )
+    existing_default = (
+        db.query(RagPreset)
+        .filter(
+            RagPreset.workspace_id == workspace.id,
+            RagPreset.scope == "workspace",
+            RagPreset.scope_id == workspace.id,
+            RagPreset.is_default.is_(True),
+        )
+        .first()
+    )
+    existing = existing_default or existing_by_name
+    if existing:
+        if existing_by_name and existing_by_name.id != existing.id:
+            existing_by_name.is_default = False
+        existing.name = name
+        existing.config = config
+        existing.scope = "workspace"
+        existing.scope_id = workspace.id
+        existing.workspace_id = workspace.id
+        existing.is_default = True
+        return
+    db.add(
+        RagPreset(
+            workspace_id=workspace.id,
+            name=name,
+            scope="workspace",
+            scope_id=workspace.id,
+            config=config,
+            is_default=True,
+        )
+    )
+
+
+def _octocity_settings() -> dict[str, Any]:
+    action_packs = ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]
+    return {
+        "family": "generic",
+        "demo_profile": "octocity_mission_room",
+        "default_route": MISSION_ROOM_ROUTE,
+        "hide_provider_details": True,
+        "workspace_app_shell": "immersive",
+        "workspace_app_label": OCTOCITY_WORKSPACE_NAME,
+        "workspace_app_default_view": "cockpit",
+        "workspace_app_brand": {
+            "label": OCTOCITY_WORKSPACE_NAME,
+            "lines": ["AGENTIUM", "MISSION ROOM"],
+            "emblem": "/assets/brand/agentium-mark.svg",
+            "style": "agentium",
+            "accent": "cyan",
+        },
+        "calendar": {
+            "mode": "internal_shared",
+            "connector_id": "institutional_calendar",
+            "connector_label": "Agenda institutionnel",
+            "write_policy": "direct",
+            "timezone": "UTC",
+        },
+        "demo_time_context": demo_time_context_defaults(),
+        "action_planner": {
+            "write_policy": "direct",
+            "default_owner": "Coordination",
+            "advisory_only": True,
+        },
+        "actions": {
+            "enabled_packs": action_packs,
+            "confirmation_policy": "confirm_side_effects",
+            "legacy_adapters": ["octave_action_plans"],
+        },
+        "voice_loop": {
+            "default_mode": "session_loop",
+            "enabled_default": False,
+            "manual_start_required": True,
+            "auto_send_final_transcript": True,
+            "auto_endpoint": True,
+            "auto_rearm_after_tts": True,
+            "barge_in": True,
+            "commands_enabled": True,
+            "command_packs": action_packs,
+            "trigger_word": OCTOCITY_ASSISTANT_NAME,
+            "stop_phrases": ["stop", "pause", "on peut s'arreter la", "annule", "arrete"],
+            "silence_ms": 1050,
+            "min_speech_ms": 320,
+            "max_turn_ms": 45000,
+            "cooldown_ms": 450,
+        },
+        "voice_output": {
+            "latency_profile": "fast",
+            "voice": "nova",
+            "flush_first_chars": 18,
+            "flush_next_chars": 56,
+            "flush_timeout_ms": 450,
+            "interrupt_on_user_speech": True,
+        },
+        "document_intelligence": {
+            "enabled": True,
+            "default_profile": "octocity_institutional",
+            "profiles": [
+                {
+                    "key": "octocity_institutional",
+                    "label": "Octocity institutional documents",
+                    "synonyms": {
+                        "briefing": ["note coordination", "fiche", "brief", "elements de langage"],
+                        "decision": ["arbitrage", "instruction", "validation", "deadline"],
+                        "territory": ["zone", "region", "corridor", "port", "district"],
+                    },
+                    "max_candidate_facts": 1800,
+                    "max_evidence_rows": 18,
+                }
+            ],
+            "ocr": {
+                "enabled": True,
+                "provider_priority": ["tesseract_local", "ppocr_service"],
+                "languages": ["fra", "eng"],
+                "min_confidence": 0.45,
+                "timeout_seconds": 20,
+                "required": False,
+                "openai_vision_enabled": False,
+            },
+            "citation_policy": "raw_source_first_page_section_paragraph",
+        },
+        "visual_intelligence": {
+            "enabled": True,
+            "capture_cadence_minutes": 60,
+            "allowed_adapters": ["demo_static", "http_image", "browser_screenshot"],
+            "storage_policy": "snapshot_only_no_continuous_recording",
+            "analysis_policy": "no_identification_no_biometrics",
+            "source_model": "live_webcam_embed_layer",
+        },
+        "feature_flag": {
+            "security_live_osint": False,
+        },
+        "connectors": {
+            "institutional_calendar": {
+                "enabled": True,
+                "status": "connected",
+                "mode": "internal_shared",
+                "label": "Agenda institutionnel",
+            },
+            "visual_streams": {
+                "enabled": True,
+                "status": "connected",
+                "mode": "live_webcam_embed_layer",
+                "label": "Flux visuels institutionnels",
+            },
+        },
+        "assistant_profile_default": "octave_executive",
+        "knowledge_scopes": [
+            {
+                "key": "octocity_vigie",
+                "label": "Signals + Projects + Map",
+                "description": "Synthetic institutional signals, civic projects and map data for the Octocity Mission Room.",
+                "collection_slugs": [slug for slug, _, _ in OCTOCITY_COLLECTIONS],
+                "default_mode": "chah",
+                "top_k": 8,
+                "is_default": True,
+            },
+            {
+                "key": "octocity_capture",
+                "label": "Knowledge Capture",
+                "description": "Curated synthetic corpus for expert capture sessions.",
+                "collection_slugs": ["octocity-knowledge-capture", "octocity-ministerial-briefs"],
+                "default_mode": "chah",
+                "top_k": 6,
+                "is_default": False,
+            },
+        ],
+        "assistant_profiles": [
+            {
+                "key": "octave_executive",
+                "label": OCTOCITY_ASSISTANT_NAME,
+                "subtitle": "Assistant strategique - donnees fictives",
+                "default_knowledge_scope": "octocity_vigie",
+                "executive_mode": True,
+                "tone": "institutional",
+                "grounding": {
+                    "default_mode": "balanced",
+                    "allowed_modes": ["strict", "balanced"],
+                    "fallback_disclaimer": "Je n'ai pas de source workspace sur ce point ; analyse generale a valider :",
+                    "strict_guard": "default",
+                },
+                "actions": {
+                    "enabled_packs": action_packs,
+                    "confirmation_policy": "confirm_side_effects",
+                },
+                "voice_loop": {
+                    "default_mode": "session_loop",
+                    "enabled_default": False,
+                    "manual_start_required": True,
+                    "auto_send_final_transcript": True,
+                    "auto_endpoint": True,
+                    "auto_rearm_after_tts": True,
+                    "barge_in": True,
+                    "commands_enabled": True,
+                    "command_packs": action_packs,
+                    "trigger_word": OCTOCITY_ASSISTANT_NAME,
+                },
+                "voice_output": {
+                    "latency_profile": "fast",
+                    "voice": "nova",
+                    "flush_first_chars": 18,
+                    "flush_next_chars": 56,
+                    "flush_timeout_ms": 450,
+                    "interrupt_on_user_speech": True,
+                },
+                "response_style": {
+                    "address_as": "Madame la Directrice de Coordination",
+                    "tone": "formel",
+                    "format": "brief_institutionnel_court",
+                    "max_bullets": 4,
+                },
+                "hidden_controls": [
+                    "provider",
+                    "model",
+                    "system_picker",
+                    "retrieval",
+                    "reasoning",
+                    "voice_runtime",
+                ],
+                "prompt_pack": [
+                    {
+                        "icon": "newspaper",
+                        "label": "Synthese du jour",
+                        "prompt": "Quels signaux necessitent une attention coordination aujourd'hui ?",
+                    },
+                    {
+                        "icon": "shield-check",
+                        "label": "Sources et confiance",
+                        "prompt": "Quelles sources soutiennent cette alerte ?",
+                    },
+                    {
+                        "icon": "check-circle",
+                        "label": "Decision requise",
+                        "prompt": "Quels arbitrages sont attendus cette semaine ?",
+                    },
+                    {
+                        "icon": "message-square",
+                        "label": "Langage public",
+                        "prompt": "Prepare des elements de langage prudents et sources.",
+                    },
+                ],
+            }
+        ],
+        "mission_room": {
+            "enabled": True,
+            "profile": OCTOCITY_MISSION_ROOM_PROFILE,
+            "country": "Asteria",
+            "country_code": "AS",
+            "region_scope": ["Asteria", "Atlantic Arc", "Northern Belt", "Gulf of Meridian"],
+            "news_source_policy": "Synthetic public fixtures first; external feeds disabled for this anonymized demo.",
+            "label": OCTOCITY_ASSISTANT_NAME,
+            "assistant_label": OCTOCITY_ASSISTANT_NAME,
+            "brand": {
+                "label": OCTOCITY_WORKSPACE_NAME,
+                "lines": ["AGENTIUM", "MISSION ROOM"],
+                "emblem": "/assets/brand/agentium-mark.svg",
+                "style": "agentium",
+            },
+            "root_route": MISSION_ROOM_ROOT,
+            "default_view": "cockpit",
+            "navigation": NAVIGATION_ITEMS,
+        },
+    }
+
+
+def ensure_octocity_mission_room_workspace(db: DBSession) -> dict[str, int | str]:
+    """Create/update the anonymized Agentium Mission Room video workspace."""
+    workspace = db.query(Workspace).filter(Workspace.slug == OCTOCITY_WORKSPACE_SLUG).first()
+    created = 0
+    if not workspace:
+        workspace = Workspace(
+            id=str(uuid4()),
+            name=OCTOCITY_WORKSPACE_NAME,
+            slug=OCTOCITY_WORKSPACE_SLUG,
+            mode="demo",
+            settings={},
+        )
+        db.add(workspace)
+        db.flush()
+        created = 1
+
+    workspace.name = OCTOCITY_WORKSPACE_NAME
+    workspace.mode = "demo"
+    settings = dict(workspace.settings or {})
+    settings.update(_octocity_settings())
+    workspace.settings = settings
+
+    for slug, name, description in OCTOCITY_COLLECTIONS:
+        _ensure_collection(db, workspace, slug, name, description)
+    sources_seeded = _ensure_octocity_collection_sources(db, workspace)
+    knowledge_guides_changed = _ensure_octocity_knowledge_guides(db, workspace)
+    _ensure_octocity_filter(db, workspace)
+    _ensure_octocity_rag_preset(db, workspace)
+    ensure_calendar_seed(db, workspace)
+    ensure_action_plan_seed(db, workspace)
+
+    mission_before = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.name == "OCTAVE Mission Room")
+        .count()
+    )
+    _ensure_system(
+        db,
+        workspace,
+        name="OCTAVE Mission Room",
+        objective="Consolider signaux, projets, carte, decisions et actions institutionnelles fictives sous controle humain.",
+        capability_slug="government_mission_room",
+        skill_slugs=[
+            "ministerial_briefing_v1",
+            "news_signal_synthesis_v1",
+            "project_risk_explainer_v1",
+            "territorial_signal_map_v1",
+            "instruction_draft_v1",
+            "calendar_daily_summary_v1",
+            "action_plan_status_v1",
+            "maritime_snapshot_read_v1",
+            "voice_tandem_oracle_v1",
+            "audit_log_v1",
+        ],
+        variant="octocity_mission_room",
+        template_prefix="octocity",
+        created_by="system:octocity_seed",
+    )
+    systems_created = 1 if mission_before == 0 else 0
+
+    map_system = db.query(System).filter(System.workspace_id == workspace.id, System.name == "OCTAVE Mission Room").first()
+    ensure_workspace_map_seed(db, workspace, system_id=map_system.id if map_system else None)
+
+    from app.services.systems.bootstrap import (
+        ensure_expert_capture_system_default,
+        ensure_workspace_chat_system_default,
+    )
+
+    chat_before = db.query(System).filter(System.workspace_id == workspace.id, System.name == "Workspace Chat").count()
+    chat_system = ensure_workspace_chat_system_default(db, workspace.id)
+    if chat_system:
+        chat_system.name = "Workspace Chat"
+        chat_system.objective = "Provide OCTAVE workspace chat over the synthetic Octocity corpus and Mission Room actions."
+        systems_created += 1 if chat_before == 0 else 0
+
+    capture_before = db.query(System).filter(System.workspace_id == workspace.id, System.name == "Knowledge Capture").count()
+    capture_system = ensure_expert_capture_system_default(db, workspace.id)
+    if capture_system:
+        capture_system.name = "Knowledge Capture"
+        capture_system.objective = "Run guided expert interviews connected to the Octocity synthetic corpus."
+        systems_created += 1 if capture_before == 0 else 0
+
+    db.commit()
+    return {
+        "workspace_slug": workspace.slug,
+        "workspace_created": created,
+        "members_added": 0,
+        "systems_created": systems_created,
+        "knowledge_guides_changed": knowledge_guides_changed,
+        "collection_sources_seeded": sources_seeded,
     }

@@ -87,6 +87,13 @@ interface MissionNavigationItem {
   system_name?: string | null;
 }
 
+interface MissionBrand {
+  label?: string;
+  lines?: string[];
+  emblem?: string;
+  style?: string;
+}
+
 interface MissionNavigation {
   workspace: WorkspaceMeta;
   app: {
@@ -95,6 +102,8 @@ interface MissionNavigation {
     shell: string;
     default_route: string;
     default_view: MissionView;
+    profile?: string;
+    brand?: MissionBrand;
   };
   items: MissionNavigationItem[];
   exit_routes: { label: string; route: string }[];
@@ -1072,20 +1081,21 @@ export class MissionSourcePillComponent {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, RouterLinkActive, GlyphComponent],
   template: `
-    <aside class="mission-rail" aria-label="Navigation SENTINEL-CI">
-      <div class="rail-brand" aria-label="SENTINEL-CI - Republique de Cote d'Ivoire">
+    <aside class="mission-rail" [class.agentium-brand]="brandStyle === 'agentium'" [attr.aria-label]="'Navigation ' + brandLabel">
+      <div class="rail-brand" [attr.aria-label]="brandLabel">
         <img
           class="brand-emblem"
-          src="/assets/brand/sentinel-ci-emblem.png?v=20260518-1"
+          [src]="brandEmblem"
           alt=""
           width="54"
           height="54"
           aria-hidden="true"
         />
         <div class="brand-wordmark">
-          <strong>SENTINEL-CI</strong>
-          <span>REPUBLIQUE DE</span>
-          <span>COTE D'IVOIRE</span>
+          <strong>{{ brandLabel }}</strong>
+          @for (line of brandLines; track line) {
+            <span>{{ line }}</span>
+          }
         </div>
       </div>
 
@@ -1094,7 +1104,7 @@ export class MissionSourcePillComponent {
         class="assistant-badge"
         [class.listening]="ayaState === 'listening'"
         (click)="assistantRequest.emit()"
-        aria-label="Ouvrir AYA"
+        [attr.aria-label]="'Ouvrir ' + assistantName"
       >
         <span class="assistant-avatar">{{ assistantName }}</span>
         <div>
@@ -1103,13 +1113,13 @@ export class MissionSourcePillComponent {
         </div>
       </button>
 
-      <a class="rail-search" routerLink="/hypervisor/mission-room/recherche" aria-label="Rechercher un dossier Sentinel-CI">
+      <a class="rail-search" routerLink="/hypervisor/mission-room/recherche" [attr.aria-label]="'Rechercher un dossier ' + brandLabel">
         <ck-glyph name="zoom-in" [size]="12" />
         <span>Recherche dossier</span>
       </a>
 
       <nav class="mission-nav">
-        <span class="rail-section-label">Parcours VPM</span>
+        <span class="rail-section-label">Parcours Mission</span>
         @for (item of visibleItems(); track item.key) {
           <a
             [routerLink]="item.route"
@@ -1130,7 +1140,7 @@ export class MissionSourcePillComponent {
 
       <div class="rail-clock">
         <strong>{{ abidjanClockTime() }}</strong>
-        <span>{{ abidjanClockDate() }} · Abidjan UTC+0</span>
+        <span>{{ abidjanClockDate() }} · {{ timezoneLabel }}</span>
       </div>
       <nav class="rail-tools" aria-label="Outils operateur">
         <a [routerLink]="adminRoute">Admin</a>
@@ -1170,6 +1180,11 @@ export class MissionSourcePillComponent {
         filter:
           drop-shadow(0 14px 22px rgba(0, 0, 0, 0.52))
           drop-shadow(0 0 12px rgba(64, 220, 152, 0.16));
+      }
+      .mission-rail.agentium-brand .brand-emblem {
+        filter:
+          drop-shadow(0 14px 22px rgba(0, 0, 0, 0.52))
+          drop-shadow(0 0 18px rgba(125, 211, 252, 0.26));
       }
       .brand-wordmark {
         display: grid;
@@ -1231,7 +1246,7 @@ export class MissionSourcePillComponent {
         font-family: var(--ck-font-mono);
         font-size: 13px;
         font-weight: 850;
-        letter-spacing: 0.08em;
+        letter-spacing: 0;
         background: rgba(8, 13, 17, 0.72);
         border: 1px solid rgba(242, 140, 56, 0.32);
         box-shadow: inset 0 0 18px rgba(242, 140, 56, 0.08);
@@ -1242,7 +1257,7 @@ export class MissionSourcePillComponent {
         color: var(--mission-text, var(--ck-fg-1));
         font-family: var(--ck-font-mono);
         font-size: 13px;
-        letter-spacing: 0.12em;
+        letter-spacing: 0;
       }
       .assistant-badge small {
         display: block;
@@ -1290,7 +1305,7 @@ export class MissionSourcePillComponent {
         color: var(--mission-text-faint, var(--ck-fg-4));
         font-family: var(--ck-font-mono);
         font-size: 9px;
-        letter-spacing: 0.16em;
+        letter-spacing: 0;
         text-transform: uppercase;
       }
       .mission-nav-item.active,
@@ -1393,6 +1408,11 @@ export class MissionRailComponent {
   @Input() activeView: MissionView = 'cockpit';
   @Input() adminRoute = '/workspace';
   @Input() assistantName = 'AYA';
+  @Input() brandLabel = 'SENTINEL-CI';
+  @Input() brandLines: string[] = ['REPUBLIQUE DE', "COTE D'IVOIRE"];
+  @Input() brandEmblem = '/assets/brand/sentinel-ci-emblem.png?v=20260518-1';
+  @Input() brandStyle = 'sentinel';
+  @Input() timezoneLabel = 'Abidjan UTC+0';
   @Input() ayaState: 'listening' | 'ready' = 'ready';
   @Input() ayaStateLabel = 'Briefing pret';
   @Input() alertBadges: Partial<Record<MissionView, number>> = {};
@@ -1484,12 +1504,17 @@ export class MissionRailComponent {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="mission-shell">
+    <section class="mission-shell" [class.agentium-theme]="missionBrandStyle() === 'agentium'">
       <app-mission-rail
         [items]="navigation()?.items || fallbackNav"
         [activeView]="currentView()"
         [adminRoute]="adminRoute()"
         [assistantName]="assistantName()"
+        [brandLabel]="missionBrandLabel()"
+        [brandLines]="missionBrandLines()"
+        [brandEmblem]="missionBrandEmblem()"
+        [brandStyle]="missionBrandStyle()"
+        [timezoneLabel]="missionTimezoneLabel()"
         [ayaState]="ayaRailState()"
         [ayaStateLabel]="ayaRailStateLabel()"
         [alertBadges]="railAlertBadges()"
@@ -1500,7 +1525,7 @@ export class MissionRailComponent {
         @if (loading()) {
           <div class="loading-panel">
             <span class="dots"></span>
-            <strong>Chargement de la Mission Room SENTINEL-CI</strong>
+            <strong>Chargement de {{ missionBrandLabel() }}</strong>
           </div>
         } @else {
           @if (currentView() === 'cockpit') {
@@ -1843,7 +1868,7 @@ export class MissionRailComponent {
             @if (agendaPendingPatch(); as pending) {
               <div class="agenda-pending-banner" role="status" aria-live="polite">
                 <div class="agenda-pending-copy">
-                  <span class="eyebrow">Modification ODJ proposee · AYA</span>
+                  <span class="eyebrow">Modification ODJ proposee · {{ assistantName() }}</span>
                   <strong>{{ agendaPendingPatchTitle() }}</strong>
                   <p>{{ pending.agenda_items?.length || 0 }} point(s) en attente de validation.</p>
                 </div>
@@ -1910,7 +1935,7 @@ export class MissionRailComponent {
                   }
                 </ol>
               } @else {
-                <p class="empty-line">Aucun point structuré. Ajoutez un point ou demandez à AYA de pré-remplir l'ordre du jour.</p>
+                <p class="empty-line">Aucun point structuré. Ajoutez un point ou demandez à {{ assistantName() }} de pré-remplir l'ordre du jour.</p>
               }
             </section>
 
@@ -1977,7 +2002,7 @@ export class MissionRailComponent {
       <section class="two-column">
         <article class="content-panel">
           <span class="eyebrow">Bibliotheque</span>
-          <h2>Collections SENTINEL-CI</h2>
+          <h2>Collections {{ missionBrandLabel() }}</h2>
           <div class="collection-list">
             @for (collection of library()?.collections || []; track collection) {
               <span>{{ collection }}</span>
@@ -2145,9 +2170,9 @@ export class MissionRailComponent {
           <section class="content-panel span-2 securite-documents" id="security-doc-workbench">
             <div class="panel-heading-row">
               <div>
-                <span class="eyebrow">Collection sentinel-ci-security-briefs</span>
-                <h2>Documents sécurité · workbench vigie</h2>
-                <p>Briefs posture Sahel, synthèses Conseil Défense et dossiers rumeur utilisés par AYA S3.</p>
+                <span class="eyebrow">{{ securityCollectionLabel() }}</span>
+                <h2>Documents sécurité · workbench mission</h2>
+                <p>{{ securityCollectionDescription() }}</p>
               </div>
               <span class="status-pill elevated">{{ securityDocuments().length }} sources indexées</span>
             </div>
@@ -2694,6 +2719,25 @@ export class MissionRailComponent {
         background-size: 48px 48px, 48px 48px, auto, auto;
         color: var(--mission-text);
         min-width: 0;
+      }
+      .mission-shell.agentium-theme {
+        --mission-bg: #061016;
+        --mission-rail-bg: #07141b;
+        --mission-panel: #0a1720;
+        --mission-panel-hi: #0d1d27;
+        --mission-inset: #061016;
+        --mission-border: rgba(125, 211, 252, 0.16);
+        --mission-border-strong: rgba(125, 211, 252, 0.34);
+        --mission-accent: #7dd3fc;
+        --mission-accent-wash: rgba(125, 211, 252, 0.1);
+        --mission-orange: #7dd3fc;
+        --mission-trust: #42d99b;
+        background:
+          linear-gradient(90deg, rgba(125, 211, 252, 0.035) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(125, 211, 252, 0.025) 1px, transparent 1px),
+          linear-gradient(180deg, rgba(125, 211, 252, 0.07) 0%, rgba(66, 217, 155, 0.03) 24%, rgba(5, 8, 12, 0) 48%),
+          var(--mission-bg);
+        background-size: 48px 48px, 48px 48px, auto, auto;
       }
       .mission-main {
         min-width: 0;
@@ -5199,7 +5243,49 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   });
 
   readonly adminRoute = computed(() => `/workspace/${this.workspace.currentSlug() || 'sentinel-ci'}`);
-  readonly assistantName = computed(() => this.navigation()?.app?.assistant_label || 'AYA');
+  readonly assistantName = computed(() => this.navigation()?.app?.assistant_label || (this.workspace.currentSlug() === 'octocity-mission-room' ? 'OCTAVE' : 'AYA'));
+  readonly assistantProfileKey = computed(() => {
+    const defaultProfile = this.workspace.current()?.settings?.['assistant_profile_default'];
+    if (typeof defaultProfile === 'string' && defaultProfile.trim()) return defaultProfile;
+    return this.navigation()?.app?.profile === 'octocity_institutional_v1' ? 'octave_executive' : 'vigie_executive';
+  });
+  readonly missionBrand = computed<MissionBrand>(() => {
+    const navBrand = this.navigation()?.app?.brand;
+    if (navBrand && Object.keys(navBrand).length) return navBrand;
+    const settingsBrand = this.workspace.current()?.settings?.['workspace_app_brand'];
+    if (settingsBrand && typeof settingsBrand === 'object') return settingsBrand as MissionBrand;
+    if (this.workspace.currentSlug() === 'octocity-mission-room') {
+      return {
+        label: 'Octocity Mission Room',
+        lines: ['AGENTIUM', 'MISSION ROOM'],
+        emblem: '/assets/brand/agentium-mark.svg',
+        style: 'agentium',
+      };
+    }
+    return {};
+  });
+  readonly missionBrandLabel = computed(() => this.missionBrand().label || this.navigation()?.app?.label || 'SENTINEL-CI');
+  readonly missionBrandLines = computed(() => {
+    const lines = this.missionBrand().lines;
+    if (Array.isArray(lines) && lines.length) return lines;
+    return this.missionBrandStyle() === 'agentium' ? ['AGENTIUM', 'MISSION ROOM'] : ['REPUBLIQUE DE', "COTE D'IVOIRE"];
+  });
+  readonly missionBrandEmblem = computed(() => this.missionBrand().emblem || '/assets/brand/sentinel-ci-emblem.png?v=20260518-1');
+  readonly missionBrandStyle = computed(() => this.missionBrand().style || 'sentinel');
+  readonly missionTimezoneLabel = computed(() => {
+    const calendar = this.workspace.current()?.settings?.['calendar'];
+    const timezone = calendar && typeof calendar === 'object' ? String((calendar as Record<string, unknown>)['timezone'] || '') : '';
+    if (timezone === 'UTC' || this.workspace.currentSlug() === 'octocity-mission-room') return 'UTC';
+    return 'Abidjan UTC+0';
+  });
+  readonly securityCollectionLabel = computed(() =>
+    this.missionBrandStyle() === 'agentium' ? 'Collection octocity-security-briefs' : 'Collection sentinel-ci-security-briefs',
+  );
+  readonly securityCollectionDescription = computed(() =>
+    this.missionBrandStyle() === 'agentium'
+      ? `Briefs posture Northern Belt, syntheses conseil et dossiers rumeur utilises par ${this.assistantName()} S3.`
+      : `Briefs posture Sahel, synthèses Conseil Défense et dossiers rumeur utilisés par ${this.assistantName()} S3.`,
+  );
   readonly highlightTarget = computed(() => this.highlightQuery());
   readonly mapViewMode = computed<'territory' | 'live'>(() => {
     const mode = (this.modeQuery() || 'territory').toLowerCase();
@@ -5558,11 +5644,18 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   securityDocUsage(doc: NonNullable<MissionCockpit['security_documents']>[number]): string {
     const key = `${doc.id} ${doc.title} ${doc.kind}`.toLowerCase();
-    if (key.includes('conseil')) return 'Support de préparation cabinet avant la revue Sahel de 15h.';
-    if (key.includes('rumeur')) return 'Source de vérité S3.3 : chaîne OSINT, démenti FANCI et mise au point Préfecture.';
-    if (key.includes('ads') || key.includes('troupes')) return 'Contexte S3.4 : traces ADS-B advisory et théâtre Sahel.';
-    if (key.includes('posture') || key.includes('sahel')) return 'Alimente S3.1 : posture dual-axis et Conseil Défense 15h.';
-    return 'Document indexé pour les réponses AYA S3.';
+    if (this.missionBrandStyle() === 'agentium') {
+      if (key.includes('conseil')) return 'Support de préparation coordination avant la revue Northern Belt de 15h.';
+      if (key.includes('rumeur')) return 'Source de vérité S3.3 : chaîne OSINT, démenti Garde Civique et mise au point territoriale.';
+      if (key.includes('ads') || key.includes('troupes')) return 'Contexte S3.4 : traces ADS-B advisory et théâtre Northern Belt.';
+      if (key.includes('posture') || key.includes('sahel')) return 'Alimente S3.1 : posture dual-axis et conseil de coordination 15h.';
+    } else {
+      if (key.includes('conseil')) return 'Support de préparation cabinet avant la revue Sahel de 15h.';
+      if (key.includes('rumeur')) return 'Source de vérité S3.3 : chaîne OSINT, démenti FANCI et mise au point Préfecture.';
+      if (key.includes('ads') || key.includes('troupes')) return 'Contexte S3.4 : traces ADS-B advisory et théâtre Sahel.';
+      if (key.includes('posture') || key.includes('sahel')) return 'Alimente S3.1 : posture dual-axis et Conseil Défense 15h.';
+    }
+    return `Document indexé pour les réponses ${this.assistantName()} S3.`;
   }
 
   securityDocActionLabel(doc: NonNullable<MissionCockpit['security_documents']>[number]): string {
@@ -5570,8 +5663,8 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     if (key.includes('conseil')) return 'Voir Conseil 15h';
     if (key.includes('rumeur')) return 'Ouvrir timeline rumeur';
     if (key.includes('ads') || key.includes('troupes')) return 'Ouvrir Security Monitor';
-    if (key.includes('posture') || key.includes('sahel')) return 'Demander la posture à AYA';
-    return 'Ouvrir avec AYA';
+    if (key.includes('posture') || key.includes('sahel')) return `Demander la posture à ${this.assistantName()}`;
+    return `Ouvrir avec ${this.assistantName()}`;
   }
 
   securityDocSourceLabels(doc: NonNullable<MissionCockpit['security_documents']>[number]): string[] {
@@ -5633,7 +5726,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   reputationItemRiskLabel(item: NonNullable<MissionCockpit['reputation']['items']>[number]): string {
     if (item.kind === 'critique' || item.tone === 'negative') return 'Risque : cadrage budget défense avant Conseil 15h.';
-    if (/nawa/i.test(item.title)) return 'Opportunité : valoriser la réponse territoriale et cacao.';
+    if (/nawa|liora/i.test(item.title)) {
+      return this.missionBrandStyle() === 'agentium'
+        ? 'Opportunité : valoriser la réponse territoriale et bio-composites.'
+        : 'Opportunité : valoriser la réponse territoriale et cacao.';
+    }
     return 'Opportunité : consolider la lecture Nord auprès des partenaires.';
   }
 
@@ -5839,6 +5936,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   openMaritimeMonitor(): void {
+    const agentium = this.missionBrandStyle() === 'agentium';
     const evidence = this.maritimeIntelligence()?.active_evidence;
     this.mapCommandState.set(evidence?.['map_focus'] || {
       active_layers: ['territorial-risk', 'open-intelligence', 'visual-streams', 'maritime-traffic'],
@@ -5846,7 +5944,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       focus_marker: {
         longitude: -4.0083,
         latitude: 5.2512,
-        label: "Port d'Abidjan · maritime",
+        label: agentium ? 'Port Meridian · maritime' : "Port d'Abidjan · maritime",
         zone_id: 'zone-sud',
         tone: 'maritime',
       },
@@ -5856,12 +5954,9 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   newsGeoTabs(): { key: 'ci' | 'cedeao' | 'africa' | 'world'; label: string; count: number }[] {
     const sections = this.news()?.geo_sections || [];
-    const labels: Record<string, string> = {
-      ci: "Cote d'Ivoire",
-      cedeao: 'CEDEAO',
-      africa: 'Afrique',
-      world: 'International',
-    };
+    const labels: Record<string, string> = this.missionBrandStyle() === 'agentium'
+      ? { ci: 'Asteria', cedeao: 'Alliance Aurora', africa: 'Atlantic Arc', world: 'International' }
+      : { ci: "Cote d'Ivoire", cedeao: 'CEDEAO', africa: 'Afrique', world: 'International' };
     return (['ci', 'cedeao', 'africa', 'world'] as const).map((key) => ({
       key,
       label: sections.find((section) => section.key === key)?.label || labels[key],
@@ -5971,7 +6066,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       text: sentence.text || 'Tension Zone Nord requiert votre attention prioritaire.',
       window: sentence.deadline || 'avant Conseil 15h00',
       primary_cta: 'Ouvrir le dossier Zone Nord',
-      voice_cta: 'Ecouter le briefing AYA',
+      voice_cta: `Ecouter le briefing ${this.assistantName()}`,
     };
   }
 
@@ -5979,11 +6074,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     return this.cockpit()?.aya_recommendation || {
       assistant: this.assistantName(),
       voice_first: true,
-      prompt: 'AYA, quelle est la situation au nord en ce moment ?',
+      prompt: `${this.assistantName()}, quelle est la situation au nord en ce moment ?`,
       answer: 'Zone Nord sous attention prioritaire. Deux options sont preparees : coordination locale ou arbitrage cabinet avant 15h00.',
       target_latency_s: 6,
-      cta_primary: 'Ecouter le briefing AYA',
-      cta_secondary: 'Parler a AYA',
+      cta_primary: `Ecouter le briefing ${this.assistantName()}`,
+      cta_secondary: `Parler a ${this.assistantName()}`,
     };
   }
 
@@ -6096,7 +6191,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       { zone: 'Nord', level: 'critique', bars: 4, summary: 'Incident frontière · arbitrage attendu', tone: 'critical' },
       { zone: 'Ouest', level: 'surveillance', bars: 3, summary: 'Rumeur locale en progression', tone: 'elevated' },
       { zone: 'Centre', level: 'stable', bars: 2, summary: 'Projets sous controle', tone: 'stable' },
-      { zone: 'Sud', level: 'operationnel', bars: 1, summary: 'Abidjan nominal', tone: 'stable' },
+      { zone: 'Sud', level: 'operationnel', bars: 1, summary: this.missionBrandStyle() === 'agentium' ? 'Meridian nominal' : 'Abidjan nominal', tone: 'stable' },
     ];
   }
 
@@ -6185,10 +6280,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       }));
     }
     return [
-      { key: 'ci', label: "Cote d'Ivoire", count: 3, top_signal: 'Article budget defense et rumeur sociale locale', signals: [] },
-      { key: 'cedeao', label: 'CEDEAO', count: 2, top_signal: 'Coordination frontière Burkina', signals: [] },
-      { key: 'africa', label: 'Afrique', count: 4, top_signal: 'Tensions regionales a surveiller', signals: [] },
-      { key: 'world', label: 'Monde', count: 1, top_signal: 'Lecture diplomatique France-CI', signals: [] },
+      { key: 'ci', label: this.missionBrandStyle() === 'agentium' ? 'Asteria' : "Cote d'Ivoire", count: 3, top_signal: 'Article budget defense et rumeur sociale locale', signals: [] },
+      { key: 'cedeao', label: this.missionBrandStyle() === 'agentium' ? 'Alliance Aurora' : 'CEDEAO', count: 2, top_signal: this.missionBrandStyle() === 'agentium' ? 'Coordination Northern Belt' : 'Coordination frontière Burkina', signals: [] },
+      { key: 'africa', label: this.missionBrandStyle() === 'agentium' ? 'Atlantic Arc' : 'Afrique', count: 4, top_signal: 'Tensions regionales a surveiller', signals: [] },
+      { key: 'world', label: 'Monde', count: 1, top_signal: this.missionBrandStyle() === 'agentium' ? 'Lecture diplomatique Aurora-AS' : 'Lecture diplomatique France-CI', signals: [] },
     ];
   }
 
@@ -6215,11 +6310,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     }
     return [
       { key: 'satellite', label: 'Imagerie satellite', subtitle: 'Couverture Nord · indicative', metric: '2 zones', confidence: 68, tone: 'monitoring' },
-      { key: 'maritime', label: 'Trafic maritime AIS', subtitle: 'Port Abidjan · corridor actif', metric: '5 navires', confidence: 66, tone: 'elevated' },
-      { key: 'adsb', label: 'Espace aerien ADS-B', subtitle: 'Perimetre Sahel · veille', metric: 'nominal', confidence: 61, tone: 'stable' },
+      { key: 'maritime', label: 'Trafic maritime AIS', subtitle: this.missionBrandStyle() === 'agentium' ? 'Port Meridian · corridor actif' : 'Port Abidjan · corridor actif', metric: '5 navires', confidence: 66, tone: 'elevated' },
+      { key: 'adsb', label: 'Espace aerien ADS-B', subtitle: this.missionBrandStyle() === 'agentium' ? 'Perimetre Northern Belt · veille' : 'Perimetre Sahel · veille', metric: 'nominal', confidence: 61, tone: 'stable' },
       { key: 'osint', label: 'OSINT multilingue', subtitle: 'Presse africaine qualifiee', metric: `${this.kpiNumber('analyzed_articles') || 80} articles`, confidence: 72, tone: 'stable' },
       { key: 'mobile', label: 'Signal reseau mobile', subtitle: 'Nord · faible densite', metric: '3 clusters', confidence: 58, tone: 'monitoring' },
-      { key: 'economy', label: 'Economie reelle', subtitle: 'Douanes Abidjan · retard BTP', metric: '2 signaux', confidence: 64, tone: 'elevated' },
+      { key: 'economy', label: 'Economie reelle', subtitle: this.missionBrandStyle() === 'agentium' ? 'Douanes Meridian · retard BTP' : 'Douanes Abidjan · retard BTP', metric: '2 signaux', confidence: 64, tone: 'elevated' },
       { key: 'terrain', label: 'Capteurs terrain', subtitle: '16 capteurs Nord', metric: 'actif', confidence: 62, tone: 'critical' },
       { key: 'cyber', label: 'Veille cyber', subtitle: 'Canaux habilites', metric: 'stable', confidence: 70, tone: 'stable' },
     ];
@@ -6323,7 +6418,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       const optionB = options.find((item) => item.recommended) || options[1];
       return {
         title: `Arbitrage ${zone?.name || 'Zone Nord'}`,
-        subtitle: 'Comparaison risque, cout, deploiement, reputation et lecture CEDEAO.',
+        subtitle: `Comparaison risque, cout, deploiement, reputation et lecture ${this.missionBrandStyle() === 'agentium' ? 'Aurora' : 'CEDEAO'}.`,
         option_a_label: optionA.label,
         option_b_label: optionB.label,
         recommended: optionB.recommended ? 'b' : 'a',
@@ -6332,7 +6427,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
           { key: 'cost', label: 'Cout / effort', option_a: 100 - (optionA.cost_score ?? 35), option_b: 100 - (optionB.cost_score ?? 58) },
           { key: 'deploy', label: 'Delai deploiement', option_a: optionA.time_sensitivity ?? 48, option_b: optionB.time_sensitivity ?? 72 },
           { key: 'reputation', label: 'Reputation Etat', option_a: optionA.impact_score ?? 44, option_b: optionB.impact_score ?? 71 },
-          { key: 'cedeao', label: 'Lecture CEDEAO', option_a: 52, option_b: 74 },
+          { key: 'cedeao', label: this.missionBrandStyle() === 'agentium' ? 'Lecture Aurora' : 'Lecture CEDEAO', option_a: 52, option_b: 74 },
         ],
       };
     }
@@ -6347,7 +6442,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
         { key: 'cost', label: 'Cout / effort', option_a: 65, option_b: 42 },
         { key: 'deploy', label: 'Delai deploiement', option_a: 78, option_b: 55 },
         { key: 'reputation', label: 'Reputation Etat', option_a: 48, option_b: 71 },
-        { key: 'cedeao', label: 'Lecture CEDEAO', option_a: 52, option_b: 74 },
+        { key: 'cedeao', label: this.missionBrandStyle() === 'agentium' ? 'Lecture Aurora' : 'Lecture CEDEAO', option_a: 52, option_b: 74 },
       ],
     };
   }
@@ -7058,10 +7153,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   }
 
   openAssistant(prompt?: string, options?: { voiceLoop?: boolean }): void {
+    const initialPrompt = prompt ? prompt.replace(/\bAYA\b/g, this.assistantName()) : null;
     this.chat.open({
       mode: 'quick',
-      assistantProfile: 'vigie_executive',
-      initialPrompt: prompt || null,
+      assistantProfile: this.assistantProfileKey(),
+      initialPrompt,
       autoStartVoiceLoop: !!options?.voiceLoop,
     });
   }
@@ -7332,7 +7428,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   agendaSubItemSourceLabel(item: AgendaSubItem): string {
     const raw = (item.source_label || item.source || '').trim().toLowerCase();
     if (!raw) return 'Ajouté par Vice Premier Ministre';
-    if (raw.includes('aya') || raw.includes('assistant')) return 'Ajouté par AYA';
+    if (raw.includes('aya') || raw.includes('octave') || raw.includes('assistant')) return `Ajouté par ${this.assistantName()}`;
     if (raw.includes('brief') || raw.includes('prefet') || raw.includes('préfet')) return 'Importé du brief préfet';
     if (raw.includes('vp') || raw.includes('cabinet')) return 'Ajouté par Vice Premier Ministre';
     return item.source_label || item.source || 'Ajouté par Vice Premier Ministre';

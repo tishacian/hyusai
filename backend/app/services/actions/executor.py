@@ -14,6 +14,10 @@ from app.models.workspace import Workspace
 from app.services.actions.registry import ActionManifest, ActionResolution, resolve_action
 from app.services.audit_logger import emit_audit_event
 from app.services.demo_time_context import resolve_demo_date
+from app.services.mission_room import (
+    is_octocity_mission_room,
+    present_payload_for_workspace,
+)
 from app.services.skills_registry import wrappers as skill_wrappers
 
 
@@ -176,6 +180,10 @@ def _action_effect(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"chunk_type": "action_effect", "effect": kind, **payload}
 
 
+def _assistant_label(workspace: Workspace) -> str:
+    return "OCTAVE" if is_octocity_mission_room(workspace) else "AYA"
+
+
 def _atlantic_trader_webcam_payload() -> Optional[dict[str, Any]]:
     from app.services.webcam_proxy import (
         get_spec as _get_webcam_spec,
@@ -316,7 +324,7 @@ async def execute_flow_action(
         content = "Je reformule ma derniere reponse de facon plus concise."
     elif handler == "acknowledge_presence":
         content = "Je suis là, Monsieur le Vice Premier Ministre, à votre écoute."
-        effects.append(_action_effect("assistant-acknowledge", {"assistant": "AYA"}))
+        effects.append(_action_effect("assistant-acknowledge", {"assistant": _assistant_label(workspace)}))
     elif handler == "briefing_priorities_v1":
         result = await _invoke_skill("briefing_priorities_v1", {"knowledge_scope": knowledge_scope}, ctx)
         priorities = result.get("priorities") or []
@@ -1662,6 +1670,7 @@ async def execute_flow_action(
     if awaiting_to_clear:
         set_awaiting_state(db, workspace, None, session_id=session_id)
     elif awaiting_to_set:
+        awaiting_to_set = present_payload_for_workspace(workspace, awaiting_to_set)
         set_awaiting_state(db, workspace, awaiting_to_set, session_id=session_id)
 
     emit_audit_event(
@@ -1672,7 +1681,7 @@ async def execute_flow_action(
         details={"action_id": manifest.action_id, "text": text, "effects": [e.get("effect") for e in effects if e.get("effect")]},
     )
 
-    return {
+    result = {
         "action": manifest.action_id,
         "applied": True,
         "content": content,
@@ -1682,6 +1691,7 @@ async def execute_flow_action(
         "action_manifest_id": manifest.action_id,
         **extra,
     }
+    return present_payload_for_workspace(workspace, result)
 
 
 async def handle_registry_chat_action(
@@ -1695,7 +1705,11 @@ async def handle_registry_chat_action(
     knowledge_scope: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     """Resolve and execute registry flow-node actions (non-legacy)."""
-    if assistant_profile != "vigie_executive" and "sentinel" not in (workspace.slug or "").lower():
+    if (
+        assistant_profile not in {"vigie_executive", "octave_executive"}
+        and "sentinel" not in (workspace.slug or "").lower()
+        and not is_octocity_mission_room(workspace)
+    ):
         return None
 
     awaiting = get_awaiting_state(db, workspace, session_id=session_id)

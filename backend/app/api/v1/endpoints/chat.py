@@ -55,7 +55,13 @@ from app.services.rag.decision_trace import build_trivial_retrieval_decision_tra
 from app.services.visual_intelligence import handle_visual_chat_query, visual_context_for_chat
 from app.services.workspace_maps import handle_map_chat_query
 from app.services.workspace_calendar import calendar_context_for_chat, handle_calendar_chat_action
-from app.services.mission_room import briefing_payload, cockpit_payload, news_payload, source_index
+from app.services.mission_room import (
+    briefing_payload,
+    cockpit_payload,
+    news_payload,
+    present_payload_for_workspace,
+    source_index,
+)
 logger = get_logger(__name__)
 router = APIRouter()
 query_validator = QueryValidator()
@@ -1443,7 +1449,7 @@ def _vigie_executive_quick_reply(
     consolidated 3-signal summary built from ``news_payload``/``cockpit_payload``
     (no hardcoded narrative).
     """
-    if assistant_profile != "vigie_executive":
+    if assistant_profile not in {"vigie_executive", "octave_executive"}:
         return None
     normalized = query.lower()
     trigger_terms = (
@@ -1507,15 +1513,18 @@ def _vigie_executive_quick_reply(
     if not sources:
         sources = [{"title": "Mission Room SENTINEL-CI", "source_label": "Briefing souverain", "kind": "mission_room"}]
 
-    return {
-        "content": "\n".join(lines),
-        "sources": sources,
-        "details": {
-            "live_news_used": bool(source_health.get("live_news_used")),
-            "last_run_id": source_health.get("last_run_id"),
-            "alert_count": len(alerts),
+    return present_payload_for_workspace(
+        workspace,
+        {
+            "content": "\n".join(lines),
+            "sources": sources,
+            "details": {
+                "live_news_used": bool(source_health.get("live_news_used")),
+                "last_run_id": source_health.get("last_run_id"),
+                "alert_count": len(alerts),
+            },
         },
-    }
+    )
 
 
 async def _try_registry_chat_action(
@@ -1907,7 +1916,7 @@ async def chat_completion(
         request_dict["ui_locale"] = request.ui_locale
         _apply_response_language_contract(request_dict, response_language)
         _apply_context_to_chat_request(request_dict, chat_context)
-        if request.assistant_profile == "vigie_executive":
+        if request.assistant_profile in {"vigie_executive", "octave_executive"}:
             request_dict.setdefault("context", {})["workspace_calendar"] = calendar_context_for_chat(db, workspace)
             request_dict.setdefault("context", {})["workspace_actions"] = action_context_for_chat(db, workspace)
             request_dict.setdefault("context", {})["workspace_visual_observations"] = visual_context_for_chat(db, workspace)
@@ -3252,7 +3261,7 @@ async def chat_stream(
                 is_conversation_meta_followup = _is_meta_followup(validated_query, conversation_history)
             except Exception:  # noqa: BLE001 - guard exemption must never break chat.
                 is_conversation_meta_followup = False
-            if request.assistant_profile == "vigie_executive":
+            if request.assistant_profile in {"vigie_executive", "octave_executive"}:
                 if not request_dict.get("context"):
                     request_dict["context"] = {}
                 request_dict["context"]["workspace_calendar"] = calendar_context_for_chat(db, workspace)

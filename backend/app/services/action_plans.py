@@ -312,7 +312,7 @@ def handle_action_plan_chat_action(
     query: str,
     assistant_profile: Optional[str],
 ) -> Optional[dict[str, Any]]:
-    if assistant_profile != "vigie_executive":
+    if assistant_profile not in {"vigie_executive", "octave_executive"}:
         return None
     text = (query or "").strip()
     lower = text.lower()

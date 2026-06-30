@@ -81,14 +81,14 @@ function rollIndicatorDates(indicators: MacroIndicator[]): MacroIndicator[] {
 
 const SOVEREIGN_FALLBACK: MacroIndicator[] = rollIndicatorDates([
   {
-    key: 'cacao',
-    label: 'Cacao',
+    key: 'bio_composites',
+    label: 'Bio-composites',
     current: 4095000,
     unit: 'CFA/t',
     trend: '-0.4%',
     trend_direction: 'down',
     prism: 'matieres_premieres',
-    source: 'ICCO (cache baseline)',
+    source: 'Octocity market cache',
     series: [
       { date: '2026-05-20', value: 4155000 },
       { date: '2026-05-22', value: 4140000 },
@@ -98,14 +98,14 @@ const SOVEREIGN_FALLBACK: MacroIndicator[] = rollIndicatorDates([
     ],
   },
   {
-    key: 'anacarde',
-    label: 'Anacarde',
+    key: 'fibre_solaire',
+    label: 'Fibre solaire',
     current: 825,
     unit: 'CFA/kg',
     trend: '-0.8%',
     trend_direction: 'down',
     prism: 'matieres_premieres',
-    source: 'CCA (cache baseline)',
+    source: 'Octocity market cache',
     series: [
       { date: '2026-05-20', value: 852 },
       { date: '2026-05-22', value: 845 },
@@ -133,13 +133,13 @@ const SOVEREIGN_FALLBACK: MacroIndicator[] = rollIndicatorDates([
   },
   {
     key: 'sovereign_spread',
-    label: 'Spread souverain CI',
+    label: 'Spread souverain AS',
     current: 300,
     unit: 'bps',
     trend: '+15 bps',
     trend_direction: 'up',
     prism: 'souverainete_financiere',
-    source: 'Eurobonds (cache baseline)',
+    source: 'Aurora bonds cache',
     series: [
       { date: '2026-05-20', value: 299 },
       { date: '2026-05-22', value: 300 },
@@ -149,14 +149,14 @@ const SOVEREIGN_FALLBACK: MacroIndicator[] = rollIndicatorDates([
     ],
   },
   {
-    key: 'bceao_reserves',
-    label: 'Reserves BCEAO',
+    key: 'aurora_reserves',
+    label: 'Reserves Aurora',
     current: 4.2,
     unit: 'mois',
     trend: '-0.1',
     trend_direction: 'down',
     prism: 'souverainete_financiere',
-    source: 'BCEAO (cache baseline)',
+    source: 'Aurora reserve desk',
     series: [
       { date: '2026-05-20', value: 4.22 },
       { date: '2026-05-22', value: 4.21 },
@@ -166,8 +166,8 @@ const SOVEREIGN_FALLBACK: MacroIndicator[] = rollIndicatorDates([
     ],
   },
   {
-    key: 'cedeao_tension',
-    label: 'Tension regionale CEDEAO',
+    key: 'aurora_tension',
+    label: 'Tension regionale Aurora',
     current: 72,
     unit: '/100',
     trend: '+1',
@@ -183,8 +183,8 @@ const SOVEREIGN_FALLBACK: MacroIndicator[] = rollIndicatorDates([
     ],
   },
   {
-    key: 'opinion_ci',
-    label: 'Sentiment opinion CI',
+    key: 'opinion_as',
+    label: 'Sentiment opinion AS',
     current: 58,
     unit: '/100',
     trend: '0',
@@ -200,14 +200,14 @@ const SOVEREIGN_FALLBACK: MacroIndicator[] = rollIndicatorDates([
     ],
   },
   {
-    key: 'abidjan_port',
-    label: 'Trafic Port Abidjan',
+    key: 'meridian_port',
+    label: 'Trafic Port Meridian',
     current: 12400,
     unit: 'TEU/j',
     trend: '-0.3%',
     trend_direction: 'down',
     prism: 'operationnel',
-    source: 'PAA (cache baseline)',
+    source: 'Meridian harbor cache',
     series: [
       { date: '2026-05-20', value: 12480 },
       { date: '2026-05-22', value: 12460 },
@@ -299,10 +299,10 @@ const FALLBACK_INDICATORS: MacroIndicator[] = [
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="macro-strip" aria-label="Indicateurs macro Côte d'Ivoire">
+    <section class="macro-strip" aria-label="Indicateurs macro institutionnels">
       <header class="macro-head">
         <div>
-          <span class="eyebrow">Indicateurs macro · Côte d'Ivoire</span>
+          <span class="eyebrow">Indicateurs macro · institutionnels</span>
           <h2>Pouls economique souverain</h2>
         </div>
         @if (sourceLabel()) {
@@ -729,7 +729,7 @@ export class VpMacroIndicatorsComponent implements OnInit {
 
   ngOnInit(): void {
     this.api
-      .get<MacroIndicatorsResponse>('/mission-room/macro-indicators', { workspace: 'sentinel-ci' })
+      .get<MacroIndicatorsResponse>('/mission-room/macro-indicators')
       .pipe(catchError(() => of(null)))
       .subscribe((response) => {
         if (!response) return;

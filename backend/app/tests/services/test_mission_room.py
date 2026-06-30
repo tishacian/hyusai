@@ -4,6 +4,7 @@ from app.models.capability import Capability
 from app.models.action_plan import WorkspaceActionItem
 from app.models.calendar import WorkspaceCalendarEvent
 from app.models.intelligence import FeedSource
+from app.models.knowledge_collection import KnowledgeCollection
 from app.models.rag_preset import RagPreset
 from app.models.knowledge_guide import KnowledgeGuide
 from app.models.system import System
@@ -13,7 +14,17 @@ from app.models.workspace_visual import WorkspaceVisualSource
 from app.services.intelligence.batch import ensure_intelligence_defaults
 from app.services.document_intelligence import resolve_document_profile
 from app.services.knowledge_guides import effective_guides
-from app.services.mission_room import SENTINEL_WORKSPACE_SLUG, ensure_sentinel_ci_workspace, navigation_payload
+from app.services.mission_room import (
+    OCTOCITY_MISSION_ROOM_PROFILE,
+    OCTOCITY_WORKSPACE_SLUG,
+    cockpit_payload,
+    ensure_octocity_mission_room_workspace,
+    ensure_sentinel_ci_workspace,
+    navigation_payload,
+    octocity_forbidden_terms_present,
+    present_payload_for_workspace,
+    SENTINEL_WORKSPACE_SLUG,
+)
 from app.services.rag_preset_service import RagPresetService
 from app.services.skills_registry import bound_slugs, seed_skills_and_capabilities
 from app.services.demo_time_context import resolve_demo_date
@@ -163,6 +174,56 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
     assert preset.config["ragCollectionName"] == "sentinel-ci-open-intelligence"
     assert preset.config["ragTopK"] == 6
     assert preset.config["asyncRetrieval"] is True
+
+
+def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
+    seed_skills_and_capabilities(db_session)
+    first = ensure_octocity_mission_room_workspace(db_session)
+    second = ensure_octocity_mission_room_workspace(db_session)
+
+    workspace = db_session.query(Workspace).filter(Workspace.slug == OCTOCITY_WORKSPACE_SLUG).one()
+    assert first["workspace_created"] == 1
+    assert second["workspace_created"] == 0
+    assert workspace.name == "Octocity Mission Room"
+    assert workspace.mode == "demo"
+    assert workspace.settings["workspace_app_label"] == "Octocity Mission Room"
+    assert workspace.settings["assistant_profile_default"] == "octave_executive"
+    assert workspace.settings["voice_loop"]["trigger_word"] == "OCTAVE"
+    assert workspace.settings["actions"]["enabled_packs"] == [
+        "global_voice_v1",
+        "octave_mission_room_v1",
+        "octave_security_v1",
+    ]
+    assert workspace.settings["mission_room"]["profile"] == OCTOCITY_MISSION_ROOM_PROFILE
+    assert workspace.settings["mission_room"]["brand"]["emblem"] == "/assets/brand/agentium-mark.svg"
+
+    system_names = {row.name for row in db_session.query(System).filter_by(workspace_id=workspace.id).all()}
+    assert {"OCTAVE Mission Room", "Workspace Chat", "Knowledge Capture"}.issubset(system_names)
+
+    collection_slugs = {
+        row.slug
+        for row in db_session.query(KnowledgeCollection)
+        .filter(KnowledgeCollection.workspace_id == workspace.id)
+        .all()
+    }
+    assert {
+        "octocity-open-intelligence",
+        "octocity-ministerial-briefs",
+        "octocity-knowledge-capture",
+        "octocity-evidence-graph",
+    }.issubset(collection_slugs)
+    assert all(slug.startswith("octocity-") for slug in collection_slugs)
+
+    preset = db_session.query(RagPreset).filter_by(workspace_id=workspace.id, is_default=True).one()
+    assert preset.config["ragCollectionName"] == "octocity-open-intelligence"
+
+    nav = navigation_payload(db_session, workspace)
+    assert nav["app"]["assistant_label"] == "OCTAVE"
+    assert nav["app"]["brand"]["style"] == "agentium"
+
+    cockpit = present_payload_for_workspace(workspace, cockpit_payload(workspace, db_session))
+    assert cockpit["workspace"]["slug"] == OCTOCITY_WORKSPACE_SLUG
+    assert octocity_forbidden_terms_present(cockpit) == []
 
 
 def test_government_capabilities_and_skills_are_seeded_and_bound(db_session):

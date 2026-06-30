@@ -1051,7 +1051,7 @@ def handle_visual_chat_query(
     query: str,
     assistant_profile: Optional[str],
 ) -> Optional[dict[str, Any]]:
-    if assistant_profile != "vigie_executive":
+    if assistant_profile not in {"vigie_executive", "octave_executive"}:
         return None
     lowered = (query or "").lower()
     triggers = ("visuel", "visuelle", "webcam", "camera", "caméra", "capture", "image", "flux", "observation")

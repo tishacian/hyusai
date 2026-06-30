@@ -1942,7 +1942,7 @@ def handle_map_chat_query(
     deliberately narrow: it emits a structured map command when the user asks
     the assistant to show/focus/highlight territorial zones.
     """
-    if assistant_profile != "vigie_executive":
+    if assistant_profile not in {"vigie_executive", "octave_executive"}:
         return None
     normalized = (query or "").lower()
     explicit_map_terms = (

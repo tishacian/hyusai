@@ -34,6 +34,29 @@ def test_sentinel_inherits_aya_actions_without_andritz_pack():
     assert "andritz.find_parameter_value" not in ids
 
 
+def test_octocity_inherits_octave_actions_without_aya_pack():
+    workspace = _workspace(
+        "octocity-mission-room",
+        settings={
+            "mission_room": {"profile": "octocity_institutional_v1"},
+            "assistant_profile_default": "octave_executive",
+            "actions": {"enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]},
+            "assistant_profiles": [
+                {
+                    "key": "octave_executive",
+                    "actions": {"enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]},
+                }
+            ],
+        },
+    )
+
+    ids = {action.action_id for action in effective_action_manifests(workspace, surface="chat", assistant_profile="octave_executive")}
+
+    assert "octave.priority_summary" in ids
+    assert "octave.show_security_posture" in ids
+    assert "aya.priority_summary" not in ids
+
+
 def test_global_voice_actions_are_trans_workspace():
     andritz = _workspace("andritz")
     sentinel = _workspace("sentinel-ci")
@@ -130,6 +153,28 @@ def test_aya_voice_side_effect_resolves_as_confirmable():
     assert result.matched is True
     assert result.action_id == "aya.action_plan_create"
     assert result.requires_confirmation is True
+
+
+def test_octave_wake_word_resolves_mission_room_action():
+    workspace = _workspace(
+        "octocity-mission-room",
+        settings={
+            "mission_room": {"profile": "octocity_institutional_v1"},
+            "assistant_profile_default": "octave_executive",
+            "actions": {"enabled_packs": ["global_voice_v1", "octave_mission_room_v1", "octave_security_v1"]},
+        },
+    )
+
+    result = resolve_action(
+        workspace,
+        text="OCTAVE, donne-moi le cockpit",
+        surface="chat",
+        assistant_profile="octave_executive",
+    )
+
+    assert result.matched is True
+    assert result.action_id == "octave.priority_summary"
+    assert result.requires_confirmation is False
 
 
 def test_actions_api_exposes_effective_actions(db_session):

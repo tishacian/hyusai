@@ -33,6 +33,7 @@ from app.services.mission_room import (
     navigation_payload,
     news_payload,
     overview_payload,
+    present_payload_for_workspace,
     projects_payload,
     search_payload,
     security_monitor_payload,
@@ -75,6 +76,10 @@ def _audit(
     )
 
 
+def _present(workspace: Workspace, payload):
+    return present_payload_for_workspace(workspace, payload)
+
+
 @router.get("/overview")
 def overview(
     workspace: Workspace = Depends(get_current_workspace),
@@ -83,7 +88,7 @@ def overview(
 ):
     payload = overview_payload(workspace)
     _audit(db=db, workspace=workspace, user=user, event_type="mission_room.overview.viewed", details={"surface": "overview"})
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/navigation")
@@ -100,7 +105,7 @@ def navigation(
         event_type="mission_room.navigation.viewed",
         details={"views": len(payload.get("items") or []), "surface": "navigation"},
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/cockpit")
@@ -123,7 +128,7 @@ def cockpit(
             "live_news_used": bool(press.get("live_news_used")),
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/briefing")
@@ -140,7 +145,7 @@ def briefing(
         event_type="mission_room.briefing.generated",
         details={"sections": len(payload.get("sections") or []), "advisory_only": True},
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/timeline")
@@ -162,7 +167,7 @@ def timeline(
             "synthetic": not bool((payload.get("calendar") or {}).get("events")),
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/projects")
@@ -179,7 +184,7 @@ def projects(
         event_type="mission_room.projects.explained",
         details={"projects": len(payload.get("projects") or []), "advisory_only": True},
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/decisions")
@@ -200,7 +205,7 @@ def decisions(
             "advisory_only": True,
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/library")
@@ -217,7 +222,7 @@ def library(
         event_type="mission_room.library.viewed",
         details={"items": len(payload.get("items") or []), "metadata_only": True},
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/search")
@@ -235,7 +240,7 @@ def search(
         event_type="mission_room.search.performed",
         details={"query": q, "results": payload.get("total"), "synthetic_scope": True},
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/map")
@@ -252,7 +257,7 @@ def strategic_map(
         event_type="mission_room.map.generated",
         details={"zones": len(payload.get("zones") or []), "accuracy": (payload.get("map") or {}).get("accuracy")},
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/monitor")
@@ -273,7 +278,7 @@ def situation_monitor(
             "posture": (payload.get("posture") or {}).get("label"),
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/security-monitor")
@@ -294,7 +299,7 @@ def security_monitor(
             "posture": (payload.get("security_posture") or {}).get("summary"),
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/satellite/scenes")
@@ -315,7 +320,7 @@ def satellite_scenes(
             "advisory_only": True,
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/satellite/proxy")
@@ -363,7 +368,7 @@ def evidence_graph(
             "collection_slug": (payload.get("knowledge") or {}).get("collection_slug"),
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/evidence-graph/trace")
@@ -388,7 +393,7 @@ def evidence_graph_trace_route(
             "path_len": len(payload.get("path") or []),
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/customs-records/{document_id}.pdf")
@@ -476,7 +481,7 @@ def macro_indicators(
             "fetched_at": payload.get("fetched_at"),
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/cedeao-index")
@@ -498,7 +503,7 @@ def cedeao_index(
             "advisory_only": True,
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.get("/news")
@@ -522,7 +527,7 @@ def news(
             "advisory_only": True,
         },
     )
-    return payload
+    return _present(workspace, payload)
 
 
 @router.post("/actions/draft")
@@ -532,7 +537,7 @@ def draft_action(
     user: User = Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
-    return draft_instruction_payload(
+    payload = draft_instruction_payload(
         workspace=workspace,
         actor=_actor(user),
         target_id=body.target_id,
@@ -540,3 +545,4 @@ def draft_action(
         instruction_type=body.instruction_type,
         db=db,
     )
+    return _present(workspace, payload)
