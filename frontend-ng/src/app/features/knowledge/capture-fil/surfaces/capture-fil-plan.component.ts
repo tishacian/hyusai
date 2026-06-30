@@ -104,7 +104,7 @@ type OutlineAction = 'indent' | 'outdent' | 'renumber' | 'move_up' | 'move_down'
             (input)="onOutlineInput($any($event.target).value)"
             (keydown)="onOutlineKeydown($event)"
             spellcheck="false"
-            placeholder="1. Premier sujet&#10;   1.1. Sous-sujet&#10;2. Deuxième sujet"
+            placeholder="Aucun sujet pour l'instant — saisissez votre plan ici, ou décrivez-le à l'assistant ci-dessous."
             style="resize:vertical; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-mono); font-size:13px; line-height:1.6; padding:12px 14px; min-height:200px;"
           ></textarea>
           <div class="ck-mono" style="font-size:10.5px; color:var(--ck-fg-5);">
@@ -252,6 +252,11 @@ export class CaptureFilPlanComponent {
 
   private recorder: MediaRecorder | null = null;
   private chunks: Blob[] = [];
+  /** Text already in the field when dictation started — partials replace from here. */
+  private dictationBase = '';
+  private partialInFlight = false;
+  private lastPartialAt = 0;
+  private partialRequestId = 0;
 
   constructor() {
     this.topics.set(this.topicsFromSession());
@@ -571,7 +576,12 @@ export class CaptureFilPlanComponent {
       });
   }
 
-  // ---- dictation (lean: record → transcribeAudio → text) -----------------
+  // ---- dictation (live: record → streamed partial transcripts → text) -----
+  // Ported from the v0 monolith: a timeslice recorder emits chunks while the
+  // user speaks; each (throttled) chunk re-transcribes the cumulative audio so
+  // the text streams into the field LIVE. The full audio is re-transcribed once
+  // on stop to finalise. Whisper transcribes the whole blob each time, so each
+  // result REPLACES the dictated segment (we keep any pre-existing text as base).
 
   protected async toggleDictation(): Promise<void> {
     if (this.recording()) {
@@ -591,18 +601,25 @@ export class CaptureFilPlanComponent {
       return;
     }
     this.chunks = [];
+    this.dictationBase = this.instruction().trim();
+    this.partialInFlight = false;
+    this.lastPartialAt = 0;
     const recorder = new MediaRecorder(stream);
     this.recorder = recorder;
     recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size) this.chunks.push(e.data);
+      if (e.data && e.data.size) {
+        this.chunks.push(e.data);
+        this.transcribePartial();
+      }
     };
     recorder.onstop = () => {
       stream.getTracks().forEach((t) => t.stop());
       this.finalizeDictation();
     };
-    recorder.start();
+    // Timeslice → periodic ondataavailable so partials stream during speech.
+    recorder.start(1500);
     this.recording.set(true);
-    this.notice.set({ tone: 'info', text: 'Dictée en cours — parlez, puis arrêtez pour transcrire.' });
+    this.notice.set({ tone: 'info', text: 'Dictée en cours — le texte s’affiche en direct.' });
   }
 
   private stopDictation(): void {
@@ -617,11 +634,45 @@ export class CaptureFilPlanComponent {
     this.recording.set(false);
   }
 
+  /** Re-transcribe the cumulative audio (throttled, single in-flight) and stream
+   *  the partial into the instruction field while speaking. */
+  private transcribePartial(): void {
+    if (this.partialInFlight || this.chunks.length < 2) return;
+    const now = Date.now();
+    if (this.lastPartialAt && now - this.lastPartialAt < 1200) return;
+    this.partialInFlight = true;
+    this.lastPartialAt = now;
+    const blob = new Blob(this.chunks, { type: 'audio/webm' });
+    const requestId = ++this.partialRequestId;
+    this.api
+      .transcribeAudio(blob, 'partial.webm')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.partialInFlight = false;
+          // Drop stale/late partials (a newer request landed, or dictation ended).
+          if (requestId !== this.partialRequestId || !this.recording()) return;
+          const text = (res.text || '').trim();
+          if (text) this.applyDictation(text);
+        },
+        error: () => {
+          this.partialInFlight = false;
+        },
+      });
+  }
+
+  private applyDictation(text: string): void {
+    this.instruction.set(this.dictationBase ? `${this.dictationBase} ${text}` : text);
+  }
+
   private finalizeDictation(): void {
     this.recorder = null;
+    // Invalidate any in-flight partial so it can't overwrite the final text.
+    this.partialRequestId += 1;
     const blob = new Blob(this.chunks, { type: 'audio/webm' });
     this.chunks = [];
     if (!blob.size) {
+      this.transcribing.set(false);
       this.notice.set(null);
       return;
     }
@@ -634,7 +685,7 @@ export class CaptureFilPlanComponent {
           this.transcribing.set(false);
           const text = (res.text || '').trim();
           if (text) {
-            this.instruction.update((v) => (v.trim() ? `${v} ${text}` : text));
+            this.applyDictation(text);
             this.notice.set(null);
           } else {
             this.notice.set({ tone: 'info', text: 'Rien transcrit. Réessayez.' });
