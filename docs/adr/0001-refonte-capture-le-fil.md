@@ -139,6 +139,36 @@ mais absent de la recherche KB ».
 > Divergence assumée avec le handoff §5.3 : le handoff pré-déduit « pointé ≥ 1× → Entier ».
 > On retient **défaut `excerpt`** (lazy : on n'indexe que ce qui a été montré, `full` opt-in).
 
+### D6 — Abandons assumés & reports (post P0/P1) — **Acté**
+
+Après P0 (pilotage de séance, fiche structurée, publication KB réelle) et P1 (revue
+accepté/rejeté/changes_requested, minuterie/clôture, oracle enrichi), il reste des capacités
+v0 non portées. **Décision** : clore explicitement le périmètre vs v0. Chaque capacité
+résiduelle reçoit un arbitrage gravé — soit un **abandon assumé** (on ne fait pas, on documente
+le pourquoi, cohérent avec la philosophie calme/minimale de l'ADR), soit un **report en backlog
+P3** (valeur réelle, différée sous condition).
+
+**Abandons assumés** (on ne fait pas, on documente le pourquoi) :
+
+| Capacité v0 | Raison | Sévérité d'origine |
+|---|---|---|
+| TTS / lecture vocale des relances + barge-in | Contredit l'oracle calme, non-vocal (cohérent D3). | mineure |
+| Commandes vocales (stop / fin de tour / fin de section) + détecteur | Remplacées par boutons explicites + détection auto de section (P0). | mineure |
+| Concept de « loop » WS résiduel (`audio.pause` / `voice.command`) | La fonction est couverte par pause/resume (P1) ; l'abstraction « loop » v0 est legacy. | moyenne |
+| `evaluation.delta` surfacé par tour (verdict/score/follow_up visibles) | L'ingestion silencieuse alimente déjà section + oracle (P0) ; afficher un verdict par tour est bruyant (anti-calme). On garde l'ingestion, on abandonne l'UI par tour. | moyenne |
+| Banque de questions (`question_bank_status` generating/ready, polling) | Supplantée par la hint-queue + cycle de validation du plan actuel. | moyenne |
+| Backlog qualité + sessions de clarification | Workflow lourd séparé ; les questions ouvertes de la fiche (P0/P1) couvrent le besoin. | mineure |
+
+**Reportés (backlog P3)** (valeur réelle, différé avec condition) :
+
+| Capacité v0 | Raison | Sévérité d'origine |
+|---|---|---|
+| Dashboard — onglet Propositions (brouillons à reprendre) | Le moteur recharge déjà les proposals à la re-entrée ; surface dashboard à ajouter. | moyenne |
+| Dashboard — onglet Fiches publiées (preview + lien KB) | La publication renvoie déjà `export_urls` ; surface à ajouter. | moyenne |
+| Panneau « Contexte retrouvé » (RAG : prefetch + chunks + latence + `runtime.metric`) | Panneau d'évidence à valeur, plus lourd. | moyenne |
+| Pastilles d'index + compteur de vues référencées par doc en séance | Partiellement couvert par La Scène + bannière d'index. | mineure |
+| Provenance bidirectionnelle (timecode + surlignage de l'instant capté) | Le revisit existe ; le timecode/surlignage est un raffinement. | mineure |
+
 ---
 
 ## Impacts d'implémentation (synthèse)
@@ -164,8 +194,9 @@ mais absent de la recherche KB ».
   l'indexation, direction visuelle unifiée (cockpit), bascule réversible via flag.
 - **Coût** : DS-C ajoute du travail front (re-skin de plusieurs écrans) ; couture v0 ↔ cockpit
   transitoire jusqu'à suppression de la v0.
-- **À suivre** : V2 du kind-matching de confiance (D2) ; suppression de la v0 et du flag une
-  fois « Le Fil » validé.
+- **À suivre** : V2 du kind-matching de confiance (D2) ; périmètre v0 clos (D6) — abandons
+  assumés gravés et reports listés en backlog P3 ; suppression de la v0 et du flag une fois
+  « Le Fil » validé.
 
 ---
 
@@ -202,3 +233,5 @@ tenants pilotes (cf. D0). Aucune suppression n'est faite dans cette phase.
 - Plan d'implémentation : `fluid_capture_text_and_pins_2fde9b03.plan.md`.
 - Code clé : `backend/app/services/knowledge_capture.py`
   (`_document_sources_from_facts`, `register_capture_documents`, `run_capture_finalize_index`).
+- Audit de dérive : canvas « Le Fil vs v0 — cartographie exhaustive du drift » (inventaire des
+  capacités v0 et de leur statut de portage ; base du classement D6).
