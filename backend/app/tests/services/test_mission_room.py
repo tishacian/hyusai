@@ -16,6 +16,7 @@ from app.services.document_intelligence import resolve_document_profile
 from app.services.knowledge_guides import effective_guides
 from app.services.mission_room import (
     OCTOCITY_MISSION_ROOM_PROFILE,
+    OCTOCITY_OWNER_EMAILS,
     OCTOCITY_WORKSPACE_SLUG,
     cockpit_payload,
     ensure_octocity_mission_room_workspace,
@@ -177,6 +178,16 @@ def test_sentinel_ci_seed_is_idempotent_and_demo_scoped(db_session):
 
 
 def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
+    owner = User(
+        id="user-octocity-owner",
+        username="octocity-owner",
+        email=OCTOCITY_OWNER_EMAILS[0],
+        role="admin",
+        is_active=True,
+    )
+    db_session.add(owner)
+    db_session.commit()
+
     seed_skills_and_capabilities(db_session)
     first = ensure_octocity_mission_room_workspace(db_session)
     second = ensure_octocity_mission_room_workspace(db_session)
@@ -184,6 +195,8 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
     workspace = db_session.query(Workspace).filter(Workspace.slug == OCTOCITY_WORKSPACE_SLUG).one()
     assert first["workspace_created"] == 1
     assert second["workspace_created"] == 0
+    assert first["members_added"] == 1
+    assert second["members_added"] == 0
     assert workspace.name == "Octocity Mission Room"
     assert workspace.mode == "demo"
     assert workspace.settings["workspace_app_label"] == "Octocity Mission Room"
@@ -224,6 +237,22 @@ def test_octocity_mission_room_seed_is_idempotent_and_anonymized(db_session):
     cockpit = present_payload_for_workspace(workspace, cockpit_payload(workspace, db_session))
     assert cockpit["workspace"]["slug"] == OCTOCITY_WORKSPACE_SLUG
     assert octocity_forbidden_terms_present(cockpit) == []
+
+    member = db_session.query(WorkspaceMember).filter_by(workspace_id=workspace.id, user_id=owner.id).one()
+    assert member.role == "owner"
+    assert member.role_template == "workspace_owner"
+    assert member.custom_labels == ["octocity:video-owner"]
+
+    member.role = "member"
+    member.role_template = "workspace_member"
+    member.custom_labels = ["explicit:test-member"]
+    db_session.commit()
+    third = ensure_octocity_mission_room_workspace(db_session)
+    db_session.refresh(member)
+    assert third["members_added"] == 0
+    assert member.role == "member"
+    assert member.role_template == "workspace_member"
+    assert member.custom_labels == ["explicit:test-member"]
 
 
 def test_government_capabilities_and_skills_are_seeded_and_bound(db_session):

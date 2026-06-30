@@ -11,6 +11,7 @@ from datetime import datetime, time, timedelta
 from typing import Any, Dict, Iterable, Optional
 from uuid import uuid4
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session as DBSession
 
 from app.models.capability import Capability
@@ -21,6 +22,7 @@ from app.models.rag_preset import RagPreset
 from app.models.run import Run
 from app.models.skill import Skill
 from app.models.system import System
+from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.audit_logger import emit_audit_event
 from app.services.workspace_calendar import (
@@ -61,6 +63,7 @@ OCTOCITY_WORKSPACE_SLUG = "octocity-mission-room"
 OCTOCITY_WORKSPACE_NAME = "Octocity Mission Room"
 OCTOCITY_ASSISTANT_NAME = "OCTAVE"
 OCTOCITY_MISSION_ROOM_PROFILE = "octocity_institutional_v1"
+OCTOCITY_OWNER_EMAILS = ("thibaud.ishacian@datategy.net",)
 
 
 _OCTOCITY_TEXT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
@@ -180,6 +183,46 @@ def present_payload_for_workspace(workspace: Workspace | None, payload: Any) -> 
 def octocity_forbidden_terms_present(payload: Any) -> list[str]:
     text = str(payload)
     return [term for term in _OCTOCITY_FORBIDDEN_TERMS if term in text]
+
+
+def _ensure_workspace_members(
+    db: DBSession,
+    workspace: Workspace,
+    emails: Iterable[str],
+    *,
+    role: str,
+    role_template: str,
+    custom_label: str,
+) -> int:
+    added = 0
+    for email in emails:
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            continue
+        user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
+        if not user:
+            continue
+        existing = (
+            db.query(WorkspaceMember)
+            .filter(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.user_id == user.id,
+            )
+            .first()
+        )
+        if existing:
+            continue
+        db.add(
+            WorkspaceMember(
+                workspace_id=workspace.id,
+                user_id=user.id,
+                role=role,
+                role_template=role_template,
+                custom_labels=[custom_label],
+            )
+        )
+        added += 1
+    return added
 
 
 SENTINEL_KNOWLEDGE_GUIDES = (
@@ -7200,6 +7243,14 @@ def ensure_octocity_mission_room_workspace(db: DBSession) -> dict[str, int | str
     settings = dict(workspace.settings or {})
     settings.update(_octocity_settings())
     workspace.settings = settings
+    members_added = _ensure_workspace_members(
+        db,
+        workspace,
+        OCTOCITY_OWNER_EMAILS,
+        role="owner",
+        role_template="workspace_owner",
+        custom_label="octocity:video-owner",
+    )
 
     for slug, name, description in OCTOCITY_COLLECTIONS:
         _ensure_collection(db, workspace, slug, name, description)
@@ -7265,7 +7316,7 @@ def ensure_octocity_mission_room_workspace(db: DBSession) -> dict[str, int | str
     return {
         "workspace_slug": workspace.slug,
         "workspace_created": created,
-        "members_added": 0,
+        "members_added": members_added,
         "systems_created": systems_created,
         "knowledge_guides_changed": knowledge_guides_changed,
         "collection_sources_seeded": sources_seeded,
