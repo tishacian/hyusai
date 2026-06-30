@@ -4,11 +4,14 @@ import {
   ApiService,
   type CaptureAnchorStatus,
   type CapturePinnedView,
+  type CaptureProposal,
+  type CapturePublicationResult,
   type CaptureSessionDocument,
   type CaptureShareLevelItem,
   type CaptureTurnRequest,
   type CaptureViewReference,
   type CaptureViewUpdateRequest,
+  type ProposalReviewRequest,
 } from '@app/core/api.service';
 import {
   VoiceSessionService,
@@ -66,6 +69,52 @@ export interface CaptureOracleItem {
   text: string;
   status: 'active' | 'open' | 'answered' | 'dismissed' | 'deferred';
   ts_ms: number;
+  /** Topic this open question is grounded in (when the gateway provides it). */
+  topic_id?: string | null;
+  /** Backend priority (higher = surface first); already sorted by the gateway. */
+  priority?: number | null;
+}
+
+/**
+ * A single relance ("hint") from the backend hint-queue (P0 #1). The gateway
+ * stages grounded follow-up questions per sous-sujet; the session UI surfaces
+ * the principal hint + the queue. Polled via {@link ApiService.getCaptureHintQueue}.
+ */
+export interface CaptureHint {
+  id: string;
+  subtopic_id?: string;
+  hint: string;
+  full_question?: string;
+  priority?: number;
+  source?: string;
+  kb_excerpt?: string;
+}
+
+/** Auto-detected section suggestion (from `section.active` / `evaluation.delta`). */
+export interface CaptureSectionSuggestion {
+  topic_id: string | null;
+  subtopic_id: string | null;
+  confidence?: number | null;
+  manual_locked?: boolean;
+}
+
+/** A sous-sujet leaf in the parsed plan tree (P0 #1 section rail). */
+export interface CapturePlanSubtopic {
+  id: string;
+  title?: string;
+  objective?: string;
+  prompt?: string;
+  status?: string;
+}
+
+/** A topic node in the parsed plan tree (P0 #1 section rail). */
+export interface CapturePlanTopic {
+  id: string;
+  title?: string;
+  objective?: string;
+  prompt?: string;
+  status?: string;
+  subtopics?: CapturePlanSubtopic[];
 }
 
 /** Realtime connection lifecycle. */
@@ -141,6 +190,9 @@ export class CaptureEngine {
 
   private connection: VoiceSessionConnection | LiveKitConversationConnection | null = null;
   private eventsSub: Subscription | null = null;
+  /** Light polling of the hint-queue while connected (P0 #1, ~15s). */
+  private hintPollTimer: ReturnType<typeof setInterval> | null = null;
+  private static readonly HINT_POLL_MS = 15000;
 
   // ---- voice capture audio pump (D3) -------------------------------------
   private transport: 'backend_ws' | 'livekit' = 'backend_ws';
@@ -176,6 +228,8 @@ export class CaptureEngine {
   /** Session-level collection slug (fallback for per-doc preview URLs). */
   private readonly _documentsCollection = signal<string | null>(null);
   private readonly _proposalId = signal<string | null>(null);
+  /** Full knowledge proposal (the report fiche), captured at finalize (P0 #2). */
+  private readonly _proposal = signal<CaptureProposal | null>(null);
   private readonly _state = signal<CaptureConnectionState>('idle');
   private readonly _feed = signal<CaptureFeedItem[]>([]);
   private readonly _oracle = signal<CaptureOracleItem[]>([]);
@@ -186,6 +240,16 @@ export class CaptureEngine {
   private readonly _lastError = signal<string | null>(null);
   private readonly _micActive = signal(false);
   private readonly _micMuted = signal(false);
+
+  // ---- section steering (P0 #1) ------------------------------------------
+  private readonly _activeTopicId = signal<string | null>(null);
+  private readonly _activeSubtopicId = signal<string | null>(null);
+  private readonly _sectionSuggestion = signal<CaptureSectionSuggestion | null>(null);
+  private readonly _hintQueue = signal<CaptureHint[]>([]);
+
+  // ---- publication (P0 #3) -----------------------------------------------
+  private readonly _collections = signal<string[]>([]);
+  private readonly _publication = signal<CapturePublicationResult | null>(null);
 
   /** Capture session this engine is bound to (null until `connect`). */
   readonly sessionId = this._sessionId.asReadonly();
@@ -199,6 +263,20 @@ export class CaptureEngine {
   readonly documentsCollection = this._documentsCollection.asReadonly();
   /** Knowledge proposal id produced by {@link finalize}. */
   readonly proposalId = this._proposalId.asReadonly();
+  /** Full knowledge proposal (the report fiche); null until finalize / loadProposal. */
+  readonly proposal = this._proposal.asReadonly();
+  /** Active topic in the section rail (manual selection or auto-detection). */
+  readonly activeTopicId = this._activeTopicId.asReadonly();
+  /** Active sous-sujet in the section rail. */
+  readonly activeSubtopicId = this._activeSubtopicId.asReadonly();
+  /** Latest auto-detected section suggestion (clickable in the rail). */
+  readonly sectionSuggestion = this._sectionSuggestion.asReadonly();
+  /** Backend relances ("pile de relances") for the active sous-sujet. */
+  readonly hintQueue = this._hintQueue.asReadonly();
+  /** Available KB destinations/collections for publication (P0 #3). */
+  readonly collections = this._collections.asReadonly();
+  /** Result of the last successful publication (export_urls, document_id, …). */
+  readonly publication = this._publication.asReadonly();
   /** Pinned pieces — "La Scène" (D3). */
   readonly scene = this._pinnedViews.asReadonly();
   /** Key of the focused ("EN SCÈNE") piece. */
@@ -215,6 +293,50 @@ export class CaptureEngine {
   readonly finalizeStage = this._finalize.asReadonly();
   /** Last transport / request error, surfaced for diagnostics. */
   readonly lastError = this._lastError.asReadonly();
+
+  /**
+   * The session plan parsed into a typed topics/sous-sujets tree (P0 #1). Reads
+   * `session().plan.topics`; tolerates the loose `Record<string, unknown>` plan
+   * shape and skips malformed nodes so the section rail always renders.
+   */
+  readonly planTopics = computed<CapturePlanTopic[]>(() => {
+    const plan = this._session()?.plan;
+    const rawTopics = plan && typeof plan === 'object' ? (plan as Record<string, unknown>)['topics'] : null;
+    if (!Array.isArray(rawTopics)) return [];
+    const topics: CapturePlanTopic[] = [];
+    for (const raw of rawTopics) {
+      if (!raw || typeof raw !== 'object') continue;
+      const node = raw as Record<string, unknown>;
+      const id = node['id'] != null ? String(node['id']) : '';
+      if (!id) continue;
+      const subtopics: CapturePlanSubtopic[] = [];
+      const rawSubs = node['subtopics'];
+      if (Array.isArray(rawSubs)) {
+        for (const rawSub of rawSubs) {
+          if (!rawSub || typeof rawSub !== 'object') continue;
+          const sub = rawSub as Record<string, unknown>;
+          const subId = sub['id'] != null ? String(sub['id']) : '';
+          if (!subId) continue;
+          subtopics.push({
+            id: subId,
+            title: sub['title'] != null ? String(sub['title']) : undefined,
+            objective: sub['objective'] != null ? String(sub['objective']) : undefined,
+            prompt: sub['prompt'] != null ? String(sub['prompt']) : undefined,
+            status: sub['status'] != null ? String(sub['status']) : undefined,
+          });
+        }
+      }
+      topics.push({
+        id,
+        title: node['title'] != null ? String(node['title']) : undefined,
+        objective: node['objective'] != null ? String(node['objective']) : undefined,
+        prompt: node['prompt'] != null ? String(node['prompt']) : undefined,
+        status: node['status'] != null ? String(node['status']) : undefined,
+        subtopics,
+      });
+    }
+    return topics;
+  });
 
   readonly connected = computed(() => this._state() === 'connected');
   /** Mic is capturing AND not muted-while-typing — drives the composer VU (D3). */
@@ -278,6 +400,7 @@ export class CaptureEngine {
         this.connection = connection;
         this.subscribe(connection.events$);
         this._state.set('connected');
+        this.onConnected();
         // LiveKit publishes the mic track itself (publishMicrophone); no WebM pump.
         return;
       }
@@ -286,6 +409,7 @@ export class CaptureEngine {
       this.subscribe(connection.events$);
       connection.start({ mode: 'conversation_only' });
       this._state.set('connected');
+      this.onConnected();
       // Voice is captured continuously over the backend WS (D3 cascade lane).
       void this.startMic();
     } catch (error) {
@@ -298,6 +422,7 @@ export class CaptureEngine {
           this.subscribe(connection.events$);
           connection.start({ mode: 'conversation_only' });
           this._state.set('connected');
+          this.onConnected();
           this._lastError.set('Passerelle LiveKit indisponible — bascule WebSocket.');
           void this.startMic();
           return;
@@ -371,8 +496,33 @@ export class CaptureEngine {
       : {};
   }
 
+  /**
+   * Post-connect hook: pull the initial relances and start the light hint-queue
+   * poll (the backend doesn't push relances live — "silent oracle" by design).
+   */
+  private onConnected(): void {
+    void this.refreshHintQueue();
+    this.startHintPoll();
+  }
+
+  private startHintPoll(): void {
+    this.stopHintPoll();
+    this.hintPollTimer = setInterval(() => {
+      if (!this.connected()) return;
+      void this.refreshHintQueue();
+    }, CaptureEngine.HINT_POLL_MS);
+  }
+
+  private stopHintPoll(): void {
+    if (this.hintPollTimer !== null) {
+      clearInterval(this.hintPollTimer);
+      this.hintPollTimer = null;
+    }
+  }
+
   /** Tear down the realtime connection. Safe to call repeatedly. */
   disconnect(): void {
+    this.stopHintPoll();
     this.stopMic();
     this.realtimeSttActive = false;
     // A WS finalize in flight can never complete without the socket — resolve it
@@ -853,6 +1003,240 @@ export class CaptureEngine {
     );
   }
 
+  // ---- section steering (P0 #1) ------------------------------------------
+
+  /**
+   * Manually steer the capture to a topic / sous-sujet (operator click on the
+   * section rail). Tells the gateway (`section.select`), updates the local
+   * active markers, then refreshes the relances scoped to the new sous-sujet.
+   * `manual=true` locks out the auto-detection so a click sticks.
+   */
+  async selectSection(
+    topicId: string | null,
+    subtopicId: string | null,
+    manual = true,
+  ): Promise<void> {
+    this.connection?.sectionSelect({ topic_id: topicId, subtopic_id: subtopicId, manual });
+    this._activeTopicId.set(topicId);
+    this._activeSubtopicId.set(subtopicId);
+    await this.refreshHintQueue(subtopicId ?? undefined);
+  }
+
+  /** Mark the active section finished (operator action / progression). */
+  finishSection(): void {
+    this.connection?.sectionFinish({
+      topic_id: this._activeTopicId(),
+      subtopic_id: this._activeSubtopicId(),
+    });
+  }
+
+  /**
+   * Pull the backend hint-queue (relances) for the given sous-sujet (defaults to
+   * the active one). The backend stages grounded follow-ups but never pushes
+   * them live, so this is polled on connect / section change / interval.
+   */
+  async refreshHintQueue(subtopicId?: string): Promise<void> {
+    const sessionId = this._sessionId();
+    if (!sessionId) return;
+    const target = subtopicId ?? this._activeSubtopicId() ?? undefined;
+    try {
+      const payload = await firstValueFrom(this.api.getCaptureHintQueue(sessionId, target));
+      const hints = (payload as { hints?: CaptureHint[] } | null)?.hints;
+      this._hintQueue.set(Array.isArray(hints) ? hints : []);
+    } catch (error) {
+      this._hintQueue.set([]);
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  // ---- proposal / report (P0 #2) -----------------------------------------
+
+  /**
+   * Restore the proposal for the bound session (dashboard re-entry / resume):
+   * list the session's proposals and adopt the one whose `session_id` matches
+   * (falling back to the most recent), so the report fiche renders without a
+   * fresh finalize.
+   */
+  async loadProposal(): Promise<CaptureProposal | null> {
+    const sessionId = this._sessionId();
+    if (!sessionId) return null;
+    try {
+      const payload = await firstValueFrom(
+        this.api.listCaptureProposals(undefined, this._systemId(), sessionId),
+      );
+      const proposals = (payload as { proposals?: CaptureProposal[] } | null)?.proposals ?? [];
+      const match =
+        proposals.find((p) => p?.session_id === sessionId) ?? proposals[0] ?? null;
+      if (match) this.setProposal(match);
+      return match;
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+      return null;
+    }
+  }
+
+  /** Persist a manual markdown edit of the report; refresh from the response. */
+  async saveReport(content: string): Promise<void> {
+    const proposalId = this._proposalId();
+    if (!proposalId) return;
+    try {
+      const payload = await firstValueFrom(
+        this.api.updateCaptureProposalContent(proposalId, content),
+      );
+      this.applyProposalResponse(payload);
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  /** Apply a free-text AI instruction to the report; refresh from the response. */
+  async applyInstruction(text: string): Promise<void> {
+    const proposalId = this._proposalId();
+    const instruction = text.trim();
+    if (!proposalId || !instruction) return;
+    try {
+      const payload = await firstValueFrom(
+        this.api.applyCaptureProposalInstruction(proposalId, {
+          instruction,
+          current_content: this._proposal()?.proposal?.report_markdown ?? null,
+        }),
+      );
+      this.applyProposalResponse(payload);
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  /** Advance the review workflow (accept / reject / changes requested). */
+  async reviewProposal(
+    status: ProposalReviewRequest['status'],
+    notes?: string,
+  ): Promise<void> {
+    const proposalId = this._proposalId();
+    if (!proposalId) return;
+    try {
+      const payload = await firstValueFrom(
+        this.api.reviewCaptureProposal(proposalId, {
+          status,
+          reviewer: 'demo-operator',
+          review_notes: notes ?? null,
+        }),
+      );
+      this.applyProposalResponse(payload);
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  /** Answer a single open question; the backend re-synthesises and returns the proposal. */
+  async answerOpenQuestion(questionId: string, text: string): Promise<void> {
+    const proposalId = this._proposalId();
+    if (!proposalId || !questionId) return;
+    try {
+      const payload = await firstValueFrom(
+        this.api.answerCaptureProposalOpenQuestion(proposalId, questionId, { text }),
+      );
+      this.applyProposalResponse(payload);
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  /** Bulk-patch open-question statuses (answer / defer / invalidate). */
+  async patchOpenQuestions(
+    items: Array<{
+      question_key?: string | null;
+      question_id?: string | null;
+      question_text?: string | null;
+      status: 'open' | 'answered' | 'invalid' | 'deferred';
+    }>,
+  ): Promise<void> {
+    const proposalId = this._proposalId();
+    if (!proposalId || !items.length) return;
+    try {
+      const payload = await firstValueFrom(
+        this.api.patchCaptureProposalOpenQuestions(proposalId, { items }),
+      );
+      this.applyProposalResponse(payload);
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  // ---- publication (P0 #3) -----------------------------------------------
+
+  /** Load the available KB destinations/collections for the publish surface. */
+  async loadCollections(): Promise<void> {
+    try {
+      const payload = await firstValueFrom(
+        this.api.get<{ collections?: string[] }>('/documents/collections'),
+      );
+      this._collections.set(Array.isArray(payload?.collections) ? payload.collections : []);
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+  }
+
+  /**
+   * Publish the accepted report to the KB (P0 #3). Accepts the proposal first if
+   * it isn't already, then pushes the fiche; stores the result and merges it
+   * into the proposal's `publication` block. Errors surface via {@link lastError}.
+   */
+  async publish(body: {
+    category?: string | null;
+    destination?: string | null;
+    destination_scope?: string | null;
+    final_title?: string | null;
+    include_unresolved_questions?: boolean;
+  }): Promise<CapturePublicationResult | null> {
+    const proposalId = this._proposalId();
+    if (!proposalId) return null;
+    try {
+      if (this._proposal()?.status !== 'accepted') {
+        await this.reviewProposal('accepted');
+      }
+      const payload = await firstValueFrom(this.api.publishCaptureProposal(proposalId, body));
+      const result = (payload as CapturePublicationResult | null) ?? null;
+      this._publication.set(result);
+      if (result) {
+        this._proposal.update((p) => {
+          if (!p) return p;
+          const inner = p.proposal ?? {};
+          const publication = {
+            ...(inner.publication ?? {}),
+            ...(result as Record<string, unknown>),
+          } as NonNullable<CaptureProposal['proposal']>['publication'];
+          return { ...p, proposal: { ...inner, publication } };
+        });
+      }
+      return result;
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+      return null;
+    }
+  }
+
+  /**
+   * Adopt a full proposal object as the current report (from finalize, WS
+   * capture_finished, or {@link loadProposal}). Keeps `proposalId` in sync.
+   */
+  private setProposal(proposal: CaptureProposal | null): void {
+    this._proposal.set(proposal);
+    if (proposal?.id) this._proposalId.set(proposal.id);
+  }
+
+  /**
+   * Adopt a proposal returned by an edit endpoint, when the response actually
+   * carries one (some endpoints echo the updated proposal, others don't).
+   */
+  private applyProposalResponse(payload: unknown): void {
+    if (!payload || typeof payload !== 'object') return;
+    const candidate = payload as Partial<CaptureProposal>;
+    if (typeof candidate.id === 'string' || candidate.proposal !== undefined) {
+      this.setProposal(payload as CaptureProposal);
+    }
+  }
+
   // ---- finalize (stub — extended in Phase 4/6) ---------------------------
 
   /**
@@ -883,6 +1267,9 @@ export class CaptureEngine {
         (payload as { id?: string; proposal_id?: string } | null)?.id ??
         (payload as { proposal_id?: string } | null)?.proposal_id ??
         null;
+      // Capture the FULL proposal object (the report fiche), not just its id, so
+      // the review surface renders immediately (P0 #2).
+      this.applyProposalResponse(payload);
       this._proposalId.set(proposalId);
       this._finalize.update((s) =>
         s.stage === 'failed'
@@ -939,11 +1326,17 @@ export class CaptureEngine {
     this._session.set(null);
     this._documents.set([]);
     this._proposalId.set(null);
+    this._proposal.set(null);
     this._feed.set([]);
     this._oracle.set([]);
     this._viewReferences.set([]);
     this._pinnedViews.set([]);
     this._activeViewKey.set(null);
+    this._activeTopicId.set(null);
+    this._activeSubtopicId.set(null);
+    this._sectionSuggestion.set(null);
+    this._hintQueue.set([]);
+    this._publication.set(null);
     this._finalize.set(FINALIZE_IDLE);
     this._lastError.set(null);
     this._state.set('idle');
@@ -987,6 +1380,15 @@ export class CaptureEngine {
       case 'conversation.step':
         this.applyConversationStep(payload);
         break;
+      case 'section.active':
+        this.applySectionActive(payload);
+        break;
+      case 'evaluation.delta':
+        this.applyEvaluationDelta(payload);
+        break;
+      case 'oracle.questions':
+        this.ingestOpenQuestions(payload);
+        break;
       case 'oracle.delta':
       case 'oracle.commit':
         this.upsertOracle(payload);
@@ -1029,9 +1431,11 @@ export class CaptureEngine {
     // End-of-capture: the gateway returns the built proposal here (after streaming
     // its capture.finalize.progress stages). Settle the in-flight WS finalize.
     if (payload['capture_finished']) {
-      const proposal = payload['proposal'] as { id?: string } | null;
+      const proposal = payload['proposal'] as CaptureProposal | null;
       const proposalId = proposal?.id ?? null;
-      if (proposalId) this._proposalId.set(proposalId);
+      // Capture the FULL proposal object (the report fiche) for the review surface (P0 #2).
+      if (proposal) this.setProposal(proposal);
+      else if (proposalId) this._proposalId.set(proposalId);
       this._finalize.update((s) =>
         s.stage === 'failed'
           ? s
@@ -1052,6 +1456,101 @@ export class CaptureEngine {
       ts_ms: Date.now(),
       turn_id: (payload['question_id'] as string) ?? null,
     });
+  }
+
+  /**
+   * Auto section detection (`section.active`): record the suggestion and, unless
+   * the operator has manually locked the section, follow it (P0 #1). On the
+   * LiveKit transport this event may never arrive — manual selection + the
+   * hint-queue poll remain the guaranteed path.
+   */
+  private applySectionActive(payload: Record<string, unknown>): void {
+    const suggestion: CaptureSectionSuggestion = {
+      topic_id: payload['topic_id'] != null ? String(payload['topic_id']) : null,
+      subtopic_id: payload['subtopic_id'] != null ? String(payload['subtopic_id']) : null,
+      confidence: payload['confidence'] != null ? Number(payload['confidence']) : null,
+      manual_locked: payload['manual_locked'] === true,
+    };
+    this._sectionSuggestion.set(suggestion);
+    if (!suggestion.manual_locked) {
+      this._activeTopicId.set(suggestion.topic_id);
+      this._activeSubtopicId.set(suggestion.subtopic_id);
+    }
+  }
+
+  /**
+   * `evaluation.delta`: carries a `section_suggestion` (auto steering) and the
+   * oracle `open_questions` at the top level — feed both (P0 #1).
+   */
+  private applyEvaluationDelta(payload: Record<string, unknown>): void {
+    const raw = payload['section_suggestion'];
+    if (raw && typeof raw === 'object') {
+      const node = raw as Record<string, unknown>;
+      const suggestion: CaptureSectionSuggestion = {
+        topic_id: node['topic_id'] != null ? String(node['topic_id']) : null,
+        subtopic_id: node['subtopic_id'] != null ? String(node['subtopic_id']) : null,
+        confidence: node['confidence'] != null ? Number(node['confidence']) : null,
+        manual_locked: node['manual_locked'] === true,
+      };
+      this._sectionSuggestion.set(suggestion);
+      if (!suggestion.manual_locked && suggestion.subtopic_id) {
+        this._activeTopicId.set(suggestion.topic_id);
+        this._activeSubtopicId.set(suggestion.subtopic_id);
+      }
+    }
+    this.ingestOpenQuestions(payload);
+  }
+
+  /**
+   * Upsert grounded oracle open questions (from `oracle.questions` /
+   * `evaluation.delta`) into the oracle signal. Accepts the top-level
+   * `open_questions` array (or a nested `oracle.open_questions`), keyed by id.
+   */
+  private ingestOpenQuestions(payload: Record<string, unknown>): void {
+    const nested =
+      payload['oracle'] && typeof payload['oracle'] === 'object'
+        ? (payload['oracle'] as Record<string, unknown>)
+        : {};
+    const raw = Array.isArray(payload['open_questions'])
+      ? (payload['open_questions'] as unknown[])
+      : Array.isArray(nested['open_questions'])
+        ? (nested['open_questions'] as unknown[])
+        : null;
+    if (!raw) return;
+    const ts = Date.now();
+    this._oracle.update((items) => {
+      const byId = new Map(items.map((q) => [q.id, q]));
+      for (const entry of raw) {
+        if (!entry || typeof entry !== 'object') continue;
+        const q = entry as Record<string, unknown>;
+        const text = String(q['text'] ?? q['follow_up'] ?? '').trim();
+        if (!text) continue;
+        const id = String(q['id'] ?? q['question_id'] ?? this.uid());
+        const prev = byId.get(id);
+        byId.set(id, {
+          id,
+          text,
+          status: this.normalizeOracleStatus(q['status'], prev?.status),
+          ts_ms: prev?.ts_ms ?? ts,
+          topic_id: q['topic_id'] != null ? String(q['topic_id']) : prev?.topic_id ?? null,
+          priority: q['priority'] != null ? Number(q['priority']) : prev?.priority ?? null,
+        });
+      }
+      return Array.from(byId.values());
+    });
+  }
+
+  private normalizeOracleStatus(
+    value: unknown,
+    fallback: CaptureOracleItem['status'] = 'active',
+  ): CaptureOracleItem['status'] {
+    return value === 'active' ||
+      value === 'open' ||
+      value === 'answered' ||
+      value === 'dismissed' ||
+      value === 'deferred'
+      ? value
+      : fallback;
   }
 
   private upsertOracle(payload: Record<string, unknown>): void {

@@ -9,6 +9,7 @@ import { ReportProvenanceComponent } from './report-provenance.component';
 import { CaptureFilDashboardComponent } from './surfaces/capture-fil-dashboard.component';
 import { CaptureFilPrepComponent } from './surfaces/capture-fil-prep.component';
 import { CaptureFilPlanComponent } from './surfaces/capture-fil-plan.component';
+import { CaptureFilFinalizeComponent } from './surfaces/capture-fil-finalize.component';
 import { CaptureFilPublishComponent } from './surfaces/capture-fil-publish.component';
 
 /** The autonomous "Le Fil" capture flow surfaces, owned by the shell. */
@@ -17,6 +18,7 @@ export type CaptureFilSurface =
   | 'prep'
   | 'plan'
   | 'session'
+  | 'finalize'
   | 'review'
   | 'publish';
 
@@ -47,6 +49,7 @@ interface SurfaceTab {
     CaptureFilDashboardComponent,
     CaptureFilPrepComponent,
     CaptureFilPlanComponent,
+    CaptureFilFinalizeComponent,
     CaptureFilPublishComponent,
   ],
   template: `
@@ -84,13 +87,16 @@ interface SurfaceTab {
           <app-capture-fil-plan (started)="surface.set('session')" />
         }
         @case ('session') {
-          <app-le-fil-session (finish)="surface.set('publish')" />
+          <app-le-fil-session (finish)="surface.set('finalize')" />
+        }
+        @case ('finalize') {
+          <app-capture-fil-finalize (finalized)="surface.set('review')" />
         }
         @case ('review') {
-          <app-report-provenance (revisit)="onRevisit($event)" />
+          <app-report-provenance (revisit)="onRevisit($event)" (publish)="surface.set('publish')" />
         }
         @case ('publish') {
-          <app-capture-fil-publish (published)="surface.set('review')" />
+          <app-capture-fil-publish (done)="surface.set('dashboard')" />
         }
       }
     </ck-page-frame>
@@ -135,7 +141,8 @@ export class CaptureFilShellComponent {
     { id: 'prep', label: 'Préparation' },
     { id: 'plan', label: 'Plan' },
     { id: 'session', label: 'Capture' },
-    { id: 'review', label: 'Rapport' },
+    { id: 'finalize', label: 'Finalisation' },
+    { id: 'review', label: 'Revue' },
     { id: 'publish', label: 'Publication' },
   ];
 
@@ -155,23 +162,36 @@ export class CaptureFilShellComponent {
         return hasSession;
       case 'session':
         return this.engine.connected() || this.engine.feed().length > 0;
+      case 'finalize':
+        // Reachable once a session has been started (live or hydrated feed).
+        return hasSession || this.engine.connected() || this.engine.feed().length > 0;
       case 'review':
-      case 'publish':
-        return !!this.engine.proposalId() || this.engine.feed().length > 0;
+        // Reachable once a report (proposal) has been generated/loaded.
+        return !!this.engine.proposal() || !!this.engine.proposalId();
+      case 'publish': {
+        // Reachable once the report is accepted; if the status isn't reliably
+        // present on the loaded proposal, fall back to "a proposal exists".
+        if (!this.engine.proposal() && !this.engine.proposalId()) return false;
+        const status = (this.engine.proposal()?.status ?? '').toLowerCase();
+        if (!status) return true;
+        return status === 'accepted' || status === 'published';
+      }
       default:
         return true;
     }
   }
 
   /** Resume a session picked from the dashboard; route by status. */
-  protected onOpenSession(info: CaptureSessionInfo): void {
+  protected async onOpenSession(info: CaptureSessionInfo): Promise<void> {
     this.engine.setSession(info);
     void this.engine.loadDocuments();
     const status = (info.status ?? '').toLowerCase();
     if (['completed', 'published', 'archived'].includes(status)) {
       // Terminal sessions never open a live WS, so hydrate the Fil + anchors
-      // from the backend feed projection or the report renders empty.
+      // from the backend feed projection (provenance) and load the persisted
+      // proposal so the review fiche renders instead of an empty report.
       void this.engine.hydrateFeed();
+      await this.engine.loadProposal();
       this.surface.set('review');
     } else {
       // Every non-terminal session (draft / planning / plan_ready AND already

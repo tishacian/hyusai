@@ -12,7 +12,12 @@ import {
   viewChild,
 } from '@angular/core';
 import { GlyphComponent, LiveDotComponent } from '@app/shared/cockpit';
-import { CaptureEngine } from './capture-engine';
+import {
+  CaptureEngine,
+  type CapturePlanSubtopic,
+  type CapturePlanTopic,
+  type CaptureSectionSuggestion,
+} from './capture-engine';
 import { LaSceneComponent } from './la-scene.component';
 import { AnchorChipComponent } from './anchor-chip.component';
 import { clockLabel } from './capture-presentation';
@@ -88,24 +93,89 @@ import { clockLabel } from './capture-presentation';
       }
 
       <!-- body -->
-      <div style="display:grid; grid-template-columns:48px minmax(0,1fr) 360px; min-height:60vh;">
-        <!-- spine -->
+      <div style="display:grid; grid-template-columns:220px minmax(0,1fr) 360px; min-height:60vh;">
+        <!-- section rail -->
         <div
-          style="border-right:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel); display:flex; flex-direction:column; align-items:center; padding-top:16px; gap:8px;"
+          style="border-right:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel); display:flex; flex-direction:column; min-height:0;"
         >
-          <ck-glyph name="pulse" [size]="16" color="var(--ck-signal-cool)" />
-          <div class="lf-vu" [class.lf-vu-on]="micActive()">
-            @for (b of bars; track b) {
-              <span [style.animationDelay.s]="b * 0.12"></span>
+          <div
+            style="flex:none; display:flex; align-items:center; gap:7px; padding:12px 12px 10px; border-bottom:1px solid var(--ck-stroke-2);"
+          >
+            <ck-glyph name="layers" [size]="13" color="var(--ck-signal-violet)" />
+            <span
+              class="ck-mono"
+              style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);"
+            >
+              Sections
+            </span>
+            @if (topicProgress().index >= 0) {
+              <span class="ck-mono ck-tnum" style="margin-left:auto; font-size:10px; color:var(--ck-fg-4);">
+                {{ topicProgress().index + 1 }}/{{ topicProgress().total }}
+              </span>
+            } @else if (topicProgress().total) {
+              <span class="ck-mono ck-tnum" style="margin-left:auto; font-size:10px; color:var(--ck-fg-5);">
+                {{ topicProgress().total }}
+              </span>
             }
           </div>
-          <div style="flex:1; width:1px; background:var(--ck-stroke-2); margin-top:8px;"></div>
-          <span
-            class="ck-mono"
-            style="writing-mode:vertical-rl; font-size:8.5px; letter-spacing:0.18em; color:var(--ck-fg-5); text-transform:uppercase; padding:8px 0;"
+
+          @if (autoSuggestion(); as sug) {
+            <button
+              type="button"
+              (click)="applySuggestion(sug)"
+              title="Section proposée automatiquement — cliquer pour suivre"
+              style="flex:none; display:flex; align-items:center; gap:6px; margin:8px 10px 0; padding:6px 8px; border-radius:var(--ck-radius-sm); cursor:pointer; text-align:left; border:1px dashed color-mix(in oklab, var(--ck-signal-cool) 45%, transparent); background:color-mix(in oklab, var(--ck-signal-cool) 8%, transparent); color:var(--ck-fg-3);"
+            >
+              <ck-glyph name="bolt" [size]="11" color="var(--ck-signal-cool)" />
+              <span style="font-size:11px; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                suggestion auto · {{ labelFor(sug.topic_id, sug.subtopic_id) }}
+              </span>
+            </button>
+          }
+
+          <div
+            class="ck-scroll"
+            style="flex:1; overflow-y:auto; padding:8px; display:flex; flex-direction:column; gap:2px; min-height:0;"
           >
-            capture
-          </span>
+            @if (planTopics().length === 0) {
+              <span
+                style="color:var(--ck-fg-5); font-size:11.5px; font-style:italic; padding:6px 9px; line-height:1.4;"
+              >
+                Conversation libre — aucun plan de sections.
+              </span>
+            }
+            @for (topic of planTopics(); track topic.id; let i = $index) {
+              <button
+                type="button"
+                class="lf-rail-item"
+                [class.is-active]="activeTopicId() === topic.id && !activeSubtopicId()"
+                (click)="selectTopic(topic)"
+              >
+                <span class="ck-mono ck-tnum" style="flex:none; font-size:9.5px; color:var(--ck-fg-5);">{{ i + 1 }}</span>
+                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ topic.title || topic.id }}</span>
+              </button>
+              @for (sub of topic.subtopics ?? []; track sub.id) {
+                <button
+                  type="button"
+                  class="lf-rail-item lf-rail-sub"
+                  [class.is-active]="activeTopicId() === topic.id && activeSubtopicId() === sub.id"
+                  (click)="selectSubtopic(topic, sub)"
+                >
+                  <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ sub.title || sub.id }}</span>
+                </button>
+              }
+            }
+          </div>
+
+          <div style="flex:none; padding:10px; border-top:1px solid var(--ck-stroke-2);">
+            <button
+              type="button"
+              (click)="engine.finishSection()"
+              style="display:inline-flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:7px 10px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); cursor:pointer; font-size:11.5px; font-weight:550; background:transparent; color:var(--ck-fg-3);"
+            >
+              <ck-glyph name="check" [size]="12" color="currentColor" /> Section terminée
+            </button>
+          </div>
         </div>
 
         <!-- Le Fil + composer -->
@@ -158,6 +228,45 @@ import { clockLabel } from './capture-presentation';
               </div>
             }
           </div>
+
+          <!-- relance stack (pile de relances) -->
+          @if (hintQueue().length) {
+            <div style="flex:none; padding:12px 28px 0; display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <ck-glyph name="bolt" [size]="12" color="var(--ck-signal-cool)" />
+                <span
+                  class="ck-mono"
+                  style="font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);"
+                >
+                  Relances
+                </span>
+                <span class="ck-mono" style="margin-left:auto; font-size:9px; color:var(--ck-fg-5);">
+                  {{ hintQueue().length }} · non bloquant
+                </span>
+              </div>
+              @if (topHint(); as h) {
+                <div
+                  [title]="h.full_question || h.hint"
+                  style="padding:10px 12px; border-radius:var(--ck-radius-md); border:1px solid color-mix(in oklab, var(--ck-signal-cool) 35%, var(--ck-stroke-2)); background:color-mix(in oklab, var(--ck-signal-cool) 7%, var(--ck-bg-inset));"
+                >
+                  <p style="margin:0; font-size:13px; line-height:1.45; color:var(--ck-fg-1);">{{ h.hint }}</p>
+                </div>
+              }
+              @if (restHints().length) {
+                <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                  @for (h of restHints(); track h.id) {
+                    <span
+                      [title]="h.full_question || h.hint"
+                      class="ck-mono"
+                      style="font-size:10.5px; color:var(--ck-fg-4); padding:3px 8px; border:1px solid var(--ck-stroke-2); border-radius:999px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"
+                    >
+                      {{ h.hint }}
+                    </span>
+                  }
+                </div>
+              }
+            </div>
+          }
 
           <!-- composer -->
           <div style="flex:none; padding:14px 28px 16px; border-top:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel);">
@@ -312,6 +421,38 @@ import { clockLabel } from './capture-presentation';
       .lf-chip:hover {
         background: var(--ck-tint-soft);
       }
+      .lf-rail-item {
+        appearance: none;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        width: 100%;
+        text-align: left;
+        font-family: var(--ck-font-sans);
+        font-size: 12.5px;
+        cursor: pointer;
+        border: none;
+        background: transparent;
+        border-radius: var(--ck-radius-sm);
+        padding: 7px 9px;
+        color: var(--ck-fg-2);
+      }
+      .lf-rail-item:hover {
+        background: var(--ck-tint-soft);
+      }
+      .lf-rail-item.is-active {
+        background: var(--ck-tint-soft);
+        color: var(--ck-fg-1);
+        box-shadow: inset 2px 0 0 var(--ck-signal-cool);
+      }
+      .lf-rail-sub {
+        padding-left: 24px;
+        font-size: 12px;
+        color: var(--ck-fg-3);
+      }
+      .lf-rail-sub.is-active {
+        color: var(--ck-fg-1);
+      }
       @media (prefers-reduced-motion: reduce) {
         .lf-vu-on span,
         .lf-cursor {
@@ -346,6 +487,32 @@ export class LeFilSessionComponent {
   protected readonly openOracle = computed(() =>
     this.engine.oracle().filter((q) => q.status !== 'dismissed'),
   );
+
+  // ---- section rail (P0 #1) ----------------------------------------------
+  protected readonly planTopics = this.engine.planTopics;
+  protected readonly activeTopicId = this.engine.activeTopicId;
+  protected readonly activeSubtopicId = this.engine.activeSubtopicId;
+
+  /** Progression of the active topic within the plan (e.g. "2/5"). */
+  protected readonly topicProgress = computed(() => {
+    const topics = this.engine.planTopics();
+    const index = topics.findIndex((t) => t.id === this.engine.activeTopicId());
+    return { index, total: topics.length };
+  });
+
+  /** Auto-detected section suggestion, shown only when it differs from the active one. */
+  protected readonly autoSuggestion = computed<CaptureSectionSuggestion | null>(() => {
+    const sug = this.engine.sectionSuggestion();
+    if (!sug || !sug.topic_id) return null;
+    const sameTopic = sug.topic_id === this.engine.activeTopicId();
+    const sameSub = (sug.subtopic_id ?? null) === (this.engine.activeSubtopicId() ?? null);
+    return sameTopic && sameSub ? null : sug;
+  });
+
+  // ---- relance stack (P0 #1) ---------------------------------------------
+  protected readonly hintQueue = this.engine.hintQueue;
+  protected readonly topHint = computed(() => this.engine.hintQueue()[0] ?? null);
+  protected readonly restHints = computed(() => this.engine.hintQueue().slice(1));
   /** Composer VU reflects the engine's real mic state (D3). */
   protected readonly micActive = this.engine.micActive;
 
@@ -388,6 +555,31 @@ export class LeFilSessionComponent {
 
   protected stamp(tsMs: number): string {
     return clockLabel(tsMs);
+  }
+
+  /** Steer to a topic (no sous-sujet); used for plan topics and topic headers. */
+  protected selectTopic(topic: CapturePlanTopic): void {
+    void this.engine.selectSection(topic.id, null);
+  }
+
+  /** Steer to a specific sous-sujet within a topic. */
+  protected selectSubtopic(topic: CapturePlanTopic, sub: CapturePlanSubtopic): void {
+    void this.engine.selectSection(topic.id, sub.id);
+  }
+
+  /** Follow the auto-detected section suggestion. */
+  protected applySuggestion(sug: CaptureSectionSuggestion): void {
+    void this.engine.selectSection(sug.topic_id, sug.subtopic_id);
+  }
+
+  /** Human label for a topic/sous-sujet pair (falls back to ids). */
+  protected labelFor(topicId: string | null, subtopicId: string | null): string {
+    const topic = this.engine.planTopics().find((t) => t.id === topicId);
+    if (!topic) return topicId ?? '—';
+    const topicLabel = topic.title || topic.id;
+    if (!subtopicId) return topicLabel;
+    const sub = (topic.subtopics ?? []).find((s) => s.id === subtopicId);
+    return sub ? `${topicLabel} › ${sub.title || sub.id}` : topicLabel;
   }
 
   protected toggleMuteWhileTyping(): void {

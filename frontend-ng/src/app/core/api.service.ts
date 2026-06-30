@@ -253,6 +253,129 @@ export interface ProposalReviewRequest {
   review_notes?: string | null;
 }
 
+/**
+ * A single captured fact projected into the proposal / report fiche. Ported
+ * faithfully from the v0 monolith (`knowledge-capture.component.ts`).
+ */
+export interface ProposalFact {
+  id?: string;
+  text?: string;
+  statement?: string;
+  type?: string;
+  status?: string;
+  source?: string;
+  source_event_id?: string | null;
+  retrieval_event_id?: string | null;
+  retrieval_refs?: Array<{ title?: string; source?: string; preview?: string; score?: number | null }>;
+  turn_kind?: string;
+  confidence?: number;
+  amended?: boolean;
+  raw_text?: string;
+  amended_text?: string;
+  needs_review?: boolean;
+}
+
+/** Section-level KB source attached by the FINAL pass (chat-style display). */
+export interface CaptureReportSource {
+  rank?: number;
+  kind?: string | null;
+  document_id?: string | null;
+  source_id?: string | null;
+  source?: string | null;
+  title?: string | null;
+  filename?: string | null;
+  collection?: string | null;
+  page?: number | string | null;
+  page_number?: number | string | null;
+  slide?: number | string | null;
+  image_index?: number | string | null;
+  timecode_ms?: number | string | null;
+  association_mode?: string | null;
+  preview?: string | null;
+}
+
+/**
+ * Unified open-question lifecycle (shared with the backend contract):
+ * open | answered | invalid (supprimer, exclu de la publication) | deferred.
+ */
+export interface ProposalOpenQuestion {
+  id?: string;
+  question_id?: string;
+  gap_id?: string;
+  reason?: string;
+  follow_up?: string;
+  answer?: string | null;
+  answered_text?: string | null;
+  priority?: number | string | null;
+  severity?: number | string | null;
+  status?: string | null;
+}
+
+/** A node in the structured report fiche (topic → sous-sujets → faits/synthèses). */
+export interface CaptureReportStructureNode {
+  topic_id?: string | null;
+  subtopic_id?: string | null;
+  title?: string | null;
+  synthesis?: string | null;
+  facts?: ProposalFact[];
+  sources?: CaptureReportSource[];
+  open_questions?: ProposalOpenQuestion[];
+  subtopics?: CaptureReportStructureNode[];
+}
+
+/** Publication outcome merged into the proposal once a fiche is pushed to the KB. */
+export interface CapturePublicationResult {
+  proposal_id?: string;
+  collection?: string;
+  collection_slug?: string | null;
+  document_id?: string;
+  chunks_processed?: number;
+  status?: string;
+  category?: string | null;
+  destination?: string | null;
+  destination_scope?: string | null;
+  final_title?: string | null;
+  include_unresolved_questions?: boolean;
+  published_at?: string | null;
+  export_urls?: { download_url?: string; raw_url?: string };
+}
+
+/**
+ * Full knowledge proposal produced at end-of-capture (the report). Content is
+ * doubly nested under `proposal.proposal.*`. Ported faithfully from the v0
+ * monolith so the autonomous capture-fil surfaces can render the report fiche.
+ */
+export interface CaptureProposal {
+  id: string;
+  status: string;
+  session_id?: string;
+  created_by_user_id?: string | null;
+  reviewer_user_id?: string | null;
+  proposal?: {
+    title?: string;
+    objective?: string;
+    captured_facts?: ProposalFact[];
+    open_questions?: ProposalOpenQuestion[];
+    recommended_ingestion?: { title?: string; content?: string; metadata?: Record<string, unknown> };
+    report_markdown?: string;
+    plan_structure?: { topics?: CaptureReportStructureNode[]; unassigned?: ProposalFact[] };
+    publication?: {
+      category?: string | null;
+      destination?: string | null;
+      destination_scope?: string | null;
+      final_title?: string | null;
+      include_unresolved_questions?: boolean;
+      suggested?: boolean;
+      document_id?: string | null;
+      collection_slug?: string | null;
+      chunks_processed?: number | null;
+      published_at?: string | null;
+      export_urls?: { download_url?: string; raw_url?: string };
+    };
+    audit?: { event_count?: number; amendment_count?: number };
+  };
+}
+
 export interface CaptureEventAmendRequest {
   text_amended: string;
   actor?: string | null;

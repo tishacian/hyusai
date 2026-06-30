@@ -1,9 +1,14 @@
 import type {
   CaptureIndexStatus,
   CapturePinnedView,
+  CaptureProposal,
+  CaptureReportSource,
+  CaptureReportStructureNode,
   CaptureShareLevel,
   CaptureSessionDocument,
   CaptureViewReference,
+  ProposalFact,
+  ProposalOpenQuestion,
 } from '@app/core/api.service';
 
 /**
@@ -136,4 +141,229 @@ export const SHARE_LEVEL_DISPLAY: Record<CaptureShareLevel, { label: string; ton
 /** Tone (incl. neutral) → CSS colour, with `--ck-fg-4` for neutral. */
 export function paletteVar(tone: CaptureTone | 'neutral'): string {
   return tone === 'neutral' ? 'var(--ck-fg-4)' : `var(--ck-signal-${tone})`;
+}
+
+// ---------------------------------------------------------------------------
+// Structured report fiche (P0 #2) — ported from the v0 monolith
+// (knowledge-capture.component.ts buildReportFiche / parseReportBlocks). The
+// fiche renders the FINAL proposal's plan_structure (topics → sous-sujets →
+// synthèses/faits) so the review surface mirrors the rich v0 rendering while
+// markdown stays the canonical storage format. Framework-free, pure functions.
+// ---------------------------------------------------------------------------
+
+/** A leaf in a parsed bullet list (supports nested children). */
+export interface ReportListItem {
+  text: string;
+  children: ReportListItem[];
+}
+
+/** A parsed block of a section synthesis (markdown stored, structured render). */
+export interface ReportBlock {
+  kind: 'paragraph' | 'list' | 'heading';
+  text?: string;
+  items?: ReportListItem[];
+}
+
+/** A rendered fiche node (topic or sous-sujet). Keeps full facts so the UI can
+ * wire inline provenance markers against journaled anchors. */
+export interface ReportSubsectionCard {
+  key: string;
+  title: string;
+  blocks: ReportBlock[];
+  facts: ProposalFact[];
+  sources: CaptureReportSource[];
+  openQuestions: string[];
+}
+
+/** A top-level fiche section (topic) with optional sous-sujets. */
+export interface ReportSectionCard extends ReportSubsectionCard {
+  index: number;
+  subsections: ReportSubsectionCard[];
+}
+
+/** Plain text of a fact, preferring its amended text then statement. */
+export function reportFactText(fact: ProposalFact): string {
+  return String(fact.text || fact.statement || '').trim();
+}
+
+/** Build the structured fiche from a proposal's `plan_structure`. */
+export function buildReportFiche(proposal: CaptureProposal | null): ReportSectionCard[] {
+  const topics = proposal?.proposal?.plan_structure?.topics || [];
+  const cards: ReportSectionCard[] = [];
+  for (const topic of topics) {
+    const subsections: ReportSubsectionCard[] = [];
+    for (const subtopic of topic.subtopics || []) {
+      const sub = buildReportNode(
+        `${topic.topic_id || cards.length}:${subtopic.subtopic_id || subsections.length}`,
+        subtopic,
+      );
+      if (sub.blocks.length || sub.facts.length || sub.sources.length || sub.openQuestions.length) {
+        subsections.push(sub);
+      }
+    }
+    const node = buildReportNode(String(topic.topic_id || cards.length), topic);
+    if (!node.blocks.length && !node.facts.length && !subsections.length) continue;
+    cards.push({ ...node, index: cards.length + 1, subsections });
+  }
+  return cards;
+}
+
+function buildReportNode(key: string, node: CaptureReportStructureNode): ReportSubsectionCard {
+  const synthesis = String(node.synthesis || '').trim();
+  // When a synthesis exists it already weaves the facts in prose; otherwise we
+  // surface the raw captured facts as bullets.
+  const facts = synthesis ? [] : (node.facts || []).filter((f) => Boolean(reportFactText(f)));
+  return {
+    key,
+    title: String(node.title || 'Section').trim(),
+    blocks: parseReportBlocks(synthesis),
+    facts,
+    sources: (node.sources || []).filter((src) => Boolean(src)),
+    openQuestions: reportOpenQuestionLabels(node.open_questions || []),
+  };
+}
+
+function reportOpenQuestionLabels(questions: ProposalOpenQuestion[]): string[] {
+  return questions
+    .filter((q) => !['answered', 'invalid', 'dismissed'].includes(String(q.status || 'open').toLowerCase()))
+    .map((q) =>
+      String(
+        (q as Record<string, unknown>)['text'] || q.follow_up || q.reason || '',
+      ).trim(),
+    )
+    .filter((text) => Boolean(text));
+}
+
+/** Facts captured outside any plan topic (rendered in a trailing "Hors plan"). */
+export function reportUnassignedFacts(proposal: CaptureProposal | null): string[] {
+  return (proposal?.proposal?.plan_structure?.unassigned || [])
+    .map(reportFactText)
+    .filter((text) => Boolean(text));
+}
+
+/** Compact label for a section-level KB source (title · page/slide). */
+export function reportSourceLabel(src: CaptureReportSource): string {
+  const base = String(src.title || src.filename || src.source || src.document_id || 'Source').trim();
+  const slide = coercePage(src.slide);
+  if (slide) return `${base} · slide ${slide}`;
+  const page = coercePage(src.page ?? src.page_number);
+  return page ? `${base} · page ${page}` : base;
+}
+
+function coercePage(value: number | string | null | undefined): number | null {
+  if (value == null) return null;
+  const n = typeof value === 'number' ? value : parseInt(String(value), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Minimal, safe markdown-to-blocks parser for the section syntheses (markdown
+ * stays the storage format; rendering is structured). Supports paragraphs,
+ * (nested) bullet lists and headings.
+ */
+export function parseReportBlocks(markdown: string): ReportBlock[] {
+  const blocks: ReportBlock[] = [];
+  if (!markdown) return blocks;
+  let bulletBuffer: Array<{ level: number; text: string }> = [];
+  let paragraph: string[] = [];
+  const flushParagraph = () => {
+    if (paragraph.length) {
+      blocks.push({ kind: 'paragraph', text: stripInlineMarkdown(paragraph.join(' ')) });
+      paragraph = [];
+    }
+  };
+  const flushList = () => {
+    if (bulletBuffer.length) {
+      blocks.push({ kind: 'list', items: buildReportListTree(bulletBuffer) });
+      bulletBuffer = [];
+    }
+  };
+  for (const rawLine of markdown.split('\n')) {
+    if (!rawLine.trim()) {
+      flushList();
+      flushParagraph();
+      continue;
+    }
+    const bullet = parseReportBulletLine(rawLine);
+    if (bullet) {
+      flushParagraph();
+      bulletBuffer.push(bullet);
+      continue;
+    }
+    flushList();
+    const trimmed = rawLine.trim();
+    const heading = trimmed.match(/^#{1,6}\s+(.*)$/);
+    if (heading) {
+      flushParagraph();
+      blocks.push({ kind: 'heading', text: stripInlineMarkdown(heading[1]) });
+      continue;
+    }
+    if (isReportSubheading(trimmed)) {
+      flushParagraph();
+      blocks.push({ kind: 'heading', text: stripInlineMarkdown(normalizeReportSubheading(trimmed)) });
+      continue;
+    }
+    paragraph.push(trimmed);
+  }
+  flushList();
+  flushParagraph();
+  return blocks;
+}
+
+function parseReportBulletLine(rawLine: string): { level: number; text: string } | null {
+  const match = rawLine.match(/^([\t ]*)([-*•]|\d+[.)])\s+(.*)$/);
+  if (!match) return null;
+  const indent = match[1].replace(/\t/g, '  ').length;
+  return { level: Math.floor(indent / 2), text: stripInlineMarkdown(match[3]) };
+}
+
+function buildReportListTree(flat: Array<{ level: number; text: string }>): ReportListItem[] {
+  const root: ReportListItem[] = [];
+  const stack: Array<{ level: number; item: ReportListItem }> = [];
+  for (const entry of flat) {
+    const node: ReportListItem = { text: entry.text, children: [] };
+    while (stack.length && stack[stack.length - 1].level >= entry.level) {
+      stack.pop();
+    }
+    if (!stack.length) {
+      root.push(node);
+    } else {
+      stack[stack.length - 1].item.children.push(node);
+    }
+    stack.push({ level: entry.level, item: node });
+  }
+  return root;
+}
+
+function isReportSubheading(line: string): boolean {
+  if (/^\*\*.+\*\*:?\s*$/.test(line)) return true;
+  return line.length <= 100 && /:\s*$/.test(line) && !/^https?:\/\//i.test(line);
+}
+
+function normalizeReportSubheading(line: string): string {
+  const bold = line.match(/^\*\*(.+)\*\*:?\s*$/);
+  if (bold) return bold[1].trim();
+  return line.replace(/:\s*$/, '').trim();
+}
+
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim();
+}
+
+/** Flatten a (nested) parsed bullet list into depth-tagged rows for rendering
+ * without recursive templates. */
+export function flattenReportList(
+  items: ReportListItem[],
+  depth = 0,
+): Array<{ text: string; depth: number }> {
+  const out: Array<{ text: string; depth: number }> = [];
+  for (const item of items) {
+    out.push({ text: item.text, depth });
+    if (item.children?.length) out.push(...flattenReportList(item.children, depth + 1));
+  }
+  return out;
 }
