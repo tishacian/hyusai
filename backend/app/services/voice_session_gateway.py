@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import inspect
+import json
 import math
 import time
 import uuid
@@ -103,6 +104,43 @@ def _is_webm_header(chunk: bytes) -> bool:
     return chunk[:4] == _EBML_MAGIC
 
 
+def _merge_document_refs(
+    primary: Optional[List[Dict[str, Any]]],
+    fallback: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Merge per-turn document_refs with the pushed scene refs, deduping.
+
+    Per-turn refs (``primary``) take precedence and come first; scene-fallback
+    refs (``fallback``) are appended only when not already present. Dedup keys on
+    the locating fields (document/filename + page/slide/image_index); refs
+    without those fall back to a JSON signature so duplicates are still dropped.
+    """
+    merged: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    def _key(ref: Dict[str, Any]) -> Any:
+        ident = ref.get("document_id") or ref.get("filename") or ref.get("title")
+        if ident is not None:
+            return (ident, ref.get("page"), ref.get("slide"), ref.get("image_index"))
+        try:
+            return json.dumps(ref, sort_keys=True, default=str)
+        except Exception:
+            return id(ref)
+
+    for source in (primary, fallback):
+        if not isinstance(source, list):
+            continue
+        for ref in source:
+            if not isinstance(ref, dict):
+                continue
+            key = _key(ref)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(ref)
+    return merged
+
+
 async def _transcribe_audio(
     provider: Any,
     audio_bytes: bytes,
@@ -180,6 +218,13 @@ class VoiceSessionState:
     # the FINAL per-section reformulation maps them to the plan hierarchy.
     active_topic_id: Optional[str] = None
     active_subtopic_id: Optional[str] = None
+    # Latest scene context pushed by the client over the control channel
+    # (capture.scene). In realtime STT (LiveKit) the front never calls
+    # audio.endpoint, so the per-turn visual_context/document_refs are lost;
+    # these snapshots let _persist_capture_turn fall back to the piece EN SCENE
+    # so deictic voice anchors ("regardez ici") still bind a document.
+    last_visual_context: Optional[Dict[str, Any]] = None
+    last_document_refs: list = field(default_factory=list)
     # Live oracle open questions (QUESTIONS IA panel during capture): expert
     # turn texts committed in the CURRENT section (reset when the active section
     # changes), the section key those texts belong to, plus throttle/in-flight
@@ -569,6 +614,25 @@ class VoiceSessionGateway:
             return
         if event_type == "section.select":
             await self._handle_section_select(websocket, db, workspace=workspace, state=state, payload=payload)
+            return
+        if event_type == "capture.scene":
+            # Scene context push (A): the client mirrors the piece EN SCENE here so
+            # realtime voice turns (which never carry per-turn visual_context) can
+            # fall back to it in _persist_capture_turn. Validate types defensively.
+            visual_context = payload.get("visual_context")
+            state.last_visual_context = visual_context if isinstance(visual_context, dict) else None
+            document_refs = payload.get("document_refs")
+            state.last_document_refs = document_refs if isinstance(document_refs, list) else []
+            await self._send(
+                websocket,
+                state,
+                "capture.scene",
+                {
+                    "status": "ok",
+                    "has_visual_context": state.last_visual_context is not None,
+                    "document_refs_count": len(state.last_document_refs),
+                },
+            )
             return
         if event_type == "section.finish":
             # FINAL-phase work (chat-grade retrieval + LLM reformulation + grounded
@@ -1684,7 +1748,15 @@ class VoiceSessionGateway:
         turn is tagged with the active plan section so the FINAL per-section
         reformulation can map it to the plan hierarchy. Turn state is reset on
         exit so the next utterance starts clean.
+
+        Scene fallback (A): realtime turns arrive without per-turn visual_context
+        (the LiveKit lane never sends audio.endpoint). When the caller's
+        visual_context is falsy, fall back to the last scene context pushed over
+        the control channel (capture.scene) so deictic voice anchors still bind a
+        document; per-turn document_refs are merged with the scene refs (deduped).
         """
+        effective_visual_context = visual_context or state.last_visual_context
+        effective_document_refs = _merge_document_refs(document_refs, state.last_document_refs)
         if capture_session_id and text:
             turn_started = time.perf_counter()
             async with state.db_lock:
@@ -1709,8 +1781,8 @@ class VoiceSessionGateway:
                     topic_id=state.active_topic_id,
                     subtopic_id=state.active_subtopic_id,
                     input_modality="voice",
-                    document_refs=document_refs or [],
-                    visual_context=visual_context,
+                    document_refs=effective_document_refs,
+                    visual_context=effective_visual_context,
                     compute_evaluation=False,
                     # Defer the growing transcript-column rewrite: the turn is on the
                     # append-only ledger; the column is rematerialized lazily on read

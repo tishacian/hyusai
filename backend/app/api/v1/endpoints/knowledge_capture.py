@@ -1456,19 +1456,38 @@ async def create_capture_proposal(
             resource_attrs=_session_attrs(session),
             audit_prefix="kc",
         )
-        if is_free_conversation_session(session) and session_has_proposal_material(
+        # FINAL per-section reformulation (finalize_capture) is the canonical
+        # report builder. The HTTP finalize path (LiveKit transport) used to only
+        # reach it for free-conversation sessions and fell into the raw
+        # create_update_proposal builder whenever the session had a plan — which
+        # is why the LiveKit review fiche showed verbatim turns. Run
+        # finalize_capture for ANY session that carries proposal material (free
+        # conversation OR plan-driven). create_update_proposal stays as a
+        # defensive fallback: no material to reformulate, or finalize_capture
+        # raised.
+        proposal = None
+        if session_has_proposal_material(
             db,
             workspace_id=workspace.id,
             session=session,
         ):
-            proposal = await finalize_capture(
-                db,
-                workspace_id=workspace.id,
-                session_id=session_id,
-                workspace_slug=workspace.slug,
-                created_by_user_id=user.id,
-            )
-        else:
+            try:
+                proposal = await finalize_capture(
+                    db,
+                    workspace_id=workspace.id,
+                    session_id=session_id,
+                    workspace_slug=workspace.slug,
+                    created_by_user_id=user.id,
+                )
+            except Exception as exc:  # noqa: BLE001 - fall back to the raw builder.
+                logger.warning(
+                    "capture_proposal_finalize_failed_fallback_raw",
+                    session_id=session_id,
+                    error=str(exc),
+                )
+                db.rollback()
+                proposal = None
+        if proposal is None:
             proposal = create_update_proposal(
                 db,
                 workspace_id=workspace.id,

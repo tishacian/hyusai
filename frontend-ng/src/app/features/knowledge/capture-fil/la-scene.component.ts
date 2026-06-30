@@ -51,6 +51,15 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
             <button
               type="button"
               class="ck-mono"
+              (click)="engine.markActiveView()"
+              title="Marquer cette pièce dans le fil"
+              style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
+            >
+              <ck-glyph name="crosshair" [size]="10" color="currentColor" /> marquer dans le fil
+            </button>
+            <button
+              type="button"
+              class="ck-mono"
               (click)="engine.unpinView(a.key)"
               title="Retirer de la scène"
               style="border:none; background:transparent; color:var(--ck-fg-4); cursor:pointer; font-size:10px; display:inline-flex; align-items:center; gap:4px;"

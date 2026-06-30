@@ -22,6 +22,7 @@ export type VoiceSessionEventType =
   | 'section.active'
   | 'section.finish'
   | 'capture.finish'
+  | 'capture.scene'
   | 'capture.view.referenced'
   | 'tts.started'
   | 'tts.ended'
@@ -212,6 +213,14 @@ export class VoiceSessionConnection {
   /** User jumped directly to a plan section/subsection in the selector. */
   sectionSelect(payload: { topic_id?: string | null; subtopic_id?: string | null } & Record<string, any> = {}): void {
     this.send('section.select', payload);
+  }
+
+  /** Push the current scene (pinned pieces + focused visual context) so the
+   * gateway can resolve deictic anchors on realtime voice turns even though the
+   * continuous mic track never carries per-turn `visual_context` (mirror of
+   * section.select). */
+  captureScene(payload: { visual_context: unknown; document_refs: unknown[] }): void {
+    this.send('capture.scene', payload);
   }
 
   /** User explicitly finished a section — the ONLY trigger of the timeline relance

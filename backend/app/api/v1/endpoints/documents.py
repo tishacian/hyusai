@@ -906,6 +906,35 @@ def _find_original_file(document_id: str, filename: str) -> Optional[str]:
     return None
 
 
+def _scan_original_key_by_basename(store, collection, filename: str) -> Optional[str]:
+    """Best-effort fallback: find an original whose *stored* key differs from the
+    ledger filename, by scanning the collection's ``original/`` prefix.
+
+    Un-ingested capture-session uploads write the original bytes under the raw
+    ``safe_name`` (see ``upload_capture_session_documents``) while the collection
+    ledger records the *normalized* name (``normalize_source_name`` strips
+    surrounding whitespace and collapses path separators). When those diverge,
+    ``resolve_original_key`` — which only probes the exact, normalized key — misses
+    and the preview/raw endpoints 404 even though the bytes exist. Matching by
+    basename (the scheme ``worker_ingest`` already uses to enumerate originals)
+    recovers the file regardless of that divergence. Only invoked on the miss
+    path, so working previews keep their fast exact-key lookup.
+    """
+    target = Path(str(filename or "")).name.strip()
+    if not target:
+        return None
+    prefix = store.key(collection.artifact_prefix, "original")
+    try:
+        candidates = store.list_keys(prefix)
+    except Exception:  # noqa: BLE001 - listing is best-effort.
+        return None
+    target_lower = target.lower()
+    for key in candidates:
+        if Path(key).name.lower() == target_lower:
+            return key
+    return None
+
+
 def _resolve_original_bytes(
     db: DBSession,
     workspace: Workspace,
@@ -928,6 +957,9 @@ def _resolve_original_bytes(
         key = resolve_original_key(collection, filename, store=store)
         if store.exists(key):
             return store.read_bytes(key)
+        fallback_key = _scan_original_key_by_basename(store, collection, filename)
+        if fallback_key:
+            return store.read_bytes(fallback_key)
     except HTTPException:
         pass
     except Exception as exc:  # noqa: BLE001 - object store is best-effort here.
@@ -959,6 +991,9 @@ def _resolve_original_meta(
         key = resolve_original_key(collection, filename, store=store)
         if store.exists(key):
             return True, int(store.size(key) or 0)
+        fallback_key = _scan_original_key_by_basename(store, collection, filename)
+        if fallback_key:
+            return True, int(store.size(fallback_key) or 0)
     except HTTPException:
         pass
     except Exception as exc:  # noqa: BLE001 - object store is best-effort here.

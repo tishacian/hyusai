@@ -569,6 +569,24 @@ export class CaptureEngine {
     this.startTicker();
     void this.refreshHintQueue();
     this.startHintPoll();
+    // Seed the gateway with the current scene so realtime voice turns can resolve
+    // deictic anchors from the first word (Section A).
+    this.pushScene();
+  }
+
+  /**
+   * Push the current scene state (every pinned piece + the focused
+   * `visual_context`) to the gateway over the control channel (Section A). In
+   * realtime STT (LiveKit) the continuous mic track never carries per-turn
+   * `visual_context`, so the gateway uses this last-known scene as the fallback
+   * when committing a voice turn — restoring voice-driven view anchors.
+   */
+  private pushScene(): void {
+    const context = this.documentContext();
+    this.connection?.captureScene({
+      visual_context: context.visual_context,
+      document_refs: context.document_refs,
+    });
   }
 
   /** Start the 1s ticker that drives the countdown computeds. */
@@ -868,11 +886,15 @@ export class CaptureEngine {
     );
     this._activeViewKey.set(view.key);
     if (options.record !== false) this.recordView(view);
+    this.pushScene();
   }
 
   /** Bring an already-pinned piece "EN SCÈNE". */
   focusView(key: string): void {
-    if (this._pinnedViews().some((p) => p.key === key)) this._activeViewKey.set(key);
+    if (this._pinnedViews().some((p) => p.key === key)) {
+      this._activeViewKey.set(key);
+      this.pushScene();
+    }
   }
 
   /** Remove a pinned piece; re-focuses the first remaining one. */
@@ -881,6 +903,44 @@ export class CaptureEngine {
     if (this._activeViewKey() === key) {
       this._activeViewKey.set(this._pinnedViews()[0]?.key ?? null);
     }
+    this.pushScene();
+  }
+
+  /**
+   * Manually anchor the focused piece into the Fil (Section B). Voice anchors
+   * only fire on precise deictic phrases; this explicit affordance journals the
+   * active view (`association_mode: 'manual'`) and appends a confirmed `anchor`
+   * feed item, so marking is predictable. The record endpoint returns the
+   * journaled event (`{ event: { id } }`) which keys the anchor; we synthesize a
+   * stable id when the call fails so the Fil still shows the mark.
+   */
+  async markActiveView(): Promise<void> {
+    const sessionId = this._sessionId();
+    const view = this.activeView();
+    if (!sessionId || !view) return;
+    let eventId: string | null = null;
+    try {
+      const response = await firstValueFrom(
+        this.api.recordCaptureDocumentView(sessionId, {
+          document_id: view.document_id,
+          collection: view.collection,
+          collection_name: view.collection,
+          filename: view.filename,
+          title: view.title,
+          page: view.page,
+          slide: view.slide,
+          image_index: view.image_index,
+          association_mode: 'manual',
+        }),
+      );
+      eventId = (response as { event?: { id?: string | null } } | null)?.event?.id ?? null;
+    } catch (error) {
+      this._lastError.set(this.errorMessage(error));
+    }
+    this.ingestViewReference(
+      { ...view, status: 'confirmed', event_id: eventId ?? this.uid() },
+      { asFeed: true },
+    );
   }
 
   /**
@@ -1444,12 +1504,19 @@ export class CaptureEngine {
     const sessionId = this._sessionId();
     if (!sessionId) return null;
     this._finalize.set({ ...FINALIZE_IDLE, stage: 'running', message: 'Génération de la synthèse…' });
-    // Prefer the live WS path: the backend gateway streams honest
-    // `capture.finalize.progress` stage events to the report banner and returns
-    // the proposal via `conversation.step` (capture_finished). Fall back to the
-    // HTTP proposal endpoint when offline.
+    // Prefer the live WS path on BOTH realtime transports: the gateway streams
+    // honest `capture.finalize.progress` stage events to the report banner and
+    // returns the proposal via `conversation.step` (capture_finished). On
+    // LiveKit (andritz) the HTTP fallback would route a planned session through
+    // `create_update_proposal` (verbatim facts) instead of `finalize_capture`
+    // (reformulated report) — so the WS `captureFinish()` is what produces the
+    // reformulated per-section report. Fall back to HTTP when offline (90s guard).
     const connection = this.connection;
-    if (connection && this._state() === 'connected' && this.transport === 'backend_ws') {
+    if (
+      connection &&
+      this._state() === 'connected' &&
+      (this.transport === 'backend_ws' || this.transport === 'livekit')
+    ) {
       return this.finalizeOverWs(connection);
     }
     return this.finalizeOverHttp(sessionId);

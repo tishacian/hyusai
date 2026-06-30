@@ -158,6 +158,13 @@ export class LiveKitConversationConnection {
     void this.sendControl('section.select', payload);
   }
 
+  /** Push the current scene (pinned pieces + focused visual context) so the
+   * gateway can resolve deictic anchors on realtime voice turns — the continuous
+   * mic track never carries per-turn `visual_context` (mirror of section.select). */
+  captureScene(payload: { visual_context: unknown; document_refs: unknown[] }): void {
+    void this.sendControl('capture.scene', payload);
+  }
+
   sectionFinish(payload: { topic_id?: string | null; subtopic_id?: string | null } & Record<string, unknown> = {}): void {
     void this.sendControl('section.finish', payload);
   }
