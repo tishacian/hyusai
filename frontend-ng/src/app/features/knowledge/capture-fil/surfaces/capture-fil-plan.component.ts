@@ -237,13 +237,28 @@ export class CaptureFilPlanComponent {
   protected readonly isFree = computed(
     () => (this.engine.session()?.plan_mode ?? '') === 'free_conversation',
   );
-  /** Session already started (resume path) — the button reconnects, no re-start. */
+  /**
+   * Session already started (resume path) — the button reconnects instead of
+   * issuing a fresh Start. A brand-new session is created as "planned" (never
+   * started: the backend only flips it to "active" once `started_at` is set), so
+   * it must show "Démarrer la capture". Use a POSITIVE allowlist of genuinely
+   * in-progress / resumable statuses (plus an already-live engine connection) —
+   * a blocklist wrongly treated every unknown/pre-start status (incl. "planned")
+   * as in-progress and showed "Reprendre" for fresh sessions.
+   */
   protected readonly isLive = computed(() => {
+    if (this.engine.connected()) return true;
     const status = (this.engine.session()?.status ?? '').toLowerCase();
-    return (
-      !!status &&
-      !['draft', 'planning', 'plan_ready', 'completed', 'published', 'archived'].includes(status)
-    );
+    return [
+      'active',
+      'paused',
+      'live',
+      'recording',
+      'capturing',
+      'in_progress',
+      'running',
+      'ongoing',
+    ].includes(status);
   });
 
   protected readonly outlineText = computed(
