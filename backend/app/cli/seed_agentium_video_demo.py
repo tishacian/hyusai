@@ -199,7 +199,7 @@ def _seed_portfolio_runs(db, workspace: Workspace) -> tuple[int, int]:
         system = _system_by_name(db, workspace, spec["system"])
         if not system:
             continue
-        started = now - timedelta(hours=idx + 1, minutes=idx * 8)
+        started = now - timedelta(minutes=idx * 8 + 2)
         completed = started + timedelta(milliseconds=spec["duration_ms"])
         run_id = str(uuid4())
         run = Run(
