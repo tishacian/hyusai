@@ -5977,6 +5977,9 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     const analyzed = health?.analyzed || this.kpiNumber('analyzed_articles') || this.allNewsSignals().length;
     const highRisk = health?.high_risk
       || this.allNewsSignals().filter((signal) => this.pressRiskRank(signal.risk_level) >= 3).length;
+    if (this.missionBrandStyle() === 'agentium') {
+      return `${analyzed} articles analyzed · ${highRisk} high-risk signals`;
+    }
     return `${analyzed} articles analyses · ${highRisk} signaux haut risque`;
   }
 
@@ -7185,6 +7188,11 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   ministerialRisk(level: string): string {
     const normalized = (level || '').toLowerCase();
+    if (this.missionBrandStyle() === 'agentium') {
+      if (normalized === 'critical' || normalized === 'high') return 'priority';
+      if (normalized === 'medium') return 'watch';
+      return 'monitoring';
+    }
     if (normalized === 'critical' || normalized === 'high') return 'prioritaire';
     if (normalized === 'medium') return 'a suivre';
     return 'veille';
