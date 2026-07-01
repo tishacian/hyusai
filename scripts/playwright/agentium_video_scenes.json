@@ -75,17 +75,17 @@
       { "type": "scroll", "deltaY": -260, "waitMs": 900, "optional": true }
     ],
     "waitMs": 10000,
-    "softChecks": ["Systems", "Tender Response"]
+    "softChecks": ["Systems", "Translation Suite"]
   },
   {
     "id": "05-flow-builder-pivot",
     "title": "Flow Builder - Live Agentic Blueprint",
     "workspace": "agentium-showcase",
-    "systemName": "Tender Response Analyst",
+    "systemName": "Translation Suite",
     "startUrl": "/systems",
     "url": "/systems/{systemId}/flow",
     "navSteps": [
-      { "label": "Tender Response Analyst", "waitMs": 1100 },
+      { "label": "Translation Suite", "waitMs": 1100 },
       { "label": "Flow builder", "route": "/systems/{systemId}/flow", "waitMs": 1800 }
     ],
     "overlay": {
@@ -96,12 +96,14 @@
       "metric": { "label": "Design-time control", "value": "System graph -> runtime", "trend": "EXPLICIT" }
     },
     "actions": [
-      { "type": "click", "selector": "button[aria-label=\"Fit to view\"]", "waitMs": 1200, "optional": true },
-      { "type": "click", "selector": "button[aria-label=\"Toggle terminal\"]", "waitMs": 1800, "optional": true },
-      { "type": "hover", "selector": ".react-flow__node, [data-testid=\"rf__node\"], svg", "waitMs": 1000, "optional": true }
+      { "type": "clickRole", "role": "button", "name": "Auto-arrange all nodes", "waitMs": 1600, "optional": true },
+      { "type": "clickRole", "role": "button", "name": "Fit to view", "waitMs": 800, "optional": true },
+      { "type": "clickRole", "role": "button", "name": "Zoom out", "waitMs": 450, "optional": true },
+      { "type": "click", "selector": ".ck-flow-node", "waitMs": 900, "optional": true },
+      { "type": "clickRole", "role": "button", "name": "Toggle terminal", "waitMs": 900, "optional": true }
     ],
     "waitMs": 26000,
-    "softChecks": ["Flow builder", "Runtime manifest", "Skills", "Tender Response"]
+    "softChecks": ["Flow builder", "Runtime manifest", "Skills", "Translation Suite"]
   },
   {
     "id": "06-showcase-observability",

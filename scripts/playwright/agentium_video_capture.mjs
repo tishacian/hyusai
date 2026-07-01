@@ -27,6 +27,17 @@ function buildUrl(host, url, workspace) {
   return target.toString();
 }
 
+async function installWorkspaceUrlBridge(target) {
+  await target.addInitScript(() => {
+    try {
+      const workspaceSlug = new URLSearchParams(window.location.search).get('workspace');
+      if (workspaceSlug) window.localStorage.setItem('agentium_workspace_slug', workspaceSlug);
+    } catch {
+      // Best effort only: normal app bootstrap will keep the existing workspace.
+    }
+  });
+}
+
 async function resolveSystemId(page, { host, workspace, systemName, systemSlug }) {
   if (!systemName && !systemSlug) return null;
   return await page.evaluate(
@@ -427,6 +438,7 @@ async function captureScene(browser, scene, options) {
     ignoreHTTPSErrors: true,
     recordVideo: options.noVideo ? undefined : { dir: sceneDir, size: { width: options.width, height: options.height } },
   });
+  await installWorkspaceUrlBridge(context);
   const page = await context.newPage();
   const result = {
     id: scene.id,
@@ -443,9 +455,6 @@ async function captureScene(browser, scene, options) {
   try {
     video = page.video();
     const workspace = scene.workspace || options.workspace;
-    await page.addInitScript((workspaceSlug) => {
-      window.localStorage.setItem('agentium_workspace_slug', workspaceSlug);
-    }, workspace);
     await page.evaluate((workspaceSlug) => {
       window.localStorage.setItem('agentium_workspace_slug', workspaceSlug);
     }, workspace).catch(() => {});
@@ -550,7 +559,6 @@ async function evaluateScene(page, scene, options, navigationResult) {
 async function captureContinuous(browser, scenes, options) {
   const videoDir = path.join(options.outDir, 'video');
   await mkdir(videoDir, { recursive: true });
-  const firstWorkspace = scenes[0]?.workspace || options.workspace;
   const context = await browser.newContext({
     storageState: options.statePath,
     viewport: { width: options.width, height: options.height },
@@ -560,14 +568,12 @@ async function captureContinuous(browser, scenes, options) {
     ignoreHTTPSErrors: true,
     recordVideo: options.noVideo ? undefined : { dir: videoDir, size: { width: options.width, height: options.height } },
   });
+  await installWorkspaceUrlBridge(context);
   const page = await context.newPage();
   const video = page.video();
   const results = [];
   let previousWorkspace = null;
   try {
-    await page.addInitScript((workspaceSlug) => {
-      window.localStorage.setItem('agentium_workspace_slug', workspaceSlug);
-    }, firstWorkspace);
     for (const scene of scenes) {
       console.log(`Capturing ${scene.id} - ${scene.title || scene.url}`);
       const sceneStartedAtMs = Date.now();
