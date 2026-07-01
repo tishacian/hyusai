@@ -165,8 +165,10 @@ import { clockLabel } from './capture-presentation';
         </div>
       }
 
-      <!-- body -->
-      <div style="display:grid; grid-template-columns:220px minmax(0,1fr) 360px; min-height:60vh;">
+      <!-- body — bounded to the viewport so the Fil scrolls INSIDE its panel
+           (auto-scroll to bottom) and La Scène stays pinned in view instead of
+           the whole page growing and pushing the scene off-screen. -->
+      <div style="display:grid; grid-template-columns:220px minmax(0,1fr) 400px; height:calc(100vh - 172px); min-height:460px; overflow:hidden;">
         <!-- section rail -->
         <div
           style="border-right:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel); display:flex; flex-direction:column; min-height:0;"
@@ -388,7 +390,8 @@ import { clockLabel } from './capture-presentation';
 
         <!-- La Scène + Oracle -->
         <div
-          style="border-left:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel); display:flex; flex-direction:column; min-height:0; padding:14px; gap:14px;"
+          class="ck-scroll"
+          style="border-left:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel); display:flex; flex-direction:column; min-height:0; overflow-y:auto; padding:14px; gap:14px;"
         >
           <app-la-scene />
 

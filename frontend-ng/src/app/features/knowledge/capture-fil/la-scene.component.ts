@@ -123,7 +123,7 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
               [inline]="true"
               [previewUrl]="url"
               [page]="a.page ?? null"
-              [heightPx]="360"
+              [heightPx]="480"
               (viewChanged)="onViewChanged($event)"
             />
           </div>

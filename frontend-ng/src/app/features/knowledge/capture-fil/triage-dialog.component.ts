@@ -24,6 +24,8 @@ interface TriageRow {
   pointed: boolean;
   reason: string;
   choice: CaptureShareLevel;
+  /** Single photo: `full` and `excerpt` are equivalent, so the choice collapses. */
+  singleView: boolean;
 }
 
 const LEVELS: CaptureShareLevel[] = ['full', 'excerpt', 'none'];
@@ -87,7 +89,7 @@ const LEVELS: CaptureShareLevel[] = ['full', 'excerpt', 'none'];
                 [attr.aria-label]="'Niveau de partage — ' + docName(row)"
                 style="display:inline-flex; padding:2px; border-radius:var(--ck-radius-md); background:var(--ck-bg-void); border:1px solid var(--ck-stroke-2); gap:2px;"
               >
-                @for (level of levels; track level) {
+                @for (level of levelsFor(row); track level) {
                   <button
                     type="button"
                     role="radio"
@@ -166,17 +168,34 @@ export class CaptureTriageDialogComponent {
     this.engine.documents().map((doc) => {
       const key = this.keyOf(doc);
       const pointed = (doc.referenced_views_count ?? 0) > 0;
+      const singleView = this.isSinglePhoto(doc);
       const deduced: CaptureShareLevel = pointed ? 'full' : (doc.share_level ?? 'excerpt');
+      let choice = this.overrides()[key] ?? deduced;
+      // A single photo has no "extract vs whole" distinction — normalise the
+      // in-between `excerpt` to `full` so the collapsed toggle stays consistent.
+      if (singleView && choice === 'excerpt') choice = 'full';
       return {
         key,
         documentId: doc.document_id ?? null,
         doc,
         pointed,
-        reason: this.reasonFor(doc, pointed),
-        choice: this.overrides()[key] ?? deduced,
+        singleView,
+        reason: this.reasonFor(doc, pointed, singleView),
+        choice,
       };
     }),
   );
+
+  /** Options shown for a row: single photos collapse `full`/`excerpt` → one. */
+  protected levelsFor(row: TriageRow): CaptureShareLevel[] {
+    return row.singleView ? ['full', 'none'] : LEVELS;
+  }
+
+  private static readonly IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|tiff?|heic|heif|svg)$/i;
+  private isSinglePhoto(doc: CaptureSessionDocument): boolean {
+    const name = (doc.filename ?? doc.title ?? '').toLowerCase();
+    return CaptureTriageDialogComponent.IMAGE_RE.test(name);
+  }
 
   protected readonly shareCount = computed(() => this.rows().filter((r) => r.choice !== 'none').length);
   protected readonly pointedNoneCount = computed(
@@ -203,8 +222,11 @@ export class CaptureTriageDialogComponent {
     return row.doc.filename ?? row.doc.title ?? cleanFilename(row.doc.filename) ?? 'document';
   }
 
-  protected reasonFor(doc: CaptureSessionDocument, pointed: boolean): string {
+  protected reasonFor(doc: CaptureSessionDocument, pointed: boolean, singleView = false): string {
     const n = doc.referenced_views_count ?? 0;
+    if (singleView) {
+      return pointed ? `Pointé ${n}× · vue unique (entier = extrait)` : 'Vue unique — entier = extrait';
+    }
     if (pointed) return `Pointé ${n}× pendant la séance`;
     if (doc.share_level === 'none') return 'Épinglé, jamais pointé';
     return 'Pièce de contexte (extrait par défaut)';

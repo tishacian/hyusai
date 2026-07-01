@@ -59,7 +59,7 @@ interface ReportSource {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [GlyphComponent, LiveDotComponent, ViewTileComponent, DocumentPreviewComponent],
   template: `
-    <div style="display:grid; grid-template-columns:minmax(0,1fr) 396px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-lg); overflow:hidden; min-height:60vh; background:var(--ck-bg-base);">
+    <div style="display:grid; grid-template-columns:minmax(0,1fr) 396px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-lg); overflow:hidden; height:calc(100vh - 172px); min-height:460px; background:var(--ck-bg-base);">
       <!-- document -->
       <div style="display:flex; flex-direction:column; min-width:0; border-right:1px solid var(--ck-stroke-2);">
         <div style="flex:none; padding:14px 24px; border-bottom:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel); display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
@@ -389,34 +389,35 @@ interface ReportSource {
                   </p>
                 }
 
-                <!-- pointed sources (provenance) — every journaled anchor stays clickable -->
+                <!-- pointed sources (provenance) — a COMPACT index of pointed
+                     pieces, not a second verbatim transcript. Each chip selects
+                     the source (opens it in the inspector). We no longer re-print
+                     the raw statement here: the reformulated fiche above already
+                     carries inline markers, so this stays a provenance index and
+                     avoids the "raw transcript + reformulation" duplication. -->
                 <section style="margin:18px 0 0; border-top:1px solid var(--ck-stroke-2); padding-top:16px;">
                   <h3 class="ck-mono" style="margin:0 0 11px; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ck-signal-cool); display:flex; align-items:center; gap:7px;">
-                    <ck-glyph name="crosshair" [size]="13" color="var(--ck-signal-cool)" /> Sources pointées
+                    <ck-glyph name="crosshair" [size]="13" color="var(--ck-signal-cool)" /> Sources pointées ({{ sources().length }})
                   </h3>
-                  @for (src of sources(); track src.key) {
-                    <p
-                      style="font-size:14px; line-height:1.65; text-wrap:pretty; color:var(--ck-fg-2); border-radius:var(--ck-radius-sm); transition:background var(--ck-dur-med);"
-                      [style.background]="src.key === selectedKey() ? 'color-mix(in oklab, ' + tintOf(src.ref) + ' 9%, transparent)' : 'transparent'"
-                      [style.padding]="src.key === selectedKey() ? '4px 8px' : '0'"
-                      [style.margin]="src.key === selectedKey() ? '0 -8px 12px' : '0 0 12px'"
-                    >
-                      {{ statementOf(src.ref) }}
-                      <button
-                        type="button"
-                        class="ck-mono"
-                        (click)="select(src.key)"
-                        [title]="viewTitleOf(src.ref) + ' · ' + locationOf(src.ref)"
-                        style="appearance:none; cursor:pointer; vertical-align:super; margin-left:3px; display:inline-flex; align-items:center; gap:3px; padding:1px 6px 1px 5px; border-radius:999px; line-height:1; font-size:9.5px; font-weight:700;"
-                        [style.color]="tintOf(src.ref)"
-                        [style.border]="'1px solid ' + (src.key === selectedKey() ? tintOf(src.ref) : 'color-mix(in oklab, ' + tintOf(src.ref) + ' 40%, transparent)')"
-                        [style.background]="'color-mix(in oklab, ' + tintOf(src.ref) + ' ' + (src.key === selectedKey() ? '22' : '9') + '%, transparent)'"
-                      >
-                        <ck-glyph name="crosshair" [size]="9" color="currentColor" /> {{ src.n }}
-                      </button>
-                    </p>
-                  }
-                  @if (sources().length === 0) {
+                  @if (sources().length) {
+                    <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                      @for (src of sources(); track src.key) {
+                        <button
+                          type="button"
+                          (click)="select(src.key)"
+                          [title]="statementOf(src.ref)"
+                          style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; max-width:100%; padding:4px 10px 4px 7px; border-radius:999px; font-size:11px; transition:background var(--ck-dur-med), border-color var(--ck-dur-med);"
+                          [style.color]="src.key === selectedKey() ? tintOf(src.ref) : 'var(--ck-fg-3)'"
+                          [style.border]="'1px solid ' + (src.key === selectedKey() ? tintOf(src.ref) : 'var(--ck-stroke-2)')"
+                          [style.background]="'color-mix(in oklab, ' + tintOf(src.ref) + ' ' + (src.key === selectedKey() ? '16' : '0') + '%, var(--ck-bg-base))'"
+                        >
+                          <span class="ck-mono" style="flex:none; font-weight:700;">{{ src.n }}</span>
+                          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ viewTitleOf(src.ref) }}</span>
+                          <span class="ck-mono" style="flex:none; color:var(--ck-fg-5);">{{ locationOf(src.ref) }}</span>
+                        </button>
+                      }
+                    </div>
+                  } @else {
                     <p style="font-size:13px; color:var(--ck-fg-4); font-style:italic;">
                       Aucune source pointée pour cette séance. Les affirmations sourcées apparaissent ici à mesure que des pièces sont
                       pointées pendant la séance.
@@ -498,22 +499,36 @@ interface ReportSource {
 
         @if (selected(); as sel) {
           <div class="ck-scroll" style="flex:1; overflow-y:auto; padding:18px; display:flex; flex-direction:column; gap:16px; min-height:0;">
-            <div style="position:relative;">
-              <app-capture-view-tile [view]="sel" size="xl" [active]="true" />
-              <div
-                style="position:absolute; top:26%; left:14%; width:46%; height:34%; border-radius:4px; pointer-events:none;"
-                [style.border]="'2px solid ' + tintOf(sel)"
-                [style.boxShadow]="'0 0 0 9999px color-mix(in oklab, var(--ck-bg-void) 38%, transparent)'"
-              >
-                <span
-                  class="ck-mono"
-                  style="position:absolute; top:-9px; left:-1px; padding:1px 7px; border-radius:3px; font-size:8.5px; font-weight:700; white-space:nowrap; color:var(--ck-on-signal);"
-                  [style.background]="tintOf(sel)"
-                >
-                  ZONE POINTÉE
-                </span>
+            @if (previewUrlFor(sel); as url) {
+              <!-- Real pointed document rendered in place (no dialog), page +
+                   highlighted passage — replaces the empty striped placeholder. -->
+              <div style="border-radius:var(--ck-radius-md); overflow:hidden; border:1px solid var(--ck-stroke-2);">
+                <app-document-preview
+                  [inline]="true"
+                  [previewUrl]="url"
+                  [page]="sel.page ?? null"
+                  [highlight]="highlightFor(sel)"
+                  [heightPx]="320"
+                />
               </div>
-            </div>
+            } @else {
+              <div style="position:relative;">
+                <app-capture-view-tile [view]="sel" size="xl" [active]="true" />
+                <div
+                  style="position:absolute; top:26%; left:14%; width:46%; height:34%; border-radius:4px; pointer-events:none;"
+                  [style.border]="'2px solid ' + tintOf(sel)"
+                  [style.boxShadow]="'0 0 0 9999px color-mix(in oklab, var(--ck-bg-void) 38%, transparent)'"
+                >
+                  <span
+                    class="ck-mono"
+                    style="position:absolute; top:-9px; left:-1px; padding:1px 7px; border-radius:3px; font-size:8.5px; font-weight:700; white-space:nowrap; color:var(--ck-on-signal);"
+                    [style.background]="tintOf(sel)"
+                  >
+                    ZONE POINTÉE
+                  </span>
+                </div>
+              </div>
+            }
 
             <div style="display:flex; flex-direction:column; gap:9px;">
               <div style="display:flex; align-items:center; gap:8px;">
@@ -893,12 +908,17 @@ export class ReportProvenanceComponent {
     return url;
   }
 
+  /** Passage to highlight inside the (inline or modal) preview for a source. */
+  protected highlightFor(ref: CaptureViewReference): string | null {
+    const statement = this.statementOf(ref);
+    return statement && statement.length >= 8 ? statement : null;
+  }
+
   protected openPreview(url: string, ref: CaptureViewReference): void {
     this.previewUrl.set(url);
     this.previewTitle.set(viewTitle(ref));
     this.previewPage.set(ref.page ?? null);
-    const statement = this.statementOf(ref);
-    this.previewHighlight.set(statement && statement.length >= 8 ? statement : null);
+    this.previewHighlight.set(this.highlightFor(ref));
     this.previewOpen.set(true);
   }
 }
