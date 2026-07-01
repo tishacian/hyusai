@@ -131,13 +131,13 @@ const ABIDJAN_CAMERA = {
               [userSelectedZoom]="vesselZoomMode"
               [selectedZoneId]="context.topZoneId"
               [assistantName]="assistantName"
-              [vessels]="vesselsEnabled && maritimeLayerVisible ? vessels : null"
+              [vessels]="vesselsEnabled && !isOctocityMode() && maritimeLayerVisible ? vessels : null"
               [highlightedVesselMmsi]="selectedVessel?.mmsi || null"
               (vesselSelected)="selectVessel($event)"
             />
           </div>
 
-          @if (vesselsEnabled && vessels.length) {
+          @if (vesselsEnabled && !isOctocityMode() && vessels.length) {
             <div class="vessels-overlay-controls" aria-label="Contrôles couche maritime">
               <span class="vessel-count-chip" aria-live="polite">
                 <span class="vessel-count-dot" aria-hidden="true"></span>
@@ -185,7 +185,7 @@ const ABIDJAN_CAMERA = {
         <span class="legend-item critical"><span class="legend-dot"></span>{{ isOctocityMode() ? 'Critical' : 'Tendu' }}</span>
         <span class="legend-item elevated"><span class="legend-dot"></span>{{ isOctocityMode() ? 'Watch' : 'Surveillance' }}</span>
         <span class="legend-item stable"><span class="legend-dot"></span>Stable</span>
-        @if (vesselsEnabled) {
+        @if (vesselsEnabled && !isOctocityMode()) {
           <button
             type="button"
             class="legend-item legend-toggle maritime"
@@ -250,7 +250,7 @@ const ABIDJAN_CAMERA = {
         </div>
       }
 
-      @if (vesselsEnabled) {
+      @if (vesselsEnabled && !isOctocityMode()) {
         <aside
           class="vessels-info-strip"
           [class.has-error]="vesselError && !vessels.length"
@@ -994,7 +994,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
   };
 
   ngOnInit(): void {
-    if (this.vesselsEnabled) {
+    if (this.vesselsEnabled && !this.isOctocityMode()) {
       this.loadVessels();
     }
     window.addEventListener('agentium:assistant-show-webcam', this.showWebcamListener);

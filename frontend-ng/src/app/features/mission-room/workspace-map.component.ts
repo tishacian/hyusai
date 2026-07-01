@@ -240,7 +240,7 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
                 <span><i class="critical"></i>{{ criticalLabel }}</span>
               </div>
             }
-            @if (isLayerActive('maritime-traffic')) {
+            @if (isLayerActive('maritime-traffic') && !isOctocityMode) {
               <div class="legend-section maritime">
                 <strong>Maritime</strong>
                 <span><i class="corridor"></i>corridor</span>
@@ -267,7 +267,7 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
             }
           </div>
         }
-        @if (isLayerActive('maritime-traffic') && !compact && !previewMode) {
+        @if (isLayerActive('maritime-traffic') && !isOctocityMode && !compact && !previewMode) {
           <div class="map-maritime-caption">Corridor maritime · Golfe de Guinée</div>
         }
         @if (briefOpen && selectedBriefZone(); as zone) {
@@ -1208,7 +1208,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   get layerControls(): MapLayerControl[] {
     const catalog = this.mapSystem?.['layer_registry'] || this.mapSystem?.['layer_catalog'];
     if (Array.isArray(catalog) && catalog.length) {
-      return catalog.map((layer: any) => ({
+      const controls = catalog.map((layer: any) => ({
         key: String(layer.key || ''),
         label: String(layer.label || layer.key || ''),
         shortLabel: String(layer.short_label || layer.label || layer.key || ''),
@@ -1226,6 +1226,18 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
         visible: layer.visible !== false,
         defaultVisible: layer.default_visible !== false,
       })).filter((layer) => layer.key);
+      return this.isOctocityMode ? controls.filter((layer) => layer.key !== 'maritime-traffic') : controls;
+    }
+    if (this.isOctocityMode) {
+      return [
+        { key: 'territorial-risk', label: 'Operating zones', shortLabel: 'Zones', tone: 'cyan', count: this.renderedZones.length, confidence: 82, visible: true },
+        { key: 'open-intelligence', label: 'News signals', shortLabel: 'News', tone: 'blue', count: 3, confidence: 76, visible: true },
+        { key: 'regional-context', label: 'European coordination', shortLabel: 'Coordination', tone: 'orange', count: 4, confidence: 74, visible: true },
+        { key: 'strategic-projects', label: 'Strategic programs', shortLabel: 'Programs', tone: 'green', count: 3, confidence: 71, visible: true },
+        { key: 'agenda-windows', label: 'Executive windows', shortLabel: 'Agenda', tone: 'amber', count: 5, confidence: 84, visible: true },
+        { key: 'visual-streams', label: 'Field observations', shortLabel: 'Field', tone: 'violet', count: 2, confidence: 68, visible: true },
+        { key: 'preventive-actions', label: 'Recommended actions', shortLabel: 'Actions', tone: 'red', count: 4, confidence: 78, visible: true },
+      ];
     }
     return [
       { key: 'territorial-risk', label: 'Zones de vigilance', shortLabel: 'Zones', tone: 'cyan', count: this.zones.length, confidence: 78, visible: true },
@@ -1308,7 +1320,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   get layerSearchPlaceholder(): string {
-    return this.isOctocityMode ? 'vessel, news, agenda...' : 'navire, presse, agenda...';
+    return this.isOctocityMode ? 'signal, news, agenda...' : 'navire, presse, agenda...';
   }
 
   get hiddenLayerLabel(): string {
@@ -1597,6 +1609,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
    * user has explicitly clicked the maritime toggle.
    */
   private maybeAutoEnableMaritime(): void {
+    if (this.isOctocityMode) return;
     if (this.userToggledMaritime) return;
     if (!(this.vessels?.length || 0)) return;
     if (this.activeLayerKeys.has('maritime-traffic')) return;
@@ -1610,7 +1623,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     if (requested.length) {
       return requested.map((key) => this.normalizePreviewLayerKey(key)).filter(Boolean) as string[];
     }
-    const defaults = ['territorial-risk', 'open-intelligence', 'maritime-traffic'];
+    const defaults = this.isOctocityMode
+      ? ['territorial-risk', 'open-intelligence', 'regional-context', 'preventive-actions']
+      : ['territorial-risk', 'open-intelligence', 'maritime-traffic'];
     return defaults.filter((key) => this.layerControls.some((layer) => layer.key === key));
   }
 

@@ -13,7 +13,7 @@
     },
     "waitMs": 6200,
     "softChecks": ["Octocity", "OCTAVE", "Mission Room"],
-    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
     "id": "02-showcase-connectors",
@@ -236,7 +236,7 @@
     },
     "waitMs": 6500,
     "softChecks": ["Octocity", "OCTAVE", "Mission Room"],
-    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
     "id": "13-octocity-map",
@@ -256,7 +256,7 @@
     },
     "waitMs": 7200,
     "softChecks": ["France", "Octocity"],
-    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
     "id": "14-octocity-news-flows",
@@ -276,7 +276,7 @@
     },
     "waitMs": 7200,
     "softChecks": ["Open intelligence", "signal flow"],
-    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
     "id": "15-octocity-chat-action",
@@ -307,7 +307,7 @@
       }
     ],
     "softChecks": ["OCTAVE"],
-    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
     "id": "16-octocity-knowledge-capture",
@@ -327,7 +327,7 @@
     },
     "waitMs": 5800,
     "softChecks": ["Knowledge", "Capture"],
-    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
     "id": "17-flow-builder-closing",
