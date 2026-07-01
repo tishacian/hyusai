@@ -67,7 +67,7 @@ function escapeConcatPath(file) {
   return file.replace(/'/g, "'\\''");
 }
 
-async function concatArgs({ dir, videos, audio, out }) {
+async function concatArgs({ dir, videos, audio, out, trimStart }) {
   const concatFile = path.join(dir, 'ffmpeg-concat-list.txt');
   await writeFile(concatFile, videos.map((file) => `file '${escapeConcatPath(path.resolve(file))}'`).join('\n') + '\n');
   const args = [
@@ -81,6 +81,9 @@ async function concatArgs({ dir, videos, audio, out }) {
   ];
   if (audio) {
     args.push('-i', path.resolve(audio), '-map', '0:v:0', '-map', '1:a:0', '-shortest');
+  }
+  if (trimStart > 0) {
+    args.push('-vf', `trim=start=${trimStart},setpts=PTS-STARTPTS`);
   }
   args.push(
     '-c:v',
@@ -101,14 +104,14 @@ async function concatArgs({ dir, videos, audio, out }) {
   return { args, concatFile, filterGraph: null };
 }
 
-async function transitionArgs({ videos, audio, out, transition, transitionDuration, width, height }) {
+async function transitionArgs({ videos, audio, out, transition, transitionDuration, width, height, trimStart }) {
   const durations = [];
   for (const video of videos) {
     const duration = await probeDuration(video);
     if (!duration) {
       throw new Error(`Unable to probe duration for ${video}`);
     }
-    durations.push(duration);
+    durations.push(Math.max(1.2, duration - trimStart));
   }
 
   const args = ['-y'];
@@ -120,7 +123,7 @@ async function transitionArgs({ videos, audio, out, transition, transitionDurati
     parts.push(
       `[${idx}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
         `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,` +
-        'fps=25,format=yuv420p,settb=AVTB,setpts=PTS-STARTPTS' +
+        `fps=25,format=yuv420p,trim=start=${trimStart},settb=AVTB,setpts=PTS-STARTPTS` +
         `[v${idx}]`,
     );
   }
@@ -167,6 +170,7 @@ async function main() {
   const audio = arg('audio', process.env.VOICEOVER_AUDIO || null);
   const transition = arg('transition', process.env.VIDEO_TRANSITION || 'none');
   const transitionDuration = Number(arg('transition-duration', process.env.VIDEO_TRANSITION_DURATION || '0.55'));
+  const trimStart = Number(arg('trim-start', process.env.VIDEO_TRIM_START || '0'));
   const width = Number(arg('width', process.env.OUTPUT_WIDTH || '1920'));
   const height = Number(arg('height', process.env.OUTPUT_HEIGHT || '1080'));
   const videos = await listWebm(dir);
@@ -184,8 +188,9 @@ async function main() {
         transitionDuration,
         width,
         height,
+        trimStart,
       })
-    : await concatArgs({ dir, videos, audio, out });
+    : await concatArgs({ dir, videos, audio, out, trimStart });
 
   const result = await run('ffmpeg', plan.args);
   const outStat = await stat(out).catch(() => null);
@@ -195,6 +200,7 @@ async function main() {
     audio,
     videos,
     transition: useTransitions ? { name: transition, duration: transitionDuration, width, height } : null,
+    trimStart,
     concatFile: plan.concatFile,
     filterGraph: plan.filterGraph,
     durations: plan.durations,

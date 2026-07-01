@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import app.models  # noqa: F401  register SQLAlchemy models
 from app.db.base import SessionLocal
+from app.models.capability import Capability
 from app.models.decision import Decision
 from app.models.evaluation import EvaluationScore
 from app.models.run import Run, SkillInvocation
@@ -31,6 +32,8 @@ VIDEO_DEMO_TAG = "agentium_clevel_v1"
 PORTFOLIO_RUNS: tuple[dict[str, Any], ...] = (
     {
         "system": "Agentium Workspace Chat",
+        "capability_slug": "video_workspace_assistant",
+        "capability_name": "Workspace Assistant",
         "title": "Executive answer grounded across SharePoint and policy corpus",
         "decision": "answer_grounded",
         "value": 18_500.0,
@@ -43,6 +46,8 @@ PORTFOLIO_RUNS: tuple[dict[str, Any], ...] = (
     },
     {
         "system": "Tender Response Analyst",
+        "capability_slug": "video_tender_response",
+        "capability_name": "Tender Response Acceleration",
         "title": "RFP response generated with human review gate",
         "decision": "review_ready",
         "value": 72_000.0,
@@ -55,6 +60,8 @@ PORTFOLIO_RUNS: tuple[dict[str, Any], ...] = (
     },
     {
         "system": "Translation Suite",
+        "capability_slug": "video_translation_suite",
+        "capability_name": "Translation Suite",
         "title": "Sovereign multilingual delivery package accepted",
         "decision": "delivery_released",
         "value": 128_000.0,
@@ -67,6 +74,8 @@ PORTFOLIO_RUNS: tuple[dict[str, Any], ...] = (
     },
     {
         "system": "Compliance Review Loop",
+        "capability_slug": "video_compliance_loop",
+        "capability_name": "Compliance Review Loop",
         "title": "Vendor onboarding blocked before policy breach",
         "decision": "blocked_and_escalated",
         "value": 46_000.0,
@@ -79,6 +88,8 @@ PORTFOLIO_RUNS: tuple[dict[str, Any], ...] = (
     },
     {
         "system": "Contract Risk Copilot",
+        "capability_slug": "video_contract_risk",
+        "capability_name": "Contract Risk Detection",
         "title": "Liability clause remediated with approved fallback",
         "decision": "fallback_proposed",
         "value": 34_000.0,
@@ -105,6 +116,38 @@ def _system_by_name(db, workspace: Workspace, name: str) -> System | None:
         .filter(System.workspace_id == workspace.id, System.name == name)
         .first()
     )
+
+
+def _ensure_video_capability(db, workspace: Workspace, spec: dict[str, Any], system: System) -> Capability:
+    slug = str(spec["capability_slug"])
+    capability = db.query(Capability).filter(Capability.slug == slug).first()
+    if not capability:
+        capability = Capability(slug=slug)
+        db.add(capability)
+    capability.workspace_id = workspace.id
+    capability.name = str(spec["capability_name"])
+    capability.description = (
+        f"Synthetic C-level video capability for {system.name}: governed design, runtime execution, "
+        "observable outcomes and executive value tracking."
+    )
+    capability.tier = "client"
+    capability.industry = "cross-industry"
+    capability.input_unit = "governed_run"
+    capability.output_unit = "audited_outcome"
+    capability.skill_ids = list(system.skill_ids or spec.get("skills") or [])
+    capability.pricing = {"unit": "per_outcome", "unit_price": float(spec["cost"]), "currency": "USD"}
+    capability.value_per_outcome = float(spec["value"])
+    capability.confidence_threshold = 0.85
+    capability.sla = {"max_latency_ms": int(spec["duration_ms"]), "review": "human_in_the_loop"}
+    capability.roi_model = {
+        "type": "video_demo_value_minus_cost",
+        "video_demo": VIDEO_DEMO_TAG,
+        "estimated_value": float(spec["value"]),
+        "internal_cost": float(spec["cost"]),
+    }
+    capability.is_seeded = "Y"
+    system.capability_id = capability.id
+    return capability
 
 
 def _cleanup_video_rows(db, workspace: Workspace) -> int:
@@ -199,6 +242,7 @@ def _seed_portfolio_runs(db, workspace: Workspace) -> tuple[int, int]:
         system = _system_by_name(db, workspace, spec["system"])
         if not system:
             continue
+        capability = _ensure_video_capability(db, workspace, spec, system)
         started = now - timedelta(minutes=idx * 8 + 2)
         completed = started + timedelta(milliseconds=spec["duration_ms"])
         run_id = str(uuid4())
@@ -206,7 +250,7 @@ def _seed_portfolio_runs(db, workspace: Workspace) -> tuple[int, int]:
             id=run_id,
             workspace_id=workspace.id,
             system_id=system.id,
-            capability_id=system.capability_id,
+            capability_id=capability.id,
             input_ref={
                 "video_demo": VIDEO_DEMO_TAG,
                 "title": spec["title"],

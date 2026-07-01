@@ -42,15 +42,6 @@ async function probeDuration(file) {
   return result.ok && Number.isFinite(value) && value > 0 ? value : null;
 }
 
-function ffText(value) {
-  return String(value || '')
-    .replace(/\\/g, '\\\\')
-    .replace(/:/g, '\\:')
-    .replace(/'/g, "\\'")
-    .replace(/\[/g, '\\[')
-    .replace(/\]/g, '\\]');
-}
-
 async function loadScenes(scenesPath) {
   if (!scenesPath) return [];
   return JSON.parse(await readFile(path.resolve(scenesPath), 'utf8'));
@@ -60,7 +51,35 @@ function actionMs(scene) {
   return (scene.actions || []).reduce((total, action) => total + Number(action.waitMs || 0), 0);
 }
 
-function sceneTimeline(scenes, duration) {
+async function loadAssembleDurations(input) {
+  const reportPath = path.join(path.dirname(input), 'assemble-report.json');
+  const report = JSON.parse(await readFile(reportPath, 'utf8').catch(() => '{}'));
+  const durations = Array.isArray(report.durations) ? report.durations.map(Number).filter((value) => Number.isFinite(value) && value > 0) : [];
+  const transition = report.transition || null;
+  const transitionDuration = transition ? Number(transition.duration || 0) : 0;
+  return { durations, transitionDuration };
+}
+
+function sceneTimeline(scenes, duration, assembled = null) {
+  const actualDurations = assembled?.durations || [];
+  if (actualDurations.length === scenes.length) {
+    const overlap = Number(assembled?.transitionDuration || 0);
+    let cursor = 0;
+    return scenes.map((scene, index) => {
+      const sceneDuration = Math.max(1.2, actualDurations[index]);
+      const start = Math.max(0, cursor);
+      const end = Math.min(duration, start + sceneDuration);
+      cursor = Math.max(start + 1.2, end - overlap);
+      return {
+        id: scene.id,
+        title: scene.overlay?.title || scene.title || scene.id,
+        kicker: scene.overlay?.kicker || scene.workspace || 'Agentium',
+        start,
+        end,
+      };
+    });
+  }
+
   const weights = scenes.map((scene) => Math.max(2500, Number(scene.waitMs || 4000) + actionMs(scene)));
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
   let cursor = 0;
@@ -79,19 +98,93 @@ function sceneTimeline(scenes, duration) {
   });
 }
 
-function titleFilters(timeline) {
-  const filters = [];
-  for (const item of timeline) {
-    const start = item.start.toFixed(2);
-    const end = Math.min(item.end, item.start + 4.2).toFixed(2);
-    const enable = `between(t\\,${start}\\,${end})`;
-    filters.push(
-      `drawbox=x=56:y=840:w=720:h=112:color=0x02070dcc@0.58:t=fill:enable='${enable}'`,
-      `drawtext=text='${ffText(item.kicker)}':x=88:y=866:fontsize=21:fontcolor=0x67e8f9:letter_spacing=4:enable='${enable}'`,
-      `drawtext=text='${ffText(item.title)}':x=88:y=898:fontsize=38:fontcolor=white:enable='${enable}'`,
-    );
+async function generateOverlayPngs({ timeline, outDir, width, height, logo }) {
+  const overlayDir = path.join(outDir, '.polish-overlays');
+  await mkdir(overlayDir, { recursive: true });
+  const payloadPath = path.join(overlayDir, 'timeline.json');
+  const scriptPath = path.join(overlayDir, 'render_overlays.py');
+  await writeFile(payloadPath, JSON.stringify({ timeline, width, height, logo }, null, 2));
+  await writeFile(scriptPath, String.raw`
+import json
+import os
+import textwrap
+from PIL import Image, ImageDraw, ImageFont
+
+payload_path = r"${payloadPath}"
+out_dir = r"${overlayDir}"
+
+with open(payload_path, "r", encoding="utf-8") as fh:
+    payload = json.load(fh)
+
+W = int(payload["width"])
+H = int(payload["height"])
+logo_path = payload.get("logo")
+
+def font(size, bold=False):
+    candidates = [
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf" if bold else "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/Library/Fonts/Arial Bold.ttf" if bold else "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            try:
+                return ImageFont.truetype(candidate, size=size)
+            except Exception:
+                pass
+    return ImageFont.load_default()
+
+small = font(20)
+small_bold = font(22, True)
+title_font = font(36, True)
+brand_font = font(22, True)
+tag_font = font(18)
+
+logo_img = None
+if logo_path and os.path.exists(logo_path):
+    logo_img = Image.open(logo_path).convert("RGBA")
+    logo_img.thumbnail((150, 64), Image.Resampling.LANCZOS)
+    alpha = logo_img.getchannel("A").point(lambda p: int(p * 0.72))
+    logo_img.putalpha(alpha)
+
+for index, item in enumerate(payload["timeline"]):
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    cyan = (103, 232, 249, 225)
+    white = (245, 248, 252, 230)
+    muted = (148, 163, 184, 210)
+    panel = (2, 7, 13, 156)
+    stroke = (34, 211, 238, 92)
+
+    draw.text((64, 46), "DATATEGY  //  AGENTIUM", font=brand_font, fill=white)
+    right_text = "AI OPERATING SYSTEM 2026"
+    rb = draw.textbbox((0, 0), right_text, font=tag_font)
+    draw.text((W - (rb[2] - rb[0]) - 64, 50), right_text, font=tag_font, fill=cyan)
+    draw.rectangle((0, H - 4, W, H), fill=(34, 211, 238, 184))
+
+    x, y, w, h = 56, H - 238, 820, 124
+    draw.rounded_rectangle((x, y, x + w, y + h), radius=10, fill=panel, outline=stroke, width=1)
+    draw.rectangle((x, y, x + 5, y + h), fill=cyan)
+    kicker = str(item.get("kicker") or "Agentium").upper()
+    title = str(item.get("title") or item.get("id") or "")
+    draw.text((x + 32, y + 25), kicker, font=small_bold, fill=cyan)
+    wrapped = textwrap.wrap(title, width=38)[:2]
+    for line_idx, line in enumerate(wrapped):
+        draw.text((x + 32, y + 58 + line_idx * 39), line, font=title_font, fill=white)
+
+    scene_no = f"{index + 1:02d}/{len(payload['timeline']):02d}"
+    draw.text((x + w - 82, y + 28), scene_no, font=small, fill=muted)
+    if logo_img is not None:
+        img.alpha_composite(logo_img, (W - logo_img.width - 64, H - logo_img.height - 44))
+    out = os.path.join(out_dir, f"overlay-{index:02d}.png")
+    img.save(out)
+`);
+  const rendered = await run('python', [scriptPath]);
+  if (!rendered.ok) {
+    throw new Error(`Overlay generation failed: ${rendered.stderr || rendered.stdout}`);
   }
-  return filters;
+  return timeline.map((_, index) => path.join(overlayDir, `overlay-${String(index).padStart(2, '0')}.png`));
 }
 
 async function main() {
@@ -105,12 +198,20 @@ async function main() {
   const duration = await probeDuration(input);
   if (!duration) throw new Error(`Unable to probe duration for ${input}`);
   const scenes = await loadScenes(scenesPath);
-  const timeline = sceneTimeline(scenes, duration);
+  const assembled = await loadAssembleDurations(input);
+  const timeline = sceneTimeline(scenes, duration, assembled);
   await mkdir(path.dirname(out), { recursive: true });
 
   const hasLogo = Boolean(await stat(logo).catch(() => null));
+  const overlayFiles = await generateOverlayPngs({
+    timeline,
+    outDir: path.dirname(out),
+    width,
+    height,
+    logo: hasLogo ? logo : null,
+  });
   const args = ['-y', '-i', input];
-  if (hasLogo) args.push('-i', logo);
+  for (const file of overlayFiles) args.push('-i', file);
 
   const baseFilters = [
     `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
@@ -120,24 +221,20 @@ async function main() {
     'eq=contrast=1.045:saturation=1.08:brightness=0.006',
     'unsharp=5:5:0.45:3:3:0.18',
     'vignette=PI/5:mode=backward',
-    "drawtext=text='DATATEGY  //  AGENTIUM':x=64:y=48:fontsize=24:fontcolor=white@0.88:letter_spacing=5",
-    "drawtext=text='AI OPERATING SYSTEM 2026':x=w-tw-64:y=50:fontsize=20:fontcolor=0x67e8f9@0.88:letter_spacing=4",
-    "drawbox=x=0:y=h-3:w=w:h=3:color=0x22d3ee@0.72:t=fill",
-    ...titleFilters(timeline),
   ];
 
-  if (hasLogo) {
-    args.push(
-      '-filter_complex',
-      `[1:v]scale=138:-1,format=rgba,colorchannelmixer=aa=0.72[logo];[0:v]${baseFilters.join(',')}[base];[base][logo]overlay=x=w-overlay_w-64:y=h-overlay_h-48[vout]`,
-      '-map',
-      '[vout]',
-      '-map',
-      '0:a?',
-    );
-  } else {
-    args.push('-vf', baseFilters.join(','), '-map', '0:v:0', '-map', '0:a?');
+  const parts = [`[0:v]${baseFilters.join(',')}[v0]`];
+  for (let index = 0; index < overlayFiles.length; index += 1) {
+    const item = timeline[index];
+    const start = Math.min(item.end, item.start + 0.35).toFixed(2);
+    const end = Math.min(item.end - 0.15, item.start + 4.7).toFixed(2);
+    if (Number(end) <= Number(start)) continue;
+    const inputLabel = `[${index + 1}:v]`;
+    const previous = `[v${index}]`;
+    const next = index === overlayFiles.length - 1 ? '[vout]' : `[v${index + 1}]`;
+    parts.push(`${previous}${inputLabel}overlay=x=0:y=0:enable='between(t\\,${start}\\,${end})'${next}`);
   }
+  args.push('-filter_complex', parts.join(';'), '-map', '[vout]', '-map', '0:a?');
   args.push('-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', out);
 
   const result = await run('ffmpeg', args);
@@ -149,6 +246,7 @@ async function main() {
     scenesPath,
     duration,
     timeline,
+    overlayFiles,
     ffmpeg: {
       ok: result.ok,
       status: result.status,
