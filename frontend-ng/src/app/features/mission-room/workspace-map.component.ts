@@ -200,19 +200,42 @@ const OCTOCITY_CARTO_DARK_STYLE = {
     },
   ],
 };
+const OCTOCITY_CONTEXT_CITIES = [
+  { id: 'paris', name: 'Paris', coordinates: [2.3522, 48.8566], weight: 96, kind: 'coordination' },
+  { id: 'lille', name: 'Lille', coordinates: [3.0573, 50.6292], weight: 78, kind: 'news_flow' },
+  { id: 'rennes', name: 'Rennes', coordinates: [-1.6778, 48.1173], weight: 73, kind: 'field_ops' },
+  { id: 'nantes', name: 'Nantes', coordinates: [-1.5536, 47.2184], weight: 82, kind: 'logistics' },
+  { id: 'bordeaux', name: 'Bordeaux', coordinates: [-0.5792, 44.8378], weight: 77, kind: 'field_ops' },
+  { id: 'toulouse', name: 'Toulouse', coordinates: [1.4442, 43.6047], weight: 74, kind: 'industry' },
+  { id: 'lyon', name: 'Lyon', coordinates: [4.8357, 45.764], weight: 86, kind: 'operations' },
+  { id: 'marseille', name: 'Marseille', coordinates: [5.3698, 43.2965], weight: 88, kind: 'port' },
+  { id: 'nice', name: 'Nice', coordinates: [7.262, 43.7102], weight: 70, kind: 'field_ops' },
+  { id: 'strasbourg', name: 'Strasbourg', coordinates: [7.7521, 48.5734], weight: 79, kind: 'coordination' },
+];
+const OCTOCITY_CITY_FEATURES = OCTOCITY_CONTEXT_CITIES.map((city) => ({
+  type: 'Feature',
+  id: `city-${city.id}`,
+  geometry: { type: 'Point', coordinates: city.coordinates },
+  properties: {
+    name: city.name,
+    scope: 'regional',
+    weight: city.weight,
+    kind: city.kind,
+  },
+}));
 const OCTOCITY_MAP_SYSTEM = {
   renderer_config: {
     renderer: 'maplibre',
     default_basemap: 'administrative',
     style: OCTOCITY_CARTO_VOYAGER_STYLE,
     initial_view_state: {
-      longitude: 2.35,
-      latitude: 46.55,
-      zoom: 5.35,
+      longitude: 2.45,
+      latitude: 46.75,
+      zoom: 6.08,
       pitch: 0,
       bearing: 0,
     },
-    bounds: [[-5.9, 41.2], [8.8, 51.4]],
+    bounds: [[-5.65, 42.25], [8.45, 50.95]],
     attribution: 'Fond OSM/CARTO · France operating room · synthetic Agentium signals',
   },
   basemap_options: [
@@ -222,56 +245,26 @@ const OCTOCITY_MAP_SYSTEM = {
   ],
   default_map_state: {
     basemap: 'administrative',
-    active_layers: ['territorial-risk', 'open-intelligence', 'regional-context', 'preventive-actions'],
+    active_layers: ['open-intelligence', 'regional-context', 'preventive-actions', 'agenda-windows'],
     selected_zone: 'zone-nord',
-    camera: { longitude: 2.35, latitude: 46.55, zoom: 5.35, pitch: 0, bearing: 0, duration_ms: 900 },
+    camera: { longitude: 2.45, latitude: 46.75, zoom: 6.08, pitch: 0, bearing: 0, duration_ms: 900 },
   },
   layer_registry: [
-    { key: 'territorial-risk', label: 'Operating zones', short_label: 'Zones', tone: 'cyan', count: 5, confidence: 82, visible: true },
+    { key: 'territorial-risk', label: 'Decision heatmap', short_label: 'Heatmap', tone: 'cyan', count: 5, confidence: 82, visible: true },
     { key: 'open-intelligence', label: 'News signals', short_label: 'News', tone: 'blue', count: 5, confidence: 76, visible: true },
-    { key: 'regional-context', label: 'Coordination points', short_label: 'Coordination', tone: 'orange', count: 5, confidence: 74, visible: true },
+    { key: 'regional-context', label: 'Coordination points', short_label: 'Coordination', tone: 'orange', count: 10, confidence: 74, visible: true },
+    { key: 'agenda-windows', label: 'Executive windows', short_label: 'Agenda', tone: 'amber', count: 4, confidence: 84, visible: true },
     { key: 'preventive-actions', label: 'Recommended actions', short_label: 'Actions', tone: 'red', count: 4, confidence: 78, visible: true },
   ],
   country_boundary: EMPTY_FEATURE_COLLECTION,
   district_boundaries: EMPTY_FEATURE_COLLECTION,
   admin_boundaries: EMPTY_FEATURE_COLLECTION,
-  cities: EMPTY_FEATURE_COLLECTION,
+  cities: {
+    type: 'FeatureCollection',
+    features: OCTOCITY_CITY_FEATURES,
+  },
   geojson_sources: {
-    zones: {
-      type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          id: 'zone-nord',
-          geometry: { type: 'Polygon', coordinates: [[[-1.55, 48.6], [1.4, 50.35], [5.25, 49.45], [6.55, 47.85], [3.85, 46.9], [0.45, 47.35], [-1.55, 48.6]]] },
-          properties: { id: 'zone-nord', name: 'Northern Arc', level: 72, tone: 'watch' },
-        },
-        {
-          type: 'Feature',
-          id: 'zone-ouest',
-          geometry: { type: 'Polygon', coordinates: [[[-5.2, 48.45], [-1.55, 48.6], [0.45, 47.35], [0.0, 44.65], [-1.35, 43.45], [-4.75, 45.45], [-5.2, 48.45]]] },
-          properties: { id: 'zone-ouest', name: 'Atlantic Corridor', level: 61, tone: 'stable' },
-        },
-        {
-          type: 'Feature',
-          id: 'zone-centre',
-          geometry: { type: 'Polygon', coordinates: [[[0.45, 47.35], [3.85, 46.9], [5.05, 45.0], [3.15, 43.85], [0.0, 44.65], [0.45, 47.35]]] },
-          properties: { id: 'zone-centre', name: 'Central Hub', level: 68, tone: 'watch' },
-        },
-        {
-          type: 'Feature',
-          id: 'zone-est',
-          geometry: { type: 'Polygon', coordinates: [[[5.25, 49.45], [7.95, 49.0], [7.45, 47.25], [6.35, 45.75], [5.05, 45.0], [3.85, 46.9], [6.55, 47.85], [5.25, 49.45]]] },
-          properties: { id: 'zone-est', name: 'Rhine Interface', level: 58, tone: 'stable' },
-        },
-        {
-          type: 'Feature',
-          id: 'zone-sud',
-          geometry: { type: 'Polygon', coordinates: [[[-1.35, 43.45], [0.0, 44.65], [3.15, 43.85], [6.35, 45.75], [7.4, 43.6], [5.3, 42.42], [1.8, 42.52], [-1.0, 43.1], [-1.35, 43.45]]] },
-          properties: { id: 'zone-sud', name: 'Mediterranean Gate', level: 76, tone: 'critical' },
-        },
-      ],
-    },
+    zones: EMPTY_FEATURE_COLLECTION,
     markers: {
       type: 'FeatureCollection',
       features: [
@@ -285,29 +278,33 @@ const OCTOCITY_MAP_SYSTEM = {
     context_markers: {
       type: 'FeatureCollection',
       features: [
-        { type: 'Feature', id: 'context-paris', geometry: { type: 'Point', coordinates: [2.35, 48.86] }, properties: { name: 'Paris', scope: 'regional', weight: 95, kind: 'coordination' } },
-        { type: 'Feature', id: 'context-lyon', geometry: { type: 'Point', coordinates: [4.84, 45.76] }, properties: { name: 'Lyon', scope: 'regional', weight: 80, kind: 'operations' } },
-        { type: 'Feature', id: 'context-marseille', geometry: { type: 'Point', coordinates: [5.37, 43.3] }, properties: { name: 'Marseille', scope: 'regional', weight: 84, kind: 'port' } },
+        ...OCTOCITY_CITY_FEATURES,
       ],
     },
     context_lines: {
       type: 'FeatureCollection',
       features: [
-        { type: 'Feature', id: 'line-paris-lyon', geometry: { type: 'LineString', coordinates: [[2.35, 48.86], [4.84, 45.76]] }, properties: { name: 'Paris-Lyon decision axis', tone: 'regional' } },
-        { type: 'Feature', id: 'line-lyon-marseille', geometry: { type: 'LineString', coordinates: [[4.84, 45.76], [5.37, 43.3]] }, properties: { name: 'Rhone corridor', tone: 'watch' } },
+        { type: 'Feature', id: 'line-paris-lyon', geometry: { type: 'LineString', coordinates: [[2.3522, 48.8566], [4.8357, 45.764]] }, properties: { name: 'Paris-Lyon decision axis', tone: 'regional' } },
+        { type: 'Feature', id: 'line-lyon-marseille', geometry: { type: 'LineString', coordinates: [[4.8357, 45.764], [5.3698, 43.2965]] }, properties: { name: 'Rhone corridor', tone: 'watch' } },
+        { type: 'Feature', id: 'line-paris-lille', geometry: { type: 'LineString', coordinates: [[2.3522, 48.8566], [3.0573, 50.6292]] }, properties: { name: 'Northern coordination link', tone: 'regional' } },
+        { type: 'Feature', id: 'line-paris-strasbourg', geometry: { type: 'LineString', coordinates: [[2.3522, 48.8566], [7.7521, 48.5734]] }, properties: { name: 'Eastern interface link', tone: 'regional' } },
+        { type: 'Feature', id: 'line-atlantic-paris', geometry: { type: 'LineString', coordinates: [[-1.5536, 47.2184], [2.3522, 48.8566]] }, properties: { name: 'Atlantic logistics link', tone: 'watch' } },
       ],
     },
     event_points: {
       type: 'FeatureCollection',
       features: [
-        { type: 'Feature', id: 'news-paris-001', geometry: { type: 'Point', coordinates: [2.35, 48.86] }, properties: { name: 'Executive brief cluster', layer_key: 'open-intelligence', score: 72, source_kind: 'news_flow' } },
-        { type: 'Feature', id: 'action-lyon-001', geometry: { type: 'Point', coordinates: [4.84, 45.76] }, properties: { name: 'Human review queue', layer_key: 'preventive-actions', score: 68, source_kind: 'decision_queue' } },
-        { type: 'Feature', id: 'news-marseille-001', geometry: { type: 'Point', coordinates: [5.37, 43.3] }, properties: { name: 'Port capacity watch', layer_key: 'open-intelligence', score: 76, source_kind: 'signal_cluster' } },
+        { type: 'Feature', id: 'news-paris-001', geometry: { type: 'Point', coordinates: [2.3522, 48.8566] }, properties: { name: 'Executive brief cluster', layer_key: 'open-intelligence', score: 72, source_kind: 'news_flow' } },
+        { type: 'Feature', id: 'action-lyon-001', geometry: { type: 'Point', coordinates: [4.8357, 45.764] }, properties: { name: 'Human review queue', layer_key: 'preventive-actions', score: 68, source_kind: 'decision_queue' } },
+        { type: 'Feature', id: 'news-marseille-001', geometry: { type: 'Point', coordinates: [5.3698, 43.2965] }, properties: { name: 'Port capacity watch', layer_key: 'open-intelligence', score: 76, source_kind: 'signal_cluster' } },
+        { type: 'Feature', id: 'agenda-lille-001', geometry: { type: 'Point', coordinates: [3.0573, 50.6292] }, properties: { name: 'Cabinet slot', layer_key: 'agenda-windows', score: 66, source_kind: 'executive_calendar' } },
+        { type: 'Feature', id: 'news-nantes-001', geometry: { type: 'Point', coordinates: [-1.5536, 47.2184] }, properties: { name: 'Logistics signal', layer_key: 'open-intelligence', score: 64, source_kind: 'field_digest' } },
+        { type: 'Feature', id: 'action-strasbourg-001', geometry: { type: 'Point', coordinates: [7.7521, 48.5734] }, properties: { name: 'Coordination request', layer_key: 'preventive-actions', score: 62, source_kind: 'decision_queue' } },
       ],
     },
   },
   camera_presets: {
-    country: { longitude: 2.35, latitude: 46.55, zoom: 5.35, pitch: 0, bearing: 0, duration_ms: 900 },
+    country: { longitude: 2.45, latitude: 46.75, zoom: 6.08, pitch: 0, bearing: 0, duration_ms: 900 },
     'zone-nord': { longitude: 2.8, latitude: 48.55, zoom: 6.45, pitch: 0, bearing: 0, duration_ms: 850 },
     'zone-ouest': { longitude: -1.7, latitude: 46.3, zoom: 6.15, pitch: 0, bearing: 0, duration_ms: 850 },
     'zone-centre': { longitude: 3.25, latitude: 45.75, zoom: 6.45, pitch: 0, bearing: 0, duration_ms: 850 },
@@ -316,8 +313,10 @@ const OCTOCITY_MAP_SYSTEM = {
   },
   visual_effects: {
     arc_links: [
-      { source: [2.35, 48.86], target: [4.84, 45.76], tone: 'watch', level: 68 },
-      { source: [4.84, 45.76], target: [5.37, 43.3], tone: 'critical', level: 76 },
+      { source: [2.3522, 48.8566], target: [4.8357, 45.764], tone: 'watch', level: 68 },
+      { source: [4.8357, 45.764], target: [5.3698, 43.2965], tone: 'critical', level: 76 },
+      { source: [2.3522, 48.8566], target: [3.0573, 50.6292], tone: 'watch', level: 62 },
+      { source: [-1.5536, 47.2184], target: [2.3522, 48.8566], tone: 'stable', level: 58 },
     ],
   },
 };
@@ -522,7 +521,7 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
         @if (briefOpen && selectedBriefZone(); as zone) {
           <article class="map-brief-popup" (click)="$event.stopPropagation()">
             <header>
-              <span>Brief operationnel</span>
+              <span>{{ operationalBriefLabel }}</span>
               <button type="button" (click)="closeBrief()">{{ closeBriefLabel }}</button>
             </header>
             <strong>{{ zone.name }}</strong>
@@ -634,7 +633,7 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
       }
 
       <div class="map-hud">
-        <span>Zone prioritaire</span>
+        <span>{{ priorityHudLabel }}</span>
         <strong>{{ selectedZoneLabel }}</strong>
         <em>{{ selectedZoneLevel }}%</em>
       </div>
@@ -1807,6 +1806,14 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     return this.isOctocityMode ? 'Close' : 'Fermer';
   }
 
+  get operationalBriefLabel(): string {
+    return this.isOctocityMode ? 'Operational brief' : 'Brief operationnel';
+  }
+
+  get priorityHudLabel(): string {
+    return this.isOctocityMode ? 'Priority signal' : 'Zone prioritaire';
+  }
+
   get fallbackBriefRecommendation(): string {
     return this.isOctocityMode ? 'Qualify evidence, then prepare a governed review.' : 'Qualifier puis preparer arbitrage.';
   }
@@ -2238,9 +2245,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const bounds = mapSystem?.['renderer_config']?.bounds || [[-8.65, 4.2], [-2.45, 10.75]];
     const preset = mapSystem?.['default_map_state']?.camera || mapSystem?.['camera_presets']?.country;
     if (this.isOctocityMode && preset) {
+      const presetZoom = Number(preset.zoom ?? 6.08);
       this.mapInstance.easeTo({
         center: [preset.longitude, preset.latitude],
-        zoom: this.compact ? 4.9 : 5.82,
+        zoom: this.compact ? 5.05 : presetZoom,
         pitch: 0,
         bearing: 0,
         duration,
@@ -2908,7 +2916,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   private emitDeckZone(zoneId: string | undefined): void {
     if (!zoneId) return;
-    const zone = this.zones.find((item) => item.id === zoneId);
+    const zone = this.renderedZones.find((item) => item.id === zoneId);
     if (zone) this.selectZone(zone);
   }
 

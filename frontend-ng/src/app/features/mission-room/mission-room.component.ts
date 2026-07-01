@@ -6008,7 +6008,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   strategicMapQuestion(): string {
     if (this.missionBrandStyle() === 'agentium') {
-      return 'Which France operating zones require a governed decision this month?';
+      return 'Which real-world signals require a governed decision this month?';
     }
     return this.missionMap()?.question || '';
   }
