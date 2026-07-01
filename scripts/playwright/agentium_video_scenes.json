@@ -161,10 +161,11 @@
       "metric": { "label": "Operational posture", "value": "Signals become places", "trend": "MAP" }
     },
     "actions": [
-      { "type": "click", "selector": ".octocity-zone", "waitMs": 1800, "optional": true }
+      { "type": "click", "selector": ".map-zoom-controls button[aria-label=\"Zoom avant\"]", "waitMs": 900, "optional": true },
+      { "type": "click", "selector": ".map-zoom-controls button[aria-label=\"Zoom arrière\"]", "waitMs": 900, "optional": true }
     ],
     "waitMs": 14000,
-    "softChecks": ["France", "Paris", "Marseille", "Atlantic Ocean"],
+    "softChecks": ["France", "Octocity"],
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {

@@ -139,6 +139,188 @@ const OCTOCITY_CITY_MARKERS: OctocityCityMarker[] = [
   { name: 'Strasbourg', x: 532, y: 190, labelX: 542, labelY: 186 },
   { name: 'Brest', x: 140, y: 206, labelX: 96, labelY: 206 },
 ];
+const EMPTY_FEATURE_COLLECTION = { type: 'FeatureCollection', features: [] } as const;
+const OCTOCITY_CARTO_VOYAGER_STYLE = {
+  version: 8,
+  sources: {
+    'carto-voyager-france': {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      attribution: 'OpenStreetMap contributors / CARTO',
+    },
+  },
+  layers: [
+    { id: 'octocity-background', type: 'background', paint: { 'background-color': '#dce6ea' } },
+    {
+      id: 'carto-voyager-france-base',
+      type: 'raster',
+      source: 'carto-voyager-france',
+      paint: {
+        'raster-opacity': 0.98,
+        'raster-saturation': -0.04,
+        'raster-contrast': 0.04,
+      },
+    },
+  ],
+};
+const OCTOCITY_CARTO_DARK_STYLE = {
+  version: 8,
+  sources: {
+    'carto-dark-france': {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      attribution: 'OpenStreetMap contributors / CARTO',
+    },
+  },
+  layers: [
+    { id: 'octocity-dark-background', type: 'background', paint: { 'background-color': '#060b10' } },
+    {
+      id: 'carto-dark-france-base',
+      type: 'raster',
+      source: 'carto-dark-france',
+      paint: {
+        'raster-opacity': 0.95,
+        'raster-brightness-min': 0,
+        'raster-brightness-max': 0.9,
+        'raster-saturation': -0.12,
+        'raster-contrast': 0.15,
+      },
+    },
+  ],
+};
+const OCTOCITY_MAP_SYSTEM = {
+  renderer_config: {
+    renderer: 'maplibre',
+    default_basemap: 'administrative',
+    style: OCTOCITY_CARTO_VOYAGER_STYLE,
+    initial_view_state: {
+      longitude: 2.35,
+      latitude: 46.55,
+      zoom: 5.35,
+      pitch: 0,
+      bearing: 0,
+    },
+    bounds: [[-5.9, 41.2], [8.8, 51.4]],
+    attribution: 'Fond OSM/CARTO · France operating room · synthetic Agentium signals',
+  },
+  basemap_options: [
+    { key: 'administrative', label: 'Real map', style: OCTOCITY_CARTO_VOYAGER_STYLE },
+    { key: 'command', label: 'Command', style: OCTOCITY_CARTO_DARK_STYLE },
+    { key: 'dark', label: 'Dark', style: OCTOCITY_CARTO_DARK_STYLE },
+  ],
+  default_map_state: {
+    basemap: 'administrative',
+    active_layers: ['territorial-risk', 'open-intelligence', 'regional-context', 'preventive-actions'],
+    selected_zone: 'zone-nord',
+    camera: { longitude: 2.35, latitude: 46.55, zoom: 5.35, pitch: 0, bearing: 0, duration_ms: 900 },
+  },
+  layer_registry: [
+    { key: 'territorial-risk', label: 'Operating zones', short_label: 'Zones', tone: 'cyan', count: 5, confidence: 82, visible: true },
+    { key: 'open-intelligence', label: 'News signals', short_label: 'News', tone: 'blue', count: 5, confidence: 76, visible: true },
+    { key: 'regional-context', label: 'Coordination points', short_label: 'Coordination', tone: 'orange', count: 5, confidence: 74, visible: true },
+    { key: 'preventive-actions', label: 'Recommended actions', short_label: 'Actions', tone: 'red', count: 4, confidence: 78, visible: true },
+  ],
+  country_boundary: EMPTY_FEATURE_COLLECTION,
+  district_boundaries: EMPTY_FEATURE_COLLECTION,
+  admin_boundaries: EMPTY_FEATURE_COLLECTION,
+  cities: EMPTY_FEATURE_COLLECTION,
+  geojson_sources: {
+    zones: {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          id: 'zone-nord',
+          geometry: { type: 'Polygon', coordinates: [[[-1.55, 48.6], [1.4, 50.35], [5.25, 49.45], [6.55, 47.85], [3.85, 46.9], [0.45, 47.35], [-1.55, 48.6]]] },
+          properties: { id: 'zone-nord', name: 'Northern Arc', level: 72, tone: 'watch' },
+        },
+        {
+          type: 'Feature',
+          id: 'zone-ouest',
+          geometry: { type: 'Polygon', coordinates: [[[-5.2, 48.45], [-1.55, 48.6], [0.45, 47.35], [0.0, 44.65], [-1.35, 43.45], [-4.75, 45.45], [-5.2, 48.45]]] },
+          properties: { id: 'zone-ouest', name: 'Atlantic Corridor', level: 61, tone: 'stable' },
+        },
+        {
+          type: 'Feature',
+          id: 'zone-centre',
+          geometry: { type: 'Polygon', coordinates: [[[0.45, 47.35], [3.85, 46.9], [5.05, 45.0], [3.15, 43.85], [0.0, 44.65], [0.45, 47.35]]] },
+          properties: { id: 'zone-centre', name: 'Central Hub', level: 68, tone: 'watch' },
+        },
+        {
+          type: 'Feature',
+          id: 'zone-est',
+          geometry: { type: 'Polygon', coordinates: [[[5.25, 49.45], [7.95, 49.0], [7.45, 47.25], [6.35, 45.75], [5.05, 45.0], [3.85, 46.9], [6.55, 47.85], [5.25, 49.45]]] },
+          properties: { id: 'zone-est', name: 'Rhine Interface', level: 58, tone: 'stable' },
+        },
+        {
+          type: 'Feature',
+          id: 'zone-sud',
+          geometry: { type: 'Polygon', coordinates: [[[-1.35, 43.45], [0.0, 44.65], [3.15, 43.85], [6.35, 45.75], [7.4, 43.6], [5.3, 42.42], [1.8, 42.52], [-1.0, 43.1], [-1.35, 43.45]]] },
+          properties: { id: 'zone-sud', name: 'Mediterranean Gate', level: 76, tone: 'critical' },
+        },
+      ],
+    },
+    markers: {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', id: 'zone-nord-marker', geometry: { type: 'Point', coordinates: [2.35, 48.86] }, properties: { zone_id: 'zone-nord', name: 'Northern Arc', level: 72, tone: 'watch' } },
+        { type: 'Feature', id: 'zone-ouest-marker', geometry: { type: 'Point', coordinates: [-1.55, 47.22] }, properties: { zone_id: 'zone-ouest', name: 'Atlantic Corridor', level: 61, tone: 'stable' } },
+        { type: 'Feature', id: 'zone-centre-marker', geometry: { type: 'Point', coordinates: [3.08, 45.78] }, properties: { zone_id: 'zone-centre', name: 'Central Hub', level: 68, tone: 'watch' } },
+        { type: 'Feature', id: 'zone-est-marker', geometry: { type: 'Point', coordinates: [7.75, 48.58] }, properties: { zone_id: 'zone-est', name: 'Rhine Interface', level: 58, tone: 'stable' } },
+        { type: 'Feature', id: 'zone-sud-marker', geometry: { type: 'Point', coordinates: [5.37, 43.3] }, properties: { zone_id: 'zone-sud', name: 'Mediterranean Gate', level: 76, tone: 'critical' } },
+      ],
+    },
+    context_markers: {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', id: 'context-paris', geometry: { type: 'Point', coordinates: [2.35, 48.86] }, properties: { name: 'Paris', scope: 'regional', weight: 95, kind: 'coordination' } },
+        { type: 'Feature', id: 'context-lyon', geometry: { type: 'Point', coordinates: [4.84, 45.76] }, properties: { name: 'Lyon', scope: 'regional', weight: 80, kind: 'operations' } },
+        { type: 'Feature', id: 'context-marseille', geometry: { type: 'Point', coordinates: [5.37, 43.3] }, properties: { name: 'Marseille', scope: 'regional', weight: 84, kind: 'port' } },
+      ],
+    },
+    context_lines: {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', id: 'line-paris-lyon', geometry: { type: 'LineString', coordinates: [[2.35, 48.86], [4.84, 45.76]] }, properties: { name: 'Paris-Lyon decision axis', tone: 'regional' } },
+        { type: 'Feature', id: 'line-lyon-marseille', geometry: { type: 'LineString', coordinates: [[4.84, 45.76], [5.37, 43.3]] }, properties: { name: 'Rhone corridor', tone: 'watch' } },
+      ],
+    },
+    event_points: {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', id: 'news-paris-001', geometry: { type: 'Point', coordinates: [2.35, 48.86] }, properties: { name: 'Executive brief cluster', layer_key: 'open-intelligence', score: 72, source_kind: 'news_flow' } },
+        { type: 'Feature', id: 'action-lyon-001', geometry: { type: 'Point', coordinates: [4.84, 45.76] }, properties: { name: 'Human review queue', layer_key: 'preventive-actions', score: 68, source_kind: 'decision_queue' } },
+        { type: 'Feature', id: 'news-marseille-001', geometry: { type: 'Point', coordinates: [5.37, 43.3] }, properties: { name: 'Port capacity watch', layer_key: 'open-intelligence', score: 76, source_kind: 'signal_cluster' } },
+      ],
+    },
+  },
+  camera_presets: {
+    country: { longitude: 2.35, latitude: 46.55, zoom: 5.35, pitch: 0, bearing: 0, duration_ms: 900 },
+    'zone-nord': { longitude: 2.8, latitude: 48.55, zoom: 6.45, pitch: 0, bearing: 0, duration_ms: 850 },
+    'zone-ouest': { longitude: -1.7, latitude: 46.3, zoom: 6.15, pitch: 0, bearing: 0, duration_ms: 850 },
+    'zone-centre': { longitude: 3.25, latitude: 45.75, zoom: 6.45, pitch: 0, bearing: 0, duration_ms: 850 },
+    'zone-est': { longitude: 6.5, latitude: 47.6, zoom: 6.2, pitch: 0, bearing: 0, duration_ms: 850 },
+    'zone-sud': { longitude: 4.45, latitude: 43.35, zoom: 6.35, pitch: 0, bearing: 0, duration_ms: 850 },
+  },
+  visual_effects: {
+    arc_links: [
+      { source: [2.35, 48.86], target: [4.84, 45.76], tone: 'watch', level: 68 },
+      { source: [4.84, 45.76], target: [5.37, 43.3], tone: 'critical', level: 76 },
+    ],
+  },
+};
 const OCTOCITY_FRANCE_ZONES: MapZone[] = [
   {
     id: 'zone-nord',
@@ -1479,7 +1661,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private atlanticPulseTimer: ReturnType<typeof setInterval> | null = null;
 
   get layerControls(): MapLayerControl[] {
-    const catalog = this.mapSystem?.['layer_registry'] || this.mapSystem?.['layer_catalog'];
+    const mapSystem = this.effectiveMapSystem;
+    const catalog = mapSystem?.['layer_registry'] || mapSystem?.['layer_catalog'];
     if (Array.isArray(catalog) && catalog.length) {
       const controls = catalog.map((layer: any) => ({
         key: String(layer.key || ''),
@@ -1538,7 +1721,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   get basemapOptions(): BasemapOption[] {
-    const options = this.mapSystem?.['basemap_options'];
+    const options = this.effectiveMapSystem?.['basemap_options'];
     if (Array.isArray(options) && options.length) {
       return options.map((item: any) => ({
         key: String(item.key || ''),
@@ -1565,7 +1748,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   get mapAttribution(): string {
     if (this.isOctocityMode) return 'France operating room · synthetic Agentium map';
-    return this.mapSystem?.['renderer_config']?.attribution || 'Couches Agentium workspace';
+    return this.effectiveMapSystem?.['renderer_config']?.attribution || 'Couches Agentium workspace';
   }
 
   get resetMapLabel(): string {
@@ -1634,6 +1817,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   get isOctocityMode(): boolean {
     return String(this.assistantName || '').toUpperCase() === 'OCTAVE';
+  }
+
+  get effectiveMapSystem(): Record<string, any> | null {
+    return this.isOctocityMode ? OCTOCITY_MAP_SYSTEM : this.mapSystem;
   }
 
   get renderedZones(): MapZone[] {
@@ -1790,11 +1977,8 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   private async bootstrapRenderer(): Promise<void> {
     this.syncStateFromMapPayload();
-    if (this.isOctocityMode) {
-      this.enableFallback();
-      return;
-    }
-    const renderer = this.mapSystem?.['renderer_config']?.renderer;
+    const mapSystem = this.effectiveMapSystem;
+    const renderer = mapSystem?.['renderer_config']?.renderer;
     if (renderer && renderer !== 'maplibre') {
       this.enableFallback();
       return;
@@ -1809,10 +1993,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
       this.deckLayersModule = await import('@deck.gl/layers');
       const mapCtor = (maplibre as any).Map || (maplibre as any).default?.Map;
       const overlayCtor = (deckMapbox as any).MapboxOverlay;
-      const view = this.mapSystem?.['renderer_config']?.initial_view_state || {};
+      const view = mapSystem?.['renderer_config']?.initial_view_state || {};
       this.mapInstance = new mapCtor({
         container: this.mapCanvas.nativeElement,
-        style: this.currentBasemapStyle() || this.mapSystem?.['renderer_config']?.style || this.defaultStyle(),
+        style: this.currentBasemapStyle() || mapSystem?.['renderer_config']?.style || this.defaultStyle(),
         center: [view.longitude ?? -5.45, view.latitude ?? 7.58],
         zoom: view.zoom ?? (this.compact ? 4.9 : 5.7),
         pitch: this.compact ? 0 : (view.pitch ?? 0),
@@ -1849,8 +2033,12 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   private syncStateFromMapPayload(): void {
-    const defaultState = this.mapSystem?.['default_map_state'] || {};
-    const basemap = String(defaultState.basemap || this.mapSystem?.['renderer_config']?.default_basemap || 'administrative');
+    const mapSystem = this.effectiveMapSystem;
+    const defaultState = mapSystem?.['default_map_state'] || {};
+    const basemap = String(defaultState.basemap || mapSystem?.['renderer_config']?.default_basemap || 'administrative');
+    if (this.isOctocityMode && !this.layerStateInitialized) {
+      this.selectedBasemapKey = basemap;
+    }
     if (!this.basemapOptions.some((option) => option.key === this.selectedBasemapKey)) {
       this.selectedBasemapKey = basemap;
     } else if (!this.selectedBasemapKey) {
@@ -2046,8 +2234,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   private fitCountry(duration = 320): void {
     if (!this.mapInstance || this.shouldPreserveUserZoom()) return;
-    const bounds = this.mapSystem?.['renderer_config']?.bounds || [[-8.65, 4.2], [-2.45, 10.75]];
-    const preset = this.mapSystem?.['default_map_state']?.camera || this.mapSystem?.['camera_presets']?.country;
+    const mapSystem = this.effectiveMapSystem;
+    const bounds = mapSystem?.['renderer_config']?.bounds || [[-8.65, 4.2], [-2.45, 10.75]];
+    const preset = mapSystem?.['default_map_state']?.camera || mapSystem?.['camera_presets']?.country;
     try {
       this.mapInstance.fitBounds(bounds, {
         padding: this.compact
@@ -2072,20 +2261,21 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   private buildDeckLayers(): any[] {
     if (!this.deckLayersModule) return [];
     const { GeoJsonLayer, ScatterplotLayer, ArcLayer, TextLayer, IconLayer } = this.deckLayersModule;
-    const zonesSource = this.mapSystem?.['geojson_sources']?.zones;
-    const markersSource = this.mapSystem?.['geojson_sources']?.markers;
-    const contextMarkersSource = this.mapSystem?.['geojson_sources']?.context_markers;
-    const contextLinesSource = this.mapSystem?.['geojson_sources']?.context_lines;
-    const eventPointsSource = this.mapSystem?.['geojson_sources']?.event_points || this.mapSystem?.['event_points'];
-    const maritimeAreaSource = this.mapSystem?.['geojson_sources']?.maritime_area;
-    const maritimePointsSource = this.mapSystem?.['geojson_sources']?.maritime_points;
-    const maritimeRoutesSource = this.mapSystem?.['geojson_sources']?.maritime_routes;
-    const maritimeDensitySource = this.mapSystem?.['geojson_sources']?.maritime_density;
-    const countryBoundarySource = this.mapSystem?.['country_boundary'];
-    const districtBoundariesSource = this.mapSystem?.['district_boundaries'];
-    const adminBoundariesSource = this.mapSystem?.['admin_boundaries'];
-    const citiesSource = this.mapSystem?.['cities'];
-    const arcs = this.mapSystem?.['visual_effects']?.arc_links || [];
+    const mapSystem = this.effectiveMapSystem;
+    const zonesSource = mapSystem?.['geojson_sources']?.zones;
+    const markersSource = mapSystem?.['geojson_sources']?.markers;
+    const contextMarkersSource = mapSystem?.['geojson_sources']?.context_markers;
+    const contextLinesSource = mapSystem?.['geojson_sources']?.context_lines;
+    const eventPointsSource = mapSystem?.['geojson_sources']?.event_points || mapSystem?.['event_points'];
+    const maritimeAreaSource = mapSystem?.['geojson_sources']?.maritime_area;
+    const maritimePointsSource = mapSystem?.['geojson_sources']?.maritime_points;
+    const maritimeRoutesSource = mapSystem?.['geojson_sources']?.maritime_routes;
+    const maritimeDensitySource = mapSystem?.['geojson_sources']?.maritime_density;
+    const countryBoundarySource = mapSystem?.['country_boundary'];
+    const districtBoundariesSource = mapSystem?.['district_boundaries'];
+    const adminBoundariesSource = mapSystem?.['admin_boundaries'];
+    const citiesSource = mapSystem?.['cities'];
+    const arcs = mapSystem?.['visual_effects']?.arc_links || [];
     const currentZoom = Number(this.mapInstance?.getZoom?.() || 0);
     const allCityFeatures = citiesSource?.features || [];
     const zoneMarkerFeatures = markersSource?.features || [];
@@ -2105,9 +2295,9 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const showSocialGeo = this.isLayerActive('social-geo');
     const showMilitaryAir = this.isLayerActive('military-air');
     const showBorderTension = this.isLayerActive('border-tension');
-    const socialGeoSource = this.mapSystem?.['geojson_sources']?.social_geo;
-    const militaryAirSource = this.mapSystem?.['geojson_sources']?.military_air;
-    const borderTensionSource = this.mapSystem?.['geojson_sources']?.border_tension;
+    const socialGeoSource = mapSystem?.['geojson_sources']?.social_geo;
+    const militaryAirSource = mapSystem?.['geojson_sources']?.military_air;
+    const borderTensionSource = mapSystem?.['geojson_sources']?.border_tension;
     const eventFeatures = eventPointsSource?.features || [];
     const cityFeatures = allCityFeatures
       .filter((feature: any) => {
@@ -2691,9 +2881,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   private focusSelectedZone(): void {
     if (!this.mapInstance) return;
+    const mapSystem = this.effectiveMapSystem;
     const preset = this.compact
-      ? this.mapSystem?.['camera_presets']?.country
-      : this.mapSystem?.['camera_presets']?.[this.selectedZoneId || 'country'];
+      ? mapSystem?.['camera_presets']?.country
+      : mapSystem?.['camera_presets']?.[this.selectedZoneId || 'country'];
     if (!preset) return;
     this.mapInstance.easeTo({
       center: [preset.longitude, preset.latitude],
@@ -2791,6 +2982,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   private deckColor(tone: string, selected = false, hovered = false, zoneId?: string, alphaBoost = 0): number[] {
     let alpha = this.zoneFillAlpha(tone) + alphaBoost;
+    if (this.isOctocityMode) alpha = Math.round(alpha * 0.58);
     if (zoneId === 'zone-nord' || (tone === 'critical' && zoneId !== 'zone-sud')) {
       const pulse = 0.88 + 0.12 * Math.sin(this.zonePulsePhase * Math.PI * 2);
       alpha = Math.round(alpha * pulse);
@@ -2801,6 +2993,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   private deckLineColor(tone: string, selected = false, hovered = false): number[] {
+    if (this.isOctocityMode) {
+      if (tone === 'critical') return [220, 38, 38, selected ? 210 : hovered ? 180 : 132];
+      if (tone === 'watch' || tone === 'elevated' || tone === 'monitoring') return [217, 119, 6, selected ? 190 : hovered ? 160 : 118];
+      return [22, 101, 52, selected ? 170 : hovered ? 140 : 108];
+    }
     if (tone === 'critical') {
       const glow = selected ? 255 : hovered ? 220 : 200;
       return [248, 113, 113, glow];
@@ -2816,6 +3013,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   private zoneFillAlpha(tone: string): number {
+    if (this.isOctocityMode) {
+      if (tone === 'critical') return Math.round(0.17 * 255);
+      if (tone === 'watch' || tone === 'elevated' || tone === 'monitoring') return Math.round(0.14 * 255);
+      return Math.round(0.11 * 255);
+    }
     if (tone === 'critical') return Math.round(0.28 * 255);
     if (tone === 'watch' || tone === 'elevated' || tone === 'monitoring') return Math.round(0.20 * 255);
     return Math.round(0.18 * 255);
