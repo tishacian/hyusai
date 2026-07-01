@@ -1,50 +1,42 @@
 [
   {
-    "id": "01-cold-open",
-    "text": "This is not a dashboard. It is a mission room where intelligent systems turn signals into governed decisions, with an assistant that keeps context, evidence and action in the same operating layer."
+    "id": "01-agentium-operating-system",
+    "text": "Agentium is Datategy's sovereign operating system for intelligent systems. It turns AI from isolated experiments into a governed portfolio: Systems, Runs, Evaluations and Decisions."
   },
   {
-    "id": "02-connectors",
-    "text": "Agentium starts where enterprise reality lives: documents, applications, calendars, operational feeds, APIs and private data boundaries. Sovereignty is not an add-on. It is part of the architecture."
+    "id": "02-enterprise-connectors",
+    "text": "The platform starts where enterprise reality lives: documents, APIs, business applications, operational feeds and private infrastructure. Knowledge and tools stay inside a controlled boundary."
   },
   {
-    "id": "03-hypervisor",
-    "text": "Most organizations are no longer asking whether they can build one AI agent. The real challenge is industrializing hundreds of intelligent systems, securely, measurably and under control."
+    "id": "03-systems-factory",
+    "text": "The core model is simple. A business objective becomes a System. Each System combines skills, models, knowledge, policies, runtime traces and human review."
   },
   {
-    "id": "04-systems-factory",
-    "text": "The core model is simple. A business objective becomes a System. A System combines agents, skills, knowledge, models, workflows, rules, evaluations and human review."
+    "id": "04-flow-builder",
+    "text": "The Flow Builder makes that System explicit. Nodes, grounding, control policy and review steps are visible before execution. The blueprint is not a slide; it is a runtime manifest."
   },
   {
-    "id": "05-flow-builder",
-    "text": "The Flow Builder makes the agentic system explicit. Nodes, skills, grounding, control policy and validation are no longer hidden inside prompts. The blueprint is live, versioned, executable and auditable."
+    "id": "05-observability-audit",
+    "text": "When the System runs, every execution becomes measurable and auditable: inputs, outputs, tool calls, confidence, cost, latency, evaluations and decision lineage."
   },
   {
-    "id": "06-observability",
-    "text": "When the System runs, every execution becomes observable. Inputs, outputs, tool calls, confidence, latency, cost, evaluations and decisions are recorded, so quality becomes operational management."
+    "id": "06-octocity-cockpit",
+    "text": "Octocity shows the same factory pattern in operation. A synthetic mission room uses OCTAVE to connect signals, evidence and decisions inside one governed workspace."
   },
   {
-    "id": "07-octocity-cockpit",
-    "text": "In Octocity, the same factory pattern powers OCTAVE, an executive assistant for synthetic but realistic institutional operations. Design-time becomes run-time inside the mission room."
+    "id": "07-octocity-map",
+    "text": "Cartography turns abstract signals into operational posture. Leaders see territory, cities, layers, confidence levels and the next action before a decision is prepared."
   },
   {
-    "id": "08-octocity-map",
-    "text": "Cartography anchors the briefing on a France operating map. Signals are no longer abstract: they become cities, layers, confidence levels, source clusters and next actions."
+    "id": "08-octocity-news-flows",
+    "text": "Open intelligence is no longer a disconnected feed. News-flow analysis ranks signals, links sources to map posture and prepares decision-grade evidence."
   },
   {
-    "id": "09-octocity-news",
-    "text": "News-flow analysis ranks open signals before they become decisions. Agentium connects public intelligence to governed workflows, instead of leaving analysts with disconnected feeds."
+    "id": "09-octocity-chat-action",
+    "text": "OCTAVE becomes the command surface. Leaders ask in natural language, retrieve grounded context and trigger governed actions without bypassing policy."
   },
   {
-    "id": "10-octocity-systems",
-    "text": "Behind the cockpit are concrete systems: cartography, news analysis, security watch, chat and memory. The user sees business capabilities. Agentium orchestrates the complexity behind them."
-  },
-  {
-    "id": "11-octave-chat",
-    "text": "Leaders can ask in natural language, retrieve grounded context and trigger governed actions. Voice or chat does not bypass policy. It becomes another controlled command surface."
-  },
-  {
-    "id": "12-knowledge-voice2voice",
-    "text": "Knowledge Capture closes the loop. Expert voice becomes reviewed, reusable institutional memory, feeding the next System run. Agentium helps organizations deploy trusted intelligent systems, operated like strategic assets."
+    "id": "10-knowledge-voice2voice",
+    "text": "I am listening. Start with the signal you would escalate to the mission room, and the evidence you trust. When a regional signal crosses two independent sources, do not trigger action immediately. First check confidence, operational impact, and whether a decision owner is assigned. Captured: two-source evidence, confidence above 70 percent, and human review when ownership is missing. If the signal touches a strategic program, attach map posture, news-flow evidence, and the next governed action."
   }
 ]

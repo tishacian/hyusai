@@ -1,252 +1,207 @@
 [
   {
-    "id": "01-octocity-cold-open",
-    "title": "Cold Open - Octocity Mission Room",
-    "workspace": "octocity-mission-room",
-    "url": "/hypervisor/mission-room/cockpit",
+    "id": "01-agentium-operating-system",
+    "title": "Agentium - AI Operating System",
+    "workspace": "agentium-showcase",
+    "url": "/hypervisor",
     "overlay": {
-      "kicker": "Mission Room",
-      "title": "Signals become governed decisions",
-      "stage": "RUN",
-      "chips": ["Real-time signals", "Executive action", "OCTAVE", "Governed assistant"],
-      "metric": { "label": "Decision latency", "value": "Signals -> action", "trend": "LIVE" }
+      "kicker": "AI operating system",
+      "title": "Govern intelligent systems as a portfolio",
+      "stage": "GOVERN",
+      "chips": ["Systems", "Runs", "Evaluations", "Decisions"],
+      "metric": { "label": "Operating model", "value": "System -> Run -> Decision", "trend": "CONTROL" }
     },
-    "waitMs": 9000,
-    "softChecks": ["Octocity", "OCTAVE", "Mission Room"],
-    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+    "waitMs": 7000,
+    "softChecks": ["Hypervisor", "VALUE", "COST"]
   },
   {
-    "id": "02-showcase-connectors",
-    "title": "Agentium Showcase - Enterprise Connectors",
+    "id": "02-enterprise-connectors",
+    "title": "Agentium - Enterprise Connectors",
     "workspace": "agentium-showcase",
     "startUrl": "/hypervisor",
     "url": "/connectors",
-    "overlay": {
-      "kicker": "Enterprise inputs",
-      "title": "Sovereign systems start with controlled data",
-      "stage": "CONNECT",
-      "chips": ["Documents", "APIs", "Applications", "Private boundary"],
-      "metric": { "label": "Enterprise boundary", "value": "Data stays controlled", "trend": "SOVEREIGN" }
-    },
     "navSteps": [
-      { "label": "Govern", "route": "/governance", "expandRail": true, "waitMs": 800 },
-      { "label": "Connectors", "route": "/connectors", "waitMs": 1600 }
+      { "label": "Govern", "route": "/governance", "expandRail": true, "waitMs": 650 },
+      { "label": "Connectors", "route": "/connectors", "waitMs": 1300 }
     ],
-    "waitMs": 9000,
+    "overlay": {
+      "kicker": "Enterprise boundary",
+      "title": "Connect knowledge, tools and private infrastructure",
+      "stage": "CONNECT",
+      "chips": ["Documents", "APIs", "Applications", "Private data"],
+      "metric": { "label": "Sovereignty", "value": "Controlled data boundary", "trend": "PRIVATE" }
+    },
+    "waitMs": 8000,
     "softChecks": ["Connectors", "Supported", "Configured"]
   },
   {
-    "id": "03-showcase-hypervisor",
-    "title": "Agentium Showcase - Hypervisor Mental Model",
+    "id": "03-systems-factory",
+    "title": "Agentium - Systems Factory",
     "workspace": "agentium-showcase",
     "startUrl": "/connectors",
-    "url": "/hypervisor",
-    "overlay": {
-      "kicker": "Executive control",
-      "title": "Pilot an AI portfolio by value, cost and risk",
-      "stage": "GOVERN",
-      "chips": ["Portfolio ROI", "Cost control", "Risk posture", "Scale decisions"],
-      "metric": { "label": "C-level lens", "value": "Value, cost, risk", "trend": "PORTFOLIO" }
-    },
-    "navSteps": [
-      { "label": "Hypervisor", "route": "/hypervisor", "expandRail": true, "waitMs": 1500 }
-    ],
-    "waitMs": 10000,
-    "softChecks": ["Hypervisor", "ROI", "VALUE", "COST"]
-  },
-  {
-    "id": "04-showcase-systems-factory",
-    "title": "Agentium Showcase - Systems Factory",
-    "workspace": "agentium-showcase",
-    "startUrl": "/hypervisor",
     "url": "/systems",
-    "overlay": {
-      "kicker": "System factory",
-      "title": "Business capabilities become governed systems",
-      "stage": "BUILD",
-      "chips": ["Capability catalog", "Policies", "Knowledge", "Runtime traces"],
-      "metric": { "label": "Factory model", "value": "Objective -> System", "trend": "SCALABLE" }
-    },
     "navSteps": [
-      { "label": "Build", "route": "/systems", "expandRail": true, "waitMs": 1600 }
+      { "label": "Build", "route": "/systems", "expandRail": true, "waitMs": 1400 }
     ],
     "actions": [
-      { "type": "scroll", "deltaY": 360, "waitMs": 900, "optional": true },
-      { "type": "scroll", "deltaY": -260, "waitMs": 900, "optional": true }
+      { "type": "scroll", "deltaY": 280, "waitMs": 650, "optional": true },
+      { "type": "scroll", "deltaY": -220, "waitMs": 650, "optional": true }
     ],
-    "waitMs": 10000,
-    "softChecks": ["Systems", "Translation Suite"]
+    "overlay": {
+      "kicker": "System factory",
+      "title": "Business objectives become governed systems",
+      "stage": "BUILD",
+      "chips": ["Objective", "Skills", "Knowledge", "Policies"],
+      "metric": { "label": "Factory model", "value": "Objective -> System", "trend": "SCALABLE" }
+    },
+    "waitMs": 9000,
+    "softChecks": ["Systems", "Contract Risk Copilot"]
   },
   {
-    "id": "05-flow-builder-pivot",
+    "id": "04-flow-builder-pivot",
     "title": "Flow Builder - Live Agentic Blueprint",
     "workspace": "agentium-showcase",
-    "systemName": "Translation Suite",
+    "systemName": "Contract Risk Copilot",
     "startUrl": "/systems",
     "url": "/systems/{systemId}/flow",
     "navSteps": [
-      { "label": "Translation Suite", "waitMs": 1100 },
-      { "label": "Flow builder", "route": "/systems/{systemId}/flow", "waitMs": 1800 }
+      { "label": "Contract Risk Copilot", "waitMs": 900 },
+      { "label": "Flow builder", "route": "/systems/{systemId}/flow", "waitMs": 1600 }
+    ],
+    "actions": [
+      { "type": "clickRole", "role": "button", "name": "Fit to view", "waitMs": 900, "optional": true },
+      { "type": "clickRole", "role": "button", "name": "Simulate", "waitMs": 1800, "optional": true },
+      { "type": "click", "selector": ".ck-flow-node", "waitMs": 900, "optional": true }
     ],
     "overlay": {
       "kicker": "Flow Builder",
-      "title": "The blueprint is live, validated and executable",
+      "title": "The system blueprint is visible and executable",
       "stage": "BUILD",
-      "chips": ["Nodes", "Skills", "Grounding", "Human review"],
-      "metric": { "label": "Design-time control", "value": "System graph -> runtime", "trend": "EXPLICIT" }
+      "chips": ["Nodes", "Grounding", "Control policy", "Human review"],
+      "metric": { "label": "Design-time", "value": "Graph -> runtime manifest", "trend": "LIVE" }
     },
-    "actions": [
-      { "type": "clickRole", "role": "button", "name": "Auto-arrange all nodes", "waitMs": 1600, "optional": true },
-      { "type": "clickRole", "role": "button", "name": "Fit to view", "waitMs": 800, "optional": true },
-      { "type": "clickRole", "role": "button", "name": "Zoom out", "waitMs": 450, "optional": true },
-      { "type": "click", "selector": ".ck-flow-node", "waitMs": 900, "optional": true },
-      { "type": "clickRole", "role": "button", "name": "Toggle terminal", "waitMs": 900, "optional": true }
-    ],
-    "waitMs": 26000,
-    "softChecks": ["Flow builder", "Runtime manifest", "Skills", "Translation Suite"]
+    "waitMs": 23000,
+    "softChecks": ["Flow builder", "Runtime manifest", "Contract Risk Copilot"]
   },
   {
-    "id": "06-showcase-observability",
-    "title": "Agentium Showcase - Observability and Audit",
+    "id": "05-observability-audit",
+    "title": "Agentium - Observability and Audit",
     "workspace": "agentium-showcase",
     "startUrl": "/systems",
     "url": "/observability",
+    "navSteps": [
+      { "label": "Operate", "route": "/runs", "expandRail": true, "waitMs": 650 },
+      { "label": "Observability", "route": "/observability", "waitMs": 1300 }
+    ],
     "overlay": {
       "kicker": "Control-time",
-      "title": "Runs become observable, evaluated and auditable",
+      "title": "Every run becomes measurable and auditable",
       "stage": "EVALUATE",
-      "chips": ["Quality", "Latency", "Cost", "Lineage"],
-      "metric": { "label": "Performance layer", "value": "AI quality measured", "trend": "MEASURABLE" }
+      "chips": ["Inputs", "Outputs", "Tool calls", "Lineage"],
+      "metric": { "label": "Performance layer", "value": "Quality, cost, latency", "trend": "MEASURED" }
     },
-    "navSteps": [
-      { "label": "Operate", "route": "/runs", "expandRail": true, "waitMs": 800 },
-      { "label": "Observability", "route": "/observability", "waitMs": 1500 }
-    ],
-    "waitMs": 10000,
+    "waitMs": 8500,
     "softChecks": ["Observability"]
   },
   {
-    "id": "07-octocity-mission-room",
-    "title": "Octocity Mission Room - Executive Cockpit",
+    "id": "06-octocity-cockpit",
+    "title": "Octocity - Mission Room Runtime",
     "workspace": "octocity-mission-room",
-    "startUrl": "/systems",
+    "startUrl": "/hypervisor",
     "url": "/hypervisor/mission-room/cockpit",
     "navSteps": [
-      { "label": "Hypervisor", "route": "/hypervisor", "expandRail": true, "waitMs": 900 },
-      { "route": "/hypervisor/mission-room/cockpit", "waitMs": 1600 }
+      { "label": "Hypervisor", "route": "/hypervisor", "expandRail": true, "waitMs": 700 },
+      { "route": "/hypervisor/mission-room/cockpit", "waitMs": 1400 }
     ],
     "overlay": {
-      "kicker": "Octocity",
-      "title": "The same factory pattern runs in the field",
+      "kicker": "Runtime payoff",
+      "title": "The factory pattern becomes a mission room",
       "stage": "RUN",
-      "chips": ["Mission Room", "OCTAVE", "Synthetic operations", "Executive brief"],
-      "metric": { "label": "Concrete payoff", "value": "Factory -> field", "trend": "LIVE" }
+      "chips": ["OCTAVE", "Signals", "Evidence", "Decisions"],
+      "metric": { "label": "From design to operation", "value": "System -> Mission Room", "trend": "LIVE" }
     },
-    "waitMs": 11000,
+    "waitMs": 8500,
     "softChecks": ["Octocity", "OCTAVE", "Mission Room"],
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
-    "id": "08-octocity-map",
-    "title": "Octocity Mission Room - Live Cartography",
+    "id": "07-octocity-map",
+    "title": "Octocity - Real Cartography",
     "workspace": "octocity-mission-room",
     "startUrl": "/hypervisor/mission-room/cockpit",
     "url": "/hypervisor/mission-room/strategie",
     "navSteps": [
-      { "label": "Carte", "route": "/hypervisor/mission-room/strategie", "expandRail": true, "waitMs": 1700 }
+      { "label": "Map", "route": "/hypervisor/mission-room/strategie", "expandRail": true, "waitMs": 1500 }
+    ],
+    "actions": [
+      { "type": "click", "selector": ".map-zoom-controls button[aria-label=\"Zoom avant\"]", "waitMs": 800, "optional": true },
+      { "type": "click", "selector": ".map-zoom-controls button[aria-label=\"Zoom arrière\"]", "waitMs": 800, "optional": true }
     ],
     "overlay": {
       "kicker": "Cartography",
-      "title": "Signals are anchored to real territory",
+      "title": "Signals become territory, cities and layers",
       "stage": "RUN",
-      "chips": ["France map", "Cities", "Layers", "Next action"],
-      "metric": { "label": "Operational posture", "value": "Signals become places", "trend": "MAP" }
+      "chips": ["France map", "Cities", "Layers", "Posture"],
+      "metric": { "label": "Operational anchor", "value": "Signals -> map", "trend": "GEO" }
     },
-    "actions": [
-      { "type": "click", "selector": ".map-zoom-controls button[aria-label=\"Zoom avant\"]", "waitMs": 900, "optional": true },
-      { "type": "click", "selector": ".map-zoom-controls button[aria-label=\"Zoom arrière\"]", "waitMs": 900, "optional": true }
-    ],
-    "waitMs": 14000,
+    "waitMs": 11000,
     "softChecks": ["France", "Octocity"],
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
-    "id": "09-octocity-news-flows",
-    "title": "Octocity Mission Room - News Flow Analysis",
+    "id": "08-octocity-news-flows",
+    "title": "Octocity - News Flow Analysis",
     "workspace": "octocity-mission-room",
     "startUrl": "/hypervisor/mission-room/strategie",
     "url": "/hypervisor/mission-room/presse",
     "navSteps": [
-      { "label": "Presse", "route": "/hypervisor/mission-room/presse", "expandRail": true, "waitMs": 1700 }
+      { "label": "News", "route": "/hypervisor/mission-room/presse", "expandRail": true, "waitMs": 1500 }
     ],
     "overlay": {
       "kicker": "Open intelligence",
       "title": "News flows become decision signals",
       "stage": "EVALUATE",
-      "chips": ["Open signals", "Ranking", "Evidence", "Decision-ready"],
-      "metric": { "label": "Signal flow", "value": "128 articles analyzed", "trend": "SIM" }
+      "chips": ["Open signals", "Evidence", "Ranking", "Decision-ready"],
+      "metric": { "label": "Signal analysis", "value": "128 articles analyzed", "trend": "SIM" }
     },
-    "waitMs": 10000,
-    "softChecks": ["Open intelligence", "signal flow"],
-    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
-  },
-  {
-    "id": "10-octocity-systems",
-    "title": "Octocity Mission Room - Concrete Systems",
-    "workspace": "octocity-mission-room",
-    "startUrl": "/hypervisor/mission-room/presse",
-    "url": "/systems",
-    "navSteps": [
-      { "label": "Build", "route": "/systems", "expandRail": true, "waitMs": 1600 }
-    ],
-    "overlay": {
-      "kicker": "Concrete systems",
-      "title": "Cartography, news analysis, chat and memory share one factory",
-      "stage": "BUILD",
-      "chips": ["Cartography", "News-flow analysis", "Security watch", "Knowledge Capture"],
-      "metric": { "label": "Octocity portfolio", "value": "4 filmable systems", "trend": "RUNNABLE" }
-    },
-    "actions": [
-      { "type": "scroll", "deltaY": 420, "waitMs": 900, "optional": true }
-    ],
     "waitMs": 9000,
-    "softChecks": ["Systems"],
-    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+    "softChecks": ["Open intelligence", "signal flow"],
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde", "prioritaire", "signaux haut", "articles analyses"]
   },
   {
-    "id": "11-octocity-chat-action",
-    "title": "Octocity Mission Room - OCTAVE Chat Action",
+    "id": "09-octocity-chat-action",
+    "title": "Octocity - OCTAVE Command Surface",
     "workspace": "octocity-mission-room",
     "startUrl": "/hypervisor/mission-room/strategie?videoDemo=octaveChat",
     "url": "/hypervisor/mission-room/strategie?videoDemo=octaveChat",
+    "actions": [
+      { "type": "hover", "selector": ".video-octave-message.assistant", "waitMs": 800 },
+      { "type": "click", "selector": ".video-octave-chat footer button", "waitMs": 1000 }
+    ],
     "overlay": {
       "kicker": "OCTAVE",
       "title": "Natural language becomes governed action",
       "stage": "RUN",
-      "chips": ["English brief", "Grounded context", "Sources", "Governed action"],
-      "metric": { "label": "Executive interface", "value": "Ask -> decide", "trend": "OCTAVE" }
+      "chips": ["English brief", "Sources", "Review", "Decision package"],
+      "metric": { "label": "Executive interface", "value": "Ask -> prepare review", "trend": "OCTAVE" }
     },
-    "waitMs": 5000,
-    "actions": [
-      { "type": "hover", "selector": ".video-octave-message.assistant", "waitMs": 900 },
-      { "type": "click", "selector": ".video-octave-chat footer button", "waitMs": 1200 }
-    ],
+    "waitMs": 6500,
     "softChecks": ["OCTAVE", "60-second cockpit briefing", "Prepare review"],
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
-    "id": "12-knowledge-voice2voice",
+    "id": "10-knowledge-voice2voice",
     "title": "Knowledge Capture - Voice2Voice Learning Loop",
     "workspace": "octocity-mission-room",
     "url": "/knowledge/capture?videoDemo=voice2voice",
     "overlay": {
       "kicker": "Learning loop",
-      "title": "Voice-to-voice capture turns expertise into memory",
+      "title": "The voiceover becomes the transcript",
       "stage": "IMPROVE",
-      "chips": ["Voice2Voice", "Retrieval", "Review", "Reusable memory"],
-      "metric": { "label": "Learning system", "value": "Expertise -> next run", "trend": "MEMORY" }
+      "chips": ["Voice2Voice", "Transcript", "Review", "Reusable memory"],
+      "metric": { "label": "Knowledge loop", "value": "Expertise -> next run", "trend": "MEMORY" }
     },
-    "waitMs": 18000,
+    "waitMs": 22000,
     "softChecks": ["Voice2Voice", "OCTAVE", "Reviewed memory draft", "Listening"],
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   }

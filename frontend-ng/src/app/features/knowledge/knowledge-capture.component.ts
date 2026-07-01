@@ -753,19 +753,19 @@ interface ProposalFact {
                     <article>
                       <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Expert voice</p>
                       <p class="mt-1 text-sm leading-relaxed text-gray-100">
-                        When a regional signal crosses two independent sources, we do not trigger action immediately. We first check confidence, operational impact and whether a decision owner is already assigned.
+                        When a regional signal crosses two independent sources, do not trigger action immediately. First check confidence, operational impact, and whether a decision owner is assigned.
                       </p>
                     </article>
                     <article class="border-l-2 border-emerald-300/50 pl-4">
                       <p class="ck-mono text-[10px] uppercase tracking-wider text-emerald-200">OCTAVE</p>
                       <p class="mt-1 text-sm leading-relaxed text-emerald-50">
-                        Captured: a two-source threshold, a confidence gate above 70%, and human review when ownership is missing.
+                        Captured: two-source evidence, confidence above 70 percent, and human review when ownership is missing.
                       </p>
                     </article>
                     <article>
                       <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Expert voice</p>
                       <p class="mt-1 text-sm leading-relaxed text-gray-100">
-                        If the signal touches a strategic program, the brief must include map posture, news-flow evidence and the proposed next governed action.
+                        If the signal touches a strategic program, attach map posture, news-flow evidence, and the next governed action.
                       </p>
                     </article>
                   </div>
