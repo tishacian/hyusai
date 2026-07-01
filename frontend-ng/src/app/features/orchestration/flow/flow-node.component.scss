@@ -6,6 +6,28 @@
   min-width: 196px;
 }
 
+/* Foblex ships a default .f-node card frame on the host element. Our actual
+   Agentium node chrome lives inside .ck-flow-node, so the host must stay
+   geometry-only; otherwise selected nodes render as a double box. */
+:host(.f-node) {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: inherit;
+  text-align: initial;
+}
+
+:host(.f-node.f-selected),
+:host(.f-node.f-dragging) {
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .ck-flow-node {
   --tone: var(--ck-signal-cool);
   position: relative;
