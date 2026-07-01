@@ -789,7 +789,7 @@ interface ProposalFact {
                         <h3 class="text-sm font-semibold text-gray-100">OCTAVE is listening for the expert threshold</h3>
                       </div>
                       <span class="rounded-full bg-brand-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-brand-100 ring-1 ring-brand-300/25">
-                        no transcript yet
+                        live stream
                       </span>
                     </header>
                     <div class="flex-1 space-y-4 overflow-hidden p-5">
