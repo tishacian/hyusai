@@ -146,7 +146,7 @@ interface ReportSource {
             <button
               type="button"
               (click)="requestChanges()"
-              [disabled]="changesRequested()"
+              [disabled]="changesRequested() || reviewBusy()"
               [title]="'Marque la fiche « à retravailler » : corrections à apporter (jointes en notes), ni acceptée ni rejetée. Utile pour la reprendre plus tard ou la repasser à quelqu\\'un.'"
               style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); font-size:12px; border:1px solid color-mix(in oklab, var(--ck-signal-warn) 50%, transparent); background:color-mix(in oklab, var(--ck-signal-warn) 12%, transparent); color:var(--ck-signal-warn);"
               [style.cursor]="changesRequested() ? 'default' : 'pointer'"
@@ -158,7 +158,7 @@ interface ReportSource {
             <button
               type="button"
               (click)="reject()"
-              [disabled]="rejected()"
+              [disabled]="rejected() || reviewBusy()"
               [title]="'Rejeter la fiche : écartée et non publiable (motif en notes)'"
               style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); font-size:12px; border:1px solid color-mix(in oklab, var(--ck-signal-neg) 50%, transparent); background:color-mix(in oklab, var(--ck-signal-neg) 12%, transparent); color:var(--ck-signal-neg);"
               [style.cursor]="rejected() ? 'default' : 'pointer'"
@@ -170,7 +170,7 @@ interface ReportSource {
             <button
               type="button"
               (click)="accept()"
-              [disabled]="accepted()"
+              [disabled]="accepted() || reviewBusy()"
               [title]="accepted() ? 'Rapport déjà accepté' : 'Accepter le rapport (requis avant publication)'"
               style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:var(--ck-radius-md); font-size:12px; font-weight:650;"
               [style.cursor]="accepted() ? 'default' : 'pointer'"
@@ -208,6 +208,20 @@ interface ReportSource {
               <b style="color:var(--ck-signal-warn);">À retravailler</b> : corrections à apporter (statut + notes), reprise possible plus tard ·
               <b style="color:var(--ck-signal-neg);">Rejeter</b> : écartée, non publiable. Vous pouvez aussi corriger directement (Éditer le markdown / instruction IA).
             </p>
+
+            <!-- decision feedback: makes accept/reject/à-retravailler outcomes visible (never silent) -->
+            @if (reviewFeedback(); as fb) {
+              <div
+                role="status"
+                style="flex-basis:100%; margin-top:4px; display:flex; align-items:center; gap:8px; padding:8px 11px; border-radius:var(--ck-radius-md); font-size:12px; font-weight:600; border:1px solid;"
+                [style.color]="fb.ok ? 'var(--ck-signal-pos)' : 'var(--ck-signal-neg)'"
+                [style.border-color]="'color-mix(in oklab, ' + (fb.ok ? 'var(--ck-signal-pos)' : 'var(--ck-signal-neg)') + ' 45%, transparent)'"
+                [style.background]="'color-mix(in oklab, ' + (fb.ok ? 'var(--ck-signal-pos)' : 'var(--ck-signal-neg)') + ' 12%, transparent)'"
+              >
+                <ck-glyph [name]="fb.ok ? 'check' : 'warn'" [size]="13" color="currentColor" />
+                {{ fb.message }}
+              </div>
+            }
           </div>
         }
 
@@ -657,6 +671,27 @@ export class ReportProvenanceComponent {
   /** Shared review notes for reject / changes-requested (review_notes). */
   protected readonly reviewNotes = signal('');
 
+  /** Transient outcome banner for the last review decision (success / failure). */
+  protected readonly reviewFeedback = signal<{ ok: boolean; message: string } | null>(null);
+  /** Guards the review buttons while a decision round-trip is in flight. */
+  protected readonly reviewBusy = signal(false);
+
+  private async runReview(
+    status: 'accepted' | 'rejected' | 'changes_requested',
+    okMessage: string,
+  ): Promise<void> {
+    if (this.reviewBusy()) return;
+    this.reviewBusy.set(true);
+    this.reviewFeedback.set(null);
+    const notes = this.reviewNotes().trim() || undefined;
+    const ok = await this.engine.reviewProposal(status, notes);
+    this.reviewBusy.set(false);
+    this.reviewFeedback.set({
+      ok,
+      message: ok ? okMessage : this.engine.lastError() || 'Échec de la décision — réessayez.',
+    });
+  }
+
   constructor() {
     // Safety net: the shell normally calls loadProposal() when entering review,
     // but if we land here cold (deep link / refresh) and the proposal is still
@@ -776,7 +811,7 @@ export class ReportProvenanceComponent {
 
   protected accept(): void {
     if (this.accepted()) return;
-    void this.engine.reviewProposal('accepted');
+    void this.runReview('accepted', 'Fiche acceptée — prête à publier.');
   }
 
   /** Whether the operator has demanded changes (workflow state). */
@@ -789,11 +824,11 @@ export class ReportProvenanceComponent {
   );
 
   protected requestChanges(): void {
-    void this.engine.reviewProposal('changes_requested', this.reviewNotes().trim() || undefined);
+    void this.runReview('changes_requested', 'Fiche marquée « à retravailler ».');
   }
 
   protected reject(): void {
-    void this.engine.reviewProposal('rejected', this.reviewNotes().trim() || undefined);
+    void this.runReview('rejected', 'Fiche rejetée — non publiable.');
   }
 
   protected onReviewNotes(event: Event): void {

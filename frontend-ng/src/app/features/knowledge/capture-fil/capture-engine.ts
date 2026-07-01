@@ -1341,13 +1341,21 @@ export class CaptureEngine {
     }
   }
 
-  /** Advance the review workflow (accept / reject / changes requested). */
+  /**
+   * Advance the review workflow (accept / reject / changes requested). Returns
+   * `true` when the decision was applied (status echoed back), `false` on
+   * failure — the caller surfaces the outcome so a rejection never fails
+   * silently.
+   */
   async reviewProposal(
     status: ProposalReviewRequest['status'],
     notes?: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const proposalId = this._proposalId();
-    if (!proposalId) return;
+    if (!proposalId) {
+      this._lastError.set('Aucune proposition à réviser.');
+      return false;
+    }
     try {
       const payload = await firstValueFrom(
         this.api.reviewCaptureProposal(proposalId, {
@@ -1357,8 +1365,12 @@ export class CaptureEngine {
         }),
       );
       this.applyProposalResponse(payload);
+      const applied = (this._proposal()?.status ?? '').toLowerCase() === status;
+      if (!applied) this._lastError.set('La décision de revue n’a pas été enregistrée.');
+      return applied;
     } catch (error) {
       this._lastError.set(this.errorMessage(error));
+      return false;
     }
   }
 

@@ -16,6 +16,7 @@ interface DashboardSession extends CaptureSessionInfo {
   last_activity?: string | null;
   summary_short?: string | null;
   open_questions_count?: number | null;
+  archived?: boolean | null;
 }
 
 /**
@@ -62,29 +63,63 @@ interface DashboardSession extends CaptureSessionInfo {
       } @else {
         <div style="display:flex; flex-direction:column; gap:10px;">
           @for (s of sessions(); track s.id) {
-            <button
-              type="button"
-              (click)="openSession.emit(s)"
+            <div
               class="ck-surface"
-              style="text-align:left; cursor:pointer; border-radius:var(--ck-radius-lg); padding:16px 18px; display:flex; align-items:center; gap:16px;"
+              style="border-radius:var(--ck-radius-lg); padding:16px 18px; display:flex; align-items:center; gap:16px;"
+              [style.opacity]="s.archived ? '0.62' : '1'"
             >
               <ck-glyph name="ledger" [size]="18" color="var(--ck-fg-3)" />
-              <div style="flex:1; min-width:0;">
-                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                  <span style="font-size:14px; font-weight:600; color:var(--ck-fg-1);">{{ s.title || 'Séance sans titre' }}</span>
-                  <ck-tag [tone]="statusTone(s.status)" variant="soft">{{ statusLabel(s.status) }}</ck-tag>
+              <button
+                type="button"
+                (click)="openSession.emit(s)"
+                style="flex:1; min-width:0; text-align:left; cursor:pointer; background:none; border:none; padding:0; display:flex; align-items:center; gap:16px;"
+              >
+                <div style="flex:1; min-width:0;">
+                  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <span style="font-size:14px; font-weight:600; color:var(--ck-fg-1);">{{ s.title || 'Séance sans titre' }}</span>
+                    @if (s.archived) {
+                      <ck-tag tone="neutral" variant="soft">Archivée</ck-tag>
+                    } @else {
+                      <ck-tag [tone]="statusTone(s.status)" variant="soft">{{ statusLabel(s.status) }}</ck-tag>
+                    }
+                  </div>
+                  <div style="font-size:12.5px; color:var(--ck-fg-4); margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:72ch;">
+                    {{ s.summary_short || s.objective || '—' }}
+                  </div>
                 </div>
-                <div style="font-size:12.5px; color:var(--ck-fg-4); margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:72ch;">
-                  {{ s.summary_short || s.objective || '—' }}
-                </div>
-              </div>
-              @if (s.open_questions_count) {
-                <span class="ck-mono" style="font-size:10px; color:var(--ck-signal-warn);">{{ s.open_questions_count }} ?</span>
+                @if (s.open_questions_count) {
+                  <span class="ck-mono" style="font-size:10px; color:var(--ck-signal-warn);">{{ s.open_questions_count }} ?</span>
+                }
+              </button>
+              @if (s.archived) {
+                <button
+                  type="button"
+                  (click)="unarchive(s)"
+                  [disabled]="busyId() === s.id"
+                  title="Restaurer cette séance dans la liste active"
+                  style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); font-size:12px; cursor:pointer; border:1px solid var(--ck-stroke-2); background:var(--ck-bg-base); color:var(--ck-fg-2);"
+                >
+                  <ck-glyph name="orbit" [size]="13" color="currentColor" /> Désarchiver
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  (click)="archive(s)"
+                  [disabled]="busyId() === s.id"
+                  title="Archiver cette séance (masquée de la liste active, restaurable — aucune suppression)"
+                  style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); font-size:12px; cursor:pointer; border:1px solid var(--ck-stroke-2); background:var(--ck-bg-base); color:var(--ck-fg-3);"
+                >
+                  <ck-glyph name="layers" [size]="13" color="currentColor" /> Archiver
+                </button>
               }
               <ck-glyph name="arrow-right" [size]="14" color="var(--ck-fg-4)" />
-            </button>
+            </div>
           }
         </div>
+      }
+
+      @if (actionError()) {
+        <div style="font-size:12px; color:var(--ck-signal-neg);">{{ actionError() }}</div>
       }
     </div>
   `,
@@ -99,9 +134,17 @@ export class CaptureFilDashboardComponent {
 
   protected readonly loading = signal(true);
   protected readonly sessions = signal<DashboardSession[]>([]);
+  /** Id of the session whose archive/unarchive round-trip is in flight. */
+  protected readonly busyId = signal<string | null>(null);
+  protected readonly actionError = signal<string | null>(null);
 
   constructor() {
+    this.reload();
+  }
+
+  private reload(): void {
     const systemId = this.engine.systemId();
+    this.loading.set(true);
     this.api
       .listCaptureSessions(undefined, undefined, systemId ?? undefined, true)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -118,6 +161,42 @@ export class CaptureFilDashboardComponent {
         },
         error: () => this.loading.set(false),
       });
+  }
+
+  protected archive(s: DashboardSession): void {
+    this.setArchived(s, true);
+  }
+
+  protected unarchive(s: DashboardSession): void {
+    this.setArchived(s, false);
+  }
+
+  private setArchived(s: DashboardSession, archived: boolean): void {
+    if (this.busyId()) return;
+    this.busyId.set(s.id);
+    this.actionError.set(null);
+    const call$ = archived
+      ? this.api.archiveCaptureSession(s.id)
+      : this.api.unarchiveCaptureSession(s.id);
+    call$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        // Optimistic flip so the row updates instantly, then refresh to stay in
+        // sync with the server (ordering, archived_at, …).
+        this.sessions.update((rows) =>
+          rows.map((r) => (r.id === s.id ? { ...r, archived } : r)),
+        );
+        this.busyId.set(null);
+        this.reload();
+      },
+      error: () => {
+        this.actionError.set(
+          archived
+            ? "Impossible d'archiver la séance — réessayez."
+            : 'Impossible de désarchiver la séance — réessayez.',
+        );
+        this.busyId.set(null);
+      },
+    });
   }
 
   protected statusLabel(status: string | null | undefined): string {
