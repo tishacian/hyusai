@@ -58,12 +58,26 @@ def _aggregate(db: DBSession, workspace_id: str, *, system_id: Optional[str] = N
 
     count, cost, value, revenue, confidence, efficiency = q.one()
 
+    capability_count_q = db.query(func.count(func.distinct(Run.capability_id))).filter(
+        Run.workspace_id == workspace_id,
+        Run.status == "completed",
+        Run.capability_id.isnot(None),
+    )
+    if start:
+        capability_count_q = capability_count_q.filter(Run.completed_at >= start)
+    if system_id:
+        capability_count_q = capability_count_q.filter(Run.system_id == system_id)
+    if capability_id:
+        capability_count_q = capability_count_q.filter(Run.capability_id == capability_id)
+    capabilities_count = int(capability_count_q.scalar() or 0)
+
     cost_v = float(cost or 0)
     value_v = float(value or 0)
     revenue_v = float(revenue or 0)
     roi = ((value_v - cost_v) / cost_v) if cost_v else None
     return {
         "runs_count": int(count or 0),
+        "capabilities_count": capabilities_count,
         "total_cost": cost_v,
         "estimated_value": value_v,
         "total_revenue": revenue_v,

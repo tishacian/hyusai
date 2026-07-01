@@ -494,6 +494,7 @@ export interface ImpactAggregate {
   scope?: 'portfolio' | 'capability' | 'system';
   period?: string;
   runs_count?: number;
+  capabilities_count?: number;
   total_cost?: number;
   estimated_value?: number;
   total_revenue?: number;

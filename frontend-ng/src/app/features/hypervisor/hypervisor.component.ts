@@ -142,7 +142,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
               />
               <ck-stat-readout
                 label="CAPABILITIES"
-                [value]="capabilities().length.toString()"
+                [value]="(capabilities().length || portfolio()?.capabilities_count || 0).toString()"
                 tone="violet"
                 [size]="22"
               />
