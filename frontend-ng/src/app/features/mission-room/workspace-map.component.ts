@@ -72,6 +72,83 @@ const VESSEL_ICON_MAPPING = {
   diamond: { x: 64, y: 0, width: 64, height: 64, mask: true, anchorY: 32 },
 } as const;
 const ATLANTIC_TRADER_MMSI = '627012345';
+const OCTOCITY_FRANCE_ZONES: MapZone[] = [
+  {
+    id: 'zone-nord',
+    name: 'Northern Arc',
+    level: 72,
+    tone: 'watch',
+    polygon: '265,62 383,72 444,140 410,222 312,212 235,158',
+    centroid: { x: 338, y: 146 },
+    popup_brief: {
+      score: 72,
+      severity: 'watch',
+      drivers: ['Transport corridor variance', 'Public-service backlog', 'Regional signal cluster'],
+      recommendation: 'Prepare an executive review before the next operating cycle.',
+      sources: ['src-octocity-map-001', 'src-news-flow-014'],
+    },
+  },
+  {
+    id: 'zone-ouest',
+    name: 'Atlantic Corridor',
+    level: 61,
+    tone: 'stable',
+    polygon: '146,170 235,158 312,212 294,330 183,350 112,270',
+    centroid: { x: 220, y: 257 },
+    popup_brief: {
+      score: 61,
+      severity: 'stable',
+      drivers: ['Harbor logistics normal', 'Energy alerts contained', 'Field reports updated'],
+      recommendation: 'Keep monitoring and attach the latest field note to the briefing.',
+      sources: ['src-map-atlantic-003', 'src-field-note-022'],
+    },
+  },
+  {
+    id: 'zone-centre',
+    name: 'Central Hub',
+    level: 68,
+    tone: 'watch',
+    polygon: '312,212 410,222 462,310 402,402 294,330',
+    centroid: { x: 374, y: 302 },
+    popup_brief: {
+      score: 68,
+      severity: 'watch',
+      drivers: ['Decision queue rising', 'Cross-agency dependency', 'Budget arbitration pending'],
+      recommendation: 'Route the item to human review with evidence links.',
+      sources: ['src-decision-queue-007', 'src-budget-brief-005'],
+    },
+  },
+  {
+    id: 'zone-est',
+    name: 'Rhine Interface',
+    level: 58,
+    tone: 'stable',
+    polygon: '410,222 522,238 550,340 486,432 402,402 462,310',
+    centroid: { x: 480, y: 326 },
+    popup_brief: {
+      score: 58,
+      severity: 'stable',
+      drivers: ['Industrial continuity green', 'Border flows nominal', 'No escalation signal'],
+      recommendation: 'Maintain standard monitoring.',
+      sources: ['src-industrial-012', 'src-flow-health-009'],
+    },
+  },
+  {
+    id: 'zone-sud',
+    name: 'Mediterranean Gate',
+    level: 76,
+    tone: 'critical',
+    polygon: '183,350 294,330 402,402 486,432 410,502 264,486 178,426',
+    centroid: { x: 334, y: 424 },
+    popup_brief: {
+      score: 76,
+      severity: 'elevated',
+      drivers: ['Port capacity pressure', 'Weather-linked disruption', 'News-flow acceleration'],
+      recommendation: 'Prepare a governed action proposal for the executive room.',
+      sources: ['src-port-signal-018', 'src-weather-ops-004'],
+    },
+  },
+];
 
 @Component({
   selector: 'app-workspace-map',
@@ -143,7 +220,7 @@ const ATLANTIC_TRADER_MMSI = '627012345';
             </section>
           }
         </div>
-        <button type="button" class="map-reset" (click)="resetCountry(); $event.stopPropagation()">Recentrer Côte d’Ivoire</button>
+        <button type="button" class="map-reset" (click)="resetCountry(); $event.stopPropagation()">{{ resetMapLabel }}</button>
         <div class="map-zoom-controls" (click)="$event.stopPropagation()">
           <button type="button" aria-label="Zoom avant" (click)="zoomIn()">+</button>
           <button type="button" aria-label="Zoom arrière" (click)="zoomOut()">−</button>
@@ -217,15 +294,15 @@ const ATLANTIC_TRADER_MMSI = '627012345';
             </div>
             <footer>
               <button type="button" (click)="emitEvidenceAction('arbitrage', zone)">Preparer arbitrage</button>
-              <button type="button" (click)="emitEvidenceAction('aya', zone)">Demander AYA</button>
+              <button type="button" (click)="emitEvidenceAction('aya', zone)">{{ askAssistantLabel }}</button>
             </footer>
           </article>
         }
       </div>
 
       @if (fallback) {
-        <svg class="fallback-map" [attr.viewBox]="map?.['view_box'] || '200 40 470 480'" role="img">
-          @for (zone of zones; track zone.id) {
+        <svg class="fallback-map" [attr.viewBox]="fallbackViewBox" role="img">
+          @for (zone of renderedZones; track zone.id) {
             <polygon
               [attr.points]="zone.polygon"
               [attr.fill]="zoneFill(zone)"
@@ -1073,6 +1150,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   @Input() mapSystem: Record<string, any> | null = null;
   @Input() mapState: Record<string, any> | null = null;
   @Input() selectedZoneId: string | null = null;
+  @Input() assistantName = 'AYA';
   @Input() compact = false;
   @Input() previewMode = false;
   @Input() previewLayers: string[] | null = null;
@@ -1193,15 +1271,36 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   get selectedZoneLabel(): string {
-    return this.zones.find((zone) => zone.id === this.selectedZoneId)?.name || 'Cote d’Ivoire';
+    return this.renderedZones.find((zone) => zone.id === this.selectedZoneId)?.name || (this.isOctocityMode ? 'France' : 'Cote d’Ivoire');
   }
 
   get selectedZoneLevel(): number {
-    return Math.round(this.zones.find((zone) => zone.id === this.selectedZoneId)?.level || 58);
+    return Math.round(this.renderedZones.find((zone) => zone.id === this.selectedZoneId)?.level || 58);
   }
 
   get mapAttribution(): string {
+    if (this.isOctocityMode) return 'Synthetic Agentium workspace map';
     return this.mapSystem?.['renderer_config']?.attribution || 'Couches Agentium workspace';
+  }
+
+  get resetMapLabel(): string {
+    return this.isOctocityMode ? 'Recenter Octocity' : 'Recentrer Côte d’Ivoire';
+  }
+
+  get askAssistantLabel(): string {
+    return this.isOctocityMode ? `Ask ${this.assistantName || 'OCTAVE'}` : 'Demander AYA';
+  }
+
+  get isOctocityMode(): boolean {
+    return String(this.assistantName || '').toUpperCase() === 'OCTAVE';
+  }
+
+  get renderedZones(): MapZone[] {
+    return this.isOctocityMode ? OCTOCITY_FRANCE_ZONES : this.zones;
+  }
+
+  get fallbackViewBox(): string {
+    return this.isOctocityMode ? '60 40 540 500' : (this.map?.['view_box'] || '200 40 470 480');
   }
 
   ngAfterViewInit(): void {
@@ -1350,6 +1449,10 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   private async bootstrapRenderer(): Promise<void> {
     this.syncStateFromMapPayload();
+    if (this.isOctocityMode) {
+      this.enableFallback();
+      return;
+    }
     const renderer = this.mapSystem?.['renderer_config']?.renderer;
     if (renderer && renderer !== 'maplibre') {
       this.enableFallback();

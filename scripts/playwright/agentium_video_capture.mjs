@@ -278,6 +278,39 @@ async function applyAction(page, action) {
     if (action.waitMs) await page.waitForTimeout(action.waitMs);
     return { ok: true };
   }
+  if (action.type === 'newChat') {
+    const labels = ['New chat', 'New conversation', 'Nouvelle conversation', 'Start a conversation'];
+    for (const label of labels) {
+      const loc = page.getByRole('button', { name: new RegExp(escapeRegex(label), 'i') }).first();
+      if (!(await loc.isVisible({ timeout: 800 }).catch(() => false))) continue;
+      await loc.hover().catch(() => {});
+      await humanPause(page, 260);
+      await loc.click({ timeout: action.timeoutMs || 10_000 });
+      await page.waitForTimeout(action.waitMs || 1400);
+      return { ok: true, method: 'button', label };
+    }
+    const apiResult = await page.evaluate(async () => {
+      const token = localStorage.getItem('agentium_token') || '';
+      const workspaceSlug = localStorage.getItem('agentium_workspace_slug') || '';
+      const res = await fetch('/api/v1/sessions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: token } : {}),
+          ...(workspaceSlug ? { 'X-Workspace-Slug': workspaceSlug } : {}),
+        },
+        body: JSON.stringify({ context: { source: 'video_capture', language: 'en' } }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.id) return { ok: false, status: res.status, body };
+      localStorage.setItem('agentium:selected-chat-session-id', body.id);
+      return { ok: true, id: body.id };
+    });
+    if (!apiResult.ok) return { ok: false, warning: `New chat API failed: ${JSON.stringify(apiResult)}` };
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(action.waitMs || 1400);
+    return { ok: true, method: 'api', id: apiResult.id };
+  }
   if (action.type === 'chatPrompt') {
     const selectors = [
       'textarea[name="userInput"]',

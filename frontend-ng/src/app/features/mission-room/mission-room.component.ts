@@ -2598,6 +2598,7 @@ export class MissionRailComponent {
                 [mapSystem]="missionMap()?.map_system || null"
                 [mapState]="mapCommandState()"
                 [selectedZoneId]="selectedZone()?.id || null"
+                [assistantName]="assistantName()"
                 [vessels]="strategicVessels()"
                 [highlightedVesselMmsi]="highlightedStrategicVesselMmsi()"
                 (zoneSelected)="selectStrategicZone($event)"

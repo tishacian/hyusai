@@ -98,10 +98,37 @@
     "softChecks": ["Observability"]
   },
   {
-    "id": "08-showcase-audit",
-    "title": "Agentium Showcase - Audit",
+    "id": "08-showcase-knowledge-capture",
+    "title": "Agentium Showcase - Knowledge Capture",
     "workspace": "agentium-showcase",
     "startUrl": "/observability",
+    "url": "/knowledge/capture",
+    "overlay": { "kicker": "Learning loop", "title": "Expertise becomes reviewed memory" },
+    "navSteps": [
+      { "label": "Build", "route": "/systems", "expandRail": true, "waitMs": 700 },
+      { "label": "Knowledge", "route": "/knowledge/capture", "waitMs": 1400 }
+    ],
+    "waitMs": 5600,
+    "softChecks": ["Knowledge", "Capture"]
+  },
+  {
+    "id": "09-showcase-voice2voice",
+    "title": "Agentium Showcase - Voice2Voice Command Surface",
+    "workspace": "agentium-showcase",
+    "startUrl": "/knowledge/capture",
+    "url": "/chat",
+    "overlay": { "kicker": "Voice runtime", "title": "Voice becomes a governed interface" },
+    "navSteps": [
+      { "label": "Chat", "route": "/chat", "expandRail": true, "waitMs": 1400 }
+    ],
+    "waitMs": 5200,
+    "softChecks": ["Voice runtime", "Conversation", "Start"]
+  },
+  {
+    "id": "10-showcase-audit",
+    "title": "Agentium Showcase - Audit",
+    "workspace": "agentium-showcase",
+    "startUrl": "/chat",
     "url": "/governance/audit",
     "overlay": { "kicker": "Govern", "title": "Trust through auditability" },
     "navSteps": [
@@ -112,7 +139,7 @@
     "softChecks": ["Audit"]
   },
   {
-    "id": "09-showcase-portfolio-roi",
+    "id": "11-showcase-portfolio-roi",
     "title": "Agentium Showcase - Portfolio ROI Control",
     "workspace": "agentium-showcase",
     "startUrl": "/governance/audit",
@@ -125,8 +152,8 @@
     "softChecks": ["ROI", "Portfolio", "VALUE", "COST"]
   },
   {
-    "id": "10-octocity-mission-room",
-    "title": "Octocity Mission Room - Payoff",
+    "id": "12-octocity-mission-room",
+    "title": "Octocity Mission Room - Executive Cockpit",
     "workspace": "octocity-mission-room",
     "startUrl": "/systems",
     "url": "/hypervisor/mission-room/cockpit",
@@ -140,10 +167,38 @@
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
-    "id": "11-octocity-chat-action",
-    "title": "Octocity Mission Room - OCTAVE Chat Action",
+    "id": "13-octocity-map",
+    "title": "Octocity Mission Room - Live Cartography",
     "workspace": "octocity-mission-room",
     "startUrl": "/hypervisor/mission-room/cockpit",
+    "url": "/hypervisor/mission-room/strategie",
+    "navSteps": [
+      { "label": "Carte", "route": "/hypervisor/mission-room/strategie", "expandRail": true, "waitMs": 1600 }
+    ],
+    "overlay": { "kicker": "Octocity map", "title": "Signals anchored to territory" },
+    "waitMs": 7200,
+    "softChecks": ["Carte", "Octocity"],
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+  },
+  {
+    "id": "14-octocity-news-flows",
+    "title": "Octocity Mission Room - News Flow Analysis",
+    "workspace": "octocity-mission-room",
+    "startUrl": "/hypervisor/mission-room/strategie",
+    "url": "/hypervisor/mission-room/presse",
+    "navSteps": [
+      { "label": "Presse", "route": "/hypervisor/mission-room/presse", "expandRail": true, "waitMs": 1600 }
+    ],
+    "overlay": { "kicker": "Open intelligence", "title": "News flows become decision signals" },
+    "waitMs": 7200,
+    "softChecks": ["Presse", "Octocity"],
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+  },
+  {
+    "id": "15-octocity-chat-action",
+    "title": "Octocity Mission Room - OCTAVE Chat Action",
+    "workspace": "octocity-mission-room",
+    "startUrl": "/hypervisor/mission-room/presse",
     "url": "/chat",
     "navSteps": [
       { "label": "Chat", "route": "/chat", "expandRail": true, "waitMs": 1200 }
@@ -152,8 +207,12 @@
     "waitMs": 3800,
     "actions": [
       {
+        "type": "newChat",
+        "waitMs": 1200
+      },
+      {
         "type": "chatPrompt",
-        "text": "OCTAVE, give me the 60-second cockpit briefing.",
+        "text": "OCTAVE, give me an executive briefing in English: map posture, news-flow signals, decisions to watch, and the next governed action.",
         "waitMs": 13000
       }
     ],
@@ -161,7 +220,7 @@
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
-    "id": "12-octocity-knowledge-capture",
+    "id": "16-octocity-knowledge-capture",
     "title": "Octocity Mission Room - Knowledge Capture Loop",
     "workspace": "octocity-mission-room",
     "startUrl": "/chat",
@@ -175,7 +234,7 @@
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
-    "id": "13-flow-builder-closing",
+    "id": "17-flow-builder-closing",
     "title": "Closing - Flow Builder to Mission-Critical Work",
     "workspace": "agentium-showcase",
     "systemName": "Agentium Workspace Chat",
