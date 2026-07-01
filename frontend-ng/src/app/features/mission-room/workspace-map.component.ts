@@ -229,13 +229,13 @@ const OCTOCITY_MAP_SYSTEM = {
     default_basemap: 'administrative',
     style: OCTOCITY_CARTO_VOYAGER_STYLE,
     initial_view_state: {
-      longitude: 2.45,
+      longitude: 2.25,
       latitude: 46.75,
-      zoom: 6.08,
+      zoom: 6.32,
       pitch: 0,
       bearing: 0,
     },
-    bounds: [[-5.65, 42.25], [8.45, 50.95]],
+    bounds: [[-5.3, 42.35], [8.1, 50.8]],
     attribution: 'Fond OSM/CARTO · France operating room · synthetic Agentium signals',
   },
   basemap_options: [
@@ -247,7 +247,7 @@ const OCTOCITY_MAP_SYSTEM = {
     basemap: 'administrative',
     active_layers: ['open-intelligence', 'regional-context', 'preventive-actions', 'agenda-windows'],
     selected_zone: 'zone-nord',
-    camera: { longitude: 2.45, latitude: 46.75, zoom: 6.08, pitch: 0, bearing: 0, duration_ms: 900 },
+    camera: { longitude: 2.25, latitude: 46.75, zoom: 6.32, pitch: 0, bearing: 0, duration_ms: 900 },
   },
   layer_registry: [
     { key: 'territorial-risk', label: 'Decision heatmap', short_label: 'Heatmap', tone: 'cyan', count: 5, confidence: 82, visible: true },
@@ -304,7 +304,7 @@ const OCTOCITY_MAP_SYSTEM = {
     },
   },
   camera_presets: {
-    country: { longitude: 2.45, latitude: 46.75, zoom: 6.08, pitch: 0, bearing: 0, duration_ms: 900 },
+    country: { longitude: 2.25, latitude: 46.75, zoom: 6.32, pitch: 0, bearing: 0, duration_ms: 900 },
     'zone-nord': { longitude: 2.8, latitude: 48.55, zoom: 6.45, pitch: 0, bearing: 0, duration_ms: 850 },
     'zone-ouest': { longitude: -1.7, latitude: 46.3, zoom: 6.15, pitch: 0, bearing: 0, duration_ms: 850 },
     'zone-centre': { longitude: 3.25, latitude: 45.75, zoom: 6.45, pitch: 0, bearing: 0, duration_ms: 850 },
@@ -763,7 +763,7 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
       }
 
       .workspace-map.basemap-administrative .maplibre-canvas {
-        filter: contrast(1.02) saturate(0.92) brightness(0.99);
+        filter: contrast(1.08) saturate(1.02) brightness(0.965);
       }
 
       .workspace-map.basemap-command .maplibre-canvas {
