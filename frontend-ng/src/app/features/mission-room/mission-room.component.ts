@@ -1611,6 +1611,38 @@ export class MissionRailComponent {
           }
         }
       </main>
+
+      @if (videoDemoOctaveChat()) {
+        <aside class="video-octave-chat" aria-label="OCTAVE video chat demo">
+          <header>
+            <span>OCTAVE command surface</span>
+            <strong>60-second cockpit briefing</strong>
+          </header>
+          <div class="video-octave-thread">
+            <div class="video-octave-message user">
+              <span>Executive</span>
+              <p>OCTAVE, give me the 60-second cockpit briefing in English.</p>
+            </div>
+            <div class="video-octave-message assistant">
+              <span>OCTAVE</span>
+              <p>
+                Map posture is stable with two watch signals: a logistics corridor variance near Nantes and an executive review queue near Lyon.
+              </p>
+              <p>
+                News-flow analysis confirms the signal with independent sources; the concrete systems involved are Cartography, News Lab, Security Watch and Knowledge Capture.
+              </p>
+              <p>
+                Recommended governed action: prepare a human-reviewed decision package, attach source evidence, and route it to the next mission-room review.
+              </p>
+            </div>
+          </div>
+          <footer>
+            <span>Sources linked</span>
+            <i>map · news-flow · systems · memory</i>
+            <button type="button" class="action-button primary">Prepare review</button>
+          </footer>
+        </aside>
+      }
     </section>
 
     <app-vp-press-article-drawer
@@ -2787,6 +2819,59 @@ export class MissionRailComponent {
         min-width: 0;
         overflow: auto;
         padding: 26px 34px 42px;
+      }
+      .video-octave-chat {
+        position: fixed;
+        right: 28px; top: 86px;
+        z-index: 24;
+        width: min(520px, calc(100vw - 280px));
+        display: grid;
+        overflow: hidden;
+        background: rgba(4, 10, 16, 0.97);
+      }
+      .video-octave-chat header,
+      .video-octave-chat footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+      }
+      .video-octave-chat header span,
+      .video-octave-chat footer span,
+      .video-octave-message span {
+        color: rgba(125, 211, 252, 0.86);
+        font-family: var(--ck-font-mono);
+        font-size: 10px;
+        text-transform: uppercase;
+      }
+      .video-octave-thread {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+      }
+      .video-octave-message {
+        display: grid;
+        gap: 6px;
+      }
+      .video-octave-message p {
+        margin: 0;
+        color: rgba(231, 241, 250, 0.88);
+        font-size: 14px;
+        line-height: 1.4;
+      }
+      .video-octave-message.user { justify-self: end; }
+      .video-octave-message.user p {
+        padding: 13px 14px;
+        border-radius: 12px 12px 3px 12px;
+        background: #22d3ee;
+        color: #031018;
+      }
+      .video-octave-message.assistant {
+        padding: 14px;
+        border-left: 3px solid rgba(66, 217, 155, 0.76);
+        border-radius: 12px;
+        background: rgba(10, 18, 28, 0.82);
       }
       .loading-panel {
         min-height: 360px;
@@ -5146,6 +5231,10 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     this.route.paramMap.pipe(map((params) => (params.get('view') || 'cockpit') as MissionView)),
     { initialValue: 'cockpit' as MissionView },
   );
+  private readonly videoDemoMode = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('videoDemo') || '')),
+    { initialValue: '' },
+  );
 
   readonly loading = signal(true);
   readonly abidjanNow = signal(new Date());
@@ -5162,6 +5251,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   readonly search = signal<MissionSearch | null>(null);
   readonly selectedProject = signal<Project | null>(null);
   readonly selectedZone = signal<MapZone | null>(null);
+  readonly videoDemoOctaveChat = computed(() => this.videoDemoMode() === 'octaveChat');
   readonly selectedArbitrationCard = signal<VpArbitrationCard | null>(null);
   readonly selectedSource = signal<SourceRef | null>(null);
   readonly selectedAgendaEvent = signal<AgendaItem | null>(null);

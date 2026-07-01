@@ -306,7 +306,7 @@ async function applyAction(page, action) {
     return { ok: true };
   }
   if (action.type === 'newChat') {
-    const labels = ['New chat', 'New conversation', 'Nouvelle conversation', 'Start a conversation'];
+    const labels = ['New chat', 'New conversation', 'Nouveau chat', 'Nouvelle conversation', 'Start a conversation'];
     for (const label of labels) {
       const loc = page.getByRole('button', { name: new RegExp(escapeRegex(label), 'i') }).first();
       if (!(await loc.isVisible({ timeout: 800 }).catch(() => false))) continue;

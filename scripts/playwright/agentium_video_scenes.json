@@ -81,11 +81,11 @@
     "id": "05-flow-builder-pivot",
     "title": "Flow Builder - Live Agentic Blueprint",
     "workspace": "agentium-showcase",
-    "systemName": "Tender Response Acceleration",
+    "systemName": "Tender Response Analyst",
     "startUrl": "/systems",
     "url": "/systems/{systemId}/flow",
     "navSteps": [
-      { "label": "Tender Response Acceleration", "waitMs": 1100 },
+      { "label": "Tender Response Analyst", "waitMs": 1100 },
       { "label": "Flow builder", "route": "/systems/{systemId}/flow", "waitMs": 1800 }
     ],
     "overlay": {
@@ -215,11 +215,8 @@
     "id": "11-octocity-chat-action",
     "title": "Octocity Mission Room - OCTAVE Chat Action",
     "workspace": "octocity-mission-room",
-    "startUrl": "/systems",
-    "url": "/chat",
-    "navSteps": [
-      { "label": "Chat", "route": "/chat", "expandRail": true, "waitMs": 1300 }
-    ],
+    "startUrl": "/hypervisor/mission-room/strategie?videoDemo=octaveChat",
+    "url": "/hypervisor/mission-room/strategie?videoDemo=octaveChat",
     "overlay": {
       "kicker": "OCTAVE",
       "title": "Natural language becomes governed action",
@@ -229,14 +226,10 @@
     },
     "waitMs": 5000,
     "actions": [
-      { "type": "newChat", "waitMs": 1200 },
-      {
-        "type": "chatPrompt",
-        "text": "OCTAVE, provide a concise English briefing across map posture, news-flow signals, concrete systems involved, and the next governed action.",
-        "waitMs": 18000
-      }
+      { "type": "hover", "selector": ".video-octave-message.assistant", "waitMs": 900 },
+      { "type": "click", "selector": ".video-octave-chat footer button", "waitMs": 1200 }
     ],
-    "softChecks": ["OCTAVE"],
+    "softChecks": ["OCTAVE", "60-second cockpit briefing", "Prepare review"],
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
