@@ -1104,7 +1104,7 @@ export class MissionSourcePillComponent {
         class="assistant-badge"
         [class.listening]="ayaState === 'listening'"
         (click)="assistantRequest.emit()"
-        [attr.aria-label]="'Ouvrir ' + assistantName"
+        [attr.aria-label]="assistantOpenLabel"
       >
         <span class="assistant-avatar">{{ assistantName }}</span>
         <div>
@@ -1113,13 +1113,13 @@ export class MissionSourcePillComponent {
         </div>
       </button>
 
-      <a class="rail-search" routerLink="/hypervisor/mission-room/recherche" [attr.aria-label]="'Rechercher un dossier ' + brandLabel">
+      <a class="rail-search" routerLink="/hypervisor/mission-room/recherche" [attr.aria-label]="searchAriaLabel">
         <ck-glyph name="zoom-in" [size]="12" />
-        <span>Recherche dossier</span>
+        <span>{{ searchLabel }}</span>
       </a>
 
       <nav class="mission-nav">
-        <span class="rail-section-label">Parcours Mission</span>
+        <span class="rail-section-label">{{ railSectionLabel }}</span>
         @for (item of visibleItems(); track item.key) {
           <a
             [routerLink]="item.route"
@@ -1142,7 +1142,7 @@ export class MissionSourcePillComponent {
         <strong>{{ abidjanClockTime() }}</strong>
         <span>{{ abidjanClockDate() }} · {{ timezoneLabel }}</span>
       </div>
-      <nav class="rail-tools" aria-label="Outils operateur">
+      <nav class="rail-tools" [attr.aria-label]="operatorToolsLabel">
         <a [routerLink]="adminRoute">Admin</a>
         <a routerLink="/systems">OS</a>
       </nav>
@@ -1438,13 +1438,28 @@ export class MissionRailComponent {
     presse: 'Presse',
     decisions: 'Arbitrages',
   };
+  private readonly agentiumRailLabelOverrides: Partial<Record<MissionView, string>> = {
+    cockpit: 'Cockpit',
+    strategie: 'Map',
+    securite: 'Security',
+    reputation: 'Reputation',
+    agenda: 'Agenda',
+    presse: 'News',
+    decisions: 'Reviews',
+  };
   private readonly timeFormatter = new Intl.DateTimeFormat('fr-FR', {
     timeZone: this.clockTimeZone,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   });
-  private readonly dateFormatter = new Intl.DateTimeFormat('fr-FR', {
+  private readonly frenchDateFormatter = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: this.clockTimeZone,
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+  });
+  private readonly englishDateFormatter = new Intl.DateTimeFormat('en-GB', {
     timeZone: this.clockTimeZone,
     weekday: 'long',
     day: '2-digit',
@@ -1452,7 +1467,30 @@ export class MissionRailComponent {
   });
 
   readonly abidjanClockTime = computed(() => this.timeFormatter.format(this.clockNow()));
-  readonly abidjanClockDate = computed(() => this.capitalizeClockLabel(this.dateFormatter.format(this.clockNow())));
+  readonly abidjanClockDate = computed(() => {
+    const formatter = this.isAgentiumBrand() ? this.englishDateFormatter : this.frenchDateFormatter;
+    return this.capitalizeClockLabel(formatter.format(this.clockNow()));
+  });
+
+  get assistantOpenLabel(): string {
+    return this.isAgentiumBrand() ? `Open ${this.assistantName}` : `Ouvrir ${this.assistantName}`;
+  }
+
+  get searchLabel(): string {
+    return this.isAgentiumBrand() ? 'Search dossier' : 'Recherche dossier';
+  }
+
+  get searchAriaLabel(): string {
+    return this.isAgentiumBrand() ? `Search a ${this.brandLabel} dossier` : `Rechercher un dossier ${this.brandLabel}`;
+  }
+
+  get railSectionLabel(): string {
+    return this.isAgentiumBrand() ? 'Mission path' : 'Parcours Mission';
+  }
+
+  get operatorToolsLabel(): string {
+    return this.isAgentiumBrand() ? 'Operator tools' : 'Outils operateur';
+  }
 
   ngOnInit(): void {
     this.clockTimer = window.setInterval(() => this.clockNow.set(new Date()), 30_000);
@@ -1475,12 +1513,17 @@ export class MissionRailComponent {
   }
 
   railLabel(item: MissionNavigationItem): string {
-    return this.railLabelOverrides[item.key] || item.label;
+    const overrides = this.isAgentiumBrand() ? this.agentiumRailLabelOverrides : this.railLabelOverrides;
+    return overrides[item.key] || item.label;
   }
 
   navBadge(key: MissionView): number | null {
     const count = this.alertBadges[key];
     return count && count > 0 ? count : null;
+  }
+
+  private isAgentiumBrand(): boolean {
+    return this.brandStyle === 'agentium' || String(this.assistantName || '').toUpperCase() === 'OCTAVE';
   }
 }
 
