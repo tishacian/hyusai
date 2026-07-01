@@ -174,13 +174,13 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
         <div class="map-control-panel" [class.collapsed]="!controlsOpen" (click)="$event.stopPropagation()">
           <header class="map-control-heading">
             <button type="button" class="map-control-toggle" (click)="toggleControls()">
-              <strong>Couches carte</strong>
-              <small>{{ activeLayerCount }} couches</small>
+              <strong>{{ mapLayersTitle }}</strong>
+              <small>{{ activeLayerCount }} {{ mapLayersCountLabel }}</small>
             </button>
           </header>
           @if (controlsOpen) {
             <section class="control-section">
-              <span>Fond</span>
+              <span>{{ basemapLabel }}</span>
               <div class="basemap-switch">
                 @for (basemap of basemapOptions; track basemap.key) {
                   <button
@@ -196,10 +196,10 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
             </section>
 
             <section class="control-section">
-              <span>Couches</span>
+              <span>{{ mapLayersCountLabel }}</span>
               <label class="layer-search">
-                <span>Rechercher</span>
-                <input type="search" [value]="layerSearch" (input)="setLayerSearch($any($event.target).value)" placeholder="navire, presse, agenda..." />
+                <span>{{ layerSearchLabel }}</span>
+                <input type="search" [value]="layerSearch" (input)="setLayerSearch($any($event.target).value)" [placeholder]="layerSearchPlaceholder" />
               </label>
               <div class="layer-list">
                 @for (layer of filteredLayerControls; track layer.key) {
@@ -213,7 +213,7 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
                     <i [class]="'tone-' + layer.tone"></i>
                     <strong>{{ layer.shortLabel }}</strong>
                     <small>{{ layer.group || 'Source' }} · {{ layer.count }} · {{ layer.confidence }}%</small>
-                    <em>{{ layer.stateLabel || (isLayerActive(layer.key) ? 'visible' : 'masqué') }} · {{ layer.freshness || 'source workspace' }}</em>
+                    <em>{{ layer.stateLabel || (isLayerActive(layer.key) ? 'visible' : hiddenLayerLabel) }} · {{ layer.freshness || 'source workspace' }}</em>
                   </button>
                 }
               </div>
@@ -227,17 +227,17 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
           <button type="button" aria-label="Vue pays" (click)="resetCountry()">⌂</button>
         </div>
         @if (!legendOpen && !isLayerActive('maritime-traffic') && !hasS3Legend()) {
-          <button type="button" class="map-legend-toggle" (click)="toggleLegend(); $event.stopPropagation()">Niveaux</button>
+          <button type="button" class="map-legend-toggle" (click)="toggleLegend(); $event.stopPropagation()">{{ levelsLabel }}</button>
         }
         @if (legendOpen || isLayerActive('maritime-traffic') || hasS3Legend()) {
           <div class="map-legend-bar">
             @if (legendOpen) {
               <div class="legend-section niveaux">
-                <strong>Niveaux</strong>
-                <span><i class="stable"></i>stable</span>
-                <span><i class="monitoring"></i>surveillance</span>
-                <span><i class="elevated"></i>élevé</span>
-                <span><i class="critical"></i>critique</span>
+                <strong>{{ levelsLabel }}</strong>
+                <span><i class="stable"></i>{{ stableLabel }}</span>
+                <span><i class="monitoring"></i>{{ watchLabel }}</span>
+                <span><i class="elevated"></i>{{ elevatedLabel }}</span>
+                <span><i class="critical"></i>{{ criticalLabel }}</span>
               </div>
             }
             @if (isLayerActive('maritime-traffic')) {
@@ -274,7 +274,7 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
           <article class="map-brief-popup" (click)="$event.stopPropagation()">
             <header>
               <span>Brief operationnel</span>
-              <button type="button" (click)="closeBrief()">Fermer</button>
+              <button type="button" (click)="closeBrief()">{{ closeBriefLabel }}</button>
             </header>
             <strong>{{ zone.name }}</strong>
             <div class="brief-score">
@@ -286,14 +286,14 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
                 <span>{{ driver }}</span>
               }
             </div>
-            <p>{{ zoneBrief(zone).recommendation || zone['recommendations']?.[0] || 'Qualifier puis preparer arbitrage.' }}</p>
+            <p>{{ zoneBrief(zone).recommendation || zone['recommendations']?.[0] || fallbackBriefRecommendation }}</p>
             <div class="brief-source-row">
               @for (source of zoneBriefSources(zone); track source) {
                 <small>{{ source }}</small>
               }
             </div>
             <footer>
-              <button type="button" (click)="emitEvidenceAction('arbitrage', zone)">Preparer arbitrage</button>
+              <button type="button" (click)="emitEvidenceAction('arbitrage', zone)">{{ prepareReviewLabel }}</button>
               <button type="button" (click)="emitEvidenceAction('aya', zone)">{{ askAssistantLabel }}</button>
             </footer>
           </article>
@@ -1279,7 +1279,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   get mapAttribution(): string {
-    if (this.isOctocityMode) return 'Synthetic Agentium workspace map';
+    if (this.isOctocityMode) return 'France operating room · synthetic Agentium map';
     return this.mapSystem?.['renderer_config']?.attribution || 'Couches Agentium workspace';
   }
 
@@ -1289,6 +1289,62 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
 
   get askAssistantLabel(): string {
     return this.isOctocityMode ? `Ask ${this.assistantName || 'OCTAVE'}` : 'Demander AYA';
+  }
+
+  get mapLayersTitle(): string {
+    return this.isOctocityMode ? 'Map layers' : 'Couches carte';
+  }
+
+  get mapLayersCountLabel(): string {
+    return this.isOctocityMode ? 'layers' : 'couches';
+  }
+
+  get basemapLabel(): string {
+    return this.isOctocityMode ? 'Basemap' : 'Fond';
+  }
+
+  get layerSearchLabel(): string {
+    return this.isOctocityMode ? 'Search' : 'Rechercher';
+  }
+
+  get layerSearchPlaceholder(): string {
+    return this.isOctocityMode ? 'vessel, news, agenda...' : 'navire, presse, agenda...';
+  }
+
+  get hiddenLayerLabel(): string {
+    return this.isOctocityMode ? 'hidden' : 'masqué';
+  }
+
+  get levelsLabel(): string {
+    return this.isOctocityMode ? 'Levels' : 'Niveaux';
+  }
+
+  get stableLabel(): string {
+    return this.isOctocityMode ? 'stable' : 'stable';
+  }
+
+  get watchLabel(): string {
+    return this.isOctocityMode ? 'watch' : 'surveillance';
+  }
+
+  get elevatedLabel(): string {
+    return this.isOctocityMode ? 'elevated' : 'élevé';
+  }
+
+  get criticalLabel(): string {
+    return this.isOctocityMode ? 'critical' : 'critique';
+  }
+
+  get closeBriefLabel(): string {
+    return this.isOctocityMode ? 'Close' : 'Fermer';
+  }
+
+  get fallbackBriefRecommendation(): string {
+    return this.isOctocityMode ? 'Qualify evidence, then prepare a governed review.' : 'Qualifier puis preparer arbitrage.';
+  }
+
+  get prepareReviewLabel(): string {
+    return this.isOctocityMode ? 'Prepare review' : 'Preparer arbitrage';
   }
 
   get isOctocityMode(): boolean {

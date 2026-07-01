@@ -2588,8 +2588,8 @@ export class MissionRailComponent {
         } @else {
           <section class="two-column map-layout">
             <article class="content-panel map-panel span-2" style="position:relative">
-              <span class="eyebrow">Carte strategique</span>
-              <h2>{{ missionMap()?.question }}</h2>
+              <span class="eyebrow">{{ strategicMapEyebrowLabel() }}</span>
+              <h2>{{ strategicMapQuestion() }}</h2>
               <app-workspace-map
                 class="strategy-map-canvas"
                 style="display:block;height:clamp(760px,78vh,1040px)"
@@ -5968,6 +5968,17 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   newsEyebrowLabel(): string {
     return this.missionBrandStyle() === 'agentium' ? 'Open intelligence' : 'Alerte presse';
+  }
+
+  strategicMapEyebrowLabel(): string {
+    return this.missionBrandStyle() === 'agentium' ? 'Strategic map' : 'Carte strategique';
+  }
+
+  strategicMapQuestion(): string {
+    if (this.missionBrandStyle() === 'agentium') {
+      return 'Which France operating zones require a governed decision this month?';
+    }
+    return this.missionMap()?.question || '';
   }
 
   talkingPointsEyebrowLabel(): string {
