@@ -70,8 +70,7 @@
     ],
     "actions": [
       { "type": "clickRole", "role": "button", "name": "Fit to view", "waitMs": 900, "optional": true },
-      { "type": "clickRole", "role": "button", "name": "Simulate", "waitMs": 1800, "optional": true },
-      { "type": "click", "selector": ".ck-flow-node", "waitMs": 900, "optional": true }
+      { "type": "clickRole", "role": "button", "name": "Simulate", "waitMs": 1800, "optional": true }
     ],
     "overlay": {
       "kicker": "Flow Builder",
