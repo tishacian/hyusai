@@ -147,19 +147,19 @@ interface ReportSource {
               type="button"
               (click)="requestChanges()"
               [disabled]="changesRequested()"
-              [title]="'Demander des modifications (notes ci-dessous)'"
+              [title]="'Marque la fiche « à retravailler » : corrections à apporter (jointes en notes), ni acceptée ni rejetée. Utile pour la reprendre plus tard ou la repasser à quelqu\\'un.'"
               style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); font-size:12px; border:1px solid color-mix(in oklab, var(--ck-signal-warn) 50%, transparent); background:color-mix(in oklab, var(--ck-signal-warn) 12%, transparent); color:var(--ck-signal-warn);"
               [style.cursor]="changesRequested() ? 'default' : 'pointer'"
               [style.opacity]="changesRequested() ? '0.55' : '1'"
             >
-              <ck-glyph name="layers" [size]="13" color="currentColor" /> Demander des modifications
+              <ck-glyph name="layers" [size]="13" color="currentColor" /> À retravailler
             </button>
 
             <button
               type="button"
               (click)="reject()"
               [disabled]="rejected()"
-              [title]="'Rejeter le rapport (notes ci-dessous)'"
+              [title]="'Rejeter la fiche : écartée et non publiable (motif en notes)'"
               style="appearance:none; display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:var(--ck-radius-md); font-size:12px; border:1px solid color-mix(in oklab, var(--ck-signal-neg) 50%, transparent); background:color-mix(in oklab, var(--ck-signal-neg) 12%, transparent); color:var(--ck-signal-neg);"
               [style.cursor]="rejected() ? 'default' : 'pointer'"
               [style.opacity]="rejected() ? '0.55' : '1'"
@@ -198,9 +198,16 @@ interface ReportSource {
               [value]="reviewNotes()"
               (input)="onReviewNotes($event)"
               rows="1"
-              placeholder="Notes de revue (jointes au rejet ou à la demande de modifications)…"
+              placeholder="Notes de revue (jointes au rejet ou au marquage « à retravailler »)…"
               style="flex-basis:100%; resize:vertical; min-height:34px; max-height:120px; margin-top:2px; padding:7px 11px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:var(--ck-bg-base); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:12px; line-height:1.5;"
             ></textarea>
+
+            <!-- legend: what each review verb does (the verbs were unclear) -->
+            <p style="flex-basis:100%; margin:2px 0 0; font-size:11px; line-height:1.5; color:var(--ck-fg-4);">
+              <b style="color:var(--ck-signal-pos);">Accepter</b> : prête à publier vers la base de connaissances ·
+              <b style="color:var(--ck-signal-warn);">À retravailler</b> : corrections à apporter (statut + notes), reprise possible plus tard ·
+              <b style="color:var(--ck-signal-neg);">Rejeter</b> : écartée, non publiable. Vous pouvez aussi corriger directement (Éditer le markdown / instruction IA).
+            </p>
           </div>
         }
 

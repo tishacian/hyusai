@@ -103,16 +103,16 @@ interface SurfaceTab {
   `,
   styles: [
     /*
-     * Capture-scoped legibility lift. Form-field labels, eyebrows and captions
-     * across the capture surfaces use the muted text tiers (--ck-fg-4 for
-     * labels, --ck-fg-3 for secondary text). We nudge those two tiers a notch
-     * higher-contrast here on the shell host only — custom properties cascade
-     * to every descendant surface, so the whole capture system reads clearer
-     * without altering the global cockpit tokens used by other apps.
+     * Capture-scoped legibility lift. The muted text tiers (--ck-fg-3 secondary,
+     * --ck-fg-4 labels/captions, --ck-fg-5 faint: timestamps, hints, bullets)
+     * were reported as too low-contrast. We raise all three a further notch here
+     * on the shell host only — custom properties cascade to every descendant
+     * surface, so the whole capture system reads clearer without touching the
+     * global cockpit tokens used by other apps.
      */
-    ':host { --ck-fg-3: #9aa4b3; --ck-fg-4: #929cac; }',
-    ':host-context(html:not(.dark)) { --ck-fg-3: #4b515e; --ck-fg-4: #4f5563; }',
-    ':host-context([data-theme="light"]) { --ck-fg-3: #4b515e; --ck-fg-4: #4f5563; }',
+    ':host { --ck-fg-3: #aeb7c4; --ck-fg-4: #a2acba; --ck-fg-5: #828b99; }',
+    ':host-context(html:not(.dark)) { --ck-fg-3: #3e4451; --ck-fg-4: #434a57; --ck-fg-5: #59606e; }',
+    ':host-context([data-theme="light"]) { --ck-fg-3: #3e4451; --ck-fg-4: #434a57; --ck-fg-5: #59606e; }',
   ],
 })
 export class CaptureFilShellComponent {
