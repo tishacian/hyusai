@@ -907,6 +907,27 @@ export class CaptureEngine {
   }
 
   /**
+   * Track the page the expert is actually looking at on the focused piece. The
+   * inline preview reports page navigation here; we stamp it on the active pin
+   * (its `key` stays stable) so both the deictic `visual_context` and a manual
+   * "Marquer dans le fil" reference the *shown* page, not the pin-time default.
+   */
+  setActiveViewPage(page: number | null): void {
+    const key = this._activeViewKey();
+    if (!key) return;
+    const normalized = page != null && page > 0 ? page : null;
+    let changed = false;
+    this._pinnedViews.update((pins) =>
+      pins.map((p) => {
+        if (p.key !== key || (p.page ?? null) === normalized) return p;
+        changed = true;
+        return { ...p, page: normalized };
+      }),
+    );
+    if (changed) this.pushScene();
+  }
+
+  /**
    * Manually anchor the focused piece into the Fil (Section B). Voice anchors
    * only fire on precise deictic phrases; this explicit affordance journals the
    * active view (`association_mode: 'manual'`) and appends a confirmed `anchor`

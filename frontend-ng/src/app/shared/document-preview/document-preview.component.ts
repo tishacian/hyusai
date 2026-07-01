@@ -65,40 +65,52 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
     `,
   ],
   template: `
-    @if (open()) {
+    @if (inline()) {
+      <div class="rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10">
+        <ng-container *ngTemplateOutlet="shell"></ng-container>
+      </div>
+    } @else if (open()) {
       <div class="fixed inset-0 z-[80] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4">
         <section class="w-full max-w-5xl max-h-[88vh] rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10 shadow-2xl">
-          <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
-            <div class="min-w-0">
-              <p class="text-[10px] uppercase tracking-[0.18em] text-cyan-300">{{ subtitle() || 'Document' }}</p>
-              <h2 class="mt-0.5 truncate text-sm font-semibold">{{ title() || 'Preview' }}</h2>
-              @if (normalizedPage(); as pageNo) {
-                <p class="mt-0.5 text-[10px] font-mono text-gray-400">Page {{ pageNo }}</p>
-              }
-            </div>
-            <div class="flex items-center gap-2">
-              @if (previewUrl()) {
+          <ng-container *ngTemplateOutlet="shell"></ng-container>
+        </section>
+      </div>
+    }
+
+    <ng-template #shell>
+          @if (!inline()) {
+            <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
+              <div class="min-w-0">
+                <p class="text-[10px] uppercase tracking-[0.18em] text-cyan-300">{{ subtitle() || 'Document' }}</p>
+                <h2 class="mt-0.5 truncate text-sm font-semibold">{{ title() || 'Preview' }}</h2>
+                @if (normalizedPage(); as pageNo) {
+                  <p class="mt-0.5 text-[10px] font-mono text-gray-400">Page {{ pageNo }}</p>
+                }
+              </div>
+              <div class="flex items-center gap-2">
+                @if (previewUrl()) {
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
+                    [disabled]="openingExternal() || !preview()"
+                    (click)="openExternal()"
+                  >
+                    <app-icon [name]="openingExternal() ? 'loader-2' : 'external-link'" [size]="13" [class.animate-spin]="openingExternal()" />
+                    Open
+                  </button>
+                }
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs text-gray-200 ring-1 ring-white/10 hover:bg-white/10"
-                  [disabled]="openingExternal() || !preview()"
-                  (click)="openExternal()"
+                  class="inline-flex items-center justify-center rounded p-2 text-gray-300 hover:bg-white/10 hover:text-white"
+                  (click)="closed.emit()"
+                  aria-label="Close preview"
                 >
-                  <app-icon [name]="openingExternal() ? 'loader-2' : 'external-link'" [size]="13" [class.animate-spin]="openingExternal()" />
-                  Open
+                  <app-icon name="x" [size]="16" />
                 </button>
-              }
-              <button
-                type="button"
-                class="inline-flex items-center justify-center rounded p-2 text-gray-300 hover:bg-white/10 hover:text-white"
-                (click)="closed.emit()"
-                aria-label="Close preview"
-              >
-                <app-icon name="x" [size]="16" />
-              </button>
-            </div>
-          </header>
-          <div #scrollHost class="h-[72vh] overflow-auto bg-gray-900">
+              </div>
+            </header>
+          }
+          <div #scrollHost class="overflow-auto bg-gray-900" [style.height]="bodyHeight()">
             @if (loading()) {
               <div class="flex h-full items-center justify-center gap-2 text-sm text-gray-300">
                 <app-icon name="loader-2" [size]="16" class="animate-spin text-cyan-300" />
@@ -165,7 +177,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                     [src]="pdfUrl"
                     [page]="normalizedPage() || 1"
                     [textLayer]="true"
-                    [height]="'72vh'"
+                    [height]="bodyHeight()"
                     backgroundColor="#0b1220"
                     [showSidebarButton]="false"
                     [showOpenFileButton]="false"
@@ -198,9 +210,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
               </div>
             }
           </div>
-        </section>
-      </div>
-    }
+    </ng-template>
 
     <ng-template #mediaPending>
       <div class="flex h-full items-center justify-center p-6 text-center">
@@ -236,6 +246,14 @@ export class DocumentPreviewComponent {
   private pdfLastFind = '';
 
   readonly open = input(false);
+  /**
+   * Embed the preview in place (no modal overlay/chrome) — used by La Scène to
+   * show the live document "en scène". When inline, the preview loads whenever a
+   * `previewUrl` is present, independent of `open`.
+   */
+  readonly inline = input(false);
+  /** Body height in px for inline mode; modal keeps its 72vh viewport. */
+  readonly heightPx = input<number | null>(null);
   readonly previewUrl = input<string | null>(null);
   readonly title = input('');
   readonly subtitle = input('');
@@ -256,6 +274,12 @@ export class DocumentPreviewComponent {
   readonly mediaError = signal<string | null>(null);
   readonly preview = signal<RichDocumentPreview | null>(null);
   readonly objectUrl = signal<string | null>(null);
+
+  /** Scroll-host / pdf viewer height: fixed px inline, 72vh in the modal. */
+  readonly bodyHeight = computed(() => {
+    const px = this.heightPx();
+    return px && px > 0 ? `${px}px` : '72vh';
+  });
 
   readonly normalizedPage = computed(() => {
     const raw = this.page();
@@ -313,7 +337,8 @@ export class DocumentPreviewComponent {
       const url = this.previewUrl();
       this.normalizedPage();
       this.highlight();
-      if (!this.open() || !url) {
+      const visible = this.open() || this.inline();
+      if (!visible || !url) {
         this.clearPreview();
         return;
       }

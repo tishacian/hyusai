@@ -9,7 +9,10 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService, type CapturePinnedView, type CaptureSessionDocument } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
-import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
+import {
+  DocumentPreviewComponent,
+  type DocumentPreviewViewChange,
+} from '@app/shared/document-preview/document-preview.component';
 import { CaptureEngine } from './capture-engine';
 import { ViewTileComponent } from './view-tile.component';
 import { documentToPinnedView, viewTitle } from './capture-presentation';
@@ -52,7 +55,7 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
               type="button"
               class="ck-mono"
               (click)="engine.markActiveView()"
-              title="Marquer cette pièce dans le fil"
+              title="Marquer la page montrée dans le fil"
               style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
             >
               <ck-glyph name="crosshair" [size]="10" color="currentColor" /> marquer dans le fil
@@ -109,17 +112,28 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
       </div>
 
       @if (active(); as a) {
-        <div style="display:flex; justify-content:center;">
-          <div style="width:100%; max-width:320px;">
-            <app-capture-view-tile
-              [view]="a"
-              size="xl"
-              [active]="true"
-              [clickable]="!!previewUrlFor(a)"
-              (picked)="openPreview(a)"
+        @if (previewUrlFor(a); as url) {
+          <!-- Real document "en scène" (inline preview). The page the expert
+               navigates to is fed back to the engine so deixis + marking bind to
+               the shown page — no more empty decorative placeholder. -->
+          <div
+            style="position:relative; border-radius:var(--ck-radius-md); overflow:hidden; border:1px solid var(--ck-stroke-2);"
+          >
+            <app-document-preview
+              [inline]="true"
+              [previewUrl]="url"
+              [page]="a.page ?? null"
+              [heightPx]="360"
+              (viewChanged)="onViewChanged($event)"
             />
           </div>
-        </div>
+        } @else {
+          <div style="display:flex; justify-content:center;">
+            <div style="width:100%; max-width:320px;">
+              <app-capture-view-tile [view]="a" size="xl" [active]="true" [clickable]="false" />
+            </div>
+          </div>
+        }
       } @else {
         <div
           style="min-height:120px; border:1px dashed var(--ck-stroke-3); border-radius:var(--ck-radius-md); display:grid; place-items:center; color:var(--ck-fg-5); font-size:12px; text-align:center; padding:12px;"
@@ -193,6 +207,15 @@ export class LaSceneComponent {
     this.previewTitle.set(viewTitle(view));
     this.previewPage.set(view.page ?? null);
     this.previewOpen.set(true);
+  }
+
+  /**
+   * The inline "en scène" preview reports which page is on screen; stamp it on
+   * the focused piece so "Marquer dans le fil" and voice deixis reference the
+   * page the expert is actually showing.
+   */
+  protected onViewChanged(change: DocumentPreviewViewChange): void {
+    this.engine.setActiveViewPage(change.page);
   }
 
   /** Documents attached to the session that aren't already on scene. */

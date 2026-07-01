@@ -101,6 +101,19 @@ interface SurfaceTab {
       }
     </ck-page-frame>
   `,
+  styles: [
+    /*
+     * Capture-scoped legibility lift. Form-field labels, eyebrows and captions
+     * across the capture surfaces use the muted text tiers (--ck-fg-4 for
+     * labels, --ck-fg-3 for secondary text). We nudge those two tiers a notch
+     * higher-contrast here on the shell host only — custom properties cascade
+     * to every descendant surface, so the whole capture system reads clearer
+     * without altering the global cockpit tokens used by other apps.
+     */
+    ':host { --ck-fg-3: #9aa4b3; --ck-fg-4: #929cac; }',
+    ':host-context(html:not(.dark)) { --ck-fg-3: #4b515e; --ck-fg-4: #4f5563; }',
+    ':host-context([data-theme="light"]) { --ck-fg-3: #4b515e; --ck-fg-4: #4f5563; }',
+  ],
 })
 export class CaptureFilShellComponent {
   private readonly engine = inject(CaptureEngine);
