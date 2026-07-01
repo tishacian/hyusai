@@ -184,20 +184,20 @@
     ],
     "overlay": {
       "kicker": "OCTAVE",
-      "title": "Natural language becomes governed action",
+      "title": "The assistant detects the missing rule",
       "stage": "RUN",
-      "chips": ["English brief", "Sources", "Review", "Decision package"],
-      "metric": { "label": "Executive interface", "value": "Ask -> prepare review", "trend": "OCTAVE" }
+      "chips": ["English brief", "Sources", "Gap", "Expert capture"],
+      "metric": { "label": "Executive interface", "value": "Signal -> missing rule", "trend": "OCTAVE" }
     },
-    "waitMs": 6500,
-    "softChecks": ["OCTAVE", "60-second cockpit briefing", "Prepare review"],
+    "waitMs": 7500,
+    "softChecks": ["OCTAVE", "60-second cockpit briefing", "Capture expert rule"],
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
     "id": "10-knowledge-voice2voice",
     "title": "Knowledge Capture - Voice2Voice Learning Loop",
     "workspace": "octocity-mission-room",
-    "url": "/knowledge/capture?videoDemo=voice2voice",
+    "url": "/knowledge/capture?videoDemo=voice2voice-live",
     "overlay": {
       "kicker": "Learning loop",
       "title": "The voiceover becomes the transcript",
@@ -205,8 +205,8 @@
       "chips": ["Voice2Voice", "Transcript", "Review", "Reusable memory"],
       "metric": { "label": "Knowledge loop", "value": "Expertise -> next run", "trend": "MEMORY" }
     },
-    "waitMs": 22000,
-    "softChecks": ["Voice2Voice", "OCTAVE", "Reviewed memory draft", "Listening"],
+    "waitMs": 29000,
+    "softChecks": ["Voice2Voice", "OCTAVE", "Waiting for expert voice", "Reviewed memory draft"],
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Vridi", "Golfe de Guinée", "Golfe de Guinee", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   }
 ]

@@ -1632,14 +1632,14 @@ export class MissionRailComponent {
                 News-flow analysis confirms the signal with independent sources; the concrete systems involved are Cartography, News Lab, Security Watch and Knowledge Capture.
               </p>
               <p>
-                Recommended governed action: prepare a human-reviewed decision package, attach source evidence, and route it to the next mission-room review.
+                Before review, one governance rule is missing: the expert escalation threshold. Capture it now, then route the next run with full lineage.
               </p>
             </div>
           </div>
           <footer>
             <span>Sources linked</span>
             <i>map · news-flow · systems · memory</i>
-            <button type="button" class="action-button primary">Prepare review</button>
+            <button type="button" class="action-button primary">Capture expert rule</button>
           </footer>
         </aside>
       }

@@ -1,11 +1,11 @@
 [
   {
     "id": "01-agentium-operating-system",
-    "text": "Agentium is Datategy's sovereign operating system for intelligent systems. It turns AI from isolated experiments into a governed portfolio: Systems, Runs, Evaluations and Decisions."
+    "text": "Agentium is Datategy's sovereign operating system for intelligent systems. It turns AI from isolated experiments into a governed portfolio, where every system, run, evaluation and decision can be controlled."
   },
   {
     "id": "02-enterprise-connectors",
-    "text": "The platform starts where enterprise reality lives: documents, APIs, business applications, operational feeds and private infrastructure. Knowledge and tools stay inside a controlled boundary."
+    "text": "The platform starts where enterprise reality lives: documents, APIs, business applications, operational feeds and private infrastructure. Models, knowledge, tools and traces stay inside a controlled boundary."
   },
   {
     "id": "03-systems-factory",
@@ -13,11 +13,11 @@
   },
   {
     "id": "04-flow-builder",
-    "text": "The Flow Builder makes that System explicit. Nodes, grounding, control policy and review steps are visible before execution. The blueprint is not a slide; it is a runtime manifest."
+    "text": "The Flow Builder makes that system explicit. Nodes, grounding, control policy and review steps are visible before execution. The blueprint is not a slide; it is a live runtime manifest."
   },
   {
     "id": "05-observability-quality",
-    "text": "When the System runs, every execution becomes measurable and auditable: inputs, outputs, tool calls, confidence, cost, latency, evaluations and decision lineage."
+    "text": "When the system runs, quality becomes operational. Each execution is measured through confidence, evidence, scores, cost, latency, evaluations and decision lineage."
   },
   {
     "id": "06-octocity-cockpit",
@@ -33,10 +33,10 @@
   },
   {
     "id": "09-octocity-chat-action",
-    "text": "OCTAVE becomes the command surface. Leaders ask in natural language, retrieve grounded context and trigger governed actions without bypassing policy."
+    "text": "OCTAVE becomes the command surface. It has the signal, the sources and the map posture. But before routing the review, it detects one missing governance rule: when should this signal escalate?"
   },
   {
     "id": "10-knowledge-voice2voice",
-    "text": "I am listening. Start with the signal you would escalate to the mission room, and the evidence you trust. When a regional signal crosses two independent sources, do not trigger action immediately. First check confidence, operational impact, and whether a decision owner is assigned. Captured: two-source evidence, confidence above 70 percent, and human review when ownership is missing. If the signal touches a strategic program, attach map posture, news-flow evidence, and the next governed action."
+    "text": "Now I become the field expert. OCTAVE captures my operational knowledge live. As an expert, I would not escalate a regional signal after a single source. I require two independent sources, confidence above seventy percent, and human review when ownership is missing. Captured. The rule becomes reviewed memory, ready for the next governed run."
   }
 ]
