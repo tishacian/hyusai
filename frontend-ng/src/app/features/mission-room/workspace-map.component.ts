@@ -2237,6 +2237,16 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
     const mapSystem = this.effectiveMapSystem;
     const bounds = mapSystem?.['renderer_config']?.bounds || [[-8.65, 4.2], [-2.45, 10.75]];
     const preset = mapSystem?.['default_map_state']?.camera || mapSystem?.['camera_presets']?.country;
+    if (this.isOctocityMode && preset) {
+      this.mapInstance.easeTo({
+        center: [preset.longitude, preset.latitude],
+        zoom: this.compact ? 4.9 : 5.82,
+        pitch: 0,
+        bearing: 0,
+        duration,
+      });
+      return;
+    }
     try {
       this.mapInstance.fitBounds(bounds, {
         padding: this.compact
