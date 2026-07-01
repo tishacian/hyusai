@@ -328,11 +328,25 @@ async def execute_flow_action(
     elif handler == "briefing_priorities_v1":
         result = await _invoke_skill("briefing_priorities_v1", {"knowledge_scope": knowledge_scope}, ctx)
         priorities = result.get("priorities") or []
-        lines = ["Monsieur le Vice Premier Ministre, voici les sujets prioritaires :"]
-        for idx, item in enumerate(priorities[:3], start=1):
-            lines.append(f"{idx}. {item.get('title')} — {item.get('summary')}")
-        content = "\n".join(lines)
-        sources = [{"title": "Cockpit SENTINEL-CI", "kind": "cockpit", "source_id": item.get("id")} for item in priorities[:3]]
+        if is_octocity_mission_room(workspace):
+            lines = [
+                "Coordination Director, here is the 60-second cockpit briefing:",
+                "1. Map posture: Northern Arc is in watch status, while Central Hub carries the next review-ready decision package.",
+                "2. News-flow signals: three domestic signals are linked to evidence, map zones and human-review thresholds.",
+                "3. Governed action: ask OCTAVE to promote the Central Hub package to executive review, keep Atlantic Corridor monitored, and capture the field note into Knowledge Capture after validation.",
+            ]
+            content = "\n".join(lines)
+            sources = [
+                {"title": "Octocity Mission Room", "kind": "cockpit", "source_id": "octocity-cockpit"},
+                {"title": "Open intelligence signal flow", "kind": "news_flow", "source_id": "octocity-news-sim-20260701"},
+                {"title": "Synthetic France map", "kind": "map", "source_id": "src-octocity-map-001"},
+            ]
+        else:
+            lines = ["Monsieur le Vice Premier Ministre, voici les sujets prioritaires :"]
+            for idx, item in enumerate(priorities[:3], start=1):
+                lines.append(f"{idx}. {item.get('title')} — {item.get('summary')}")
+            content = "\n".join(lines)
+            sources = [{"title": "Cockpit SENTINEL-CI", "kind": "cockpit", "source_id": item.get("id")} for item in priorities[:3]]
         extra["priorities"] = priorities
     elif handler == "map_focus_zone_with_project":
         from app.services.workspace_maps import build_map_command, ensure_workspace_map_seed
