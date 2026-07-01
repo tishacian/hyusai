@@ -2028,7 +2028,7 @@ export class MissionRailComponent {
     <ng-template #newsView>
       <section class="ministerial-news">
         <article class="content-panel span-2 news-brief-hero">
-          <span class="eyebrow">Alerte presse</span>
+          <span class="eyebrow">{{ newsEyebrowLabel() }}</span>
           <h2>{{ news()?.briefing_note?.headline || 'Synthese executive' }}</h2>
           <p>{{ news()?.summary }}</p>
           @if (briefPriorityItems().length) {
@@ -2100,7 +2100,7 @@ export class MissionRailComponent {
 
         <div class="press-drill-footer span-2">
           <button type="button" class="press-see-all" (click)="togglePressArticleList()">
-            {{ pressArticleListOpen() ? 'Revenir a la synthese' : 'Voir tous les articles (' + regionArticleCount() + ')' }}
+            {{ pressArticleListToggleLabel() }}
           </button>
           <button type="button" class="press-kpi-link" (click)="openPressArticleList({ sortByRisk: true })">
             {{ pressKpiLabel() }}
@@ -2108,8 +2108,8 @@ export class MissionRailComponent {
         </div>
 
         <article class="content-panel">
-          <span class="eyebrow">Elements de langage</span>
-          <h2>Position recommandee</h2>
+          <span class="eyebrow">{{ talkingPointsEyebrowLabel() }}</span>
+          <h2>{{ recommendedPositionLabel() }}</h2>
           <ul class="language-list">
             @for (line of news()?.briefing_note?.talking_points || []; track line) {
               <li>{{ line }}</li>
@@ -5956,7 +5956,7 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
   newsGeoTabs(): { key: 'ci' | 'cedeao' | 'africa' | 'world'; label: string; count: number }[] {
     const sections = this.news()?.geo_sections || [];
     const labels: Record<string, string> = this.missionBrandStyle() === 'agentium'
-      ? { ci: 'Asteria', cedeao: 'Alliance Aurora', africa: 'Atlantic Arc', world: 'International' }
+      ? { ci: 'France operations', cedeao: 'European coordination', africa: 'Strategic context', world: 'International' }
       : { ci: "Cote d'Ivoire", cedeao: 'CEDEAO', africa: 'Afrique', world: 'International' };
     return (['ci', 'cedeao', 'africa', 'world'] as const).map((key) => ({
       key,
@@ -5964,6 +5964,29 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
       count: sections.find((section) => section.key === key)?.count
         ?? this.newsAlerts().filter((signal) => this.newsGeoTier(signal) === key).length,
     }));
+  }
+
+  newsEyebrowLabel(): string {
+    return this.missionBrandStyle() === 'agentium' ? 'Open intelligence' : 'Alerte presse';
+  }
+
+  talkingPointsEyebrowLabel(): string {
+    return this.missionBrandStyle() === 'agentium' ? 'Executive language' : 'Elements de langage';
+  }
+
+  recommendedPositionLabel(): string {
+    return this.missionBrandStyle() === 'agentium' ? 'Recommended position' : 'Position recommandee';
+  }
+
+  pressArticleListToggleLabel(): string {
+    if (this.missionBrandStyle() === 'agentium') {
+      return this.pressArticleListOpen()
+        ? 'Back to synthesis'
+        : `View all signals (${this.regionArticleCount()})`;
+    }
+    return this.pressArticleListOpen()
+      ? 'Revenir a la synthese'
+      : `Voir tous les articles (${this.regionArticleCount()})`;
   }
 
   setNewsGeoTier(key: 'ci' | 'cedeao' | 'africa' | 'world'): void {

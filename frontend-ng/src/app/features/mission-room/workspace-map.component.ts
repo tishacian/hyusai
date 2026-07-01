@@ -1355,7 +1355,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   selectedBriefZone(): MapZone | null {
-    return this.zones.find((zone) => zone.id === this.selectedZoneId) || this.zones[0] || null;
+    return this.renderedZones.find((zone) => zone.id === this.selectedZoneId) || this.renderedZones[0] || null;
   }
 
   zoneBrief(zone: MapZone): any {

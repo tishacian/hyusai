@@ -2476,6 +2476,200 @@ def _news_geo_sections(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sections
 
 
+def _octocity_news_payload(workspace: Workspace) -> dict[str, Any]:
+    signals = [
+        {
+            "id": "octocity-news-transport-corridor",
+            "title": "Northern Arc transport corridor: service variance detected",
+            "risk_level": "high",
+            "sentiment": "mixed",
+            "summary": "Three civic feeds converge on a delayed mobility window and rising citizen-service pressure across the Northern Arc.",
+            "source": "Northern Arc",
+            "source_name": "Civic Signal Grid",
+            "source_category": "ci-local",
+            "sources": ["src-octocity-news-014", "src-octocity-map-001"],
+            "zone": "Northern Arc",
+            "geography_tier": "ci",
+            "viewpoint": "territorial operations",
+            "origin": "Synthetic open-intelligence feed",
+            "briefing_value": "Connects map posture, citizen-service pressure and the next executive operating review.",
+            "why_it_matters": "A high-visibility corridor can become a trust signal if the response is coordinated before the next public update.",
+            "recommended_action": "Route to human review, attach evidence links and prepare a measured coordination note.",
+            "confidence": 0.82,
+            "source_count": 3,
+            "badges": ["multi-source", "field-aligned", "human review"],
+            "tags": ["mobility", "public service", "territorial operations"],
+        },
+        {
+            "id": "octocity-news-energy-port",
+            "title": "Atlantic Corridor energy and harbor signals remain contained",
+            "risk_level": "medium",
+            "sentiment": "neutral",
+            "summary": "Harbor throughput, energy maintenance and field reports remain inside the monitored band after the morning reconciliation run.",
+            "source": "Atlantic Corridor",
+            "source_name": "Infrastructure Watch",
+            "source_category": "ci-maritime",
+            "sources": ["src-map-atlantic-003", "src-field-note-022"],
+            "zone": "Atlantic Corridor",
+            "geography_tier": "ci",
+            "viewpoint": "infrastructure continuity",
+            "origin": "Synthetic infrastructure feed",
+            "briefing_value": "Shows how operational signals stay governed without triggering unnecessary escalation.",
+            "why_it_matters": "The executive can keep the item in monitoring while preserving auditability.",
+            "recommended_action": "Keep the current control level and capture the field note as reusable institutional memory.",
+            "confidence": 0.76,
+            "source_count": 2,
+            "badges": ["monitored", "evidence linked"],
+            "tags": ["energy", "harbor", "continuity"],
+        },
+        {
+            "id": "octocity-news-central-review",
+            "title": "Central Hub decision queue requires one governed arbitration",
+            "risk_level": "high",
+            "sentiment": "mixed",
+            "summary": "Budget timing, agency dependency and public-facing commitments now point to one review package for the executive team.",
+            "source": "Central Hub",
+            "source_name": "Decision Ops",
+            "source_category": "ci-agency",
+            "sources": ["src-decision-queue-007", "src-budget-brief-005"],
+            "zone": "Central Hub",
+            "geography_tier": "ci",
+            "viewpoint": "executive arbitration",
+            "origin": "Synthetic decision feed",
+            "briefing_value": "Turns weak signals into a concrete decision package with traceable evidence.",
+            "why_it_matters": "This is the proof point for System -> Run -> Evaluation -> Decision.",
+            "recommended_action": "Ask OCTAVE for a 60-second briefing, then promote the decision package to review.",
+            "confidence": 0.84,
+            "source_count": 4,
+            "badges": ["decision-ready", "audit trail"],
+            "tags": ["budget", "human review", "decision"],
+        },
+        {
+            "id": "octocity-news-cross-border",
+            "title": "Regional coordination brief updated for Rhine Interface",
+            "risk_level": "medium",
+            "sentiment": "neutral",
+            "summary": "The regional coordination layer adds context for cross-border service continuity without changing the operating posture.",
+            "source": "Rhine Interface",
+            "source_name": "Regional Desk",
+            "source_category": "cedeao",
+            "sources": ["src-regional-aurora-002"],
+            "zone": "Rhine Interface",
+            "geography_tier": "cedeao",
+            "viewpoint": "regional coordination",
+            "origin": "Synthetic regional feed",
+            "briefing_value": "Provides the external context leaders need without mixing it with the local decision queue.",
+            "why_it_matters": "Agentium separates signal tiers while keeping the run lineage intact.",
+            "recommended_action": "Keep as context for the next operating review; no public action required.",
+            "confidence": 0.7,
+            "source_count": 2,
+            "badges": ["context", "lineage"],
+            "tags": ["regional coordination", "continuity"],
+        },
+    ]
+    normalized = [_normalize_news_signal(signal, index) for index, signal in enumerate(signals)]
+    geo_sections = [
+        {
+            "key": "ci",
+            "label": "France operations",
+            "description": "Domestic operational signals anchored to the synthetic territorial map.",
+            "count": 3,
+            "signals": [signal for signal in normalized if _news_geo_tier(signal) == "ci"],
+        },
+        {
+            "key": "cedeao",
+            "label": "European coordination",
+            "description": "Cross-border context used for executive coordination, not automatic escalation.",
+            "count": 1,
+            "signals": [signal for signal in normalized if _news_geo_tier(signal) == "cedeao"],
+        },
+        {
+            "key": "africa",
+            "label": "Strategic context",
+            "description": "Broader institutional context kept separate from operational decisions.",
+            "count": 0,
+            "signals": [],
+        },
+        {
+            "key": "world",
+            "label": "International",
+            "description": "Partner and market context for executive awareness.",
+            "count": 0,
+            "signals": [],
+        },
+    ]
+    return _attach_vp_story(
+        {
+            "workspace": _workspace_meta(workspace),
+            "signals": normalized[:3],
+            "executive_alerts": normalized[:3],
+            "all_signals": normalized,
+            "summary": (
+                "OCTAVE reconciles open-intelligence, map posture and decision evidence into a governed "
+                "executive signal flow for a synthetic France-based operating room."
+            ),
+            "briefing_note": {
+                "headline": "Open intelligence signal flow",
+                "bullets": [
+                    "Three domestic signals are linked to map zones, evidence sources and human-review thresholds.",
+                    "One regional context signal is preserved for coordination without changing the operating posture.",
+                    "The next action is decision-ready: briefing, evidence pack, review owner and audit trail.",
+                ],
+                "talking_points": [
+                    "Respond from verified evidence, not from isolated headlines.",
+                    "Keep operational decisions traceable through System, Run, Evaluation and Decision.",
+                    "Use OCTAVE to summarize posture, confidence, risk and the next governed action in English.",
+                ],
+                "decisions_expected": [
+                    "Promote the Central Hub package to executive review.",
+                    "Keep the Atlantic Corridor in monitored status.",
+                    "Capture the field note into Knowledge Capture after review.",
+                ],
+            },
+            "source_health": {
+                "active_feeds": 7,
+                "total_articles": 128,
+                "analyzed": 128,
+                "high_risk": 2,
+                "last_run_id": "octocity-news-sim-20260701",
+                "last_run_status": "simulated",
+                "coverage_label": "7 sources · synthetic France operating room",
+                "live_news_used": False,
+                "geography_order": ["ci", "cedeao", "africa", "world"],
+            },
+            "media_sources": [
+                {"label": "Domestic civic feeds", "coverage": 92, "count": 4},
+                {"label": "Infrastructure watch", "coverage": 78, "count": 2},
+                {"label": "Regional context", "coverage": 64, "count": 1},
+                {"label": "Decision evidence", "coverage": 86, "count": 6},
+            ],
+            "geographic_priority": geo_sections,
+            "geo_sections": geo_sections,
+            "viewpoints": [
+                {"label": "Operations", "summary": "Map-linked signals with evidence and review thresholds.", "count": 3},
+                {"label": "Governance", "summary": "Decision-ready packages remain auditable before action.", "count": 2},
+                {"label": "Coordination", "summary": "Regional context is preserved without forcing escalation.", "count": 1},
+            ],
+            "social_listening": {
+                "status": "synthetic",
+                "top_themes": ["service continuity", "mobility", "executive review"],
+                "summary": "Citizen-facing signals are treated as advisory evidence until reviewed.",
+            },
+            "maritime_intelligence": {},
+            "analysis_link": {
+                "system_id": None,
+                "run_id": "octocity-news-sim-20260701",
+                "label": "Open intelligence simulator",
+            },
+            "sources": [
+                {"id": "src-octocity-news-014", "label": "Civic Signal Grid", "kind": "synthetic_feed", "confidence": 0.82, "age": "simulated"},
+                {"id": "src-octocity-map-001", "label": "Synthetic territorial map", "kind": "map_layer", "confidence": 0.8, "age": "current"},
+                {"id": "src-decision-queue-007", "label": "Decision queue", "kind": "governance_trace", "confidence": 0.84, "age": "current"},
+            ],
+        }
+    )
+
+
 def _feed_rows(db: Optional[DBSession], workspace: Workspace) -> list[dict[str, Any]]:
     if not db:
         return [
@@ -2596,6 +2790,9 @@ def _latest_intelligence_run(db: DBSession, workspace: Workspace) -> Optional[Ru
 
 def _executive_news_payload(workspace: Workspace, db: Optional[DBSession]) -> dict[str, Any]:
     """Bridge News Lab diagnostics into a ministerial, advisory payload."""
+    if is_octocity_mission_room(workspace):
+        return _octocity_news_payload(workspace)
+
     feed_rows = _feed_rows(db, workspace)
     fallback_signals = [_normalize_news_signal(signal, index) for index, signal in enumerate(_clone(NEWS_SIGNALS))]
     fallback_maritime = _maritime_intelligence_payload(feed_rows, fallback_signals)

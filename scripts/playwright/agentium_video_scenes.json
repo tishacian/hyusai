@@ -177,7 +177,7 @@
     ],
     "overlay": { "kicker": "Octocity map", "title": "Signals anchored to territory" },
     "waitMs": 7200,
-    "softChecks": ["Carte", "Octocity"],
+    "softChecks": ["France", "Octocity"],
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
@@ -191,7 +191,7 @@
     ],
     "overlay": { "kicker": "Open intelligence", "title": "News flows become decision signals" },
     "waitMs": 7200,
-    "softChecks": ["Presse", "Octocity"],
+    "softChecks": ["Open intelligence", "signal flow"],
     "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
   },
   {
