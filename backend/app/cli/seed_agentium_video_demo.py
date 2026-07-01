@@ -146,6 +146,7 @@ def _ensure_video_capability(db, workspace: Workspace, spec: dict[str, Any], sys
         "internal_cost": float(spec["cost"]),
     }
     capability.is_seeded = "Y"
+    db.flush()
     system.capability_id = capability.id
     return capability
 
