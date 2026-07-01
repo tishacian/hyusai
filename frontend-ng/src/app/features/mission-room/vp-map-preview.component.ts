@@ -104,8 +104,8 @@ const ABIDJAN_CAMERA = {
     <article class="map-preview-panel">
       <div class="panel-heading-row">
         <div>
-          <span class="eyebrow">{{ context.label || 'Carte fusionnée' }}</span>
-          <h2>Territoire et signaux</h2>
+          <span class="eyebrow">{{ displayLabel() }}</span>
+          <h2>{{ isOctocityMode() ? 'Territory and signals' : 'Territoire et signaux' }}</h2>
         </div>
         <a
           [routerLink]="context.route || '/hypervisor/mission-room/strategie'"
@@ -114,7 +114,7 @@ const ABIDJAN_CAMERA = {
           (click)="openMap.emit()"
         >
           <ck-glyph name="sliders" [size]="14" />
-          <span>Ouvrir carte</span>
+          <span>{{ isOctocityMode() ? 'Open map' : 'Ouvrir carte' }}</span>
         </a>
       </div>
       <div class="map-layout">
@@ -130,6 +130,7 @@ const ABIDJAN_CAMERA = {
               [mapState]="previewMapState"
               [userSelectedZoom]="vesselZoomMode"
               [selectedZoneId]="context.topZoneId"
+              [assistantName]="assistantName"
               [vessels]="vesselsEnabled && maritimeLayerVisible ? vessels : null"
               [highlightedVesselMmsi]="selectedVessel?.mmsi || null"
               (vesselSelected)="selectVessel($event)"
@@ -181,8 +182,8 @@ const ABIDJAN_CAMERA = {
         </aside>
       </div>
       <footer class="map-legend" aria-label="Légende carte">
-        <span class="legend-item critical"><span class="legend-dot"></span>Tendu</span>
-        <span class="legend-item elevated"><span class="legend-dot"></span>Surveillance</span>
+        <span class="legend-item critical"><span class="legend-dot"></span>{{ isOctocityMode() ? 'Critical' : 'Tendu' }}</span>
+        <span class="legend-item elevated"><span class="legend-dot"></span>{{ isOctocityMode() ? 'Watch' : 'Surveillance' }}</span>
         <span class="legend-item stable"><span class="legend-dot"></span>Stable</span>
         @if (vesselsEnabled) {
           <button
@@ -955,6 +956,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
    * Optional bbox `west,south,east,north`. Defaults to the Abidjan/Vridi
    * baseline window so the demo always renders something.
    */
+  @Input() assistantName = 'AYA';
   @Input() vesselsBbox: string = DEFAULT_BBOX;
   @Input() vesselsEnabled: boolean = true;
   @Output() openMap = new EventEmitter<void>();
@@ -1012,6 +1014,15 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
     return 'stable';
   }
 
+  isOctocityMode(): boolean {
+    return String(this.assistantName || '').toUpperCase() === 'OCTAVE';
+  }
+
+  displayLabel(): string {
+    if (this.isOctocityMode()) return 'France operating map';
+    return this.context.label || 'Carte fusionnée';
+  }
+
   mapQueryParams(): Record<string, string> {
     const layers = this.context.geoPreview.active_layers || [];
     const params: Record<string, string> = {};
@@ -1029,6 +1040,7 @@ export class VpMapPreviewComponent implements OnInit, OnDestroy {
    */
   previewLayersWithMaritime(): string[] {
     const requested = this.context.geoPreview.active_layers || [];
+    if (!this.vesselsEnabled || this.isOctocityMode()) return requested.filter((layer) => layer !== 'maritime-traffic');
     if (requested.includes('maritime-traffic')) return requested;
     return [...requested, 'maritime-traffic'];
   }

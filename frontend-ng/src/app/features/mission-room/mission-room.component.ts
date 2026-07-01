@@ -1532,10 +1532,10 @@ export class MissionRailComponent {
             <header class="mission-hero">
               <div class="hero-copy">
                 <div class="hero-meta">
-                  <span class="eyebrow">Mission Room · Vice Premier Ministre</span>
+                  <span class="eyebrow">{{ missionRoomRoleLabel() }}</span>
                   <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
                 </div>
-                <h1>{{ cockpit()?.title || 'Bonjour, Monsieur le Vice Premier Ministre.' }}</h1>
+                <h1>{{ cockpit()?.title || missionRoomGreetingFallback() }}</h1>
                 <p>
                   <span>{{ cockpit()?.date_label || currentAbidjanDateLabel() }}</span>
                   <span class="hero-dot"></span>
@@ -5968,6 +5968,18 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
 
   newsEyebrowLabel(): string {
     return this.missionBrandStyle() === 'agentium' ? 'Open intelligence' : 'Alerte presse';
+  }
+
+  missionRoomRoleLabel(): string {
+    return this.missionBrandStyle() === 'agentium'
+      ? 'Mission Room · Coordination Director'
+      : 'Mission Room · Vice Premier Ministre';
+  }
+
+  missionRoomGreetingFallback(): string {
+    return this.missionBrandStyle() === 'agentium'
+      ? 'Good morning, Coordination Director.'
+      : 'Bonjour, Monsieur le Vice Premier Ministre.';
   }
 
   strategicMapEyebrowLabel(): string {

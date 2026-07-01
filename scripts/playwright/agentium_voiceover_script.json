@@ -1,19 +1,19 @@
 [
   {
     "id": "01-cold-open",
-    "text": "Most organizations are no longer asking whether they can build one AI agent. The challenge is industrializing hundreds of intelligent systems, securely and under control."
+    "text": "Most organizations are no longer asking whether they can build one AI agent. The challenge is industrializing hundreds of intelligent systems, securely, measurably and under control."
   },
   {
     "id": "02-connectors",
-    "text": "Agentium starts where enterprise reality lives: documents, applications, calendars, operational feeds, business tools and private data boundaries."
+    "text": "Agentium starts where enterprise reality lives: connectors to documents, applications, calendars, operational feeds, APIs, business tools and private data boundaries."
   },
   {
     "id": "03-hypervisor",
-    "text": "It is Datategy's sovereign platform for building, orchestrating and governing intelligent systems across the organization."
+    "text": "It is Datategy's sovereign platform for building, orchestrating and governing intelligent systems across the organization, from one capability to an enterprise portfolio."
   },
   {
     "id": "04-systems-factory",
-    "text": "The core model is simple: a business objective becomes a System. Each System can combine agents, skills, knowledge, models, workflows, rules and human review."
+    "text": "The core model is simple: a business objective becomes a System. Each System draws from a capability catalog: agents, skills, knowledge, models, workflows, rules and human review."
   },
   {
     "id": "05-flow-builder",
@@ -25,7 +25,7 @@
   },
   {
     "id": "07-observability",
-    "text": "This turns AI quality from a subjective discussion into operations: confidence, hallucination risk, latency, cost and business impact can be measured."
+    "text": "This turns AI quality from a subjective discussion into management: confidence, hallucination risk, latency, cost, adoption and business impact can be measured."
   },
   {
     "id": "08-knowledge-capture",
@@ -41,7 +41,7 @@
   },
   {
     "id": "11-portfolio-roi",
-    "text": "At executive level, the Hypervisor changes the conversation. AI becomes an operational portfolio: value, cost, risk, drift and scale decisions."
+    "text": "At executive level, the Hypervisor changes the conversation. Leaders can steer AI as an operational portfolio: macro ROI, value, cost, risk, drift and investment decisions."
   },
   {
     "id": "12-octocity-cockpit",
@@ -65,6 +65,6 @@
   },
   {
     "id": "17-closing",
-    "text": "Agentium helps organizations move from AI prototypes to sovereign, governed and measurable AI operations. Do not just deploy agents. Deploy trusted intelligent systems."
+    "text": "Agentium helps organizations move from AI prototypes to sovereign, governed and measurable AI operations. Do not just deploy agents. Deploy trusted intelligent systems, operated like strategic assets."
   }
 ]

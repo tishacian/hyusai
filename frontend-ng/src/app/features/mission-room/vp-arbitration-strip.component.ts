@@ -11,10 +11,10 @@ import type { VpArbitrationCard } from './vp-cockpit.types';
     <section class="arb-strip" aria-label="Sujets à arbitrer">
       <header class="arb-strip-head">
         <div>
-          <span class="eyebrow">Sujets à arbitrer</span>
+          <span class="eyebrow">{{ isOctocityMode() ? 'Subjects to review' : 'Sujets à arbitrer' }}</span>
           <h2>
             <strong>{{ cards.length }}</strong>
-            <span>décision{{ cards.length > 1 ? 's' : '' }} ce matin</span>
+            <span>{{ isOctocityMode() ? 'decision package' + (cards.length > 1 ? 's' : '') + ' today' : 'décision' + (cards.length > 1 ? 's' : '') + ' ce matin' }}</span>
           </h2>
         </div>
       </header>
@@ -23,7 +23,7 @@ import type { VpArbitrationCard } from './vp-cockpit.types';
         <div class="arb-empty" role="status">
           <span class="arb-empty-icon" aria-hidden="true">○</span>
           <strong>File d'arbitrages vide</strong>
-          <small>AYA pousse les sujets dès qu'un dossier requiert un arbitrage Vice Premier Ministre.</small>
+          <small>{{ assistantName }} {{ isOctocityMode() ? 'pushes items when a file requires governed executive review.' : "pousse les sujets dès qu'un dossier requiert un arbitrage Vice Premier Ministre." }}</small>
         </div>
       } @else {
         <ul class="arb-cards" role="list">
@@ -42,7 +42,7 @@ import type { VpArbitrationCard } from './vp-cockpit.types';
                   <span class="arb-head">
                     <span class="rank">{{ card.rank }} · {{ card.domain_label }}</span>
                     @if (card.aya_prepared) {
-                      <i class="aya-tag" aria-label="AYA prête">AYA prêt</i>
+                      <i class="aya-tag" [attr.aria-label]="assistantName + ' ready'">{{ assistantName }} {{ isOctocityMode() ? 'ready' : 'prêt' }}</i>
                     }
                   </span>
                   <strong>{{ card.title }}</strong>
@@ -269,8 +269,13 @@ import type { VpArbitrationCard } from './vp-cockpit.types';
   ],
 })
 export class VpArbitrationStripComponent {
+  @Input() assistantName = 'AYA';
   @Input() cards: VpArbitrationCard[] = [];
   @Output() cardSelected = new EventEmitter<VpArbitrationCard>();
+
+  isOctocityMode(): boolean {
+    return String(this.assistantName || '').toUpperCase() === 'OCTAVE';
+  }
 
   toneClass(tone?: string): string {
     const normalized = (tone || '').toLowerCase();

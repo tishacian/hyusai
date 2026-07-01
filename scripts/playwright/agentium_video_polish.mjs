@@ -74,6 +74,7 @@ function sceneTimeline(scenes, duration, assembled = null) {
         id: scene.id,
         title: scene.overlay?.title || scene.title || scene.id,
         kicker: scene.overlay?.kicker || scene.workspace || 'Agentium',
+        overlay: scene.overlay || {},
         start,
         end,
       };
@@ -92,6 +93,7 @@ function sceneTimeline(scenes, duration, assembled = null) {
       id: scene.id,
       title: scene.overlay?.title || scene.title || scene.id,
       kicker: scene.overlay?.kicker || scene.workspace || 'Agentium',
+      overlay: scene.overlay || {},
       start,
       end,
     };
@@ -140,11 +142,26 @@ small_bold = font(22, True)
 title_font = font(36, True)
 brand_font = font(22, True)
 tag_font = font(18)
+chip_font = font(17, True)
+metric_font = font(24, True)
+metric_small = font(15, True)
+
+def text_size(draw, text, font):
+    box = draw.textbbox((0, 0), text, font=font)
+    return box[2] - box[0], box[3] - box[1]
 
 def shadow_text(draw, xy, text, font, fill, shadow=(0, 0, 0, 210), offset=(2, 2)):
     x, y = xy
     draw.text((x + offset[0], y + offset[1]), text, font=font, fill=shadow)
     draw.text((x, y), text, font=font, fill=fill)
+
+def pill(draw, xy, text, font, fill, outline, text_fill, pad_x=16, pad_y=8):
+    x, y = xy
+    tw, th = text_size(draw, text, font)
+    box = (x, y, x + tw + pad_x * 2, y + th + pad_y * 2)
+    draw.rounded_rectangle(box, radius=14, fill=fill, outline=outline, width=1)
+    draw.text((x + pad_x, y + pad_y - 1), text, font=font, fill=text_fill)
+    return box[2] + 8
 
 logo_img = None
 if logo_path and os.path.exists(logo_path):
@@ -156,17 +173,46 @@ if logo_path and os.path.exists(logo_path):
 for index, item in enumerate(payload["timeline"]):
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
+    overlay = item.get("overlay") or {}
     cyan = (103, 232, 249, 225)
     white = (248, 250, 252, 242)
     muted = (178, 190, 205, 220)
     panel = (2, 7, 13, 202)
     stroke = (34, 211, 238, 128)
+    green = (52, 211, 153, 225)
+    amber = (251, 191, 36, 225)
+    purple = (196, 181, 253, 225)
 
     shadow_text(draw, (64, 46), "DATATEGY  //  AGENTIUM", font=brand_font, fill=white)
     right_text = "AI OPERATING SYSTEM 2026"
     rb = draw.textbbox((0, 0), right_text, font=tag_font)
     shadow_text(draw, (W - (rb[2] - rb[0]) - 64, 50), right_text, font=tag_font, fill=cyan)
     draw.rectangle((0, H - 4, W, H), fill=(34, 211, 238, 184))
+
+    stages = ["CONNECT", "BUILD", "RUN", "EVALUATE", "GOVERN", "IMPROVE"]
+    active_stage = str(overlay.get("stage") or "BUILD").upper()
+    sx, sy = 64, 90
+    draw.rounded_rectangle((sx - 12, sy - 10, sx + 690, sy + 43), radius=18, fill=(1, 8, 15, 168), outline=(34, 211, 238, 72), width=1)
+    for stage in stages:
+        is_active = stage == active_stage
+        fill = (34, 211, 238, 46) if not is_active else (34, 211, 238, 190)
+        outline = (34, 211, 238, 90) if not is_active else (103, 232, 249, 230)
+        text_fill = (178, 190, 205, 220) if not is_active else (2, 7, 13, 245)
+        sx = pill(draw, (sx, sy), stage, metric_small, fill, outline, text_fill, pad_x=12, pad_y=7)
+
+    metric = overlay.get("metric") or {}
+    if metric:
+        mx, my, mw, mh = W - 456, 94, 392, 88
+        draw.rounded_rectangle((mx, my, mx + mw, my + mh), radius=12, fill=(2, 7, 13, 190), outline=(52, 211, 153, 118), width=1)
+        label = str(metric.get("label") or "EXECUTIVE SIGNAL").upper()
+        value = str(metric.get("value") or "")
+        shadow_text(draw, (mx + 20, my + 15), label, font=metric_small, fill=green)
+        shadow_text(draw, (mx + 20, my + 40), value, font=metric_font, fill=white)
+        trend = str(metric.get("trend") or "")
+        if trend:
+            tbw, _ = text_size(draw, trend, metric_small)
+            draw.rounded_rectangle((mx + mw - tbw - 42, my + 32, mx + mw - 18, my + 63), radius=11, fill=(52, 211, 153, 42), outline=(52, 211, 153, 112), width=1)
+            draw.text((mx + mw - tbw - 30, my + 39), trend, font=metric_small, fill=green)
 
     x, y, w, h = 56, H - 238, 820, 124
     draw.rounded_rectangle((x, y, x + w, y + h), radius=10, fill=panel, outline=stroke, width=1)
@@ -180,8 +226,20 @@ for index, item in enumerate(payload["timeline"]):
 
     scene_no = f"{index + 1:02d}/{len(payload['timeline']):02d}"
     shadow_text(draw, (x + w - 82, y + 28), scene_no, font=small, fill=muted)
+
+    chips = [str(chip) for chip in (overlay.get("chips") or [])][:4]
+    if chips:
+        cx, cy = x + w + 26, y + 18
+        draw.rounded_rectangle((cx - 12, cy - 12, min(W - 250, cx + 650), cy + 92), radius=10, fill=(2, 7, 13, 150), outline=(148, 163, 184, 58), width=1)
+        chip_colors = [cyan, green, amber, purple]
+        for chip_idx, chip in enumerate(chips):
+            cx = pill(draw, (cx, cy + (chip_idx // 2) * 42), chip.upper(), chip_font, (15, 23, 34, 206), (34, 211, 238, 92), chip_colors[chip_idx % len(chip_colors)], pad_x=14, pad_y=8)
+            if chip_idx == 1:
+                cx = x + w + 26
     if logo_img is not None:
-        img.alpha_composite(logo_img, (W - logo_img.width - 64, H - logo_img.height - 44))
+        lx, ly = W - logo_img.width - 64, H - logo_img.height - 44
+        draw.rounded_rectangle((lx - 14, ly - 10, lx + logo_img.width + 14, ly + logo_img.height + 10), radius=10, fill=(0, 0, 0, 118), outline=(34, 211, 238, 52), width=1)
+        img.alpha_composite(logo_img, (lx, ly))
     out = os.path.join(out_dir, f"overlay-{index:02d}.png")
     img.save(out)
 `);

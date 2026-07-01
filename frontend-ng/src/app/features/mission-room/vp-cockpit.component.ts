@@ -143,12 +143,13 @@ import type {
       <section class="vp-block vp-block-terrain" aria-label="Carte et arbitrages">
         <app-vp-map-preview
           [context]="mapPreview"
-          [vesselsEnabled]="true"
+          [assistantName]="assistantName"
+          [vesselsEnabled]="!isOctocityMode()"
           (openMap)="openMap.emit()"
           (zoneSelected)="mapZoneSelected.emit($event)"
           (vesselSelected)="mapVesselSelected.emit($event)"
         />
-        <app-vp-arbitration-strip [cards]="arbitrationCards" (cardSelected)="arbitrationSelected.emit($event)" />
+        <app-vp-arbitration-strip [cards]="arbitrationCards" [assistantName]="assistantName" (cardSelected)="arbitrationSelected.emit($event)" />
       </section>
 
       @if (securityPosture; as posture) {
@@ -565,6 +566,10 @@ export class VpCockpitComponent {
   @Output() briefingRequest = new EventEmitter<void>();
   @Output() securityPostureRequested = new EventEmitter<void>();
   @Output() securityCommuniqueRequested = new EventEmitter<void>();
+
+  isOctocityMode(): boolean {
+    return String(this.assistantName || '').toUpperCase() === 'OCTAVE';
+  }
 
   toneClass(tone?: string): string {
     const normalized = (tone || '').toLowerCase();
