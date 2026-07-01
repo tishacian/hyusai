@@ -141,26 +141,31 @@ title_font = font(36, True)
 brand_font = font(22, True)
 tag_font = font(18)
 
+def shadow_text(draw, xy, text, font, fill, shadow=(0, 0, 0, 210), offset=(2, 2)):
+    x, y = xy
+    draw.text((x + offset[0], y + offset[1]), text, font=font, fill=shadow)
+    draw.text((x, y), text, font=font, fill=fill)
+
 logo_img = None
 if logo_path and os.path.exists(logo_path):
     logo_img = Image.open(logo_path).convert("RGBA")
     logo_img.thumbnail((150, 64), Image.Resampling.LANCZOS)
-    alpha = logo_img.getchannel("A").point(lambda p: int(p * 0.72))
+    alpha = logo_img.getchannel("A").point(lambda p: int(p * 0.78))
     logo_img.putalpha(alpha)
 
 for index, item in enumerate(payload["timeline"]):
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     cyan = (103, 232, 249, 225)
-    white = (245, 248, 252, 230)
-    muted = (148, 163, 184, 210)
-    panel = (2, 7, 13, 156)
-    stroke = (34, 211, 238, 92)
+    white = (248, 250, 252, 242)
+    muted = (178, 190, 205, 220)
+    panel = (2, 7, 13, 202)
+    stroke = (34, 211, 238, 128)
 
-    draw.text((64, 46), "DATATEGY  //  AGENTIUM", font=brand_font, fill=white)
+    shadow_text(draw, (64, 46), "DATATEGY  //  AGENTIUM", font=brand_font, fill=white)
     right_text = "AI OPERATING SYSTEM 2026"
     rb = draw.textbbox((0, 0), right_text, font=tag_font)
-    draw.text((W - (rb[2] - rb[0]) - 64, 50), right_text, font=tag_font, fill=cyan)
+    shadow_text(draw, (W - (rb[2] - rb[0]) - 64, 50), right_text, font=tag_font, fill=cyan)
     draw.rectangle((0, H - 4, W, H), fill=(34, 211, 238, 184))
 
     x, y, w, h = 56, H - 238, 820, 124
@@ -168,13 +173,13 @@ for index, item in enumerate(payload["timeline"]):
     draw.rectangle((x, y, x + 5, y + h), fill=cyan)
     kicker = str(item.get("kicker") or "Agentium").upper()
     title = str(item.get("title") or item.get("id") or "")
-    draw.text((x + 32, y + 25), kicker, font=small_bold, fill=cyan)
+    shadow_text(draw, (x + 32, y + 25), kicker, font=small_bold, fill=cyan)
     wrapped = textwrap.wrap(title, width=38)[:2]
     for line_idx, line in enumerate(wrapped):
-        draw.text((x + 32, y + 58 + line_idx * 39), line, font=title_font, fill=white)
+        shadow_text(draw, (x + 32, y + 58 + line_idx * 39), line, font=title_font, fill=white)
 
     scene_no = f"{index + 1:02d}/{len(payload['timeline']):02d}"
-    draw.text((x + w - 82, y + 28), scene_no, font=small, fill=muted)
+    shadow_text(draw, (x + w - 82, y + 28), scene_no, font=small, fill=muted)
     if logo_img is not None:
         img.alpha_composite(logo_img, (W - logo_img.width - 64, H - logo_img.height - 44))
     out = os.path.join(out_dir, f"overlay-{index:02d}.png")

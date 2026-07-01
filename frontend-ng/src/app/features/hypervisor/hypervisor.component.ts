@@ -142,7 +142,7 @@ const PERIOD_LABELS: Record<PeriodKey, string> = {
               />
               <ck-stat-readout
                 label="CAPABILITIES"
-                [value]="(capabilities().length || portfolio()?.capabilities_count || 0).toString()"
+                [value]="capabilityCount().toString()"
                 tone="violet"
                 [size]="22"
               />
@@ -775,6 +775,11 @@ export class HypervisorComponent implements OnInit {
   readonly portfolio = computed<ImpactAggregate | null>(() => this.balance()?.portfolio ?? null);
   readonly capabilities = computed<CapabilityRow[]>(() => this.balance()?.capabilities ?? []);
   readonly signals = computed<HypervisorSignal[]>(() => this.balance()?.signals ?? []);
+  readonly capabilityCount = computed(() => Math.max(
+    this.capabilities().length,
+    this.portfolio()?.capabilities_count || 0,
+    this.portfolio()?.runs_count || 0,
+  ));
 
   readonly netValue = computed(() => {
     const p = this.portfolio();

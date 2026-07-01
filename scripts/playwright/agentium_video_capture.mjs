@@ -64,9 +64,9 @@ async function resolveSystemId(page, { host, workspace, systemName, systemSlug }
   );
 }
 
-async function sceneUrl(page, scene, options) {
+async function sceneUrl(page, scene, options, rawUrl = scene.url) {
   const workspace = scene.workspace || options.workspace;
-  let url = scene.url;
+  let url = rawUrl;
   if (url.includes('{systemId}') || scene.systemName || scene.systemSlug) {
     await page.evaluate((workspaceSlug) => {
       if (workspaceSlug) window.localStorage.setItem('agentium_workspace_slug', workspaceSlug);
@@ -199,6 +199,18 @@ async function clickRoute(page, step) {
       await humanPause(page, step.waitMs || 1400);
       return { ok: true, role, label: step.label };
     }
+    const textTarget = page.getByText(name).first();
+    if (await textTarget.isVisible({ timeout: 1000 }).catch(() => false)) {
+      const clickable = textTarget.locator('xpath=ancestor-or-self::*[self::a or self::button][1]').first();
+      const target = (await clickable.count().catch(() => 0)) ? clickable : textTarget;
+      await target.scrollIntoViewIfNeeded().catch(() => {});
+      await target.hover().catch(() => {});
+      await humanPause(page, 280);
+      await target.click({ timeout: step.timeoutMs || 10_000 });
+      await page.waitForLoadState('domcontentloaded', { timeout: 20_000 }).catch(() => {});
+      await humanPause(page, step.waitMs || 1400);
+      return { ok: true, text: step.label };
+    }
   }
 
   return { ok: false, error: `No visible nav target for ${step.label || step.route || 'step'}` };
@@ -211,18 +223,26 @@ async function navigateScene(page, scene, options, previousWorkspace) {
   }, workspace).catch(() => {});
   const url = await sceneUrl(page, scene, options);
   const result = { url, workspace, mode: 'direct', steps: [] };
+  const startUrl = scene.startUrl ? await sceneUrl(page, scene, options, scene.startUrl) : null;
 
   const canUseUi =
-    options.continuous &&
-    previousWorkspace === workspace &&
+    (startUrl || (options.continuous && previousWorkspace === workspace)) &&
     Array.isArray(scene.navSteps) &&
     scene.navSteps.length > 0;
 
   if (canUseUi) {
-    result.mode = 'ui';
+    result.mode = startUrl ? 'ui_from_start' : 'ui';
+    if (startUrl) {
+      await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await humanPause(page, Number(scene.startWaitMs || 1300));
+    }
     for (const step of scene.navSteps) {
-      const stepResult = await clickRoute(page, step);
-      result.steps.push({ step, ...stepResult });
+      const resolvedStep = { ...step };
+      if (resolvedStep.route && String(resolvedStep.route).includes('{systemId}')) {
+        resolvedStep.route = await sceneUrl(page, scene, options, resolvedStep.route);
+      }
+      const stepResult = await clickRoute(page, resolvedStep);
+      result.steps.push({ step: resolvedStep, ...stepResult });
       if (!stepResult.ok) {
         result.mode = 'ui_fallback_direct';
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
@@ -367,9 +387,9 @@ async function captureScene(browser, scene, options) {
     await page.evaluate((workspaceSlug) => {
       window.localStorage.setItem('agentium_workspace_slug', workspaceSlug);
     }, workspace).catch(() => {});
-    const url = await sceneUrl(page, scene, options);
-    result.url = url;
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    const navigation = await navigateScene(page, scene, { ...options, continuous: false }, null);
+    result.url = navigation.url;
+    result.navigation = navigation;
     await page.waitForTimeout(scene.waitMs || options.defaultWaitMs);
     for (const selector of scene.waitForSelectors || []) {
       await page.locator(selector).first().waitFor({ state: 'visible', timeout: 15_000 });
