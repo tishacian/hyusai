@@ -61,6 +61,7 @@ uploads/
 
 # Local QA / demo capture artifacts
 docs/status-screenshots/
+docs/video-captures/
 scripts/playwright/docs/
 docs/~$*
 

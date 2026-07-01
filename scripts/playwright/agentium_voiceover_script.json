@@ -1,0 +1,50 @@
+[
+  {
+    "id": "01-cold-open",
+    "text": "This is not a dashboard. It is a mission room where agents turn signals into decisions."
+  },
+  {
+    "id": "02-connectors",
+    "text": "Agentium starts where enterprise reality lives: connectors, documents, applications, operational feeds and secure data boundaries."
+  },
+  {
+    "id": "03-portfolio",
+    "text": "The hypervisor gives leaders a portfolio view: value, cost, ROI, confidence and decisions across systems, not isolated bots."
+  },
+  {
+    "id": "04-systems-factory",
+    "text": "Every business capability becomes a system: objective, skills, knowledge, policies and runtime traces."
+  },
+  {
+    "id": "05-flow-builder",
+    "text": "The Flow Builder makes the agentic system explicit. Nodes, skills, grounding, control policy and human review are no longer hidden in prompts."
+  },
+  {
+    "id": "06-runtime-manifest",
+    "text": "This is not a diagram. It is a live runtime manifest: validated, versioned, executable and auditable."
+  },
+  {
+    "id": "07-observability",
+    "text": "Once executed, every run becomes observable: inputs, outputs, evaluations, traces and decisions."
+  },
+  {
+    "id": "08-roi-control",
+    "text": "At C-level, the question is not whether one agent works. It is how an AI portfolio performs against strategic objectives."
+  },
+  {
+    "id": "09-octocity",
+    "text": "In Octocity, the same factory pattern powers OCTAVE, an executive assistant for synthetic but realistic institutional operations."
+  },
+  {
+    "id": "10-chat-action",
+    "text": "Leaders can ask in natural language, retrieve context and trigger governed actions."
+  },
+  {
+    "id": "11-knowledge-capture",
+    "text": "Knowledge Capture closes the loop by turning field expertise into reviewed, reusable memory."
+  },
+  {
+    "id": "12-closing",
+    "text": "Built by Datategy, Agentium is the AI operating system for supervised, mission-critical work in 2026."
+  }
+]

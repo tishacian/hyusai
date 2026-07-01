@@ -1,0 +1,158 @@
+[
+  {
+    "id": "01-octocity-cold-open",
+    "title": "Cold Open - Octocity Mission Room",
+    "workspace": "octocity-mission-room",
+    "url": "/hypervisor/mission-room/cockpit",
+    "overlay": { "kicker": "Mission Room", "title": "From signals to decisions" },
+    "waitMs": 6200,
+    "softChecks": ["Octocity", "OCTAVE", "Mission Room"],
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+  },
+  {
+    "id": "02-showcase-connectors",
+    "title": "Agentium Showcase - Enterprise Connectors",
+    "workspace": "agentium-showcase",
+    "url": "/connectors",
+    "overlay": { "kicker": "Enterprise inputs", "title": "Connectors make agents operational" },
+    "navSteps": [
+      { "label": "Govern", "route": "/governance", "expandRail": true },
+      { "label": "Connectors", "route": "/connectors" }
+    ],
+    "waitMs": 5600,
+    "softChecks": ["Connectors", "Supported", "Configured", "SharePoint"]
+  },
+  {
+    "id": "03-showcase-hypervisor",
+    "title": "Agentium Showcase - Hypervisor Mental Model",
+    "workspace": "agentium-showcase",
+    "url": "/hypervisor",
+    "overlay": { "kicker": "Executive control", "title": "Pilot an AI portfolio by ROI" },
+    "navSteps": [
+      { "label": "Hypervisor", "route": "/hypervisor", "expandRail": true }
+    ],
+    "waitMs": 5200,
+    "softChecks": ["Hypervisor", "ROI", "VALUE", "COST"]
+  },
+  {
+    "id": "04-showcase-systems-factory",
+    "title": "Agentium Showcase - Systems Factory",
+    "workspace": "agentium-showcase",
+    "url": "/systems",
+    "overlay": { "kicker": "System factory", "title": "Capabilities become governed systems" },
+    "navSteps": [
+      { "label": "Build", "route": "/systems", "expandRail": true }
+    ],
+    "waitMs": 5600,
+    "softChecks": ["Systems", "Agentium Workspace Chat"]
+  },
+  {
+    "id": "05-flow-builder-hero",
+    "title": "Flow Builder - Live Agentic Blueprint",
+    "workspace": "agentium-showcase",
+    "systemName": "Agentium Workspace Chat",
+    "url": "/systems/{systemId}/flow",
+    "overlay": { "kicker": "Flow Builder", "title": "A living blueprint, not a prompt" },
+    "waitMs": 8500,
+    "softChecks": ["Flow builder", "Runtime manifest", "Skills", "Primitives", "Agentium Workspace Chat"]
+  },
+  {
+    "id": "06-flow-builder-runtime-proof",
+    "title": "Flow Builder - Runtime Manifest and Validation",
+    "workspace": "agentium-showcase",
+    "systemName": "Agentium Workspace Chat",
+    "url": "/systems/{systemId}/flow",
+    "overlay": { "kicker": "Runtime proof", "title": "Validated, versioned, executable" },
+    "waitMs": 6500,
+    "actions": [
+      { "type": "click", "selector": "button[aria-label=\"Fit to view\"]", "waitMs": 900 },
+      { "type": "click", "selector": "button[aria-label=\"Toggle terminal\"]", "waitMs": 1600 }
+    ],
+    "softChecks": ["Runtime manifest", "Simulate", "Execute", "Versions"]
+  },
+  {
+    "id": "07-showcase-observability",
+    "title": "Agentium Showcase - Observability",
+    "workspace": "agentium-showcase",
+    "url": "/observability",
+    "overlay": { "kicker": "Operate", "title": "Every run becomes observable" },
+    "navSteps": [
+      { "label": "Operate", "route": "/runs", "expandRail": true },
+      { "label": "Observability", "route": "/observability" }
+    ],
+    "waitMs": 4300,
+    "softChecks": ["Observability"]
+  },
+  {
+    "id": "08-showcase-audit",
+    "title": "Agentium Showcase - Audit",
+    "workspace": "agentium-showcase",
+    "url": "/governance/audit",
+    "overlay": { "kicker": "Govern", "title": "Trust through auditability" },
+    "navSteps": [
+      { "label": "Govern", "route": "/governance", "expandRail": true },
+      { "label": "Audit log", "route": "/governance/audit" }
+    ],
+    "waitMs": 4300,
+    "softChecks": ["Audit"]
+  },
+  {
+    "id": "09-showcase-portfolio-roi",
+    "title": "Agentium Showcase - Portfolio ROI Control",
+    "workspace": "agentium-showcase",
+    "url": "/hypervisor",
+    "overlay": { "kicker": "C-level view", "title": "Manage outcomes, cost and value" },
+    "navSteps": [
+      { "label": "Hypervisor", "route": "/hypervisor", "expandRail": true }
+    ],
+    "waitMs": 5200,
+    "softChecks": ["ROI", "Portfolio", "VALUE", "COST"]
+  },
+  {
+    "id": "10-octocity-mission-room",
+    "title": "Octocity Mission Room - Payoff",
+    "workspace": "octocity-mission-room",
+    "url": "/hypervisor/mission-room/cockpit",
+    "overlay": { "kicker": "Octocity", "title": "The factory pattern in the field" },
+    "waitMs": 6500,
+    "softChecks": ["Octocity", "OCTAVE", "Mission Room"],
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+  },
+  {
+    "id": "11-octocity-chat-action",
+    "title": "Octocity Mission Room - OCTAVE Chat Action",
+    "workspace": "octocity-mission-room",
+    "url": "/chat",
+    "overlay": { "kicker": "OCTAVE", "title": "Natural language becomes action" },
+    "waitMs": 3800,
+    "actions": [
+      {
+        "type": "chatPrompt",
+        "text": "OCTAVE, give me the 60-second cockpit briefing.",
+        "waitMs": 13000
+      }
+    ],
+    "softChecks": ["OCTAVE"],
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+  },
+  {
+    "id": "12-octocity-knowledge-capture",
+    "title": "Octocity Mission Room - Knowledge Capture Loop",
+    "workspace": "octocity-mission-room",
+    "url": "/knowledge/capture",
+    "overlay": { "kicker": "Improvement loop", "title": "Capture expertise into reusable memory" },
+    "waitMs": 5800,
+    "softChecks": ["Knowledge", "Capture"],
+    "softForbidden": ["AYA", "SENTINEL-CI", "Cote d'Ivoire", "Côte d'Ivoire", "Abidjan", "Nawa", "CEDEAO", "FANCI", "cacao", "anacarde"]
+  },
+  {
+    "id": "13-flow-builder-closing",
+    "title": "Closing - Flow Builder to Mission-Critical Work",
+    "workspace": "agentium-showcase",
+    "systemName": "Agentium Workspace Chat",
+    "url": "/systems/{systemId}/flow",
+    "overlay": { "kicker": "Datategy", "title": "AI operating system for 2026" },
+    "waitMs": 4200,
+    "softChecks": ["Flow builder", "Runtime manifest", "Agentium Workspace Chat"]
+  }
+]

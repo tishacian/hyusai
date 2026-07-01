@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "agentium:qualify": "node agentium_video_qualify.mjs",
+    "agentium:capture": "node agentium_video_capture.mjs",
+    "agentium:assemble": "node agentium_video_assemble.mjs",
+    "agentium:polish": "node agentium_video_polish.mjs",
+    "agentium:voiceover": "node agentium_voiceover_local.mjs",
+    "agentium:voiceover:elevenlabs": "node agentium_voiceover_elevenlabs.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
