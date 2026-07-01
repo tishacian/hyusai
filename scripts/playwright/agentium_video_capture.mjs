@@ -263,8 +263,35 @@ async function applyAction(page, action) {
     await page.waitForTimeout(action.waitMs || 1000);
     return { ok: true };
   }
+  if (action.type === 'hover') {
+    const loc = page.locator(action.selector).first();
+    await loc.scrollIntoViewIfNeeded().catch(() => {});
+    await loc.hover({ timeout: action.timeoutMs || 10_000 });
+    if (action.waitMs) await page.waitForTimeout(action.waitMs);
+    return { ok: true };
+  }
+  if (action.type === 'scroll') {
+    await page.mouse.wheel(Number(action.deltaX || 0), Number(action.deltaY || 520));
+    if (action.waitMs) await page.waitForTimeout(action.waitMs);
+    return { ok: true };
+  }
+  if (action.type === 'clickRole') {
+    const role = action.role || 'button';
+    const name = new RegExp(action.regex ? String(action.name || '') : escapeRegex(action.name || ''), 'i');
+    const loc = page.getByRole(role, { name }).first();
+    await loc.scrollIntoViewIfNeeded().catch(() => {});
+    await loc.hover().catch(() => {});
+    await humanPause(page, 240);
+    await loc.click({ timeout: action.timeoutMs || 10_000 });
+    if (action.waitMs) await page.waitForTimeout(action.waitMs);
+    return { ok: true };
+  }
   if (action.type === 'click') {
-    await page.locator(action.selector).first().click({ timeout: action.timeoutMs || 10_000 });
+    const loc = page.locator(action.selector).first();
+    await loc.scrollIntoViewIfNeeded().catch(() => {});
+    await loc.hover().catch(() => {});
+    await humanPause(page, 220);
+    await loc.click({ timeout: action.timeoutMs || 10_000 });
     if (action.waitMs) await page.waitForTimeout(action.waitMs);
     return { ok: true };
   }
@@ -395,6 +422,8 @@ async function captureScene(browser, scene, options) {
     storageState: options.statePath,
     viewport: { width: options.width, height: options.height },
     deviceScaleFactor: 1,
+    locale: 'en-US',
+    permissions: ['microphone'],
     ignoreHTTPSErrors: true,
     recordVideo: options.noVideo ? undefined : { dir: sceneDir, size: { width: options.width, height: options.height } },
   });
@@ -431,8 +460,13 @@ async function captureScene(browser, scene, options) {
       try {
         result.actionResults.push({ action, ...(await applyAction(page, action)) });
       } catch (err) {
-        result.ok = false;
-        result.actionResults.push({ action, ok: false, error: err.message });
+        const actionResult = { action, ok: false, error: err.message };
+        result.actionResults.push(actionResult);
+        if (action.optional) {
+          result.warnings.push(`Optional action failed: ${err.message}`);
+        } else {
+          result.ok = false;
+        }
       }
     }
     const text = await page.locator('body').innerText({ timeout: 10_000 }).catch(() => '');
@@ -490,8 +524,13 @@ async function evaluateScene(page, scene, options, navigationResult) {
       try {
         result.actionResults.push({ action, ...(await applyAction(page, action)) });
       } catch (err) {
-        result.ok = false;
-        result.actionResults.push({ action, ok: false, error: err.message });
+        const actionResult = { action, ok: false, error: err.message };
+        result.actionResults.push(actionResult);
+        if (action.optional) {
+          result.warnings.push(`Optional action failed: ${err.message}`);
+        } else {
+          result.ok = false;
+        }
       }
     }
     const text = await page.locator('body').innerText({ timeout: 10_000 }).catch(() => '');
@@ -516,6 +555,8 @@ async function captureContinuous(browser, scenes, options) {
     storageState: options.statePath,
     viewport: { width: options.width, height: options.height },
     deviceScaleFactor: options.deviceScaleFactor,
+    locale: 'en-US',
+    permissions: ['microphone'],
     ignoreHTTPSErrors: true,
     recordVideo: options.noVideo ? undefined : { dir: videoDir, size: { width: options.width, height: options.height } },
   });
@@ -598,7 +639,15 @@ async function main() {
   };
   let authStatePath = null;
 
-  const browser = await chromium.launch({ headless: !hasFlag('headed'), slowMo: Number(arg('slow-mo', process.env.SLOW_MO || '0')) });
+  const browser = await chromium.launch({
+    headless: !hasFlag('headed'),
+    slowMo: Number(arg('slow-mo', process.env.SLOW_MO || '0')),
+    args: [
+      '--autoplay-policy=no-user-gesture-required',
+      '--use-fake-device-for-media-stream',
+      '--use-fake-ui-for-media-stream',
+    ],
+  });
   try {
     const auth = await authenticate(browser, { host, email, password, workspace, outDir });
     manifest.login = auth.login;

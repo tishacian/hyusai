@@ -52,6 +52,20 @@ type BasemapOption = {
   style?: Record<string, any> | string;
 };
 
+type OctocityCityMarker = {
+  name: string;
+  x: number;
+  y: number;
+  labelX?: number;
+  labelY?: number;
+  capital?: boolean;
+};
+
+type OctocityRiverPath = {
+  name: string;
+  d: string;
+};
+
 /** Color table used by both the deck.gl vessel layer and the legend. */
 const VESSEL_TYPE_COLORS: Record<string, [number, number, number]> = {
   cargo: [34, 197, 94],
@@ -72,6 +86,59 @@ const VESSEL_ICON_MAPPING = {
   diamond: { x: 64, y: 0, width: 64, height: 64, mask: true, anchorY: 32 },
 } as const;
 const ATLANTIC_TRADER_MMSI = '627012345';
+const OCTOCITY_FRANCE_LAND_PATH = [
+  'M282,58',
+  'L346,75',
+  'L392,59',
+  'L452,100',
+  'L478,156',
+  'L542,190',
+  'L516,260',
+  'L560,316',
+  'L518,380',
+  'L484,438',
+  'L418,466',
+  'L354,448',
+  'L306,478',
+  'L248,432',
+  'L196,410',
+  'L178,346',
+  'L116,288',
+  'L150,236',
+  'L118,170',
+  'L184,122',
+  'L226,76',
+  'Z',
+].join(' ');
+const OCTOCITY_NEIGHBOUR_LAND_PATHS = [
+  'M392,38 L680,38 L680,520 L534,520 L560,460 L604,394 L622,322 L590,238 L546,187 L476,156 L452,100 Z',
+  'M40,424 L188,414 L306,478 L354,448 L470,486 L584,520 L40,520 Z',
+  'M54,34 L178,42 L208,90 L166,128 L82,112 L42,76 Z',
+];
+const OCTOCITY_CORSICA_PATH = 'M532,454 C548,466 548,494 532,506 C514,494 510,466 532,454 Z';
+const OCTOCITY_RIVERS: OctocityRiverPath[] = [
+  { name: 'Seine', d: 'M276,118 C300,136 318,146 343,166 C364,184 382,197 405,210' },
+  { name: 'Loire', d: 'M210,268 C260,260 308,276 350,302 C388,326 416,336 458,342' },
+  { name: 'Garonne', d: 'M260,360 C286,388 314,408 340,424' },
+  { name: 'Rhone', d: 'M442,310 C452,348 448,390 456,450' },
+  { name: 'Rhine', d: 'M536,170 C526,212 528,252 520,292' },
+];
+const OCTOCITY_CITY_MARKERS: OctocityCityMarker[] = [
+  { name: 'Paris', x: 343, y: 166, labelX: 353, labelY: 160, capital: true },
+  { name: 'Lille', x: 382, y: 88, labelX: 392, labelY: 84 },
+  { name: 'Rouen', x: 304, y: 142, labelX: 257, labelY: 136 },
+  { name: 'Rennes', x: 214, y: 210, labelX: 164, labelY: 205 },
+  { name: 'Nantes', x: 226, y: 272, labelX: 174, labelY: 274 },
+  { name: 'Bordeaux', x: 262, y: 362, labelX: 206, labelY: 367 },
+  { name: 'Toulouse', x: 330, y: 424, labelX: 270, labelY: 430 },
+  { name: 'Montpellier', x: 408, y: 428, labelX: 418, labelY: 424 },
+  { name: 'Marseille', x: 456, y: 450, labelX: 466, labelY: 457 },
+  { name: 'Nice', x: 526, y: 428, labelX: 536, labelY: 424 },
+  { name: 'Lyon', x: 442, y: 314, labelX: 452, labelY: 310 },
+  { name: 'Dijon', x: 430, y: 240, labelX: 440, labelY: 236 },
+  { name: 'Strasbourg', x: 532, y: 190, labelX: 542, labelY: 186 },
+  { name: 'Brest', x: 140, y: 206, labelX: 96, labelY: 206 },
+];
 const OCTOCITY_FRANCE_ZONES: MapZone[] = [
   {
     id: 'zone-nord',
@@ -301,24 +368,87 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
       </div>
 
       @if (fallback) {
-        <svg class="fallback-map" [attr.viewBox]="fallbackViewBox" role="img">
-          @for (zone of renderedZones; track zone.id) {
-            <polygon
-              [attr.points]="zone.polygon"
-              [attr.fill]="zoneFill(zone)"
-              [attr.opacity]="selectedZoneId === zone.id ? 0.94 : 0.60"
-              (click)="selectZone(zone)"
-            ></polygon>
-            <circle
-              [attr.cx]="zone.centroid.x"
-              [attr.cy]="zone.centroid.y"
-              [attr.r]="zonePulseRadius(zone)"
-              [attr.fill]="zoneFill(zone)"
-              opacity="0.25"
-            ></circle>
-            <text [attr.x]="zone.centroid.x" [attr.y]="zone.centroid.y" text-anchor="middle">{{ zone.name }}</text>
-          }
-        </svg>
+        @if (isOctocityMode) {
+          <svg class="fallback-map octocity-real-map" [attr.viewBox]="fallbackViewBox" role="img" aria-label="France operating map">
+            <defs>
+              <radialGradient id="octocitySeaGlow" cx="52%" cy="40%" r="75%">
+                <stop offset="0%" stop-color="#07384a" />
+                <stop offset="46%" stop-color="#052231" />
+                <stop offset="100%" stop-color="#020912" />
+              </radialGradient>
+              <linearGradient id="octocityLand" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#234034" />
+                <stop offset="48%" stop-color="#172a24" />
+                <stop offset="100%" stop-color="#0d1715" />
+              </linearGradient>
+              <filter id="octocityMapShadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="10" stdDeviation="9" flood-color="#000000" flood-opacity="0.38" />
+              </filter>
+            </defs>
+            <rect class="octocity-sea" x="40" y="24" width="620" height="520"></rect>
+            <path class="octocity-bathymetry" d="M72,96 C166,138 220,178 274,246 C326,312 406,364 510,410"></path>
+            <path class="octocity-bathymetry soft" d="M88,392 C160,352 226,344 296,372 C360,398 438,402 584,356"></path>
+            <path class="octocity-bathymetry soft" d="M520,70 C548,142 562,208 548,292 C536,356 550,418 626,486"></path>
+            @for (land of octocityNeighbourLandPaths; track land) {
+              <path class="octocity-neighbour-land" [attr.d]="land"></path>
+            }
+            <path class="octocity-france-land" [attr.d]="octocityFranceLandPath" filter="url(#octocityMapShadow)"></path>
+            <path class="octocity-coastline" [attr.d]="octocityFranceLandPath"></path>
+            <path class="octocity-corsica" [attr.d]="octocityCorsicaPath" filter="url(#octocityMapShadow)"></path>
+            @for (river of octocityRivers; track river.name) {
+              <path class="octocity-river" [attr.d]="river.d"></path>
+            }
+            @for (zone of renderedZones; track zone.id) {
+              <polygon
+                class="octocity-zone"
+                [attr.points]="zone.polygon"
+                [attr.fill]="zoneFill(zone)"
+                [attr.opacity]="selectedZoneId === zone.id ? 0.78 : 0.42"
+                (click)="selectZone(zone)"
+              ></polygon>
+              <circle
+                class="octocity-zone-pulse"
+                [attr.cx]="zone.centroid.x"
+                [attr.cy]="zone.centroid.y"
+                [attr.r]="zonePulseRadius(zone)"
+                [attr.fill]="zoneFill(zone)"
+                opacity="0.18"
+              ></circle>
+              <text class="zone-label" [attr.x]="zone.centroid.x" [attr.y]="zone.centroid.y" text-anchor="middle">{{ zone.name }}</text>
+            }
+            @for (city of octocityCities; track city.name) {
+              <g class="octocity-city" [class.capital]="city.capital">
+                <circle class="octocity-city-halo" [attr.cx]="city.x" [attr.cy]="city.y" [attr.r]="city.capital ? 12 : 8"></circle>
+                <circle class="octocity-city-dot" [attr.cx]="city.x" [attr.cy]="city.y" [attr.r]="city.capital ? 4.5 : 3.4"></circle>
+                <text class="city-label" [attr.x]="city.labelX || city.x + 9" [attr.y]="city.labelY || city.y - 7">{{ city.name }}</text>
+              </g>
+            }
+            <text class="sea-label atlantic" x="82" y="344">Atlantic Ocean</text>
+            <text class="sea-label channel" x="168" y="92">English Channel</text>
+            <text class="sea-label north" x="520" y="86">North Sea</text>
+            <text class="sea-label med" x="405" y="504">Mediterranean Sea</text>
+            <text class="map-scale-label" x="70" y="508">France operating room - live synthetic signals</text>
+          </svg>
+        } @else {
+          <svg class="fallback-map" [attr.viewBox]="fallbackViewBox" role="img">
+            @for (zone of renderedZones; track zone.id) {
+              <polygon
+                [attr.points]="zone.polygon"
+                [attr.fill]="zoneFill(zone)"
+                [attr.opacity]="selectedZoneId === zone.id ? 0.94 : 0.60"
+                (click)="selectZone(zone)"
+              ></polygon>
+              <circle
+                [attr.cx]="zone.centroid.x"
+                [attr.cy]="zone.centroid.y"
+                [attr.r]="zonePulseRadius(zone)"
+                [attr.fill]="zoneFill(zone)"
+                opacity="0.25"
+              ></circle>
+              <text [attr.x]="zone.centroid.x" [attr.y]="zone.centroid.y" text-anchor="middle">{{ zone.name }}</text>
+            }
+          </svg>
+        }
       }
 
       <div class="map-hud">
@@ -1077,6 +1207,144 @@ const OCTOCITY_FRANCE_ZONES: MapZone[] = [
         stroke-width: 4px;
       }
 
+      .fallback-map.octocity-real-map {
+        display: block;
+        width: 100%;
+        height: 100%;
+        padding: 0;
+        background:
+          radial-gradient(circle at 48% 44%, rgba(34, 211, 238, 0.10), transparent 34%),
+          linear-gradient(135deg, rgba(3, 19, 31, 0.96), rgba(1, 8, 14, 0.98));
+      }
+
+      .octocity-real-map .octocity-sea {
+        fill: url(#octocitySeaGlow);
+      }
+
+      .octocity-real-map .octocity-bathymetry {
+        fill: none;
+        stroke: rgba(96, 165, 250, 0.18);
+        stroke-width: 1.1;
+        stroke-dasharray: 7 9;
+      }
+
+      .octocity-real-map .octocity-bathymetry.soft {
+        stroke: rgba(45, 212, 191, 0.13);
+      }
+
+      .octocity-real-map .octocity-neighbour-land {
+        fill: rgba(20, 36, 31, 0.66);
+        stroke: rgba(117, 150, 139, 0.24);
+        stroke-width: 1;
+      }
+
+      .octocity-real-map .octocity-france-land,
+      .octocity-real-map .octocity-corsica {
+        fill: url(#octocityLand);
+        stroke: rgba(193, 236, 214, 0.42);
+        stroke-width: 1.7;
+      }
+
+      .octocity-real-map .octocity-coastline {
+        fill: none;
+        stroke: rgba(125, 211, 252, 0.42);
+        stroke-width: 2.2;
+        stroke-linejoin: round;
+      }
+
+      .octocity-real-map .octocity-river {
+        fill: none;
+        stroke: rgba(147, 197, 253, 0.58);
+        stroke-width: 2.1;
+        stroke-linecap: round;
+        filter: drop-shadow(0 0 5px rgba(96, 165, 250, 0.34));
+      }
+
+      .octocity-real-map .octocity-zone {
+        cursor: pointer;
+        stroke: rgba(222, 248, 255, 0.78);
+        stroke-width: 1.45;
+        stroke-linejoin: round;
+        mix-blend-mode: screen;
+        filter: drop-shadow(0 0 9px rgba(34, 211, 238, 0.20));
+      }
+
+      .octocity-real-map .octocity-zone:hover {
+        opacity: 0.84;
+        filter: drop-shadow(0 0 15px rgba(103, 232, 249, 0.48));
+      }
+
+      .octocity-real-map .octocity-zone-pulse {
+        pointer-events: none;
+        animation: mapPulse 3.2s ease-in-out infinite;
+        mix-blend-mode: screen;
+      }
+
+      .octocity-real-map .octocity-city-halo {
+        fill: rgba(103, 232, 249, 0.16);
+        stroke: rgba(103, 232, 249, 0.34);
+        stroke-width: 1;
+      }
+
+      .octocity-real-map .octocity-city-dot {
+        fill: rgba(231, 246, 255, 0.98);
+        stroke: rgba(2, 6, 23, 0.96);
+        stroke-width: 1.5;
+        filter: drop-shadow(0 0 5px rgba(103, 232, 249, 0.52));
+      }
+
+      .octocity-real-map .octocity-city.capital .octocity-city-dot {
+        fill: rgba(103, 232, 249, 1);
+        stroke: rgba(7, 12, 19, 1);
+      }
+
+      .fallback-map.octocity-real-map .city-label {
+        fill: rgba(241, 250, 255, 0.92);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0;
+        paint-order: stroke;
+        stroke: rgba(1, 6, 12, 0.82);
+        stroke-width: 3px;
+      }
+
+      .fallback-map.octocity-real-map .zone-label {
+        fill: rgba(248, 250, 252, 0.95);
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 0;
+        paint-order: stroke;
+        stroke: rgba(1, 3, 8, 0.92);
+        stroke-width: 4.5px;
+        filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.52));
+      }
+
+      .fallback-map.octocity-real-map .sea-label,
+      .fallback-map.octocity-real-map .map-scale-label {
+        fill: rgba(181, 216, 231, 0.56);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        stroke: rgba(1, 6, 12, 0.55);
+        stroke-width: 2px;
+      }
+
+      .fallback-map.octocity-real-map .sea-label.atlantic {
+        transform: rotate(-22deg);
+        transform-origin: 82px 344px;
+      }
+
+      .fallback-map.octocity-real-map .sea-label.channel {
+        transform: rotate(-8deg);
+        transform-origin: 168px 92px;
+      }
+
+      .fallback-map.octocity-real-map .sea-label.med {
+        transform: rotate(-3deg);
+        transform-origin: 405px 504px;
+      }
+
       .map-hud {
         position: absolute;
         left: 16px;
@@ -1181,6 +1449,11 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   legendOpen = true;
   briefOpen = false;
   layerSearch = '';
+  readonly octocityFranceLandPath = OCTOCITY_FRANCE_LAND_PATH;
+  readonly octocityNeighbourLandPaths = OCTOCITY_NEIGHBOUR_LAND_PATHS;
+  readonly octocityCorsicaPath = OCTOCITY_CORSICA_PATH;
+  readonly octocityRivers = OCTOCITY_RIVERS;
+  readonly octocityCities = OCTOCITY_CITY_MARKERS;
 
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly activeLayerKeys = new Set<string>();
@@ -1368,7 +1641,7 @@ export class WorkspaceMapComponent implements AfterViewInit, OnChanges, OnDestro
   }
 
   get fallbackViewBox(): string {
-    return this.isOctocityMode ? '60 40 540 500' : (this.map?.['view_box'] || '200 40 470 480');
+    return this.isOctocityMode ? '40 24 620 520' : (this.map?.['view_box'] || '200 40 470 480');
   }
 
   ngAfterViewInit(): void {

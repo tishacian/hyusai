@@ -695,7 +695,133 @@ interface ProposalFact {
         }
       </nav>
 
-      @if (activeSurface() === 'prep') {
+      @if (videoVoiceDemo()) {
+        <section class="relative overflow-hidden rounded-lg border border-brand-300/25 bg-[radial-gradient(circle_at_16%_10%,rgba(34,211,238,0.15),transparent_34%),linear-gradient(135deg,rgba(2,8,23,0.96),rgba(6,17,30,0.98))] p-5 min-h-[calc(100vh-15rem)]">
+          <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-300/70 to-transparent"></div>
+          <div class="grid h-full gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+            <div class="flex min-h-0 flex-col rounded border border-white/10 bg-black/25 p-5">
+              <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Voice2Voice Knowledge Capture</p>
+                  <h2 class="mt-2 text-3xl font-semibold text-white">Field expertise becomes reviewed institutional memory</h2>
+                  <p class="mt-2 max-w-3xl text-sm leading-relaxed text-gray-400">
+                    OCTAVE interviews an expert, retrieves context, structures decisions and prepares a reusable memory update.
+                  </p>
+                </div>
+                <span class="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-100 ring-1 ring-emerald-400/25">
+                  <span class="h-2 w-2 rounded-full bg-emerald-300 animate-pulse"></span>
+                  Live conversation
+                </span>
+              </div>
+
+              <div class="mt-6 grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+                <aside class="rounded border border-white/10 bg-white/[0.03] p-4">
+                  <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Guided plan</p>
+                  <div class="mt-4 space-y-3">
+                    <div class="rounded border border-brand-300/30 bg-brand-500/10 p-3">
+                      <p class="text-xs font-semibold text-brand-100">1. Signal triage</p>
+                      <p class="mt-1 text-[11px] leading-relaxed text-gray-400">What makes this situation decision-ready?</p>
+                    </div>
+                    <div class="rounded border border-white/10 bg-black/20 p-3">
+                      <p class="text-xs font-semibold text-gray-200">2. Evidence threshold</p>
+                      <p class="mt-1 text-[11px] leading-relaxed text-gray-500">Which source mix is required before action?</p>
+                    </div>
+                    <div class="rounded border border-white/10 bg-black/20 p-3">
+                      <p class="text-xs font-semibold text-gray-200">3. Human review</p>
+                      <p class="mt-1 text-[11px] leading-relaxed text-gray-500">When must the system escalate?</p>
+                    </div>
+                  </div>
+                </aside>
+
+                <div class="flex min-h-[520px] flex-col rounded border border-white/10 bg-black/30">
+                  <header class="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
+                    <div>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Transcript stream</p>
+                      <h3 class="text-sm font-semibold text-gray-100">OCTAVE is listening and structuring the exchange</h3>
+                    </div>
+                    <span class="rounded-full bg-brand-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-brand-100 ring-1 ring-brand-300/25">
+                      context retrieved
+                    </span>
+                  </header>
+                  <div class="flex-1 space-y-4 overflow-hidden p-5">
+                    <article class="border-l-2 border-brand-300/50 pl-4">
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-200">OCTAVE</p>
+                      <p class="mt-1 text-sm leading-relaxed text-brand-50">
+                        I am listening. Start with the signal you would escalate to the mission room, and the evidence you trust.
+                      </p>
+                    </article>
+                    <article>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Expert voice</p>
+                      <p class="mt-1 text-sm leading-relaxed text-gray-100">
+                        When a regional signal crosses two independent sources, we do not trigger action immediately. We first check confidence, operational impact and whether a decision owner is already assigned.
+                      </p>
+                    </article>
+                    <article class="border-l-2 border-emerald-300/50 pl-4">
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-emerald-200">OCTAVE</p>
+                      <p class="mt-1 text-sm leading-relaxed text-emerald-50">
+                        Captured: a two-source threshold, a confidence gate above 70%, and human review when ownership is missing.
+                      </p>
+                    </article>
+                    <article>
+                      <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Expert voice</p>
+                      <p class="mt-1 text-sm leading-relaxed text-gray-100">
+                        If the signal touches a strategic program, the brief must include map posture, news-flow evidence and the proposed next governed action.
+                      </p>
+                    </article>
+                  </div>
+                  <footer class="border-t border-white/10 bg-black/45 p-4">
+                    <div class="flex flex-wrap items-center gap-4">
+                      <button type="button" class="inline-flex items-center gap-2 rounded bg-brand-300 px-4 py-2.5 text-sm font-semibold text-black">
+                        <app-icon name="mic" [size]="15" /> Listening
+                      </button>
+                      <div class="flex h-9 items-center gap-1.5">
+                        @for (bar of voiceWaveBars; track $index) {
+                          <span class="w-1 rounded-full bg-brand-300/90 animate-pulse" [style.height.px]="voiceWaveHeight(bar) + 8"></span>
+                        }
+                      </div>
+                      <div class="min-w-0">
+                        <p class="text-xs font-semibold text-gray-100">Voice loop active</p>
+                        <p class="text-[10px] text-gray-500">automatic endpointing · retrieval · voice response · transcript memory</p>
+                      </div>
+                    </div>
+                  </footer>
+                </div>
+              </div>
+            </div>
+
+            <aside class="space-y-4">
+              <section class="rounded border border-emerald-300/20 bg-emerald-500/10 p-4">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-emerald-200">Reviewed memory draft</p>
+                <h3 class="mt-2 text-lg font-semibold text-white">Escalation rule: regional signal to governed review</h3>
+                <ul class="mt-4 space-y-3 text-sm leading-relaxed text-gray-200">
+                  <li class="flex gap-2"><span class="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Require at least two independent evidence sources.</span></li>
+                  <li class="flex gap-2"><span class="mt-1 h-1.5 w-1.5 rounded-full bg-brand-300"></span><span>Escalate when confidence is above 70% and ownership is unresolved.</span></li>
+                  <li class="flex gap-2"><span class="mt-1 h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Attach map posture, news-flow evidence and next governed action.</span></li>
+                </ul>
+              </section>
+              <section class="rounded border border-white/10 bg-white/[0.03] p-4">
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">Runtime controls</p>
+                <div class="mt-4 grid gap-2">
+                  <div class="flex items-center justify-between rounded bg-black/30 px-3 py-2 text-xs">
+                    <span class="text-gray-400">Grounding context</span>
+                    <span class="font-semibold text-brand-100">octocity-field-memory</span>
+                  </div>
+                  <div class="flex items-center justify-between rounded bg-black/30 px-3 py-2 text-xs">
+                    <span class="text-gray-400">Human review</span>
+                    <span class="font-semibold text-emerald-100">Required</span>
+                  </div>
+                  <div class="flex items-center justify-between rounded bg-black/30 px-3 py-2 text-xs">
+                    <span class="text-gray-400">Audit trail</span>
+                    <span class="font-semibold text-cyan-100">Voice + decision lineage</span>
+                  </div>
+                </div>
+              </section>
+            </aside>
+          </div>
+        </section>
+      }
+
+      @if (!videoVoiceDemo() && activeSurface() === 'prep') {
         <section class="max-w-5xl mx-auto py-6 lg:py-8 space-y-6 min-h-[calc(100vh-15rem)] flex flex-col">
           <div>
             <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-gray-500">{{ i18n.t('capture.prep.eyebrow') }}</p>
@@ -940,7 +1066,7 @@ interface ProposalFact {
         </section>
       }
 
-      @if (activeSurface() === 'dashboard') {
+      @if (!videoVoiceDemo() && activeSurface() === 'dashboard') {
         <section class="space-y-4">
           @if (!isDemoMode()) {
             <nav class="flex flex-wrap gap-2 border-b border-white/10 pb-3">
@@ -1358,7 +1484,7 @@ interface ProposalFact {
         </section>
       }
 
-      @if (activeSurface() === 'session') {
+      @if (!videoVoiceDemo() && activeSurface() === 'session') {
         @if (session(); as s) {
           <section class="space-y-4">
             <section class="t-card rounded-lg p-4">
@@ -2296,7 +2422,7 @@ interface ProposalFact {
         }
       }
 
-      @if (activeSurface() === 'plan') {
+      @if (!videoVoiceDemo() && activeSurface() === 'plan') {
         @if (session(); as s) {
           <section class="grid xl:grid-cols-[minmax(0,1fr)_420px] gap-5">
             <div class="t-card rounded-lg p-5 space-y-4">
@@ -2799,7 +2925,7 @@ interface ProposalFact {
         }
       }
 
-      @if (activeSurface() === 'plan_build') {
+      @if (!videoVoiceDemo() && activeSurface() === 'plan_build') {
         @if (session(); as s) {
           <section class="grid xl:grid-cols-[minmax(0,1fr)_420px] gap-5">
             <div class="t-card rounded-lg p-5 space-y-4">
@@ -3016,7 +3142,7 @@ interface ProposalFact {
         }
       }
 
-      @if (activeSurface() === 'review') {
+      @if (!videoVoiceDemo() && activeSurface() === 'review') {
         <section class="grid xl:grid-cols-[1fr_320px] gap-5">
           <div class="t-card rounded-lg p-5 space-y-4">
             <div class="flex items-start justify-between gap-4">
@@ -3525,7 +3651,7 @@ interface ProposalFact {
         </section>
       }
 
-      @if (activeSurface() === 'publish') {
+      @if (!videoVoiceDemo() && activeSurface() === 'publish') {
         @if (proposal(); as p) {
           <section class="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
             <div class="t-card rounded-lg p-5 space-y-5">
@@ -4049,6 +4175,7 @@ export class KnowledgeCaptureComponent implements OnInit, AfterViewInit {
   // Keep the existing template predicate, but let the business profile reuse
   // the same simplified capture UI without changing workspace.mode to "demo".
   readonly isDemoMode = computed(() => this.workspace.isDemoSafeMode() || this.isBusinessSurface());
+  readonly videoVoiceDemo = computed(() => this.route.snapshot.queryParamMap.get('videoDemo') === 'voice2voice');
   readonly isPilotMode = this.isDemoMode;
   readonly workspaceVoiceLoopConfig = computed<WorkspaceVoiceLoopConfig>(() => {
     const settings = this.asRecord(this.workspace.current()?.settings);

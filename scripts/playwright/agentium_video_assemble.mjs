@@ -63,6 +63,27 @@ async function listWebm(dir) {
     .map((name) => path.join(videoDir, name));
 }
 
+async function loadCaptureDurations(dir, trimStart = 0) {
+  const manifestPath = path.join(dir, 'capture-manifest.json');
+  try {
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    const durations = (manifest.results || [])
+      .filter((item) => item.id !== 'continuous-video-save')
+      .map((item) => {
+        const start = Number(item.startedAtMs || 0);
+        const end = Number(item.endedAtMs || 0);
+        return start > 0 && end > start ? (end - start) / 1000 : null;
+      })
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (durations.length > 0 && trimStart > 0) {
+      durations[0] = Math.max(1.2, durations[0] - trimStart);
+    }
+    return durations;
+  } catch {
+    return [];
+  }
+}
+
 function escapeConcatPath(file) {
   return file.replace(/'/g, "'\\''");
 }
@@ -174,6 +195,7 @@ async function main() {
   const width = Number(arg('width', process.env.OUTPUT_WIDTH || '1920'));
   const height = Number(arg('height', process.env.OUTPUT_HEIGHT || '1080'));
   const videos = await listWebm(dir);
+  const captureDurations = await loadCaptureDurations(dir, trimStart);
   if (videos.length === 0) {
     throw new Error(`No .webm files found under ${dir}`);
   }
@@ -203,7 +225,7 @@ async function main() {
     trimStart,
     concatFile: plan.concatFile,
     filterGraph: plan.filterGraph,
-    durations: plan.durations,
+    durations: plan.durations || captureDurations,
     ffmpeg: {
       ok: result.ok,
       status: result.status,
