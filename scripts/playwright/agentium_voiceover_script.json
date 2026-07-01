@@ -16,7 +16,7 @@
     "text": "The Flow Builder makes that System explicit. Nodes, grounding, control policy and review steps are visible before execution. The blueprint is not a slide; it is a runtime manifest."
   },
   {
-    "id": "05-observability-audit",
+    "id": "05-observability-quality",
     "text": "When the System runs, every execution becomes measurable and auditable: inputs, outputs, tool calls, confidence, cost, latency, evaluations and decision lineage."
   },
   {

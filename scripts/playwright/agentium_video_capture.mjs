@@ -243,9 +243,19 @@ async function navigateScene(page, scene, options, previousWorkspace) {
 
   if (canUseUi) {
     result.mode = startUrl ? 'ui_from_start' : 'ui';
-    if (startUrl) {
+    const currentPath = routePath(page.url());
+    const startPath = startUrl ? routePath(startUrl) : null;
+    const keepCurrentPage = Boolean(
+      startUrl
+      && options.continuous
+      && previousWorkspace === workspace
+      && currentPath === startPath,
+    );
+    if (startUrl && !keepCurrentPage) {
       await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await humanPause(page, Number(scene.startWaitMs || 1300));
+    } else if (keepCurrentPage) {
+      result.mode = 'ui_from_current';
     }
     for (const step of scene.navSteps) {
       const resolvedStep = { ...step };
@@ -272,6 +282,11 @@ async function navigateScene(page, scene, options, previousWorkspace) {
 async function applyAction(page, action) {
   if (action.type === 'wait') {
     await page.waitForTimeout(action.waitMs || 1000);
+    return { ok: true };
+  }
+  if (action.type === 'style') {
+    await page.addStyleTag({ content: action.css || '' });
+    if (action.waitMs) await page.waitForTimeout(action.waitMs);
     return { ok: true };
   }
   if (action.type === 'hover') {

@@ -21,8 +21,7 @@
     "startUrl": "/hypervisor",
     "url": "/connectors",
     "navSteps": [
-      { "label": "Govern", "route": "/governance", "expandRail": true, "waitMs": 650 },
-      { "label": "Connectors", "route": "/connectors", "waitMs": 1300 }
+      { "label": "Connectors", "route": "/connectors", "expandRail": true, "waitMs": 1300 }
     ],
     "overlay": {
       "kicker": "Enterprise boundary",
@@ -69,8 +68,14 @@
       { "label": "Flow builder", "route": "/systems/{systemId}/flow", "waitMs": 1600 }
     ],
     "actions": [
+      {
+        "type": "style",
+        "css": ".flow-builder__body{grid-template-columns:1fr!important}.flow-builder__body.is-inspecting{grid-template-columns:1fr!important}app-flow-palette.flow-builder__palette{display:none!important}.flow-builder__canvas{min-width:0!important}",
+        "waitMs": 200
+      },
       { "type": "clickRole", "role": "button", "name": "Fit to view", "waitMs": 900, "optional": true },
-      { "type": "clickRole", "role": "button", "name": "Simulate", "waitMs": 1800, "optional": true }
+      { "type": "clickRole", "role": "button", "name": "Simulate", "waitMs": 1800, "optional": true },
+      { "type": "wait", "waitMs": 9000 }
     ],
     "overlay": {
       "kicker": "Flow Builder",
@@ -79,28 +84,28 @@
       "chips": ["Nodes", "Grounding", "Control policy", "Human review"],
       "metric": { "label": "Design-time", "value": "Graph -> runtime manifest", "trend": "LIVE" }
     },
-    "waitMs": 23000,
+    "waitMs": 1200,
     "softChecks": ["Flow builder", "Runtime manifest", "Contract Risk Copilot"]
   },
   {
-    "id": "05-observability-audit",
-    "title": "Agentium - Observability and Audit",
+    "id": "05-observability-quality",
+    "title": "Agentium - Quality Measurement",
     "workspace": "agentium-showcase",
-    "startUrl": "/systems",
-    "url": "/observability",
+    "startUrl": "/observability",
+    "startWaitMs": 700,
+    "url": "/observability/quality",
     "navSteps": [
-      { "label": "Operate", "route": "/runs", "expandRail": true, "waitMs": 650 },
-      { "label": "Observability", "route": "/observability", "waitMs": 1300 }
+      { "label": "Quality", "route": "/observability/quality", "waitMs": 1600 }
     ],
     "overlay": {
       "kicker": "Control-time",
-      "title": "Every run becomes measurable and auditable",
+      "title": "Every run becomes measured for quality",
       "stage": "EVALUATE",
-      "chips": ["Inputs", "Outputs", "Tool calls", "Lineage"],
-      "metric": { "label": "Performance layer", "value": "Quality, cost, latency", "trend": "MEASURED" }
+      "chips": ["Quality", "Scores", "Claims", "Trust signals"],
+      "metric": { "label": "Measurement layer", "value": "Quality, risk, confidence", "trend": "MEASURED" }
     },
-    "waitMs": 8500,
-    "softChecks": ["Observability"]
+    "waitMs": 6500,
+    "softChecks": ["Quality", "scores", "trust signals"]
   },
   {
     "id": "06-octocity-cockpit",

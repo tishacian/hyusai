@@ -249,6 +249,7 @@ async function main() {
   const height = Number(arg('height', process.env.OUTPUT_HEIGHT || '1080'));
   const logo = path.resolve(arg('logo', process.env.DATATEGY_LOGO || path.join(__dirname, 'assets/datategy-logo.png')));
   const scenesPath = arg('scenes', process.env.SCENES_FILE || path.join(__dirname, 'agentium_video_scenes.json'));
+  const overlayStyle = String(arg('overlay-style', process.env.OVERLAY_STYLE || 'classic')).toLowerCase();
   const duration = await probeDuration(input);
   if (!duration) throw new Error(`Unable to probe duration for ${input}`);
   const scenes = await loadScenes(scenesPath);
@@ -257,13 +258,15 @@ async function main() {
   await mkdir(path.dirname(out), { recursive: true });
 
   const hasLogo = Boolean(await stat(logo).catch(() => null));
-  const overlayFiles = await generateOverlayPngs({
-    timeline,
-    outDir: path.dirname(out),
-    width,
-    height,
-    logo: hasLogo ? logo : null,
-  });
+  const overlayFiles = overlayStyle === 'none'
+    ? []
+    : await generateOverlayPngs({
+        timeline,
+        outDir: path.dirname(out),
+        width,
+        height,
+        logo: hasLogo ? logo : null,
+      });
   const args = ['-y', '-i', input];
   for (const file of overlayFiles) args.push('-i', file);
 
@@ -278,15 +281,19 @@ async function main() {
   ];
 
   const parts = [`[0:v]${baseFilters.join(',')}[v0]`];
-  for (let index = 0; index < overlayFiles.length; index += 1) {
-    const item = timeline[index];
-    const start = Math.min(item.end, item.start + 0.35).toFixed(2);
-    const end = Math.min(item.end - 0.15, item.start + 4.7).toFixed(2);
-    if (Number(end) <= Number(start)) continue;
-    const inputLabel = `[${index + 1}:v]`;
-    const previous = `[v${index}]`;
-    const next = index === overlayFiles.length - 1 ? '[vout]' : `[v${index + 1}]`;
-    parts.push(`${previous}${inputLabel}overlay=x=0:y=0:enable='between(t\\,${start}\\,${end})'${next}`);
+  if (overlayFiles.length > 0) {
+    for (let index = 0; index < overlayFiles.length; index += 1) {
+      const item = timeline[index];
+      const start = Math.min(item.end, item.start + 0.35).toFixed(2);
+      const end = Math.min(item.end - 0.15, item.start + 4.7).toFixed(2);
+      if (Number(end) <= Number(start)) continue;
+      const inputLabel = `[${index + 1}:v]`;
+      const previous = `[v${index}]`;
+      const next = index === overlayFiles.length - 1 ? '[vout]' : `[v${index + 1}]`;
+      parts.push(`${previous}${inputLabel}overlay=x=0:y=0:enable='between(t\\,${start}\\,${end})'${next}`);
+    }
+  } else {
+    parts.push('[v0]null[vout]');
   }
   args.push('-filter_complex', parts.join(';'), '-map', '[vout]', '-map', '0:a?');
   args.push('-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', out);
@@ -298,6 +305,7 @@ async function main() {
     out,
     logo: hasLogo ? logo : null,
     scenesPath,
+    overlayStyle,
     duration,
     timeline,
     overlayFiles,
