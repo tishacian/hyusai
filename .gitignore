@@ -71,6 +71,7 @@ scripts/playwright/probe_*.mjs
 scripts/playwright/debug_*.mjs
 scripts/playwright/capture_aya_screens.mjs
 scripts/playwright/capture_demo_screens*.mjs
+scripts/playwright/remotion/public/generated/
 
 # Secrets
 */secrets/

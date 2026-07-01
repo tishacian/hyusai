@@ -6,7 +6,9 @@
     "agentium:qualify": "node agentium_video_qualify.mjs",
     "agentium:capture": "node agentium_video_capture.mjs",
     "agentium:assemble": "node agentium_video_assemble.mjs",
+    "agentium:assemble:sync": "node agentium_video_sync_assemble.mjs",
     "agentium:polish": "node agentium_video_polish.mjs",
+    "agentium:remotion": "node agentium_remotion_render.mjs",
     "agentium:voiceover": "node agentium_voiceover_local.mjs",
     "agentium:voiceover:elevenlabs": "node agentium_voiceover_elevenlabs.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -18,5 +20,11 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "playwright": "^1.60.0"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.484",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "remotion": "^4.0.484"
   }
 }
