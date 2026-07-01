@@ -183,22 +183,12 @@ for index, item in enumerate(payload["timeline"]):
     amber = (251, 191, 36, 225)
     purple = (196, 181, 253, 225)
 
-    shadow_text(draw, (64, 46), "DATATEGY  //  AGENTIUM", font=brand_font, fill=white)
     right_text = "AI OPERATING SYSTEM 2026"
     rb = draw.textbbox((0, 0), right_text, font=tag_font)
     shadow_text(draw, (W - (rb[2] - rb[0]) - 64, 50), right_text, font=tag_font, fill=cyan)
     draw.rectangle((0, H - 4, W, H), fill=(34, 211, 238, 184))
 
-    stages = ["CONNECT", "BUILD", "RUN", "EVALUATE", "GOVERN", "IMPROVE"]
     active_stage = str(overlay.get("stage") or "BUILD").upper()
-    sx, sy = 64, 90
-    draw.rounded_rectangle((sx - 12, sy - 10, sx + 690, sy + 43), radius=18, fill=(1, 8, 15, 168), outline=(34, 211, 238, 72), width=1)
-    for stage in stages:
-        is_active = stage == active_stage
-        fill = (34, 211, 238, 46) if not is_active else (34, 211, 238, 190)
-        outline = (34, 211, 238, 90) if not is_active else (103, 232, 249, 230)
-        text_fill = (178, 190, 205, 220) if not is_active else (2, 7, 13, 245)
-        sx = pill(draw, (sx, sy), stage, metric_small, fill, outline, text_fill, pad_x=12, pad_y=7)
 
     metric = overlay.get("metric") or {}
     if metric:
@@ -219,10 +209,11 @@ for index, item in enumerate(payload["timeline"]):
     draw.rectangle((x, y, x + 5, y + h), fill=cyan)
     kicker = str(item.get("kicker") or "Agentium").upper()
     title = str(item.get("title") or item.get("id") or "")
-    shadow_text(draw, (x + 32, y + 25), kicker, font=small_bold, fill=cyan)
+    stage_end = pill(draw, (x + 32, y + 20), active_stage, metric_small, (34, 211, 238, 190), (103, 232, 249, 230), (2, 7, 13, 245), pad_x=12, pad_y=7)
+    shadow_text(draw, (stage_end + 8, y + 25), kicker, font=small_bold, fill=cyan)
     wrapped = textwrap.wrap(title, width=38)[:2]
     for line_idx, line in enumerate(wrapped):
-        shadow_text(draw, (x + 32, y + 58 + line_idx * 39), line, font=title_font, fill=white)
+        shadow_text(draw, (x + 32, y + 61 + line_idx * 38), line, font=title_font, fill=white)
 
     scene_no = f"{index + 1:02d}/{len(payload['timeline']):02d}"
     shadow_text(draw, (x + w - 82, y + 28), scene_no, font=small, fill=muted)

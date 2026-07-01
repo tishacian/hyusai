@@ -1535,11 +1535,11 @@ export class MissionRailComponent {
                   <span class="eyebrow">{{ missionRoomRoleLabel() }}</span>
                   <span class="hero-status">{{ cockpit()?.briefing_status || 'Briefing pret' }}</span>
                 </div>
-                <h1>{{ cockpit()?.title || missionRoomGreetingFallback() }}</h1>
+                <h1>{{ missionRoomHeroTitle() }}</h1>
                 <p>
-                  <span>{{ cockpit()?.date_label || currentAbidjanDateLabel() }}</span>
+                  <span>{{ missionRoomDateLabel() }}</span>
                   <span class="hero-dot"></span>
-                  <span>Vision executive consolidee</span>
+                  <span>{{ missionRoomVisionLabel() }}</span>
                 </p>
               </div>
               <div class="hero-actions">
@@ -5980,6 +5980,26 @@ export class MissionRoomComponent implements OnInit, OnDestroy {
     return this.missionBrandStyle() === 'agentium'
       ? 'Good morning, Coordination Director.'
       : 'Bonjour, Monsieur le Vice Premier Ministre.';
+  }
+
+  missionRoomHeroTitle(): string {
+    if (this.missionBrandStyle() === 'agentium') {
+      return 'Good morning, Coordination Director.';
+    }
+    return this.cockpit()?.title || this.missionRoomGreetingFallback();
+  }
+
+  missionRoomDateLabel(): string {
+    if (this.missionBrandStyle() === 'agentium') {
+      return 'Wednesday, July 1, 2026';
+    }
+    return this.cockpit()?.date_label || this.currentAbidjanDateLabel();
+  }
+
+  missionRoomVisionLabel(): string {
+    return this.missionBrandStyle() === 'agentium'
+      ? 'Consolidated executive view'
+      : 'Vision executive consolidee';
   }
 
   strategicMapEyebrowLabel(): string {
