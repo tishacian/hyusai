@@ -61,12 +61,15 @@ export function viewTitle(ref: CaptureViewReference | CapturePinnedView): string
   return ref.title ?? cleanFilename(ref.filename) ?? 'Pièce';
 }
 
-/** Locator badge: `p.12`, `cliché 3`, `slide 4` or `IMG`. */
+/** Locator badge: `p.12`, `cliché 3`, `slide 4`, `IMG` (images) or `doc`. */
 export function viewLocation(ref: CaptureViewReference | CapturePinnedView): string {
   if (ref.page != null) return `p.${ref.page}`;
   if (ref.slide != null) return `slide ${ref.slide}`;
   if (ref.image_index != null) return `cliché ${ref.image_index}`;
-  return 'IMG';
+  // Pageless reference: only label images `IMG`; paginated/document formats
+  // get a neutral `doc` (an unnavigated PDF is NOT an image).
+  const name = (ref.filename ?? '').toLowerCase();
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name) ? 'IMG' : 'doc';
 }
 
 /** Strip the extension off a document filename for compact display. */
@@ -87,7 +90,7 @@ export function refToPinnedView(ref: CaptureViewReference): CapturePinnedView {
   return {
     key: refKey(ref),
     document_id: ref.document_id ?? null,
-    collection: null,
+    collection: ref.collection ?? ref.collection_name ?? null,
     filename: ref.filename ?? null,
     title: ref.title ?? null,
     page: ref.page ?? null,

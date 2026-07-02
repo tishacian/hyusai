@@ -351,8 +351,18 @@ export class DocumentPreviewComponent {
       this.htmlDoc();
       this.objectUrl();
       const sheetHit = this.sheetHl().first;
-      if (this.open() && (this.preview() || sheetHit)) {
+      if ((this.open() || this.inline()) && (this.preview() || sheetHit)) {
         setTimeout(() => this.scrollToHighlight(), 80);
+      }
+    });
+    // Re-run the PDF find when the highlight changes on an ALREADY-loaded
+    // document (e.g. review: switching between two sources of the same doc) —
+    // loadPreview early-returns on same URL, so this is the only refresh path.
+    effect(() => {
+      const phrase = this.highlight();
+      if (this.pdfReady && phrase) {
+        this.pdfLastFind = '';
+        this.runPdfFind();
       }
     });
   }
@@ -369,6 +379,17 @@ export class DocumentPreviewComponent {
     this.pdfReady = true;
     this.pdfLastFind = '';
     this.runPdfFind();
+    // Announce the effective landing page immediately (default 1): consumers
+    // sync the active pin / visual context from `viewChanged`, and without this
+    // a mark on an unnavigated PDF carries `page: null`.
+    const doc = this.preview();
+    if (doc) {
+      this.viewChanged.emit({
+        kind: doc.kind,
+        filename: doc.filename,
+        page: this.normalizedPage() || 1,
+      });
+    }
   }
 
   /** A page text layer is ready — (re)run the find so the highlight overlay shows. */
@@ -429,7 +450,14 @@ export class DocumentPreviewComponent {
   }
 
   private loadPreview(url: string): void {
-    if (this.currentPreviewUrl === url && (this.loading() || this.preview())) return;
+    // Same-URL early return — EXCEPT when the previous attempt left the binary
+    // body missing (failed blob fetch): retry instead of showing a dead viewer.
+    if (this.currentPreviewUrl === url && (this.loading() || this.preview())) {
+      const kind = this.preview()?.kind;
+      const needsBlob = kind === 'pdf' || kind === 'image';
+      const blobMissing = needsBlob && !this.objectUrl() && !this.mediaLoading();
+      if (!blobMissing && !this.mediaError()) return;
+    }
     const seq = ++this.loadSeq;
     this.currentPreviewUrl = url;
     this.pdfReady = false;

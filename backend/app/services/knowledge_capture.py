@@ -3016,6 +3016,10 @@ async def publish_proposal_to_knowledge(
         if not ((proposal.proposal or {}).get("captured_facts")):
             payload = structure_capture_payload(session, events)
             content = (payload.get("recommended_ingestion") or {}).get("content") or content
+    # The stored report_markdown keeps the open questions; only the artifact
+    # actually published/ingested is stripped when the reviewer excluded them.
+    if content and not bool(publication_meta.get("include_unresolved_questions", True)):
+        content = _strip_open_questions_section(content)
 
     from app.services.knowledge_collections import create_or_get_collection
     from app.services.object_store import get_object_store
@@ -3033,11 +3037,19 @@ async def publish_proposal_to_knowledge(
         description="Expert capture publications",
     )
     db.flush()
+    # Honour end-of-capture triage: documents marked ``share_level=none`` stay
+    # citable in the report but must never be promoted into the KB collection.
+    share_levels = _capture_document_share_levels(session)
+    promotable_documents = [
+        ref
+        for ref in related_documents
+        if not (isinstance(ref, dict) and _capture_document_ref_share_level(ref, share_levels) == "none")
+    ]
     promoted_documents = _promote_capture_documents_for_publication(
         db,
         workspace=workspace,
         destination_collection=collection,
-        related_documents=related_documents,
+        related_documents=promotable_documents,
     )
     if promoted_documents:
         proposal_payload = _rewrite_capture_document_sources_to_publication(proposal_payload, promoted_documents)
@@ -3099,6 +3111,29 @@ async def publish_proposal_to_knowledge(
             document_metadata=ingest_metadata,
         )
     document_id = result.get("document_id")
+    if str(result.get("status") or "").lower() != "success" or not document_id:
+        # Vector ingest failed: keep the proposal ``accepted`` so publication can
+        # be retried, and persist the failure on the publication payload.
+        publication_meta["status"] = "failed"
+        publication_meta["error"] = str(result.get("error") or "Vector ingestion failed")
+        publication_meta["failed_at"] = datetime.utcnow().isoformat()
+        proposal_payload["publication"] = publication_meta
+        proposal.proposal = proposal_payload
+        flag_modified(proposal, "proposal")
+        emit_audit_event(
+            db=db,
+            workspace_id=workspace.id,
+            event_type="kc.proposal.publish_failed",
+            actor=actor_label,
+            details={
+                "proposal_id": proposal.id,
+                "session_id": session.id,
+                "collection": collection.slug,
+                "error": publication_meta["error"],
+            },
+        )
+        db.commit()
+        raise ValueError(f"Publication failed during vector ingestion: {publication_meta['error']}")
     export_urls: Dict[str, str] = {}
     if document_id:
         raw_url = f"/api/v1/documents/{quote(str(document_id), safe='')}/raw"
@@ -3115,6 +3150,10 @@ async def publish_proposal_to_knowledge(
         flag_modified(proposal, "proposal")
         db.flush()
     proposal.status = "published"
+    # Clear any failure markers left by a previous unsuccessful attempt.
+    publication_meta["status"] = "published"
+    publication_meta.pop("error", None)
+    publication_meta.pop("failed_at", None)
     publication_meta["published_at"] = datetime.utcnow().isoformat()
     proposal_payload["publication"] = publication_meta
     proposal.proposal = proposal_payload
@@ -4290,6 +4329,34 @@ def _doc_share_level(doc: Mapping[str, Any]) -> str:
     return "full" if bool(doc.get("full_share")) else "excerpt"
 
 
+def _capture_document_share_levels(session: ExpertCaptureSession) -> Dict[str, str]:
+    """Map capture-document keys (document_id / filename, lowercased) to triage
+    ``share_level`` from the session's capture-documents state."""
+    state = (dict(session.metrics or {}).get("capture_documents") or {})
+    levels: Dict[str, str] = {}
+    for doc in state.get("documents") or []:
+        if not isinstance(doc, dict):
+            continue
+        level = _doc_share_level(doc)
+        for key in (doc.get("document_id"), doc.get("filename")):
+            text = str(key or "").strip().lower()
+            if text:
+                levels[text] = level
+    return levels
+
+
+def _capture_document_ref_share_level(ref: Mapping[str, Any], levels: Mapping[str, str]) -> Optional[str]:
+    for raw in (ref.get("document_id"), ref.get("filename")):
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        for candidate in (text.lower(), Path(text).name.lower()):
+            level = levels.get(candidate)
+            if level:
+                return level
+    return None
+
+
 def _apply_capture_share_levels(
     session: ExpertCaptureSession,
     *,
@@ -4809,9 +4876,51 @@ def record_capture_document_view(
         created_by=actor_user_id,
         meta_data=ref,
     )
+    # A MANUAL mark ("Marquer dans le fil") is a real anchor, not just audit
+    # metadata: journal it as ``capture_view_referenced`` too so it (a) survives
+    # the feed re-hydration (build_capture_feed only projects view references),
+    # (b) enters the finalize/provenance batch, and (c) yields an event id that
+    # ``update_capture_view_anchor`` can actually patch (discard / rebind).
+    anchor_event = None
+    if str(ref.get("association_mode") or "").strip().lower() == "manual":
+        anchor_payload = {
+            "document_id": ref.get("document_id"),
+            "collection": collection,
+            "collection_name": collection,
+            "filename": ref.get("filename"),
+            "title": ref.get("title") or ref.get("filename") or ref.get("document_id"),
+            "page": ref.get("page"),
+            "slide": ref.get("slide"),
+            "image_index": ref.get("image_index"),
+            "timecode_ms": ref.get("timecode_ms"),
+            "association_mode": "manual",
+            "status": "confirmed",
+            "confidence": 1.0,
+            "view_kind": _capture_view_kind(ref),
+        }
+        anchor_payload = {key: value for key, value in anchor_payload.items() if value is not None}
+        anchor_event = _record_capture_event(
+            db,
+            session=session,
+            event_type="capture_view_referenced",
+            speaker="expert",
+            source="capture_document",
+            status="accepted",
+            confidence="1.0",
+            parent_event_id=event.id,
+            created_by=actor_user_id,
+            meta_data=anchor_payload,
+        )
     db.commit()
     db.refresh(session)
-    return {"session": serialize_session(session), "event": serialize_event(event), "active_view": ref}
+    return {
+        "session": serialize_session(session),
+        # The anchor event (when journaled) is what the frontend must key the
+        # mark on — its id is patchable and feed-projected. Fall back to the
+        # audit event for non-manual view logging.
+        "event": serialize_event(anchor_event or event),
+        "active_view": ref,
+    }
 
 
 def _journaled_view_counts(db: DBSession, *, session_id: str) -> Dict[str, int]:
@@ -6764,6 +6873,11 @@ def create_update_proposal(
             payload["conversation"] = conversation_state
         proposal.proposal = payload
         flag_modified(proposal, "proposal")
+        if proposal.status == "changes_requested":
+            # Refresh reopens the proposal for review; keep review_notes so the
+            # requested changes remain visible to the next reviewer.
+            proposal.status = "pending_review"
+            proposal.reviewed_at = None
     else:
         proposal = KnowledgeUpdateProposal(
             id=str(uuid.uuid4()),
@@ -7177,6 +7291,10 @@ def review_proposal(
     )
     if not proposal:
         raise ValueError("Knowledge update proposal not found")
+    if proposal.status == "published":
+        # A published fiche's review state is frozen; a new revision must go
+        # through a fresh proposal instead.
+        raise ValueError("Proposal is already published; its review state can no longer change")
     proposal.status = status
     proposal.reviewer = reviewer
     proposal.reviewer_user_id = reviewer_user_id
@@ -7658,6 +7776,31 @@ def _assemble_report_from_sections(
             if label:
                 lines.append(f"- {label}")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _strip_open_questions_section(markdown: str) -> str:
+    """Drop the open-questions section from a report about to be published.
+
+    Matches the ``## Questions ouvertes …`` heading emitted by
+    ``_assemble_report_from_sections`` and removes everything until the next
+    same-or-higher-level heading (or end of document). Does not mutate the
+    stored ``report_markdown`` — only the published artifact is stripped.
+    """
+    lines = markdown.splitlines()
+    kept: List[str] = []
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            skipping = stripped[3:].strip().lower().startswith("questions ouvertes")
+            if skipping:
+                continue
+        elif stripped.startswith("# "):
+            skipping = False
+        if not skipping:
+            kept.append(line)
+    result = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).rstrip()
+    return (result + "\n") if result else ""
 
 
 def set_active_capture_section(
@@ -8419,6 +8562,8 @@ def update_proposal_report_content(
     )
     if not proposal:
         raise ValueError("Knowledge update proposal not found")
+    if proposal.status == "published":
+        raise ValueError("Proposal is already published; its report can no longer be edited")
     clean = (content or "").strip()
     if not clean:
         raise ValueError("Proposal report content cannot be empty")
@@ -8560,6 +8705,8 @@ async def apply_proposal_report_instruction(
     )
     if not proposal:
         raise ValueError("Knowledge update proposal not found")
+    if proposal.status == "published":
+        raise ValueError("Proposal is already published; its report can no longer be edited")
     session = get_session(db, workspace_id=workspace_id, session_id=proposal.session_id)
     clean_instruction = (instruction or "").strip()
     if not clean_instruction:
@@ -9835,7 +9982,10 @@ def _latest_pending_proposal_for_session(
         .filter(
             KnowledgeUpdateProposal.workspace_id == workspace_id,
             KnowledgeUpdateProposal.session_id == session_id,
-            KnowledgeUpdateProposal.status == "pending_review",
+            # ``changes_requested`` proposals are reopened on re-finalize instead
+            # of spawning a duplicate row; accepted/rejected/published stay
+            # untouched (a new revision there is intended behaviour).
+            KnowledgeUpdateProposal.status.in_(("pending_review", "changes_requested")),
         )
         .order_by(KnowledgeUpdateProposal.created_at.desc())
         .first()

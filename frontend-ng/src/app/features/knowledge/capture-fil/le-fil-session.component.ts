@@ -70,6 +70,17 @@ import { clockLabel } from './capture-presentation';
           <ck-glyph [name]="paused() ? 'arrow-right' : 'pulse'" [size]="11" color="currentColor" />
           {{ paused() ? 'Reprendre' : 'Pause' }}
         </button>
+        <button
+          type="button"
+          class="ck-mono"
+          (click)="toggleFilLayout()"
+          [title]="docsMode() ? 'Priorité pièces jointes — basculer vers Priorité transcript' : 'Priorité transcript — basculer vers Priorité pièces jointes'"
+          style="display:inline-flex; align-items:center; gap:5px; font-size:10px; padding:3px 8px; border-radius:999px; cursor:pointer; background:transparent; border:1px solid var(--ck-stroke-2);"
+          [style.color]="docsMode() ? 'var(--ck-signal-cool)' : 'var(--ck-fg-4)'"
+        >
+          <ck-glyph [name]="docsMode() ? 'layers' : 'ledger'" [size]="11" color="currentColor" />
+          {{ docsMode() ? 'priorité pièces' : 'priorité transcript' }}
+        </button>
 
         <div style="margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
           <span
@@ -253,12 +264,19 @@ import { clockLabel } from './capture-presentation';
           </div>
         </div>
 
-        <!-- Le Fil + composer -->
-        <div style="display:flex; flex-direction:column; min-height:0; min-width:0;">
+        <!-- Le Fil + composer — center column in mode transcript, minimized in
+             the right 400px column in mode documents (order-only swap, same DOM). -->
+        <div
+          style="display:flex; flex-direction:column; min-height:0; min-width:0;"
+          [style.order]="docsMode() ? 2 : 1"
+          [style.borderLeft]="docsMode() ? '1px solid var(--ck-stroke-2)' : null"
+          [style.background]="docsMode() ? 'var(--ck-bg-panel)' : null"
+        >
           <div
             #feed
             class="ck-scroll"
-            style="flex:1; overflow-y:auto; padding:24px 28px; display:flex; flex-direction:column; gap:16px; min-height:0;"
+            style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:16px; min-height:0;"
+            [style.padding]="docsMode() ? '14px 16px' : '24px 28px'"
           >
             @if (engine.feed().length === 0) {
               <div style="color:var(--ck-fg-4); font-size:13px; font-style:italic; margin-top:12px;">
@@ -266,7 +284,7 @@ import { clockLabel } from './capture-presentation';
               </div>
             }
             @for (item of engine.feed(); track item.id) {
-              <div style="display:flex; gap:14px;">
+              <div style="display:flex; gap:14px;" [attr.data-feed-id]="item.id">
                 <span
                   class="ck-mono ck-tnum"
                   style="flex:none; width:56px; padding-top:4px; font-size:10px; color:var(--ck-fg-5);"
@@ -277,6 +295,7 @@ import { clockLabel } from './capture-presentation';
                   @case ('speak') {
                     <p
                       style="margin:0; font-size:17px; line-height:1.62; text-wrap:pretty;"
+                      [style.fontSize]="docsMode() ? '14px' : '17px'"
                       [style.color]="item.partial ? 'var(--ck-fg-3)' : 'var(--ck-fg-1)'"
                       [style.fontStyle]="item.partial ? 'italic' : 'normal'"
                     >
@@ -306,7 +325,10 @@ import { clockLabel } from './capture-presentation';
 
           <!-- relance stack (pile de relances) -->
           @if (hintQueue().length) {
-            <div style="flex:none; padding:12px 28px 0; display:flex; flex-direction:column; gap:8px;">
+            <div
+              style="flex:none; display:flex; flex-direction:column; gap:8px;"
+              [style.padding]="docsMode() ? '10px 16px 0' : '12px 28px 0'"
+            >
               <div style="display:flex; align-items:center; gap:8px;">
                 <ck-glyph name="bolt" [size]="12" color="var(--ck-signal-cool)" />
                 <span
@@ -344,7 +366,10 @@ import { clockLabel } from './capture-presentation';
           }
 
           <!-- composer -->
-          <div style="flex:none; padding:14px 28px 16px; border-top:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel);">
+          <div
+            style="flex:none; border-top:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel);"
+            [style.padding]="docsMode() ? '12px 16px 14px' : '14px 28px 16px'"
+          >
             <div
               style="display:flex; align-items:flex-end; gap:12px; border:1px solid var(--ck-stroke-3); border-radius:var(--ck-radius-lg); background:var(--ck-bg-inset); padding:10px 12px;"
             >
@@ -388,12 +413,16 @@ import { clockLabel } from './capture-presentation';
           </div>
         </div>
 
-        <!-- La Scène + Oracle -->
+        <!-- La Scène + Oracle — right 400px column in mode transcript, center
+             (large, pièces jointes prioritized) in mode documents. -->
         <div
           class="ck-scroll"
           style="border-left:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel); display:flex; flex-direction:column; min-height:0; overflow-y:auto; padding:14px; gap:14px;"
+          [style.order]="docsMode() ? 1 : 2"
+          [style.borderLeft]="docsMode() ? 'none' : '1px solid var(--ck-stroke-2)'"
+          [style.padding]="docsMode() ? '18px 22px' : '14px'"
         >
-          <app-la-scene />
+          <app-la-scene [wide]="docsMode()" />
 
           <div style="display:flex; flex-direction:column; min-height:0; gap:10px;">
             <div style="display:flex; align-items:center; gap:8px;">
@@ -612,6 +641,9 @@ export class LeFilSessionComponent {
   protected readonly connected = this.engine.connected;
   protected readonly lastError = this.engine.lastError;
 
+  /** Mode 'documents' — La Scène au centre, fil minimisé à droite (visuel only). */
+  protected readonly docsMode = computed(() => this.engine.filLayout() === 'documents');
+
   private readonly feedHost = viewChild<ElementRef<HTMLElement>>('feed');
   private readonly composerRef = viewChild<ElementRef<HTMLTextAreaElement>>('composer');
 
@@ -667,11 +699,32 @@ export class LeFilSessionComponent {
     if (this.engine.sessionId() && this.engine.documents().length === 0) {
       void this.engine.loadDocuments();
     }
-    // Auto-scroll the Fil to the bottom on every new event (scrollTop, never scrollIntoView).
+    // Auto-scroll the Fil to the bottom on every new event (scrollTop, never
+    // scrollIntoView) — unless a revisit target is pending (it wins the scroll).
     effect(() => {
       this.engine.feed();
+      if (this.engine.revisitTarget()) return;
       const el = this.feedHost()?.nativeElement;
       if (el) queueMicrotask(() => (el.scrollTop = el.scrollHeight));
+    });
+    // "Revoir l'instant capté": once the targeted feed item is rendered, scroll
+    // it into view (centered), flash it briefly, then consume the target.
+    effect(() => {
+      const target = this.engine.revisitTarget();
+      if (!target) return;
+      const rendered = this.engine.feed().some((i) => i.id === target);
+      const host = this.feedHost()?.nativeElement;
+      if (!rendered || !host) return;
+      queueMicrotask(() => {
+        const el = host.querySelector(`[data-feed-id="${CSS.escape(target)}"]`) as HTMLElement | null;
+        if (el) {
+          el.scrollIntoView({ block: 'center' });
+          el.style.transition = 'background-color 1.6s ease-out';
+          el.style.backgroundColor = 'color-mix(in oklab, var(--ck-signal-cool) 18%, transparent)';
+          setTimeout(() => (el.style.backgroundColor = 'transparent'), 1200);
+        }
+        this.engine.revisitTarget.set(null);
+      });
     });
     // Mute-mic-while-typing gate (D3, default OFF): only mute while actively typing.
     effect(() => this.engine.setMicMuted(this.muteWhileTyping() && this.typing()));
@@ -719,6 +772,11 @@ export class LeFilSessionComponent {
     if (!subtopicId) return topicLabel;
     const sub = (topic.subtopics ?? []).find((s) => s.id === subtopicId);
     return sub ? `${topicLabel} › ${sub.title || sub.id}` : topicLabel;
+  }
+
+  /** Bascule éphémère de la disposition (ne modifie pas le défaut système). */
+  protected toggleFilLayout(): void {
+    this.engine.setFilLayout(this.docsMode() ? 'transcript' : 'documents');
   }
 
   protected toggleMuteWhileTyping(): void {

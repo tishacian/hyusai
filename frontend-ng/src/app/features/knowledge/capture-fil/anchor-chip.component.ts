@@ -10,7 +10,7 @@ import {
 import type { CapturePinnedView, CaptureViewReference } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
 import { CaptureEngine } from './capture-engine';
-import { toneVar, viewLocation, viewTitle, viewTone } from './capture-presentation';
+import { refToPinnedView, toneVar, viewLocation, viewTitle, viewTone } from './capture-presentation';
 
 type AnchorDisplay = 'pending' | 'confirmed' | 'lowconf' | 'discarded';
 
@@ -58,10 +58,13 @@ const HYBRID_CONFIRM_MS = 4200;
         }
         @default {
           <span style="display:inline-flex; flex-direction:column; gap:6px; max-width:480px;">
-            <span
+            <button
+              type="button"
               class="anc-pill"
               [class.anc-breathe]="display() === 'pending'"
-              style="display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; align-self:flex-start; color:var(--ck-fg-1);"
+              (click)="focusPiece()"
+              title="Remettre cette pièce en scène"
+              style="appearance:none; cursor:pointer; display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; align-self:flex-start; color:var(--ck-fg-1); font-family:var(--ck-font-sans);"
               [style.background]="ghostly() ? 'transparent' : tintMix"
               [style.border]="'1px ' + (ghostly() ? 'dashed' : 'solid') + ' ' + edgeColor()"
             >
@@ -71,7 +74,7 @@ const HYBRID_CONFIRM_MS = 4200;
               @if (display() === 'confirmed') {
                 <ck-glyph name="check" [size]="12" [color]="tint" />
               }
-            </span>
+            </button>
 
             @if (display() === 'pending' && !rebinding()) {
               <span style="display:inline-flex; align-items:center; gap:8px; padding-left:4px; flex-wrap:wrap;">
@@ -248,6 +251,27 @@ export class AnchorChipComponent {
     return piece.title ?? piece.filename ?? 'Pièce';
   }
 
+  /**
+   * Clicking the pill brings the referenced piece back "EN SCÈNE": focus the
+   * matching pin when it's still on scene, otherwise re-pin it from the anchor
+   * (without re-journaling a view — this is navigation, not a new mark).
+   */
+  protected focusPiece(): void {
+    const v = this.viewSig();
+    if (!v) return;
+    const match = this.engine.scene().find(
+      (p) =>
+        (v.document_id && p.document_id === v.document_id) ||
+        (!v.document_id && v.filename && p.filename === v.filename),
+    );
+    if (match) {
+      this.engine.focusView(match.key);
+      if (v.page != null) this.engine.setActiveViewPage(v.page);
+      return;
+    }
+    this.engine.pinView(refToPinnedView(v), { record: false });
+  }
+
   protected confirm(): void {
     this.clearGhost();
     const id = this.eventId();
@@ -286,10 +310,18 @@ export class AnchorChipComponent {
     this.engine.focusView(piece.key);
     const id = this.eventId();
     if (!id) return;
+    // If the target piece is the one currently shown, prefer the LIVE page from
+    // the active pin (kept in sync by the inline/modal preview) over the strip
+    // pin's possibly stale page snapshot.
+    const activePin = this.engine.activeView();
+    const livePage =
+      activePin && activePin.key === piece.key && activePin.page != null
+        ? activePin.page
+        : piece.page;
     void this.engine.updateView(id, {
       action: 'rebind',
       document_id: piece.document_id,
-      page: piece.page,
+      page: livePage,
       slide: piece.slide,
       image_index: piece.image_index,
     });

@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  Input,
   computed,
   inject,
   signal,
@@ -47,8 +48,10 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
                 (click)="openPreview(a)"
                 title="Voir le document en grand"
                 style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
+                [style.fontSize]="wide ? '11.5px' : '10px'"
+                [style.padding]="wide ? '5px 10px' : '3px 7px'"
               >
-                <ck-glyph name="layers" [size]="10" color="currentColor" /> voir
+                <ck-glyph name="layers" [size]="wide ? 12 : 10" color="currentColor" /> voir
               </button>
             }
             <button
@@ -57,8 +60,10 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
               (click)="engine.markActiveView()"
               title="Marquer la page montrée dans le fil"
               style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
+              [style.fontSize]="wide ? '11.5px' : '10px'"
+              [style.padding]="wide ? '5px 10px' : '3px 7px'"
             >
-              <ck-glyph name="crosshair" [size]="10" color="currentColor" /> marquer dans le fil
+              <ck-glyph name="crosshair" [size]="wide ? 12 : 10" color="currentColor" /> marquer dans le fil
             </button>
             <button
               type="button"
@@ -66,8 +71,9 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
               (click)="engine.unpinView(a.key)"
               title="Retirer de la scène"
               style="border:none; background:transparent; color:var(--ck-fg-4); cursor:pointer; font-size:10px; display:inline-flex; align-items:center; gap:4px;"
+              [style.fontSize]="wide ? '11.5px' : '10px'"
             >
-              <ck-glyph name="x" [size]="10" color="currentColor" /> retirer
+              <ck-glyph name="x" [size]="wide ? 12 : 10" color="currentColor" /> retirer
             </button>
           }
           <label
@@ -75,8 +81,10 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
             title="Ajouter une pièce à montrer (elle est mise en scène)"
             style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
             [style.opacity]="uploading() ? 0.6 : 1"
+            [style.fontSize]="wide ? '11.5px' : '10px'"
+            [style.padding]="wide ? '5px 10px' : '3px 7px'"
           >
-            <ck-glyph name="bolt" [size]="10" color="currentColor" /> {{ uploading() ? 'ajout…' : 'ajouter' }}
+            <ck-glyph name="bolt" [size]="wide ? 12 : 10" color="currentColor" /> {{ uploading() ? 'ajout…' : 'ajouter' }}
             <input type="file" multiple (change)="onUpload($event)" [disabled]="uploading()" style="display:none;" />
           </label>
           @if (pinnable().length > 0) {
@@ -85,8 +93,10 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
               class="ck-mono"
               (click)="picking.set(!picking())"
               style="border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer; font-size:10px; border-radius:var(--ck-radius-sm); padding:3px 7px; display:inline-flex; align-items:center; gap:4px;"
+              [style.fontSize]="wide ? '11.5px' : '10px'"
+              [style.padding]="wide ? '5px 10px' : '3px 7px'"
             >
-              <ck-glyph name="layers" [size]="10" color="currentColor" /> épingler
+              <ck-glyph name="layers" [size]="wide ? 12 : 10" color="currentColor" /> épingler
             </button>
           }
         </div>
@@ -123,7 +133,7 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
               [inline]="true"
               [previewUrl]="url"
               [page]="a.page ?? null"
-              [heightPx]="480"
+              [heightPx]="previewHeight()"
               (viewChanged)="onViewChanged($event)"
             />
           </div>
@@ -145,7 +155,7 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
       @if (engine.scene().length > 0) {
         <div class="ck-scroll" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:4px;">
           @for (piece of engine.scene(); track piece.key) {
-            <div style="flex:none; width:84px;">
+            <div style="flex:none;" [style.width.px]="wide ? 128 : 84">
               <app-capture-view-tile
                 [view]="piece"
                 size="sm"
@@ -160,23 +170,56 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
       }
     </section>
 
+    <!-- Full-screen modal: page navigation here must sync back to the engine
+         too, otherwise a mark taken after browsing in the modal references the
+         page the pin had BEFORE the modal was opened. -->
     <app-document-preview
       [open]="previewOpen()"
       [previewUrl]="previewUrl()"
       [title]="previewTitle()"
       [subtitle]="'Pièce montrée'"
       [page]="previewPage()"
+      (viewChanged)="onViewChanged($event)"
       (closed)="previewOpen.set(false)"
     />
   `,
 })
 export class LaSceneComponent {
+  /**
+   * Mode large (fil layout 'documents') — purely presentational: taller
+   * viewport-based preview, bigger strip tiles and management affordances.
+   */
+  @Input() wide = false;
+
   protected readonly engine = inject(CaptureEngine);
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly active = this.engine.activeView;
   protected readonly picking = signal(false);
   protected readonly uploading = signal(false);
+
+  /** Viewport height as a signal so the wide preview follows window resizes. */
+  private readonly viewportHeight = signal(
+    typeof window !== 'undefined' ? window.innerHeight : 900,
+  );
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      const onResize = () => this.viewportHeight.set(window.innerHeight);
+      window.addEventListener('resize', onResize);
+      this.destroyRef.onDestroy(() => window.removeEventListener('resize', onResize));
+    }
+  }
+
+  /**
+   * Inline preview height: fixed 480px in the right column; in mode large the
+   * preview owns the center column, so size it from the viewport (header +
+   * status bar + strip ≈ 420px of chrome), never below the compact height.
+   */
+  protected previewHeight(): number {
+    if (!this.wide) return 480;
+    return Math.max(480, Math.round(this.viewportHeight() - 420));
+  }
 
   // ---- real document preview (rich-preview modal, auth-aware) -------------
   protected readonly previewOpen = signal(false);

@@ -25,6 +25,7 @@ import {
   type LiveKitOpenOptions,
 } from '@app/core/livekit-conversation.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { CanonicalApiService } from '@app/core/canonical-api.service';
 
 /**
  * CaptureEngine — the headless brain of the cockpit "Le Fil" capture
@@ -181,6 +182,9 @@ export interface CaptureClosureSheet {
   unresolved?: Array<{ bucket?: string; label?: string; status?: string }>;
 }
 
+/** Display prioritization of the live session (visual only, no mechanics). */
+export type CaptureFilLayout = 'documents' | 'transcript';
+
 const FINALIZE_IDLE: CaptureFinalizeState = {
   stage: 'idle',
   processed: 0,
@@ -194,6 +198,7 @@ export class CaptureEngine {
   private readonly voiceSession = inject(VoiceSessionService);
   private readonly livekit = inject(LiveKitConversationService);
   private readonly workspace = inject(WorkspaceService);
+  private readonly canonicalApi = inject(CanonicalApiService);
   private readonly destroyRef = inject(DestroyRef);
 
   private connection: VoiceSessionConnection | LiveKitConversationConnection | null = null;
@@ -249,6 +254,11 @@ export class CaptureEngine {
   private readonly _micActive = signal(false);
   private readonly _micMuted = signal(false);
 
+  // ---- fil layout (priorité pièces jointes vs transcript) -----------------
+  private readonly _filLayout = signal<CaptureFilLayout>('documents');
+  /** Once the operator toggles in-session, the system default must not stomp it. */
+  private filLayoutTouched = false;
+
   // ---- session minuterie / closure (P1, v0) ------------------------------
   private readonly _paused = signal(false);
   /** Cumulative extra minutes granted via {@link extendSession}. */
@@ -269,6 +279,12 @@ export class CaptureEngine {
   // ---- oracle enrichment / report export (P1) ----------------------------
   private readonly _oracleSuppressed = signal(false);
   private readonly _reportExport = signal<string | null>(null);
+
+  /**
+   * Feed item id to scroll to when re-entering the session surface
+   * ("Revoir l'instant capté" from the review fiche). Consumed once.
+   */
+  readonly revisitTarget = signal<string | null>(null);
 
   // ---- section steering (P0 #1) ------------------------------------------
   private readonly _activeTopicId = signal<string | null>(null);
@@ -322,6 +338,8 @@ export class CaptureEngine {
   readonly finalizeStage = this._finalize.asReadonly();
   /** Last transport / request error, surfaced for diagnostics. */
   readonly lastError = this._lastError.asReadonly();
+  /** Session display mode: pièces jointes au centre ('documents') vs transcript. */
+  readonly filLayout = this._filLayout.asReadonly();
 
   /**
    * The session plan parsed into a typed topics/sous-sujets tree (P0 #1). Reads
@@ -625,9 +643,14 @@ export class CaptureEngine {
     this.stopTicker();
     this.stopMic();
     this.realtimeSttActive = false;
-    // A WS finalize in flight can never complete without the socket — resolve it
-    // so the publish surface's await never hangs (it falls back to its error UI).
-    if (this.finalizeResolver) this.settleFinalize(null);
+    // A WS finalize in flight can never complete without the socket — recover
+    // it (the proposal is usually already persisted server-side) so the await
+    // resolves with the real report instead of a guaranteed error UI.
+    if (this.finalizeResolver) {
+      const resolver = this.finalizeResolver;
+      this.clearFinalizeWait();
+      void this.recoverFinalize().then((id) => resolver(id));
+    }
     this.eventsSub?.unsubscribe();
     this.eventsSub = null;
     const connection = this.connection;
@@ -1028,6 +1051,29 @@ export class CaptureEngine {
    */
   setSystemId(systemId: string | null): void {
     this._systemId.set(systemId || null);
+    if (systemId) this.resolveFilLayout(systemId);
+  }
+
+  /**
+   * Session-time layout switch (ephemeral by design — never persisted). Takes
+   * priority over the system default for the rest of the séance.
+   */
+  setFilLayout(mode: CaptureFilLayout): void {
+    this.filLayoutTouched = true;
+    this._filLayout.set(mode);
+  }
+
+  /**
+   * Resolve the system-level default (`settings.capture.fil_layout`). Any
+   * missing/invalid value → 'documents'. A prior in-session toggle wins.
+   */
+  private resolveFilLayout(systemId: string): void {
+    this.canonicalApi.getSystem(systemId).subscribe((sys) => {
+      if (this.filLayoutTouched) return;
+      const capture = this.asRecord(this.asRecord(sys?.settings)['capture']);
+      const raw = capture['fil_layout'];
+      this._filLayout.set(raw === 'transcript' ? 'transcript' : 'documents');
+    });
   }
 
   /** Bind the engine to a session without opening the realtime leg. */
@@ -1035,7 +1081,9 @@ export class CaptureEngine {
     this._session.set(info);
     if (info?.id) this._sessionId.set(info.id);
     // Resuming a system-scoped session preserves the scope for downstream lists.
-    if (info?.system_id) this._systemId.set(info.system_id);
+    if (info?.system_id && info.system_id !== this._systemId()) {
+      this.setSystemId(info.system_id);
+    }
   }
 
   /** Load (or refresh) the documents attached to the bound session. */
@@ -1480,8 +1528,16 @@ export class CaptureEngine {
     const proposalId = this._proposalId();
     if (!proposalId) return null;
     try {
-      if (this._proposal()?.status !== 'accepted') {
-        await this.reviewProposal('accepted');
+      const status = (this._proposal()?.status ?? '').toLowerCase();
+      // A rejected fiche must NOT be silently re-accepted on publish: the
+      // reviewer's decision stands until they explicitly accept it again.
+      if (status === 'rejected') {
+        this._lastError.set('Fiche rejetée — acceptez-la explicitement avant de publier.');
+        return null;
+      }
+      if (status !== 'accepted' && status !== 'published') {
+        const accepted = await this.reviewProposal('accepted');
+        if (!accepted) return null;
       }
       const payload = await firstValueFrom(this.api.publishCaptureProposal(proposalId, body));
       const result = (payload as CapturePublicationResult | null) ?? null;
@@ -1587,12 +1643,48 @@ export class CaptureEngine {
       this.finalizeResolver = (proposalId) => resolve(proposalId);
       // Safety net: never hang the publish surface if the WS drops mid-finalize.
       this.finalizeTimeout = setTimeout(() => {
-        this.finalizeResolver = null;
-        this.finalizeTimeout = null;
-        void this.finalizeOverHttp(this._sessionId() ?? '').then(resolve);
+        const resolver = this.finalizeResolver;
+        this.clearFinalizeWait();
+        void this.recoverFinalize().then((id) => resolver?.(id));
       }, 90000);
       connection.captureFinish();
     });
+  }
+
+  /**
+   * Recover a finalize whose WS leg died or whose terminal `conversation.step`
+   * was lost: the proposal usually ALREADY exists server-side (the gateway
+   * builds it before emitting the step), so fetch it first and only re-trigger
+   * the heavy HTTP finalize when nothing was persisted.
+   */
+  private async recoverFinalize(): Promise<string | null> {
+    const existing = await this.loadProposal();
+    if (existing?.id) {
+      this._finalize.update((s) =>
+        s.stage === 'failed'
+          ? s
+          : { ...s, stage: 'done', message: 'Rapport prêt — indexation en arrière-plan.' },
+      );
+      return existing.id;
+    }
+    const sessionId = this._sessionId();
+    return sessionId ? this.finalizeOverHttp(sessionId) : null;
+  }
+
+  /**
+   * The backend just reported a terminal finalize stage (done/error) or closed
+   * the realtime leg while a WS finalize is still awaiting its
+   * `conversation.step`. Shrink the 90s guard to a short grace so a lost step
+   * event never blocks the transition to the review surface.
+   */
+  private expediteFinalizeRecovery(graceMs: number): void {
+    if (!this.finalizeResolver) return;
+    if (this.finalizeTimeout !== null) clearTimeout(this.finalizeTimeout);
+    this.finalizeTimeout = setTimeout(() => {
+      const resolver = this.finalizeResolver;
+      this.clearFinalizeWait();
+      void this.recoverFinalize().then((id) => resolver?.(id));
+    }, graceMs);
   }
 
   private settleFinalize(proposalId: string | null): void {
@@ -1686,6 +1778,8 @@ export class CaptureEngine {
     this._oracleSuppressed.set(false);
     this._reportExport.set(null);
     this._lastError.set(null);
+    // Layout stays on the system default; the ephemeral toggle dies with the séance.
+    this.filLayoutTouched = false;
     this._state.set('idle');
   }
 
@@ -1742,9 +1836,13 @@ export class CaptureEngine {
         break;
       case 'session.error':
         this._lastError.set(String(payload['message'] ?? 'capture transport error'));
+        // A transport error mid-finalize likely means the terminal step will
+        // never arrive — recover promptly instead of hanging on the 90s guard.
+        this.expediteFinalizeRecovery(4000);
         break;
       case 'session.close':
         if (this._state() === 'connected') this._state.set('closed');
+        this.expediteFinalizeRecovery(2000);
         break;
       default:
         break;
@@ -1933,6 +2031,12 @@ export class CaptureEngine {
       total: Number(payload['total'] ?? 0) || 0,
       message: (payload['label'] as string) ?? (payload['message'] as string) ?? null,
     });
+    // Terminal stage reached but the `conversation.step` carrying the proposal
+    // can be lost (LiveKit data-channel drop, gateway hiccup). Give it a short
+    // grace, then recover by fetching the persisted proposal — never let the
+    // finalize surface sit on the 90s guard after the backend said "done".
+    if (stage === 'done') this.expediteFinalizeRecovery(6000);
+    else if (stage === 'failed') this.expediteFinalizeRecovery(1500);
   }
 
   /**
@@ -1951,12 +2055,13 @@ export class CaptureEngine {
       copy[idx] = { ...copy[idx], ...ref };
       return copy;
     });
+    const feedId = ref.event_id ?? ref.turn_id ?? null;
     if (opts.asFeed) {
-      const feedId = ref.event_id ?? ref.turn_id ?? this.uid();
+      const id = feedId ?? this.uid();
       this._feed.update((items) => {
-        const idx = items.findIndex((i) => i.kind === 'anchor' && i.id === feedId);
+        const idx = items.findIndex((i) => i.kind === 'anchor' && i.id === id);
         const next: CaptureFeedItem = {
-          id: feedId,
+          id,
           kind: 'anchor',
           channel: opts.channel ?? 'voice',
           speaker: null,
@@ -1971,12 +2076,32 @@ export class CaptureEngine {
         copy[idx] = { ...copy[idx], ...next };
         return copy;
       });
+    } else if (feedId) {
+      // Anchor chips in the Fil are bound to `item.view` on the FEED item, not
+      // to `_viewReferences` — a correction (confirm / discard / rebind) must
+      // refresh the existing feed copy too, or the chip appears dead. Update
+      // in place only; never append a new feed row on a pure correction.
+      this._feed.update((items) => {
+        const idx = items.findIndex((i) => i.kind === 'anchor' && i.id === feedId);
+        if (idx === -1) return items;
+        const copy = items.slice();
+        copy[idx] = { ...copy[idx], view: { ...copy[idx].view, ...ref } };
+        return copy;
+      });
     }
   }
 
   private patchViewStatus(eventId: string, status: CaptureAnchorStatus | null): void {
     this._viewReferences.update((refs) =>
       refs.map((r) => (r.event_id === eventId ? { ...r, status: status ?? undefined } : r)),
+    );
+    // Mirror onto the feed-bound copy the chips actually render.
+    this._feed.update((items) =>
+      items.map((i) =>
+        i.kind === 'anchor' && i.view?.event_id === eventId
+          ? { ...i, view: { ...i.view, status: status ?? undefined } }
+          : i,
+      ),
     );
   }
 
@@ -1996,6 +2121,9 @@ export class CaptureEngine {
     return {
       session_id: (payload['session_id'] as string) ?? this._sessionId(),
       document_id: (payload['document_id'] as string) ?? null,
+      collection: (payload['collection'] as string) ?? (payload['collection_name'] as string) ?? null,
+      collection_name:
+        (payload['collection_name'] as string) ?? (payload['collection'] as string) ?? null,
       filename: (payload['filename'] as string) ?? null,
       title: (payload['title'] as string) ?? null,
       page: (payload['page'] as number) ?? null,

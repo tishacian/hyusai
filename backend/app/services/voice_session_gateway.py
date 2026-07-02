@@ -1804,6 +1804,10 @@ class VoiceSessionGateway:
                         "session_id": capture_session_id,
                         "event_id": ref.get("event_id"),
                         "document_id": ref.get("document_id"),
+                        # Collection rides along so the client can build the
+                        # rich-preview URL without waiting for loadDocuments().
+                        "collection": ref.get("collection") or ref.get("collection_name"),
+                        "collection_name": ref.get("collection_name") or ref.get("collection"),
                         "filename": ref.get("filename"),
                         "title": ref.get("title"),
                         "page": ref.get("page"),

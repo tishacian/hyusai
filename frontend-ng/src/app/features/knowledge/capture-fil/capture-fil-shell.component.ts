@@ -217,9 +217,12 @@ export class CaptureFilShellComponent {
   }
 
   /** Bidirectional provenance: "Revoir l'instant capté" jumps back to Le Fil. */
-  protected onRevisit(_ref: CaptureViewReference): void {
+  protected onRevisit(ref: CaptureViewReference): void {
     // Revisiting a terminal session (no live WS): make sure the Fil is hydrated.
     if (!this.engine.feed().length) void this.engine.hydrateFeed();
+    // Point the session surface at the journaled instant: it scrolls the Fil to
+    // the matching feed item (anchor id = event id, else the turn) on render.
+    this.engine.revisitTarget.set(ref.event_id ?? ref.turn_id ?? null);
     this.surface.set('session');
   }
 }

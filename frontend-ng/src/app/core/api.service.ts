@@ -68,6 +68,9 @@ export interface CaptureTurnRequest {
 export interface CaptureViewReference {
   session_id?: string | null;
   document_id?: string | null;
+  /** Collection slug carried by the anchor (rich-preview URL without a doc lookup). */
+  collection?: string | null;
+  collection_name?: string | null;
   filename?: string | null;
   title?: string | null;
   page?: number | null;

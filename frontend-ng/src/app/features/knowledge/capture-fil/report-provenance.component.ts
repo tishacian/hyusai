@@ -703,10 +703,12 @@ export class ReportProvenanceComponent {
 
   protected readonly sources = computed<ReportSource[]>(() => {
     let n = 0;
+    // Key on the journaled event id first: two marks on the same doc+page share
+    // one refKey, which collides both Angular tracking and the selection state.
     return this.engine
       .anchors()
       .filter((ref) => ref.document_id || ref.statement || ref.filename || ref.title)
-      .map((ref) => ({ key: refKey(ref), n: ++n, ref }));
+      .map((ref) => ({ key: ref.event_id ?? refKey(ref), n: ++n, ref }));
   });
 
   // ---- structured fiche (P0 #2) ------------------------------------------
@@ -942,7 +944,16 @@ export class ReportProvenanceComponent {
   protected previewUrlFor(ref: CaptureViewReference): string | null {
     const doc = this.docFor(ref);
     const documentId = ref.document_id ?? doc?.document_id;
-    const collection = doc?.collection ?? doc?.collection_name;
+    // Same fallback chain as La Scène: anchor-carried collection first, then
+    // the matched session document, then the session-level collection slug —
+    // otherwise resumed/review sessions show the placeholder instead of the doc.
+    const refAny = ref as { collection?: string | null; collection_name?: string | null };
+    const collection =
+      refAny.collection ??
+      refAny.collection_name ??
+      doc?.collection ??
+      doc?.collection_name ??
+      this.engine.documentsCollection();
     if (!documentId || !collection) return null;
     let url = `${this.api.base}/documents/${encodeURIComponent(documentId)}/rich-preview?collection_name=${encodeURIComponent(collection)}`;
     const filename = ref.filename ?? doc?.filename;
