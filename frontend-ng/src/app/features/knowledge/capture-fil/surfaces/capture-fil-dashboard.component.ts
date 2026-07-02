@@ -11,6 +11,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ApiService } from '@app/core/api.service';
 import { GlyphComponent, TagComponent, type CkTagTone } from '@app/shared/cockpit';
 import { CaptureEngine, type CaptureSessionInfo } from '../capture-engine';
+import { CaptureFilSettingsComponent } from '../capture-fil-settings.component';
 
 interface DashboardSession extends CaptureSessionInfo {
   last_activity?: string | null;
@@ -29,7 +30,7 @@ interface DashboardSession extends CaptureSessionInfo {
   selector: 'app-capture-fil-dashboard',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent, TagComponent],
+  imports: [GlyphComponent, TagComponent, CaptureFilSettingsComponent],
   template: `
     <div style="display:flex; flex-direction:column; gap:20px;">
       <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
@@ -39,14 +40,30 @@ interface DashboardSession extends CaptureSessionInfo {
           </span>
           <h2 style="margin:6px 0 0; font-size:22px; font-weight:680; color:var(--ck-fg-1);">Vos séances de capture</h2>
         </div>
-        <button
-          type="button"
-          (click)="newCapture.emit()"
-          style="margin-left:auto; display:inline-flex; align-items:center; gap:7px; padding:9px 16px; border-radius:var(--ck-radius-md); border:none; cursor:pointer; font-size:13px; font-weight:600; background:color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color:var(--ck-on-signal);"
-        >
-          <ck-glyph name="bolt" [size]="14" color="currentColor" /> Nouvelle capture
-        </button>
+        <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+          @if (hasSystem()) {
+            <button
+              type="button"
+              (click)="settingsOpen.set(true)"
+              title="Paramètres de capture du système"
+              style="display:inline-flex; align-items:center; justify-content:center; padding:9px; border-radius:var(--ck-radius-md); border:1px solid var(--ck-stroke-2); background:transparent; color:var(--ck-fg-3); cursor:pointer;"
+            >
+              <ck-glyph name="sliders" [size]="14" color="currentColor" />
+            </button>
+          }
+          <button
+            type="button"
+            (click)="newCapture.emit()"
+            style="display:inline-flex; align-items:center; gap:7px; padding:9px 16px; border-radius:var(--ck-radius-md); border:none; cursor:pointer; font-size:13px; font-weight:600; background:color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color:var(--ck-on-signal);"
+          >
+            <ck-glyph name="bolt" [size]="14" color="currentColor" /> Nouvelle capture
+          </button>
+        </div>
       </div>
+
+      @if (settingsOpen()) {
+        <app-capture-fil-settings (closed)="settingsOpen.set(false)" />
+      }
 
       @if (loading()) {
         <div class="ck-surface" style="border-radius:var(--ck-radius-md); padding:24px; text-align:center; color:var(--ck-fg-4); font-size:13px;">
@@ -137,6 +154,9 @@ export class CaptureFilDashboardComponent {
   /** Id of the session whose archive/unarchive round-trip is in flight. */
   protected readonly busyId = signal<string | null>(null);
   protected readonly actionError = signal<string | null>(null);
+  /** Paramètres de capture (gear) — system-scoped entry only. */
+  protected readonly settingsOpen = signal(false);
+  protected readonly hasSystem = this.engine.systemId;
 
   constructor() {
     this.reload();
