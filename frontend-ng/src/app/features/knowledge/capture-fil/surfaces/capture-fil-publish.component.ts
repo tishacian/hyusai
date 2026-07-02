@@ -112,7 +112,7 @@ const CUSTOM_DESTINATION = '__custom__';
                 (change)="destination.set($any($event.target).value)"
                 style="flex:1; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-md); background:var(--ck-bg-inset); color:var(--ck-fg-1); font-family:var(--ck-font-sans); font-size:14px; padding:9px 12px;"
               >
-                @for (col of engine.collections(); track col) {
+                @for (col of destinationOptions(); track col) {
                   <option [value]="col">{{ col }}</option>
                 }
                 <option [value]="custom">personnalisé…</option>
@@ -188,7 +188,18 @@ export class CaptureFilPublishComponent {
     this.engine.proposal()?.proposal?.title ?? this.engine.session()?.title ?? '',
   );
   protected readonly category = signal('technique');
-  protected readonly destination = signal('');
+  /**
+   * Preselect the backend-suggested destination (the expert-fiche collection
+   * the chat recherche queries, resolved by `_apply_publication_defaults`);
+   * the user can still pick any collection or a custom slug.
+   */
+  protected readonly destination = signal(
+    (
+      this.engine.proposal()?.proposal?.publication?.destination ??
+      this.engine.proposal()?.proposal?.publication?.destination_scope ??
+      ''
+    ).trim(),
+  );
   protected readonly customDestination = signal('');
   protected readonly includeUnresolved = signal(true);
   protected readonly busy = signal(false);
@@ -198,6 +209,13 @@ export class CaptureFilPublishComponent {
   protected readonly exportUrl = computed(() => {
     const urls = this.published()?.export_urls;
     return urls?.raw_url || urls?.download_url || null;
+  });
+
+  /** Loaded collections, with the preselected default prepended when unlisted. */
+  protected readonly destinationOptions = computed(() => {
+    const cols = this.engine.collections();
+    const dest = this.destination();
+    return dest && dest !== CUSTOM_DESTINATION && !cols.includes(dest) ? [dest, ...cols] : cols;
   });
 
   protected readonly chosenDestination = computed(() => {

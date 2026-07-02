@@ -457,10 +457,11 @@ def test_capture_document_upload_api_stores_only_without_ingestion(db_session, t
     documents_by_name = {doc["filename"]: doc for doc in body["documents"]}
     assert set(documents_by_name) == {"manuel.pdf", "photo.png"}
     # Store-only: no ingestion happened, so the shared contract fields reflect a
-    # not-yet-indexed doc with zero referenced views and no full-share selection.
+    # not-yet-indexed doc with zero referenced views. Attachments are shared in
+    # full by default (product decision 2026-07), hence full_share=True.
     assert {doc["index_status"] for doc in documents_by_name.values()} == {"not_indexed"}
     assert {doc["referenced_views_count"] for doc in documents_by_name.values()} == {0}
-    assert {doc["full_share"] for doc in documents_by_name.values()} == {False}
+    assert {doc["full_share"] for doc in documents_by_name.values()} == {True}
     assert {doc["chunks_processed"] for doc in documents_by_name.values()} == {0}
     assert all("job_id" not in doc for doc in documents_by_name.values())
 
@@ -601,7 +602,8 @@ def test_capture_deictic_reference_is_journaled_and_exposed(db_session, tmp_path
     docs = {doc["filename"]: doc for doc in listed.json()["documents"]}
     assert docs["manuel.pdf"]["index_status"] == "referenced"
     assert docs["manuel.pdf"]["referenced_views_count"] == 1
-    assert docs["manuel.pdf"]["full_share"] is False
+    # Full by default since the 2026-07 "always share whole documents" decision.
+    assert docs["manuel.pdf"]["full_share"] is True
     assert docs["photo.png"]["index_status"] == "not_indexed"
     assert docs["photo.png"]["referenced_views_count"] == 0
 
@@ -1097,8 +1099,8 @@ def test_capture_finalize_honors_share_level_none_excerpt_full(db_session, tmp_p
 
 
 def test_capture_share_level_excerpt_indexes_views_only(db_session, tmp_path, monkeypatch):
-    """share_level=excerpt (default) indexes only the referenced views, never the
-    whole original document."""
+    """share_level=excerpt (legacy explicit triage — the default is now `full`)
+    indexes only the referenced views, never the whole original document."""
     from app.core.config import settings
     from app.db.base import SessionLocal
     from app.services.knowledge_capture import run_capture_finalize_index
@@ -1140,6 +1142,18 @@ def test_capture_share_level_excerpt_indexes_views_only(db_session, tmp_path, mo
         },
     )
 
+    # Docs now default to `full`: pin manuel.pdf to the legacy `excerpt` level
+    # explicitly (and photo.png to `none` so it stays out of the batch).
+    triaged = client.post(
+        f"/api/v1/knowledge-capture/sessions/{session_id}/documents/share-level",
+        json={
+            "items": [
+                {"document_id": "manuel.pdf", "share_level": "excerpt"},
+                {"document_id": "photo.png", "share_level": "none"},
+            ]
+        },
+    )
+    assert triaged.status_code == 200
     docs = {doc["filename"]: doc for doc in client.get(f"/api/v1/knowledge-capture/sessions/{session_id}/documents").json()["documents"]}
     assert docs["manuel.pdf"]["share_level"] == "excerpt"
 

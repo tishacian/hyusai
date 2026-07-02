@@ -1319,6 +1319,90 @@ async def test_publish_persists_export_urls(db_session, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_publish_defaults_to_chat_expert_fiche_collection(db_session, monkeypatch):
+    """Without an explicit destination, publish lands in the same collection
+    chat corrections use (resolve_expert_fiche_collection over the chat
+    source_policy), with the expert-fiche pin metadata."""
+    workspace = Workspace(
+        id="ws-capture-publish-default",
+        name="Capture Publish Default",
+        slug="capture-publish-default",
+        settings={
+            "source_policy": {
+                "expert_fiche_correction_enabled": True,
+                "expert_fiche_collection": "validated-fiches",
+            }
+        },
+    )
+    context = Context(
+        id="ctx-capture-publish-default",
+        workspace_id=workspace.id,
+        name="Capture default",
+        environment_state={"collection": "capture-context-knowledge"},
+    )
+    db_session.add_all([workspace, context])
+    seed_skills_and_capabilities(db_session)
+
+    captured_metadata: dict = {}
+
+    class FakeDocumentService:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        async def ingest_document(self, *_: object, **kwargs: object) -> dict:
+            captured_metadata.update(kwargs.get("document_metadata") or {})
+            return {"document_id": "doc-default", "chunks_processed": 1, "status": "success"}
+
+    monkeypatch.setattr("app.services.rag.document_service.DocumentService", FakeDocumentService)
+
+    session = create_capture_plan(
+        db_session,
+        workspace_id=workspace.id,
+        title="Publication défaut",
+        objective="Publier sans destination explicite.",
+        expert_profile="Responsable maintenance",
+        duration_minutes=20,
+        context_id=context.id,
+        system_id=None,
+        knowledge_refs=[],
+        **_guided_plan_kwargs(),
+    )
+    session = _approve(db_session, workspace, session)
+    append_turn(
+        db_session,
+        workspace_id=workspace.id,
+        session_id=session.id,
+        speaker="expert",
+        question_id=session.plan["questions"][0]["id"],
+        text="La procédure doit rejoindre la base interrogée par le chat recherche.",
+    )
+    proposal = create_update_proposal(db_session, workspace_id=workspace.id, session_id=session.id)
+    # The suggested default already targets the chat expert-fiche collection.
+    assert proposal.proposal["publication"]["destination"] == "validated-fiches"
+    reviewed = review_proposal(
+        db_session,
+        workspace_id=workspace.id,
+        proposal_id=proposal.id,
+        status="accepted",
+        reviewer="operator@datategy.local",
+        review_notes="Validé.",
+    )
+
+    result = await publish_proposal_to_knowledge(
+        db_session,
+        workspace=workspace,
+        proposal_id=reviewed.id,
+        actor_label="operator@datategy.local",
+    )
+
+    assert result["destination"] == "validated-fiches"
+    assert result["destination_scope"] == "validated-fiches"
+    assert result["collection"] == "validated-fiches"
+    # Pin parity with chat corrections: is_expert_fiche_metadata keys on this.
+    assert captured_metadata["source_type"] == "expert_fiche"
+
+
+@pytest.mark.asyncio
 async def test_publish_promotes_referenced_capture_documents(db_session, monkeypatch):
     from app.services.knowledge_collections import (
         create_or_get_collection,

@@ -2951,7 +2951,7 @@ async def publish_proposal_to_knowledge(
         _clean_optional_string(destination)
         or _clean_optional_string(publication_meta.get("destination"))
         or _clean_optional_string(publication_meta.get("destination_scope"))
-        or _resolve_collection_name(ctx)
+        or _default_publication_collection(db, workspace, ctx)
     )
     publication_title = (
         _clean_optional_string(final_title)
@@ -4063,6 +4063,7 @@ def _apply_publication_defaults(
     session: ExpertCaptureSession,
     ctx: Optional[Context],
     previous_publication: Optional[Dict[str, Any]] = None,
+    default_destination: Optional[str] = None,
 ) -> Dict[str, Any]:
     publication = dict(previous_publication or {})
     existing = payload.get("publication")
@@ -4072,6 +4073,7 @@ def _apply_publication_defaults(
     destination = (
         _clean_optional_string(publication.get("destination"))
         or _clean_optional_string(publication.get("destination_scope"))
+        or _clean_optional_string(default_destination)
         or _resolve_collection_name(ctx)
     )
     recommended = payload.get("recommended_ingestion") if isinstance(payload.get("recommended_ingestion"), dict) else {}
@@ -4313,7 +4315,7 @@ def _capture_view_kind(ref: Mapping[str, Any]) -> str:
 CAPTURE_SHARE_LEVELS = ("full", "excerpt", "none")
 
 
-def _normalize_share_level(value: Any, *, default: str = "excerpt") -> str:
+def _normalize_share_level(value: Any, *, default: str = "full") -> str:
     text = str(value or "").strip().lower()
     return text if text in CAPTURE_SHARE_LEVELS else default
 
@@ -4321,12 +4323,16 @@ def _normalize_share_level(value: Any, *, default: str = "excerpt") -> str:
 def _doc_share_level(doc: Mapping[str, Any]) -> str:
     """Read a doc's authoritative ``share_level`` with ``full_share`` retro-read.
 
-    ``share_level`` wins when present; otherwise the legacy boolean
-    ``full_share`` maps True->``full`` / False->``excerpt``.
+    Product decision (2026-07): attachments are always shared IN FULL — the
+    ``excerpt``/``none`` levels are no longer offered by the UI, so the default
+    for unset docs is ``full``. Explicitly stored levels are still honoured for
+    legacy sessions.
     """
     if doc.get("share_level"):
         return _normalize_share_level(doc.get("share_level"))
-    return "full" if bool(doc.get("full_share")) else "excerpt"
+    if "full_share" in doc and doc.get("full_share") is False:
+        return "excerpt"
+    return "full"
 
 
 def _capture_document_share_levels(session: ExpertCaptureSession) -> Dict[str, str]:
@@ -4810,7 +4816,7 @@ def register_capture_documents(
         document_id = str(item.get("document_id") or "").strip()
         if not (filename or document_id):
             continue
-        share_level = _doc_share_level(item) if (item.get("share_level") or item.get("full_share")) else "excerpt"
+        share_level = _doc_share_level(item) if (item.get("share_level") or item.get("full_share")) else "full"
         doc = {
             "document_id": document_id or None,
             "filename": filename or None,
@@ -6865,7 +6871,16 @@ def create_update_proposal(
         else {}
     )
     ctx = _load_context(db, workspace_id, session.context_id)
-    payload = _apply_publication_defaults(payload, session=session, ctx=ctx, previous_publication=previous_publication)
+    from app.models.workspace import Workspace as _Workspace
+
+    proposal_workspace = db.query(_Workspace).filter(_Workspace.id == workspace_id).first()
+    payload = _apply_publication_defaults(
+        payload,
+        session=session,
+        ctx=ctx,
+        previous_publication=previous_publication,
+        default_destination=_default_publication_collection(db, proposal_workspace, ctx) if proposal_workspace else None,
+    )
     operation = "updated" if proposal else "created"
     if proposal:
         conversation_state = ((proposal.proposal or {}).get("conversation") or {}).copy()
@@ -10059,6 +10074,31 @@ def _resolve_collection_name(ctx: Optional[Context]) -> str:
     state = (ctx.environment_state or {}) if ctx else {}
     collection = state.get("collection") or state.get("collection_name") or state.get("rag_collection")
     return str(collection).strip() if collection else "documents"
+
+
+def _default_publication_collection(db: DBSession, workspace: Any, ctx: Optional[Context]) -> str:
+    """Default publish destination for capture fiches — parity with chat corrections.
+
+    Chat expert corrections default their destination to
+    :func:`resolve_expert_fiche_collection` over the workspace chat
+    ``source_policy`` (the exact collection ``_include_expert_fiche_collection``
+    folds into the chat-recherche searched set). Capture publications reuse the
+    same resolution so a fiche published without an explicit destination lands
+    where the chat recherche actually looks. When the workspace has not enabled
+    ``expert_fiche_correction_enabled`` that collection is never queried by
+    chat, so the previous behavior (the capture context collection) is kept.
+    """
+    try:
+        from app.services.systems.bootstrap import resolve_workspace_chat_source_policy
+
+        source_policy = resolve_workspace_chat_source_policy(db, workspace)
+        if source_policy.get("expert_fiche_correction_enabled"):
+            slug = resolve_expert_fiche_collection(workspace, source_policy)
+            if slug:
+                return slug
+    except Exception:  # pragma: no cover - defensive: never block publication
+        _logger.warning("capture_publish.default_collection_resolution_failed", exc_info=True)
+    return _resolve_collection_name(ctx)
 
 
 def _retrieval_refs_for_event(
