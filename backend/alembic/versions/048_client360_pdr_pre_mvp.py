@@ -40,7 +40,28 @@ def _as_settings(value: Any) -> dict[str, Any]:
 
 
 def _create_tables() -> None:
-    op.create_table(
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    existing_tables = set(inspector.get_table_names())
+    existing_indexes = {
+        table_name: {index["name"] for index in inspector.get_indexes(table_name)}
+        for table_name in existing_tables
+    }
+
+    def _safe_create_table(table_name: str, *columns: Any, **kwargs: Any) -> None:
+        if table_name in existing_tables:
+            return
+        op.create_table(table_name, *columns, **kwargs)
+        existing_tables.add(table_name)
+        existing_indexes.setdefault(table_name, set())
+
+    def _safe_create_index(index_name: str, table_name: str, columns: list[str]) -> None:
+        if index_name in existing_indexes.get(table_name, set()):
+            return
+        op.create_index(index_name, table_name, columns)
+        existing_indexes.setdefault(table_name, set()).add(index_name)
+
+    _safe_create_table(
         "client360_data_sources",
         sa.Column("id", sa.String(length=36), primary_key=True),
         sa.Column("workspace_id", sa.String(length=36), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True),
@@ -67,9 +88,9 @@ def _create_tables() -> None:
             name="ck_client360_data_sources_status",
         ),
     )
-    op.create_index("ix_client360_data_sources_workspace_type", "client360_data_sources", ["workspace_id", "source_type"])
+    _safe_create_index("ix_client360_data_sources_workspace_type", "client360_data_sources", ["workspace_id", "source_type"])
 
-    op.create_table(
+    _safe_create_table(
         "client360_opportunities",
         sa.Column("id", sa.String(length=36), primary_key=True),
         sa.Column("workspace_id", sa.String(length=36), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True),
@@ -114,10 +135,10 @@ def _create_tables() -> None:
             name="ck_client360_opportunities_status",
         ),
     )
-    op.create_index("ix_client360_opportunities_workspace_customer", "client360_opportunities", ["workspace_id", "customer_key"])
-    op.create_index("ix_client360_opportunities_workspace_status", "client360_opportunities", ["workspace_id", "status"])
+    _safe_create_index("ix_client360_opportunities_workspace_customer", "client360_opportunities", ["workspace_id", "customer_key"])
+    _safe_create_index("ix_client360_opportunities_workspace_status", "client360_opportunities", ["workspace_id", "status"])
 
-    op.create_table(
+    _safe_create_table(
         "client360_mapping_rules",
         sa.Column("id", sa.String(length=36), primary_key=True),
         sa.Column("workspace_id", sa.String(length=36), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True),
@@ -145,9 +166,9 @@ def _create_tables() -> None:
             name="ck_client360_mapping_rules_status",
         ),
     )
-    op.create_index("ix_client360_mapping_rules_workspace_key", "client360_mapping_rules", ["workspace_id", "normalized_key"])
+    _safe_create_index("ix_client360_mapping_rules_workspace_key", "client360_mapping_rules", ["workspace_id", "normalized_key"])
 
-    op.create_table(
+    _safe_create_table(
         "client360_mail_drafts",
         sa.Column("id", sa.String(length=36), primary_key=True),
         sa.Column("workspace_id", sa.String(length=36), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True),
@@ -168,9 +189,9 @@ def _create_tables() -> None:
             name="ck_client360_mail_drafts_status",
         ),
     )
-    op.create_index("ix_client360_mail_drafts_workspace_status", "client360_mail_drafts", ["workspace_id", "status"])
+    _safe_create_index("ix_client360_mail_drafts_workspace_status", "client360_mail_drafts", ["workspace_id", "status"])
 
-    op.create_table(
+    _safe_create_table(
         "client360_impact_events",
         sa.Column("id", sa.String(length=36), primary_key=True),
         sa.Column("workspace_id", sa.String(length=36), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True),
@@ -201,7 +222,7 @@ def _create_tables() -> None:
             name="ck_client360_impact_events_reason",
         ),
     )
-    op.create_index("ix_client360_impact_events_workspace_type", "client360_impact_events", ["workspace_id", "impact_type"])
+    _safe_create_index("ix_client360_impact_events_workspace_type", "client360_impact_events", ["workspace_id", "impact_type"])
 
 
 def _seed_andritz_surface() -> None:
