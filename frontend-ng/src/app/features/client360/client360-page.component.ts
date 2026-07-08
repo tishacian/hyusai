@@ -346,16 +346,35 @@ interface ImpactResponse {
                   <p class="ck-label c360-eyebrow">Fiche client PDR</p>
                   <h2>{{ selectedOpportunity()?.customer_name }}</h2>
                 </div>
-                <div class="button-row">
-                  <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpportunity()!, 'validated')">
-                    <ck-glyph name="check" [size]="14" color="currentColor" /> Valider
-                  </button>
-                  <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpportunity()!, 'dismissed')">
-                    <ck-glyph name="x" [size]="14" color="currentColor" /> Rejeter
-                  </button>
-                  <button type="button" class="primary" (click)="generateDraft(selectedOpportunity()!)">
-                    <ck-glyph name="ledger" [size]="14" color="currentColor" /> Brouillon mail
-                  </button>
+                <div class="detail-actions">
+                  <div class="button-row">
+                    <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpportunity()!, 'validated')">
+                      <ck-glyph name="check" [size]="14" color="currentColor" /> Valider
+                    </button>
+                    <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpportunity()!, 'dismissed')">
+                      <ck-glyph name="x" [size]="14" color="currentColor" /> Rejeter
+                    </button>
+                    <button
+                      type="button"
+                      class="primary"
+                      [disabled]="isGeneratingDraft(selectedOpportunity())"
+                      [attr.aria-busy]="isGeneratingDraft(selectedOpportunity())"
+                      [ngClass]="{ 'is-loading': isGeneratingDraft(selectedOpportunity()) }"
+                      (click)="generateDraft(selectedOpportunity()!)"
+                    >
+                      @if (isGeneratingDraft(selectedOpportunity())) {
+                        <ck-glyph name="pulse" [size]="14" color="currentColor" /> Generation...
+                      } @else {
+                        <ck-glyph name="ledger" [size]="14" color="currentColor" /> Brouillon mail
+                      }
+                    </button>
+                  </div>
+                  @if (isGeneratingDraft(selectedOpportunity())) {
+                    <div class="action-status" role="status" aria-live="polite">
+                      <ck-glyph name="pulse" [size]="12" color="currentColor" />
+                      Generation du brouillon IA en cours
+                    </div>
+                  }
                 </div>
               </div>
               <dl class="facts">
@@ -598,6 +617,14 @@ interface ImpactResponse {
       min-height: 34px; padding: 0 12px; background: var(--ck-bg-inset); color: var(--ck-fg-2); cursor: pointer; font-weight: 650;
     }
     .primary { background: color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color: var(--ck-on-signal); border-color: transparent; }
+    .primary:disabled, .secondary:disabled {
+      cursor: wait;
+      opacity: .72;
+      filter: saturate(.82);
+    }
+    .is-loading ck-glyph, .action-status ck-glyph {
+      animation: c360-spin 1s linear infinite;
+    }
     .secondary:hover, .icon-button:hover, .c360-tabs button:hover { border-color: var(--ck-stroke-3); color: var(--ck-fg-1); }
     .c360-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-top: 18px; width: 100%; border-radius: var(--ck-radius-lg); }
     .c360-tabs button {
@@ -656,7 +683,16 @@ interface ImpactResponse {
     .detail-head.compact { margin-bottom: 10px; }
     .draft-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--ck-fg-4); font-size: 11px; }
     .draft-meta .pill.ai_assisted { color: var(--ck-signal-cool); border-color: rgba(103, 213, 246, .42); }
+    .detail-actions { display: grid; justify-items: end; gap: 8px; }
     .button-row { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
+    .action-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--ck-signal-cool);
+      font: 700 10px/1 var(--ck-font-mono);
+      text-transform: uppercase;
+    }
     .facts { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 10px; margin: 0 0 16px; }
     .facts div { padding: 10px; background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); }
     .engine-facts { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 8px; margin: 12px 0 0; }
@@ -674,6 +710,10 @@ interface ImpactResponse {
     .impact-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     @media (max-width: 900px) {
       .kpi-grid, .split, .mail-layout, .data-layout, .facts { grid-template-columns: 1fr; }
+      .detail-actions { justify-items: start; }
+    }
+    @keyframes c360-spin {
+      to { transform: rotate(360deg); }
     }
   `],
 })
@@ -691,6 +731,7 @@ export class Client360PageComponent implements OnInit {
   readonly mappingsResponse = signal<Client360MappingsResponse | null>(null);
   readonly engineResult = signal<Client360EngineResult | null>(null);
   readonly mailAiResolved = signal(false);
+  readonly generatingDraftOpportunityId = signal<string | null>(null);
 
   impactAttribution = 'unknown';
   impactReason = 'unknown';
@@ -858,7 +899,10 @@ export class Client360PageComponent implements OnInit {
   }
 
   generateDraft(opp: Client360Opportunity): void {
+    if (this.generatingDraftOpportunityId()) return;
     this.loading.set(true);
+    this.error.set(null);
+    this.generatingDraftOpportunityId.set(opp.id);
     this.http.post<MailDraftResponse>('/api/v1/client360/mail-drafts', {
       opportunity_id: opp.id,
       language: 'fr',
@@ -869,13 +913,19 @@ export class Client360PageComponent implements OnInit {
         this.draftBody.set(payload.mail_draft.generated_body);
         this.view.set('mail');
         this.loading.set(false);
+        this.generatingDraftOpportunityId.set(null);
         this.loadOpportunities(false);
       },
       error: () => {
         this.loading.set(false);
+        this.generatingDraftOpportunityId.set(null);
         this.error.set('Impossible de generer le brouillon');
       },
     });
+  }
+
+  isGeneratingDraft(opp: Client360Opportunity | null | undefined): boolean {
+    return Boolean(opp?.id && this.generatingDraftOpportunityId() === opp.id);
   }
 
   markSent(): void {
