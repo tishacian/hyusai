@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib
 import base64
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,50 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 SkillCallable = Callable[[Dict[str, Any], Optional[Dict[str, Any]]], Awaitable[Dict[str, Any]]]
+
+
+# workspace_id -> slug cache (process-lifetime). The run_engine ctx
+# (``_build_initial_ctx``) carries ``workspace_id`` but NOT ``workspace_slug``,
+# yet retrieval needs the slug to build the tenant-scoped physical Qdrant
+# collection name (``VectorDBFactory.scoped_name`` -> ``{slug}__{collection}``).
+# Without it every DAG retrieval targets a non-existent un-prefixed collection
+# (0 chunks, embedding never reached). We resolve the slug from the id once and
+# memoise it. Only successful lookups are cached so a transient failure retries.
+_WORKSPACE_SLUG_CACHE: Dict[str, str] = {}
+
+
+def _resolve_workspace_slug(payload: Dict[str, Any], ctx: Dict[str, Any]) -> Optional[str]:
+    """Resolve the workspace slug, falling back to a DB lookup by id.
+
+    Parity with the classic ``/chat`` path which always sets ``workspace_slug``.
+    The fallback only fires when the slug is absent but the id is present (the
+    run_engine DAG case), so callers that already pass a slug are untouched.
+    """
+    slug = ctx.get("workspace_slug") or payload.get("workspace_slug")
+    if slug:
+        return str(slug)
+    workspace_id = ctx.get("workspace_id") or payload.get("workspace_id")
+    if not workspace_id:
+        return None
+    cached = _WORKSPACE_SLUG_CACHE.get(workspace_id)
+    if cached is not None:
+        return cached
+    try:
+        from app.db.base import SessionLocal
+        from app.models.workspace import Workspace
+
+        db = SessionLocal()
+        try:
+            ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+            resolved = getattr(ws, "slug", None) if ws else None
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001 — never crash retrieval on a slug lookup
+        logger.warning("skills_registry: workspace slug lookup failed", workspace_id=workspace_id, error=str(exc))
+        return None
+    if resolved:
+        _WORKSPACE_SLUG_CACHE[workspace_id] = resolved
+    return resolved
 
 
 def _rag_runtime_kwargs(payload: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -142,11 +187,57 @@ async def _chat_trivial_bypass_v1(payload: Dict[str, Any], ctx: Optional[Dict[st
 
 
 async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    ctx = ctx or {}
+    query = str(payload.get("query") or "")
+
+    # CONSUME pre-retrieved context when the caller supplies a ``context`` list
+    # (the agentic DAG wires ``context <= join.retrieval.results``). This makes
+    # task.generate answer FROM the chunks the rest of the graph evaluates,
+    # instead of launching a second, independent (and historically empty)
+    # retrieval. Other callers (rag_service, mission_room, …) never pass a
+    # ``context`` list and keep the orchestrator retrieval path below unchanged.
+    context_value = payload.get("context")
+    if isinstance(context_value, (list, tuple)):
+        passages = _context_passages(context_value)
+        lang_target = payload.get("lang_target")
+        if not passages:
+            # Join produced nothing — abstain honestly, NEVER re-retrieve into
+            # the void or free-generate (that is what produced hallucinations).
+            return {
+                "answer": _no_context_message(lang_target),
+                "citations": [],
+                "decision_steps": [],
+                "meta": {"retrieval": {"raw_chunks_retrieved": 0, "source": "join_context", "no_context": True}},
+            }
+        model = payload.get("model") or ctx.get("default_model")
+        prompt = _build_grounded_answer_prompt(
+            query, passages, lang_target, payload.get("answer_profile")
+        )
+        answer_text = ""
+        try:
+            answer_text = await _route_llm_complete(prompt, model, ctx)
+        except Exception as exc:  # noqa: BLE001 — degrade to abstention, never crash the DAG
+            logger.warning("llm_rag_answer_v1: grounded synthesis failed", error=str(exc))
+            answer_text = _no_context_message(lang_target)
+        return {
+            "answer": answer_text,
+            "citations": _citations_from_passages(passages),
+            "decision_steps": [],
+            "meta": {
+                "retrieval": {
+                    "raw_chunks_retrieved": len(passages),
+                    "source": "join_context",
+                    "stage_timings": {},
+                }
+            },
+        }
+
+    # No supplied context -> classic orchestrator retrieval (unchanged contract),
+    # now with the tenant slug resolved so it never targets a phantom collection.
     from app.services.rag.rag_service import answer
 
-    ctx = ctx or {}
     result = await answer(
-        query=payload["query"],
+        query=query,
         context_id=payload.get("context_id"),
         workspace_id=ctx.get("workspace_id"),
         session_id=payload.get("session_id"),
@@ -158,7 +249,7 @@ async def _llm_rag_answer_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, An
         prompt_type=payload.get("prompt_type") or ctx.get("default_prompt_type"),
         model=payload.get("model") or ctx.get("default_model"),
         provider=payload.get("provider"),
-        workspace_slug=ctx.get("workspace_slug") or payload.get("workspace_slug"),
+        workspace_slug=_resolve_workspace_slug(payload, ctx),
         **_rag_runtime_kwargs(payload, ctx),
         # Forward the run-engine sink so the orchestrator's text
         # chunks are rebroadcast as SSE token_delta events in real
@@ -179,19 +270,40 @@ async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
 
     ctx = ctx or {}
     runtime_kwargs = _rag_runtime_kwargs(payload, ctx)
-    top_k = int(runtime_kwargs.get("top_k", payload.get("top_k", 5)))
     request = {
         "query": payload["query"],
         "workspace_id": ctx.get("workspace_id") or payload.get("workspace_id"),
-        "workspace_slug": ctx.get("workspace_slug") or payload.get("workspace_slug"),
+        # Resolve the tenant slug (DAG ctx omits it) so retrieval hits the
+        # real ``{slug}__{collection}`` Qdrant collection instead of a phantom
+        # un-prefixed one (root cause of raw_chunks_retrieved=0 in the A/B).
+        "workspace_slug": _resolve_workspace_slug(payload, ctx),
         "capability_id": ctx.get("capability_id") or payload.get("capability_id"),
         "system_id": ctx.get("system_id") or payload.get("system_id"),
         "knowledge_scope": payload.get("knowledge_scope") or ctx.get("knowledge_scope"),
         "rag_pipeline_mode": payload.get("mode") or payload.get("rag_pipeline_mode") or "auto",
-        "top_k": top_k,
-        "latency_profile": "fast",
+        # top_k / latency_profile / retrieval_profile / budgets flow from the
+        # plan via runtime_kwargs; default to the balanced lane (never hardcode
+        # fast) so factual lookups get a real candidate pool, matching classic.
         **runtime_kwargs,
     }
+    request.setdefault("latency_profile", "balanced")
+    # RECALL PARITY (fix 2026-06-26): backfill the full lane budget triple
+    # (top_k/synthesis_k/candidate_pool_k/source_display_k) so a lone top_k pin
+    # does not collapse synthesis_k/candidate_pool_k (which starved the DAG to ~6
+    # ctx vs classic ~12 and made it miss carrier chunks). When nothing is
+    # pinned, the lane sets all budgets = chat._apply_retrieval_budget_policy.
+    # Explicit payload values (plan overrides) win via setdefault.
+    lane = str(request.get("latency_profile") or "balanced").lower()
+    for budget_key, budget_value in _LANE_BUDGETS.get(lane, _LANE_BUDGETS["balanced"]).items():
+        request.setdefault(budget_key, budget_value)
+    # TRANSVERSAL-INVENTORY PARITY (fix 2026-06-26): "which projects use X"
+    # questions need the exhaustive project_code FACET (classic arms it via
+    # answer_profile=transversal_inventory), not a handful of deep chunks.
+    # retrieve_rag_context only builds the facet when this profile is set AND
+    # query_targets_projects(query) — so arming it here is a no-op for ordinary
+    # queries and reaches classic parity for inventory ones.
+    if _is_inventory_query(str(payload.get("query") or "")) and not request.get("answer_profile"):
+        request["answer_profile"] = "transversal_inventory"
     request = {key: value for key, value in request.items() if value is not None}
     apply_retrieval_profile_to_request(request)
     result = await retrieve_rag_context(request)
@@ -199,15 +311,24 @@ async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
     scores = list(result.get("scores") or [])
     metadatas = list(result.get("metadatas") or [])
     metrics = dict(result.get("metrics") or {})
+    results = [
+        {
+            "content": content,
+            "score": scores[index] if index < len(scores) else None,
+            "metadata": metadatas[index] if index < len(metadatas) else {},
+        }
+        for index, content in enumerate(chunks)
+    ]
+    # Surface the exhaustive enumeration as the TOP authoritative passage so the
+    # grounded synthesis lists the projects (the few retrieved chunks otherwise
+    # only describe the equipment, not where it is deployed).
+    inventory = result.get("project_inventory") if isinstance(result, dict) else None
+    inv_passage = _project_inventory_passage(inventory)
+    if inv_passage:
+        results.insert(0, inv_passage)
     return {
-        "results": [
-            {
-                "content": content,
-                "score": scores[index] if index < len(scores) else None,
-                "metadata": metadatas[index] if index < len(metadatas) else {},
-            }
-            for index, content in enumerate(chunks)
-        ],
+        "results": results,
+        "project_inventory": inventory,
         "pipeline": result.get("pipeline"),
         "label": result.get("label"),
         "reason": result.get("reason"),
@@ -218,6 +339,10 @@ async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
         "dense_policy": metrics.get("dense_policy"),
         "fallback_reason": metrics.get("fallback_reason"),
         "latency_budget": metrics.get("latency_budget"),
+        # Observable grounding proof — non-zero once workspace_slug is wired.
+        "raw_chunks_retrieved": metrics.get("raw_chunks_retrieved"),
+        "document_chunks_retrieved": metrics.get("document_chunks_retrieved"),
+        "stage_timings": metrics.get("stage_timings"),
     }
 
 
@@ -1881,6 +2006,793 @@ async def _chain_mixed_hah_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
 
 
 # ---------------------------------------------------------------------------
+# Provider-neutral chat-agentic skills (chat_agentic_thinking_v1 DAG)
+#
+# These three wrappers back the `andritz_chat_agentic_v3` flow. They are
+# PROVIDER-NEUTRAL by contract: the LLM ones resolve their client through
+# ``ModelRouter.get_client({"provider","model"})`` and NEVER instantiate a
+# provider client directly (no ``OpenAIClient``/``OllamaClient`` here). The
+# effective model comes from the node payload ``model`` (= ``system.default_model``)
+# else the router default. I/O contracts are frozen in
+# ``docs/chat-agentic-thinking-spec.md`` §7 and mirror the node ports of the
+# artifact, so downstream ``inputs_map`` VariableRefs resolve.
+# ---------------------------------------------------------------------------
+_KNOWN_PROVIDERS = {"ollama", "openai", "azure", "anthropic"}
+
+_PLAN_ENUMS = {
+    "action": ("answer", "clarify", "reject_oos"),
+    "mode": ("fast", "balanced", "deep"),
+    "latency_profile": ("fast", "balanced", "deep"),
+    "retrieval_profile": ("oracle_fast", "chat", "deep_async"),
+    "rag_pipeline_mode": ("chah", "auto"),
+}
+
+# Per-lane retrieval BUDGETS — must match the classic path
+# (``chat._apply_retrieval_budget_policy``) so arm B reaches the SAME candidate
+# pool / synthesis budget as the deterministic ``/chat`` arm (recall-parity fix
+# 2026-06-26). A lone ``top_k`` pin makes ``get_retrieval_profile`` treat the
+# request as a user pin and COLLAPSE synthesis_k/candidate_pool_k down to top_k
+# (DAG returned ~6 ctx vs classic ~12, and missed carrier chunks). Carrying the
+# full triple keeps explicit_budget=True so the pool is never collapsed.
+_LANE_BUDGETS = {
+    "fast": {"top_k": 5, "source_display_k": 5, "synthesis_k": 12, "candidate_pool_k": 20},
+    "balanced": {"top_k": 8, "source_display_k": 8, "synthesis_k": 16, "candidate_pool_k": 40},
+    "deep": {"top_k": 8, "source_display_k": 8, "synthesis_k": 24, "candidate_pool_k": 80},
+}
+
+# Per-mode retrieval defaults — the planner exposes the ``retrieval`` object the
+# retrieve_* nodes consume via inputs_map (bug P0 #1). Kept coherent with
+# ``mode`` AND with the classic lane budgets above so the deep branch carries
+# deep_retrieval=True + the full deep budget downstream.
+_RETRIEVAL_BY_MODE = {
+    "fast": {"latency_profile": "fast", "retrieval_profile": "oracle_fast", "top_k": 5, "synthesis_k": 12, "candidate_pool_k": 20, "rag_pipeline_mode": "chah", "deep_retrieval": False},
+    "balanced": {"latency_profile": "balanced", "retrieval_profile": "chat", "top_k": 8, "synthesis_k": 16, "candidate_pool_k": 40, "rag_pipeline_mode": "chah", "deep_retrieval": False},
+    "deep": {"latency_profile": "deep", "retrieval_profile": "deep_async", "top_k": 8, "synthesis_k": 24, "candidate_pool_k": 80, "rag_pipeline_mode": "chah", "deep_retrieval": True},
+}
+
+_SELF_CORRECT_ACTIONS = ("escalate_deep", "translate", "declare_partial")
+
+# Inventory / cross-project / enumeration questions need the DEEP lane to
+# aggregate across documents (the planner under-routes them to balanced, fix
+# 2026-06-26): "quels projets…", "liste…", "tous les projets", "sur quels", etc.
+_INVENTORY_RE = re.compile(
+    r"\b(quels?\s+projets?|which\s+projects?|sur\s+quels?|tous\s+les\s+projets?|"
+    r"welche\s+projekte|liste[- ]?(?:moi|nous)?|lister|list\s+all|énumère|enumere|"
+    r"across\s+projects?|cross[- ]project|combien\s+de)\b",
+    re.IGNORECASE,
+)
+
+# Named Andritz machines / systems / brands that GUARANTEE the query is in-corpus
+# — used to gate a false ``reject_oos`` (project codes like AKK200/D.60/CU250S-2
+# are already covered by ``_PROJECT_CODE_RE``). QMS-12 etc. are NOT project codes
+# but ARE in-corpus, so the planner must never reject them (fix 2026-06-26).
+_KNOWN_ENTITY_RE = re.compile(
+    r"\b(qualiscan|qms[\s-]?\d+|uraca|etachrom|sinamics|simotics|jetlace|servo\s*x|"
+    r"pollrich|continental\s*gvjs|wilo|ksb|geotex|excelle|starter|kd724)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_inventory_query(query: str) -> bool:
+    return bool(_INVENTORY_RE.search(query or ""))
+
+
+def _project_inventory_passage(inventory: Any) -> Optional[Dict[str, Any]]:
+    """Turn the project_code facet into a top authoritative context passage.
+
+    ``retrieve_rag_context`` attaches the exhaustive cross-project enumeration
+    (shape from ``project_inventory.build_project_inventory``) for transversal
+    inventory questions. Surfaced as the #1 passage so the grounded synthesis
+    LISTS the projects (parity with the classic transversal_inventory answer).
+    """
+    if not isinstance(inventory, dict):
+        return None
+    projects = inventory.get("projects") or []
+    codes = [str(p.get("project_code")) for p in projects if isinstance(p, dict) and p.get("project_code")]
+    if not codes:
+        return None
+    terms = ", ".join(str(t) for t in (inventory.get("terms") or []) if t) or "cet equipement"
+    total = inventory.get("total_projects") or len(codes)
+    suffix = " (liste tronquee)" if inventory.get("truncated") else ""
+    enumeration = (
+        f"Inventaire transversal (facette project_code, source autoritative) — "
+        f"projets utilisant {terms} : {total} projet(s) au total{suffix} : "
+        + ", ".join(codes)
+        + "."
+    )
+    return {
+        "content": enumeration,
+        "score": 999.0,
+        "metadata": {"source": "project_inventory_facet", "kind": "transversal_inventory"},
+    }
+
+
+def _has_known_corpus_anchor(query: str) -> bool:
+    """True when the query names a known project/machine/system in the corpus."""
+    q = query or ""
+    return bool(_PROJECT_CODE_RE.search(q) or _KNOWN_ENTITY_RE.search(q))
+
+# Clarify gating (C3). Andritz project/identifier codes: 2-4 letters + 2-3
+# digits (+ optional -N), plus the D.NN bearing style. A request carrying one is
+# specific enough to answer — never to clarify.
+_PROJECT_CODE_RE = re.compile(r"\b([A-Z]{2,4}\d{2,3}(?:-\d)?|D\.\d{2,3}|CU\d{3}[A-Z]?-?\d?)\b")
+_QUESTION_WORD_RE = re.compile(r"\b(quel|quelle|comment|pourquoi|where|how|what|why|wo|wie|was|warum)\b", re.IGNORECASE)
+# Schema-example phrases the planner must never echo back as a real scope/plan.
+_PLACEHOLDER_SCOPES = {
+    "perimetre de recherche",
+    "périmètre de recherche",
+    "perimetre cible",
+    "scope_hint",
+    "the concrete search scope",
+    "search scope",
+    "si action=clarify",
+    "...",
+}
+
+
+def _is_placeholder_text(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return False
+    return text in _PLACEHOLDER_SCOPES or text.startswith(("<", "the concrete search"))
+
+
+def _assess_clarify_gate(query: str, *, has_history: bool) -> Dict[str, Any]:
+    """Deterministic sufficiency check — should a clarify actually be allowed?
+
+    Mirrors ``agentic_chat_spike.assess_sufficiency``: clarify is only justified
+    when the request is genuinely ambiguous AND carries no anchor (project code,
+    explicit question on a named subject, or conversational history).
+    """
+    q = (query or "").strip()
+    has_project = bool(_PROJECT_CODE_RE.search(q))
+    has_question = bool(_QUESTION_WORD_RE.search(q)) or "?" in q
+    word_count = len(q.split())
+    # Ambiguous = very short / no question framing AND no anchoring signal.
+    ambiguous = (
+        not has_project
+        and not has_history
+        and (word_count <= 3 or not has_question)
+    )
+    return {"has_project_code": has_project, "ambiguous": ambiguous, "allow_clarify": ambiguous}
+
+
+def _resolve_model_preferences(model: Optional[str]) -> Dict[str, Any]:
+    """Map a (possibly provider-prefixed) model string to ModelRouter prefs.
+
+    Provider-neutral: produces ``{"provider","model"}`` for
+    ``ModelRouter.get_client`` without ever touching a client. Honours an
+    explicit ``provider:model`` / ``provider/model`` prefix, otherwise infers
+    OpenAI for the gpt/o-series and falls back to the configured default
+    provider (Ollama-friendly for on-prem).
+    """
+    from app.core.config import settings
+
+    default_provider = getattr(settings, "default_provider", None) or "ollama"
+    raw = (model or "").strip()
+    if not raw:
+        return {"provider": default_provider, "model": getattr(settings, "default_model", None) or ""}
+    for sep in (":", "/"):
+        if sep in raw:
+            head, tail = raw.split(sep, 1)
+            if head.lower() in _KNOWN_PROVIDERS and tail.strip():
+                provider = "openai" if head.lower() == "azure" else head.lower()
+                return {"provider": provider, "model": tail.strip()}
+    low = raw.lower()
+    if low.startswith(("gpt", "o1", "o3", "o4", "chatgpt", "text-", "davinci")):
+        return {"provider": "openai", "model": raw}
+    return {"provider": default_provider, "model": raw}
+
+
+async def _route_llm_complete(prompt: str, model: Optional[str], ctx: Dict[str, Any]) -> str:
+    """Single-shot completion resolved through ``ModelRouter`` (provider-neutral).
+
+    Normalises the heterogeneous client return shapes (OpenAI ``content`` vs
+    Ollama ``response`` vs ``completion``) into a plain string.
+    """
+    from app.services.model_router import ModelRouter
+
+    prefs = _resolve_model_preferences(model or (ctx or {}).get("default_model"))
+    router = ModelRouter()
+    client = await router.get_client(prefs)
+    result = await client.generate(model=prefs["model"], prompt=prompt)
+    if isinstance(result, dict):
+        return str(result.get("content") or result.get("response") or result.get("completion") or "").strip()
+    return str(result or "").strip()
+
+
+def _loads_lenient_json(text: str) -> Optional[Dict[str, Any]]:
+    """Best-effort JSON-object recovery from an LLM completion.
+
+    Tolerates ```json fences, surrounding prose and trailing commas by
+    isolating the outermost ``{...}`` span. Returns ``None`` when nothing
+    parses so callers fall back to safe defaults.
+    """
+    import json
+    import re
+
+    if not text:
+        return None
+    candidate = text.strip()
+    if "```" in candidate:
+        fence = re.search(r"```(?:json)?\s*(.*?)```", candidate, re.DOTALL | re.IGNORECASE)
+        if fence:
+            candidate = fence.group(1).strip()
+    start, end = candidate.find("{"), candidate.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = candidate[start : end + 1]
+    for attempt in (candidate, re.sub(r",\s*([}\]])", r"\1", candidate)):
+        try:
+            parsed = json.loads(attempt)
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _coerce_enum(value: Any, allowed: Tuple[str, ...], default: str) -> str:
+    text = str(value or "").strip().lower()
+    return text if text in allowed else default
+
+
+def _coerce_chunk_texts(raw: Any) -> list[str]:
+    """Flatten retrieval results / citations into plain context strings."""
+    out: list[str] = []
+    if isinstance(raw, str):
+        return [raw] if raw.strip() else []
+    if not isinstance(raw, (list, tuple)):
+        return out
+    for item in raw:
+        if isinstance(item, str):
+            if item.strip():
+                out.append(item)
+        elif isinstance(item, dict):
+            text = item.get("content") or item.get("text") or item.get("snippet") or item.get("chunk")
+            if isinstance(text, str) and text.strip():
+                out.append(text)
+    return out
+
+
+def _context_passages(raw: Any) -> list[Dict[str, Any]]:
+    """Normalise ``semantic_search_v1.results`` into citeable passages.
+
+    Each passage is ``{content, metadata, score}``. Strings are accepted too
+    (metadata-less). Empty / blank entries are dropped so an empty join is
+    distinguishable from a populated one (drives the abstain-vs-answer split).
+    """
+    out: list[Dict[str, Any]] = []
+    if not isinstance(raw, (list, tuple)):
+        return out
+    for item in raw:
+        if isinstance(item, str):
+            if item.strip():
+                out.append({"content": item.strip(), "metadata": {}, "score": None})
+        elif isinstance(item, dict):
+            text = (
+                item.get("content")
+                or item.get("text")
+                or item.get("snippet")
+                or item.get("chunk")
+                or item.get("page_content")
+            )
+            if isinstance(text, str) and text.strip():
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                out.append({"content": text.strip(), "metadata": metadata, "score": item.get("score")})
+    return out
+
+
+def _passage_source_label(metadata: Dict[str, Any], index: int) -> str:
+    md = metadata or {}
+    return str(
+        md.get("document_filename")
+        or md.get("filename")
+        or md.get("source")
+        or md.get("document_id")
+        or f"source {index}"
+    )
+
+
+def _citations_from_passages(passages: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    """Build citation rows from passage metadata (chunk_id / document / score)."""
+    citations: list[Dict[str, Any]] = []
+    for index, passage in enumerate(passages, start=1):
+        md = passage.get("metadata") or {}
+        citations.append(
+            {
+                "index": index,
+                "source_id": md.get("chunk_id") or md.get("id") or md.get("point_id"),
+                "document": _passage_source_label(md, index),
+                "score": passage.get("score"),
+            }
+        )
+    return citations
+
+
+def _build_grounded_answer_prompt(
+    query: str,
+    passages: list[Dict[str, Any]],
+    lang_target: Optional[str],
+    answer_profile: Optional[str],
+) -> str:
+    """Grounded synthesis prompt: extract a complete factual answer from passages.
+
+    Mirrors the classic synthesis framing (system_prompts FACTUAL: "clear factual
+    response ... accuracy and completeness") instead of an abstention-first stance.
+    The previous wording ("answer STRICTLY ... say so if absent") made the model
+    over-cautious: it abstained on AKK200 even though the carrier chunk (German/
+    English HTML table "Arbeitsbreite 0,3 m / Produktionsgeschwindigkeit 10-20
+    m/min") was the top-ranked passage. The corpus mixes FR/EN/DE and HTML tables,
+    so the prompt must explicitly invite cross-language table extraction while
+    still forbidding fabrication.
+    """
+    blocks = []
+    for index, passage in enumerate(passages, start=1):
+        src = _passage_source_label(passage.get("metadata") or {}, index)
+        # Keep enough of each passage to preserve spec tables (carrier values can
+        # sit a few hundred chars into a messy HTML chunk); chunks are ~1-2k chars.
+        blocks.append(f"[{index}] ({src})\n{str(passage.get('content') or '')[:4000]}")
+    context_text = "\n\n".join(blocks)
+    return (
+        "Tu es un assistant technique industriel Andritz, specialise dans des "
+        "reponses factuelles, precises et completes. Reponds a la question en "
+        "t'appuyant sur les extraits de contexte ci-dessous, issus de notices "
+        "techniques. Ces extraits sont souvent en anglais ou en allemand et "
+        "contiennent des tableaux HTML : EXTRAIS les valeurs chiffrees, references "
+        "et specifications pertinentes meme lorsqu'elles figurent dans un tableau "
+        "ou dans une autre langue, et traduis-les si besoin (ex. Arbeitsbreite = "
+        "largeur de travail, Produktionsgeschwindigkeit = vitesse de production). "
+        "Cite chaque fait avec son repere [n]. N'invente JAMAIS une valeur absente "
+        "du contexte ; si une donnee precise est reellement introuvable, dis-le "
+        "brievement mais fournis tout de meme les elements pertinents disponibles.\n"
+        f"Langue de reponse: {lang_target or 'fr'}. Style attendu: {answer_profile or 'technical'}.\n\n"
+        f"Contexte:\n{context_text}\n\n"
+        f"Question: {query}\n\nReponse sourcee:"
+    )
+
+
+_NO_CONTEXT_MESSAGES = {
+    "fr": "Aucune source indexee dans le perimetre disponible ne permet de repondre a cette question.",
+    "en": "No indexed source in the available scope supports an answer to this question.",
+    "de": "Keine indexierte Quelle im verfuegbaren Bereich beantwortet diese Frage.",
+}
+
+
+def _no_context_message(lang_target: Optional[str]) -> str:
+    lang = str(lang_target or "fr").strip().lower()[:2]
+    return _NO_CONTEXT_MESSAGES.get(lang, _NO_CONTEXT_MESSAGES["fr"])
+
+
+# Phrases that signal an abstention (no grounded content). Used so self-correct
+# never DOWNGRADES a substantive grounded draft into an abstention (the deep
+# re-retrieval can lose carrier chunks the first pass had — observed on AKK200).
+_ABSTENTION_MARKERS = (
+    "aucune source",
+    "ne contient pas",
+    "ne permet pas de repondre",
+    "ne mentionne pas",
+    "no indexed source",
+    "does not contain",
+    "keine indexierte quelle",
+)
+
+
+def _is_abstention(text: Any) -> bool:
+    raw = str(text or "").strip()
+    if not raw:
+        return True
+    import unicodedata
+
+    folded = "".join(
+        c for c in unicodedata.normalize("NFD", raw.lower()) if unicodedata.category(c) != "Mn"
+    )
+    return any(marker in folded for marker in _ABSTENTION_MARKERS)
+
+
+def _merge_passages(
+    primary: list[Dict[str, Any]], extra: list[Dict[str, Any]]
+) -> list[Dict[str, Any]]:
+    """Union two passage lists, de-duplicating on content (primary kept first).
+
+    ``escalate_deep`` re-retrieves on the DEEP lane, whose wider query expansion
+    can drop a carrier chunk the original (balanced) pass surfaced. Merging keeps
+    the original context so a re-ground never loses ground it already had.
+    """
+    merged: list[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for passage in list(primary) + list(extra):
+        content = str(passage.get("content") or "").strip()
+        if not content:
+            continue
+        key = content[:160]
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(passage)
+    return merged
+
+
+def _build_plan_prompt(query: str, history: Any) -> str:
+    history_lines = ""
+    if isinstance(history, (list, tuple)) and history:
+        rendered = []
+        for turn in list(history)[-6:]:
+            if isinstance(turn, dict):
+                role = turn.get("role") or turn.get("speaker") or "user"
+                content = turn.get("content") or turn.get("text") or ""
+                rendered.append(f"{role}: {content}")
+            elif isinstance(turn, str):
+                rendered.append(turn)
+        history_lines = "\n".join(rendered)
+    return (
+        "Tu es le planificateur d'un agent de chat industriel Andritz. Analyse la requete "
+        "et l'historique, puis reponds en JSON STRICT (aucun texte hors JSON), avec ces cles:\n"
+        '{"action": one of answer|clarify|reject_oos, "mode": one of fast|balanced|deep, '
+        '"answer_profile": short label, "scope_hint": the CONCRETE search scope '
+        "(codes projet, equipements, documents cites dans la requete), "
+        '"clarifying_question": only if action=clarify, "oos_reason": only if action=reject_oos, '
+        '"lang_target": ISO code, "confidence": 0..1, '
+        '"retrieval": {"latency_profile": fast|balanced|deep, '
+        '"retrieval_profile": oracle_fast|chat|deep_async, "top_k": int, '
+        '"rag_pipeline_mode": chah|auto, "deep_retrieval": bool}}\n'
+        "Regles STRICTES:\n"
+        "- action=answer par defaut, et OBLIGATOIREMENT answer des qu'un code projet / "
+        "identifiant machine / reference est present (ex: AKK200, CU250S-2, D.60, "
+        "Qualiscan QMS-12, URACA, Etachrom, SINAMICS).\n"
+        "- action=clarify UNIQUEMENT si la requete est reellement ambigue ET sans aucun "
+        "ancrage (ni code projet, ni identifiant, ni contexte d'historique).\n"
+        "- action=reject_oos UNIQUEMENT si la requete n'a AUCUN rapport avec l'industrie "
+        "Andritz (machines, pompes, cartes, variateurs, documentation technique). "
+        "NE JAMAIS rejeter sur la base de la LANGUE (une question valide en allemand/anglais "
+        "reste valide). NE JAMAIS rejeter si un equipement/systeme/projet connu est cite.\n"
+        "- mode=deep OBLIGATOIRE pour les questions transversales / inventaire / enumeration "
+        "multi-projets ('quels projets utilisent...', 'liste...', 'sur quels projets', "
+        "agregation cross-projet) ; mode=fast pour un fait ponctuel trivial ; sinon balanced. "
+        "'retrieval' coherent avec 'mode'.\n"
+        "- scope_hint doit etre derive de la requete reelle ; ne JAMAIS recopier les libelles "
+        "d'exemple de ce schema.\n\n"
+        f"Historique:\n{history_lines or '(aucun)'}\n\n"
+        f"Requete: {query}\n\nJSON:"
+    )
+
+
+def _coerce_plan(parsed: Dict[str, Any], query: str, *, has_history: bool = False) -> Dict[str, Any]:
+    """Coerce a (possibly partial/garbage) plan dict into the frozen contract.
+
+    GATES (2026-06-26):
+      * ``clarify`` (C3): reject placeholder scopes and demote to ``answer`` when
+        the request is answerable (project code / not genuinely ambiguous).
+      * ``reject_oos`` (fix): NEVER reject on language and never when the query
+        names a known project/machine/system (QMS-12, URACA, AKK200…) — demote
+        to ``answer`` so retrieval gets a chance (a late context gate at
+        decision.deliver is the runtime backstop).
+      * inventory/transversal routing (fix): cross-project / enumeration
+        questions are forced to the ``deep`` lane (full deep budget) — the
+        planner under-routes them to balanced and misses the aggregated list.
+    """
+    parsed = parsed if isinstance(parsed, dict) else {}
+    mode = _coerce_enum(parsed.get("mode"), _PLAN_ENUMS["mode"], "balanced")
+    action = _coerce_enum(parsed.get("action"), _PLAN_ENUMS["action"], "answer")
+
+    # Inventory / transversal questions need the deep lane to aggregate across
+    # documents — deterministic upgrade (the LLM under-routes them to balanced).
+    inventory = _is_inventory_query(query)
+    if inventory:
+        mode = "deep"
+
+    retrieval_defaults = dict(_RETRIEVAL_BY_MODE[mode])
+    raw_retrieval = parsed.get("retrieval") if isinstance(parsed.get("retrieval"), dict) else {}
+    retrieval = {
+        "latency_profile": _coerce_enum(raw_retrieval.get("latency_profile"), _PLAN_ENUMS["latency_profile"], retrieval_defaults["latency_profile"]),
+        "retrieval_profile": _coerce_enum(raw_retrieval.get("retrieval_profile"), _PLAN_ENUMS["retrieval_profile"], retrieval_defaults["retrieval_profile"]),
+        "rag_pipeline_mode": _coerce_enum(raw_retrieval.get("rag_pipeline_mode"), _PLAN_ENUMS["rag_pipeline_mode"], retrieval_defaults["rag_pipeline_mode"]),
+        "deep_retrieval": bool(raw_retrieval.get("deep_retrieval", retrieval_defaults["deep_retrieval"])),
+    }
+
+    def _coerce_budget(key: str) -> int:
+        try:
+            value = int(raw_retrieval.get(key) or retrieval_defaults[key])
+        except (TypeError, ValueError):
+            value = retrieval_defaults[key]
+        return max(1, min(200, value))
+
+    retrieval["top_k"] = max(1, min(50, _coerce_budget("top_k")))
+    retrieval["synthesis_k"] = _coerce_budget("synthesis_k")
+    retrieval["candidate_pool_k"] = _coerce_budget("candidate_pool_k")
+
+    # Force the deep lane fields when inventory was detected (the LLM may have
+    # emitted a balanced ``retrieval`` block that would otherwise win).
+    if inventory:
+        deep = _RETRIEVAL_BY_MODE["deep"]
+        retrieval["latency_profile"] = "deep"
+        retrieval["retrieval_profile"] = "deep_async"
+        retrieval["deep_retrieval"] = True
+        retrieval["top_k"] = max(retrieval["top_k"], deep["top_k"])
+        retrieval["synthesis_k"] = max(retrieval["synthesis_k"], deep["synthesis_k"])
+        retrieval["candidate_pool_k"] = max(retrieval["candidate_pool_k"], deep["candidate_pool_k"])
+
+    try:
+        confidence = float(parsed.get("confidence"))
+    except (TypeError, ValueError):
+        confidence = 0.6
+    confidence = max(0.0, min(1.0, confidence))
+
+    def _as_str(key: str, default: str = "") -> str:
+        value = parsed.get(key)
+        return value.strip() if isinstance(value, str) and value.strip() else default
+
+    # Reject schema-placeholder scope hints so retrieval scope is never polluted
+    # by the literal "perimetre de recherche" the planner copies from the prompt.
+    scope_hint = _as_str("scope_hint", "")
+    if _is_placeholder_text(scope_hint):
+        scope_hint = ""
+
+    clarifying_question = _as_str("clarifying_question", "")
+    if _is_placeholder_text(clarifying_question):
+        clarifying_question = ""
+
+    # OOS gate: never reject a query that names a known project/machine/system
+    # (or matches a project code) — the planner over-rejects valid questions
+    # (notably in German). Demote to answer; retrieval + the deliver context
+    # gate decide the rest.
+    if action == "reject_oos" and _has_known_corpus_anchor(query):
+        action = "answer"
+
+    # C3 gate: only honour clarify when the request is genuinely ambiguous.
+    if action == "clarify":
+        gate = _assess_clarify_gate(query, has_history=has_history)
+        if gate["has_project_code"] or not gate["allow_clarify"] or not clarifying_question:
+            action = "answer"
+            clarifying_question = ""
+    if action == "clarify" and not clarifying_question:
+        clarifying_question = "Pouvez-vous preciser le projet ou l'equipement concerne ?"
+
+    # oos_reason only survives when the action is still reject_oos (a demoted
+    # reject_oos must not leak a stale refusal reason into an answer plan).
+    oos_reason = _as_str("oos_reason", "Hors du perimetre Andritz.") if action == "reject_oos" else ""
+
+    return {
+        "action": action,
+        "mode": mode,
+        "answer_profile": _as_str("answer_profile", "technical"),
+        "scope_hint": scope_hint,
+        "clarifying_question": clarifying_question,
+        "oos_reason": oos_reason,
+        "lang_target": _as_str("lang_target", "fr"),
+        "confidence": round(confidence, 4),
+        "retrieval": retrieval,
+    }
+
+
+async def _chat_agentic_plan_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Provider-neutral agentic planner (LLM via ModelRouter).
+
+    OUT (frozen §7): ``{action, mode, answer_profile, scope_hint,
+    clarifying_question, oos_reason, lang_target, confidence,
+    retrieval:{latency_profile, retrieval_profile, top_k, rag_pipeline_mode,
+    deep_retrieval}}``. Robust to non-JSON model output -> safe defaults
+    (action=answer, mode=balanced).
+    """
+    ctx = ctx or {}
+    query = str(payload.get("query") or "")
+    history = payload.get("conversation_history")
+    has_history = bool(isinstance(history, (list, tuple)) and history)
+    model = payload.get("model") or ctx.get("default_model")
+    prompt = _build_plan_prompt(query, history)
+    completion = ""
+    try:
+        completion = await _route_llm_complete(prompt, model, ctx)
+    except Exception as exc:  # noqa: BLE001 — never crash the DAG on a model hiccup
+        logger.warning("chat_agentic_plan_v1: model call failed, using safe defaults", error=str(exc))
+    return _coerce_plan(_loads_lenient_json(completion) or {}, query, has_history=has_history)
+
+
+def _build_self_correct_prompt(query: str, draft: str, action: str, composite: Any, hallucination_rate: Any) -> str:
+    guidance = {
+        "escalate_deep": "Approfondis et re-ancre la reponse sur les sources industrielles Andritz ; supprime toute affirmation non etayee.",
+        "translate": "Reformule la reponse dans la langue cible attendue de l'utilisateur, sans changer le fond.",
+        "declare_partial": "Conserve uniquement ce qui est etaye, et declare explicitement les limites / l'incertitude restante.",
+    }[action]
+    return (
+        "Tu es le reacteur d'auto-correction (1 passe) d'un agent de chat industriel Andritz.\n"
+        f"Action de reparation choisie: {action}. Consigne: {guidance}\n"
+        f"Signaux qualite — composite(0-100)={composite} ; hallucination_rate(0-1)={hallucination_rate}.\n"
+        "Re-genere une MEILLEURE reponse et reponds en JSON STRICT (aucun texte hors JSON):\n"
+        '{"answer":"reponse corrigee","action_taken":"' + action + '"}\n\n'
+        f"Question: {query}\n\nBrouillon a corriger:\n{draft}\n\nJSON:"
+    )
+
+
+def _pick_self_correct_action(
+    mode: str,
+    composite: Any,
+    hallucination_rate: Any,
+    *,
+    draft_is_abstention: bool = False,
+) -> str:
+    """Deterministic repair-action choice from the verdict signals.
+
+    IMPORTANT (parity fix 2026-06-26): ``hallucination_rate`` is NOT a usable
+    trigger here. ``response_eval`` derives it as ``1 - factuality`` from an
+    EMBEDDING similarity, which sits structurally ~0.3-0.5 even for clean
+    grounded answers — gating on ``halluc > 0.15`` fired escalate_deep on EVERY
+    run (latency aborts + lossy deep swaps that turned good answers into
+    abstentions). We escalate ONLY when the draft is itself an abstention (the
+    first pass found nothing usable, so a deeper retrieval is worth a try) or
+    when the composite quality floor is genuinely breached. Otherwise we keep
+    the grounded draft (``declare_partial``), matching the classic path that
+    does not self-correct grounded answers.
+    """
+    try:
+        comp = float(composite) if composite is not None else None
+    except (TypeError, ValueError):
+        comp = None
+    if draft_is_abstention:
+        return "escalate_deep"
+    if comp is not None and comp < 50 and mode != "deep":
+        return "escalate_deep"
+    return "declare_partial"
+
+
+async def _chat_self_correct_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Provider-neutral bounded self-correction reactor (LLM via ModelRouter).
+
+    Picks ONE action (escalate_deep|translate|declare_partial) and returns the
+    frozen §7 shape ``{answer, citations, action_taken}``.
+
+    KEY ANTI-HALLUCINATION RULE (C2): ``escalate_deep`` actually RE-RETRIEVES
+    (deep lane, original query, no narrowing) and re-grounds the answer on the
+    NEW context — or abstains if retrieval is still empty. It NEVER free-generates
+    a "better" answer from the draft alone (that turned honest abstentions into
+    confident fabrications). ``translate``/``declare_partial`` only transform the
+    existing grounded draft; they introduce no new facts.
+    """
+    ctx = ctx or {}
+    draft = str(payload.get("draft_answer") or payload.get("answer") or "")
+    query = str(payload.get("query") or "")
+    mode = _coerce_enum(payload.get("mode"), _PLAN_ENUMS["mode"], "balanced")
+    citations = payload.get("citations") if isinstance(payload.get("citations"), list) else []
+    composite = payload.get("composite")
+    hallucination_rate = payload.get("hallucination_rate")
+    lang_target = payload.get("lang_target")
+    answer_profile = payload.get("answer_profile")
+    scope_hint = payload.get("scope_hint")
+    model = payload.get("model") or ctx.get("default_model")
+    # Original (pre-correction) retrieval context, wired from join.retrieval.
+    # Kept so a deep re-retrieval can MERGE (never lose) carrier chunks the
+    # first pass already surfaced.
+    original_passages = _context_passages(payload.get("context"))
+    draft_is_abstention = _is_abstention(draft)
+
+    action = _pick_self_correct_action(
+        mode, composite, hallucination_rate, draft_is_abstention=draft_is_abstention
+    )
+
+    if action == "escalate_deep":
+        # Re-run retrieval on the DEEP lane (original query, no rewrite/narrowing)
+        # then re-ground on the MERGED context — never fabricate, never downgrade.
+        try:
+            search = await _semantic_search_v1(
+                {
+                    "query": query,
+                    "knowledge_scope": scope_hint,
+                    "latency_profile": "deep",
+                    "retrieval_profile": "deep_async",
+                    "deep_retrieval": True,
+                    # top_k / synthesis_k / candidate_pool_k are backfilled from
+                    # _LANE_BUDGETS["deep"] inside _semantic_search_v1 so the
+                    # re-retrieval truly uses the FULL deep budget (not a
+                    # collapsed lone-top_k pool).
+                },
+                ctx,
+            )
+            deep_passages = _context_passages(search.get("results"))
+        except Exception as exc:  # noqa: BLE001 — re-retrieval must never crash the DAG
+            logger.warning("chat_self_correct_v1: deep re-retrieval failed", error=str(exc))
+            deep_passages = []
+        # Merge so the deep lane can only ADD recall, never drop the carrier
+        # chunks the original (balanced) pass already had.
+        passages = _merge_passages(original_passages, deep_passages)
+        if not passages:
+            # Truly nothing anywhere — honest abstention beats a fabrication.
+            return {
+                "answer": _no_context_message(lang_target),
+                "citations": [],
+                "action_taken": "declare_partial",
+            }
+        grounded = await _llm_rag_answer_v1(
+            {
+                "query": query,
+                "context": [
+                    {"content": p["content"], "metadata": p.get("metadata") or {}, "score": p.get("score")}
+                    for p in passages
+                ],
+                "lang_target": lang_target,
+                "answer_profile": answer_profile,
+                "model": model,
+            },
+            ctx,
+        )
+        regrounded = grounded.get("answer") or ""
+        # NEVER downgrade: if the re-ground abstains but we already had a
+        # substantive grounded draft, keep the draft (and its citations).
+        if _is_abstention(regrounded) and not draft_is_abstention:
+            return {
+                "answer": draft,
+                "citations": citations,
+                "action_taken": "declare_partial",
+            }
+        return {
+            "answer": regrounded or _no_context_message(lang_target),
+            "citations": grounded.get("citations") or [],
+            "action_taken": "escalate_deep",
+        }
+
+    # translate / declare_partial — bounded transform of the EXISTING draft only.
+    prompt = _build_self_correct_prompt(query, draft, action, composite, hallucination_rate)
+    answer = draft
+    try:
+        completion = await _route_llm_complete(prompt, model, ctx)
+        parsed = _loads_lenient_json(completion)
+        if parsed:
+            candidate = parsed.get("answer")
+            if isinstance(candidate, str) and candidate.strip():
+                answer = candidate.strip()
+            action = _coerce_enum(parsed.get("action_taken"), _SELF_CORRECT_ACTIONS, action)
+        elif completion.strip():
+            # Model returned prose rather than JSON — still a valid transform.
+            answer = completion.strip()
+    except Exception as exc:  # noqa: BLE001 — degrade to the draft + a partial flag
+        logger.warning("chat_self_correct_v1: model call failed, declaring partial", error=str(exc))
+        action = "declare_partial"
+    return {
+        "answer": answer,
+        "citations": citations,
+        "action_taken": _coerce_enum(action, _SELF_CORRECT_ACTIONS, "declare_partial"),
+    }
+
+
+async def _response_eval_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Wrapper around ``ResponseEvaluator`` — SOURCE UNIQUE of the 0-100 composite.
+
+    OUT (frozen §7): ``{composite (0-100), hallucination_rate (0-1),
+    context_count (int), hhem, factuality, coherence}``. Reuses the existing
+    embedding evaluator (same call as the inline use in procurement_agent
+    ~1731-1768); no new metric is invented. The composite is the evaluator's
+    interpretable quality axes (relevance/factuality/coherence) averaged ×100,
+    and ``hallucination_rate`` is the complement of factuality (the evaluator
+    emits neither a single composite nor a hallucination field).
+    """
+    from app.services.metrics.evaluator import ResponseEvaluator
+
+    answer = str(payload.get("answer") or "")
+    query = str(payload.get("query") or "")
+    raw_context = payload.get("context_chunks")
+    if raw_context is None:
+        raw_context = payload.get("context")
+    if raw_context is None:
+        raw_context = payload.get("citations") or []
+    chunk_texts = _coerce_chunk_texts(raw_context)
+
+    metrics = await ResponseEvaluator().evaluate(query=query, response=answer, source_chunks=chunk_texts)
+    relevance = float(metrics.get("relevance") or 0.0)
+    factuality = float(metrics.get("factuality") or 0.0)
+    coherence = float(metrics.get("coherence") or 0.0)
+    hhem = float(metrics.get("hhem") or 0.0)
+
+    composite = round(((relevance + factuality + coherence) / 3.0) * 100.0, 2)
+    hallucination_rate = round(max(0.0, min(1.0, 1.0 - factuality)), 4)
+    return {
+        "composite": composite,
+        "hallucination_rate": hallucination_rate,
+        "context_count": len(chunk_texts),
+        "hhem": round(hhem, 4),
+        "factuality": round(factuality, 4),
+        "coherence": round(coherence, 4),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 # (slug -> (callable, expected_module_path|None, status_hint))
@@ -1968,6 +2880,9 @@ _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "chain_naive_v1":          (_chain_naive_v1,          "app.services.rag.chains.naive",         "bound"),
     "chain_hybrid_v1":         (_chain_hybrid_v1,         "app.services.rag.chains.hybrid",        "bound"),
     "chain_mixed_hah_v1":      (_chain_mixed_hah_v1,      "app.services.rag.chains.mixed_hah",     "bound"),
+    "chat_agentic_plan_v1":    (_chat_agentic_plan_v1,    "app.services.model_router",             "bound"),
+    "chat_self_correct_v1":    (_chat_self_correct_v1,    "app.services.model_router",             "bound"),
+    "response_eval_v1":        (_response_eval_v1,        "app.services.metrics.evaluator",        "bound"),
 }
 
 _RESOLVED_STATUS: Dict[str, str] = {}

@@ -1,0 +1,651 @@
+{
+  "artifact": "andritz_chat_agentic_v3",
+  "description": "System run_engine custom 'chat agentic thinking' COMPLET pour Andritz (seedé via migration 048, recâblé via 049, parité recall/OOS/routage via 050). Réutilise des skills existants comme outils. flow_definition (schema_version 3) + membrane_spec + adaptive_policy. RETRIEVAL CÂBLÉ (fix grounding 2026-06-26) : semantic_search_v1 résout le workspace_slug -> collection Qdrant tenant ({slug}__{collection}) ; task.generate CONSOMME join.retrieval.results (plus de re-retrieve à vide) ; task.self_correct escalate_deep RE-RETRIEVE (budget deep complet) puis ancre, sinon abstient ; plan.thinking gate clarify (placeholder rejeté, défaut answer si code projet présent). PARITÉ A/B (fix 2026-06-26, migration 050) : (1) RECALL — les retrieve_* transmettent le triplet de budgets par lane (balanced top_k 8/synthesis_k 16/candidate_pool_k 40, deep 8/24/80) = chat._apply_retrieval_budget_policy, sinon un top_k seul collapse le pool (~6 ctx vs ~12) ; (2) OOS — reject_oos demote en answer si projet/machine/système connu cité (jamais sur la langue), backstop à decision.deliver (reject_oos honoré seulement si context_count==0) ; (3) ROUTAGE — questions inventaire/transversales forcées en mode=deep. Voir docs/chat-recherche-agentic-grounding-audit-2026-06-26.md et docs/chat-agentic-thinking-spec.md.",
+  "system": {
+    "name": "Andritz Chat Agentic",
+    "capability_slug": "workspace_assistant",
+    "execution_mode": "real_time_decision",
+    "coordination_pattern": "single_agent",
+    "note": "NOUVEAU System run_engine (PAS la variante chat_transverse_v1). Walké par execute_run_dag() car il contient des noeuds de contrôle (decision/fork/join/hitl)."
+  },
+  "flow_definition": {
+    "schema_version": 3,
+    "variant": "chat_agentic_thinking_v1",
+    "source": "scaffold_artifact",
+    "template_id": "andritz-chat-agentic-v3",
+    "template_name": "Chat Agentic Thinking (complete variant)",
+    "data_flow_notes": [
+      "decision nodes n'émettent QUE {chosen_branch, evaluations} : toute valeur aval est tirée du VariablePool via inputs_map (VariableRef {node_id, path}).",
+      "Les branches tuées par une décision ne neutralisent QUE l'enfant direct ; la QUEUE multi-noeuds d'une branche tuée s'EXÉCUTE quand même (vérifié runtime). Donc la livraison action (answer/clarify/reject_oos) est routée EN FIN de graphe, vers des sinks-FEUILLES enfants directs de decision.deliver : chaque sink non choisi est proprement neutralisé (all_inputs_dead -> skip avant résolution inputs_map). C'est l'unique pattern de pruning propre du moteur.",
+      "config.params n'est JAMAIS transmis aux skills : tout comportement passe par inputs_map. Les params restants sont DOCUMENTAIRES (non-authoritative).",
+      "GROUNDING (fix 2026-06-26) : le run_engine ctx (_build_initial_ctx) ne porte que workspace_id, pas workspace_slug ; or la collection Qdrant physique est tenant-préfixée ({slug}__{collection}). semantic_search_v1 et llm_rag_answer_v1 résolvent donc le slug depuis l'id (sinon retrieval vide : raw_chunks_retrieved=0, embedding_ms=null). task.generate consomme le tableau context (= join.retrieval.results) au lieu de relancer une recherche ; si le join est vide il s'abstient (jamais de génération libre).",
+      "PARITÉ RECALL (fix 2026-06-26) : get_retrieval_profile traite un top_k seul comme un pin utilisateur qui COLLAPSE synthesis_k/candidate_pool_k au top_k (le DAG ne ramenait ~6 ctx vs ~12 pour le classic, et ratait le chunk porteur AKK200). Correctif : le plan EXPOSE et les retrieve_* TRANSMETTENT le triplet de budgets par lane (= chat._apply_retrieval_budget_policy : balanced 8/16/40, deep 8/24/80, fast 5/12/20) ; _semantic_search_v1 backfill aussi ces budgets par lane (filet de sécurité). Vérifié live : balanced lone-top_k=6 -> 6 chunks (carrier absent) ; balanced budget complet -> merged 38 / 19 résultats (carrier 0,3 m / 10-20 m/min présent).",
+      "OOS BACKSTOP (fix 2026-06-26) : _coerce_plan demote reject_oos -> answer si la requête cite un projet/machine/système connu (project code, QMS-12, URACA, Etachrom, SINAMICS…) et JAMAIS sur la base de la langue ; decision.deliver n'honore reject_oos QUE si context_count==0 (retrieval réellement vide). Un faux reject_oos (ex. QMS-12 en allemand) retombe donc sur une réponse ancrée.",
+      "ROUTAGE INVENTAIRE (fix 2026-06-26) : _coerce_plan force mode=deep + budget deep pour les questions transversales/inventaire/énumération multi-projets ('quels projets…', 'liste…', 'sur quels projets', agrégation) ; le classic route déjà ces cas en deep."
+    ],
+    "nodes": [
+      {
+        "id": "source.request",
+        "type": "input",
+        "kind": "source",
+        "label": "Requête chat",
+        "position": { "x": 40, "y": 420 },
+        "data": {
+          "menu": "Entrée",
+          "description": "Question utilisateur + historique de conversation."
+        },
+        "config": {},
+        "inputs": [],
+        "outputs": [
+          { "name": "query", "schema": "string", "required": true },
+          { "name": "conversation_history", "schema": "array" }
+        ]
+      },
+      {
+        "id": "plan.thinking",
+        "type": "llm",
+        "kind": "task",
+        "label": "Plan / Thinking",
+        "position": { "x": 320, "y": 420 },
+        "data": {
+          "menu": "Raisonnement",
+          "description": "Planificateur agentique. Skill NEUTRE chat_agentic_plan_v1 : produit le plan et EXPOSE la config de retrieval (objet 'retrieval' = latency_profile/retrieval_profile/top_k/synthesis_k/candidate_pool_k/deep_retrieval) consommée par les noeuds retrieve via inputs_map. GATE clarify (fix C3) : action=clarify rejetee si un code projet/identifiant est present ou si la requete n'est pas reellement ambigue. GATE reject_oos (fix 2026-06-26) : action=reject_oos demote en answer si un projet/machine/systeme connu est cite (AKK200, QMS-12, URACA, Etachrom, SINAMICS…) ; jamais de rejet sur la base de la langue. ROUTAGE inventaire (fix 2026-06-26) : les questions transversales/enumeration multi-projets ('quels projets…', 'liste…', 'sur quels projets') sont forcees en mode=deep (budget deep complet). Les scope_hint/clarifying_question recopiant un placeholder de schema sont neutralises. Provider-agnostique : client modele resolu via ModelRouter ; modele effectif = system.default_model (bind ci-dessous), borne par capabilities.allowed_models.",
+          "emits_json": true
+        },
+        "config": {
+          "skill_slug": "chat_agentic_plan_v1",
+          "skill_id": null,
+          "params_note": "DOCUMENTAIRE (non transmis au skill). Le system_prompt est interne au skill chat_agentic_plan_v1.",
+          "params": {
+            "response_format": "json_object",
+            "system_prompt": "<<PLACEHOLDER, baked into skill>> Tu es le planificateur d'un agent de chat industriel Andritz. Analyse la requete et l'historique. Reponds en JSON STRICT: {\"action\":\"answer|clarify|reject_oos\",\"mode\":\"fast|balanced|deep\",\"answer_profile\":\"...\",\"scope_hint\":\"...\",\"clarifying_question\":\"...\",\"oos_reason\":\"...\",\"lang_target\":\"...\",\"confidence\":0.0,\"retrieval\":{\"latency_profile\":\"fast|balanced|deep\",\"retrieval_profile\":\"oracle_fast|chat|deep_async\",\"top_k\":8,\"synthesis_k\":16,\"candidate_pool_k\":40,\"rag_pipeline_mode\":\"chah|auto\",\"deep_retrieval\":false}}. action=clarify SEULEMENT si reellement ambigu et sans ancrage ; action=reject_oos UNIQUEMENT si hors industrie Andritz (jamais sur la langue, jamais si une machine/systeme/projet connu est cite) ; mode=deep OBLIGATOIRE pour les questions transversales/inventaire multi-projets ; la config 'retrieval' (budgets inclus) doit etre coherente avec 'mode'."
+          },
+          "inputs_map": {
+            "query": { "node_id": "run", "path": ["query"] },
+            "conversation_history": { "node_id": "run", "path": ["conversation_history"] },
+            "model": { "node_id": "system", "path": ["default_model"] }
+          }
+        },
+        "inputs": [
+          { "name": "query", "schema": "string", "required": true },
+          { "name": "conversation_history", "schema": "array" }
+        ],
+        "outputs": [
+          { "name": "action", "schema": "string" },
+          { "name": "mode", "schema": "string" },
+          { "name": "answer_profile", "schema": "string" },
+          { "name": "scope_hint", "schema": "string" },
+          { "name": "clarifying_question", "schema": "string" },
+          { "name": "oos_reason", "schema": "string" },
+          { "name": "lang_target", "schema": "string" },
+          { "name": "confidence", "schema": "number" },
+          { "name": "retrieval", "schema": "object" }
+        ]
+      },
+      {
+        "id": "decision.route_mode",
+        "type": "router",
+        "kind": "decision",
+        "label": "Routage mode",
+        "position": { "x": 600, "y": 420 },
+        "data": { "menu": "Controle", "description": "Choisit la profondeur de recuperation selon plan.mode. Les retrieve_* sont des enfants directs (pruning propre)." },
+        "config": {
+          "branches": [
+            { "label": "fast", "condition": "mode == 'fast'" },
+            { "label": "deep", "condition": "mode == 'deep'" }
+          ],
+          "default_branch": "balanced",
+          "inputs_map": {
+            "mode": { "node_id": "plan.thinking", "path": ["mode"] }
+          }
+        },
+        "inputs": [{ "name": "mode", "schema": "string" }],
+        "outputs": [{ "name": "chosen_branch", "schema": "string" }]
+      },
+      {
+        "id": "task.retrieve_fast",
+        "type": "retrieve",
+        "kind": "task",
+        "label": "Recuperation rapide",
+        "position": { "x": 900, "y": 240 },
+        "data": { "menu": "Connaissance", "description": "semantic_search_v1 RETRIEVAL-ONLY. Profils + budgets (top_k/synthesis_k/candidate_pool_k) tires du plan via inputs_map. PARITE RECALL (fix 2026-06-26) : le triplet de budgets est transmis pour eviter que le wrapper ne collapse synthesis_k/candidate_pool_k a un top_k seul (alignement sur chat._apply_retrieval_budget_policy). Sortie uniforme 'results'." },
+        "config": {
+          "skill_slug": "semantic_search_v1",
+          "skill_id": null,
+          "inputs_map": {
+            "query": { "node_id": "run", "path": ["query"] },
+            "knowledge_scope": { "node_id": "plan.thinking", "path": ["scope_hint"] },
+            "latency_profile": { "node_id": "plan.thinking", "path": ["retrieval", "latency_profile"] },
+            "retrieval_profile": { "node_id": "plan.thinking", "path": ["retrieval", "retrieval_profile"] },
+            "top_k": { "node_id": "plan.thinking", "path": ["retrieval", "top_k"] },
+            "synthesis_k": { "node_id": "plan.thinking", "path": ["retrieval", "synthesis_k"] },
+            "candidate_pool_k": { "node_id": "plan.thinking", "path": ["retrieval", "candidate_pool_k"] }
+          }
+        },
+        "inputs": [
+          { "name": "query", "schema": "string" },
+          { "name": "knowledge_scope", "schema": "string" },
+          { "name": "latency_profile", "schema": "string" },
+          { "name": "retrieval_profile", "schema": "string" },
+          { "name": "top_k", "schema": "integer" },
+          { "name": "synthesis_k", "schema": "integer" },
+          { "name": "candidate_pool_k", "schema": "integer" }
+        ],
+        "outputs": [{ "name": "results", "schema": "array" }]
+      },
+      {
+        "id": "task.retrieve_balanced",
+        "type": "retrieve",
+        "kind": "task",
+        "label": "Recuperation equilibree",
+        "position": { "x": 900, "y": 420 },
+        "data": { "menu": "Connaissance", "description": "semantic_search_v1 RETRIEVAL-ONLY (branche par defaut). Profils + budgets (top_k/synthesis_k/candidate_pool_k) tires du plan via inputs_map. PARITE RECALL (fix 2026-06-26) : budgets balanced = top_k 8 / synthesis_k 16 / candidate_pool_k 40 (= classic). Sortie uniforme 'results'." },
+        "config": {
+          "skill_slug": "semantic_search_v1",
+          "skill_id": null,
+          "inputs_map": {
+            "query": { "node_id": "run", "path": ["query"] },
+            "knowledge_scope": { "node_id": "plan.thinking", "path": ["scope_hint"] },
+            "latency_profile": { "node_id": "plan.thinking", "path": ["retrieval", "latency_profile"] },
+            "retrieval_profile": { "node_id": "plan.thinking", "path": ["retrieval", "retrieval_profile"] },
+            "top_k": { "node_id": "plan.thinking", "path": ["retrieval", "top_k"] },
+            "synthesis_k": { "node_id": "plan.thinking", "path": ["retrieval", "synthesis_k"] },
+            "candidate_pool_k": { "node_id": "plan.thinking", "path": ["retrieval", "candidate_pool_k"] }
+          }
+        },
+        "inputs": [
+          { "name": "query", "schema": "string" },
+          { "name": "knowledge_scope", "schema": "string" },
+          { "name": "latency_profile", "schema": "string" },
+          { "name": "retrieval_profile", "schema": "string" },
+          { "name": "top_k", "schema": "integer" },
+          { "name": "synthesis_k", "schema": "integer" },
+          { "name": "candidate_pool_k", "schema": "integer" }
+        ],
+        "outputs": [{ "name": "results", "schema": "array" }]
+      },
+      {
+        "id": "task.retrieve_deep",
+        "type": "retrieve",
+        "kind": "task",
+        "label": "Recuperation profonde",
+        "position": { "x": 900, "y": 600 },
+        "data": { "menu": "Connaissance", "description": "semantic_search_v1 RETRIEVAL-ONLY (deep). Profils + budgets deep (top_k 8 / synthesis_k 24 / candidate_pool_k 80) + deep_retrieval tires du plan via inputs_map. Lane forcee deep pour les questions inventaire/transversales (fix 2026-06-26). Sortie uniforme 'results'." },
+        "config": {
+          "skill_slug": "semantic_search_v1",
+          "skill_id": null,
+          "inputs_map": {
+            "query": { "node_id": "run", "path": ["query"] },
+            "knowledge_scope": { "node_id": "plan.thinking", "path": ["scope_hint"] },
+            "latency_profile": { "node_id": "plan.thinking", "path": ["retrieval", "latency_profile"] },
+            "retrieval_profile": { "node_id": "plan.thinking", "path": ["retrieval", "retrieval_profile"] },
+            "top_k": { "node_id": "plan.thinking", "path": ["retrieval", "top_k"] },
+            "synthesis_k": { "node_id": "plan.thinking", "path": ["retrieval", "synthesis_k"] },
+            "candidate_pool_k": { "node_id": "plan.thinking", "path": ["retrieval", "candidate_pool_k"] },
+            "deep_retrieval": { "node_id": "plan.thinking", "path": ["retrieval", "deep_retrieval"] }
+          }
+        },
+        "inputs": [
+          { "name": "query", "schema": "string" },
+          { "name": "knowledge_scope", "schema": "string" },
+          { "name": "latency_profile", "schema": "string" },
+          { "name": "retrieval_profile", "schema": "string" },
+          { "name": "top_k", "schema": "integer" },
+          { "name": "synthesis_k", "schema": "integer" },
+          { "name": "candidate_pool_k", "schema": "integer" },
+          { "name": "deep_retrieval", "schema": "boolean" }
+        ],
+        "outputs": [{ "name": "results", "schema": "array" }]
+      },
+      {
+        "id": "join.retrieval",
+        "type": "join",
+        "kind": "join",
+        "label": "Fusion recuperation",
+        "position": { "x": 1180, "y": 420 },
+        "data": { "menu": "Controle", "description": "strategy=any : la 1re branche non vide (la seule active apres route_mode) gagne. Expose 'results'." },
+        "config": { "strategy": "any" },
+        "inputs": [{ "name": "results", "schema": "array" }],
+        "outputs": [{ "name": "results", "schema": "array" }]
+      },
+      {
+        "id": "task.generate",
+        "type": "llm",
+        "kind": "task",
+        "label": "Generation reponse",
+        "position": { "x": 1460, "y": 420 },
+        "data": { "menu": "Generation", "description": "Reponse RAG sourcee (llm_rag_answer_v1). context tire de join.retrieval.results via inputs_map. Le wrapper CONSOMME ce tableau context : il synthetise la reponse ancree sur ces chunks (generation unique, citations issues des metadata) SANS relancer de recherche ; si le context est vide il s'abstient honnetement (jamais de generation libre). Provider-agnostique via ModelRouter." },
+        "config": {
+          "skill_slug": "llm_rag_answer_v1",
+          "skill_id": null,
+          "inputs_map": {
+            "query": { "node_id": "run", "path": ["query"] },
+            "context": { "node_id": "join.retrieval", "path": ["results"] },
+            "answer_profile": { "node_id": "plan.thinking", "path": ["answer_profile"] },
+            "lang_target": { "node_id": "plan.thinking", "path": ["lang_target"] },
+            "rag_pipeline_mode": { "node_id": "plan.thinking", "path": ["retrieval", "rag_pipeline_mode"] },
+            "model": { "node_id": "system", "path": ["default_model"] }
+          }
+        },
+        "inputs": [
+          { "name": "query", "schema": "string" },
+          { "name": "context", "schema": "array" },
+          { "name": "answer_profile", "schema": "string" },
+          { "name": "lang_target", "schema": "string" },
+          { "name": "rag_pipeline_mode", "schema": "string" }
+        ],
+        "outputs": [
+          { "name": "answer", "schema": "string" },
+          { "name": "citations", "schema": "array" },
+          { "name": "decision_steps", "schema": "array" }
+        ]
+      },
+      {
+        "id": "fork.self_eval",
+        "type": "fork",
+        "kind": "fork",
+        "label": "Auto-evaluation (fork)",
+        "position": { "x": 1740, "y": 420 },
+        "data": { "menu": "Controle", "description": "Fan-out parallele vers les 3 evaluateurs." },
+        "config": {},
+        "inputs": [{ "name": "answer", "schema": "string" }],
+        "outputs": [{ "name": "answer", "schema": "string" }]
+      },
+      {
+        "id": "task.eval_radar",
+        "type": "analysis",
+        "kind": "task",
+        "label": "Eval Radar (juge multi-axes)",
+        "position": { "x": 2020, "y": 240 },
+        "data": { "menu": "Evaluation", "description": "Juge multi-axes (eval_radar_v1). Ports alignes sur le wrapper reel: axes/overall/hallucination_rate/drift_rate/note." },
+        "config": {
+          "skill_slug": "eval_radar_v1",
+          "skill_id": null,
+          "inputs_map": {
+            "answer": { "node_id": "task.generate", "path": ["answer"] },
+            "query": { "node_id": "run", "path": ["query"] },
+            "context_chunks": { "node_id": "join.retrieval", "path": ["results"] }
+          }
+        },
+        "inputs": [
+          { "name": "answer", "schema": "string" },
+          { "name": "query", "schema": "string" },
+          { "name": "context_chunks", "schema": "array" }
+        ],
+        "outputs": [
+          { "name": "axes", "schema": "object" },
+          { "name": "overall", "schema": "number" },
+          { "name": "hallucination_rate", "schema": "number" },
+          { "name": "drift_rate", "schema": "number" },
+          { "name": "note", "schema": "string" }
+        ]
+      },
+      {
+        "id": "task.claim_audit",
+        "type": "analysis",
+        "kind": "task",
+        "label": "Audit des claims",
+        "position": { "x": 2020, "y": 420 },
+        "data": { "menu": "Evaluation", "description": "Groundedness / claims (claim_audit_v1). Ports alignes sur le wrapper reel: claims/verdict/supported/unsupported." },
+        "config": {
+          "skill_slug": "claim_audit_v1",
+          "skill_id": null,
+          "inputs_map": {
+            "answer": { "node_id": "task.generate", "path": ["answer"] },
+            "citations": { "node_id": "task.generate", "path": ["citations"] },
+            "query": { "node_id": "run", "path": ["query"] }
+          }
+        },
+        "inputs": [
+          { "name": "answer", "schema": "string" },
+          { "name": "citations", "schema": "array" },
+          { "name": "query", "schema": "string" }
+        ],
+        "outputs": [
+          { "name": "claims", "schema": "array" },
+          { "name": "verdict", "schema": "string" },
+          { "name": "supported", "schema": "integer" },
+          { "name": "unsupported", "schema": "integer" }
+        ]
+      },
+      {
+        "id": "task.response_eval",
+        "type": "analysis",
+        "kind": "task",
+        "label": "Response Eval (composite 0-100)",
+        "position": { "x": 2020, "y": 600 },
+        "data": {
+          "menu": "Evaluation",
+          "description": "response_eval_v1 (A CONSTRUIRE) : wrapper de app.services.metrics.evaluator.ResponseEvaluator. SOURCE UNIQUE et AUTORITATIVE du composite 0-100 (ResponseEvaluator emet 0-1 -> x100). context_count = nb de chunks fournis."
+        },
+        "config": {
+          "skill_slug": "response_eval_v1",
+          "skill_id": null,
+          "inputs_map": {
+            "answer": { "node_id": "task.generate", "path": ["answer"] },
+            "citations": { "node_id": "task.generate", "path": ["citations"] },
+            "context_chunks": { "node_id": "join.retrieval", "path": ["results"] },
+            "query": { "node_id": "run", "path": ["query"] }
+          }
+        },
+        "inputs": [
+          { "name": "answer", "schema": "string" },
+          { "name": "citations", "schema": "array" },
+          { "name": "context_chunks", "schema": "array" },
+          { "name": "query", "schema": "string" }
+        ],
+        "outputs": [
+          { "name": "composite", "schema": "number" },
+          { "name": "hallucination_rate", "schema": "number" },
+          { "name": "context_count", "schema": "integer" },
+          { "name": "hhem", "schema": "number" },
+          { "name": "factuality", "schema": "number" },
+          { "name": "coherence", "schema": "number" }
+        ]
+      },
+      {
+        "id": "join.eval",
+        "type": "join",
+        "kind": "join",
+        "label": "Fusion evaluations",
+        "position": { "x": 2300, "y": 420 },
+        "data": { "menu": "Controle", "description": "strategy=all : barriere fan-in (attend les 3 evaluateurs). NB collision hallucination_rate (eval_radar+response_eval) : response_eval est listee EN DERNIER -> autoritative dans le bundle. Le verdict lit de toute facon response_eval via inputs_map." },
+        "config": { "strategy": "all" },
+        "inputs": [{ "name": "composite", "schema": "number" }],
+        "outputs": [
+          { "name": "composite", "schema": "number" },
+          { "name": "hallucination_rate", "schema": "number" },
+          { "name": "context_count", "schema": "integer" }
+        ]
+      },
+      {
+        "id": "decision.verdict",
+        "type": "router",
+        "kind": "decision",
+        "label": "Verdict qualite",
+        "position": { "x": 2580, "y": 420 },
+        "data": { "menu": "Controle", "description": "weak si composite(0-100) sous le plancher qualite OU retrieval vide. PARITE A/B (fix 2026-06-26) : le terme hallucination_rate a ete RETIRE du verdict. response_eval derive hallucination_rate = 1 - factuality d'une similarite EMBEDDING (structurellement ~0.3-0.5 meme pour une reponse ancree correcte) ; le seuil >0.15 declenchait self_correct/escalate_deep sur CHAQUE run (latency aborts + re-retrieve deep qui perdait les chunks porteurs et transformait de bonnes reponses en abstentions). Le verdict s'appuie desormais sur composite + context_count uniquement, comme plancher de qualite. Lit la SOURCE UNIQUE response_eval via inputs_map." },
+        "config": {
+          "branches": [
+            { "label": "weak", "condition": "composite < 50 or context_count == 0" },
+            { "label": "strong", "condition": "composite >= 50 and context_count > 0" }
+          ],
+          "default_branch": "strong",
+          "inputs_map": {
+            "composite": { "node_id": "task.response_eval", "path": ["composite"] },
+            "hallucination_rate": { "node_id": "task.response_eval", "path": ["hallucination_rate"] },
+            "context_count": { "node_id": "task.response_eval", "path": ["context_count"] }
+          }
+        },
+        "inputs": [
+          { "name": "composite", "schema": "number" },
+          { "name": "hallucination_rate", "schema": "number" },
+          { "name": "context_count", "schema": "integer" }
+        ],
+        "outputs": [{ "name": "chosen_branch", "schema": "string" }]
+      },
+      {
+        "id": "task.self_correct",
+        "type": "llm",
+        "kind": "task",
+        "label": "Auto-correction (1 passe)",
+        "position": { "x": 2860, "y": 600 },
+        "data": {
+          "menu": "Controle",
+          "description": "React borne (chat_self_correct_v1), branche weak UNIQUEMENT (composite < 50 ou retrieval vide). Choisit UNE action. PARITE A/B (fix 2026-06-26) : escalate_deep n'est plus declenche par hallucination_rate ; il ne se declenche que si le brouillon est lui-meme une abstention ou si composite < 50. escalate_deep RE-RETRIEVE (lane deep, BUDGET DEEP complet via _LANE_BUDGETS : top_k 8 / synthesis_k 24 / candidate_pool_k 80) PUIS FUSIONNE avec le contexte original (inputs_map.context <= join.retrieval.results) pour ne JAMAIS perdre les chunks porteurs deja trouves, re-ancre sur le contexte fusionne, et NE DEGRADE JAMAIS un brouillon ancre en abstention (si le re-ancrage abstient, le brouillon est conserve). translate/declare_partial ne transforment que le brouillon deja ancre. Retourne {answer, citations, action_taken}. Provider-agnostique via ModelRouter."
+        },
+        "config": {
+          "skill_slug": "chat_self_correct_v1",
+          "skill_id": null,
+          "params_note": "DOCUMENTAIRE (non transmis). break_on/max_iterations de l'ancien loop sont remplaces par le routage decision.verdict -> task (1 passe bornee). scope_hint/lang_target/answer_profile alimentent le re-retrieve+re-ancrage de escalate_deep ; context (join.retrieval.results) est fusionne avec le re-retrieve deep.",
+          "inputs_map": {
+            "query": { "node_id": "run", "path": ["query"] },
+            "draft_answer": { "node_id": "task.generate", "path": ["answer"] },
+            "citations": { "node_id": "task.generate", "path": ["citations"] },
+            "context": { "node_id": "join.retrieval", "path": ["results"] },
+            "composite": { "node_id": "task.response_eval", "path": ["composite"] },
+            "hallucination_rate": { "node_id": "task.response_eval", "path": ["hallucination_rate"] },
+            "mode": { "node_id": "plan.thinking", "path": ["mode"] },
+            "scope_hint": { "node_id": "plan.thinking", "path": ["scope_hint"] },
+            "lang_target": { "node_id": "plan.thinking", "path": ["lang_target"] },
+            "answer_profile": { "node_id": "plan.thinking", "path": ["answer_profile"] },
+            "model": { "node_id": "system", "path": ["default_model"] }
+          }
+        },
+        "inputs": [
+          { "name": "query", "schema": "string" },
+          { "name": "draft_answer", "schema": "string" },
+          { "name": "citations", "schema": "array" },
+          { "name": "context", "schema": "array" },
+          { "name": "composite", "schema": "number" },
+          { "name": "hallucination_rate", "schema": "number" },
+          { "name": "mode", "schema": "string" },
+          { "name": "scope_hint", "schema": "string" },
+          { "name": "lang_target", "schema": "string" },
+          { "name": "answer_profile", "schema": "string" }
+        ],
+        "outputs": [
+          { "name": "answer", "schema": "string" },
+          { "name": "citations", "schema": "array" },
+          { "name": "action_taken", "schema": "string" }
+        ]
+      },
+      {
+        "id": "join.answer",
+        "type": "join",
+        "kind": "join",
+        "label": "Fusion reponse finale",
+        "position": { "x": 3140, "y": 480 },
+        "data": { "menu": "Controle", "description": "strategy=all : merge ordonne. ARETE task.generate listee AVANT task.self_correct -> sur weak, la reponse corrigee ECRASE le brouillon ; sur strong, self_correct est skip (vide) et le brouillon reste. Source unique de l'answer pour le sink." },
+        "config": { "strategy": "all" },
+        "inputs": [{ "name": "answer", "schema": "string" }],
+        "outputs": [
+          { "name": "answer", "schema": "string" },
+          { "name": "citations", "schema": "array" }
+        ]
+      },
+      {
+        "id": "decision.egress_gate",
+        "type": "router",
+        "kind": "decision",
+        "label": "Porte de sortie (confiance post-answer)",
+        "position": { "x": 3420, "y": 480 },
+        "data": { "menu": "Controle", "description": "Gate de confiance POST-answer = composite(0-100) tire de response_eval (composite/100 == confiance ; seuil 40 == 0.4). review (HITL) seulement si action=='answer'. Remplace l'ancien gate qui lisait la confiance PRE-answer du planner (ctx bleed)." },
+        "config": {
+          "branches": [
+            { "label": "review", "condition": "action == 'answer' and composite < 40" },
+            { "label": "ok", "condition": "action != 'answer' or composite >= 40" }
+          ],
+          "default_branch": "ok",
+          "inputs_map": {
+            "action": { "node_id": "plan.thinking", "path": ["action"] },
+            "composite": { "node_id": "task.response_eval", "path": ["composite"] }
+          }
+        },
+        "inputs": [
+          { "name": "action", "schema": "string" },
+          { "name": "composite", "schema": "number" }
+        ],
+        "outputs": [{ "name": "chosen_branch", "schema": "string" }]
+      },
+      {
+        "id": "hitl.expert_review",
+        "type": "policy",
+        "kind": "hitl",
+        "label": "Revue expert",
+        "position": { "x": 3700, "y": 660 },
+        "data": { "menu": "Gouvernance", "description": "Validation humaine si confiance post-answer faible (composite < 40). Gate metier explicite ; doublé par la valve membrane mandatory_hitl_if_confidence_below (backstop a la finalisation)." },
+        "config": {
+          "prompt": "Confiance post-reponse < 0.4 (composite < 40) : un expert Andritz doit valider la reponse avant diffusion.",
+          "approvers": ["expert", "operator"],
+          "inputs_map": {
+            "answer": { "node_id": "join.answer", "path": ["answer"] }
+          }
+        },
+        "inputs": [{ "name": "answer", "schema": "string" }],
+        "outputs": [{ "name": "approved", "schema": "boolean" }]
+      },
+      {
+        "id": "decision.deliver",
+        "type": "router",
+        "kind": "decision",
+        "label": "Livraison (routage action)",
+        "position": { "x": 3980, "y": 480 },
+        "data": { "menu": "Controle", "description": "Decision FINALE qui route vers des sinks-FEUILLES selon plan.action. C'est le SEUL endroit ou clarify/reject_oos/answer sont aiguilles : place en fin de graphe car le pruning du moteur n'est propre que sur les enfants directs (les sinks). Chaque sink non choisi est skip (all_inputs_dead) AVANT toute resolution inputs_map -> terminal propre. BACKSTOP OOS (fix 2026-06-26) : reject_oos n'est honore QUE si le retrieval a effectivement ramene 0 contexte (context_count == 0) ; un reject_oos planifie a tort sur une question valide (ex. allemand) avec du contexte pertinent retombe sur 'deliver' (reponse ancree) au lieu de refuser." },
+        "config": {
+          "branches": [
+            { "label": "clarify", "condition": "action == 'clarify'" },
+            { "label": "reject_oos", "condition": "action == 'reject_oos' and context_count == 0" }
+          ],
+          "default_branch": "deliver",
+          "inputs_map": {
+            "action": { "node_id": "plan.thinking", "path": ["action"] },
+            "context_count": { "node_id": "task.response_eval", "path": ["context_count"] }
+          }
+        },
+        "inputs": [
+          { "name": "action", "schema": "string" },
+          { "name": "context_count", "schema": "integer" }
+        ],
+        "outputs": [{ "name": "chosen_branch", "schema": "string" }]
+      },
+      {
+        "id": "sink.ask_user",
+        "type": "output",
+        "kind": "sink",
+        "label": "Demander clarification",
+        "position": { "x": 4260, "y": 240 },
+        "data": { "menu": "Sortie", "description": "Renvoie clarifying_question. Tire du plan via inputs_map (la decision ne propage pas la donnee)." },
+        "config": {
+          "inputs_map": {
+            "clarifying_question": { "node_id": "plan.thinking", "path": ["clarifying_question"] }
+          }
+        },
+        "inputs": [{ "name": "clarifying_question", "schema": "string" }],
+        "outputs": []
+      },
+      {
+        "id": "sink.oos",
+        "type": "output",
+        "kind": "sink",
+        "label": "Hors perimetre",
+        "position": { "x": 4260, "y": 420 },
+        "data": { "menu": "Sortie", "description": "Refus hors-sujet. reason tire du plan (oos_reason) via inputs_map." },
+        "config": {
+          "inputs_map": {
+            "reason": { "node_id": "plan.thinking", "path": ["oos_reason"] }
+          }
+        },
+        "inputs": [{ "name": "reason", "schema": "string" }],
+        "outputs": []
+      },
+      {
+        "id": "sink.final_answer",
+        "type": "output",
+        "kind": "sink",
+        "label": "Reponse finale",
+        "position": { "x": 4260, "y": 600 },
+        "data": { "menu": "Sortie", "description": "answer + trace. answer/citations tires de join.answer (source unique, gere strong/weak/corrige). trace: mode + composite post-answer." },
+        "config": {
+          "inputs_map": {
+            "answer": { "node_id": "join.answer", "path": ["answer"] },
+            "citations": { "node_id": "join.answer", "path": ["citations"] },
+            "mode": { "node_id": "plan.thinking", "path": ["mode"] },
+            "composite": { "node_id": "task.response_eval", "path": ["composite"] }
+          }
+        },
+        "inputs": [
+          { "name": "answer", "schema": "string" },
+          { "name": "citations", "schema": "array" },
+          { "name": "trace", "schema": "object" }
+        ],
+        "outputs": []
+      }
+    ],
+    "edges": [
+      { "from": "source.request", "to": "plan.thinking", "kind": "data" },
+      { "from": "plan.thinking", "to": "decision.route_mode", "kind": "data" },
+      { "from": "decision.route_mode", "to": "task.retrieve_fast", "kind": "branch", "branch_label": "fast" },
+      { "from": "decision.route_mode", "to": "task.retrieve_deep", "kind": "branch", "branch_label": "deep" },
+      { "from": "decision.route_mode", "to": "task.retrieve_balanced", "kind": "branch", "branch_label": "balanced" },
+      { "from": "task.retrieve_fast", "to": "join.retrieval", "kind": "data", "branch_label": "fast" },
+      { "from": "task.retrieve_balanced", "to": "join.retrieval", "kind": "data", "branch_label": "balanced" },
+      { "from": "task.retrieve_deep", "to": "join.retrieval", "kind": "data", "branch_label": "deep" },
+      { "from": "join.retrieval", "to": "task.generate", "kind": "data" },
+      { "from": "task.generate", "to": "fork.self_eval", "kind": "data" },
+      { "from": "fork.self_eval", "to": "task.eval_radar", "kind": "data", "branch_label": "eval_radar" },
+      { "from": "fork.self_eval", "to": "task.claim_audit", "kind": "data", "branch_label": "claim_audit" },
+      { "from": "fork.self_eval", "to": "task.response_eval", "kind": "data", "branch_label": "response_eval" },
+      { "from": "task.eval_radar", "to": "join.eval", "kind": "data", "branch_label": "eval_radar" },
+      { "from": "task.claim_audit", "to": "join.eval", "kind": "data", "branch_label": "claim_audit" },
+      { "from": "task.response_eval", "to": "join.eval", "kind": "data", "branch_label": "response_eval" },
+      { "from": "join.eval", "to": "decision.verdict", "kind": "data" },
+      { "from": "decision.verdict", "to": "task.self_correct", "kind": "branch", "branch_label": "weak" },
+      { "from": "task.generate", "to": "join.answer", "kind": "data" },
+      { "from": "task.self_correct", "to": "join.answer", "kind": "data" },
+      { "from": "join.answer", "to": "decision.egress_gate", "kind": "data" },
+      { "from": "decision.egress_gate", "to": "hitl.expert_review", "kind": "branch", "branch_label": "review" },
+      { "from": "decision.egress_gate", "to": "decision.deliver", "kind": "branch", "branch_label": "ok" },
+      { "from": "hitl.expert_review", "to": "decision.deliver", "kind": "control" },
+      { "from": "decision.deliver", "to": "sink.ask_user", "kind": "branch", "branch_label": "clarify" },
+      { "from": "decision.deliver", "to": "sink.oos", "kind": "branch", "branch_label": "reject_oos" },
+      { "from": "decision.deliver", "to": "sink.final_answer", "kind": "branch", "branch_label": "deliver" }
+    ],
+    "ui": {
+      "type": "agentic_chat",
+      "label": "Chat agentique",
+      "entry_route": "systems",
+      "flow_builder_enabled": true
+    },
+    "policy": {
+      "require_citations": true,
+      "enable_audit": true,
+      "max_latency_ms": 45000,
+      "confidence_threshold": 0.4
+    }
+  },
+  "membrane_spec": {
+    "version": 1,
+    "inbound": {
+      "collection_allowlist": [],
+      "reference_type_filters": [],
+      "reject_cross_project_sources": true,
+      "preserve_reference_types": false,
+      "expert_fiche_correction_enabled": false,
+      "industrial_grounding": true
+    },
+    "outbound": {
+      "expert_review_required": false,
+      "gate_if_confidence_below": 0.4
+    },
+    "capabilities": {
+      "allowed_skills": [
+        "chat_agentic_plan_v1",
+        "chat_self_correct_v1",
+        "semantic_search_v1",
+        "llm_rag_answer_v1",
+        "eval_radar_v1",
+        "claim_audit_v1",
+        "response_eval_v1"
+      ],
+      "allowed_models": [],
+      "allowed_delegations": []
+    },
+    "provenance": {
+      "require_citations": true,
+      "object_store_prefix": "membrane/andritz/chat-agentic/"
+    },
+    "valves": {
+      "max_cost_per_decision": 0.15,
+      "max_latency_ms": 45000,
+      "mandatory_hitl_if_confidence_below": 0.35,
+      "hard_abort": true,
+      "circuit_breaker": { "max_passes": 2 },
+      "token_budget": 24000
+    }
+  },
+  "adaptive_policy": {
+    "enabled": true,
+    "triggers": { "cost_above": 0.15, "latency_above_ms": 45000 }
+  }
+}
