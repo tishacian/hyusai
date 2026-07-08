@@ -111,6 +111,7 @@ interface Client360MailDraft {
   sent_body?: string | null;
   language: string;
   status: string;
+  metadata?: Record<string, unknown>;
   created_at?: string | null;
   sent_at?: string | null;
 }
@@ -487,6 +488,16 @@ interface ImpactResponse {
               <div>
                 <p class="ck-label c360-eyebrow">Mail & suivi</p>
                 <h2>{{ currentDraft()?.subject || 'Aucun brouillon selectionne' }}</h2>
+                @if (currentDraft()) {
+                  <div class="draft-meta">
+                    <span class="pill" [ngClass]="draftGenerationMode(currentDraft())">
+                      {{ draftGenerationLabel(currentDraft()) }}
+                    </span>
+                    @if (draftGenerationModel(currentDraft())) {
+                      <span>{{ draftGenerationModel(currentDraft()) }}</span>
+                    }
+                  </div>
+                }
               </div>
               @if (currentDraft()?.action_item_id) {
                 <button type="button" class="primary" (click)="markSent()">
@@ -606,6 +617,8 @@ interface ImpactResponse {
     .list-panel span { display: block; margin-top: 4px; color: var(--ck-fg-4); font-size: 11px; }
     .detail-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 14px; }
     .detail-head.compact { margin-bottom: 10px; }
+    .draft-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--ck-fg-4); font-size: 11px; }
+    .draft-meta .pill.ai_assisted { color: var(--ck-signal-cool); border-color: rgba(103, 213, 246, .42); }
     .button-row { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
     .facts { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 10px; margin: 0 0 16px; }
     .facts div { padding: 10px; background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); }
@@ -909,5 +922,17 @@ export class Client360PageComponent implements OnInit {
       other: 'Autre',
     };
     return labels[value] || value;
+  }
+
+  draftGenerationMode(draft: Client360MailDraft | null): string {
+    return String(draft?.metadata?.['generation_mode'] || 'deterministic_template');
+  }
+
+  draftGenerationLabel(draft: Client360MailDraft | null): string {
+    return this.draftGenerationMode(draft) === 'ai_assisted' ? 'IA assistee' : 'Template';
+  }
+
+  draftGenerationModel(draft: Client360MailDraft | null): string {
+    return String(draft?.metadata?.['llm_model'] || draft?.metadata?.['fallback_reason'] || '');
   }
 }

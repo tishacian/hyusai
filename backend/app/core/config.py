@@ -238,6 +238,13 @@ class Settings(BaseSettings):
     # time dramatically. Set empty to fall back to the workspace default model.
     capture_finalize_model: str = "gpt-4o-mini"
 
+    # Client360 PDR mail drafts. Enabled by default for the business surface:
+    # the LLM writes the contextual draft, while deterministic templates remain
+    # the safe fallback whenever the provider is unavailable.
+    client360_mail_ai_enabled: bool = True
+    client360_mail_model: str = "gpt-4o-mini"
+    client360_mail_timeout_seconds: float = 20.0
+
     # Voice2Voice runtime provider plane. OpenAI Realtime is an optional lane;
     # cascade_openai remains the production-safe default and local providers are
     # integrated through HTTP/WebSocket contracts rather than heavy in-process

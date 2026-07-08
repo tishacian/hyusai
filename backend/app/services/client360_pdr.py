@@ -1,11 +1,15 @@
 """Client360 PDR service layer.
 
-This pre-MVP is intentionally deterministic: it reads real workspace data,
-calculates explainable potential when enough fields are present, and records the
-commercial workflow that will become future ground truth.
+This pre-MVP keeps potential calculation deterministic: it reads real workspace
+data, calculates explainable potential when enough fields are present, and
+records the commercial workflow that will become future ground truth. Mail
+drafts are AI-assisted when configured, with a deterministic fallback.
 """
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import logging
 import re
 import unicodedata
 import json
@@ -15,6 +19,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session as DBSession
 
+from app.core.config import settings
 from app.models.action_plan import WorkspaceActionItem
 from app.models.client360 import (
     CLIENT360_ATTRIBUTIONS,
@@ -37,10 +42,13 @@ from app.models.workspace import Workspace
 from app.services.action_plans import create_action_item, serialize_action_item, update_action_item
 
 
+_logger = logging.getLogger(__name__)
+
 REQUIRED_SOURCE_TYPES = ("installed_base", "periodicity", "sap_sales_history")
 PILOT_TECHNOLOGIES = ("JETLACE", "HFR200")
 PILOT_COUNTRIES = ("Greece", "Turkey")
 PILOT_CUSTOMERS = ("Septona",)
+CLIENT360_MAIL_PROMPT_VERSION = "client360_pdr_mail_v2"
 CLIENT360_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "customer_name": ("customer", "client", "customer name", "client name", "account", "sold to", "ship to"),
     "customer_key": ("customer id", "client id", "customer code", "sold to code", "sap customer"),
@@ -1274,6 +1282,247 @@ def _mail_body(opportunity: Client360Opportunity, *, include_prices: bool = Fals
     return "\n".join(lines)
 
 
+_CLIENT360_MAIL_SYSTEM_PROMPT = """Tu es l'assistant commercial technique ANDRITZ pour Client360 PDR.
+Tu rediges un brouillon d'email B2B en francais, oriente maintenance, disponibilite,
+qualite et productivite. Le commercial humain validera et enverra manuellement.
+
+Contraintes strictes:
+- N'invente aucun client, contact, prix, delai, reference, date ou stock.
+- Utilise uniquement les donnees structurees fournies.
+- Si une donnee est absente, n'en fais pas une affirmation.
+- Ne promets pas de remise ni de stock automatique.
+- Mentionne l'incertitude avec tact quand un gap de donnees bloque la conclusion.
+- Le ton doit etre expert, sobre, utile, non promotionnel.
+- Retourne strictement un objet JSON: {"subject": "...", "body": "..."}.
+"""
+
+
+def _client360_mail_ai_config(workspace: Workspace) -> dict[str, Any]:
+    configured = _as_dict(_as_dict(getattr(workspace, "settings", None)).get("client360_pdr_mail"))
+    enabled = configured.get("ai_enabled")
+    if enabled is None:
+        enabled = settings.client360_mail_ai_enabled
+    return {
+        "enabled": bool(enabled),
+        "provider": _safe_text(configured.get("provider") or settings.default_provider or "openai") or "openai",
+        "model": _safe_text(configured.get("model") or settings.client360_mail_model or settings.default_model) or "gpt-4o-mini",
+        "timeout_seconds": float(configured.get("timeout_seconds") or settings.client360_mail_timeout_seconds or 20.0),
+    }
+
+
+def _mail_ai_configured(config: dict[str, Any]) -> tuple[bool, str | None]:
+    if not config.get("enabled"):
+        return False, "ai_disabled"
+    provider = _safe_text(config.get("provider")).lower()
+    if provider == "openai" and not _safe_text(settings.openai_api_key):
+        return False, "openai_api_key_missing"
+    return True, None
+
+
+def _mail_prompt_payload(opportunity: Client360Opportunity, *, include_prices: bool) -> dict[str, Any]:
+    opp = serialize_opportunity(opportunity)
+    selected = {
+        key: opp.get(key)
+        for key in (
+            "customer_name",
+            "country",
+            "hub",
+            "technology",
+            "line_label",
+            "machine_label",
+            "part_family",
+            "part_reference",
+            "part_description",
+            "installed_quantity",
+            "recommended_quantity",
+            "periodicity_weeks",
+            "delivery_time_weeks",
+            "annual_theoretical_qty",
+            "potential_gap_qty",
+            "sales_known_qty",
+            "sales_known_value",
+            "currency",
+            "next_due_at",
+            "confidence_label",
+            "recommended_action",
+            "data_gaps",
+            "evidence_refs",
+        )
+    }
+    if not include_prices:
+        selected.pop("sales_known_value", None)
+        selected.pop("currency", None)
+    return {
+        "task": "generate_human_validated_spare_parts_email_draft",
+        "language": "fr",
+        "include_prices": include_prices,
+        "opportunity": selected,
+        "business_rules": {
+            "scope": "Client360 PDR spare parts wear parts only",
+            "automatic_send": False,
+            "supervised_prediction": False,
+            "email_goal": "Proposer un echange technique ou une inspection, pas pousser une remise.",
+        },
+    }
+
+
+def _mail_user_prompt(payload: dict[str, Any]) -> str:
+    return (
+        "Redige un brouillon d'email pour le commercial ANDRITZ a partir de ce JSON.\n"
+        "Le body doit etre directement editable/envoyable apres validation humaine.\n"
+        "Ne retourne ni markdown, ni commentaire hors JSON.\n\n"
+        f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
+    )
+
+
+def _prompt_hash(system_prompt: str, user_prompt: str) -> str:
+    return hashlib.sha256(f"{system_prompt}\n\n{user_prompt}".encode("utf-8")).hexdigest()
+
+
+def _strip_code_fence(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, flags=re.IGNORECASE)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    return stripped.strip()
+
+
+def _parse_ai_mail_json(text: str) -> dict[str, str] | None:
+    cleaned = _strip_code_fence(text)
+    candidates = [cleaned]
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start >= 0 and end > start:
+        candidates.append(cleaned[start : end + 1])
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        subject = _safe_text(payload.get("subject"))
+        body = _safe_text(payload.get("body"))
+        if body:
+            return {"subject": subject, "body": body}
+    if len(cleaned) >= 80:
+        return {"subject": "", "body": cleaned}
+    return None
+
+
+def _safe_mail_subject(value: Any, fallback: str) -> str:
+    subject = re.sub(r"\s+", " ", _safe_text(value)).strip()
+    if not subject:
+        subject = fallback
+    return subject[:240]
+
+
+async def _complete_client360_mail_ai(
+    *,
+    provider: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    workspace: Workspace,
+) -> str:
+    from app.llm.llm import LLM
+
+    provider_key = _safe_text(provider).lower() or "openai"
+    api_key = settings.openai_api_key if provider_key == "openai" else None
+    llm = LLM(provider=provider_key, api_key=api_key)
+    return await llm.complete(
+        prompt=user_prompt,
+        system_prompt=system_prompt,
+        model=model,
+        temperature=0.2,
+        max_tokens=900,
+        user=f"workspace:{workspace.id}:client360_pdr_mail",
+    )
+
+
+async def _generate_ai_mail_draft(
+    workspace: Workspace,
+    opportunity: Client360Opportunity,
+    *,
+    include_prices: bool,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    payload = _mail_prompt_payload(opportunity, include_prices=include_prices)
+    user_prompt = _mail_user_prompt(payload)
+    prompt_hash = _prompt_hash(_CLIENT360_MAIL_SYSTEM_PROMPT, user_prompt)
+    raw = await asyncio.wait_for(
+        _complete_client360_mail_ai(
+            provider=str(config["provider"]),
+            model=str(config["model"]),
+            system_prompt=_CLIENT360_MAIL_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            workspace=workspace,
+        ),
+        timeout=float(config["timeout_seconds"]),
+    )
+    parsed = _parse_ai_mail_json(raw)
+    if parsed is None:
+        raise ValueError("Client360 mail AI returned an unparsable draft")
+    fallback_subject = _mail_subject(opportunity)
+    return {
+        "subject": _safe_mail_subject(parsed.get("subject"), fallback_subject),
+        "body": _safe_text(parsed.get("body")),
+        "metadata": {
+            "generation_mode": "ai_assisted",
+            "llm_provider": config["provider"],
+            "llm_model": config["model"],
+            "prompt_version": CLIENT360_MAIL_PROMPT_VERSION,
+            "prompt_hash": prompt_hash,
+            "human_validation_required": True,
+        },
+    }
+
+
+def _fallback_mail_generation(opportunity: Client360Opportunity, *, include_prices: bool, reason: str | None = None) -> dict[str, Any]:
+    metadata = {
+        "generation_mode": "deterministic_template",
+        "human_validation_required": True,
+    }
+    if reason:
+        metadata["fallback_reason"] = reason
+    return {
+        "subject": _mail_subject(opportunity),
+        "body": _mail_body(opportunity, include_prices=include_prices),
+        "metadata": metadata,
+    }
+
+
+def _generate_mail_draft_content(
+    workspace: Workspace,
+    opportunity: Client360Opportunity,
+    *,
+    include_prices: bool,
+) -> dict[str, Any]:
+    config = _client360_mail_ai_config(workspace)
+    configured, reason = _mail_ai_configured(config)
+    if not configured:
+        return _fallback_mail_generation(opportunity, include_prices=include_prices, reason=reason)
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            return asyncio.run(
+                _generate_ai_mail_draft(
+                    workspace,
+                    opportunity,
+                    include_prices=include_prices,
+                    config=config,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("Client360 AI mail generation failed; using deterministic fallback", exc_info=True)
+            return _fallback_mail_generation(opportunity, include_prices=include_prices, reason=type(exc).__name__)
+
+    _logger.warning("Client360 AI mail generation skipped inside running event loop")
+    return _fallback_mail_generation(opportunity, include_prices=include_prices, reason="running_event_loop")
+
+
 def serialize_mail_draft(row: Client360MailDraft) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -1302,18 +1551,23 @@ def create_mail_draft(
     include_prices: bool = False,
 ) -> tuple[Client360MailDraft, WorkspaceActionItem]:
     opportunity = _get_opportunity(db, workspace, opportunity_id)
+    generation = _generate_mail_draft_content(workspace, opportunity, include_prices=include_prices)
+    generation_metadata = dict(generation.get("metadata") or {})
+    opportunity_metadata = _as_dict(opportunity.meta_data)
+    if opportunity_metadata.get("pilot_dataset"):
+        generation_metadata["pilot_dataset"] = opportunity_metadata["pilot_dataset"]
     draft = Client360MailDraft(
         id=str(uuid4()),
         workspace_id=workspace.id,
         opportunity_id=opportunity.id,
-        subject=_mail_subject(opportunity),
-        generated_body=_mail_body(opportunity, include_prices=include_prices),
+        subject=_safe_mail_subject(generation.get("subject"), _mail_subject(opportunity)),
+        generated_body=_safe_text(generation.get("body")) or _mail_body(opportunity, include_prices=include_prices),
         language=language or "fr",
         status="draft_generated",
         meta_data={
             "include_prices": include_prices,
-            "generation_mode": "deterministic_template",
             "human_validation_required": True,
+            **generation_metadata,
         },
         created_by_user_id=user.id,
     )
@@ -1338,6 +1592,8 @@ def create_mail_draft(
                 "opportunity_id": opportunity.id,
                 "mail_draft_id": draft.id,
                 "part_family": opportunity.part_family,
+                "generation_mode": draft.meta_data.get("generation_mode"),
+                "llm_model": draft.meta_data.get("llm_model"),
                 "manual_send_only": True,
             }
         },

@@ -16,6 +16,7 @@ from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollec
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services import client360_pdr as client360_module
 from app.services.client360_pdr import (
     calculate_annual_theoretical_qty,
     create_mail_draft,
@@ -211,7 +212,7 @@ def test_client360_system_seed_is_andritz_scoped_and_idempotent(db_session) -> N
 
 
 def test_mail_draft_creates_human_action_without_auto_send(db_session) -> None:
-    workspace = _seed_workspace(db_session)
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
     user = _seed_user(db_session)
     opportunity = _seed_opportunity(db_session, workspace, confidence_label="high")
 
@@ -227,6 +228,7 @@ def test_mail_draft_creates_human_action_without_auto_send(db_session) -> None:
     assert draft.status == "draft_generated"
     assert draft.sent_at is None
     assert "Souhaitez-vous" in draft.generated_body
+    assert draft.meta_data["generation_mode"] == "deterministic_template"
     assert action.target_kind == "client360_pdr_opportunity"
     assert action.target_id == opportunity.id
     assert action.meta_data["client360"]["manual_send_only"] is True
@@ -235,8 +237,38 @@ def test_mail_draft_creates_human_action_without_auto_send(db_session) -> None:
     assert db_session.query(WorkspaceActionItem).count() == 1
 
 
+def test_mail_draft_uses_ai_generation_when_available(monkeypatch, db_session) -> None:
+    workspace = _seed_workspace(
+        db_session,
+        settings={"client360_pdr_mail": {"ai_enabled": True, "provider": "openai", "model": "test-mail-model"}},
+    )
+    user = _seed_user(db_session)
+    opportunity = _seed_opportunity(db_session, workspace, confidence_label="high")
+    monkeypatch.setattr(client360_module.settings, "openai_api_key", "test-key")
+
+    async def fake_complete(**kwargs):
+        assert kwargs["provider"] == "openai"
+        assert kwargs["model"] == "test-mail-model"
+        assert "Septona" in kwargs["user_prompt"]
+        assert "wear belts" in kwargs["user_prompt"]
+        return '{"subject":"Plan maintenance PDR - Septona","body":"Bonjour,\\n\\nNous avons identifie une action preventive sur les wear belts.\\n\\nCordialement,"}'
+
+    monkeypatch.setattr(client360_module, "_complete_client360_mail_ai", fake_complete)
+
+    draft, action = create_mail_draft(db_session, workspace, user, opportunity_id=opportunity.id)
+    db_session.commit()
+
+    assert draft.subject == "Plan maintenance PDR - Septona"
+    assert "action preventive" in draft.generated_body
+    assert draft.meta_data["generation_mode"] == "ai_assisted"
+    assert draft.meta_data["llm_model"] == "test-mail-model"
+    assert draft.meta_data["prompt_version"] == "client360_pdr_mail_v2"
+    assert draft.meta_data["human_validation_required"] is True
+    assert action.meta_data["client360"]["generation_mode"] == "ai_assisted"
+
+
 def test_impact_tracking_updates_opportunity_and_action_status(db_session) -> None:
-    workspace = _seed_workspace(db_session)
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
     user = _seed_user(db_session)
     opportunity = _seed_opportunity(db_session, workspace, confidence_label="medium")
     draft, action = create_mail_draft(db_session, workspace, user, opportunity_id=opportunity.id)
