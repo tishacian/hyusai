@@ -55,7 +55,8 @@ def _load_migration():
 MIG = _load_migration()
 
 # The skills the flow references that already exist in a seeded catalog (the
-# three agentic ones are upserted by the migration itself).
+# four migration-owned ones — the 3 agentic skills + multi_hop_retrieve_v1 — are
+# upserted by the migration itself).
 _PREEXISTING = ["semantic_search_v1", "llm_rag_answer_v1", "eval_radar_v1", "claim_audit_v1"]
 
 
@@ -76,7 +77,7 @@ def test_artifact_loads_and_has_full_dag() -> None:
     assert artifact is not None
     flow = artifact["flow_definition"]
     assert flow["variant"] == "chat_agentic_thinking_v1"
-    assert len(flow["nodes"]) == 22
+    assert len(flow["nodes"]) == 23
     assert "membrane_spec" in artifact
 
 
@@ -127,18 +128,18 @@ def test_upgrade_seeds_system_idempotent_then_downgrade(db_session, monkeypatch)
     assert system.status == "active"
     assert (system.settings or {}).get("seed_origin") == "048_andritz_chat_agentic"
     assert (system.settings or {}).get("variant") == "chat_agentic_thinking_v1"
-    assert len(system.skill_ids or []) == 7
+    assert len(system.skill_ids or []) == 8
 
     nodes = (system.flow_definition or {}).get("nodes") or []
-    assert len(nodes) == 22
+    assert len(nodes) == 23
     unresolved = [
         n["id"] for n in nodes
         if (n.get("config") or {}).get("skill_slug") and not (n.get("config") or {}).get("skill_id")
     ]
     assert unresolved == []
 
-    # The three agentic skills were upserted by the migration.
-    for slug in ("chat_agentic_plan_v1", "chat_self_correct_v1", "response_eval_v1"):
+    # The agentic skills + the multi-hop retrieval lane were upserted by the migration.
+    for slug in ("chat_agentic_plan_v1", "chat_self_correct_v1", "response_eval_v1", "multi_hop_retrieve_v1"):
         assert db_session.query(Skill).filter(Skill.slug == slug).count() == 1
 
     policy = (
@@ -150,7 +151,7 @@ def test_upgrade_seeds_system_idempotent_then_downgrade(db_session, monkeypatch)
     extra = policy.extra or {}
     assert extra.get("membrane_origin") == "048_andritz_chat_agentic"
     assert "membrane_spec" in extra
-    assert len(extra["membrane_spec"]["capabilities"]["allowed_skills"]) == 7
+    assert len(extra["membrane_spec"]["capabilities"]["allowed_skills"]) == 8
     assert policy.max_latency_ms == 45000
     assert policy.mandatory_hitl_if_confidence_below == 0.35
 

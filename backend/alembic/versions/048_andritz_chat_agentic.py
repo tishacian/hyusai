@@ -5,12 +5,12 @@ workspace-chat variant) for the andritz workspace, walked by
 ``execute_run_dag()`` because its ``flow_definition`` carries real control
 nodes (decision/fork/join/hitl). The flow is loaded verbatim from the pinned
 artifact ``app/resources/flows/andritz_chat_agentic_v3.json`` (schema_version 3,
-``variant=chat_agentic_thinking_v1``, 22 nodes / 27 edges), and each task
+``variant=chat_agentic_thinking_v1``, 23 nodes / 28 edges), and each task
 node's ``config.skill_id`` is RESOLVED from its ``config.skill_slug`` against
-the ``skills`` table (the three agentic skills — ``chat_agentic_plan_v1``,
-``chat_self_correct_v1``, ``response_eval_v1`` — are upserted first so the
-resolution never leaves a hole and the System is runnable regardless of seed
-ordering).
+the ``skills`` table (the agentic skills — ``chat_agentic_plan_v1``,
+``chat_self_correct_v1``, ``response_eval_v1`` — plus the ``multi_hop_retrieve_v1``
+retrieval lane are upserted first so the resolution never leaves a hole and the
+System is runnable regardless of seed ordering).
 
 The ``membrane_spec`` from the same artifact is materialised as a canonical
 ``ControlPolicy`` (scope=``system``, ``target_id`` = the new System id,
@@ -91,6 +91,19 @@ _REQUIRED_SKILLS = [
         "name": "Response Eval",
         "type": "analysis",
         "description": "ResponseEvaluator wrapper: authoritative 0-100 composite + hallucination_rate + context_count.",
+        "certification_level": "production",
+        "provider": "internal",
+    },
+    {
+        # Multi-hop retrieval lane added by the P4 roadmap (task.retrieve_multihop
+        # node in the v3 artifact). It is also upserted by migration 051, but 048
+        # must seed it too so the full 23-node DAG resolves every skill_id even
+        # when 048 is applied in isolation. Metadata mirrors the canonical entry
+        # in app/services/skills_registry/seed.py.
+        "slug": "multi_hop_retrieve_v1",
+        "name": "Multi-Hop Retrieve",
+        "type": "retrieval",
+        "description": "Decomposed multi-hop retrieval: runs N semantic_search_v1 passes in parallel over the planner's sub_queries (plus the main query) and merges/dedupes the hits (RRF, reusing comparative_retrieval) into the same results[] shape as semantic_search. Used as the retrieval lane for comparison/multi-hop/transversal queries; degrades to a single search when no sub-queries are provided.",
         "certification_level": "production",
         "provider": "internal",
     },
@@ -201,7 +214,7 @@ def _tables():
 
 
 def _ensure_required_skills(bind, skills, now) -> None:
-    """Upsert the three agentic skills by slug (insert-if-absent)."""
+    """Upsert the agentic + multi-hop skills by slug (insert-if-absent)."""
     for meta in _REQUIRED_SKILLS:
         exists = bind.execute(
             sa.select(skills.c.id).where(skills.c.slug == meta["slug"])
