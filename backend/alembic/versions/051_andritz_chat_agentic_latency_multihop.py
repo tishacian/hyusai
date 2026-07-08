@@ -44,7 +44,7 @@ Data-only (no DDL). Marker-scoped to the System 048 seeded
 System sharing the name is never touched.
 
 Revision ID: 051_andritz_chat_latency_mh  (<= 32 chars)
-Revises: 050_andritz_chat_parity
+Revises: 051_client360_pdr_merge, 050_andritz_chat_agentic_parity
 Create Date: 2026-07-08
 """
 from __future__ import annotations
@@ -61,13 +61,13 @@ import sqlalchemy as sa
 
 
 revision = "051_andritz_chat_latency_mh"
-down_revision = "050_andritz_chat_parity"
+down_revision = ("051_client360_pdr_merge", "050_andritz_chat_agentic_parity")
 branch_labels = None
 depends_on = None
 
 
 _REVISION_TAG = "051_andritz_chat_latency_mh"
-_PRIOR_REVISION_TAG = "050_andritz_chat_parity"  # restored on downgrade
+_PRIOR_REVISION_TAG = "050_andritz_chat_agentic_parity"  # restored on downgrade
 _SEED_ORIGIN = "048_andritz_chat_agentic"  # marker stamped by migration 048
 _SYSTEM_NAME = "Andritz Chat Agentic"
 _FLOW_BACKUP_KEY = "flow_backup_pre_051"

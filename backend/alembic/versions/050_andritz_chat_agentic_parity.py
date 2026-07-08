@@ -45,7 +45,7 @@ Data-only (no DDL). Marker-scoped to the System 048 seeded
 (``settings.seed_origin == '048_andritz_chat_agentic'``) so an operator-authored
 System sharing the name is never touched.
 
-Revision ID: 050_andritz_chat_parity  (<= 32 chars)
+Revision ID: 050_andritz_chat_agentic_parity  (<= 32 chars)
 Revises: 049_andritz_chat_grounding
 Create Date: 2026-06-26
 """
@@ -61,13 +61,13 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "050_andritz_chat_parity"
+revision = "050_andritz_chat_agentic_parity"
 down_revision = "049_andritz_chat_grounding"
 branch_labels = None
 depends_on = None
 
 
-_REVISION_TAG = "050_andritz_chat_parity"
+_REVISION_TAG = "050_andritz_chat_agentic_parity"
 _PRIOR_REVISION_TAG = "049_andritz_chat_grounding"  # restored on downgrade
 _SEED_ORIGIN = "048_andritz_chat_agentic"  # marker stamped by migration 048
 _SYSTEM_NAME = "Andritz Chat Agentic"
