@@ -17,7 +17,7 @@ import { IconComponent } from './icon.component';
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" (click)="onCancel()"></div>
         <div
-          class="relative glass-blur rounded-lg border border-white/10 shadow-elevated max-w-md w-full p-6 animate-slide-up"
+          class="relative ck-surface rounded-lg border border-white/10 shadow-elevated max-w-md w-full p-6 animate-slide-up"
           (click)="$event.stopPropagation()"
         >
           <div class="flex items-start gap-4">
@@ -25,8 +25,8 @@ import { IconComponent } from './icon.component';
               class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
               [class.bg-red-500\\/15]="tone === 'danger'"
               [class.text-red-400]="tone === 'danger'"
-              [class.bg-brand-500\\/15]="tone !== 'danger'"
-              [class.text-brand-400]="tone !== 'danger'"
+              [class.bg-cyan-500\\/15]="tone !== 'danger'"
+              [class.text-cyan-400]="tone !== 'danger'"
             >
               <app-icon [name]="icon" [size]="20" />
             </div>
@@ -67,8 +67,8 @@ import { IconComponent } from './icon.component';
               class="px-4 py-2 text-sm font-medium text-white rounded transition disabled:opacity-40 disabled:cursor-not-allowed"
               [class.bg-red-600]="tone === 'danger'"
               [class.hover:bg-red-700]="tone === 'danger'"
-              [class.bg-brand-500]="tone !== 'danger'"
-              [class.hover:bg-brand-600]="tone !== 'danger'"
+              [class.bg-cyan-500]="tone !== 'danger'"
+              [class.hover:bg-cyan-600]="tone !== 'danger'"
             >
               {{ confirmLabel }}
             </button>

@@ -25,7 +25,7 @@ export type EmptyStateSize = 'sm' | 'md' | 'lg';
       }"
     >
       <div
-        class="rounded-2xl flex items-center justify-center bg-gradient-to-br from-brand-500/10 via-violet-500/10 to-indigo-500/10 ring-1 ring-brand-500/20 text-brand-400 shadow-glow-sm mb-3"
+        class="rounded-2xl flex items-center justify-center bg-cyan-500/10 ring-1 ring-cyan-500/20 text-cyan-400 shadow-glow-sm mb-3"
         [ngClass]="{
           'w-10 h-10': size === 'sm',
           'w-16 h-16': size === 'md',

@@ -4,14 +4,14 @@ import { KnowledgeCaptureComponent } from '../knowledge-capture.component';
 import { CaptureFilShellComponent } from './capture-fil-shell.component';
 
 /**
- * URL-stable wrapper for `/knowledge/capture`. Renders the frozen v0 monolith
- * (`<app-knowledge-capture>`, default) or the new cockpit experience
- * (`<app-capture-fil-shell>`) depending on the `capture_experience` flag.
+ * URL-stable wrapper for `/knowledge/capture`. Renders the official cockpit
+ * experience (`<app-capture-fil-shell>`, default) or the frozen v0 monolith
+ * (`<app-knowledge-capture>`) when the `capture_experience` flag is forced to
+ * `v0`.
  *
  * Both heavy components are loaded via `@defer` so only the active experience's
  * chunk is fetched — the v0 path is byte-for-byte the same monolith chunk as
- * before, just reached through this wrapper. Existing users (flag `v0`) are
- * unaffected.
+ * before, just reached through this wrapper for explicit legacy fallback.
  */
 @Component({
   selector: 'app-capture-router',

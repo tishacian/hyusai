@@ -12,7 +12,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
   standalone: true,
   imports: [IconComponent, ConfirmDialogComponent],
   template: `
-    <div class="t-card t-elevated rounded-md p-6 border-red-500/20">
+    <div class="ck-surface t-elevated rounded-md p-6 border-red-500/20">
       <div class="flex items-start gap-3 mb-4">
         <div class="w-10 h-10 rounded-md flex items-center justify-center bg-red-500/10 text-red-400 ring-1 ring-red-500/30">
           <app-icon name="shield-alert" [size]="18" />

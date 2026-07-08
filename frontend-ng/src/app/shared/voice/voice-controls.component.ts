@@ -27,7 +27,7 @@ export interface SharedVoiceOracleStep {
     <div class="voice-control-bar">
       <div class="voice-control-group">
         <span class="voice-control-label">
-          <app-icon name="waves" [size]="13" class="text-brand-300" />
+          <app-icon name="waves" [size]="13" class="text-cyan-300" />
           Voice runtime
           <span
             class="control-info-dot"
@@ -159,7 +159,7 @@ export interface SharedVoiceOracleStep {
       >
         <input
           type="checkbox"
-          class="accent-brand-500"
+          class="accent-cyan-500"
           [ngModel]="autoSend"
           (ngModelChange)="autoSendChange.emit($event)"
           [disabled]="!canTranscribe"
@@ -174,7 +174,7 @@ export interface SharedVoiceOracleStep {
         >
           <input
             type="checkbox"
-            class="accent-brand-500"
+            class="accent-cyan-500"
             [ngModel]="autoEndpoint"
             (ngModelChange)="autoEndpointChange.emit($event)"
             [disabled]="!canUseSession"
@@ -187,7 +187,7 @@ export interface SharedVoiceOracleStep {
       <span class="text-gray-600">·</span>
       <span class="truncate max-w-[36rem]" [title]="runtimeDetail">{{ runtimeDetail }}</span>
       @if (partial) {
-        <span class="text-brand-200 truncate max-w-xs">“{{ partial }}”</span>
+        <span class="text-cyan-200 truncate max-w-xs">“{{ partial }}”</span>
       }
     </div>
 

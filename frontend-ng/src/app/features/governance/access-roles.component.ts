@@ -40,7 +40,7 @@ import {
     @if (summary(); as iam) {
       <section class="grid xl:grid-cols-[minmax(0,1fr)_360px] gap-5">
         <div class="space-y-5">
-          <section class="t-card t-elevated rounded-md overflow-hidden">
+          <section class="ck-surface rounded-md overflow-hidden">
             <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between gap-3">
               <div>
                 <h3 class="text-sm font-semibold text-white">Members</h3>
@@ -56,7 +56,7 @@ import {
                   <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px_minmax(220px,1fr)_96px] lg:items-end">
                     <div class="min-w-0">
                       <div class="flex items-center gap-2">
-                        <div class="h-8 w-8 shrink-0 rounded-full bg-white/[0.04] ring-1 ring-brand-400/30 flex items-center justify-center text-xs font-semibold text-brand-200">
+                        <div class="h-8 w-8 shrink-0 rounded-full bg-white/[0.04] ring-1 ring-cyan-400/30 flex items-center justify-center text-xs font-semibold text-cyan-200">
                           {{ initial(member) }}
                         </div>
                         <div class="min-w-0">
@@ -105,7 +105,7 @@ import {
                     <label class="block min-w-0">
                       <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">Labels</span>
                       <input
-                        class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-400/60 disabled:opacity-50"
+                        class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60 disabled:opacity-50"
                         [disabled]="!canEditMemberLabels(member)"
                         [ngModel]="labelsText(member)"
                         (ngModelChange)="setLabels(member, $event)"
@@ -115,7 +115,7 @@ import {
 
                     <button
                       type="button"
-                      class="inline-flex h-10 items-center justify-center gap-1.5 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-40 disabled:hover:bg-brand-500"
+                      class="inline-flex h-10 items-center justify-center gap-1.5 rounded bg-cyan-500 hover:bg-cyan-400 text-sm font-semibold text-white disabled:opacity-40 disabled:hover:bg-cyan-500"
                       [disabled]="saving() || !canSaveMember(member)"
                       (click)="saveMember(member)"
                     >
@@ -130,10 +130,10 @@ import {
             </div>
           </section>
 
-          <section class="t-card t-elevated rounded-md overflow-hidden">
+          <section class="ck-surface rounded-md overflow-hidden">
             <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
               <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-                <app-icon name="table-properties" [size]="16" class="text-brand-400" /> Effective Capture matrix
+                <app-icon name="table-properties" [size]="16" class="text-cyan-400" /> Effective Capture matrix
               </h3>
               <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
                 {{ matrix()?.role_template || 'subject' }}
@@ -176,8 +176,8 @@ import {
         </div>
 
         <aside class="space-y-5">
-          <section class="t-card t-elevated rounded-md p-5 border border-brand-500/25 bg-brand-500/[0.04]">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Capture permissions</p>
+          <section class="ck-surface rounded-md p-5 border border-cyan-500/25 bg-cyan-500/[0.04]">
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Capture permissions</p>
             <h3 class="text-sm font-semibold text-white mt-1">Capture de connaissances</h3>
             <p class="mt-3 text-xs text-gray-400 leading-relaxed">
               This matrix controls the capture screen and the backend routes behind
@@ -190,10 +190,10 @@ import {
             </div>
           </section>
 
-          <section class="t-card t-elevated rounded-md p-5">
+          <section class="ck-surface rounded-md p-5">
             <div class="flex items-start justify-between gap-3">
               <div>
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">IAM config</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">IAM config</p>
                 <h3 class="text-sm font-semibold text-white mt-1">Workspace flags</h3>
               </div>
               <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10">
@@ -218,7 +218,7 @@ import {
             </div>
             <button
               type="button"
-              class="mt-4 w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-brand-500 hover:bg-brand-400 text-sm font-semibold text-white disabled:opacity-50"
+              class="mt-4 w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded bg-cyan-500 hover:bg-cyan-400 text-sm font-semibold text-white disabled:opacity-50"
               [disabled]="saving()"
               (click)="saveFlags()"
             >
@@ -226,8 +226,8 @@ import {
             </button>
           </section>
 
-          <section class="t-card t-elevated rounded-md p-5">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Current subject</p>
+          <section class="ck-surface rounded-md p-5">
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Current subject</p>
             <h3 class="text-sm font-semibold text-white mt-1">{{ matrix()?.role_template || 'Unknown role' }}</h3>
             <p class="mt-3 text-xs text-gray-500 leading-relaxed">
               Buttons in Capture use this matrix for client-side affordances. The backend remains the authority and emits IAM deny audit rows.
@@ -236,7 +236,7 @@ import {
         </aside>
       </section>
     } @else {
-      <section class="t-card t-elevated rounded-md p-8 text-center text-gray-400">
+      <section class="ck-surface rounded-md p-8 text-center text-gray-400">
         {{ loading() ? 'Loading IAM configuration...' : 'Select a workspace to inspect IAM.' }}
       </section>
     }
@@ -360,7 +360,7 @@ export class AccessRolesComponent implements OnInit {
   roleBadgeClass(role: RoleTemplate): string {
     const base = 'inline-flex h-10 w-full items-center gap-1.5 rounded border px-3 text-sm font-medium';
     if (role === 'workspace_owner') return `${base} border-amber-500/30 bg-amber-500/10 text-amber-200`;
-    if (role === 'workspace_admin') return `${base} border-brand-400/30 bg-brand-500/10 text-brand-100`;
+    if (role === 'workspace_admin') return `${base} border-cyan-400/30 bg-cyan-500/10 text-cyan-100`;
     if (role === 'workspace_reviewer') return `${base} border-sky-400/25 bg-sky-500/10 text-sky-100`;
     return `${base} border-white/10 bg-white/[0.03] text-gray-300`;
   }

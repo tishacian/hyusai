@@ -28,12 +28,12 @@ interface AccountLink {
           @for (link of links; track link.route) {
             <a
               [routerLink]="link.route"
-              routerLinkActive="bg-brand-500/10 text-white ring-1 ring-brand-500/30 shadow-glow-sm"
+              routerLinkActive="bg-cyan-500/10 text-white ring-1 ring-cyan-500/30 shadow-glow-sm"
               [routerLinkActiveOptions]="{ exact: false }"
               class="block px-3 py-2.5 rounded-md border border-transparent text-sm text-gray-400 hover:text-white hover:bg-white/5 transition"
             >
               <div class="flex items-center gap-2.5">
-                <app-icon [name]="link.icon" [size]="16" class="text-brand-400" />
+                <app-icon [name]="link.icon" [size]="16" class="text-cyan-400" />
                 <span class="font-medium">{{ link.label }}</span>
               </div>
               <div class="text-xs text-gray-500 mt-0.5 pl-6">{{ link.description }}</div>

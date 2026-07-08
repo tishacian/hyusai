@@ -89,7 +89,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
     </ck-object-header>
 
     @if (!ctx()) {
-      <div class="t-card rounded-md p-8 text-center text-gray-400 text-sm">
+      <div class="ck-surface rounded-md p-8 text-center text-gray-400 text-sm">
         <app-icon name="loader-2" [size]="14" class="animate-spin inline-block mr-2" />
         Loading context…
       </div>
@@ -100,7 +100,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
         ariaLabel="Context facets"
       >
         <ck-tab id="overview" label="Overview">
-          <section class="t-card t-elevated rounded-md p-5 space-y-4 max-w-2xl">
+          <section class="ck-surface t-elevated rounded-md p-5 space-y-4 max-w-2xl">
             <div>
               <label class="ck-mono text-[10px] uppercase tracking-wider text-gray-500 block mb-1">
                 Name
@@ -108,7 +108,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
               <input
                 type="text"
                 [(ngModel)]="draftName"
-                class="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-brand-400"
+                class="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-cyan-400"
               />
             </div>
             <div class="grid grid-cols-2 gap-3 text-sm">
@@ -126,7 +126,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                 type="button"
                 (click)="saveOverview()"
                 [disabled]="saving()"
-                class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white transition"
+                class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white transition"
               >
                 <app-icon [name]="saving() ? 'loader-2' : 'save'" [size]="12" [class.animate-spin]="saving()" />
                 Save name
@@ -136,14 +136,14 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
         </ck-tab>
 
         <ck-tab id="data" label="Data refs">
-          <section class="t-card rounded-md p-5 space-y-3">
+          <section class="ck-surface rounded-md p-5 space-y-3">
             <p class="text-xs text-gray-400">
               Knowledge collections the Runs powered by this Context can cite.
             </p>
             @for (ref of draftDataRefs(); track $index; let i = $index) {
               <div class="flex items-center gap-2">
                 <input
-                  class="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-brand-400"
+                  class="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-cyan-400"
                   [ngModel]="ref"
                   (ngModelChange)="setDataRef(i, $event)"
                   placeholder="collection name"
@@ -170,7 +170,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                 type="button"
                 (click)="saveRefs()"
                 [disabled]="saving()"
-                class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white transition"
+                class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white transition"
               >
                 <app-icon [name]="saving() ? 'loader-2' : 'save'" [size]="12" [class.animate-spin]="saving()" />
                 Save refs
@@ -180,14 +180,14 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
         </ck-tab>
 
         <ck-tab id="memory" label="Memory refs">
-          <section class="t-card rounded-md p-5 space-y-3">
+          <section class="ck-surface rounded-md p-5 space-y-3">
             <p class="text-xs text-gray-400">
               Persistent memory bins (chat histories, vector stores) the Context opens at run time.
             </p>
             @for (ref of draftMemoryRefs(); track $index; let i = $index) {
               <div class="flex items-center gap-2">
                 <input
-                  class="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-brand-400"
+                  class="flex-1 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-cyan-400"
                   [ngModel]="ref"
                   (ngModelChange)="setMemoryRef(i, $event)"
                   placeholder="memory key"
@@ -214,7 +214,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                 type="button"
                 (click)="saveRefs()"
                 [disabled]="saving()"
-                class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white transition"
+                class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white transition"
               >
                 <app-icon [name]="saving() ? 'loader-2' : 'save'" [size]="12" [class.animate-spin]="saving()" />
                 Save refs
@@ -224,7 +224,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
         </ck-tab>
 
         <ck-tab id="permissions" label="Permissions">
-          <section class="t-card rounded-md p-5 space-y-3">
+          <section class="ck-surface rounded-md p-5 space-y-3">
             <p class="text-xs text-gray-400">
               Free-form permissions bag (JSON). Consumed by the run engine to gate tool and resource access.
             </p>
@@ -232,7 +232,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
               [(ngModel)]="permissionsDraft"
               rows="12"
               spellcheck="false"
-              class="w-full bg-black/30 border border-white/10 rounded px-3 py-2 text-xs font-mono text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none"
+              class="w-full bg-black/30 border border-white/10 rounded px-3 py-2 text-xs font-mono text-gray-200 focus:outline-none focus:ring-1 focus:ring-cyan-400 resize-none"
             ></textarea>
             @if (permissionsError()) {
               <div class="text-[11px] ck-mono" style="color: var(--ck-signal-neg);">
@@ -245,7 +245,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
                 type="button"
                 (click)="savePermissions()"
                 [disabled]="saving() || !!permissionsError()"
-                class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white transition"
+                class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white transition"
               >
                 <app-icon [name]="saving() ? 'loader-2' : 'save'" [size]="12" [class.animate-spin]="saving()" />
                 Save permissions
@@ -271,14 +271,14 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
           } @else {
             <ul class="space-y-2">
               @for (sys of boundSystems(); track sys.id) {
-                <li class="t-card rounded-md p-4 flex items-center gap-3">
-                  <div class="w-9 h-9 rounded bg-brand-500/15 text-brand-400 ring-1 ring-brand-500/30 flex items-center justify-center shrink-0">
+                <li class="ck-surface rounded-md p-4 flex items-center gap-3">
+                  <div class="w-9 h-9 rounded bg-cyan-500/15 text-cyan-400 ring-1 ring-cyan-500/30 flex items-center justify-center shrink-0">
                     <app-icon name="cube" [size]="16" />
                   </div>
                   <div class="flex-1 min-w-0">
                     <a
                       [routerLink]="['/systems', sys.id]"
-                      class="text-sm font-medium text-white hover:text-brand-300 transition truncate block"
+                      class="text-sm font-medium text-white hover:text-cyan-300 transition truncate block"
                     >
                       {{ sys.name }}
                     </a>
@@ -323,7 +323,7 @@ type ContextTabId = 'overview' | 'data' | 'memory' | 'permissions' | 'systems';
             <li>
               <a
                 [routerLink]="['/systems', sys.id]"
-                class="text-xs text-brand-300 hover:text-brand-200 transition truncate block"
+                class="text-xs text-cyan-300 hover:text-cyan-200 transition truncate block"
               >
                 {{ sys.name }}
               </a>

@@ -145,7 +145,7 @@ interface BatchProgress {
       </button>
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition disabled:opacity-50"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition disabled:opacity-50"
         (click)="runBatch()"
         [disabled]="running()"
       >
@@ -163,19 +163,19 @@ interface BatchProgress {
 
     <!-- Batch progress bar -->
     @if (running() || batchMessage()) {
-      <div class="t-card t-elevated rounded-md p-3 mb-4 flex items-center gap-3">
+      <div class="ck-surface t-elevated rounded-md p-3 mb-4 flex items-center gap-3">
         <app-icon
           [name]="running() ? 'loader-2' : 'check-circle-2'"
           [size]="16"
           [class.animate-spin]="running()"
-          [class.text-brand-400]="running()"
+          [class.text-cyan-400]="running()"
           [class.text-emerald-400]="!running()"
         />
         <div class="flex-1 min-w-0">
           <div class="text-xs text-white truncate">{{ batchMessage() || 'Starting…' }}</div>
           <div class="h-1.5 rounded-full bg-white/5 overflow-hidden mt-1.5">
             <div
-              class="h-full bg-gradient-to-r from-brand-400 to-violet-500 transition-all duration-300"
+              class="h-full bg-cyan-400 transition-all duration-300"
               [style.width.%]="batchProgress()"
             ></div>
           </div>
@@ -211,10 +211,10 @@ interface BatchProgress {
     </div>
 
     @if (dashboard()?.synthesis; as synthesis) {
-      <section class="t-card t-elevated rounded-md p-5 mb-6">
+      <section class="ck-surface t-elevated rounded-md p-5 mb-6">
         <div class="flex items-start justify-between gap-4 mb-4">
           <div>
-            <div class="text-[10px] uppercase tracking-wider font-semibold text-brand-300 mb-1">
+            <div class="text-[10px] uppercase tracking-wider font-semibold text-cyan-300 mb-1">
               Reference brief
             </div>
             <h3 class="text-base font-semibold text-white">{{ synthesis.title }}</h3>
@@ -236,7 +236,7 @@ interface BatchProgress {
             <ul class="space-y-2">
               @for (finding of synthesis.key_findings || []; track finding) {
                 <li class="text-sm text-gray-300 leading-relaxed flex gap-2">
-                  <span class="mt-2 w-1.5 h-1.5 rounded-full bg-brand-400 shrink-0"></span>
+                  <span class="mt-2 w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0"></span>
                   <span>{{ finding }}</span>
                 </li>
               }
@@ -259,10 +259,10 @@ interface BatchProgress {
 
     <!-- Charts -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-      <section class="t-card t-elevated rounded-md p-5">
+      <section class="ck-surface t-elevated rounded-md p-5">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-            <app-icon name="pie-chart" [size]="16" class="text-brand-400" /> Sentiment mix
+            <app-icon name="pie-chart" [size]="16" class="text-cyan-400" /> Sentiment mix
           </h3>
           <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
             Last 30 articles
@@ -291,10 +291,10 @@ interface BatchProgress {
         </div>
       </section>
 
-      <section class="t-card t-elevated rounded-md p-5">
+      <section class="ck-surface t-elevated rounded-md p-5">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-            <app-icon name="bar-chart-3" [size]="16" class="text-brand-400" /> Top entities
+            <app-icon name="bar-chart-3" [size]="16" class="text-cyan-400" /> Top entities
           </h3>
           <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
             {{ dashboard()?.top_entities?.length ?? 0 }} mentions
@@ -325,10 +325,10 @@ interface BatchProgress {
     </div>
 
     <!-- Article feed -->
-    <section class="t-card t-elevated rounded-md overflow-hidden">
+    <section class="ck-surface t-elevated rounded-md overflow-hidden">
       <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-          <app-icon name="newspaper" [size]="16" class="text-brand-400" /> Live feed
+          <app-icon name="newspaper" [size]="16" class="text-cyan-400" /> Live feed
         </h3>
         <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
           {{ articles().length }} articles
@@ -390,7 +390,7 @@ interface BatchProgress {
                   [href]="a.url"
                   target="_blank"
                   rel="noreferrer"
-                  class="shrink-0 p-1.5 rounded hover:bg-white/5 text-gray-500 hover:text-brand-400 transition mt-0.5"
+                  class="shrink-0 p-1.5 rounded hover:bg-white/5 text-gray-500 hover:text-cyan-400 transition mt-0.5"
                   title="Open source"
                 >
                   <app-icon name="external-link" [size]="14" />
@@ -449,7 +449,7 @@ interface BatchProgress {
               [(ngModel)]="feedDraft.name"
               name="fname"
               placeholder="Name"
-              class="col-span-2 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-brand-400"
+              class="col-span-2 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-cyan-400"
               required
             />
             <input
@@ -457,12 +457,12 @@ interface BatchProgress {
               name="furl"
               type="url"
               placeholder="https://example.com/feed.xml"
-              class="col-span-3 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-brand-400"
+              class="col-span-3 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-cyan-400"
               required
             />
             <button
               type="submit"
-              class="bg-brand-500 hover:bg-brand-600 rounded text-white text-sm font-medium flex items-center justify-center gap-1 disabled:opacity-50"
+              class="bg-cyan-500 hover:bg-cyan-600 rounded text-white text-sm font-medium flex items-center justify-center gap-1 disabled:opacity-50"
               [disabled]="!feedDraft.name.trim() || !feedDraft.url.trim() || addingFeed()"
             >
               <app-icon
@@ -517,14 +517,14 @@ interface BatchProgress {
                 [(ngModel)]="targetDraft.name"
                 name="tname"
                 placeholder="Target name"
-                class="col-span-2 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-brand-400"
+                class="col-span-2 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-cyan-400"
                 required
               />
               <input
                 [(ngModel)]="targetDraft.description"
                 name="tdesc"
                 placeholder="Description / semantic anchor"
-                class="col-span-4 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-brand-400"
+                class="col-span-4 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-cyan-400"
                 required
               />
             </div>
@@ -533,7 +533,7 @@ interface BatchProgress {
                 [(ngModel)]="targetDraft.keywords"
                 name="tkw"
                 placeholder="comma,separated,keywords"
-                class="col-span-4 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-brand-400"
+                class="col-span-4 bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-cyan-400"
               />
               <input
                 [(ngModel)]="targetDraft.threshold"
@@ -543,11 +543,11 @@ interface BatchProgress {
                 max="1"
                 step="0.05"
                 placeholder="0.30"
-                class="bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-brand-400"
+                class="bg-white/5 ring-1 ring-white/10 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-cyan-400"
               />
               <button
                 type="submit"
-                class="bg-brand-500 hover:bg-brand-600 rounded text-white text-sm font-medium flex items-center justify-center gap-1 disabled:opacity-50"
+                class="bg-cyan-500 hover:bg-cyan-600 rounded text-white text-sm font-medium flex items-center justify-center gap-1 disabled:opacity-50"
                 [disabled]="!targetDraft.name.trim() || !targetDraft.description.trim() || addingTarget()"
               >
                 <app-icon

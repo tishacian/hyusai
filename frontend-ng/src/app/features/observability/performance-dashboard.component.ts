@@ -51,7 +51,7 @@ interface MetricsResponse {
     >
       <div actions [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="10">
         <label class="ck-mono" [style.display]="'inline-flex'" [style.alignItems]="'center'" [style.gap.px]="6" [style.fontSize.px]="10" [style.color]="'var(--ck-fg-3)'" [style.letterSpacing]="'0.10em'" [style.textTransform]="'uppercase'" [style.cursor]="'pointer'">
-          <input type="checkbox" [checked]="autoRefresh()" (change)="toggleAuto()" class="accent-brand-500" />
+          <input type="checkbox" [checked]="autoRefresh()" (change)="toggleAuto()" class="accent-cyan-500" />
           Auto-refresh
         </label>
         <button
@@ -120,10 +120,10 @@ interface MetricsResponse {
       />
     </div>
 
-    <section class="t-card t-elevated rounded-md overflow-hidden mb-6">
+    <section class="ck-surface t-elevated rounded-md overflow-hidden mb-6">
       <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-          <app-icon name="line-chart" [size]="16" class="text-brand-400" />
+          <app-icon name="line-chart" [size]="16" class="text-cyan-400" />
           Latency & counters
         </h3>
         <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
@@ -174,8 +174,8 @@ interface MetricsResponse {
               <div class="col-span-1 text-right">
                 <span
                   class="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded"
-                  [class.bg-brand-500\\/10]="m.kind === 'latency'"
-                  [class.text-brand-300]="m.kind === 'latency'"
+                  [class.bg-cyan-500\\/10]="m.kind === 'latency'"
+                  [class.text-cyan-300]="m.kind === 'latency'"
                   [class.bg-red-500\\/10]="m.kind === 'error'"
                   [class.text-red-300]="m.kind === 'error'"
                   [class.bg-white\\/5]="m.kind === 'count'"
@@ -190,9 +190,9 @@ interface MetricsResponse {
       }
     </section>
 
-    <section class="t-card t-elevated rounded-md p-5">
+    <section class="ck-surface t-elevated rounded-md p-5">
       <h3 class="text-sm font-semibold text-white flex items-center gap-1.5 mb-3">
-        <app-icon name="database" [size]="16" class="text-brand-400" />
+        <app-icon name="database" [size]="16" class="text-cyan-400" />
         Cache
       </h3>
       <div class="space-y-3">
@@ -203,7 +203,7 @@ interface MetricsResponse {
           </div>
           <div class="h-2 rounded-full bg-white/5 overflow-hidden">
             <div
-              class="h-full bg-gradient-to-r from-brand-400 to-violet-500 transition-all duration-300"
+              class="h-full bg-cyan-400 transition-all duration-300"
               [style.width.%]="cache()?.usage_percent ?? 0"
             ></div>
           </div>

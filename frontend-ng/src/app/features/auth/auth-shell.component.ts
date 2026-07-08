@@ -5,7 +5,7 @@ import { StatusPulseComponent } from '@app/shared/ui/status-pulse.component';
 /**
  * Cockpit-grade authentication shell.
  *
- * Replaces the legacy glass-morphism screen (soft purple aurora, large
+ * Replaces the legacy ck-surface-morphism screen (soft purple aurora, large
  * radii, white/10 inputs) with the same visual DNA used across the rest
  * of the app: dark `--ck-bg-*` surfaces, hairline strokes, mono labels,
  * cool-cyan signal accents and a telemetry-style status strip. The goal

@@ -57,7 +57,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
     @for (category of categories; track category.id) {
       <section class="mb-6">
         <header class="mb-3 flex items-center gap-2">
-          <span class="inline-flex h-8 w-8 items-center justify-center rounded bg-brand-500/10 text-brand-200 ring-1 ring-brand-400/20">
+          <span class="inline-flex h-8 w-8 items-center justify-center rounded bg-cyan-500/10 text-cyan-200 ring-1 ring-cyan-400/20">
             <app-icon [name]="category.icon" [size]="15" />
           </span>
           <div>
@@ -69,9 +69,9 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
 
         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           @for (connector of connectorsInCategory(category.id); track connector.id) {
-            <article class="t-card t-elevated rounded-md p-5">
+            <article class="ck-surface rounded-md p-5">
               <div class="flex items-start justify-between gap-3">
-                <span class="inline-flex h-10 w-10 items-center justify-center rounded bg-brand-500/10 text-brand-200 ring-1 ring-brand-400/20">
+                <span class="inline-flex h-10 w-10 items-center justify-center rounded bg-cyan-500/10 text-cyan-200 ring-1 ring-cyan-400/20">
                   <app-icon [name]="connector.icon" [size]="18" />
                 </span>
                 <span
@@ -102,7 +102,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                 @if (connector.id === 'sftp') {
                   <a
                     routerLink="/connectors/sftp"
-                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-400"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
                     Open secure deposit
@@ -110,7 +110,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                 } @else if (connector.id === 'institutional_calendar') {
                   <a
                     routerLink="/hypervisor/mission-room/agenda"
-                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-400"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
                     Open agenda
@@ -118,7 +118,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                 } @else if (connector.id === 'visual_streams') {
                   <a
                     routerLink="/hypervisor/mission-room/monitor"
-                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-400"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
                     Open monitor
@@ -126,7 +126,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                 } @else if (connector.id === 'sharepoint') {
                   <a
                     routerLink="/connectors/sharepoint"
-                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-400"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400"
                   >
                     <app-icon name="arrow-right" [size]="14" />
                     Open SharePoint setup
@@ -164,17 +164,17 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
             class="rounded-md p-3 flex items-start gap-2 ring-1"
             [ngClass]="connector.status === 'coming-soon'
               ? 'bg-amber-500/5 ring-amber-500/20'
-              : 'bg-brand-500/5 ring-brand-500/20'"
+              : 'bg-cyan-500/5 ring-cyan-500/20'"
           >
             <app-icon
               [name]="connector.status === 'coming-soon' ? 'clock' : 'shield-check'"
               [size]="14"
               class="mt-0.5 shrink-0"
-              [ngClass]="connector.status === 'coming-soon' ? 'text-amber-400' : 'text-brand-300'"
+              [ngClass]="connector.status === 'coming-soon' ? 'text-amber-400' : 'text-cyan-300'"
             />
             <div
               class="text-[11px] leading-relaxed"
-              [ngClass]="connector.status === 'coming-soon' ? 'text-amber-200/90' : 'text-brand-200/90'"
+              [ngClass]="connector.status === 'coming-soon' ? 'text-amber-200/90' : 'text-cyan-200/90'"
             >
               @if (connector.status === 'coming-soon') {
                 Adapter planned. The setup draft is saved locally for showcase review.
@@ -199,7 +199,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
                   (input)="onFieldInput(field.key, $event)"
                   [placeholder]="field.placeholder ?? ''"
                   [required]="!!field.required"
-                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition text-sm"
+                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm"
                 />
               </div>
             }
@@ -207,7 +207,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
             <div class="flex items-center gap-2 pt-2">
               <button
                 type="submit"
-                class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-white text-sm font-medium transition"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 text-white text-sm font-medium transition"
               >
                 <app-icon name="save" [size]="14" /> Save
               </button>
@@ -278,7 +278,7 @@ export class ConnectorsPageComponent {
     if (this.isConnectedOrConfigured(connector)) {
       return 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20';
     }
-    if (connector.status === 'active') return 'bg-brand-500/10 text-brand-200 ring-brand-500/20';
+    if (connector.status === 'active') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/20';
     if (connector.status === 'available') return 'bg-cyan-500/10 text-cyan-200 ring-cyan-500/20';
     return 'bg-amber-500/10 text-amber-300 ring-amber-500/20';
   }

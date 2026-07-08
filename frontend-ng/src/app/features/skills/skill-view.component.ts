@@ -61,7 +61,7 @@ import { LensService } from '@app/core/lens';
       ariaLabel="Skill facets"
     >
       <ck-tab id="overview" label="Overview">
-        <section class="t-card t-elevated rounded-md p-5 space-y-3">
+        <section class="ck-surface t-elevated rounded-md p-5 space-y-3">
           <h3 class="text-sm font-semibold text-white">About this skill</h3>
           <p class="text-xs text-gray-400">
             {{ skill()?.description ?? 'Skill description will appear once the catalog is wired.' }}
@@ -72,27 +72,27 @@ import { LensService } from '@app/core/lens';
             </a>
           </div>
           <p class="text-[11px] text-gray-500">
-            Lens: <span class="font-mono text-brand-300">{{ lens() }}</span>
+            Lens: <span class="font-mono text-cyan-300">{{ lens() }}</span>
           </p>
         </section>
       </ck-tab>
 
       <ck-tab id="invocations" label="Invocations">
-        <div class="t-card rounded-md p-5 text-center text-gray-400 text-sm">
+        <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
           Recent invocations (runs) that executed this skill — with latency,
           cost, and outcome verdict. Wires to the "runs" collection filtered by skill id.
         </div>
       </ck-tab>
 
       <ck-tab id="spec" label="Spec">
-        <div class="t-card rounded-md p-5">
+        <div class="ck-surface rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3">Input / Output contract</h3>
           <pre class="font-mono text-[11px] text-gray-300 overflow-x-auto whitespace-pre-wrap m-0">{{ specPreview() }}</pre>
         </div>
       </ck-tab>
 
       <ck-tab id="knowledge" label="Knowledge">
-        <div class="t-card rounded-md p-5 text-center text-gray-400 text-sm">
+        <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
           Knowledge bases bound to this skill. RAG presets, confidence floors,
           and refresh cadence.
         </div>

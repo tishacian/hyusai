@@ -14,9 +14,9 @@ interface Rule {
   standalone: true,
   imports: [FormsModule, IconComponent],
   template: `
-    <div class="t-card t-elevated rounded-md p-6">
+    <div class="ck-surface t-elevated rounded-md p-6">
       <div class="flex items-start gap-3 mb-5">
-        <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+        <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
           <app-icon name="key-round" [size]="18" />
         </div>
         <div>
@@ -36,7 +36,7 @@ interface Rule {
           name="current"
           required
           autocomplete="current-password"
-          class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
         />
       </div>
 
@@ -49,7 +49,7 @@ interface Rule {
           name="new"
           required
           autocomplete="new-password"
-          class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
         />
       </div>
 
@@ -61,7 +61,7 @@ interface Rule {
           name="confirm"
           required
           autocomplete="new-password"
-          class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          class="w-full px-3 py-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
         />
         @if (confirmPwd && confirmPwd !== newPwd) {
           <p class="text-xs text-red-500 mt-1">Passwords don't match.</p>
@@ -88,7 +88,7 @@ interface Rule {
       <button
         type="submit"
         [disabled]="!canSubmit() || saving()"
-        class="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-medium rounded transition shadow-glow-sm"
+        class="inline-flex items-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white font-medium rounded transition shadow-glow-sm"
       >
         <app-icon name="save" [size]="14" />
         @if (saving()) { Updating… } @else { Update password }

@@ -29,7 +29,7 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
   template: `
     @if (variant === 'tile') {
       <div
-        class="t-card rounded-md p-4 flex flex-col gap-2 relative overflow-hidden group"
+        class="ck-surface rounded-md p-4 flex flex-col gap-2 relative overflow-hidden group"
         [class.cursor-pointer]="interactive"
       >
         <div class="flex items-center justify-between">
@@ -38,7 +38,7 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
           </span>
           @if (icon) {
             <div
-              class="w-7 h-7 rounded-md flex items-center justify-center text-brand-500 bg-brand-500/10 group-hover:bg-brand-500/20 transition-colors"
+              class="w-7 h-7 rounded-md flex items-center justify-center text-cyan-500 bg-cyan-500/10 group-hover:bg-cyan-500/20 transition-colors"
             >
               <app-icon [name]="icon" [size]="14" />
             </div>
@@ -78,7 +78,7 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
             class="-mx-1 -mb-1"
             [class.text-emerald-400]="sparklineTone === 'positive'"
             [class.text-red-400]="sparklineTone === 'negative'"
-            [class.text-brand-400]="!sparklineTone || sparklineTone === 'neutral'"
+            [class.text-cyan-400]="!sparklineTone || sparklineTone === 'neutral'"
           >
             <app-sparkline [data]="sparkline" [width]="140" [height]="28" />
           </div>
@@ -88,7 +88,7 @@ export type CkReadoutSentiment = 'positive' | 'negative' | 'neutral';
         } @else if (hint) {
           <div class="text-[10px] text-gray-500 dark:text-gray-400">{{ hint }}</div>
         }
-        <div class="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-transparent via-brand-500/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+        <div class="absolute inset-x-0 bottom-0 h-0.5 bg-cyan-500/40 opacity-0 group-hover:opacity-100 transition-opacity"></div>
       </div>
     } @else {
       <div

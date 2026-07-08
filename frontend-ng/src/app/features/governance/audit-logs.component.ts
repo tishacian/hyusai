@@ -99,8 +99,8 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
             type="button"
             (click)="severity.set(f.key)"
             class="px-2.5 py-1 text-xs rounded transition"
-            [class.bg-brand-500\\/20]="severity() === f.key"
-            [class.text-brand-300]="severity() === f.key"
+            [class.bg-cyan-500\\/20]="severity() === f.key"
+            [class.text-cyan-300]="severity() === f.key"
             [class.text-gray-400]="severity() !== f.key"
             [class.hover:text-gray-200]="severity() !== f.key"
           >
@@ -113,7 +113,7 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
       </span>
     </div>
 
-    <section class="t-card t-elevated rounded-md overflow-hidden">
+    <section class="ck-surface rounded-md overflow-hidden">
       @if (loading()) {
         <div class="p-6 space-y-3">
           @for (_ of skeletonRows; track $index) {
@@ -146,7 +146,7 @@ type Severity = 'info' | 'warning' | 'error' | 'critical';
                   </td>
                   <td class="px-5 py-3">
                     <div class="flex items-center gap-2 text-white font-medium">
-                      <app-icon [name]="eventIcon(log.event_type)" [size]="14" class="text-brand-400" />
+                      <app-icon [name]="eventIcon(log.event_type)" [size]="14" class="text-cyan-400" />
                       {{ log.event_type }}
                     </div>
                     @if (log.details) {
@@ -365,7 +365,7 @@ export class AuditLogsComponent implements OnInit {
       case 'warning':
         return 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30';
       default:
-        return 'bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/30';
+        return 'bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/30';
     }
   }
 

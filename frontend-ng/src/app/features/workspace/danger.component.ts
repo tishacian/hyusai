@@ -13,7 +13,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
   imports: [IconComponent, ConfirmDialogComponent],
   template: `
     <div class="space-y-6">
-      <section class="t-card t-elevated rounded-md p-6">
+      <section class="ck-surface rounded-md p-6">
         <div class="flex items-start gap-3 mb-4">
           <div class="w-10 h-10 rounded-md flex items-center justify-center bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/30">
             <app-icon name="log-out" [size]="18" />
@@ -41,7 +41,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
         </button>
       </section>
 
-      <section class="t-card t-elevated rounded-md p-6 border-red-500/30">
+      <section class="ck-surface rounded-md p-6 border-red-500/30">
         <div class="flex items-start gap-3 mb-4">
           <div class="w-10 h-10 rounded-md flex items-center justify-center bg-red-500/10 text-red-400 ring-1 ring-red-500/30">
             <app-icon name="shield-alert" [size]="18" />
@@ -66,7 +66,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               type="button"
               (click)="restore()"
               [disabled]="restoring()"
-              class="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-500 hover:bg-brand-400 text-white rounded text-sm font-medium transition disabled:opacity-40"
+              class="inline-flex items-center gap-1.5 px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-white rounded text-sm font-medium transition disabled:opacity-40"
             >
               <app-icon name="archive-restore" [size]="14" />
               {{ restoring() ? 'Restoring…' : 'Restore workspace' }}

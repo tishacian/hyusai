@@ -51,7 +51,7 @@ const RAG_MODES = [
       </button>
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition disabled:opacity-50"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition disabled:opacity-50"
         (click)="save()"
         [disabled]="!dirty() || saving()"
       >
@@ -62,9 +62,9 @@ const RAG_MODES = [
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <!-- Model / generation -->
-      <section class="t-card t-elevated rounded-md p-5">
+      <section class="ck-surface rounded-md p-5">
         <div class="flex items-center gap-2 mb-4">
-          <app-icon name="cpu" [size]="16" class="text-brand-400" />
+          <app-icon name="cpu" [size]="16" class="text-cyan-400" />
           <h3 class="text-sm font-semibold text-white">{{ isDemoMode() ? 'Runtime & generation' : 'Model & generation' }}</h3>
         </div>
 
@@ -72,7 +72,7 @@ const RAG_MODES = [
           @if (isDemoMode()) {
             <div class="rounded-md bg-white/5 ring-1 ring-white/10 p-4">
               <div class="flex items-center gap-2 text-sm font-semibold text-white">
-                <app-icon name="shield-check" [size]="15" class="text-brand-300" />
+                <app-icon name="shield-check" [size]="15" class="text-cyan-300" />
                 Managed runtime
               </div>
               <p class="text-xs text-gray-400 mt-2 leading-relaxed">
@@ -87,9 +87,9 @@ const RAG_MODES = [
                   <button
                     type="button"
                     class="px-3 py-2 rounded text-xs font-medium ring-1 transition"
-                    [class.bg-brand-500\\/15]="draft().defaultProvider === p.value"
-                    [class.text-brand-200]="draft().defaultProvider === p.value"
-                    [class.ring-brand-500\\/40]="draft().defaultProvider === p.value"
+                    [class.bg-cyan-500\\/15]="draft().defaultProvider === p.value"
+                    [class.text-cyan-200]="draft().defaultProvider === p.value"
+                    [class.ring-cyan-500\\/40]="draft().defaultProvider === p.value"
                     [class.bg-white\\/5]="draft().defaultProvider !== p.value"
                     [class.text-gray-300]="draft().defaultProvider !== p.value"
                     [class.ring-white\\/10]="draft().defaultProvider !== p.value"
@@ -119,14 +119,14 @@ const RAG_MODES = [
           <div>
             <div class="flex justify-between items-baseline">
               <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Temperature</label>
-              <span class="font-mono text-xs text-brand-300">{{ fmt(draft().temperature, 2) }}</span>
+              <span class="font-mono text-xs text-cyan-300">{{ fmt(draft().temperature, 2) }}</span>
             </div>
             <input
               type="range"
               min="0"
               max="2"
               step="0.05"
-              class="w-full mt-1.5 accent-brand-500"
+              class="w-full mt-1.5 accent-cyan-500"
               [ngModel]="draft().temperature"
               (ngModelChange)="patch({ temperature: +$event })"
               name="temp"
@@ -137,14 +137,14 @@ const RAG_MODES = [
           <div>
             <div class="flex justify-between items-baseline">
               <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Max tokens</label>
-              <span class="font-mono text-xs text-brand-300">{{ draft().maxTokens }}</span>
+              <span class="font-mono text-xs text-cyan-300">{{ draft().maxTokens }}</span>
             </div>
             <input
               type="range"
               min="256"
               max="8000"
               step="128"
-              class="w-full mt-1.5 accent-brand-500"
+              class="w-full mt-1.5 accent-cyan-500"
               [ngModel]="draft().maxTokens"
               (ngModelChange)="patch({ maxTokens: +$event })"
               name="maxTokens"
@@ -154,9 +154,9 @@ const RAG_MODES = [
       </section>
 
       <!-- RAG pipeline -->
-      <section class="t-card t-elevated rounded-md p-5">
+      <section class="ck-surface rounded-md p-5">
         <div class="flex items-center gap-2 mb-4">
-          <app-icon name="database" [size]="16" class="text-brand-400" />
+          <app-icon name="database" [size]="16" class="text-cyan-400" />
           <h3 class="text-sm font-semibold text-white">Retrieval pipeline</h3>
         </div>
 
@@ -169,9 +169,9 @@ const RAG_MODES = [
                   type="button"
                   [title]="m.desc"
                   class="px-2 py-2 rounded text-xs font-semibold ring-1 transition"
-                  [class.bg-brand-500\\/15]="draft().ragPipelineMode === m.value"
-                  [class.text-brand-200]="draft().ragPipelineMode === m.value"
-                  [class.ring-brand-500\\/40]="draft().ragPipelineMode === m.value"
+                  [class.bg-cyan-500\\/15]="draft().ragPipelineMode === m.value"
+                  [class.text-cyan-200]="draft().ragPipelineMode === m.value"
+                  [class.ring-cyan-500\\/40]="draft().ragPipelineMode === m.value"
                   [class.bg-white\\/5]="draft().ragPipelineMode !== m.value"
                   [class.text-gray-300]="draft().ragPipelineMode !== m.value"
                   [class.ring-white\\/10]="draft().ragPipelineMode !== m.value"
@@ -187,14 +187,14 @@ const RAG_MODES = [
           <div>
             <div class="flex justify-between items-baseline">
               <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Top K</label>
-              <span class="font-mono text-xs text-brand-300">{{ draft().ragTopK }}</span>
+              <span class="font-mono text-xs text-cyan-300">{{ draft().ragTopK }}</span>
             </div>
             <input
               type="range"
               min="1"
               max="50"
               step="1"
-              class="w-full mt-1.5 accent-brand-500"
+              class="w-full mt-1.5 accent-cyan-500"
               [ngModel]="draft().ragTopK"
               (ngModelChange)="patch({ ragTopK: +$event })"
               name="topk"
@@ -205,14 +205,14 @@ const RAG_MODES = [
           <div>
             <div class="flex justify-between items-baseline">
               <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Similarity threshold</label>
-              <span class="font-mono text-xs text-brand-300">{{ fmt(draft().ragSimilarityThreshold, 2) }}</span>
+              <span class="font-mono text-xs text-cyan-300">{{ fmt(draft().ragSimilarityThreshold, 2) }}</span>
             </div>
             <input
               type="range"
               min="0"
               max="1"
               step="0.01"
-              class="w-full mt-1.5 accent-brand-500"
+              class="w-full mt-1.5 accent-cyan-500"
               [ngModel]="draft().ragSimilarityThreshold"
               (ngModelChange)="patch({ ragSimilarityThreshold: +$event })"
               name="sim"
@@ -228,7 +228,7 @@ const RAG_MODES = [
             <button
               type="button"
               class="relative inline-flex h-5 w-9 items-center rounded-full transition"
-              [class.bg-brand-500]="draft().ragUseHybridSearch"
+              [class.bg-cyan-500]="draft().ragUseHybridSearch"
               [class.bg-white\\/10]="!draft().ragUseHybridSearch"
               (click)="patch({ ragUseHybridSearch: !draft().ragUseHybridSearch })"
             >
@@ -244,14 +244,14 @@ const RAG_MODES = [
               <div>
                 <div class="flex justify-between items-baseline">
                   <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Vector weight</label>
-                  <span class="font-mono text-xs text-brand-300">{{ fmt(draft().ragVectorWeight, 2) }}</span>
+                  <span class="font-mono text-xs text-cyan-300">{{ fmt(draft().ragVectorWeight, 2) }}</span>
                 </div>
                 <input
                   type="range"
                   min="0"
                   max="1"
                   step="0.05"
-                  class="w-full mt-1 accent-brand-500"
+                  class="w-full mt-1 accent-cyan-500"
                   [ngModel]="draft().ragVectorWeight"
                   (ngModelChange)="patch({ ragVectorWeight: +$event })"
                   name="vecw"
@@ -260,14 +260,14 @@ const RAG_MODES = [
               <div>
                 <div class="flex justify-between items-baseline">
                   <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Sparse weight</label>
-                  <span class="font-mono text-xs text-brand-300">{{ fmt(draft().ragBM25Weight, 2) }}</span>
+                  <span class="font-mono text-xs text-cyan-300">{{ fmt(draft().ragBM25Weight, 2) }}</span>
                 </div>
                 <input
                   type="range"
                   min="0"
                   max="1"
                   step="0.05"
-                  class="w-full mt-1 accent-brand-500"
+                  class="w-full mt-1 accent-cyan-500"
                   [ngModel]="draft().ragBM25Weight"
                   (ngModelChange)="patch({ ragBM25Weight: +$event })"
                   name="bm25w"
@@ -279,23 +279,23 @@ const RAG_MODES = [
       </section>
 
       <!-- Chunking -->
-      <section class="t-card t-elevated rounded-md p-5">
+      <section class="ck-surface rounded-md p-5">
         <div class="flex items-center gap-2 mb-4">
-          <app-icon name="boxes" [size]="16" class="text-brand-400" />
+          <app-icon name="boxes" [size]="16" class="text-cyan-400" />
           <h3 class="text-sm font-semibold text-white">Chunking</h3>
         </div>
         <div class="space-y-4">
           <div>
             <div class="flex justify-between items-baseline">
               <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Chunk size (chars)</label>
-              <span class="font-mono text-xs text-brand-300">{{ draft().ragChunkSize }}</span>
+              <span class="font-mono text-xs text-cyan-300">{{ draft().ragChunkSize }}</span>
             </div>
             <input
               type="range"
               min="200"
               max="4000"
               step="50"
-              class="w-full mt-1.5 accent-brand-500"
+              class="w-full mt-1.5 accent-cyan-500"
               [ngModel]="draft().ragChunkSize"
               (ngModelChange)="patch({ ragChunkSize: +$event })"
               name="cs"
@@ -304,14 +304,14 @@ const RAG_MODES = [
           <div>
             <div class="flex justify-between items-baseline">
               <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Chunk overlap (chars)</label>
-              <span class="font-mono text-xs text-brand-300">{{ draft().ragChunkOverlap }}</span>
+              <span class="font-mono text-xs text-cyan-300">{{ draft().ragChunkOverlap }}</span>
             </div>
             <input
               type="range"
               min="0"
               max="1000"
               step="25"
-              class="w-full mt-1.5 accent-brand-500"
+              class="w-full mt-1.5 accent-cyan-500"
               [ngModel]="draft().ragChunkOverlap"
               (ngModelChange)="patch({ ragChunkOverlap: +$event })"
               name="co"
@@ -321,9 +321,9 @@ const RAG_MODES = [
       </section>
 
       <!-- UX toggles -->
-      <section class="t-card t-elevated rounded-md p-5">
+      <section class="ck-surface rounded-md p-5">
         <div class="flex items-center gap-2 mb-4">
-          <app-icon name="eye" [size]="16" class="text-brand-400" />
+          <app-icon name="eye" [size]="16" class="text-cyan-400" />
           <h3 class="text-sm font-semibold text-white">Experience</h3>
         </div>
         <div class="space-y-3">
@@ -336,7 +336,7 @@ const RAG_MODES = [
               <button
                 type="button"
                 class="relative inline-flex h-5 w-9 items-center rounded-full transition"
-                [class.bg-brand-500]="!!draft()[t.key]"
+                [class.bg-cyan-500]="!!draft()[t.key]"
                 [class.bg-white\\/10]="!draft()[t.key]"
                 (click)="patchKey(t.key, !draft()[t.key])"
               >

@@ -133,7 +133,7 @@ const PALETTE = {
          is the question an operator asks first when opening Quality. -->
     @if (trend(); as t) {
       <section
-        class="t-card t-elevated rounded-md p-4 mb-4"
+        class="ck-surface t-elevated rounded-md p-4 mb-4"
         [style.display]="'grid'"
         [style.gridTemplateColumns]="'1fr 1fr 1fr auto'"
         [style.gap.px]="16"
@@ -244,7 +244,7 @@ const PALETTE = {
     }
 
     @if (componentHealthItems().length > 0) {
-      <section class="t-card t-elevated rounded-md p-4 mb-4">
+      <section class="ck-surface t-elevated rounded-md p-4 mb-4">
         <div class="flex items-center justify-between mb-3">
           <div>
             <div [style.display]="'flex'" [style.alignItems]="'center'" [style.gap.px]="6">
@@ -344,10 +344,10 @@ const PALETTE = {
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
       <!-- Radar chart -->
-      <section class="t-card t-elevated rounded-md p-5">
+      <section class="ck-surface t-elevated rounded-md p-5">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-            <app-icon name="radar" [size]="16" class="text-brand-400" />
+            <app-icon name="radar" [size]="16" class="text-cyan-400" />
             Quality radar · {{ dimensionLabels().length }} dimensions
           </h3>
           <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
@@ -378,10 +378,10 @@ const PALETTE = {
       </section>
 
       <!-- History -->
-      <section class="t-card t-elevated rounded-md p-5">
+      <section class="ck-surface t-elevated rounded-md p-5">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-            <app-icon name="history" [size]="16" class="text-brand-400" />
+            <app-icon name="history" [size]="16" class="text-cyan-400" />
             Score history
           </h3>
           <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
@@ -413,10 +413,10 @@ const PALETTE = {
     </div>
 
     <!-- Claim audit -->
-    <section class="t-card t-elevated rounded-md overflow-hidden">
+    <section class="ck-surface t-elevated rounded-md overflow-hidden">
       <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-          <app-icon name="shield-check" [size]="16" class="text-brand-400" />
+          <app-icon name="shield-check" [size]="16" class="text-cyan-400" />
           Claim audit
         </h3>
         <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">

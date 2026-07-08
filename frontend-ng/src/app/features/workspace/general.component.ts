@@ -13,7 +13,7 @@ import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
 import { HelpTooltipComponent } from '@app/shared/cockpit';
 
 const FIELD =
-  'flex-1 px-3 py-2 rounded bg-black/20 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 transition';
+  'flex-1 px-3 py-2 rounded bg-black/20 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 transition';
 
 @Component({
   selector: 'app-workspace-general',
@@ -21,9 +21,9 @@ const FIELD =
   imports: [FormsModule, DatePipe, IconComponent, StatusPulseComponent, SkeletonComponent, HelpTooltipComponent],
   template: `
     <div class="space-y-6">
-      <section class="t-card t-elevated rounded-md p-6">
+      <section class="ck-surface rounded-md p-6">
         <div class="flex items-start gap-3 mb-5">
-          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
             <app-icon name="settings" [size]="18" />
           </div>
           <div>
@@ -52,7 +52,7 @@ const FIELD =
                   type="button"
                   (click)="saveName()"
                   [disabled]="!dirty() || saving() || !canEdit()"
-                  class="px-4 py-2 bg-brand-500 hover:bg-brand-400 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-sm font-medium transition inline-flex items-center gap-1.5"
+                  class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-sm font-medium transition inline-flex items-center gap-1.5"
                 >
                   <app-icon name="save" [size]="14" />
                   {{ saving() ? 'Saving…' : 'Save' }}
@@ -92,9 +92,9 @@ const FIELD =
       </section>
 
       @if (detail(); as d) {
-        <section class="t-card t-elevated rounded-md p-6">
+        <section class="ck-surface rounded-md p-6">
           <div class="flex items-start gap-3 mb-4">
-            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
               <app-icon name="layers" [size]="18" />
             </div>
             <div class="flex-1">
@@ -114,16 +114,16 @@ const FIELD =
                 (click)="setMode(m.key)"
                 [disabled]="!canEdit() || savingMode()"
                 [class.ring-2]="currentMode() === m.key"
-                [class.ring-brand-500]="currentMode() === m.key"
-                [class.bg-brand-500]="currentMode() === m.key"
+                [class.ring-cyan-500]="currentMode() === m.key"
+                [class.bg-cyan-500]="currentMode() === m.key"
                 [class.bg-opacity-10]="currentMode() === m.key"
                 class="text-left p-4 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <div class="flex items-center gap-2 mb-2">
-                  <app-icon [name]="m.icon" [size]="16" class="text-brand-400" />
+                  <app-icon [name]="m.icon" [size]="16" class="text-cyan-400" />
                   <span class="text-sm font-semibold text-white">{{ m.label }}</span>
                   @if (currentMode() === m.key) {
-                    <span class="ml-auto text-[10px] uppercase tracking-wider text-brand-400 font-mono">active</span>
+                    <span class="ml-auto text-[10px] uppercase tracking-wider text-cyan-400 font-mono">active</span>
                   }
                 </div>
                 <p class="text-xs text-gray-400 leading-relaxed">{{ m.description }}</p>
@@ -133,7 +133,7 @@ const FIELD =
           <div class="mt-4 pt-4 border-t border-white/10">
             <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
               <div class="flex items-start gap-3">
-                <div class="w-9 h-9 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/25">
+                <div class="w-9 h-9 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/25">
                   <app-icon name="eye-off" [size]="16" />
                 </div>
                 <div>
@@ -148,8 +148,8 @@ const FIELD =
                 (click)="setDemoSafe(!demoSafeMode())"
                 [disabled]="!canEdit() || savingDemoSafe()"
                 class="relative inline-flex h-8 w-16 shrink-0 items-center rounded-full ring-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                [class.bg-brand-500\\/25]="demoSafeMode()"
-                [class.ring-brand-400\\/60]="demoSafeMode()"
+                [class.bg-cyan-500\\/25]="demoSafeMode()"
+                [class.ring-cyan-400\\/60]="demoSafeMode()"
                 [class.bg-white\\/5]="!demoSafeMode()"
                 [class.ring-white\\/10]="!demoSafeMode()"
                 [title]="demoSafeMode() ? 'Provider/model names are hidden' : 'Provider/model names are visible'"
@@ -163,7 +163,7 @@ const FIELD =
             </div>
             <div class="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
               <div class="flex items-start gap-3">
-                <div class="w-9 h-9 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/25">
+                <div class="w-9 h-9 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/25">
                   <app-icon name="cloud-upload" [size]="16" />
                 </div>
                 <div>
@@ -178,8 +178,8 @@ const FIELD =
                 (click)="setChatUpload(!chatUploadEnabled())"
                 [disabled]="!canEdit() || savingChatUpload()"
                 class="relative inline-flex h-8 w-16 shrink-0 items-center rounded-full ring-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                [class.bg-brand-500\\/25]="chatUploadEnabled()"
-                [class.ring-brand-400\\/60]="chatUploadEnabled()"
+                [class.bg-cyan-500\\/25]="chatUploadEnabled()"
+                [class.ring-cyan-400\\/60]="chatUploadEnabled()"
                 [class.bg-white\\/5]="!chatUploadEnabled()"
                 [class.ring-white\\/10]="!chatUploadEnabled()"
                 [title]="chatUploadEnabled() ? 'Drop-and-ask is enabled in chat' : 'Drop-and-ask is disabled in chat'"
@@ -197,9 +197,9 @@ const FIELD =
           }
         </section>
 
-        <section class="t-card t-elevated rounded-md p-6">
+        <section class="ck-surface rounded-md p-6">
           <div class="flex items-start gap-3 mb-4">
-            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
               <app-icon name="message-square" [size]="18" />
             </div>
             <div class="flex-1">
@@ -211,7 +211,7 @@ const FIELD =
           </div>
           <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
             <div class="flex items-start gap-3">
-              <div class="w-9 h-9 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/25">
+              <div class="w-9 h-9 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/25">
                 <app-icon name="message-square" [size]="16" />
               </div>
               <div>
@@ -226,8 +226,8 @@ const FIELD =
               (click)="setExpertCorrection(!expertCorrectionEnabled())"
               [disabled]="!canEdit() || savingExpertCorrection()"
               class="relative inline-flex h-8 w-16 shrink-0 items-center rounded-full ring-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              [class.bg-brand-500\\/25]="expertCorrectionEnabled()"
-              [class.ring-brand-400\\/60]="expertCorrectionEnabled()"
+              [class.bg-cyan-500\\/25]="expertCorrectionEnabled()"
+              [class.ring-cyan-400\\/60]="expertCorrectionEnabled()"
               [class.bg-white\\/5]="!expertCorrectionEnabled()"
               [class.ring-white\\/10]="!expertCorrectionEnabled()"
               [title]="expertCorrectionEnabled() ? 'Inline chat correction is enabled' : 'Inline chat correction is disabled'"
@@ -242,7 +242,7 @@ const FIELD =
           @if (expertCorrectionEnabled()) {
             <div class="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md bg-black/20 ring-1 ring-white/10 px-4 py-3">
               <div class="flex items-start gap-3">
-                <div class="w-9 h-9 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/25">
+                <div class="w-9 h-9 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/25">
                   <app-icon name="eye" [size]="16" />
                 </div>
                 <div>
@@ -257,8 +257,8 @@ const FIELD =
                 (click)="setExpertReview(!expertReviewRequired())"
                 [disabled]="!canEdit() || savingExpertReview()"
                 class="relative inline-flex h-8 w-16 shrink-0 items-center rounded-full ring-1 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                [class.bg-brand-500\\/25]="expertReviewRequired()"
-                [class.ring-brand-400\\/60]="expertReviewRequired()"
+                [class.bg-cyan-500\\/25]="expertReviewRequired()"
+                [class.ring-cyan-400\\/60]="expertReviewRequired()"
                 [class.bg-white\\/5]="!expertReviewRequired()"
                 [class.ring-white\\/10]="!expertReviewRequired()"
                 [title]="expertReviewRequired() ? 'Corrections require review before publication' : 'Corrections are auto-published'"
@@ -276,9 +276,9 @@ const FIELD =
           }
         </section>
 
-        <section class="t-card t-elevated rounded-md p-6">
+        <section class="ck-surface rounded-md p-6">
           <div class="flex items-start gap-3 mb-4">
-            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
               <app-icon name="panel-left" [size]="18" />
             </div>
             <div class="flex-1">
@@ -294,16 +294,16 @@ const FIELD =
               (click)="setNavigationProfile(false)"
               [disabled]="!canEdit() || savingNavigationProfile()"
               [class.ring-2]="!navigationProfileEnabled()"
-              [class.ring-brand-500]="!navigationProfileEnabled()"
-              [class.bg-brand-500]="!navigationProfileEnabled()"
+              [class.ring-cyan-500]="!navigationProfileEnabled()"
+              [class.bg-cyan-500]="!navigationProfileEnabled()"
               [class.bg-opacity-10]="!navigationProfileEnabled()"
               class="text-left p-4 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div class="flex items-center gap-2 mb-2">
-                <app-icon name="layout-dashboard" [size]="16" class="text-brand-400" />
+                <app-icon name="layout-dashboard" [size]="16" class="text-cyan-400" />
                 <span class="text-sm font-semibold text-white">Standard</span>
                 @if (!navigationProfileEnabled()) {
-                  <span class="ml-auto text-[10px] uppercase tracking-wider text-brand-400 font-mono">active</span>
+                  <span class="ml-auto text-[10px] uppercase tracking-wider text-cyan-400 font-mono">active</span>
                 }
               </div>
               <p class="text-xs text-gray-400 leading-relaxed">Full cockpit: Systems, Runs, Observability, Governance and workspace tools.</p>
@@ -313,16 +313,16 @@ const FIELD =
               (click)="setNavigationProfile(true)"
               [disabled]="!canEdit() || savingNavigationProfile()"
               [class.ring-2]="navigationProfileEnabled()"
-              [class.ring-brand-500]="navigationProfileEnabled()"
-              [class.bg-brand-500]="navigationProfileEnabled()"
+              [class.ring-cyan-500]="navigationProfileEnabled()"
+              [class.bg-cyan-500]="navigationProfileEnabled()"
               [class.bg-opacity-10]="navigationProfileEnabled()"
               class="text-left p-4 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <div class="flex items-center gap-2 mb-2">
-                <app-icon name="message-square" [size]="16" class="text-brand-400" />
+                <app-icon name="message-square" [size]="16" class="text-cyan-400" />
                 <span class="text-sm font-semibold text-white">Business end-user</span>
                 @if (navigationProfileEnabled()) {
-                  <span class="ml-auto text-[10px] uppercase tracking-wider text-brand-400 font-mono">active</span>
+                  <span class="ml-auto text-[10px] uppercase tracking-wider text-cyan-400 font-mono">active</span>
                 }
               </div>
               <p class="text-xs text-gray-400 leading-relaxed">Business users see only Recherche and Capture de connaissances.</p>
@@ -336,7 +336,7 @@ const FIELD =
               <button
                 type="button"
                 (click)="previewBusinessNavigation()"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-300 hover:bg-brand-200 text-sm font-semibold text-black"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded bg-cyan-300 hover:bg-cyan-200 text-sm font-semibold text-black"
               >
                 <app-icon name="eye" [size]="14" />
                 Preview business shell
@@ -348,9 +348,9 @@ const FIELD =
           }
         </section>
 
-        <section class="t-card t-elevated rounded-md p-6">
+        <section class="ck-surface rounded-md p-6">
           <h2 class="text-base font-semibold text-white mb-4 flex items-center gap-2">
-            <app-icon name="info" [size]="16" class="text-brand-400" />
+            <app-icon name="info" [size]="16" class="text-cyan-400" />
             Metadata
           </h2>
           <dl class="grid grid-cols-2 md:grid-cols-4 gap-4">

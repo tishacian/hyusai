@@ -151,7 +151,7 @@ import {
                   step="0.01"
                   [ngModel]="velocity()"
                   (ngModelChange)="velocity.set($event); onLeverChanged()"
-                  class="w-full accent-violet-400"
+                  class="w-full accent-sky-400"
                 />
                 <div class="flex justify-between ck-mono" style="font-size:9px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4); margin-top:4px;">
                   <span>THOROUGH</span>

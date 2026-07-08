@@ -29,7 +29,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
       </button>
     </app-section-header>
 
-    <section class="t-card t-elevated rounded-md overflow-hidden">
+    <section class="ck-surface rounded-md overflow-hidden">
       @if (loading()) {
         <div class="p-6 text-sm text-gray-400">Loading canonical answers…</div>
       } @else if (!items().length) {
@@ -44,7 +44,7 @@ import { SectionHeaderComponent } from '@app/shared/ui/section-header.component'
             <li class="p-5 flex gap-4 items-start">
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap mb-2">
-                  <span class="text-[10px] uppercase tracking-wider font-mono px-2 py-0.5 rounded bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/30">
+                  <span class="text-[10px] uppercase tracking-wider font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/30">
                     {{ item.hit_count }} hit{{ item.hit_count === 1 ? '' : 's' }}
                   </span>
                   <span class="text-[11px] text-gray-500 font-mono">

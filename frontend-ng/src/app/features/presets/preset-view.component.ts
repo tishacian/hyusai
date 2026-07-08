@@ -76,7 +76,7 @@ const CHUNKING_METHODS = [
     >
       <div status class="flex items-center gap-2">
         @if (preset()?.is_default) {
-          <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand-500/15 text-brand-300 ring-1 ring-brand-500/40">
+          <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/40">
             Default
           </span>
         }
@@ -107,7 +107,7 @@ const CHUNKING_METHODS = [
       <button
         actions
         type="button"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition disabled:opacity-50"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition disabled:opacity-50"
         (click)="save()"
         [disabled]="!dirty() || saving()"
       >
@@ -116,13 +116,13 @@ const CHUNKING_METHODS = [
     </ck-object-header>
 
     @if (loading()) {
-      <div class="t-card rounded-md p-5 text-center text-xs text-gray-400">
+      <div class="ck-surface rounded-md p-5 text-center text-xs text-gray-400">
         Loading preset…
       </div>
     } @else if (!preset()) {
-      <div class="t-card rounded-md p-8 text-center">
+      <div class="ck-surface rounded-md p-8 text-center">
         <h3 class="text-sm font-semibold text-white mb-2">Preset not found</h3>
-        <a routerLink="/presets" class="text-xs text-brand-300 hover:underline">
+        <a routerLink="/presets" class="text-xs text-cyan-300 hover:underline">
           Back to catalog
         </a>
       </div>
@@ -133,7 +133,7 @@ const CHUNKING_METHODS = [
         ariaLabel="Preset facets"
       >
         <ck-tab id="generation" label="Generation">
-          <section class="t-card t-elevated rounded-md p-5 space-y-4">
+          <section class="ck-surface t-elevated rounded-md p-5 space-y-4">
             @if (isDemoMode()) {
               <div class="rounded-md bg-white/5 ring-1 ring-white/10 p-4">
                 <div class="text-sm font-semibold text-white">Managed runtime</div>
@@ -151,9 +151,9 @@ const CHUNKING_METHODS = [
                     <button
                       type="button"
                       class="px-3 py-2 rounded text-xs font-medium ring-1 transition"
-                      [class.bg-brand-500\\/15]="draft().defaultProvider === p.value"
-                      [class.text-brand-200]="draft().defaultProvider === p.value"
-                      [class.ring-brand-500\\/40]="draft().defaultProvider === p.value"
+                      [class.bg-cyan-500\\/15]="draft().defaultProvider === p.value"
+                      [class.text-cyan-200]="draft().defaultProvider === p.value"
+                      [class.ring-cyan-500\\/40]="draft().defaultProvider === p.value"
                       [class.bg-white\\/5]="draft().defaultProvider !== p.value"
                       [class.text-gray-300]="draft().defaultProvider !== p.value"
                       [class.ring-white\\/10]="draft().defaultProvider !== p.value"
@@ -172,7 +172,7 @@ const CHUNKING_METHODS = [
                   type="text"
                   [ngModel]="draft().defaultModel"
                   (ngModelChange)="patch({ defaultModel: $event })"
-                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
                   placeholder="e.g. gpt-4o-mini"
                 />
               </div>
@@ -187,7 +187,7 @@ const CHUNKING_METHODS = [
                   min="0" max="2" step="0.05"
                   [ngModel]="draft().temperature"
                   (ngModelChange)="patch({ temperature: +$event })"
-                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
                 />
               </div>
               <div>
@@ -199,7 +199,7 @@ const CHUNKING_METHODS = [
                   min="128" max="32000" step="128"
                   [ngModel]="draft().maxTokens"
                   (ngModelChange)="patch({ maxTokens: +$event })"
-                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
                 />
               </div>
             </div>
@@ -207,7 +207,7 @@ const CHUNKING_METHODS = [
         </ck-tab>
 
         <ck-tab id="retrieval" label="Retrieval">
-          <section class="t-card t-elevated rounded-md p-5 space-y-4">
+          <section class="ck-surface t-elevated rounded-md p-5 space-y-4">
             <div>
               <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
                 Pipeline mode
@@ -217,9 +217,9 @@ const CHUNKING_METHODS = [
                   <button
                     type="button"
                     class="px-3 py-1.5 rounded text-xs font-medium ring-1 transition"
-                    [class.bg-brand-500\\/15]="draft().ragPipelineMode === m.value"
-                    [class.text-brand-200]="draft().ragPipelineMode === m.value"
-                    [class.ring-brand-500\\/40]="draft().ragPipelineMode === m.value"
+                    [class.bg-cyan-500\\/15]="draft().ragPipelineMode === m.value"
+                    [class.text-cyan-200]="draft().ragPipelineMode === m.value"
+                    [class.ring-cyan-500\\/40]="draft().ragPipelineMode === m.value"
                     [class.bg-white\\/5]="draft().ragPipelineMode !== m.value"
                     [class.text-gray-300]="draft().ragPipelineMode !== m.value"
                     [class.ring-white\\/10]="draft().ragPipelineMode !== m.value"
@@ -240,7 +240,7 @@ const CHUNKING_METHODS = [
                   min="1" max="50" step="1"
                   [ngModel]="draft().ragTopK"
                   (ngModelChange)="patch({ ragTopK: +$event })"
-                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
                 />
               </div>
               <div>
@@ -252,7 +252,7 @@ const CHUNKING_METHODS = [
                   min="0" max="1" step="0.05"
                   [ngModel]="draft().ragSimilarityThreshold"
                   (ngModelChange)="patch({ ragSimilarityThreshold: +$event })"
-                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
                 />
               </div>
             </div>
@@ -261,7 +261,7 @@ const CHUNKING_METHODS = [
                 type="checkbox"
                 [checked]="!!draft().ragUseHybridSearch"
                 (change)="patch({ ragUseHybridSearch: $any($event.target).checked })"
-                class="accent-brand-500"
+                class="accent-cyan-500"
               />
               Use hybrid search (sparse + dense)
             </label>
@@ -276,7 +276,7 @@ const CHUNKING_METHODS = [
                     min="0" max="1" step="0.05"
                     [ngModel]="draft().ragVectorWeight"
                     (ngModelChange)="patch({ ragVectorWeight: +$event })"
-                    class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+                    class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
                   />
                 </div>
                 <div>
@@ -288,7 +288,7 @@ const CHUNKING_METHODS = [
                     min="0" max="1" step="0.05"
                     [ngModel]="draft().ragBM25Weight"
                     (ngModelChange)="patch({ ragBM25Weight: +$event })"
-                    class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+                    class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
                   />
                 </div>
               </div>
@@ -297,7 +297,7 @@ const CHUNKING_METHODS = [
         </ck-tab>
 
         <ck-tab id="chunking" label="Chunking">
-          <section class="t-card t-elevated rounded-md p-5 space-y-4">
+          <section class="ck-surface t-elevated rounded-md p-5 space-y-4">
             <div>
               <label class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">
                 Method
@@ -307,9 +307,9 @@ const CHUNKING_METHODS = [
                   <button
                     type="button"
                     class="px-3 py-2 rounded text-xs font-medium ring-1 transition text-left"
-                    [class.bg-brand-500\\/15]="draft()['ragChunkingMethod'] === m.value"
-                    [class.text-brand-200]="draft()['ragChunkingMethod'] === m.value"
-                    [class.ring-brand-500\\/40]="draft()['ragChunkingMethod'] === m.value"
+                    [class.bg-cyan-500\\/15]="draft()['ragChunkingMethod'] === m.value"
+                    [class.text-cyan-200]="draft()['ragChunkingMethod'] === m.value"
+                    [class.ring-cyan-500\\/40]="draft()['ragChunkingMethod'] === m.value"
                     [class.bg-white\\/5]="draft()['ragChunkingMethod'] !== m.value"
                     [class.text-gray-300]="draft()['ragChunkingMethod'] !== m.value"
                     [class.ring-white\\/10]="draft()['ragChunkingMethod'] !== m.value"
@@ -330,7 +330,7 @@ const CHUNKING_METHODS = [
                   min="128" max="8000" step="64"
                   [ngModel]="draft().ragChunkSize"
                   (ngModelChange)="patch({ ragChunkSize: +$event })"
-                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
                 />
               </div>
               <div>
@@ -342,7 +342,7 @@ const CHUNKING_METHODS = [
                   min="0" max="2000" step="16"
                   [ngModel]="draft().ragChunkOverlap"
                   (ngModelChange)="patch({ ragChunkOverlap: +$event })"
-                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+                  class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
                 />
               </div>
             </div>
@@ -350,13 +350,13 @@ const CHUNKING_METHODS = [
         </ck-tab>
 
         <ck-tab id="experience" label="Experience">
-          <section class="t-card t-elevated rounded-md p-5 space-y-3">
+          <section class="ck-surface t-elevated rounded-md p-5 space-y-3">
             <label class="flex items-center gap-2 text-xs text-gray-200 cursor-pointer">
               <input
                 type="checkbox"
                 [checked]="!!draft().enableStreaming"
                 (change)="patch({ enableStreaming: $any($event.target).checked })"
-                class="accent-brand-500"
+                class="accent-cyan-500"
               />
               Enable streaming responses
             </label>
@@ -365,7 +365,7 @@ const CHUNKING_METHODS = [
                 type="checkbox"
                 [checked]="!!draft().showReasoningTraces"
                 (change)="patch({ showReasoningTraces: $any($event.target).checked })"
-                class="accent-brand-500"
+                class="accent-cyan-500"
               />
               Show reasoning traces by default
             </label>
@@ -374,7 +374,7 @@ const CHUNKING_METHODS = [
                 type="checkbox"
                 [checked]="!!draft().showSources"
                 (change)="patch({ showSources: $any($event.target).checked })"
-                class="accent-brand-500"
+                class="accent-cyan-500"
               />
               Always show sources
             </label>
@@ -383,7 +383,7 @@ const CHUNKING_METHODS = [
                 type="checkbox"
                 [checked]="!!draft().autoExpandReasoning"
                 (change)="patch({ autoExpandReasoning: $any($event.target).checked })"
-                class="accent-brand-500"
+                class="accent-cyan-500"
               />
               Auto-expand reasoning panel
             </label>

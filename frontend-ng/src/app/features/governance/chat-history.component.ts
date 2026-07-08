@@ -244,8 +244,8 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
             type="button"
             (click)="setKind(f.key)"
             class="px-2.5 py-1 text-xs rounded transition"
-            [class.bg-brand-500\\/20]="kindFilter() === f.key"
-            [class.text-brand-300]="kindFilter() === f.key"
+            [class.bg-cyan-500\\/20]="kindFilter() === f.key"
+            [class.text-cyan-300]="kindFilter() === f.key"
             [class.text-gray-400]="kindFilter() !== f.key"
             [class.hover:text-gray-200]="kindFilter() !== f.key"
           >
@@ -260,8 +260,8 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
             type="button"
             (click)="setStatus(f.key)"
             class="px-2.5 py-1 text-xs rounded transition"
-            [class.bg-brand-500\\/20]="status() === f.key"
-            [class.text-brand-300]="status() === f.key"
+            [class.bg-cyan-500\\/20]="status() === f.key"
+            [class.text-cyan-300]="status() === f.key"
             [class.text-gray-400]="status() !== f.key"
             [class.hover:text-gray-200]="status() !== f.key"
           >
@@ -281,7 +281,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
       </div>
     }
 
-    <section class="t-card t-elevated rounded-md overflow-hidden">
+    <section class="ck-surface rounded-md overflow-hidden">
       @if (loading()) {
         <div class="p-6 space-y-3">
           @for (_ of skeletonRows; track $index) {
@@ -316,7 +316,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
                 >
                   <td class="px-5 py-3">
                     <div class="flex items-center gap-2 min-w-0">
-                      <span class="h-7 w-7 shrink-0 rounded-full bg-white/[0.04] ring-1 ring-brand-400/30 flex items-center justify-center text-[11px] font-semibold text-brand-200">
+                      <span class="h-7 w-7 shrink-0 rounded-full bg-white/[0.04] ring-1 ring-cyan-400/30 flex items-center justify-center text-[11px] font-semibold text-cyan-200">
                         {{ authorInitial(row) }}
                       </span>
                       <div class="min-w-0">
@@ -438,7 +438,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
 
           <div class="border-t border-white/10 pt-4">
             <h3 class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-3 flex items-center gap-1.5">
-              <app-icon name="message-circle" [size]="13" class="text-brand-400" />
+              <app-icon name="message-circle" [size]="13" class="text-cyan-400" />
               Transcript
             </h3>
 
@@ -461,7 +461,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
                   @for (turn of turns(); track $index) {
                     @if (turn.role === 'user') {
                       <div class="flex justify-end">
-                        <div class="max-w-[85%] bg-brand-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed shadow-sm">
+                        <div class="max-w-[85%] bg-cyan-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed shadow-sm">
                           {{ turn.content }}
                         </div>
                       </div>
@@ -516,7 +516,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
                   @for (entry of captureEntries(); track $index) {
                     @if (entry.speaker === 'expert') {
                       <div class="flex justify-end">
-                        <div class="max-w-[85%] bg-brand-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed shadow-sm">
+                        <div class="max-w-[85%] bg-cyan-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm leading-relaxed shadow-sm">
                           <div class="text-[10px] uppercase tracking-wider text-white/70 mb-1">{{ entry.label }}</div>
                           @if (entry.rawText) {
                             <div class="mb-1.5 rounded bg-black/15 px-2 py-1 text-[12px] text-white/80">
@@ -544,7 +544,7 @@ const MEANINGFUL_CAPTURE_EVENTS = new Set([
           @if (row.kind !== 'chat' && !detailLoading() && captureProposalBlocks().length > 0) {
             <div class="border-t border-white/10 pt-4">
               <h3 class="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-3 flex items-center gap-1.5">
-                <app-icon name="file-text" [size]="13" class="text-brand-400" />
+                <app-icon name="file-text" [size]="13" class="text-cyan-400" />
                 Proposed knowledge
                 @if (captureProposalStatus(); as st) {
                   <span class="ml-1 inline-flex items-center px-1.5 py-0.5 text-[9px] rounded-full" [ngClass]="statusClass(st)">
@@ -951,7 +951,7 @@ export class ChatHistoryComponent implements OnInit {
   kindClass(kind: SessionKind): string {
     switch (kind) {
       case 'capture':
-        return 'bg-violet-500/15 text-violet-300 ring-1 ring-violet-500/30';
+        return 'bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30';
       case 'correction':
         return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30';
       default:
@@ -980,7 +980,7 @@ export class ChatHistoryComponent implements OnInit {
       case 'changes_requested':
         return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30';
       default:
-        return 'bg-brand-500/10 text-brand-300 ring-1 ring-brand-500/30';
+        return 'bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/30';
     }
   }
 

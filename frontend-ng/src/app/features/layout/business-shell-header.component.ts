@@ -15,9 +15,9 @@ import { IconComponent } from '@app/shared/ui/icon.component';
     <header class="business-header">
       <div class="business-brand">
         <img src="/assets/brand/agentium-mark.svg" alt="" width="24" height="24" />
-        <div class="business-brand-copy">
-          <span class="business-brand-title">{{ workspace.current()?.name || 'Agentium' }}</span>
-          <span class="business-brand-subtitle">Workspace métier</span>
+        <div class="business-cyan-copy">
+          <span class="business-cyan-title">{{ workspace.current()?.name || 'Agentium' }}</span>
+          <span class="business-cyan-subtitle">Workspace métier</span>
         </div>
       </div>
 
@@ -110,13 +110,13 @@ import { IconComponent } from '@app/shared/ui/icon.component';
       border-radius: 6px;
       flex: 0 0 auto;
     }
-    .business-brand-copy {
+    .business-cyan-copy {
       display: flex;
       flex-direction: column;
       gap: 2px;
       min-width: 0;
     }
-    .business-brand-title {
+    .business-cyan-title {
       color: var(--ck-fg-1, #f5f8fc);
       font-size: 13px;
       font-weight: 720;
@@ -124,7 +124,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .business-brand-subtitle {
+    .business-cyan-subtitle {
       color: var(--ck-fg-4, rgba(177, 190, 210, 0.68));
       font: 700 9px/1 var(--ck-font-mono, ui-monospace, monospace);
       letter-spacing: 0;

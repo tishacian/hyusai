@@ -6,16 +6,16 @@ import { IconComponent } from '@app/shared/ui/icon.component';
 import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
 
 const FIELD_CLASS =
-  'w-full px-3 py-2 rounded bg-black/20 dark:bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/40 transition';
+  'w-full px-3 py-2 rounded bg-black/20 dark:bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/40 transition';
 
 @Component({
   selector: 'app-account-profile',
   standalone: true,
   imports: [FormsModule, IconComponent, SkeletonComponent],
   template: `
-    <div class="t-card t-elevated rounded-md p-6">
+    <div class="ck-surface t-elevated rounded-md p-6">
       <div class="flex items-start gap-3 mb-5">
-        <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+        <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
           <app-icon name="user-round" [size]="18" />
         </div>
         <div>
@@ -75,7 +75,7 @@ const FIELD_CLASS =
             <button
               type="submit"
               [disabled]="saving()"
-              class="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white font-medium rounded transition shadow-glow-sm"
+              class="inline-flex items-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white font-medium rounded transition shadow-glow-sm"
             >
               <app-icon name="save" [size]="14" />
               @if (saving()) { Saving… } @else { Save changes }

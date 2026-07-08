@@ -84,22 +84,22 @@ type DraftState = {
         actions
         type="button"
         (click)="openNewPanel()"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
       >
         + New preset
       </button>
     </ck-object-header>
 
     @if (loading()) {
-      <div class="t-card rounded-md p-5 text-center text-xs text-gray-400">
+      <div class="ck-surface rounded-md p-5 text-center text-xs text-gray-400">
         Loading presets…
       </div>
     } @else if (presets().length === 0) {
-      <div class="t-card rounded-md p-8 text-center">
+      <div class="ck-surface rounded-md p-8 text-center">
         <h3 class="text-sm font-semibold text-white mb-2">No preset yet</h3>
         <p class="text-xs text-gray-400 mb-4">
           This page lists RAG presets. The showcase evaluation loop lives under
-          <a routerLink="/presets/evaluation" class="text-brand-300 hover:text-brand-200">Evaluation thresholds</a>.
+          <a routerLink="/presets/evaluation" class="text-cyan-300 hover:text-cyan-200">Evaluation thresholds</a>.
           Use
           <span class="font-semibold">New preset</span> above to create one,
           or keep using the workspace default.
@@ -107,7 +107,7 @@ type DraftState = {
         <button
           type="button"
           (click)="openNewPanel()"
-          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
         >
           Create workspace default
         </button>
@@ -115,7 +115,7 @@ type DraftState = {
     } @else {
       <section class="space-y-5">
         @for (group of groupedPresets(); track group.scope) {
-          <div class="t-card t-elevated rounded-md overflow-hidden">
+          <div class="ck-surface t-elevated rounded-md overflow-hidden">
             <header class="flex items-center justify-between px-4 py-3 bg-white/5 border-b border-white/10">
               <div>
                 <div class="text-[10px] uppercase tracking-[0.14em] text-gray-500 font-semibold">
@@ -144,7 +144,7 @@ type DraftState = {
                   <div class="flex items-start gap-3 min-w-0">
                     <span
                       class="mt-1 inline-block w-2 h-2 rounded-full shrink-0"
-                      [class.bg-brand-400]="p.is_default"
+                      [class.bg-cyan-400]="p.is_default"
                       [class.bg-gray-600]="!p.is_default"
                       [title]="p.is_default ? 'Default preset for this scope' : 'Secondary preset'"
                     ></span>
@@ -152,12 +152,12 @@ type DraftState = {
                       <div class="flex items-center gap-2 flex-wrap">
                         <a
                           [routerLink]="['/presets', p.id]"
-                          class="text-sm font-medium text-white hover:text-brand-300 truncate"
+                          class="text-sm font-medium text-white hover:text-cyan-300 truncate"
                         >
                           {{ p.name }}
                         </a>
                         @if (p.is_default) {
-                          <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand-500/15 text-brand-300 ring-1 ring-brand-500/40">
+                          <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/40">
                             Default
                           </span>
                         }
@@ -238,7 +238,7 @@ type DraftState = {
             type="text"
             [ngModel]="draft().name"
             (ngModelChange)="patchDraft({ name: $event })"
-            class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+            class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
             placeholder="e.g. EU-West high-recall"
           />
         </div>
@@ -252,9 +252,9 @@ type DraftState = {
               <button
                 type="button"
                 class="px-3 py-2 rounded text-xs font-medium ring-1 transition"
-                [class.bg-brand-500\\/15]="draft().scope === s.value"
-                [class.text-brand-200]="draft().scope === s.value"
-                [class.ring-brand-500\\/40]="draft().scope === s.value"
+                [class.bg-cyan-500\\/15]="draft().scope === s.value"
+                [class.text-cyan-200]="draft().scope === s.value"
+                [class.ring-cyan-500\\/40]="draft().scope === s.value"
                 [class.bg-white\\/5]="draft().scope !== s.value"
                 [class.text-gray-300]="draft().scope !== s.value"
                 [class.ring-white\\/10]="draft().scope !== s.value"
@@ -274,7 +274,7 @@ type DraftState = {
             <select
               [ngModel]="draft().scopeId"
               (ngModelChange)="patchDraft({ scopeId: $event })"
-              class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+              class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
             >
               <option [ngValue]="null" disabled>— Select a capability —</option>
               @for (c of capabilities(); track c.id) {
@@ -290,7 +290,7 @@ type DraftState = {
             <select
               [ngModel]="draft().scopeId"
               (ngModelChange)="patchDraft({ scopeId: $event })"
-              class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+              class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
             >
               <option [ngValue]="null" disabled>— Select a system —</option>
               @for (s of systems(); track s.id) {
@@ -307,7 +307,7 @@ type DraftState = {
           <select
             [ngModel]="draft().baseId"
             (ngModelChange)="patchDraft({ baseId: $event })"
-            class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+            class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
           >
             <option [ngValue]="null">Empty config (use backend defaults)</option>
             @for (p of presets(); track p.id) {
@@ -323,7 +323,7 @@ type DraftState = {
             type="checkbox"
             [checked]="draft().isDefault"
             (change)="onIsDefaultChange($event)"
-            class="accent-brand-500"
+            class="accent-cyan-500"
           />
           Set as default for this scope
         </label>
@@ -339,7 +339,7 @@ type DraftState = {
         </button>
         <button
           type="button"
-          class="px-3 py-2 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition disabled:opacity-50"
+          class="px-3 py-2 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition disabled:opacity-50"
           [disabled]="!canSubmit() || creating()"
           (click)="submitNew()"
         >
@@ -369,7 +369,7 @@ type DraftState = {
           </label>
           <select
             [(ngModel)]="resolveCap"
-            class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+            class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
           >
             <option [ngValue]="null">— None —</option>
             @for (c of capabilities(); track c.id) {
@@ -383,7 +383,7 @@ type DraftState = {
           </label>
           <select
             [(ngModel)]="resolveSys"
-            class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-brand-500/60"
+            class="mt-1.5 w-full px-3 py-2 rounded bg-white/5 ring-1 ring-white/10 text-sm text-white focus:outline-none focus:ring-cyan-500/60"
           >
             <option [ngValue]="null">— None —</option>
             @for (s of systems(); track s.id) {
@@ -393,7 +393,7 @@ type DraftState = {
         </div>
         <button
           type="button"
-          class="w-full px-3 py-2 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition disabled:opacity-50"
+          class="w-full px-3 py-2 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition disabled:opacity-50"
           [disabled]="resolving()"
           (click)="runResolve()"
         >
@@ -406,7 +406,7 @@ type DraftState = {
               <span class="text-[10px] uppercase tracking-[0.14em] text-gray-500 font-semibold">
                 Winning scope
               </span>
-              <span class="text-[11px] px-2 py-0.5 rounded bg-brand-500/15 text-brand-200 ring-1 ring-brand-500/40 uppercase tracking-wider">
+              <span class="text-[11px] px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-200 ring-1 ring-cyan-500/40 uppercase tracking-wider">
                 {{ r.scope_hint }}
               </span>
             </div>

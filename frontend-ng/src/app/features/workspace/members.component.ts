@@ -27,10 +27,10 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
   template: `
     <div class="space-y-6">
       @if (canAdmin()) {
-        <section class="t-card t-elevated rounded-md p-5 border border-brand-500/25 bg-brand-500/[0.04]">
+        <section class="ck-surface rounded-md p-5 border border-cyan-500/25 bg-cyan-500/[0.04]">
           <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div class="flex items-start gap-3">
-              <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+              <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
                 <app-icon name="shield-check" [size]="18" />
               </div>
               <div>
@@ -42,7 +42,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             </div>
             <a
               [routerLink]="accessRoute()"
-              class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-400 text-white transition"
+              class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-400 text-white transition"
             >
               <app-icon name="sliders-horizontal" [size]="14" />
               Open IAM console
@@ -50,9 +50,9 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
           </div>
         </section>
 
-        <section class="t-card t-elevated rounded-md p-6">
+        <section class="ck-surface rounded-md p-6">
           <div class="flex items-start gap-3 mb-4">
-            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+            <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
               <app-icon name="user-plus" [size]="18" />
             </div>
             <div>
@@ -69,7 +69,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
               type="email"
               placeholder="user@company.com"
               required
-              class="flex-1 min-w-[220px] px-3 py-2 rounded bg-black/20 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 transition"
+              class="flex-1 min-w-[220px] px-3 py-2 rounded bg-black/20 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 transition"
             />
             <select
               [(ngModel)]="inviteRole"
@@ -82,7 +82,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             <button
               type="submit"
               [disabled]="!inviteEmail.trim() || inviting()"
-              class="px-4 py-2 bg-brand-500 hover:bg-brand-400 disabled:opacity-40 text-white rounded text-sm font-medium transition inline-flex items-center gap-1.5"
+              class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 disabled:opacity-40 text-white rounded text-sm font-medium transition inline-flex items-center gap-1.5"
             >
               <app-icon name="send" [size]="14" />
               {{ inviting() ? 'Inviting…' : 'Invite' }}
@@ -91,10 +91,10 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
         </section>
       }
 
-      <section class="t-card t-elevated rounded-md overflow-hidden">
+      <section class="ck-surface rounded-md overflow-hidden">
         <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between">
           <h2 class="text-base font-semibold text-white flex items-center gap-2">
-            <app-icon name="users" [size]="16" class="text-brand-400" />
+            <app-icon name="users" [size]="16" class="text-cyan-400" />
             Members <span class="text-gray-500 font-normal">· {{ members().length }}</span>
           </h2>
         </div>
@@ -112,7 +112,7 @@ import { ConfirmDialogComponent } from '@app/shared/ui/confirm-dialog.component'
             @for (m of members(); track m.user_id) {
               <div class="px-6 py-4 flex items-center gap-4">
                 <div
-                  class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 text-brand-100 bg-white/[0.04] ring-1 ring-brand-400/30"
+                  class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 text-cyan-100 bg-white/[0.04] ring-1 ring-cyan-400/30"
                 >
                   {{ initial(m) }}
                 </div>
@@ -380,7 +380,7 @@ export class WorkspaceMembersComponent {
       case 'owner':
         return 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
       case 'admin':
-        return 'bg-brand-500/15 text-brand-400 border border-brand-500/30';
+        return 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30';
       default:
         return 'bg-white/5 text-gray-300 border border-white/10';
     }

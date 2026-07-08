@@ -5,7 +5,7 @@ import { LucideAngularModule } from 'lucide-angular';
  * Centralised icon component. All icons come from Lucide (stroke-based,
  * tree-shakable). Register icon names in `icon-registry.ts` via `provideIcons`.
  *
- * Usage: `<app-icon name="layers" [size]="20" class="text-brand-500" />`
+ * Usage: `<app-icon name="layers" [size]="20" class="text-cyan-500" />`
  */
 @Component({
   selector: 'app-icon',

@@ -70,7 +70,7 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
           (click)="filter.set(f.id)"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition"
           [ngClass]="filter() === f.id
-            ? 'bg-brand-500 text-white shadow-glow-sm'
+            ? 'bg-cyan-500 text-white shadow-glow-sm'
             : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'"
         >
           {{ f.label }}
@@ -88,16 +88,16 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
       @for (a of filtered(); track a.id) {
         <div
-          class="t-card t-elevated rounded-md p-4 flex flex-col gap-2.5 transition"
+          class="ck-surface t-elevated rounded-md p-4 flex flex-col gap-2.5 transition"
           [ngClass]="isEnabled(a.id)
-            ? 'ring-1 ring-brand-500/40 bg-brand-500/5'
+            ? 'ring-1 ring-cyan-500/40 bg-cyan-500/5'
             : ''"
         >
           <div class="flex items-start justify-between">
             <div
               class="w-10 h-10 rounded-md flex items-center justify-center"
               [ngClass]="isEnabled(a.id)
-                ? 'bg-brand-500/20 text-brand-300'
+                ? 'bg-cyan-500/20 text-cyan-300'
                 : 'bg-white/5 text-gray-400'"
             >
               <app-icon [name]="a.icon" [size]="20" />
@@ -115,7 +115,7 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
                 role="switch"
                 [attr.aria-checked]="isEnabled(a.id)"
                 class="w-10 h-5 rounded-full relative transition-colors"
-                [ngClass]="isEnabled(a.id) ? 'bg-brand-500' : 'bg-white/10'"
+                [ngClass]="isEnabled(a.id) ? 'bg-cyan-500' : 'bg-white/10'"
               >
                 <span
                   class="block w-3.5 h-3.5 bg-white rounded-full absolute top-[3px] transition-all"
@@ -137,9 +137,9 @@ type Filter = 'all' | 'enabled' | 'ready' | 'beta';
       }
     </div>
 
-    <div class="mt-6 rounded-md p-4 bg-brand-500/5 ring-1 ring-brand-500/20 flex items-start gap-3 max-w-2xl">
-      <app-icon name="lightbulb" [size]="14" class="text-brand-400 mt-0.5 shrink-0" />
-      <p class="text-[11px] text-brand-200/90 leading-relaxed">
+    <div class="mt-6 rounded-md p-4 bg-cyan-500/5 ring-1 ring-cyan-500/20 flex items-start gap-3 max-w-2xl">
+      <app-icon name="lightbulb" [size]="14" class="text-cyan-400 mt-0.5 shrink-0" />
+      <p class="text-[11px] text-cyan-200/90 leading-relaxed">
         Enabling an app exposes it in the Builder wizard per system. Runtime
         wiring is still on the roadmap — until a backend connector ships,
         toggles act as catalog intent only.

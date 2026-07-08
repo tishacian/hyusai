@@ -26,7 +26,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error()) {
-      <div class="t-card rounded-md p-8 text-center">
+      <div class="ck-surface rounded-md p-8 text-center">
         <h2 class="text-base font-semibold text-white mb-2">
           Initializing your News Lab…
         </h2>
@@ -40,7 +40,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
         </p>
       </div>
     } @else {
-      <div class="t-card rounded-md p-5 text-center text-xs text-gray-400">
+      <div class="ck-surface rounded-md p-5 text-center text-xs text-gray-400">
         Resolving Intelligence System…
       </div>
     }

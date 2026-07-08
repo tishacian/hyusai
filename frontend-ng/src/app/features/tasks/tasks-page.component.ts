@@ -135,10 +135,10 @@ interface TaskEvent {
       <ck-stat-readout variant="tile" label="Failed" [value]="failedCount()" icon="x-circle" />
     </div>
 
-    <section class="t-card t-elevated rounded-md overflow-hidden">
+    <section class="ck-surface t-elevated rounded-md overflow-hidden">
       <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-          <app-icon name="history" [size]="16" class="text-brand-400" />
+          <app-icon name="history" [size]="16" class="text-cyan-400" />
           Recent missions
         </h3>
       </div>
@@ -167,8 +167,8 @@ interface TaskEvent {
               <div class="flex items-center gap-3">
                 <div
                   class="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
-                  [class.bg-brand-500\\/15]="t.status === 'running'"
-                  [class.text-brand-300]="t.status === 'running'"
+                  [class.bg-cyan-500\\/15]="t.status === 'running'"
+                  [class.text-cyan-300]="t.status === 'running'"
                   [class.bg-emerald-500\\/15]="t.status === 'completed'"
                   [class.text-emerald-300]="t.status === 'completed'"
                   [class.bg-red-500\\/15]="t.status === 'failed'"
@@ -194,7 +194,7 @@ interface TaskEvent {
                   <div class="h-1.5 rounded-full bg-white/5 overflow-hidden">
                     <div
                       class="h-full transition-all duration-300"
-                      [class.bg-brand-500]="t.status === 'running'"
+                      [class.bg-cyan-500]="t.status === 'running'"
                       [class.bg-emerald-500]="t.status === 'completed'"
                       [class.bg-red-500]="t.status === 'failed'"
                       [class.bg-gray-600]="t.status === 'pending'"
@@ -216,11 +216,11 @@ interface TaskEvent {
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" (click)="createOpen.set(false)"></div>
         <div
-          class="relative glass-blur rounded-lg border border-white/10 shadow-elevated max-w-lg w-full p-6"
+          class="relative ck-surface rounded-lg border border-white/10 shadow-elevated max-w-lg w-full p-6"
         >
           <div class="flex items-start gap-4 mb-4">
             <div
-              class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/15 text-brand-400 shrink-0"
+              class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/15 text-cyan-400 shrink-0"
             >
               <app-icon name="rocket" [size]="20" />
             </div>
@@ -235,17 +235,17 @@ interface TaskEvent {
             <input
               [(ngModel)]="newTitle"
               placeholder="Title (optional)"
-              class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+              class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400"
             />
             <textarea
               [(ngModel)]="newDescription"
               placeholder="Describe what the agent should achieve…"
               rows="5"
-              class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none"
+              class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400 resize-none"
             ></textarea>
             <select
               [(ngModel)]="newAgentId"
-              class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+              class="w-full px-3 py-2 bg-black/30 border border-white/10 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400"
             >
               <option value="">Default routing</option>
               @for (a of agents(); track a.id) {
@@ -265,7 +265,7 @@ interface TaskEvent {
               type="button"
               (click)="createAndRun()"
               [disabled]="!newDescription.trim() || creating()"
-              class="px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded disabled:opacity-40 flex items-center gap-1.5"
+              class="px-4 py-2 text-sm font-medium text-white bg-cyan-500 hover:bg-cyan-600 rounded disabled:opacity-40 flex items-center gap-1.5"
             >
               <app-icon
                 [name]="creating() ? 'loader-2' : 'play'"
@@ -292,9 +292,9 @@ interface TaskEvent {
           <div class="flex items-center gap-2">
             <span
               class="text-[10px] uppercase tracking-wider font-semibold px-2 py-1 rounded-full ring-1 capitalize"
-              [class.bg-brand-500\\/10]="d.status === 'running'"
-              [class.text-brand-300]="d.status === 'running'"
-              [class.ring-brand-500\\/30]="d.status === 'running'"
+              [class.bg-cyan-500\\/10]="d.status === 'running'"
+              [class.text-cyan-300]="d.status === 'running'"
+              [class.ring-cyan-500\\/30]="d.status === 'running'"
               [class.bg-emerald-500\\/10]="d.status === 'completed'"
               [class.text-emerald-300]="d.status === 'completed'"
               [class.ring-emerald-500\\/30]="d.status === 'completed'"
@@ -310,7 +310,7 @@ interface TaskEvent {
             @if (d.status !== 'running') {
               <button
                 type="button"
-                class="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+                class="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
                 (click)="runTask(d.id)"
               >
                 <app-icon name="play" [size]="13" />
@@ -334,7 +334,7 @@ interface TaskEvent {
               </div>
               <div class="h-1.5 rounded-full bg-white/5 overflow-hidden">
                 <div
-                  class="h-full bg-gradient-to-r from-brand-400 to-violet-500 transition-all duration-300"
+                  class="h-full bg-cyan-400 transition-all duration-300"
                   [style.width.%]="d.progress ?? 0"
                 ></div>
               </div>
@@ -362,8 +362,8 @@ interface TaskEvent {
                           class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0"
                           [class.bg-emerald-500\\/20]="s.status === 'completed'"
                           [class.text-emerald-300]="s.status === 'completed'"
-                          [class.bg-brand-500\\/20]="s.status === 'running' || s.status === 'in_progress'"
-                          [class.text-brand-300]="s.status === 'running' || s.status === 'in_progress'"
+                          [class.bg-cyan-500\\/20]="s.status === 'running' || s.status === 'in_progress'"
+                          [class.text-cyan-300]="s.status === 'running' || s.status === 'in_progress'"
                           [class.bg-red-500\\/20]="s.status === 'failed' || !!s.error"
                           [class.text-red-300]="s.status === 'failed' || !!s.error"
                           [class.bg-white\\/5]="!s.status || s.status === 'pending'"

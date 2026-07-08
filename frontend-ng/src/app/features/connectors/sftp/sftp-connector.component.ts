@@ -358,8 +358,8 @@ const BULK_PROMOTE_LIMIT = 25;
 
     <section class="grid min-w-0 grid-cols-1 gap-5 2xl:grid-cols-[360px_minmax(0,1fr)]">
       <div class="min-w-0 space-y-5 2xl:max-w-[360px]">
-        <section class="t-card t-elevated rounded-md p-5">
-          <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">New external access</p>
+        <section class="ck-surface t-elevated rounded-md p-5">
+          <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">New external access</p>
           <h2 class="mt-1 text-base font-semibold text-white">Create deposit link</h2>
           <form class="mt-4 space-y-4" (ngSubmit)="createLink()">
             <label class="block">
@@ -368,7 +368,7 @@ const BULK_PROMOTE_LIMIT = 25;
                 name="label"
                 [(ngModel)]="draftLabel"
                 [disabled]="!secureDepositEnabled()"
-                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                 [placeholder]="workspaceName() + ' external upload'"
               />
             </label>
@@ -382,7 +382,7 @@ const BULK_PROMOTE_LIMIT = 25;
                   max="30720"
                   [(ngModel)]="draftMaxMb"
                   [disabled]="!secureDepositEnabled()"
-                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                 />
               </label>
               <label class="block min-w-0">
@@ -392,7 +392,7 @@ const BULK_PROMOTE_LIMIT = 25;
                   type="date"
                   [(ngModel)]="draftExpires"
                   [disabled]="!secureDepositEnabled()"
-                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                  class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                 />
               </label>
             </div>
@@ -402,14 +402,14 @@ const BULK_PROMOTE_LIMIT = 25;
                 name="extensions"
                 [(ngModel)]="draftExtensions"
                 [disabled]="!secureDepositEnabled()"
-                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                 placeholder="Leave empty for all file types"
               />
               <span class="mt-1 block text-xs text-gray-500">Leave empty to accept ZIP and any other extension.</span>
             </label>
             <button
               type="submit"
-              class="inline-flex w-full items-center justify-center gap-2 rounded bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-400 disabled:opacity-50"
+              class="inline-flex w-full items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-400 disabled:opacity-50"
               [disabled]="saving() || !secureDepositEnabled()"
             >
               <app-icon name="plus" [size]="15" />
@@ -418,10 +418,10 @@ const BULK_PROMOTE_LIMIT = 25;
           </form>
         </section>
 
-        <section class="t-card t-elevated rounded-md p-5">
+        <section class="ck-surface t-elevated rounded-md p-5">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Target collection</p>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Target collection</p>
               <h2 class="mt-1 text-base font-semibold text-white">Knowledge destination</h2>
             </div>
             <a
@@ -439,7 +439,7 @@ const BULK_PROMOTE_LIMIT = 25;
               [ngModel]="targetCollectionSlug()"
               (ngModelChange)="setCollectionSlug($event)"
               [disabled]="knowledgeCollectionsLoading() || knowledgeCollectionOptions().length === 0"
-              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60 disabled:opacity-50"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60 disabled:opacity-50"
             >
               @if (knowledgeCollectionOptions().length === 0) {
                 <option [value]="targetCollectionSlug()">{{ knowledgeCollectionsLoading() ? 'Loading collections…' : 'No collection found' }}</option>
@@ -457,7 +457,7 @@ const BULK_PROMOTE_LIMIT = 25;
               name="collection"
               [ngModel]="collectionSlug"
               (ngModelChange)="setCollectionSlug($event)"
-              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+              class="w-full rounded bg-black/30 border border-white/10 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
             />
           </label>
           @if (selectedKnowledgeCollection(); as selected) {
@@ -513,7 +513,7 @@ const BULK_PROMOTE_LIMIT = 25;
       </div>
 
       <div class="min-w-0 space-y-5">
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="flex items-center justify-between border-b border-white/5 px-5 py-4">
             <h2 class="text-sm font-semibold text-white">Deposit links</h2>
             <span class="ck-mono text-[10px] uppercase tracking-wider text-gray-500">{{ links().length }} links</span>
@@ -555,10 +555,10 @@ const BULK_PROMOTE_LIMIT = 25;
           }
         </section>
 
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Indexing assist</p>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Indexing assist</p>
               <h2 class="mt-1 text-sm font-semibold text-white">Promotion readiness and indexing pipeline</h2>
               <p class="mt-1 text-xs text-gray-500">Analyze the current file view, promote only recommended candidates, then track Knowledge ingestion.</p>
             </div>
@@ -786,10 +786,10 @@ const BULK_PROMOTE_LIMIT = 25;
           </div>
         </section>
 
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">SFTP operations</p>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">SFTP operations</p>
               <h2 class="mt-1 text-sm font-semibold text-white">Live upload monitor</h2>
               <p class="mt-1 text-xs text-gray-500">Workspace-scoped SFTP transfers, reconciliation checks and cleanup jobs.</p>
             </div>
@@ -802,7 +802,7 @@ const BULK_PROMOTE_LIMIT = 25;
                   max="720"
                   name="staleAfterHours"
                   [(ngModel)]="staleAfterHours"
-                  class="w-20 rounded bg-black/30 border border-white/10 px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                  class="w-20 rounded bg-black/30 border border-white/10 px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                 />
                 <span>h</span>
               </label>
@@ -972,10 +972,10 @@ const BULK_PROMOTE_LIMIT = 25;
           </div>
         </section>
 
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="flex flex-col gap-4 border-b border-white/5 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Workspace staging queue</p>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Workspace staging queue</p>
               <h2 class="mt-1 text-sm font-semibold text-white">{{ workspaceName() }} received files</h2>
               <p class="mt-1 text-xs text-gray-500">Files from all visible deposit links stay here until manual promotion.</p>
             </div>
@@ -1010,7 +1010,7 @@ const BULK_PROMOTE_LIMIT = 25;
                   name="queueSearch"
                   [ngModel]="queueSearch()"
                   (ngModelChange)="setQueueSearch($event)"
-                  class="w-full rounded bg-black/30 border border-white/10 py-2 pl-8 pr-3 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-brand-400/60"
+                  class="w-full rounded bg-black/30 border border-white/10 py-2 pl-8 pr-3 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-400/60"
                   placeholder="Search path or checksum"
                 />
               </label>
@@ -1219,7 +1219,7 @@ const BULK_PROMOTE_LIMIT = 25;
                       <div class="flex flex-wrap items-center gap-2 xl:justify-end">
                         <button
                           type="button"
-                          class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300 disabled:opacity-40"
+                          class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-cyan-300 disabled:opacity-40"
                           [title]="isZipFile(file) ? 'Browse ZIP archive' : 'Preview file'"
                           [disabled]="file.status === 'rejected'"
                           (click)="previewFile(file)"
@@ -1228,7 +1228,7 @@ const BULK_PROMOTE_LIMIT = 25;
                         </button>
                         <button
                           type="button"
-                          class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300 disabled:opacity-40"
+                          class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-cyan-300 disabled:opacity-40"
                           title="Download file"
                           [disabled]="file.status === 'rejected' || downloadingFileId() === file.id"
                           (click)="downloadFile(file)"
@@ -1280,7 +1280,7 @@ const BULK_PROMOTE_LIMIT = 25;
             </div>
             <button
               type="button"
-              class="inline-flex items-center justify-center gap-1.5 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-400"
+              class="inline-flex items-center justify-center gap-1.5 rounded bg-cyan-500 px-3 py-2 text-xs font-semibold text-white hover:bg-cyan-400"
               (click)="downloadFile(archiveFile)"
             >
               <app-icon name="download" [size]="13" /> Download ZIP
@@ -1364,7 +1364,7 @@ const BULK_PROMOTE_LIMIT = 25;
                         @if (item.kind === 'file') {
                           <button
                             type="button"
-                            class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300 disabled:opacity-40"
+                            class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-cyan-300 disabled:opacity-40"
                             title="Preview archive member"
                             [disabled]="!item.previewable || item.encrypted || archivePreviewLoading()"
                             (click)="previewArchiveMember(item)"
@@ -1373,7 +1373,7 @@ const BULK_PROMOTE_LIMIT = 25;
                           </button>
                           <button
                             type="button"
-                            class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-brand-300 disabled:opacity-40"
+                            class="inline-flex h-8 w-8 items-center justify-center rounded bg-white/5 text-gray-200 ring-1 ring-white/10 hover:bg-white/10 hover:text-cyan-300 disabled:opacity-40"
                             title="Download archive member"
                             [disabled]="item.encrypted || archiveDownloadingPath() === item.path"
                             (click)="downloadArchiveMember(item)"
@@ -1488,7 +1488,7 @@ const BULK_PROMOTE_LIMIT = 25;
             </div>
             <button
               type="button"
-              class="inline-flex items-center justify-center gap-1.5 rounded bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-400"
+              class="inline-flex items-center justify-center gap-1.5 rounded bg-cyan-500 px-3 py-2 text-xs font-semibold text-white hover:bg-cyan-400"
               (click)="previewFileTarget() && downloadFile(previewFileTarget()!)"
             >
               <app-icon name="download" [size]="13" /> Download

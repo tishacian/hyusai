@@ -239,7 +239,7 @@ export class CaptureFilPlanComponent {
   );
   /**
    * Session already started (resume path) — the button reconnects instead of
-   * issuing a fresh Start. A brand-new session is created as "planned" (never
+   * issuing a fresh Start. A cyan-new session is created as "planned" (never
    * started: the backend only flips it to "active" once `started_at` is set), so
    * it must show "Démarrer la capture". Use a POSITIVE allowlist of genuinely
    * in-progress / resumable statuses (plus an already-live engine connection) —

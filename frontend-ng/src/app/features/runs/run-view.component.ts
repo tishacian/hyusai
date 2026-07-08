@@ -226,7 +226,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
         <!-- Skill timeline -->
         <section class="rounded-lg border border-white/5 bg-white/[0.02] mb-6">
           <header class="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
-            <app-icon name="list-tree" [size]="14" class="text-brand-400" />
+            <app-icon name="list-tree" [size]="14" class="text-cyan-400" />
             <h2 class="text-xs uppercase tracking-wider text-gray-300 font-semibold">
               Skill trail
             </h2>
@@ -257,8 +257,8 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
                           [class.bg-emerald-500\\/10]="inv.status === 'completed'"
                           [class.text-red-300]="inv.status === 'failed'"
                           [class.bg-red-500\\/10]="inv.status === 'failed'"
-                          [class.text-brand-300]="inv.status === 'running'"
-                          [class.bg-brand-500\\/10]="inv.status === 'running'"
+                          [class.text-cyan-300]="inv.status === 'running'"
+                          [class.bg-cyan-500\\/10]="inv.status === 'running'"
                           [class.text-gray-400]="inv.status === 'pending' || !inv.status"
                           [class.bg-white\\/5]="inv.status === 'pending' || !inv.status"
                         >
@@ -322,7 +322,7 @@ import { ZoomContextService } from '@app/core/zoom-context.service';
         @if (checkpoints().length > 0) {
           <section class="rounded-lg border border-white/5 bg-white/[0.02] mt-3">
             <header class="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
-              <app-icon name="bookmark" [size]="14" class="text-violet-300" />
+              <app-icon name="bookmark" [size]="14" class="text-sky-300" />
               <h2 class="text-xs uppercase tracking-wider text-gray-300 font-semibold">Checkpoints</h2>
               <span class="ml-auto font-mono text-[10px] text-gray-500">{{ checkpoints().length }}</span>
             </header>

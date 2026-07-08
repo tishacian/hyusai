@@ -9,9 +9,9 @@ import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
   standalone: true,
   imports: [IconComponent, SkeletonComponent],
   template: `
-    <div class="t-card t-elevated rounded-md p-6">
+    <div class="ck-surface t-elevated rounded-md p-6">
       <div class="flex items-start gap-3 mb-5">
-        <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+        <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
           <app-icon name="shield" [size]="18" />
         </div>
         <div>
@@ -31,7 +31,7 @@ import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
         <div class="flex items-start justify-between gap-4 p-4 rounded-md bg-black/20 border border-white/5">
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <app-icon name="mail" [size]="16" class="text-brand-400" />
+              <app-icon name="mail" [size]="16" class="text-cyan-400" />
               <span class="font-medium text-white">Email two-factor authentication</span>
               @if (enabled()) {
                 <span class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
@@ -52,9 +52,9 @@ import { SkeletonComponent } from '@app/shared/ui/skeleton.component';
             (click)="toggle()"
             [disabled]="saving()"
             class="shrink-0 px-4 py-2 rounded text-sm font-medium transition disabled:opacity-50 inline-flex items-center gap-1.5"
-            [class.bg-brand-500]="!enabled()"
+            [class.bg-cyan-500]="!enabled()"
             [class.text-white]="!enabled()"
-            [class.hover:bg-brand-600]="!enabled()"
+            [class.hover:bg-cyan-600]="!enabled()"
             [class.shadow-glow-sm]="!enabled()"
             [class.bg-white\\/5]="enabled()"
             [class.text-gray-200]="enabled()"

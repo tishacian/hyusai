@@ -28,12 +28,13 @@ diverge sur un point, cf. D5) le handoff design, qui reste la référence visuel
 
 ## Décisions
 
-### D0 — Conserver la v0 derrière un flag pendant la bascule — **Acté**
+### D0 — Conserver la v0 derrière un flag de repli — **Acté**
 
-On garde la v0 comme repli et base de comparaison A/B derrière un flag d'expérience
-(`captureExperience`). La v0 reste en `brand-*` (legacy), vouée à la suppression une fois
-« Le Fil » validé. La seule « couture » visuelle est v0 ↔ reste, transitoire et assumée
-(elle n'apparaît qu'au basculement du flag).
+On garde la v0 comme repli explicite et base de comparaison A/B derrière un flag
+d'expérience (`captureExperience`). La surface officielle par défaut est « Le Fil »
+en cockpit. La v0 reste en `brand-*` (legacy), vouée à la suppression une fois le
+repli inutile. La seule « couture » visuelle est v0 ↔ reste, transitoire et assumée
+(elle n'apparaît qu'au forçage du flag vers `v0`).
 
 ### D1 — Réconciliation event / tour — **Acté : Option C (hybride formalisé), par étapes A → C**
 
@@ -182,7 +183,7 @@ P3** (valeur réelle, différée sous condition).
 **Frontend** :
 - « Le Fil » + « La Scène » + ancres « fantôme auto-confirmé » en cockpit `--ck-*` (D4).
 - Deux canaux append-only voix/texte ; mute-micro pendant frappe configurable, défaut OFF (D3).
-- Flag `captureExperience` (v0 `brand-*` ↔ Le Fil cockpit) (D0).
+- Flag `captureExperience` (Le Fil cockpit par défaut ↔ v0 `brand-*` en repli) (D0).
 - Score de confiance simple + état `lowconf` ; pas d'édition de transcript en séance (D2, D3).
 - Re-skin cockpit des autres écrans knowledge (D4).
 
@@ -200,29 +201,30 @@ P3** (valeur réelle, différée sous condition).
 
 ---
 
-## Rollout (activation du flag)
+## Rollout (officialisation du cockpit)
 
-L'expérience « Le Fil » est livrée **derrière le flag `capture_experience`, défaut `'v0'`** :
-aucun utilisateur existant n'est impacté tant qu'on ne bascule rien. La route reste stable
-(`/knowledge/capture`) ; le wrapper `CaptureRouterComponent` choisit la surface selon le flag.
+L'expérience « Le Fil » est la surface officielle **par défaut** du flag
+`capture_experience` (`'fil'`). La route reste stable (`/knowledge/capture`) ; le
+wrapper `CaptureRouterComponent` choisit la surface selon le flag et garde `v0`
+comme repli explicite.
 Ordre de résolution (le plus prioritaire gagne), implémenté dans
 `frontend-ng/src/app/core/capture-experience.service.ts` :
 
 1. **Par session / test (override URL)** : `?exp=fil` (ou `?exp=v0`) sur l'URL — A/B ponctuel
    sans rien persister.
-2. **Par utilisateur (test / pilote)** : `localStorage['agentium.capture_experience'] = 'fil'`
-   (mirroir du pattern `VoiceCaptureMode`). Effacer la clé pour revenir au défaut.
-3. **Par tenant (déploiement)** : `workspace.settings['capture_experience'] = 'fil'`
-   (même mécanisme que `navigation_profile`) — bascule tout le workspace.
-4. **Défaut** : `'v0'`.
+2. **Par utilisateur (test / repli)** : `localStorage['agentium.capture_experience'] = 'v0'`
+   (mirroir du pattern `VoiceCaptureMode`). Effacer la clé pour revenir au défaut cockpit.
+3. **Par tenant (déploiement / repli)** : `workspace.settings['capture_experience'] = 'v0'`
+   (même mécanisme que `navigation_profile`) — force le fallback sur tout le workspace.
+4. **Défaut** : `'fil'`.
 
-**Procédure recommandée** : valider d'abord en `?exp=fil` / localStorage sur un compte pilote,
-puis activer `workspace.settings.capture_experience='fil'` pour les tenants pilotes, enfin
-généraliser. La bascule est **réversible** (repasser la valeur à `'v0'` ou retirer le réglage).
+**Procédure recommandée** : utiliser `?exp=v0`, localStorage ou le setting tenant uniquement
+pour diagnostiquer un retour arrière. La bascule est **réversible** (forcer `'v0'` puis
+retirer le réglage pour revenir à « Le Fil »).
 
 **Suppression de la v0 différée** : le monolithe v0 (`knowledge-capture.component.ts`, gelé en
-`brand-*`) et le flag lui-même ne sont **supprimés qu'après validation** de « Le Fil » sur les
-tenants pilotes (cf. D0). Aucune suppression n'est faite dans cette phase.
+`brand-*`) et le flag lui-même seront supprimés après stabilisation du cockpit officiel. Aucune
+suppression n'est faite dans cette phase.
 
 ---
 

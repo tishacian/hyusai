@@ -86,7 +86,7 @@ type WindowKey = '24h' | '7d';
             </div>
             <div class="grid grid-cols-1 gap-2 lg:grid-cols-2">
               @for (alert of alerts().slice(0, 4); track alert.id) {
-                <a [routerLink]="alert.route" class="rounded border border-white/5 bg-black/20 px-3 py-2 text-sm text-gray-200 hover:border-brand-400/40">
+                <a [routerLink]="alert.route" class="rounded border border-white/5 bg-black/20 px-3 py-2 text-sm text-gray-200 hover:border-cyan-400/40">
                   <div class="flex items-center gap-2">
                     <span class="h-1.5 w-1.5 rounded-full" [style.background]="toneColor(alert.tone)"></span>
                     <span class="truncate">{{ alert.label }}</span>

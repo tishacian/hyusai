@@ -2030,7 +2030,8 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.locator('body')).toContainText(/Andritz QA|andritz-qa/i);
 
     await page.goto('/knowledge/capture');
-    await expect(page.locator('body')).toContainText(/Vos sessions|Sessions de capture|Nouvelle capture|Capture sessions|New session/i);
+    await expect(page.locator('app-capture-fil-shell')).toBeVisible();
+    await expect(page.locator('body')).toContainText(/Vos séances de capture|Nouvelle capture|Capture · Connaissances/i);
 
     await page.goto('/chat');
     await expect(page.locator('body')).toContainText(/Chat|Question rapide|Posez votre question|Quick ask|Ask/i);
@@ -2049,7 +2050,7 @@ test.describe('Andritz mocked browser smoke', () => {
     });
     await installAndritzMocks(page);
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await expect(page.locator('body')).toContainText(/Sessions de capture|Capture sessions/i);
     await expect(page.getByRole('button', { name: /Nouvelle capture|Nouvelle session|New capture|New session/i }).first()).toBeVisible();
     await expect(page.locator('body')).toContainText(/Aucune session pour l’instant|No sessions yet/i);
@@ -5035,7 +5036,7 @@ test.describe('Andritz mocked browser smoke', () => {
     await expect(page.getByRole('heading', { name: /Knowledge/i })).toBeVisible();
     await expect(page.locator('body')).toContainText(/Andritz QA|andritz-qa/i);
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await expect(page.locator('body')).toContainText(/Capture sessions|Sessions de capture|New session|Nouvelle capture/i);
 
     await page.goto('/chat');
@@ -5045,7 +5046,7 @@ test.describe('Andritz mocked browser smoke', () => {
   test('enables new capture for reviewer IAM matrix', async ({ page }) => {
     await installAndritzMocks(page, { roleTemplate: 'workspace_reviewer' });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     const newCapture = page
       .getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i })
       .first();
@@ -5070,7 +5071,7 @@ test.describe('Andritz mocked browser smoke', () => {
     });
     await installAndritzMocks(page, { activeCaptureSession: true });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await expect(page.getByText('Andritz QA active capture').first()).toBeVisible();
     await page.getByText('Andritz QA active capture').first().click();
 
@@ -5108,7 +5109,7 @@ test.describe('Andritz mocked browser smoke', () => {
     const captureDeleteRequests: string[] = [];
     await installAndritzMocks(page, { acceptedProposal: true, captureDeleteRequests });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     const sessionCard = page.locator('[role="button"]').filter({ hasText: 'Andritz QA capture' }).first();
     await expect(sessionCard).toBeVisible();
 
@@ -5136,7 +5137,7 @@ test.describe('Andritz mocked browser smoke', () => {
     });
     await installAndritzMocks(page, { acceptedProposal: true });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /Andritz QA accepted capture report/i }).click();
     await expect(page.getByRole('heading', { name: /Andritz QA accepted capture report/i })).toBeVisible();
     await expect(page.locator('body')).toContainText(/Rapport final éditable|Editable final report/i);
@@ -5165,7 +5166,7 @@ test.describe('Andritz mocked browser smoke', () => {
       sourcePreviewRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /Andritz QA accepted capture report/i }).click();
     await expect(page.getByRole('heading', { name: /Andritz QA accepted capture report/i })).toBeVisible();
     await expect(page.locator('body')).toContainText(/Rapport final éditable|Editable final report/i);
@@ -5204,7 +5205,7 @@ test.describe('Andritz mocked browser smoke', () => {
     const capturePlanRequests: unknown[] = [];
     await installAndritzMocks(page, { capturePlanRequests });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await expect(page.locator('body')).toContainText(/Préparer la capture|Prepare the capture/i);
     const continueButton = page.getByRole('button', { name: /^Continuer$|^Continue$/i });
@@ -5224,7 +5225,7 @@ test.describe('Andritz mocked browser smoke', () => {
       capturePlanFailureDetail: 'Mocked plan service unavailable',
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     const titleInput = page.getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i);
     await titleInput.fill('Andritz QA plan failure smoke');
@@ -5246,7 +5247,7 @@ test.describe('Andritz mocked browser smoke', () => {
     const capturePlanRequests: unknown[] = [];
     await installAndritzMocks(page, { capturePlanRequests });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await expect(page.locator('body')).toContainText(/Préparer la capture|Prepare the capture/i);
     await page
@@ -5279,7 +5280,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureHintQueueShouldFail: true,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -5330,7 +5331,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -5393,7 +5394,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureSessionStartsActive: true,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -5477,7 +5478,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureSessionStartsActive: true,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -5604,7 +5605,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureSessionStartsActive: true,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -5744,7 +5745,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -5788,7 +5789,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -5846,7 +5847,7 @@ test.describe('Andritz mocked browser smoke', () => {
   test('renders a late same-turn voice partial while endpoint STT is finalizing', async ({ page }) => {
     await installAndritzMocks(page, { captureSessionStartsActive: true });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -5900,7 +5901,7 @@ test.describe('Andritz mocked browser smoke', () => {
       capturePlanValidationRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -5941,7 +5942,7 @@ test.describe('Andritz mocked browser smoke', () => {
       capturePlanTopicsRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -5973,7 +5974,7 @@ test.describe('Andritz mocked browser smoke', () => {
       capturePlanValidationRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6006,7 +6007,7 @@ test.describe('Andritz mocked browser smoke', () => {
       capturePlanTopicsRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6040,7 +6041,7 @@ test.describe('Andritz mocked browser smoke', () => {
       capturePlanValidationRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6088,7 +6089,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6126,7 +6127,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6189,7 +6190,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6251,7 +6252,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6311,7 +6312,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6409,7 +6410,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6491,7 +6492,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6578,7 +6579,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureDocumentViewRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6674,7 +6675,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6773,7 +6774,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6850,7 +6851,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6924,7 +6925,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -6979,7 +6980,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureTurnRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -7034,7 +7035,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureClosureRequests,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -7087,7 +7088,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureSessionStartsActive: true,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -7167,7 +7168,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureClosureShouldFail: true,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)
@@ -7217,7 +7218,7 @@ test.describe('Andritz mocked browser smoke', () => {
       captureClosureNoProposal: true,
     });
 
-    await page.goto('/knowledge/capture');
+    await page.goto('/knowledge/capture?exp=v0');
     await page.getByRole('button', { name: /New session|New capture|Nouvelle session|Nouvelle capture/i }).click();
     await page
       .getByPlaceholder(/Usure prématurée des paliers|Premature bearing wear/i)

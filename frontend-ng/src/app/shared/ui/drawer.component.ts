@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from 
 import { IconComponent } from './icon.component';
 
 /**
- * Right-side slide-over panel with glass backdrop. Used for contextual config
+ * Right-side slide-over panel with ck-surface backdrop. Used for contextual config
  * (feeds/targets in News Lab, block config in system design, etc.).
  */
 @Component({
@@ -18,7 +18,7 @@ import { IconComponent } from './icon.component';
           (click)="dismiss($event)"
         ></div>
         <aside
-          class="relative h-full glass-blur border-l border-white/10 shadow-elevated animate-slide-up overflow-y-auto"
+          class="relative h-full ck-surface border-l border-white/10 shadow-elevated animate-slide-up overflow-y-auto"
           [style.width.px]="width"
           (click)="$event.stopPropagation()"
         >
@@ -27,7 +27,7 @@ import { IconComponent } from './icon.component';
           >
             <div class="flex items-center gap-3 min-w-0">
               @if (icon) {
-                <div class="w-8 h-8 rounded-md flex items-center justify-center bg-brand-500/15 text-brand-400">
+                <div class="w-8 h-8 rounded-md flex items-center justify-center bg-cyan-500/15 text-cyan-400">
                   <app-icon [name]="icon" [size]="16" />
                 </div>
               }

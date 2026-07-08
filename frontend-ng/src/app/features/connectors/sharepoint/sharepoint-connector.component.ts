@@ -90,7 +90,7 @@ type UiMode = 'guest_link' | 'oauth';
       <!-- Left: mode picker + configuration -->
       <div class="xl:col-span-2 space-y-5">
         <!-- Mode picker -->
-        <section class="t-card t-elevated rounded-md p-5">
+        <section class="ck-surface t-elevated rounded-md p-5">
           <header class="flex items-center gap-2 mb-4">
             <h2 class="text-sm font-semibold text-white">Authentication mode</h2>
             <span class="text-[10px] font-mono text-gray-500">one per session_key</span>
@@ -103,8 +103,8 @@ type UiMode = 'guest_link' | 'oauth';
               type="button"
               (click)="setMode('oauth')"
               class="group rounded-md p-4 text-left ring-1 transition"
-              [class.bg-brand-500\\/10]="uiMode() === 'oauth'"
-              [class.ring-brand-500\\/40]="uiMode() === 'oauth'"
+              [class.bg-cyan-500\\/10]="uiMode() === 'oauth'"
+              [class.ring-cyan-500\\/40]="uiMode() === 'oauth'"
               [class.bg-black\\/20]="uiMode() !== 'oauth'"
               [class.ring-white\\/10]="uiMode() !== 'oauth'"
             >
@@ -121,8 +121,8 @@ type UiMode = 'guest_link' | 'oauth';
               type="button"
               (click)="setMode('guest_link')"
               class="group rounded-md p-4 text-left ring-1 transition"
-              [class.bg-brand-500\\/10]="uiMode() === 'guest_link'"
-              [class.ring-brand-500\\/40]="uiMode() === 'guest_link'"
+              [class.bg-cyan-500\\/10]="uiMode() === 'guest_link'"
+              [class.ring-cyan-500\\/40]="uiMode() === 'guest_link'"
               [class.bg-black\\/20]="uiMode() !== 'guest_link'"
               [class.ring-white\\/10]="uiMode() !== 'guest_link'"
             >
@@ -140,7 +140,7 @@ type UiMode = 'guest_link' | 'oauth';
 
         <!-- Guest Link: session upload -->
         @if (uiMode() === 'guest_link') {
-          <section class="t-card t-elevated rounded-md p-5">
+          <section class="ck-surface t-elevated rounded-md p-5">
             <header class="flex items-center justify-between gap-2 mb-3">
               <div>
                 <h2 class="text-sm font-semibold text-white">Session (Guest Link)</h2>
@@ -203,12 +203,12 @@ type UiMode = 'guest_link' | 'oauth';
               [value]="sessionJsonRaw()"
               (input)="onSessionJsonInput($event)"
               placeholder='{"sharing_url": "...", "storage_state": "..."}'
-              class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition text-[12px] font-mono"
+              class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-[12px] font-mono"
             ></textarea>
             <div class="flex items-center gap-2 mt-3">
               <button
                 type="button"
-                class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium transition"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-medium transition"
                 (click)="uploadSession()"
                 [disabled]="!canUploadSession() || sessionUploading()"
               >
@@ -230,11 +230,11 @@ type UiMode = 'guest_link' | 'oauth';
         }
 
         <!-- Sync form -->
-        <section class="t-card t-elevated rounded-md p-5">
+        <section class="ck-surface t-elevated rounded-md p-5">
           <header class="flex items-center gap-2 mb-4">
             <h2 class="text-sm font-semibold text-white">Sync</h2>
             <span class="text-[10px] font-mono text-gray-500">
-              → collection <span class="text-brand-300">{{ collectionName() || 'documents' }}</span>
+              → collection <span class="text-cyan-300">{{ collectionName() || 'documents' }}</span>
             </span>
           </header>
 
@@ -252,7 +252,7 @@ type UiMode = 'guest_link' | 'oauth';
                 (ngModelChange)="onSessionKeyChange($event)"
                 name="session_key"
                 placeholder="andritz-partage-externe"
-                class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition text-sm"
+                class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm"
               />
             </div>
 
@@ -265,7 +265,7 @@ type UiMode = 'guest_link' | 'oauth';
                 [(ngModel)]="folderUrl"
                 name="folder"
                 placeholder="/sites/107645/Shared Documents/Test_partage_externe"
-                class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition text-sm font-mono"
+                class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm font-mono"
               />
             </div>
 
@@ -279,7 +279,7 @@ type UiMode = 'guest_link' | 'oauth';
                   [(ngModel)]="sharingUrl"
                   name="sharing_url"
                   placeholder="https://tenant.sharepoint.com/:f:/s/…?e=…"
-                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition text-sm font-mono"
+                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm font-mono"
                 />
               </div>
             } @else {
@@ -292,7 +292,7 @@ type UiMode = 'guest_link' | 'oauth';
                   [(ngModel)]="clientId"
                   name="client_id"
                   placeholder="49888603-…"
-                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition text-sm font-mono"
+                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm font-mono"
                 />
               </div>
               <div>
@@ -304,7 +304,7 @@ type UiMode = 'guest_link' | 'oauth';
                   [(ngModel)]="tenantHost"
                   name="tenant_host"
                   placeholder="tenant.onmicrosoft.com"
-                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition text-sm font-mono"
+                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm font-mono"
                 />
               </div>
               <div class="md:col-span-2">
@@ -319,7 +319,7 @@ type UiMode = 'guest_link' | 'oauth';
                   [(ngModel)]="userHint"
                   name="user_hint"
                   placeholder="agent@datategy.net"
-                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition text-sm font-mono"
+                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm font-mono"
                 />
               </div>
             }
@@ -335,7 +335,7 @@ type UiMode = 'guest_link' | 'oauth';
                 (ngModelChange)="onCollectionChange($event)"
                 name="collection_name"
                 placeholder="documents"
-                class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition text-sm font-mono"
+                class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm font-mono"
               />
             </div>
 
@@ -356,7 +356,7 @@ type UiMode = 'guest_link' | 'oauth';
           <div class="flex items-center gap-2 pt-4 mt-4 border-t border-white/5">
             <button
               type="button"
-              class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
               (click)="triggerSync()"
               [disabled]="!canTriggerSync() || syncEnqueuing()"
             >
@@ -372,7 +372,7 @@ type UiMode = 'guest_link' | 'oauth';
 
       <!-- Right: jobs list -->
       <aside class="space-y-3">
-        <div class="t-card t-elevated rounded-md overflow-hidden">
+        <div class="ck-surface t-elevated rounded-md overflow-hidden">
           <header class="flex items-center justify-between px-4 py-3 border-b border-white/5">
             <div class="flex items-center gap-2">
               <app-icon name="history" [size]="14" class="text-gray-400" />
@@ -412,7 +412,7 @@ type UiMode = 'guest_link' | 'oauth';
                     {{ j.folder_server_relative_url }}
                   </div>
                   @if (j.state === 'running' || j.progress === 'ingesting') {
-                    <div class="mt-1.5 text-[10px] text-brand-300 font-mono">
+                    <div class="mt-1.5 text-[10px] text-cyan-300 font-mono">
                       <app-icon name="loader" [size]="10" class="inline-block animate-spin" />
                       {{ j.progress || 'running' }}
                     </div>
@@ -447,9 +447,9 @@ type UiMode = 'guest_link' | 'oauth';
           }
         </div>
 
-        <div class="t-card t-elevated rounded-md p-4 text-[11px] text-gray-400 leading-relaxed">
+        <div class="ck-surface t-elevated rounded-md p-4 text-[11px] text-gray-400 leading-relaxed">
           <div class="flex items-center gap-1.5 mb-1.5">
-            <app-icon name="info" [size]="12" class="text-brand-400" />
+            <app-icon name="info" [size]="12" class="text-cyan-400" />
             <span class="font-semibold text-gray-200">Idempotent syncs.</span>
           </div>
           Each sync writes a manifest under
@@ -680,7 +680,7 @@ export class SharepointConnectorComponent implements OnInit, OnDestroy {
   }
 
   jobBadgeClass(j: SharePointJobSummary): string {
-    if (j.state === 'running') return 'bg-brand-500/10 text-brand-300 ring-brand-500/20';
+    if (j.state === 'running') return 'bg-cyan-500/10 text-cyan-300 ring-cyan-500/20';
     if (j.status === 'completed') return 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20';
     if (j.status === 'login_required')
       return 'bg-amber-500/10 text-amber-300 ring-amber-500/20';

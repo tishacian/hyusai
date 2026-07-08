@@ -194,7 +194,7 @@ interface AssistantProfileDraft {
       </button>
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-semibold bg-brand-500 hover:bg-brand-400 text-white disabled:opacity-50 transition"
+        class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-semibold bg-cyan-500 hover:bg-cyan-400 text-white disabled:opacity-50 transition"
         [disabled]="saving() || !canEdit()"
         (click)="saveAll()"
       >
@@ -210,10 +210,10 @@ interface AssistantProfileDraft {
 
     <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div class="space-y-5">
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Source routing</p>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Source routing</p>
               <h3 class="text-base font-semibold text-white mt-1">Source scopes</h3>
               <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
                 A scope gives Quick ask a clear label and maps it to one or more indexed collections.
@@ -529,10 +529,10 @@ interface AssistantProfileDraft {
           </div>
         </section>
 
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Table Intelligence</p>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Table Intelligence</p>
               <h3 class="text-base font-semibold text-white mt-1">Analytical spreadsheet profiles</h3>
               <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
                 Profiles tell Agentium how to interpret table facts for lookup, comparison and calculation. They guide
@@ -686,10 +686,10 @@ interface AssistantProfileDraft {
           </div>
         </section>
 
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5 flex items-start justify-between gap-3">
             <div>
-              <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Document & OCR Intelligence</p>
+              <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Document & OCR Intelligence</p>
               <h3 class="text-base font-semibold text-white mt-1">Manuals, scans and visual evidence</h3>
               <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
                 Document profiles guide procedure, warning and parameter lookup. OCR settings control how scans,
@@ -893,9 +893,9 @@ interface AssistantProfileDraft {
           </div>
         </section>
 
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Chat surface</p>
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Chat surface</p>
               <h3 class="text-base font-semibold text-white mt-1">Chat defaults</h3>
             <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
               Chat defaults are the portable baseline. The preview below shows the effective Quick ask surface after
@@ -1040,9 +1040,9 @@ interface AssistantProfileDraft {
           </div>
         </section>
 
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Voice interaction</p>
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Voice interaction</p>
             <h3 class="text-base font-semibold text-white mt-1">Voice conversation defaults</h3>
             <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
               These settings make voice-to-voice a reusable workspace capability. Assistant profiles may override them
@@ -1255,9 +1255,9 @@ interface AssistantProfileDraft {
           </div>
         </section>
 
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5">
-            <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Actions & Assistants</p>
+            <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Actions & Assistants</p>
             <h3 class="text-base font-semibold text-white mt-1">Action inheritance</h3>
             <p class="text-sm text-gray-400 mt-1 max-w-2xl leading-relaxed">
               Action packs are inherited by Chat, Voice, Flow Builder and System workbenches. Sentinel-CI keeps AYA
@@ -1312,8 +1312,8 @@ interface AssistantProfileDraft {
       </div>
 
       <aside class="space-y-5">
-        <section class="t-card t-elevated rounded-md p-5">
-          <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Available collections</p>
+        <section class="ck-surface rounded-md p-5">
+          <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Available collections</p>
           <h3 class="text-sm font-semibold text-white mt-1">Indexed collections</h3>
           <p class="text-xs text-gray-500 mt-2">
             Collections are raw indexed stores. Add one to the default context so Chat can use it, or open the
@@ -1348,8 +1348,8 @@ interface AssistantProfileDraft {
           </div>
         </section>
 
-        <section class="t-card t-elevated rounded-md p-5">
-          <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">Assistant profile</p>
+        <section class="ck-surface rounded-md p-5">
+          <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">Assistant profile</p>
           <h3 class="text-sm font-semibold text-white mt-1">Default assistant</h3>
           <p class="mt-2 text-xs text-gray-500 leading-relaxed">
             The default assistant may set the automatic source scope and, when configured, the visible Quick ask surface.

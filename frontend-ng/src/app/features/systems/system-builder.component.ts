@@ -579,7 +579,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                   <span>ADAPTIVE · confidence threshold</span>
                   <span class="ck-tnum" style="color:var(--ck-signal-violet);">{{ draft.confidence_threshold.toFixed(2) }}</span>
                 </label>
-                <input type="range" min="0" max="1" step="0.01" [(ngModel)]="draft.confidence_threshold" class="w-full accent-violet-400" />
+                <input type="range" min="0" max="1" step="0.01" [(ngModel)]="draft.confidence_threshold" class="w-full accent-sky-400" />
                 <p class="ck-mono" style="font-size:10px; color:var(--ck-fg-4); margin-top:4px;">
                   Below this score → HITL escalation (auto).
                 </p>
@@ -589,7 +589,7 @@ const TIER_TONE: Record<string, 'pos' | 'cool' | 'violet' | 'warn'> = {
                   <span>ADAPTIVE · temperature</span>
                   <span class="ck-tnum" style="color:var(--ck-signal-violet);">{{ draft.temperature.toFixed(2) }}</span>
                 </label>
-                <input type="range" min="0" max="2" step="0.05" [(ngModel)]="draft.temperature" class="w-full accent-violet-400" />
+                <input type="range" min="0" max="2" step="0.05" [(ngModel)]="draft.temperature" class="w-full accent-sky-400" />
               </div>
             </div>
 

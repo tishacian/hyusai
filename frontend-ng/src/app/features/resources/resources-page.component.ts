@@ -115,7 +115,7 @@ type Tab = 'models' | 'connectors';
           (click)="tab.set(t.id)"
           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition"
           [ngClass]="tab() === t.id
-            ? 'bg-white/[0.06] text-white ring-1 ring-brand-400/35'
+            ? 'bg-white/[0.06] text-white ring-1 ring-cyan-400/35'
             : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'"
         >
           <app-icon [name]="t.icon" [size]="12" />
@@ -134,8 +134,8 @@ type Tab = 'models' | 'connectors';
     <!-- Models tab -->
     @if (tab() === 'models') {
       @if (isDemoMode()) {
-        <section class="t-card t-elevated rounded-md p-8 text-center">
-          <div class="w-12 h-12 rounded-md bg-brand-500/10 ring-1 ring-brand-500/30 text-brand-300 flex items-center justify-center mx-auto mb-3">
+        <section class="ck-surface rounded-md p-8 text-center">
+          <div class="w-12 h-12 rounded-md bg-cyan-500/10 ring-1 ring-cyan-500/30 text-cyan-300 flex items-center justify-center mx-auto mb-3">
             <app-icon name="shield-check" [size]="20" />
           </div>
           <h3 class="text-sm font-semibold text-white mb-2">Managed runtime</h3>
@@ -144,10 +144,10 @@ type Tab = 'models' | 'connectors';
           </p>
         </section>
       } @else {
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface rounded-md overflow-hidden">
         <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
           <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-            <app-icon name="cpu" [size]="16" class="text-brand-400" />
+            <app-icon name="cpu" [size]="16" class="text-cyan-400" />
             Available models
           </h3>
           <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
@@ -174,7 +174,7 @@ type Tab = 'models' | 'connectors';
             @for (m of models(); track modelKey(m)) {
               <li class="px-5 py-3 grid grid-cols-12 gap-3 items-center text-sm" [title]="usageLabel(m)">
                 <div class="col-span-6 min-w-0 flex items-center gap-2">
-                  <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 bg-white/[0.04] ring-1 ring-brand-400/25 text-brand-300">
+                  <div class="w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 bg-white/[0.04] ring-1 ring-cyan-400/25 text-cyan-300">
                     {{ providerInitial(m) }}
                   </div>
                   <div class="min-w-0">
@@ -197,7 +197,7 @@ type Tab = 'models' | 'connectors';
                 <div class="col-span-1 text-xs text-right">
                   @if (usageCount(m) > 0) {
                     <span
-                      class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                      class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20"
                       [title]="'Pinned by: ' + (systemUsage()[modelKey(m)] || systemUsage()[modelName(m)] || []).join(', ')"
                     >
                       {{ usageLabel(m) }}
@@ -240,7 +240,7 @@ type Tab = 'models' | 'connectors';
       @for (cat of categories; track cat.id) {
         <section class="mb-6">
           <header class="flex items-center gap-2 mb-3">
-            <app-icon [name]="cat.icon" [size]="14" class="text-brand-400" />
+            <app-icon [name]="cat.icon" [size]="14" class="text-cyan-400" />
             <h3 class="text-[10px] uppercase tracking-[0.16em] font-semibold text-gray-400">
               {{ cat.label }}
             </h3>
@@ -254,14 +254,14 @@ type Tab = 'models' | 'connectors';
               <button
                 type="button"
                 (click)="openConnector(c)"
-                class="group t-card t-elevated rounded-md p-4 text-left relative hover:-translate-y-0.5 transition-transform"
+                class="group ck-surface rounded-md p-4 text-left relative hover:-translate-y-0.5 transition-transform"
               >
                 <div class="flex items-start justify-between mb-2.5">
                   <div
                     class="w-9 h-9 rounded-md flex items-center justify-center shrink-0"
                     [ngClass]="c.status === 'coming-soon'
                       ? 'bg-white/5 text-gray-400'
-                      : 'bg-brand-500/15 text-brand-400'"
+                      : 'bg-cyan-500/15 text-cyan-400'"
                   >
                     <app-icon [name]="c.icon" [size]="18" />
                   </div>
@@ -281,7 +281,7 @@ type Tab = 'models' | 'connectors';
                 </p>
                 <div class="flex items-center justify-between mt-3 pt-3 border-t border-white/5">
                   <span class="text-[10px] font-mono text-gray-500">{{ c.version }}</span>
-                  <span class="text-[10px] font-medium flex items-center gap-1 text-brand-400 group-hover:gap-1.5 transition-all">
+                  <span class="text-[10px] font-medium flex items-center gap-1 text-cyan-400 group-hover:gap-1.5 transition-all">
                     Configure <app-icon name="arrow-right" [size]="10" />
                   </span>
                 </div>
@@ -323,9 +323,9 @@ type Tab = 'models' | 'connectors';
               </div>
             </div>
           } @else {
-            <div class="rounded-md bg-brand-500/5 ring-1 ring-brand-500/20 p-3 flex items-start gap-2">
-              <app-icon name="info" [size]="14" class="text-brand-400 mt-0.5 shrink-0" />
-              <div class="text-[11px] text-brand-200/90 leading-relaxed">
+            <div class="rounded-md bg-cyan-500/5 ring-1 ring-cyan-500/20 p-3 flex items-start gap-2">
+              <app-icon name="info" [size]="14" class="text-cyan-400 mt-0.5 shrink-0" />
+              <div class="text-[11px] text-cyan-200/90 leading-relaxed">
                 Configuration is stored locally. Backend adapter will pick it up automatically
                 once registered.
               </div>
@@ -347,7 +347,7 @@ type Tab = 'models' | 'connectors';
                   (input)="onFieldInput(f.key, $event)"
                   [placeholder]="f.placeholder ?? ''"
                   [required]="!!f.required"
-                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/60 focus:border-brand-500/50 transition text-sm"
+                  class="w-full px-3 py-2 rounded bg-black/30 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 transition text-sm"
                 />
               </div>
             }
@@ -355,7 +355,7 @@ type Tab = 'models' | 'connectors';
             <div class="flex items-center gap-2 pt-2">
               <button
                 type="submit"
-                class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-brand-500 hover:bg-brand-400 text-white text-sm font-medium transition"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 text-white text-sm font-medium transition"
               >
                 <app-icon name="save" [size]="14" /> Save
               </button>

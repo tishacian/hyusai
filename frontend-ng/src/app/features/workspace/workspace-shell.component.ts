@@ -47,12 +47,12 @@ interface TabItem {
           @for (tab of visibleTabs(); track tab.path) {
             <a
               [routerLink]="tab.path"
-              routerLinkActive="bg-white/[0.04] text-white ring-1 ring-brand-400/35"
+              routerLinkActive="bg-white/[0.04] text-white ring-1 ring-cyan-400/35"
               [routerLinkActiveOptions]="{ exact: false }"
               class="block px-3 py-2.5 rounded-md border border-transparent text-sm text-gray-400 hover:text-white hover:bg-white/[0.03] transition"
             >
               <div class="flex items-center gap-2.5">
-                <app-icon [name]="tab.icon" [size]="16" class="text-brand-400" />
+                <app-icon [name]="tab.icon" [size]="16" class="text-cyan-400" />
                 <span class="font-medium">{{ tab.label }}</span>
               </div>
               <div class="text-xs text-gray-500 mt-0.5 pl-6">{{ tab.description }}</div>

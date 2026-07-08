@@ -48,7 +48,7 @@ import {
       <a
         actions
         routerLink="/systems/new"
-        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+        class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
       >
         <app-icon name="plus" [size]="14" /> New via Builder
       </a>
@@ -57,7 +57,7 @@ import {
     @if (loading() && contexts().length === 0) {
       <div class="space-y-2">
         @for (_ of [0, 1, 2]; track $index) {
-          <div class="t-card rounded-md p-5 animate-pulse">
+          <div class="ck-surface rounded-md p-5 animate-pulse">
             <div class="h-3 w-60 bg-white/5 rounded"></div>
           </div>
         }
@@ -70,7 +70,7 @@ import {
       >
         <a
           routerLink="/systems/new"
-          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
         >
           <app-icon name="plus" [size]="14" /> Open System Builder
         </a>
@@ -81,10 +81,10 @@ import {
           <li>
             <a
               [routerLink]="['/steering/contexts', c.id]"
-              class="flex items-center gap-3 t-card rounded-md px-4 py-3 transition hover:bg-white/5 group"
+              class="flex items-center gap-3 ck-surface rounded-md px-4 py-3 transition hover:bg-white/5 group"
             >
               <div
-                class="w-9 h-9 rounded bg-brand-500/15 text-brand-400 ring-1 ring-brand-500/30 flex items-center justify-center shrink-0"
+                class="w-9 h-9 rounded bg-cyan-500/15 text-cyan-400 ring-1 ring-cyan-500/30 flex items-center justify-center shrink-0"
               >
                 <app-icon name="database" [size]="16" />
               </div>

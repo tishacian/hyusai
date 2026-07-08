@@ -66,18 +66,18 @@ import { LensService } from '@app/core/lens';
     >
       <ck-tab id="overview" label="Overview">
         <div class="space-y-4">
-          <section class="t-card t-elevated rounded-md p-5">
+          <section class="ck-surface t-elevated rounded-md p-5">
             <h3 class="text-sm font-semibold text-white mb-2">Purpose</h3>
             <p class="text-xs text-gray-400">
               This capability is the pact between the business outcome and the Agentium engine.
               Use it to promise an outcome (SLO, measurable result), not a list of features.
             </p>
             <p class="text-xs text-gray-500 mt-2">
-              Lens context: <span class="font-mono text-[11px] text-brand-300">{{ lens() }}</span>
+              Lens context: <span class="font-mono text-[11px] text-cyan-300">{{ lens() }}</span>
               — projections will adapt per-lens in a follow-up wave.
             </p>
           </section>
-          <section class="t-card rounded-md p-5">
+          <section class="ck-surface rounded-md p-5">
             <h3 class="text-sm font-semibold text-white mb-2">Explore related</h3>
             <div class="flex items-center gap-2 flex-wrap text-xs">
               <a routerLink="/capabilities" class="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-gray-200 transition">
@@ -92,12 +92,12 @@ import { LensService } from '@app/core/lens';
       </ck-tab>
 
       <ck-tab id="systems" label="Systems">
-        <div class="t-card rounded-md p-5 text-center text-gray-400 text-sm">
+        <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
           Systems that implement this capability will be listed here.
           <div class="mt-3">
             <a
               routerLink="/systems"
-              class="inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+              class="inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
             >
               Open Systems catalog
             </a>
@@ -106,14 +106,14 @@ import { LensService } from '@app/core/lens';
       </ck-tab>
 
       <ck-tab id="outcomes" label="Outcomes">
-        <div class="t-card rounded-md p-5 text-center text-gray-400 text-sm">
+        <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
           Aggregated Outcome rollup across every run of every system bound to
           this capability. Wires to the canonical "runs.outcome" block.
         </div>
       </ck-tab>
 
       <ck-tab id="policies" label="Policies">
-        <div class="t-card rounded-md p-5 text-center text-gray-400 text-sm">
+        <div class="ck-surface rounded-md p-5 text-center text-gray-400 text-sm">
           Adaptive and Control policies targeting this capability. Open the
           side panel for a quick edit.
         </div>

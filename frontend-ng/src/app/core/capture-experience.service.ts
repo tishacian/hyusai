@@ -11,15 +11,15 @@ const QUERY_PARAM = 'exp';
 
 /**
  * Hosts the `capture_experience` flag that decides whether the stable
- * `/knowledge/capture` route renders the frozen v0 monolith
- * (`KnowledgeCaptureComponent`) or the new cockpit "Le Fil" experience
- * (`CaptureFilShellComponent`).
+ * `/knowledge/capture` route renders the official cockpit "Le Fil" experience
+ * (`CaptureFilShellComponent`) or the frozen v0 monolith
+ * (`KnowledgeCaptureComponent`) for explicit legacy fallback.
  *
  * Resolution order (highest wins):
  *   1. `?exp=fil` query param override (one-off A/B)
  *   2. `localStorage['agentium.capture_experience']` (per-user override)
  *   3. `workspace.current().settings['capture_experience']` (per-tenant)
- *   4. default `'v0'` — existing users are unaffected.
+ *   4. default `'fil'` — Capture uses the platform cockpit by default.
  */
 @Injectable({ providedIn: 'root' })
 export class CaptureExperienceService {
@@ -36,7 +36,7 @@ export class CaptureExperienceService {
     if (local) return local;
     const tenant = this.normalize(this.workspace.current()?.settings?.['capture_experience']);
     if (tenant) return tenant;
-    return 'v0';
+    return 'fil';
   });
 
   readonly isFil = computed(() => this.experience() === 'fil');

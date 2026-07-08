@@ -146,7 +146,7 @@ interface ContextConfigRow {
         <a
           actions
           [routerLink]="['/systems', systemId, 'capture']"
-          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition"
+          class="inline-flex items-center gap-1.5 px-3 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white shadow-glow-sm transition"
           title="Lancer une capture de connaissances"
         >
           <app-icon name="mic" [size]="14" /> Capture de connaissances
@@ -188,10 +188,10 @@ interface ContextConfigRow {
       <ck-tab id="overview" [label]="isExpertKnowledgeCapture() ? 'Aperçu' : 'Overview'">
         @if (isExpertKnowledgeCapture()) {
           <div class="space-y-5">
-            <section class="t-card t-elevated rounded-md p-6">
+            <section class="ck-surface t-elevated rounded-md p-6">
               <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                 <div class="max-w-2xl">
-                  <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-brand-300">Capture de connaissances</p>
+                  <p class="ck-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300">Capture de connaissances</p>
                   <h2 class="mt-2 text-2xl font-semibold text-white">Préparer une session de capture</h2>
                   <p class="mt-3 text-sm leading-relaxed text-gray-400">
                     Construisez le plan, menez l’échange avec l’expert, relisez le rapport, puis publiez la connaissance validée.
@@ -199,7 +199,7 @@ interface ContextConfigRow {
                 </div>
                 <a
                   [routerLink]="['/systems', systemId, 'capture']"
-                  class="inline-flex shrink-0 items-center justify-center gap-2 rounded bg-brand-500 px-4 py-3 text-sm font-semibold text-white shadow-glow-sm transition hover:bg-brand-400"
+                  class="inline-flex shrink-0 items-center justify-center gap-2 rounded bg-cyan-500 px-4 py-3 text-sm font-semibold text-white shadow-glow-sm transition hover:bg-cyan-400"
                 >
                   <app-icon name="mic" [size]="16" /> Ouvrir les sessions
                 </a>
@@ -208,19 +208,19 @@ interface ContextConfigRow {
 
             <section class="grid gap-3 md:grid-cols-4">
               <div class="rounded border border-white/10 bg-white/[0.03] p-4">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">1 · Préparer</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">1 · Préparer</p>
                 <p class="mt-2 text-sm text-gray-300">Titre, durée et mode de capture.</p>
               </div>
               <div class="rounded border border-white/10 bg-white/[0.03] p-4">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">2 · Plan</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">2 · Plan</p>
                 <p class="mt-2 text-sm text-gray-300">Plan éditable ou importé depuis un fichier.</p>
               </div>
               <div class="rounded border border-white/10 bg-white/[0.03] p-4">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">3 · Capture</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">3 · Capture</p>
                 <p class="mt-2 text-sm text-gray-300">Échange guidé, questions utiles et transcription.</p>
               </div>
               <div class="rounded border border-white/10 bg-white/[0.03] p-4">
-                <p class="ck-mono text-[10px] uppercase tracking-wider text-brand-300">4 · Publier</p>
+                <p class="ck-mono text-[10px] uppercase tracking-wider text-cyan-300">4 · Publier</p>
                 <p class="mt-2 text-sm text-gray-300">Rapport relu, destination confirmée.</p>
               </div>
             </section>
@@ -229,23 +229,23 @@ interface ContextConfigRow {
         <div class="space-y-6">
         <!-- OmniRAG banner: each stage links to the matching configuration -->
         <div
-          class="relative overflow-hidden t-card rounded-md p-5"
+          class="relative overflow-hidden ck-surface rounded-md p-5"
           style="background: linear-gradient(135deg, rgba(0,188,212,0.08) 0%, rgba(139,92,246,0.08) 100%); border: 1px solid rgba(0,188,212,0.25);"
         >
-          <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-brand-500/15 blur-3xl pointer-events-none"></div>
+          <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-cyan-500/15 blur-3xl pointer-events-none"></div>
           <div class="relative flex items-center gap-3 flex-wrap">
-            <app-icon name="atom" [size]="18" class="text-brand-400" />
-            <span class="text-xs uppercase tracking-wider font-semibold text-brand-300">
+            <app-icon name="atom" [size]="18" class="text-cyan-400" />
+            <span class="text-xs uppercase tracking-wider font-semibold text-cyan-300">
               {{ isTranslationSuite() ? 'Translation Suite' : (isExpertKnowledgeCapture() ? 'Parcours de capture' : 'OmniRAG pipeline') }}
             </span>
             <div class="flex items-center gap-2 ml-auto text-[11px]">
               @for (stage of pipelineStages; track stage.key; let last = $last) {
                 <a
                   [routerLink]="stage.route"
-                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 ring-1 ring-white/10 text-gray-200 hover:bg-white/10 hover:ring-brand-500/40 transition"
+                  class="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 ring-1 ring-white/10 text-gray-200 hover:bg-white/10 hover:ring-cyan-500/40 transition"
                   [title]="'Open ' + stage.configureLabel"
                 >
-                  <app-icon [name]="stage.icon" [size]="11" class="text-brand-400" />
+                  <app-icon [name]="stage.icon" [size]="11" class="text-cyan-400" />
                   {{ stage.name }}
                 </a>
                 @if (!last) {
@@ -320,16 +320,16 @@ interface ContextConfigRow {
         />
 
         <!-- Setup wizard — each step has an actionable CTA -->
-        <section class="t-card t-elevated rounded-md p-6">
+        <section class="ck-surface t-elevated rounded-md p-6">
           <div class="flex items-center gap-2 mb-4">
-            <app-icon name="list-checks" [size]="16" class="text-brand-400" />
+            <app-icon name="list-checks" [size]="16" class="text-cyan-400" />
             <h3 class="text-base font-semibold text-white">Setup checklist</h3>
             <span class="ml-auto text-xs text-gray-400">{{ completedSteps() }} / {{ wizard().length }} done</span>
           </div>
 
           <div class="w-full h-1.5 rounded-full bg-white/5 overflow-hidden mb-4">
             <div
-              class="h-full rounded-full bg-gradient-to-r from-brand-500 to-violet-500 transition-all"
+              class="h-full rounded-full bg-cyan-500 transition-all"
               [style.width.%]="(completedSteps() / wizard().length) * 100"
             ></div>
           </div>
@@ -346,7 +346,7 @@ interface ContextConfigRow {
                   class="w-9 h-9 rounded-md flex items-center justify-center shrink-0"
                   [ngClass]="step.done
                     ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30'
-                    : 'bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/20'"
+                    : 'bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/20'"
                 >
                   <app-icon [name]="step.done ? 'check-circle-2' : step.icon" [size]="16" />
                 </div>
@@ -362,7 +362,7 @@ interface ContextConfigRow {
                   class="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded text-xs font-medium transition"
                   [ngClass]="step.done
                     ? 'bg-white/5 text-gray-300 hover:bg-white/10 ring-1 ring-white/10'
-                    : 'bg-brand-500 text-white hover:bg-brand-600 shadow-glow-sm'"
+                    : 'bg-cyan-500 text-white hover:bg-cyan-600 shadow-glow-sm'"
                 >
                   <app-icon [name]="step.done ? 'external-link' : 'arrow-right'" [size]="12" />
                   {{ step.cta }}
@@ -421,10 +421,10 @@ interface ContextConfigRow {
         <div class="space-y-4">
         <!-- Orientation banner -->
         <div
-          class="t-card rounded-md p-4 flex items-start gap-3"
+          class="ck-surface rounded-md p-4 flex items-start gap-3"
           style="background: linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(0,188,212,0.08) 100%); border: 1px solid rgba(139,92,246,0.25);"
         >
-          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-violet-500/15 text-violet-300 ring-1 ring-violet-500/30 shrink-0">
+          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-sky-500/15 text-sky-300 ring-1 ring-sky-500/30 shrink-0">
             <app-icon name="workflow" [size]="18" />
           </div>
           <div class="flex-1 min-w-0">
@@ -437,17 +437,17 @@ interface ContextConfigRow {
           </div>
           <a
             [routerLink]="['/systems', systemId, 'flow']"
-            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-brand-500 hover:bg-brand-600 text-white shadow-glow-sm transition shrink-0"
+            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white shadow-glow-sm transition shrink-0"
           >
             <app-icon name="workflow" [size]="14" /> Open in flow builder
           </a>
         </div>
 
         <!-- Pipeline stages — each with inline "Configure" action -->
-        <section class="t-card t-elevated rounded-md overflow-hidden">
+        <section class="ck-surface t-elevated rounded-md overflow-hidden">
           <div class="px-5 py-4 border-b border-white/5 flex items-center justify-between">
             <h3 class="text-sm font-semibold text-white flex items-center gap-1.5">
-              <app-icon name="layers" [size]="16" class="text-brand-400" />
+              <app-icon name="layers" [size]="16" class="text-cyan-400" />
               Stages
             </h3>
             <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
@@ -464,8 +464,8 @@ interface ContextConfigRow {
                 <div
                   class="w-11 h-11 rounded-md flex items-center justify-center shrink-0 ring-1"
                   [ngClass]="{
-                    'bg-brand-500/15 text-brand-400 ring-brand-500/30': stage.tone === 'brand',
-                    'bg-violet-500/15 text-violet-400 ring-violet-500/30': stage.tone === 'violet',
+                    'bg-cyan-500/15 text-cyan-400 ring-cyan-500/30': stage.tone === 'brand',
+                    'bg-sky-500/15 text-sky-400 ring-sky-500/30': stage.tone === 'violet',
                     'bg-emerald-500/15 text-emerald-400 ring-emerald-500/30': stage.tone === 'emerald'
                   }"
                 >
@@ -494,14 +494,14 @@ interface ContextConfigRow {
       <ck-tab id="context" label="Context">
         <div class="space-y-4">
         @if (contextLoading()) {
-          <div class="t-card t-elevated rounded-md p-5 animate-pulse">
+          <div class="ck-surface t-elevated rounded-md p-5 animate-pulse">
             <div class="h-3 w-40 bg-white/5 rounded mb-2"></div>
             <div class="h-3 w-64 bg-white/5 rounded"></div>
           </div>
         } @else if (!currentContext() && effectiveRetrievalContext(); as retrievalContext) {
-          <section class="t-card t-elevated rounded-md p-5">
+          <section class="ck-surface t-elevated rounded-md p-5">
             <div class="flex items-start gap-3 mb-5">
-              <div class="w-9 h-9 rounded bg-brand-500/15 text-brand-300 ring-1 ring-brand-500/30 inline-flex items-center justify-center">
+              <div class="w-9 h-9 rounded bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-500/30 inline-flex items-center justify-center">
                 <app-icon name="database" [size]="16" />
               </div>
               <div class="min-w-0 flex-1">
@@ -524,7 +524,7 @@ interface ContextConfigRow {
                 </a>
                 <a
                   [routerLink]="['/systems', systemId, 'flow']"
-                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
                 >
                   <app-icon name="workflow" [size]="12" /> Open flow
                 </a>
@@ -557,7 +557,7 @@ interface ContextConfigRow {
               } @else {
                 <div class="flex flex-wrap gap-2">
                   @for (collection of retrievalContext.collections; track collection) {
-                    <span class="font-mono text-[11px] px-2 py-1 rounded bg-brand-500/10 text-brand-200 ring-1 ring-brand-500/25">
+                    <span class="font-mono text-[11px] px-2 py-1 rounded bg-cyan-500/10 text-cyan-200 ring-1 ring-cyan-500/25">
                       {{ collection }}
                     </span>
                   }
@@ -614,21 +614,21 @@ interface ContextConfigRow {
             </div>
           </section>
         } @else if (!currentContext()) {
-          <div class="t-card t-elevated rounded-md p-8 text-center text-gray-400 text-sm">
+          <div class="ck-surface t-elevated rounded-md p-8 text-center text-gray-400 text-sm">
             No dedicated Context attached. This System runs on the workspace default.
             <div class="mt-3">
               <a
                 routerLink="/steering/contexts"
-                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
               >
                 <app-icon name="external-link" [size]="12" /> Manage contexts
               </a>
             </div>
           </div>
         } @else {
-          <section class="t-card t-elevated rounded-md p-5">
+          <section class="ck-surface t-elevated rounded-md p-5">
             <div class="flex items-center gap-2 mb-4">
-              <app-icon name="database" [size]="14" class="text-brand-400" />
+              <app-icon name="database" [size]="14" class="text-cyan-400" />
               <h3 class="text-sm font-semibold text-white">{{ currentContext()!.name }}</h3>
               <span class="ml-auto text-[10px] font-mono px-2 py-0.5 rounded bg-white/5 text-gray-400 ring-1 ring-white/10">
                 v{{ currentContext()!.version ?? 1 }}
@@ -686,7 +686,7 @@ interface ContextConfigRow {
         </p>
         <a
           routerLink="/settings"
-          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-brand-500 hover:bg-brand-600 text-white transition"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-cyan-500 hover:bg-cyan-600 text-white transition"
         >
           <app-icon name="sliders-horizontal" [size]="12" /> Edit in Settings
         </a>
@@ -697,9 +697,9 @@ interface ContextConfigRow {
           <app-icon name="shield-check" [size]="12" /> Manage IAM
         </a>
 
-        <section class="t-card t-elevated rounded-md p-5">
+        <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="tag" [size]="14" class="text-brand-400" /> Identity
+            <app-icon name="tag" [size]="14" class="text-cyan-400" /> Identity
           </h3>
           <div class="space-y-3 text-sm">
             <div>
@@ -723,16 +723,16 @@ interface ContextConfigRow {
             </div>
           </div>
         </section>
-        <section class="t-card t-elevated rounded-md p-5">
+        <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="cpu" [size]="14" class="text-brand-400" /> {{ isDemoMode() ? 'Runtime' : 'Model' }}
+            <app-icon name="cpu" [size]="14" class="text-cyan-400" /> {{ isDemoMode() ? 'Runtime' : 'Model' }}
           </h3>
           <div class="space-y-3 text-sm text-gray-300">
             <div>
               {{ isDemoMode() ? 'Runtime policy:' : 'Default model:' }}
               <span class="text-white font-mono">{{ effectiveModel() }}</span>
               @if (!isDemoMode() && systemDefaults()?.default_model) {
-                <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-300 border border-violet-500/20">
+                <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20">
                   override
                 </span>
               }
@@ -745,16 +745,16 @@ interface ContextConfigRow {
             <div>Max tokens: <span class="text-white font-mono">{{ isDemoMode() ? 'managed' : (settings.settings().maxTokens ?? '—') }}</span></div>
           </div>
         </section>
-        <section class="t-card t-elevated rounded-md p-5">
+        <section class="ck-surface t-elevated rounded-md p-5">
           <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-1.5">
-            <app-icon name="database" [size]="14" class="text-brand-400" /> Retrieval
+            <app-icon name="database" [size]="14" class="text-cyan-400" /> Retrieval
           </h3>
           <div class="space-y-3 text-sm text-gray-300">
             <div>
               Pipeline:
               <span class="text-white font-mono">{{ systemDefaults()?.retrieval_mode_default || settings.ragPipelineMode() || '—' }}</span>
               @if (systemDefaults()?.retrieval_mode_default && systemDefaults()?.retrieval_mode_default !== 'auto') {
-                <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20">
+                <span class="ml-1 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
                   pinned
                 </span>
               }
@@ -764,7 +764,7 @@ interface ContextConfigRow {
             <div class="pt-1">
               <a
                 routerLink="/knowledge"
-                class="inline-flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300"
+                class="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300"
               >
                 <app-icon name="external-link" [size]="11" /> Manage collections
               </a>
@@ -783,7 +783,7 @@ interface ContextConfigRow {
       title="Chat"
       width="520px"
     >
-      <div class="t-card t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
+      <div class="ck-surface t-elevated rounded-md p-0 overflow-hidden min-h-[520px]">
         <app-chat-panel [systemId]="systemId" />
       </div>
     </ck-panel>

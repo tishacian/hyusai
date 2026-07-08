@@ -14,10 +14,10 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
   standalone: true,
   imports: [IconComponent, SkeletonComponent, ConfirmDialogComponent, EmptyStateComponent],
   template: `
-    <div class="t-card t-elevated rounded-md p-6">
+    <div class="ck-surface t-elevated rounded-md p-6">
       <div class="flex items-start justify-between gap-4 mb-5">
         <div class="flex items-start gap-3">
-          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 ring-1 ring-brand-500/30">
+          <div class="w-10 h-10 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30">
             <app-icon name="monitor" [size]="18" />
           </div>
           <div>
@@ -50,7 +50,7 @@ import { EmptyStateComponent } from '@app/shared/ui/empty-state.component';
           @for (s of sessions(); track s.id) {
             <div class="flex items-center justify-between p-3 rounded-md border border-white/5 bg-black/20">
               <div class="flex items-center gap-3 min-w-0">
-                <div class="w-9 h-9 rounded bg-brand-500/10 text-brand-400 flex items-center justify-center shrink-0">
+                <div class="w-9 h-9 rounded bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0">
                   <app-icon name="laptop" [size]="16" />
                 </div>
                 <div class="min-w-0">

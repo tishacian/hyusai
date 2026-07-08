@@ -721,7 +721,7 @@ const STEP_ICONS: Record<string, string> = {
           @if (ttsEnabled() && ttsSpeaking()) {
             <button
               type="button"
-              class="p-1.5 rounded hover:bg-white/5 text-brand-300 hover:text-brand-200 transition"
+              class="p-1.5 rounded hover:bg-white/5 text-cyan-300 hover:text-cyan-200 transition"
               [title]="ttsPaused() ? 'Resume voice playback' : 'Pause voice playback'"
               (click)="pauseResumeTts()"
             >
@@ -734,7 +734,7 @@ const STEP_ICONS: Record<string, string> = {
           <button
             type="button"
             class="p-1.5 rounded hover:bg-white/5 text-gray-400 hover:text-white transition"
-            [class.text-brand-400]="ttsEnabled()"
+            [class.text-cyan-400]="ttsEnabled()"
             [title]="ttsEnabled() ? 'Voice output on' : 'Voice output off'"
             (click)="toggleTTS()"
           >
@@ -845,8 +845,8 @@ const STEP_ICONS: Record<string, string> = {
       >
         @if (messages().length === 0 && !streaming()) {
           <div class="h-full flex flex-col items-center justify-center py-8" [class.vigie-empty-state]="executiveMode()">
-            <div class="w-12 h-12 rounded-full bg-gradient-to-br from-brand-500/20 to-violet-500/20 flex items-center justify-center mb-3">
-              <app-icon name="sparkles" [size]="20" class="text-brand-300" />
+            <div class="ck-chat-empty-mark w-12 h-12 rounded-full flex items-center justify-center mb-3">
+              <app-icon name="sparkles" [size]="20" class="text-cyan-300" />
             </div>
             <div class="text-sm font-semibold text-gray-900 dark:text-white">
               {{ emptyTitle() }}
@@ -859,12 +859,12 @@ const STEP_ICONS: Record<string, string> = {
                 @for (s of activeSuggestions(); track s.prompt) {
                   <button
                     type="button"
-                    class="text-left px-3 py-2.5 rounded-md ring-1 ring-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:ring-brand-500/30 transition group"
+                    class="text-left px-3 py-2.5 rounded-md ring-1 ring-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:ring-cyan-500/30 transition group"
                     (click)="useSuggestion(s)"
                   >
                     <div class="flex items-center gap-2 mb-1">
                       <div
-                        class="w-6 h-6 rounded-md flex items-center justify-center bg-brand-500/10 text-brand-400 group-hover:bg-brand-500/20 transition shrink-0"
+                        class="w-6 h-6 rounded-md flex items-center justify-center bg-cyan-500/10 text-cyan-400 group-hover:bg-cyan-500/20 transition shrink-0"
                       >
                         <app-icon [name]="s.icon" [size]="12" />
                       </div>
@@ -902,7 +902,7 @@ const STEP_ICONS: Record<string, string> = {
           @if (msg.role === 'user') {
             <div class="flex justify-end">
               <div
-                class="max-w-[80%] bg-brand-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap shadow-sm"
+                class="max-w-[80%] bg-cyan-500 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap shadow-sm"
                 [class.vigie-user-bubble]="executiveMode()"
               >
                 {{ msg.content }}
@@ -932,7 +932,7 @@ const STEP_ICONS: Record<string, string> = {
                       [name]="isTrailOpen(msg.id) ? 'chevron-down' : 'chevron-right'"
                       [size]="12"
                     />
-                    <app-icon name="workflow" [size]="12" class="text-brand-400" />
+                    <app-icon name="workflow" [size]="12" class="text-cyan-400" />
                     Reasoning trail · {{ msg.decisionSteps.length }} step{{
                       msg.decisionSteps.length > 1 ? 's' : ''
                     }}
@@ -946,8 +946,8 @@ const STEP_ICONS: Record<string, string> = {
                           [class.bg-emerald-500\\/5]="step.status === 'completed'"
                           [class.border-red-500\\/30]="step.status === 'error'"
                           [class.bg-red-500\\/5]="step.status === 'error'"
-                          [class.border-brand-500\\/30]="step.status === 'active'"
-                          [class.bg-brand-500\\/5]="step.status === 'active'"
+                          [class.border-cyan-500\\/30]="step.status === 'active'"
+                          [class.bg-cyan-500\\/5]="step.status === 'active'"
                           [class.border-white\\/5]="!step.status || step.status === 'pending'"
                           [class.bg-white\\/[0\\.02]]="!step.status || step.status === 'pending'"
                         >
@@ -957,7 +957,7 @@ const STEP_ICONS: Record<string, string> = {
                             class="mt-0.5 shrink-0"
                             [class.text-emerald-400]="step.status === 'completed'"
                             [class.text-red-400]="step.status === 'error'"
-                            [class.text-brand-400]="step.status === 'active'"
+                            [class.text-cyan-400]="step.status === 'active'"
                             [class.text-gray-500]="!step.status || step.status === 'pending'"
                           />
                           <div class="flex-1 min-w-0">
@@ -967,7 +967,7 @@ const STEP_ICONS: Record<string, string> = {
                               }}</span>
                               @if (step.status === 'active') {
                                 <span
-                                  class="text-[9px] uppercase tracking-wider text-brand-400 font-semibold"
+                                  class="text-[9px] uppercase tracking-wider text-cyan-400 font-semibold"
                                   >running</span
                                 >
                               }
@@ -1105,11 +1105,11 @@ const STEP_ICONS: Record<string, string> = {
                   } @else if (tok.kind === 'code') {
                     <code class="rounded bg-black/5 dark:bg-white/10 px-1 py-0.5 font-mono text-[0.92em]">{{ tok.value }}</code>
                   } @else if (tok.kind === 'link') {
-                    <a class="text-brand-500 dark:text-brand-300 underline underline-offset-2" [href]="safeMarkdownHref(tok.href)" target="_blank" rel="noreferrer">{{ tok.value }}</a>
+                    <a class="text-cyan-500 dark:text-cyan-300 underline underline-offset-2" [href]="safeMarkdownHref(tok.href)" target="_blank" rel="noreferrer">{{ tok.value }}</a>
                   } @else if (isValidCitationForSources(sources, tok.n)) {
                     <button
                       type="button"
-                      class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono font-semibold bg-brand-500/15 text-brand-500 dark:text-brand-300 hover:bg-brand-500/30 hover:text-brand-200 transition ring-1 ring-brand-500/30 cursor-pointer"
+                      class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono font-semibold bg-cyan-500/15 text-cyan-500 dark:text-cyan-300 hover:bg-cyan-500/30 hover:text-cyan-200 transition ring-1 ring-cyan-500/30 cursor-pointer"
                       [title]="citationTooltipForSources(sources, tok.n)"
                       (click)="gotoSourceTarget(msg, tok.n, sourceHostId || msg.id, openDirectSources !== false)"
                     >
@@ -1240,7 +1240,7 @@ const STEP_ICONS: Record<string, string> = {
                       [name]="isSourcesOpen(msg.id) ? 'chevron-down' : 'chevron-right'"
                       [size]="12"
                     />
-                    <app-icon name="book-open" [size]="12" class="text-brand-400" />
+                    <app-icon name="book-open" [size]="12" class="text-cyan-400" />
                     Sources · {{ msg.sources.length }}
                   </button>
                   @if (isSourcesOpen(msg.id)) {
@@ -1249,14 +1249,14 @@ const STEP_ICONS: Record<string, string> = {
                         <li
                           [id]="sourceDomId(msg.id, i + 1)"
                           [class]="isSourceCited(msg, i + 1)
-                            ? 'rounded-md px-3 py-2 text-[12px] transition-all bg-brand-500/10 ring-1 ring-brand-500/25'
+                            ? 'rounded-md px-3 py-2 text-[12px] transition-all bg-cyan-500/10 ring-1 ring-cyan-500/25'
                             : 'rounded-md px-3 py-2 text-[12px] transition-all bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5 opacity-70'"
                           [attr.aria-label]="isSourceCited(msg, i + 1) ? 'Cited source' : 'Retrieved but not cited in answer'"
                         >
                           <div class="flex items-center gap-2 mb-0.5">
                             <span
                               [class]="isSourceCited(msg, i + 1)
-                                ? 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-brand-500/25 text-brand-400'
+                                ? 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-cyan-500/25 text-cyan-400'
                                 : 'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-white/5 text-gray-400'"
                             >
                               {{ i + 1 }}
@@ -1274,7 +1274,7 @@ const STEP_ICONS: Record<string, string> = {
                             </span>
                             @if (sourceLocator(src); as loc) {
                               <span
-                                class="font-mono text-[10px] text-brand-400/80 shrink min-w-0 max-w-[14rem] truncate"
+                                class="font-mono text-[10px] text-cyan-400/80 shrink min-w-0 max-w-[14rem] truncate"
                                 [title]="loc.tooltip"
                               >
                                 · {{ loc.label }}
@@ -1297,7 +1297,7 @@ const STEP_ICONS: Record<string, string> = {
                             @if (canPreviewSource(src)) {
                               <button
                                 type="button"
-                                class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-brand-300 hover:bg-white/5 transition"
+                                class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-cyan-300 hover:bg-white/5 transition"
                                 [class.ml-auto]="src.score == null"
                                 title="Preview source document"
                                 (click)="previewSource(src); $event.stopPropagation()"
@@ -1321,10 +1321,10 @@ const STEP_ICONS: Record<string, string> = {
               <!-- Task summary -->
               @if (!isDemoMode() && msg.decisionSteps && msg.decisionSteps.length > 0) {
                 <div
-                  class="ml-0 mt-1 rounded-md px-3 py-2 bg-gradient-to-r from-brand-500/5 to-violet-500/5 ring-1 ring-brand-500/15 flex items-center gap-3 text-[11px] text-gray-700 dark:text-gray-300"
+                  class="ck-chat-trace-summary ml-0 mt-1 rounded-md px-3 py-2 flex items-center gap-3 text-[11px] text-gray-700 dark:text-gray-300"
                   [class.hidden]="isDemoMode() || (executiveMode() && !traceOpen())"
                 >
-                  <app-icon name="circle-dot" [size]="11" class="text-brand-400 shrink-0" />
+                  <app-icon name="circle-dot" [size]="11" class="text-cyan-400 shrink-0" />
                   <span class="font-medium">
                     {{ msg.decisionSteps.length }} step{{ msg.decisionSteps.length > 1 ? 's' : '' }}
                   </span>
@@ -1336,7 +1336,7 @@ const STEP_ICONS: Record<string, string> = {
                   }
                   @if (msg.ragMode) {
                     <span
-                      class="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20"
+                      class="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"
                       title="Retrieval mode override"
                     >
                       {{ msg.ragMode!.toUpperCase() }}
@@ -1372,7 +1372,7 @@ const STEP_ICONS: Record<string, string> = {
                     }
                     @if (retrieval.deepJobId) {
                       <span
-                        class="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                        class="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/20"
                         [title]="deepRetrievalTitle(retrieval)"
                       >
                         @if (retrieval.deepStatus === 'completed' && deepRetrievalPartial(retrieval)) {
@@ -1390,7 +1390,7 @@ const STEP_ICONS: Record<string, string> = {
                   }
                   @if (msg.promptType) {
                     <span
-                      class="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/20"
+                      class="font-mono text-[10px] px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/20"
                       title="Reasoning template"
                     >
                       {{ msg.promptType }}
@@ -1403,14 +1403,14 @@ const STEP_ICONS: Record<string, string> = {
                   }
                   <a
                     routerLink="/runs"
-                    class="ml-auto text-brand-500 hover:text-brand-400 inline-flex items-center gap-1"
+                    class="ml-auto text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
                   >
                     <app-icon name="git-commit" [size]="11" />
                     Runs
                   </a>
                   <a
                     routerLink="/observability"
-                    class="text-brand-500 hover:text-brand-400 inline-flex items-center gap-1"
+                    class="text-cyan-500 hover:text-cyan-400 inline-flex items-center gap-1"
                   >
                     <app-icon name="activity" [size]="11" />
                     Quality
@@ -1446,19 +1446,19 @@ const STEP_ICONS: Record<string, string> = {
 
               @if (msg.retrievalInfo?.deepJobId && msg.retrievalInfo; as deepInfo) {
                 <div
-                  class="ml-0 mt-1 rounded-md px-3 py-2 bg-violet-500/5 ring-1 ring-violet-500/15 flex flex-wrap items-center gap-2 text-[11px] text-gray-700 dark:text-gray-300"
+                  class="ml-0 mt-1 rounded-md px-3 py-2 bg-sky-500/5 ring-1 ring-sky-500/15 flex flex-wrap items-center gap-2 text-[11px] text-gray-700 dark:text-gray-300"
                   [title]="deepRetrievalTitle(deepInfo)"
                 >
                   @if (deepInfo.deepStatus === 'completed' && deepRetrievalPartial(deepInfo)) {
-                    <app-icon name="alert-triangle" [size]="11" class="text-violet-300 shrink-0" />
+                    <app-icon name="alert-triangle" [size]="11" class="text-sky-300 shrink-0" />
                   } @else if (deepInfo.deepStatus === 'completed') {
-                    <app-icon name="check" [size]="11" class="text-violet-300 shrink-0" />
+                    <app-icon name="check" [size]="11" class="text-sky-300 shrink-0" />
                   } @else if (deepInfo.deepStatus === 'failed' || deepInfo.deepStatus === 'cancelled') {
                     <app-icon name="x-circle" [size]="11" class="text-red-300 shrink-0" />
                   } @else {
-                    <app-icon name="loader" [size]="11" class="animate-spin text-violet-300 shrink-0" />
+                    <app-icon name="loader" [size]="11" class="animate-spin text-sky-300 shrink-0" />
                   }
-                  <span class="font-medium text-violet-300">{{ deepRetrievalLabel(deepInfo) }}</span>
+                  <span class="font-medium text-sky-300">{{ deepRetrievalLabel(deepInfo) }}</span>
                   @if (deepInfo.deepStage) {
                     <span class="font-mono text-gray-500">· {{ deepInfo.deepStage }}</span>
                   }
@@ -1475,12 +1475,12 @@ const STEP_ICONS: Record<string, string> = {
                       </span>
                     }
                   }
-                  <span class="font-mono text-[10px] text-violet-300/70" [title]="deepInfo.deepPollUrl || deepInfo.deepJobId || ''">
+                  <span class="font-mono text-[10px] text-sky-300/70" [title]="deepInfo.deepPollUrl || deepInfo.deepJobId || ''">
                     · job persistant
                   </span>
                   <button
                     type="button"
-                    class="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-violet-300 hover:bg-violet-500/10 transition"
+                    class="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-sky-300 hover:bg-sky-500/10 transition"
                     [disabled]="deepInfo.deepDetailsLoading"
                     (click)="toggleDeepRetrievalDetails(msg)"
                   >
@@ -1490,9 +1490,9 @@ const STEP_ICONS: Record<string, string> = {
                     />
                     Details
                   </button>
-                  <div class="basis-full h-1 overflow-hidden rounded bg-violet-500/10">
+                  <div class="basis-full h-1 overflow-hidden rounded bg-sky-500/10">
                     <span
-                      class="block h-full rounded bg-violet-300 transition-all duration-500"
+                      class="block h-full rounded bg-sky-300 transition-all duration-500"
                       [style.width.%]="deepRetrievalProgressValue(deepInfo)"
                     ></span>
                   </div>
@@ -1503,10 +1503,10 @@ const STEP_ICONS: Record<string, string> = {
                   }
                 </div>
                 @if (deepInfo.deepDetailsOpen) {
-                  <div class="ml-0 mt-1 rounded-md bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-violet-500/10 overflow-hidden">
+                  <div class="ml-0 mt-1 rounded-md bg-white/[0.02] dark:bg-white/[0.03] ring-1 ring-sky-500/10 overflow-hidden">
                     @if (deepInfo.deepDetailsLoading) {
                       <div class="flex items-center gap-2 px-3 py-2 text-[11px] text-gray-500">
-                        <app-icon name="loader" [size]="12" class="animate-spin text-violet-300" />
+                        <app-icon name="loader" [size]="12" class="animate-spin text-sky-300" />
                         Loading deep retrieval passages
                       </div>
                     } @else if (deepInfo.deepDetailsError) {
@@ -1518,7 +1518,7 @@ const STEP_ICONS: Record<string, string> = {
                       @if (showDeepAnswerInDetails(msg, deepInfo)) {
                       @if (deepInfo.deepAnswer; as deepAnswer) {
                         <div class="border-b border-white/5 px-3 py-3 text-sm leading-relaxed text-gray-800 dark:text-gray-100">
-                          <div class="mb-2 text-[10px] uppercase tracking-[0.16em] font-semibold text-violet-300">
+                          <div class="mb-2 text-[10px] uppercase tracking-[0.16em] font-semibold text-sky-300">
                             Réponse Deep Search
                           </div>
                           @for (block of renderMarkdownAnswer(deepAnswer, deepInfo.deepSources || msg.sources); track $index) {
@@ -1545,18 +1545,18 @@ const STEP_ICONS: Record<string, string> = {
                             <li
                               [id]="sourceDomId(deepSourceHostId(msg), i + 1)"
                               [class]="isSourceCitedForContent(deepInfo.deepAnswer || '', deepInfo.deepSources, i + 1)
-                                ? 'px-3 py-2 text-[12px] transition-all bg-violet-500/10 ring-1 ring-violet-500/25'
+                                ? 'px-3 py-2 text-[12px] transition-all bg-sky-500/10 ring-1 ring-sky-500/25'
                                 : 'px-3 py-2 text-[12px] transition-all'"
                             >
                               <div class="flex items-center gap-2 mb-0.5">
-                                <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-violet-500/15 text-violet-300">
+                                <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 bg-sky-500/15 text-sky-300">
                                   {{ i + 1 }}
                                 </span>
                                 <span class="font-medium text-gray-900 dark:text-white truncate">
                                   {{ sourceTitle(src) }}
                                 </span>
                                 @if (sourceLocator(src); as loc) {
-                                  <span class="font-mono text-[10px] text-violet-300/80 shrink min-w-0 max-w-[14rem] truncate" [title]="loc.tooltip">
+                                  <span class="font-mono text-[10px] text-sky-300/80 shrink min-w-0 max-w-[14rem] truncate" [title]="loc.tooltip">
                                     · {{ loc.label }}
                                   </span>
                                 }
@@ -1568,7 +1568,7 @@ const STEP_ICONS: Record<string, string> = {
                                 @if (canPreviewSource(src)) {
                                   <button
                                     type="button"
-                                    class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-violet-300 hover:bg-white/5 transition"
+                                    class="shrink-0 inline-flex items-center justify-center rounded p-1 text-gray-500 hover:text-sky-300 hover:bg-white/5 transition"
                                     [class.ml-auto]="src.score == null"
                                     title="Preview source document"
                                     (click)="previewSource(src); $event.stopPropagation()"
@@ -1625,7 +1625,7 @@ const STEP_ICONS: Record<string, string> = {
                 </button>
                 <button
                   type="button"
-                  class="p-1 rounded hover:bg-violet-500/10 transition flex items-center gap-1 text-violet-300 disabled:opacity-50"
+                  class="p-1 rounded hover:bg-sky-500/10 transition flex items-center gap-1 text-sky-300 disabled:opacity-50"
                   title="Launch persistent Deep Search for this answer"
                   [disabled]="!!deepSearchTrackedJobId(msg) || deepSearchLaunchingId() === msg.id"
                   (click)="launchDeepSearch(msg)"
@@ -1880,7 +1880,7 @@ const STEP_ICONS: Record<string, string> = {
                   <app-icon
                     name="loader-2"
                     [size]="13"
-                    class="text-brand-400"
+                    class="text-cyan-400"
                     [class.animate-spin]="progress.spinning"
                   />
                   <span>{{ progress.label }}</span>
@@ -1894,15 +1894,15 @@ const STEP_ICONS: Record<string, string> = {
                     class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px] border"
                     [class.border-emerald-500\\/20]="step.status === 'completed'"
                     [class.bg-emerald-500\\/5]="step.status === 'completed'"
-                    [class.border-brand-500\\/30]="step.status === 'active'"
-                    [class.bg-brand-500\\/5]="step.status === 'active'"
+                    [class.border-cyan-500\\/30]="step.status === 'active'"
+                    [class.bg-cyan-500\\/5]="step.status === 'active'"
                     [class.border-white\\/5]="!step.status || step.status === 'pending'"
                   >
                     <app-icon
                       [name]="iconFor(step)"
                       [size]="12"
                       [class.text-emerald-400]="step.status === 'completed'"
-                      [class.text-brand-400]="step.status === 'active'"
+                      [class.text-cyan-400]="step.status === 'active'"
                       [class.text-gray-500]="!step.status || step.status === 'pending'"
                       [class.animate-spin]="step.status === 'active'"
                     />
@@ -1914,7 +1914,7 @@ const STEP_ICONS: Record<string, string> = {
                         >{{ step.duration }}ms</span
                       >
                     } @else if (step.status === 'active') {
-                      <span class="text-[9px] uppercase tracking-wider text-brand-400 ml-auto"
+                      <span class="text-[9px] uppercase tracking-wider text-cyan-400 ml-auto"
                         >running</span
                       >
                     }
@@ -1927,33 +1927,33 @@ const STEP_ICONS: Record<string, string> = {
                 <div
                   class="max-w-[85%] bg-gray-100 dark:bg-white/[0.04] rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ring-1 ring-white/5"
                 >
-                  {{ streamBuffer() }}<span class="inline-block w-1.5 h-4 bg-brand-400 ml-0.5 animate-pulse align-middle"></span>
+                  {{ streamBuffer() }}<span class="inline-block w-1.5 h-4 bg-cyan-400 ml-0.5 animate-pulse align-middle"></span>
                 </div>
               </div>
             }
             @if (liveRetrievalInfo()?.deepJobId && liveRetrievalInfo(); as deepInfo) {
               <div
-                class="ml-0 mt-1 rounded-md px-3 py-2 bg-violet-500/5 ring-1 ring-violet-500/15 flex flex-wrap items-center gap-2 text-[11px] text-gray-700 dark:text-gray-300"
+                class="ml-0 mt-1 rounded-md px-3 py-2 bg-sky-500/5 ring-1 ring-sky-500/15 flex flex-wrap items-center gap-2 text-[11px] text-gray-700 dark:text-gray-300"
                 [title]="deepRetrievalTitle(deepInfo)"
                 aria-live="polite"
               >
                 @if (deepInfo.deepStatus === 'completed') {
-                  <app-icon name="check" [size]="11" class="text-violet-300 shrink-0" />
+                  <app-icon name="check" [size]="11" class="text-sky-300 shrink-0" />
                 } @else if (deepInfo.deepStatus === 'failed' || deepInfo.deepStatus === 'cancelled') {
                   <app-icon name="x-circle" [size]="11" class="text-red-300 shrink-0" />
                 } @else {
-                  <app-icon name="loader" [size]="11" class="animate-spin text-violet-300 shrink-0" />
+                  <app-icon name="loader" [size]="11" class="animate-spin text-sky-300 shrink-0" />
                 }
-                <span class="font-medium text-violet-300">{{ deepRetrievalLabel(deepInfo) }}</span>
+                <span class="font-medium text-sky-300">{{ deepRetrievalLabel(deepInfo) }}</span>
                 @if (deepInfo.deepStage) {
                   <span class="font-mono text-gray-500">· {{ deepInfo.deepStage }}</span>
                 }
-                <span class="font-mono text-[10px] text-violet-300/70" [title]="deepInfo.deepPollUrl || deepInfo.deepJobId || ''">
+                <span class="font-mono text-[10px] text-sky-300/70" [title]="deepInfo.deepPollUrl || deepInfo.deepJobId || ''">
                   · job persistant
                 </span>
-                <div class="basis-full h-1 overflow-hidden rounded bg-violet-500/10">
+                <div class="basis-full h-1 overflow-hidden rounded bg-sky-500/10">
                   <span
-                    class="block h-full rounded bg-violet-300 transition-all duration-500"
+                    class="block h-full rounded bg-sky-300 transition-all duration-500"
                     [style.width.%]="deepRetrievalProgressValue(deepInfo)"
                   ></span>
                 </div>
@@ -1971,7 +1971,7 @@ const STEP_ICONS: Record<string, string> = {
       <!-- Live dictation preview: partial transcript while recording -->
       @if (recording() && voicePartial()) {
         <div class="px-3 pt-2 -mb-1 flex items-center gap-2 text-xs text-gray-400">
-          <app-icon name="mic" [size]="12" class="text-brand-300 animate-pulse" />
+          <app-icon name="mic" [size]="12" class="text-cyan-300 animate-pulse" />
           <span class="italic truncate">{{ voicePartial() }}</span>
         </div>
       }
@@ -1989,9 +1989,9 @@ const STEP_ICONS: Record<string, string> = {
           [class.bg-red-500\\/20]="recording()"
           [class.ring-red-500\\/40]="recording()"
           [class.text-red-300]="recording()"
-          [class.bg-brand-500\\/20]="transcribing()"
-          [class.ring-brand-500\\/40]="transcribing()"
-          [class.text-brand-300]="transcribing()"
+          [class.bg-cyan-500\\/20]="transcribing()"
+          [class.ring-cyan-500\\/40]="transcribing()"
+          [class.text-cyan-300]="transcribing()"
           [class.animate-pulse]="transcribing()"
           [class.bg-white\\/5]="!recording() && !transcribing()"
           [class.ring-white\\/10]="!recording() && !transcribing()"
@@ -2011,7 +2011,7 @@ const STEP_ICONS: Record<string, string> = {
           [(ngModel)]="userInput"
           name="userInput"
           rows="1"
-          class="flex-1 resize-none px-4 py-2.5 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-400 text-sm max-h-32"
+          class="flex-1 resize-none px-4 py-2.5 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-400 text-sm max-h-32"
           [placeholder]="inputPlaceholder()"
           [disabled]="streaming()"
           (keydown)="onKey($event)"
@@ -2019,7 +2019,7 @@ const STEP_ICONS: Record<string, string> = {
         <button
           type="submit"
           [disabled]="streaming() || !userInput.trim()"
-          class="px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white rounded-xl transition text-sm font-medium flex items-center gap-1.5"
+          class="px-4 py-2.5 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white rounded-xl transition text-sm font-medium flex items-center gap-1.5"
           [class.vigie-send-button]="executiveMode()"
         >
           <app-icon [name]="streaming() ? 'loader-2' : 'send'" [size]="14" [class.animate-spin]="streaming()" />
@@ -2039,8 +2039,18 @@ const STEP_ICONS: Record<string, string> = {
       (closed)="closeSourcePreview()"
     />
   `,
-  styles: [`
-    .chat-history-shell {
+	  styles: [`
+    .ck-chat-empty-mark {
+      border: 1px solid color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 24%, transparent);
+      background: color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 10%, var(--ck-bg-inset, #0f172a));
+      color: var(--ck-signal-cool, #22d3ee);
+      box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 7%, transparent);
+    }
+    .ck-chat-trace-summary {
+      border: 1px solid color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 16%, transparent);
+      background: color-mix(in oklab, var(--ck-signal-cool, #22d3ee) 5%, var(--ck-bg-inset, #0f172a));
+    }
+	    .chat-history-shell {
       display: flex;
       height: 100%;
       min-height: 0;
@@ -2816,8 +2826,8 @@ const STEP_ICONS: Record<string, string> = {
       background:
         linear-gradient(135deg, rgba(101, 214, 110, 0.085), rgba(242, 140, 56, 0.050)) !important;
     }
-    .vigie-empty-state button .bg-brand-500\\/10,
-    .vigie-empty-state button .group-hover\\:bg-brand-500\\/20 {
+    .vigie-empty-state button .bg-cyan-500\\/10,
+    .vigie-empty-state button .group-hover\\:bg-cyan-500\\/20 {
       background: rgba(101, 214, 110, 0.10) !important;
       color: #d9ffdf !important;
     }
@@ -3368,10 +3378,10 @@ export class ChatPanelComponent implements AfterViewInit {
 
 	  readonly voiceStatusClass = computed(() => {
     const status = this.selectedVoiceRuntime()?.status || 'unknown';
-    if (this.voiceNotice()) return 'px-2 py-1 rounded bg-brand-500/10 text-brand-100 ring-1 ring-brand-300/20';
+    if (this.voiceNotice()) return 'px-2 py-1 rounded bg-cyan-500/10 text-cyan-100 ring-1 ring-cyan-300/20';
     if (status === 'bound') return 'px-2 py-1 rounded bg-emerald-500/10 text-emerald-200 ring-1 ring-emerald-400/20';
     if (status === 'disabled' || status === 'unconfigured') return 'px-2 py-1 rounded bg-amber-500/10 text-amber-200 ring-1 ring-amber-400/20';
-    if (status === 'experimental') return 'px-2 py-1 rounded bg-violet-500/10 text-violet-200 ring-1 ring-violet-400/20';
+    if (status === 'experimental') return 'px-2 py-1 rounded bg-sky-500/10 text-sky-200 ring-1 ring-sky-400/20';
 	    return 'px-2 py-1 rounded bg-white/5 text-gray-300 ring-1 ring-white/10';
 	  });
 
@@ -4624,8 +4634,8 @@ export class ChatPanelComponent implements AfterViewInit {
       const el = document.getElementById(this.sourceDomId(sourceHostId, n));
       if (!el) return;
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.classList.add('ring-brand-400', 'ring-2');
-      setTimeout(() => el.classList.remove('ring-brand-400', 'ring-2'), 1600);
+      el.classList.add('ring-cyan-400', 'ring-2');
+      setTimeout(() => el.classList.remove('ring-cyan-400', 'ring-2'), 1600);
     }, 50);
   }
 
