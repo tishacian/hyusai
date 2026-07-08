@@ -196,6 +196,32 @@ interface ImpactResponse {
   impact_event: Client360ImpactEvent;
 }
 
+interface MailSettingsResponse {
+  mail_settings: Client360MailSettings;
+}
+
+interface Client360MailSettings {
+  enabled: boolean;
+  configured: boolean;
+  disabled_reason?: string | null;
+  source: string;
+  host: string;
+  port: number;
+  username: string;
+  from_email: string;
+  from_name: string;
+  ssl: boolean;
+  starttls: boolean;
+  password_configured: boolean;
+  password_env_var?: string | null;
+}
+
+interface MailSendResponse {
+  mail_draft: Client360MailDraft;
+  action?: { id: string; status: string } | null;
+  delivery: { status: string };
+}
+
 @Component({
   selector: 'app-client360-page',
   standalone: true,
@@ -539,7 +565,7 @@ interface ImpactResponse {
 
       @if (view() === 'mail') {
         <section class="mail-layout">
-          <div class="ck-surface detail-panel">
+          <div class="ck-surface detail-panel mail-editor-panel">
             <div class="detail-head">
               <div>
                 <p class="ck-label c360-eyebrow">Mail & suivi</p>
@@ -555,50 +581,139 @@ interface ImpactResponse {
                   </div>
                 }
               </div>
+            </div>
+            <div class="draft-fields">
+              <label>
+                Destinataire
+                <input type="email" [(ngModel)]="recipientEmail" placeholder="contact@client.com" />
+              </label>
+              <label>
+                Sujet
+                <input type="text" [ngModel]="draftSubject()" (ngModelChange)="draftSubject.set($event)" />
+              </label>
+            </div>
+            <textarea class="mail-textarea" [ngModel]="draftBody()" (ngModelChange)="draftBody.set($event)"></textarea>
+            <div class="mail-actions">
+              <button
+                type="button"
+                class="primary"
+                [disabled]="!canSendMail()"
+                [attr.aria-busy]="isSendingMail()"
+                [ngClass]="{ 'is-loading': isSendingMail() }"
+                (click)="sendCurrentDraft()"
+              >
+                @if (isSendingMail()) {
+                  <ck-glyph name="pulse" [size]="14" color="currentColor" /> Envoi SMTP...
+                } @else {
+                  <ck-glyph name="arrow-up" [size]="14" color="currentColor" /> Envoyer via SMTP
+                }
+              </button>
               @if (currentDraft()?.action_item_id) {
-                <button type="button" class="primary" (click)="markSent()">
-                  <ck-glyph name="arrow-up" [size]="14" color="currentColor" /> Marquer envoye
+                <button type="button" class="secondary" (click)="markSent()" [disabled]="isSendingMail()">
+                  <ck-glyph name="check" [size]="14" color="currentColor" /> Tracer envoye
                 </button>
               }
+              @if (mailStatus()) {
+                <div class="action-status" role="status" aria-live="polite">
+                  @if (isSendingMail()) {
+                    <ck-glyph name="pulse" [size]="12" color="currentColor" />
+                  }
+                  {{ mailStatus() }}
+                </div>
+              }
             </div>
-            <textarea [ngModel]="currentDraft()?.sent_body || currentDraft()?.generated_body || ''" (ngModelChange)="draftBody.set($event)"></textarea>
           </div>
-          <aside class="ck-surface impact-panel">
-            <h3>Impact</h3>
-            <label>
-              Attribution
-              <select [(ngModel)]="impactAttribution">
-                <option value="direct">Direct</option>
-                <option value="probable">Probable</option>
-                <option value="unknown">Inconnu</option>
-                <option value="none">Aucun</option>
-              </select>
-            </label>
-            <label>
-              Raison
-              <select [(ngModel)]="impactReason">
-                <option value="unknown">Inconnue</option>
-                <option value="price">Prix</option>
-                <option value="competitor">Concurrent</option>
-                <option value="no_need">Pas besoin</option>
-                <option value="wrong_contact">Mauvais contact</option>
-                <option value="timing">Timing</option>
-                <option value="hub">Hub</option>
-                <option value="technical_mismatch">Ecart technique</option>
-                <option value="bad_data">Donnee incorrecte</option>
-                <option value="other">Autre</option>
-              </select>
-            </label>
-            <label>
-              Note
-              <textarea class="small-textarea" [(ngModel)]="impactSummary"></textarea>
-            </label>
-            <div class="impact-buttons">
-              <button type="button" (click)="recordImpact('response')">Reponse</button>
-              <button type="button" (click)="recordImpact('quote')">Devis</button>
-              <button type="button" (click)="recordImpact('order')">Commande</button>
-              <button type="button" (click)="recordImpact('lost')">Perdu</button>
-            </div>
+          <aside class="side-stack">
+            <section class="ck-surface impact-panel">
+              <h3>Suivi commercial</h3>
+              <label>
+                Attribution a cette campagne
+                <select [(ngModel)]="impactAttribution">
+                  <option value="direct">Directe</option>
+                  <option value="probable">Probable</option>
+                  <option value="unknown">A qualifier</option>
+                  <option value="none">Non liee</option>
+                </select>
+              </label>
+              <label>
+                Motif
+                <select [(ngModel)]="impactReason">
+                  <option value="unknown">A qualifier</option>
+                  <option value="price">Prix</option>
+                  <option value="competitor">Concurrent</option>
+                  <option value="no_need">Pas besoin</option>
+                  <option value="wrong_contact">Mauvais contact</option>
+                  <option value="timing">Timing</option>
+                  <option value="hub">Hub</option>
+                  <option value="technical_mismatch">Ecart technique</option>
+                  <option value="bad_data">Donnee incorrecte</option>
+                  <option value="other">Autre</option>
+                </select>
+              </label>
+              <label>
+                Commentaire retour client
+                <textarea class="small-textarea" [(ngModel)]="impactSummary"></textarea>
+              </label>
+              <div class="impact-buttons">
+                <button type="button" (click)="recordImpact('response')">Reponse recue</button>
+                <button type="button" (click)="recordImpact('quote')">Devis demande</button>
+                <button type="button" (click)="recordImpact('order')">Commande</button>
+                <button type="button" (click)="recordImpact('lost')">Perdu</button>
+              </div>
+            </section>
+
+            <section class="ck-surface smtp-panel">
+              <div class="panel-head">
+                <h3>SMTP workspace</h3>
+                <span class="status" [ngClass]="{ ok: mailSettings()?.configured }">{{ smtpStatusLabel() }}</span>
+              </div>
+              <label>
+                Host
+                <input type="text" [(ngModel)]="smtpHost" />
+              </label>
+              <div class="settings-grid">
+                <label>
+                  Port
+                  <input type="number" [(ngModel)]="smtpPort" />
+                </label>
+                <label>
+                  User
+                  <input type="text" [(ngModel)]="smtpUsername" />
+                </label>
+              </div>
+              <label>
+                Password
+                <input type="password" [(ngModel)]="smtpPassword" [placeholder]="smtpPasswordPlaceholder()" />
+              </label>
+              <div class="settings-grid">
+                <label>
+                  From
+                  <input type="email" [(ngModel)]="smtpFromEmail" />
+                </label>
+                <label>
+                  Nom expediteur
+                  <input type="text" [(ngModel)]="smtpFromName" />
+                </label>
+              </div>
+              <div class="toggle-row">
+                <label class="checkline"><input type="checkbox" [(ngModel)]="smtpEnabled" /> Actif</label>
+                <label class="checkline"><input type="checkbox" [(ngModel)]="smtpSsl" /> SSL</label>
+                <label class="checkline"><input type="checkbox" [(ngModel)]="smtpStarttls" /> STARTTLS</label>
+              </div>
+              <button
+                type="button"
+                class="secondary"
+                [disabled]="savingMailSettings()"
+                [ngClass]="{ 'is-loading': savingMailSettings() }"
+                (click)="saveMailSettings()"
+              >
+                @if (savingMailSettings()) {
+                  <ck-glyph name="pulse" [size]="14" color="currentColor" /> Enregistrement...
+                } @else {
+                  <ck-glyph name="check" [size]="14" color="currentColor" /> Enregistrer SMTP
+                }
+              </button>
+            </section>
           </aside>
         </section>
       }
@@ -671,10 +786,12 @@ interface ImpactResponse {
     .pill.high { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
     .pill.medium { color: var(--ck-signal-warn); border-color: rgba(245,158,11,.35); }
     .pill.low { color: var(--ck-fg-4); }
+    .status.ok { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
     .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 180px; color: var(--ck-fg-3); text-align: center; }
     .empty small { color: var(--ck-fg-4); }
-    .split, .mail-layout, .data-layout { display: grid; grid-template-columns: minmax(240px, 320px) 1fr; gap: 12px; min-height: 420px; }
-    .list-panel, .detail-panel, .gap-panel, .impact-panel { border-radius: var(--ck-radius-md); padding: 12px; }
+    .split, .data-layout { display: grid; grid-template-columns: minmax(240px, 320px) 1fr; gap: 12px; min-height: 420px; }
+    .mail-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 12px; min-height: 620px; align-items: stretch; }
+    .list-panel, .detail-panel, .gap-panel, .impact-panel, .smtp-panel { border-radius: var(--ck-radius-md); padding: 12px; }
     .list-panel { display: flex; flex-direction: column; gap: 6px; overflow: auto; }
     .list-panel button { text-align: left; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); color: var(--ck-fg-2); padding: 10px; cursor: pointer; }
     .list-panel button.active { border-color: rgba(103, 213, 246, .42); color: var(--ck-signal-cool); }
@@ -683,6 +800,11 @@ interface ImpactResponse {
     .detail-head.compact { margin-bottom: 10px; }
     .draft-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--ck-fg-4); font-size: 11px; }
     .draft-meta .pill.ai_assisted { color: var(--ck-signal-cool); border-color: rgba(103, 213, 246, .42); }
+    .mail-editor-panel { display: flex; flex-direction: column; min-width: 0; }
+    .draft-fields { display: grid; grid-template-columns: minmax(220px, 320px) minmax(0, 1fr); gap: 10px; margin-bottom: 10px; }
+    .mail-textarea { flex: 1; min-height: 500px; line-height: 1.5; }
+    .mail-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .side-stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
     .detail-actions { display: grid; justify-items: end; gap: 8px; }
     .button-row { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
     .action-status {
@@ -706,10 +828,24 @@ interface ImpactResponse {
     .reason-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .reason-list span { border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); color: var(--ck-fg-4); padding: 4px 8px; font-size: 11px; }
     .reason-list span.met { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
-    .impact-panel { display: flex; flex-direction: column; gap: 12px; }
+    .impact-panel, .smtp-panel { display: flex; flex-direction: column; gap: 12px; }
     .impact-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .impact-buttons button { min-height: 40px; font-size: 12px; }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .toggle-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .checkline {
+      display: inline-flex;
+      grid-auto-flow: column;
+      align-items: center;
+      gap: 6px;
+      color: var(--ck-fg-3);
+      font: 650 11px/1 var(--ck-font-sans);
+      text-transform: none;
+    }
+    .checkline input { min-height: auto; width: 14px; height: 14px; padding: 0; }
     @media (max-width: 900px) {
-      .kpi-grid, .split, .mail-layout, .data-layout, .facts { grid-template-columns: 1fr; }
+      .kpi-grid, .split, .mail-layout, .data-layout, .facts, .draft-fields, .settings-grid { grid-template-columns: 1fr; }
       .detail-actions { justify-items: start; }
     }
     @keyframes c360-spin {
@@ -728,10 +864,26 @@ export class Client360PageComponent implements OnInit {
   readonly selectedCustomer = signal<Client360CustomerResponse | null>(null);
   readonly currentDraft = signal<Client360MailDraft | null>(null);
   readonly draftBody = signal('');
+  readonly draftSubject = signal('');
   readonly mappingsResponse = signal<Client360MappingsResponse | null>(null);
   readonly engineResult = signal<Client360EngineResult | null>(null);
   readonly mailAiResolved = signal(false);
   readonly generatingDraftOpportunityId = signal<string | null>(null);
+  readonly sendingMailDraftId = signal<string | null>(null);
+  readonly savingMailSettings = signal(false);
+  readonly mailSettings = signal<Client360MailSettings | null>(null);
+  readonly mailStatus = signal<string | null>(null);
+
+  recipientEmail = '';
+  smtpEnabled = true;
+  smtpHost = '';
+  smtpPort = 465;
+  smtpUsername = '';
+  smtpPassword = '';
+  smtpFromEmail = '';
+  smtpFromName = 'ANDRITZ Service';
+  smtpSsl = true;
+  smtpStarttls = false;
 
   impactAttribution = 'unknown';
   impactReason = 'unknown';
@@ -766,8 +918,10 @@ export class Client360PageComponent implements OnInit {
   refresh(): void {
     this.loading.set(true);
     this.error.set(null);
+    this.mailStatus.set(null);
     this.mailAiResolved.set(false);
     this.loadSummary(false);
+    this.loadMailSettings(false);
     this.loadMappings(false);
     this.loadOpportunities(false);
   }
@@ -779,6 +933,9 @@ export class Client360PageComponent implements OnInit {
     }
     if (tab === 'mapping' && !this.mappingsResponse()) {
       this.loadMappings(false);
+    }
+    if (tab === 'mail' && !this.mailSettings()) {
+      this.loadMailSettings(false);
     }
   }
 
@@ -821,6 +978,59 @@ export class Client360PageComponent implements OnInit {
       error: () => {
         if (showLoading) this.loading.set(false);
         this.error.set('Impossible de charger les mappings Client360 PDR');
+      },
+    });
+  }
+
+  loadMailSettings(showStatus = false): void {
+    this.http.get<MailSettingsResponse>('/api/v1/client360/mail-settings').subscribe({
+      next: (payload) => {
+        this.mailSettings.set(payload.mail_settings);
+        this.applyMailSettings(payload.mail_settings);
+        if (showStatus) this.mailStatus.set('Parametres SMTP charges');
+      },
+      error: () => {
+        if (showStatus) this.mailStatus.set('Parametres SMTP indisponibles');
+      },
+    });
+  }
+
+  applyMailSettings(settings: Client360MailSettings): void {
+    this.smtpEnabled = settings.enabled;
+    this.smtpHost = settings.host || '';
+    this.smtpPort = settings.port || 465;
+    this.smtpUsername = settings.username || '';
+    this.smtpFromEmail = settings.from_email || settings.username || '';
+    this.smtpFromName = settings.from_name || 'ANDRITZ Service';
+    this.smtpSsl = settings.ssl !== false;
+    this.smtpStarttls = Boolean(settings.starttls);
+    this.smtpPassword = '';
+  }
+
+  saveMailSettings(): void {
+    this.savingMailSettings.set(true);
+    this.mailStatus.set(null);
+    const payload: Record<string, unknown> = {
+      enabled: this.smtpEnabled,
+      host: this.smtpHost,
+      port: Number(this.smtpPort) || 465,
+      username: this.smtpUsername,
+      from_email: this.smtpFromEmail,
+      from_name: this.smtpFromName,
+      ssl: this.smtpSsl,
+      starttls: this.smtpStarttls,
+    };
+    if (this.smtpPassword.trim()) payload['password'] = this.smtpPassword;
+    this.http.patch<MailSettingsResponse>('/api/v1/client360/mail-settings', payload).subscribe({
+      next: (response) => {
+        this.mailSettings.set(response.mail_settings);
+        this.applyMailSettings(response.mail_settings);
+        this.savingMailSettings.set(false);
+        this.mailStatus.set(response.mail_settings.configured ? 'SMTP workspace pret' : 'SMTP workspace incomplet');
+      },
+      error: () => {
+        this.savingMailSettings.set(false);
+        this.mailStatus.set("Impossible d'enregistrer le SMTP");
       },
     });
   }
@@ -910,7 +1120,9 @@ export class Client360PageComponent implements OnInit {
     }).subscribe({
       next: (payload) => {
         this.currentDraft.set(payload.mail_draft);
+        this.draftSubject.set(payload.mail_draft.subject);
         this.draftBody.set(payload.mail_draft.generated_body);
+        this.mailStatus.set(null);
         this.view.set('mail');
         this.loading.set(false);
         this.generatingDraftOpportunityId.set(null);
@@ -939,10 +1151,46 @@ export class Client360PageComponent implements OnInit {
       sent_at: new Date().toISOString(),
     }).subscribe({
       next: () => {
-        this.currentDraft.set({ ...draft, status: 'sent', sent_body: this.draftBody(), sent_at: new Date().toISOString() });
+        this.currentDraft.set({ ...draft, subject: this.draftSubject(), status: 'sent', sent_body: this.draftBody(), sent_at: new Date().toISOString() });
+        this.mailStatus.set('Envoi manuel trace');
         this.loadOpportunities(false);
       },
       error: () => this.error.set('Impossible de mettre a jour le suivi mail'),
+    });
+  }
+
+  canSendMail(): boolean {
+    const draft = this.currentDraft();
+    return Boolean(draft?.id && this.mailSettings()?.configured && this.recipientEmail.trim() && this.draftBody().trim() && !this.sendingMailDraftId());
+  }
+
+  isSendingMail(): boolean {
+    const draft = this.currentDraft();
+    return Boolean(draft?.id && this.sendingMailDraftId() === draft.id);
+  }
+
+  sendCurrentDraft(): void {
+    const draft = this.currentDraft();
+    if (!draft || !this.canSendMail()) return;
+    this.sendingMailDraftId.set(draft.id);
+    this.mailStatus.set('Envoi SMTP en cours');
+    this.http.post<MailSendResponse>(`/api/v1/client360/mail-drafts/${encodeURIComponent(draft.id)}/send`, {
+      to_email: this.recipientEmail.trim(),
+      subject: this.draftSubject(),
+      body: this.draftBody(),
+    }).subscribe({
+      next: (payload) => {
+        this.currentDraft.set(payload.mail_draft);
+        this.draftSubject.set(payload.mail_draft.subject);
+        this.draftBody.set(payload.mail_draft.sent_body || payload.mail_draft.generated_body);
+        this.sendingMailDraftId.set(null);
+        this.mailStatus.set('Mail envoye via SMTP');
+        this.loadOpportunities(false);
+      },
+      error: () => {
+        this.sendingMailDraftId.set(null);
+        this.mailStatus.set('Echec envoi SMTP');
+      },
     });
   }
 
@@ -1076,5 +1324,17 @@ export class Client360PageComponent implements OnInit {
   mailAiSourceLabel(): string {
     const ai = this.summary()?.positioning?.mail_ai;
     return ai?.model_source || ai?.routing_source || '-';
+  }
+
+  smtpStatusLabel(): string {
+    const settings = this.mailSettings();
+    if (!settings) return 'Non charge';
+    if (settings.configured) return 'Pret';
+    if (!settings.enabled) return 'Desactive';
+    return 'Incomplet';
+  }
+
+  smtpPasswordPlaceholder(): string {
+    return this.mailSettings()?.password_configured ? 'Secret configure' : 'Mot de passe SMTP';
   }
 }

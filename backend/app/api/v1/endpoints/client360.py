@@ -15,16 +15,19 @@ from app.models.workspace import Workspace
 from app.services.action_plans import serialize_action_item
 from app.services.client360_pdr import (
     client360_scope,
+    client360_mail_settings_payload,
     create_mail_draft,
     customer_payload,
     list_mapping_rules,
     list_opportunities,
     opportunity_facets,
     patch_action,
+    patch_client360_mail_settings,
     patch_mapping_rule,
     patch_opportunity,
     record_impact,
     run_opportunity_engine,
+    send_mail_draft,
     serialize_impact_event,
     serialize_mapping_rule,
     serialize_mail_draft,
@@ -40,6 +43,27 @@ class MailDraftCreate(BaseModel):
     opportunity_id: str = Field(..., min_length=1)
     language: str = Field(default="fr", max_length=16)
     include_prices: bool = False
+
+
+class MailDraftSend(BaseModel):
+    to_email: str = Field(..., min_length=3, max_length=320)
+    subject: Optional[str] = Field(default=None, max_length=255)
+    body: Optional[str] = None
+
+
+class Client360MailSettingsPatch(BaseModel):
+    enabled: Optional[bool] = None
+    host: Optional[str] = None
+    port: Optional[int] = Field(default=None, ge=1, le=65535)
+    username: Optional[str] = None
+    password: Optional[str] = None
+    clear_password: Optional[bool] = None
+    password_env_var: Optional[str] = None
+    from_email: Optional[str] = None
+    from_name: Optional[str] = None
+    ssl: Optional[bool] = None
+    starttls: Optional[bool] = None
+    timeout_seconds: Optional[float] = Field(default=None, ge=1, le=120)
 
 
 class Client360ActionPatch(BaseModel):
@@ -279,6 +303,68 @@ def client360_mail_draft_create(
     except LookupError as exc:
         db.rollback()
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/mail-settings")
+def client360_mail_settings_get(
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    return {"mail_settings": client360_mail_settings_payload(workspace)}
+
+
+@router.patch("/mail-settings")
+def client360_mail_settings_patch(
+    body: Client360MailSettingsPatch,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        payload = patch_client360_mail_settings(workspace, body.model_dump(exclude_unset=True))
+        db.add(workspace)
+        db.commit()
+        db.refresh(workspace)
+        return {"mail_settings": payload}
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/mail-drafts/{draft_id}/send")
+def client360_mail_draft_send(
+    draft_id: str,
+    body: MailDraftSend,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        draft, action = send_mail_draft(
+            db,
+            workspace,
+            user,
+            draft_id=draft_id,
+            to_email=body.to_email,
+            subject=body.subject,
+            body=body.body,
+        )
+        db.commit()
+        db.refresh(draft)
+        if action:
+            db.refresh(action)
+        return {
+            "mail_draft": serialize_mail_draft(draft),
+            "action": serialize_action_item(action) if action else None,
+            "delivery": {"status": "sent"},
+        }
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.patch("/actions/{action_id}")

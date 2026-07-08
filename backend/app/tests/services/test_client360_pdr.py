@@ -20,10 +20,13 @@ from app.models.workspace import Workspace
 from app.services import client360_pdr as client360_module
 from app.services.client360_pdr import (
     calculate_annual_theoretical_qty,
+    client360_mail_settings_payload,
     create_mail_draft,
+    patch_client360_mail_settings,
     patch_opportunity,
     record_impact,
     run_opportunity_engine,
+    send_mail_draft,
     serialize_opportunity,
     summary_payload,
 )
@@ -244,6 +247,92 @@ def test_mail_draft_creates_human_action_without_auto_send(db_session) -> None:
     assert opportunity.status == "draft_generated"
     assert db_session.query(Client360MailDraft).count() == 1
     assert db_session.query(WorkspaceActionItem).count() == 1
+
+
+def test_client360_smtp_settings_are_workspace_scoped_and_mask_secret(db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": False}})
+
+    payload = patch_client360_mail_settings(
+        workspace,
+        {
+            "enabled": True,
+            "host": "ssl0.ovh.net",
+            "port": 465,
+            "username": "noreply@datategy.net",
+            "password": "secret-test",
+            "from_email": "noreply@datategy.net",
+            "from_name": "ANDRITZ Service",
+            "ssl": True,
+            "starttls": False,
+        },
+    )
+    db_session.commit()
+
+    assert payload["configured"] is True
+    assert payload["password_configured"] is True
+    assert "password" not in payload
+    masked = client360_mail_settings_payload(workspace)
+    assert masked["host"] == "ssl0.ovh.net"
+    assert masked["username"] == "noreply@datategy.net"
+    assert masked["ssl"] is True
+    assert masked["starttls"] is False
+    assert "password" not in masked
+
+
+def test_send_mail_draft_uses_workspace_smtp_and_marks_sent(monkeypatch, db_session) -> None:
+    workspace = _seed_workspace(
+        db_session,
+        settings={
+            "client360_pdr_mail": {
+                "ai_enabled": False,
+                "smtp": {
+                    "enabled": True,
+                    "host": "ssl0.ovh.net",
+                    "port": 465,
+                    "username": "noreply@datategy.net",
+                    "password": "secret-test",
+                    "from_email": "noreply@datategy.net",
+                    "from_name": "ANDRITZ Service",
+                    "ssl": True,
+                    "starttls": False,
+                },
+            }
+        },
+    )
+    user = _seed_user(db_session)
+    opportunity = _seed_opportunity(db_session, workspace, confidence_label="high")
+    draft, action = create_mail_draft(db_session, workspace, user, opportunity_id=opportunity.id)
+    calls: list[dict] = []
+
+    def fake_send_email_with_config(**kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(client360_module, "send_email_with_config", fake_send_email_with_config)
+
+    sent_draft, sent_action = send_mail_draft(
+        db_session,
+        workspace,
+        user,
+        draft_id=draft.id,
+        to_email="buyer@example.test",
+        subject="Sujet valide",
+        body="Bonjour,\n\nMessage valide.",
+    )
+    db_session.commit()
+    db_session.refresh(opportunity)
+    db_session.refresh(action)
+
+    assert sent_draft.status == "sent"
+    assert sent_draft.sent_body == "Bonjour,\n\nMessage valide."
+    assert sent_draft.meta_data["smtp_delivery"]["to_email"] == "buyer@example.test"
+    assert sent_action is not None
+    assert action.meta_data["client360"]["mail_status"] == "sent"
+    assert opportunity.status == "sent"
+    assert calls[0]["config"].host == "ssl0.ovh.net"
+    assert calls[0]["config"].use_ssl is True
+    assert calls[0]["config"].use_starttls is False
+    assert calls[0]["to"] == "buyer@example.test"
 
 
 def test_mail_draft_uses_ai_generation_when_available(monkeypatch, db_session) -> None:

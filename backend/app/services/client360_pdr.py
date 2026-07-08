@@ -8,12 +8,15 @@ drafts are AI-assisted when configured, with a deterministic fallback.
 from __future__ import annotations
 
 import asyncio
+import html
 import hashlib
 import logging
+import os
 import re
 import unicodedata
 import json
 from datetime import datetime
+from email.utils import parseaddr
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -47,6 +50,7 @@ from app.services.client360_contract import (
     CLIENT360_MVP_CONTRACT,
     CLIENT360_SYSTEM_VARIANT,
 )
+from app.services.email import SmtpDeliveryConfig, send_email_with_config
 
 
 _logger = logging.getLogger(__name__)
@@ -1467,6 +1471,151 @@ def _client360_mail_ai_config(db: DBSession, workspace: Workspace) -> dict[str, 
     }
 
 
+def _client360_mail_settings(workspace: Workspace) -> dict[str, Any]:
+    workspace_settings = _as_dict(getattr(workspace, "settings", None))
+    return _as_dict(workspace_settings.get("client360_pdr_mail"))
+
+
+def _client360_smtp_settings(workspace: Workspace) -> dict[str, Any]:
+    return _as_dict(_client360_mail_settings(workspace).get("smtp"))
+
+
+def _safe_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return _safe_text(value).lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed
+
+
+def _password_from_env(env_var: Any) -> str:
+    key = _safe_text(env_var)
+    if not key:
+        return ""
+    return os.environ.get(key, "")
+
+
+def _resolve_client360_smtp_config(workspace: Workspace) -> tuple[SmtpDeliveryConfig | None, str | None, dict[str, Any]]:
+    smtp = _client360_smtp_settings(workspace)
+    if smtp:
+        if not _safe_bool(smtp.get("enabled"), True):
+            return None, "smtp_disabled", smtp
+        password = _safe_text(smtp.get("password")) or _password_from_env(smtp.get("password_env_var"))
+        cfg = SmtpDeliveryConfig(
+            host=_safe_text(smtp.get("host")),
+            port=_safe_int(smtp.get("port"), 465),
+            username=_safe_text(smtp.get("username") or smtp.get("user")),
+            password=password,
+            from_email=_safe_text(smtp.get("from_email")) or _safe_text(smtp.get("username") or smtp.get("user")),
+            from_name=_safe_text(smtp.get("from_name")) or "ANDRITZ Service",
+            use_ssl=_safe_bool(smtp.get("ssl"), True),
+            use_starttls=_safe_bool(smtp.get("starttls"), False),
+            timeout_seconds=float(smtp.get("timeout_seconds") or 15.0),
+        )
+        missing = [
+            key
+            for key, value in (
+                ("host", cfg.host),
+                ("username", cfg.username),
+                ("password", cfg.password),
+            )
+            if not value
+        ]
+        return (None, f"smtp_{missing[0]}_missing", smtp) if missing else (cfg, None, smtp)
+
+    cfg = SmtpDeliveryConfig(
+        host=settings.smtp_host or "",
+        port=settings.smtp_port,
+        username=settings.smtp_user or "",
+        password=settings.smtp_password or "",
+        from_email=settings.smtp_from or settings.smtp_user or "",
+        from_name=settings.smtp_from_name,
+        use_ssl=settings.smtp_ssl,
+        use_starttls=not settings.smtp_ssl,
+    )
+    missing = [
+        key
+        for key, value in (
+            ("host", cfg.host),
+            ("username", cfg.username),
+            ("password", cfg.password),
+        )
+        if not value
+    ]
+    return (None, f"global_smtp_{missing[0]}_missing", {}) if missing else (cfg, None, {})
+
+
+def client360_mail_settings_payload(workspace: Workspace) -> dict[str, Any]:
+    smtp = _client360_smtp_settings(workspace)
+    cfg, disabled_reason, _raw = _resolve_client360_smtp_config(workspace)
+    password_configured = bool(_safe_text(smtp.get("password")) or _password_from_env(smtp.get("password_env_var")))
+    if not smtp:
+        password_configured = bool(settings.smtp_password)
+    return {
+        "enabled": _safe_bool(smtp.get("enabled"), bool(cfg)) if smtp else bool(cfg),
+        "configured": cfg is not None and not disabled_reason,
+        "disabled_reason": disabled_reason,
+        "source": "workspace.settings.client360_pdr_mail.smtp" if smtp else "global.smtp",
+        "host": _safe_text(smtp.get("host")) or settings.smtp_host or "",
+        "port": _safe_int(smtp.get("port"), settings.smtp_port),
+        "username": _safe_text(smtp.get("username") or smtp.get("user")) or settings.smtp_user or "",
+        "from_email": _safe_text(smtp.get("from_email")) or settings.smtp_from or settings.smtp_user or "",
+        "from_name": _safe_text(smtp.get("from_name")) or settings.smtp_from_name,
+        "ssl": _safe_bool(smtp.get("ssl"), settings.smtp_ssl if smtp else settings.smtp_ssl),
+        "starttls": _safe_bool(smtp.get("starttls"), False if smtp else not settings.smtp_ssl),
+        "password_configured": password_configured,
+        "password_env_var": _safe_text(smtp.get("password_env_var")),
+    }
+
+
+def patch_client360_mail_settings(workspace: Workspace, patch: dict[str, Any]) -> dict[str, Any]:
+    workspace_settings = dict(getattr(workspace, "settings", None) or {})
+    mail_settings = dict(_as_dict(workspace_settings.get("client360_pdr_mail")))
+    smtp = dict(_as_dict(mail_settings.get("smtp")))
+    allowed = {
+        "enabled",
+        "host",
+        "port",
+        "username",
+        "from_email",
+        "from_name",
+        "ssl",
+        "starttls",
+        "timeout_seconds",
+        "password_env_var",
+    }
+    for key in allowed:
+        if key in patch and patch[key] is not None:
+            smtp[key] = patch[key]
+    password = _safe_text(patch.get("password"))
+    if password:
+        smtp["password"] = password
+    elif patch.get("clear_password"):
+        smtp.pop("password", None)
+    if "port" in smtp:
+        smtp["port"] = _safe_int(smtp.get("port"), 465)
+    if "enabled" in smtp:
+        smtp["enabled"] = _safe_bool(smtp.get("enabled"), True)
+    if "ssl" in smtp:
+        smtp["ssl"] = _safe_bool(smtp.get("ssl"), True)
+    if "starttls" in smtp:
+        smtp["starttls"] = _safe_bool(smtp.get("starttls"), False)
+    mail_settings["smtp"] = smtp
+    workspace_settings["client360_pdr_mail"] = mail_settings
+    workspace.settings = workspace_settings
+    return client360_mail_settings_payload(workspace)
+
+
 def _mail_ai_configured(config: dict[str, Any]) -> tuple[bool, str | None]:
     if not config.get("enabled"):
         return False, "ai_disabled"
@@ -1770,6 +1919,94 @@ def create_mail_draft(
     return draft, action
 
 
+def _valid_email(value: Any) -> str:
+    raw = _safe_text(value)
+    name, address = parseaddr(raw)
+    if not address or "@" not in address or address.count("@") != 1:
+        raise ValueError("Invalid recipient email")
+    local, domain = address.rsplit("@", 1)
+    if not local or "." not in domain:
+        raise ValueError("Invalid recipient email")
+    return address
+
+
+def _plain_text_to_html(text: str) -> str:
+    escaped = html.escape(text or "")
+    return "<br/>".join(escaped.splitlines())
+
+
+def send_mail_draft(
+    db: DBSession,
+    workspace: Workspace,
+    user: User,
+    *,
+    draft_id: str,
+    to_email: str,
+    subject: str | None = None,
+    body: str | None = None,
+) -> tuple[Client360MailDraft, WorkspaceActionItem | None]:
+    draft = (
+        db.query(Client360MailDraft)
+        .filter(Client360MailDraft.id == draft_id, Client360MailDraft.workspace_id == workspace.id)
+        .first()
+    )
+    if not draft:
+        raise LookupError("Client360 mail draft not found")
+    recipient = _valid_email(to_email)
+    cfg, disabled_reason, _raw = _resolve_client360_smtp_config(workspace)
+    if cfg is None:
+        raise ValueError(disabled_reason or "smtp_not_configured")
+    send_subject = _safe_mail_subject(subject, draft.subject)
+    send_body = _safe_text(body) or _safe_text(draft.sent_body) or draft.generated_body
+    sent = send_email_with_config(
+        config=cfg,
+        to=recipient,
+        subject=send_subject,
+        html=_plain_text_to_html(send_body),
+        text=send_body,
+    )
+    if not sent:
+        raise RuntimeError("smtp_send_failed")
+
+    now = datetime.utcnow()
+    draft.subject = send_subject
+    draft.sent_body = send_body
+    draft.status = "sent"
+    draft.sent_at = now
+    draft.updated_at = now
+    metadata = dict(draft.meta_data or {})
+    metadata["smtp_delivery"] = {
+        "to_email": recipient,
+        "sent_at": now.isoformat(),
+        "source": "workspace.settings.client360_pdr_mail.smtp",
+        "host": cfg.host,
+        "username": cfg.username,
+    }
+    draft.meta_data = metadata
+
+    action: WorkspaceActionItem | None = None
+    if draft.action_item_id:
+        action = patch_action(
+            db,
+            workspace,
+            user,
+            draft.action_item_id,
+            {
+                "mail_draft_id": draft.id,
+                "mail_status": "sent",
+                "status": "in_progress",
+                "sent_body": send_body,
+                "sent_at": now,
+                "notes": f"Email envoye via SMTP a {recipient}",
+            },
+        )
+    else:
+        opportunity = _get_opportunity(db, workspace, draft.opportunity_id)
+        opportunity.status = "sent"
+    db.flush()
+    return draft, action
+
+
 def patch_action(
     db: DBSession,
     workspace: Workspace,
@@ -1788,7 +2025,8 @@ def patch_action(
     client360 = dict(metadata.get("client360") or {})
     for key in ("mail_status", "notes", "outcome_status", "sent_at"):
         if key in patch and patch[key] is not None:
-            client360[key] = patch[key]
+            value = patch[key]
+            client360[key] = value.isoformat() if isinstance(value, datetime) else value
     metadata["client360"] = client360
     updates: dict[str, Any] = {"metadata": metadata}
     if patch.get("status"):
