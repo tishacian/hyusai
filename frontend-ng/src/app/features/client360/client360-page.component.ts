@@ -768,9 +768,9 @@ interface MailSendResponse {
     .kpi span { display: block; color: var(--ck-fg-4); font: 700 10px/1 var(--ck-font-mono); text-transform: uppercase; letter-spacing: 0; }
     .kpi strong { display: block; margin-top: 9px; font-size: 22px; font-weight: 680; }
     .toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-radius: var(--ck-radius-md); }
-    label { display: grid; gap: 5px; color: var(--ck-fg-4); font: 700 10px/1 var(--ck-font-mono); text-transform: uppercase; letter-spacing: 0; }
+    label { display: grid; min-width: 0; gap: 5px; color: var(--ck-fg-4); font: 700 10px/1 var(--ck-font-mono); text-transform: uppercase; letter-spacing: 0; }
     input, select, textarea {
-      min-height: 34px; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset);
+      width: 100%; min-width: 0; box-sizing: border-box; min-height: 34px; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset);
       color: var(--ck-fg-1); padding: 0 10px; outline: 0; font: 500 13px/1.4 var(--ck-font-sans);
     }
     textarea { width: 100%; min-height: 360px; padding: 12px; resize: vertical; white-space: pre-wrap; }
@@ -834,7 +834,7 @@ interface MailSendResponse {
     .impact-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .impact-buttons button { min-height: 40px; font-size: 12px; }
     .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; }
     .toggle-row { display: flex; flex-wrap: wrap; gap: 8px; }
     .checkline {
       display: inline-flex;
