@@ -2,6 +2,7 @@ import { NgClass } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { WorkspaceService } from '@app/core/workspace.service';
 import { GlyphComponent, PageFrameComponent } from '@app/shared/cockpit';
 
 type ViewKey = 'opportunities' | 'customer' | 'data' | 'mapping' | 'mail';
@@ -474,8 +475,8 @@ interface MailSendResponse {
               <h3>Routage IA</h3>
               <dl class="engine-facts">
                 <div><dt>Mode</dt><dd>{{ mailAiStatusLabel() }}</dd></div>
-                <div><dt>Route</dt><dd>{{ summary()?.positioning?.mail_ai?.route_id || 'client360_pdr_mail_writer' }}</dd></div>
-                <div><dt>Modele</dt><dd>{{ mailAiModelLabel() }}</dd></div>
+                <div><dt>Route</dt><dd>{{ mailAiRouteLabel() }}</dd></div>
+                <div><dt>Runtime</dt><dd>{{ mailAiModelLabel() }}</dd></div>
                 <div><dt>Source</dt><dd>{{ mailAiSourceLabel() }}</dd></div>
               </dl>
             </div>
@@ -789,7 +790,8 @@ interface MailSendResponse {
     .status.ok { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
     .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 180px; color: var(--ck-fg-3); text-align: center; }
     .empty small { color: var(--ck-fg-4); }
-    .split, .data-layout { display: grid; grid-template-columns: minmax(240px, 320px) 1fr; gap: 12px; min-height: 420px; }
+    .split { display: grid; grid-template-columns: minmax(240px, 320px) 1fr; gap: 12px; min-height: 420px; }
+    .data-layout { display: grid; grid-template-columns: minmax(280px, 420px) minmax(0, 1fr); gap: 12px; min-height: 420px; }
     .mail-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 12px; min-height: 620px; align-items: stretch; }
     .list-panel, .detail-panel, .gap-panel, .impact-panel, .smtp-panel { border-radius: var(--ck-radius-md); padding: 12px; }
     .list-panel { display: flex; flex-direction: column; gap: 6px; overflow: auto; }
@@ -817,10 +819,10 @@ interface MailSendResponse {
     }
     .facts { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 10px; margin: 0 0 16px; }
     .facts div { padding: 10px; background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); }
-    .engine-facts { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 8px; margin: 12px 0 0; }
-    .engine-facts div { padding: 8px; background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); }
+    .engine-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; }
+    .engine-facts div { min-width: 0; overflow: hidden; padding: 8px; background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); }
     dt { color: var(--ck-fg-4); font: 700 10px/1 var(--ck-font-mono); text-transform: uppercase; letter-spacing: 0; }
-    dd { margin: 7px 0 0; color: var(--ck-fg-2); font-size: 13px; }
+    dd { margin: 7px 0 0; color: var(--ck-fg-2); font-size: 13px; overflow-wrap: anywhere; word-break: break-word; }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .chips .ok { color: var(--ck-signal-pos); }
     .scope-panel { display: grid; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--ck-stroke-2); }
@@ -855,6 +857,7 @@ interface MailSendResponse {
 })
 export class Client360PageComponent implements OnInit {
   private readonly http = inject(HttpClient);
+  private readonly workspace = inject(WorkspaceService);
   readonly view = signal<ViewKey>('opportunities');
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -910,6 +913,7 @@ export class Client360PageComponent implements OnInit {
   readonly opportunities = computed(() => this.opportunitiesResponse()?.items ?? []);
   readonly mappings = computed(() => this.mappingsResponse()?.items ?? []);
   readonly campaignSegments = computed(() => this.summary()?.positioning?.mvp_contract?.campaign_segments ?? []);
+  readonly isDemoSafe = computed(() => this.workspace.isDemoSafeMode());
 
   ngOnInit(): void {
     this.refresh();
@@ -1304,6 +1308,7 @@ export class Client360PageComponent implements OnInit {
   }
 
   draftGenerationModel(draft: Client360MailDraft | null): string {
+    if (this.isDemoSafe()) return '';
     return String(draft?.metadata?.['llm_model'] || draft?.metadata?.['fallback_reason'] || '');
   }
 
@@ -1316,12 +1321,19 @@ export class Client360PageComponent implements OnInit {
   }
 
   mailAiModelLabel(): string {
+    if (this.isDemoSafe()) return 'Runtime gere';
     const ai = this.summary()?.positioning?.mail_ai;
     if (!ai?.model) return '-';
     return ai.provider ? `${ai.provider}:${ai.model}` : ai.model;
   }
 
+  mailAiRouteLabel(): string {
+    if (this.isDemoSafe()) return 'Redaction assistee';
+    return this.summary()?.positioning?.mail_ai?.route_id || 'client360_pdr_mail_writer';
+  }
+
   mailAiSourceLabel(): string {
+    if (this.isDemoSafe()) return 'Masquee demo-safe';
     const ai = this.summary()?.positioning?.mail_ai;
     return ai?.model_source || ai?.routing_source || '-';
   }
