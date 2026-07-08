@@ -100,8 +100,11 @@ async def test_plan_emits_frozen_contract(monkeypatch):
 
     assert set(out) == {
         "action", "mode", "answer_profile", "scope_hint", "clarifying_question",
-        "oos_reason", "lang_target", "confidence", "retrieval",
+        "oos_reason", "lang_target", "confidence", "retrieval", "sub_queries",
     }
+    # sub_queries port is always present (Phase 4 multi-hop); a list, empty
+    # unless the profile is comparison/multi_hop/transversal.
+    assert isinstance(out["sub_queries"], list)
     assert out["action"] == "answer"
     assert out["mode"] == "deep"
     assert out["scope_hint"] == "ACJ100"

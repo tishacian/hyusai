@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     default_provider: str = "openai"
     default_model: str = "gpt-5"
+    # Judge model override. Empty falls back to default_model (gpt-5) and is
+    # routed provider-neutrally via ModelRouter (Ollama fallback on-prem).
+    judge_model: str = ""
+
+    # Route select niche intents (inventory/comparison/equipment/table/multi-hop)
+    # through the agentic chat DAG instead of the classic orchestrator. Off by
+    # default: no behavior change until explicitly enabled per deployment.
+    enable_agentic_chat: bool = False
 
     # Ollama fallback
     ollama_base_url: str = "http://localhost:11434"

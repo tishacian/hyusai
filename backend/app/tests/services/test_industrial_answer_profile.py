@@ -1,4 +1,5 @@
 from app.services.industrial_answer_profile import (
+    DEFAULT_INDUSTRIAL_ANSWER_PROFILES,
     answer_policy_prompt,
     apply_answer_policy_to_text,
     industrial_answer_policy,
@@ -206,3 +207,107 @@ def test_answer_policy_removes_internal_diagnostic_parenthetical():
     assert cleaned == "Je n'ai pas de source sur ce point"
     assert "internal_diagnostic_parenthetical" in violations
     assert "platform_jargon_workspace" in violations
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 route_classifier — table-extraction and multi-hop detection. These
+# two profiles previously existed ONLY as A/B spike categories with no prod
+# classifier; they now have a regex cascade slot so hybrid routing can gate on
+# them. The tests pin the new detection AND guard against cannibalising the
+# existing profiles (precise_fact / transversal / comparison / equipment).
+# ---------------------------------------------------------------------------
+def test_resolve_table_extract_profile():
+    policy = industrial_answer_policy()
+    for query in (
+        "Extrais le tableau des couples de serrage de l'AKK200",
+        "Donne-moi la nomenclature des pièces du sécheur",
+        "Quelles sont les valeurs du tableau de maintenance ?",
+        "Présente les données sous forme de tableau",
+        "Present the maintenance intervals as a table",
+        "Give me the bill of materials for the pump",
+        "Show the torque values in tabular form",
+    ):
+        decision = resolve_answer_profile(query, policy)
+        assert decision.profile == "table_extract", query
+        assert decision.reason == "table_extract_query", query
+        # A tabular request is not exhaustive-retrieval by itself: the classic
+        # path stays lean, the agentic DAG owns any heavier retrieval.
+        assert decision.requires_exhaustive_retrieval is False, query
+
+
+def test_resolve_multi_hop_profile():
+    policy = industrial_answer_policy()
+    for query in (
+        "D'abord identifie le projet qui a remplacé l'AKK200, puis donne le débit de sa pompe",
+        "Combien de machines partagent le même moteur que la carde ACJ200 ?",
+        "Pour les moteurs qui dépassent 500 kW, combien sont installés sur la carde ACJ200 ?",
+        "Quelles machines utilisent une carde ACJ200 et disposent aussi d'un sécheur ?",
+        "Show the machines that share the same motor as the ACJ200",
+    ):
+        decision = resolve_answer_profile(query, policy)
+        assert decision.profile == "multi_hop", query
+        assert decision.reason == "multi_hop_query", query
+        assert decision.requires_exhaustive_retrieval is False, query
+
+
+def test_new_profiles_do_not_cannibalise_existing():
+    # Regression guard: adding table_extract / multi_hop must NOT steal queries
+    # from the established profiles. Each representative query must resolve to
+    # the SAME profile it did before Phase 3.
+    policy = industrial_answer_policy()
+    expected = {
+        # precise_fact — plain single facts, including a physical "colonne"
+        # (distillation column) that must not be read as a table.
+        "Quelle est la pression nominale de la pompe URACA ?": "precise_fact",
+        "What is the width of the dryer?": "precise_fact",
+        "Combien de buses possède le sécheur ACJ200 ?": "precise_fact",
+        "Quel est le débit de la colonne de distillation ?": "precise_fact",
+        # transversal_inventory — cross-project enumeration.
+        "Quels projets utilisent une pompe Uraca ?": "transversal_inventory",
+        "Liste toutes les pompes Uraca": "transversal_inventory",
+        # comparison / equipment_detail / project_summary.
+        "Compare le rendement de l'ACJ200 et de l'AKK200": "comparison",
+        "Donne-moi la fiche technique de la pompe URACA": "equipment_detail",
+        "Résume le projet AKK200": "project_summary",
+    }
+    for query, profile in expected.items():
+        assert resolve_answer_profile(query, policy).profile == profile, query
+
+
+def test_new_profiles_registered_with_instructions():
+    # The new profiles must be first-class entries (style-consistent with the
+    # existing ones) so answer_policy_prompt emits their shaping instructions.
+    for key in ("table_extract", "multi_hop"):
+        assert key in DEFAULT_INDUSTRIAL_ANSWER_PROFILES, key
+        entry = DEFAULT_INDUSTRIAL_ANSWER_PROFILES[key]
+        assert entry.get("label"), key
+        assert isinstance(entry.get("instructions"), list) and entry["instructions"], key
+
+    table_prompt = answer_policy_prompt(
+        answer_policy=industrial_answer_policy(),
+        profile_decision={"profile": "table_extract", "reason": "table_extract_query"},
+        language="fr",
+    )
+    assert "Answer profile: table_extract" in table_prompt
+    assert "compact table" in table_prompt
+
+    multihop_prompt = answer_policy_prompt(
+        answer_policy=industrial_answer_policy(),
+        profile_decision={"profile": "multi_hop", "reason": "multi_hop_query"},
+        language="fr",
+    )
+    assert "Answer profile: multi_hop" in multihop_prompt
+    assert "intermediate" in multihop_prompt
+
+
+def test_answer_profile_decision_contract_preserved():
+    # The AnswerProfileDecision return contract must be unchanged for the new
+    # profiles: profile / reason / requires_exhaustive_retrieval + as_dict().
+    decision = resolve_answer_profile(
+        "Extrais le tableau des couples de serrage", industrial_answer_policy()
+    )
+    assert decision.as_dict() == {
+        "profile": "table_extract",
+        "reason": "table_extract_query",
+        "requires_exhaustive_retrieval": False,
+    }

@@ -1548,6 +1548,205 @@ async def _try_registry_chat_action(
     )
 
 
+# ---------------------------------------------------------------------------
+# Hybrid agentic routing (Phase 3). Off by default via
+# ``settings.enable_agentic_chat``; when enabled, only *niche* intents
+# (inventory / comparison / equipment / table / multi-hop) are dispatched to
+# the seeded agentic DAG System — every other intent (and every failure mode)
+# stays on the classic ``AgentOrchestrator`` path. The gate is fail-open: a
+# missing System, a DAG error, or an empty answer all fall back to classic so
+# ``/chat`` never breaks.
+# ---------------------------------------------------------------------------
+AGENTIC_CHAT_SYSTEM_NAME = "Andritz Chat Agentic"
+AGENTIC_CHAT_VARIANT = "chat_agentic_thinking_v1"
+_AGENTIC_NICHE_PROFILES = frozenset(
+    {"transversal_inventory", "comparison", "equipment_detail", "table_extract", "multi_hop"}
+)
+
+
+def _should_route_agentic(profile: Optional[str]) -> bool:
+    """Gate predicate: agentic only when the flag is on and the profile is niche."""
+    return bool(getattr(settings, "enable_agentic_chat", False)) and profile in _AGENTIC_NICHE_PROFILES
+
+
+def _lookup_agentic_chat_system(db: Session, workspace: Workspace) -> Optional[System]:
+    """Find the seeded 'Andritz Chat Agentic' System (variant match).
+
+    Mirrors ``agentic_chat_spike.lookup_agentic_system``: prefer an active
+    System on the target variant, otherwise the first candidate. Returns
+    ``None`` when the System is not seeded so the caller degrades to classic.
+    """
+    candidates = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.name == AGENTIC_CHAT_SYSTEM_NAME)
+        .all()
+    )
+    fallback: Optional[System] = None
+    for candidate in candidates:
+        if (candidate.flow_definition or {}).get("variant") == AGENTIC_CHAT_VARIANT:
+            if candidate.status == "active":
+                return candidate
+            fallback = fallback or candidate
+    return fallback or (candidates[0] if candidates else None)
+
+
+def _agentic_run_answer(output_ref: Any) -> str:
+    """User-facing text from a completed agentic Run's ``output_ref``.
+
+    The finalized DAG routes to one of three sinks: ``sink.final_answer``
+    (``answer``), ``sink.ask_user`` (``clarifying_question``) or ``sink.oos``
+    (``reason``). ``_collect_terminal_output`` merges the chosen sink onto
+    ``run.output_ref``.
+    """
+    if isinstance(output_ref, dict):
+        for key in ("answer", "response", "clarifying_question", "reason"):
+            value = output_ref.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    return ""
+
+
+async def _maybe_agentic_chat_completion(
+    db: Session,
+    *,
+    workspace: Workspace,
+    request: "ChatRequest",
+    query: str,
+) -> Optional[Dict[str, Any]]:
+    """Dispatch a niche chat turn through the seeded agentic DAG System.
+
+    Returns a ``/chat`` completion payload on success, or ``None`` to signal
+    the caller to fall back to the classic orchestrator. This never raises:
+    a missing System, a DAG error, a non-completed run, or an empty answer all
+    degrade to ``None`` so the classic path stays a byte-for-byte safety net.
+    Mirrors ``agentic_chat_spike.run_arm_agentic``: create a ``Run`` against the
+    System, walk it with ``execute_run_dag``, then re-read the committed row.
+    """
+    try:
+        system = _lookup_agentic_chat_system(db, workspace)
+        if system is None:
+            logger.info("agentic chat: system not seeded, using classic path", workspace_id=workspace.id)
+            return None
+
+        from app.services.run_engine.dag import execute_run_dag
+
+        run = Run(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace.id,
+            system_id=system.id,
+            input_ref={"query": query, "conversation_history": []},
+            status="pending",
+            trigger="chat_agentic",
+        )
+        db.add(run)
+        db.commit()
+        run_id = run.id
+
+        # ``execute_run_dag`` opens its OWN session and commits there; re-read
+        # the fresh row (expire the stale identity-mapped snapshot first).
+        await execute_run_dag(run_id)
+        db.expire_all()
+        fresh = db.query(Run).filter(Run.id == run_id).first()
+        if fresh is None or fresh.status != "completed":
+            logger.warning(
+                "agentic chat: run not completed, using classic path",
+                run_id=run_id,
+                status=getattr(fresh, "status", None),
+            )
+            return None
+
+        output_ref = fresh.output_ref if isinstance(fresh.output_ref, dict) else {}
+        answer = _agentic_run_answer(output_ref)
+        if not answer.strip():
+            logger.warning("agentic chat: empty answer, using classic path", run_id=run_id)
+            return None
+
+        content, answer_policy_violations = apply_answer_policy_to_text(
+            answer,
+            answer_policy=request.answer_policy if isinstance(request.answer_policy, dict) else None,
+            profile_decision=request.answer_profile_decision
+            if isinstance(request.answer_profile_decision, dict)
+            else None,
+        )
+        citations = output_ref.get("citations")
+        sources = citations if isinstance(citations, list) else []
+
+        # Keep the chat session history coherent when a session is bound. Best
+        # effort only — a persistence hiccup must never sink an otherwise good
+        # answer, so the classic path's message contract is mirrored loosely.
+        if request.session_id:
+            try:
+                db.add(
+                    Message(
+                        id=str(uuid.uuid4()),
+                        session_id=request.session_id,
+                        role="user",
+                        content=request.query,
+                        meta_data={},
+                    )
+                )
+                db.add(
+                    Message(
+                        id=str(uuid.uuid4()),
+                        session_id=request.session_id,
+                        role="assistant",
+                        content=content,
+                        meta_data={
+                            "route": "agentic",
+                            "run_id": run_id,
+                            "answer_profile": request.answer_profile,
+                            "answer_profile_decision": request.answer_profile_decision,
+                            "answer_policy_applied": bool(request.answer_policy),
+                            "answer_policy_violations": answer_policy_violations,
+                            "sources": sources,
+                        },
+                    )
+                )
+                db.commit()
+            except Exception as exc:  # noqa: BLE001 - history is best-effort
+                db.rollback()
+                logger.warning("agentic chat: session message persist failed", error=str(exc))
+
+        return {
+            "id": run_id,
+            "run_id": run_id,
+            "content": content,
+            "reasoning_trace": None,
+            "sources": sources,
+            "retrieval_scope": None,
+            "retrieval_plan": None,
+            "scope_confidence": None,
+            "scope_reason": None,
+            "dense_policy": None,
+            "dense_only": None,
+            "sparse_status": None,
+            "sparse_backend": None,
+            "sparse_fallback_reason": None,
+            "retrieval_profile": None,
+            "retrieval_fallback": None,
+            "fallback_reason": None,
+            "latency_budget": None,
+            "score_threshold_applied": None,
+            "deep_retrieval_recommended": None,
+            "deep_job_id": None,
+            "deep_poll_url": None,
+            "deep_status": None,
+            "deep_job": None,
+            "answer_profile": request.answer_profile,
+            "answer_policy_applied": bool(request.answer_policy),
+            "answer_policy_violations": answer_policy_violations,
+            "status": "completed",
+            "route": "agentic",
+        }
+    except Exception as exc:  # noqa: BLE001 - the agentic lane must never break /chat
+        logger.warning("agentic chat dispatch failed; falling back to classic", error=str(exc))
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+
 @router.post("/completion")
 async def chat_completion(
     request: ChatRequest,
@@ -1901,6 +2100,20 @@ async def chat_completion(
                 "status": "completed",
                 "vigie_quick_reply": vigie_reply.get("details") or {},
             }
+
+        # Hybrid agentic routing gate (Phase 3). ``request.answer_profile`` was
+        # resolved by ``_apply_workspace_chat_flow_defaults`` -> resolve_answer_profile.
+        # Only niche intents dispatch to the agentic DAG when the flag is on;
+        # everything else — and any agentic failure — stays on the classic path.
+        if _should_route_agentic(request.answer_profile):
+            agentic_payload = await _maybe_agentic_chat_completion(
+                db,
+                workspace=workspace,
+                request=request,
+                query=validated_query,
+            )
+            if agentic_payload is not None:
+                return agentic_payload
 
         orchestrator = get_orchestrator()
         if not orchestrator:

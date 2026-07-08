@@ -377,3 +377,206 @@ async def test_agentic_dag_reject_oos_suppressed_when_context_found(db_session, 
     # reject_oos was suppressed (context found) -> grounded answer delivered.
     assert run.output_ref.get("answer") == "Das QMS-12 misst Flächengewicht [1]."
     assert "reason" not in run.output_ref
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — latency: LLM judges decoupled from the verdict / egress path.
+# ---------------------------------------------------------------------------
+def _static_ancestors(flow: Dict[str, Any], node_id: str) -> set:
+    """Backward-reachable node set over ALL edges (static graph, ignores
+    runtime pruning) — mirrors the DAG validator's ancestor semantics."""
+    rev: Dict[str, List[str]] = {}
+    for edge in flow.get("edges") or []:
+        rev.setdefault(edge["to"], []).append(edge["from"])
+    seen: set = set()
+    stack = list(rev.get(node_id, []))
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        stack.extend(rev.get(cur, []))
+    return seen
+
+
+def test_flow_valid_and_judges_off_verdict_egress_critical_path():
+    """Phase 2 proof (structural): the verdict/egress path depends ONLY on
+    task.response_eval (embeddings); the two LLM judges (eval_radar / claim_audit)
+    are on a telemetry branch and are NOT ancestors of any egress node. Also
+    guards the flow is structurally valid (0 errors / 0 warnings)."""
+    from app.services.chains.dag_validator import has_errors, validate_flow
+
+    flow = _load_flow_definition()
+
+    issues = validate_flow(flow)
+    errors = [i for i in issues if i.level == "error"]
+    warnings = [i for i in issues if i.level == "warn"]
+    assert not has_errors(issues), errors
+    assert errors == [] and warnings == [], [i.to_dict() for i in issues]
+
+    edges = {(e["from"], e["to"]) for e in flow["edges"]}
+    # Critical path rewired: generate -> response_eval -> verdict (direct).
+    assert ("task.generate", "task.response_eval") in edges
+    assert ("task.response_eval", "decision.verdict") in edges
+    # The old barrier edge is gone; join.eval is now a terminal telemetry sink.
+    assert ("join.eval", "decision.verdict") not in edges
+    assert not any(src == "join.eval" for src, _ in edges), "join.eval must be terminal"
+
+    egress_nodes = [
+        "decision.verdict",
+        "task.self_correct",
+        "decision.egress_gate",
+        "decision.deliver",
+        "sink.final_answer",
+    ]
+    for node_id in egress_nodes:
+        ancestors = _static_ancestors(flow, node_id)
+        assert "task.response_eval" in ancestors, (
+            f"{node_id} must depend on response_eval (embeddings barrier)"
+        )
+        assert "task.eval_radar" not in ancestors, (
+            f"{node_id} still depends on the eval_radar LLM judge (egress blocked)"
+        )
+        assert "task.claim_audit" not in ancestors, (
+            f"{node_id} still depends on the claim_audit LLM judge (egress blocked)"
+        )
+
+    # The judges still run as telemetry (fork -> judges -> join.eval terminal).
+    judge_ancestors = _static_ancestors(flow, "join.eval")
+    assert {"task.eval_radar", "task.claim_audit", "fork.self_eval"} <= judge_ancestors
+    # decision.verdict still reads the response_eval composite via inputs_map.
+    verdict = next(n for n in flow["nodes"] if n["id"] == "decision.verdict")
+    vmap = verdict["config"]["inputs_map"]
+    assert vmap["composite"]["node_id"] == "task.response_eval"
+    assert vmap["context_count"]["node_id"] == "task.response_eval"
+
+
+@pytest.mark.asyncio
+async def test_agentic_dag_judges_run_but_do_not_gate_answer(db_session, monkeypatch):
+    """Phase 2 runtime proof: on a strong verdict the answer is delivered from
+    the response_eval-driven path, while the two LLM judges STILL execute
+    (telemetry computed) — decoupled, not removed."""
+    flow = _load_flow_definition()
+    calls: Dict[str, int] = {}
+
+    def _record(slug: str, output: Dict[str, Any]):
+        async def _fn(payload, ctx=None):
+            calls[slug] = calls.get(slug, 0) + 1
+            return output
+        return _fn
+
+    plan_out = {
+        "action": "answer", "mode": "balanced", "answer_profile": "technical",
+        "scope_hint": "AKK200", "clarifying_question": "", "oos_reason": "",
+        "lang_target": "fr", "confidence": 0.8,
+        "retrieval": {"latency_profile": "balanced", "retrieval_profile": "chat", "top_k": 8, "synthesis_k": 16, "candidate_pool_k": 40, "rag_pipeline_mode": "chah", "deep_retrieval": False},
+        "sub_queries": [],
+    }
+    outputs = {
+        "chat_agentic_plan_v1": plan_out,
+        "semantic_search_v1": {"results": _RETRIEVED},
+        "llm_rag_answer_v1": {"answer": "Largeur 0.3 m [1].", "citations": [{"index": 1, "source_id": "50a149bf-chunk_0"}], "decision_steps": []},
+        "eval_radar_v1": {"axes": {}, "overall": 0.7, "hallucination_rate": 0.1, "drift_rate": 0.0, "note": ""},
+        "claim_audit_v1": {"claims": [], "verdict": "ok", "supported": 1, "unsupported": 0},
+        # strong verdict (composite >= 50) -> self_correct skipped.
+        "response_eval_v1": {"composite": 82.0, "hallucination_rate": 0.1, "context_count": 1, "hhem": 0.1, "factuality": 0.9, "coherence": 0.9},
+        "chat_self_correct_v1": {"answer": "should not run", "citations": [], "action_taken": "declare_partial"},
+    }
+    slugs = list(outputs)
+    _install_fake_registry(monkeypatch, {s: _record(s, outputs[s]) for s in slugs})
+    for slug in slugs:
+        _mk_skill(db_session, slug)
+
+    system = System(
+        id=str(uuid.uuid4()), name="Andritz Chat Agentic (latency test)", objective="test",
+        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
+        flow_definition=flow, default_model="gpt-4o-mini",
+    )
+    db_session.add(system)
+    db_session.commit()
+    run = Run(id=str(uuid.uuid4()), system_id=system.id, workspace_id="ws-andritz", input_ref={"query": _QUERY}, status="pending")
+    db_session.add(run)
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == "completed", summary
+
+    # The answer was delivered from the (strong) response_eval verdict path.
+    db_session.expire_all()
+    run = db_session.query(Run).filter(Run.id == run.id).first()
+    assert run.output_ref.get("answer") == "Largeur 0.3 m [1]."
+    # Strong verdict: self_correct was NOT invoked (verdict read response_eval).
+    assert "chat_self_correct_v1" not in calls
+    # The LLM judges STILL ran as telemetry (computed, off the critical path).
+    assert calls.get("eval_radar_v1") == 1
+    assert calls.get("claim_audit_v1") == 1
+
+
+@pytest.mark.asyncio
+async def test_agentic_dag_multihop_lane_selected_when_sub_queries(db_session, monkeypatch):
+    """Phase 4 proof: when the plan emits sub_queries, route_mode selects the
+    multi_hop_retrieve lane (single active lane) and task.generate consumes its
+    merged results; the single-lane semantic_search retrievers do NOT fire."""
+    flow = _load_flow_definition()
+    calls: Dict[str, List[Dict[str, Any]]] = {}
+
+    def _record(slug: str, output: Dict[str, Any]):
+        async def _fn(payload, ctx=None):
+            calls.setdefault(slug, []).append(dict(payload or {}))
+            return output
+        return _fn
+
+    _MERGED = [
+        {"content": "Wilo NOLH pump spec.", "metadata": {"chunk_id": "w-1"}, "score": 0.9},
+        {"content": "KSB Etanorm pump spec.", "metadata": {"chunk_id": "k-1"}, "score": 0.88},
+    ]
+    plan_out = {
+        "action": "answer", "mode": "balanced", "answer_profile": "comparison",
+        "scope_hint": "pompes", "clarifying_question": "", "oos_reason": "",
+        "lang_target": "fr", "confidence": 0.8,
+        "retrieval": {"latency_profile": "balanced", "retrieval_profile": "chat", "top_k": 8, "synthesis_k": 16, "candidate_pool_k": 40, "rag_pipeline_mode": "chah", "deep_retrieval": False},
+        "sub_queries": ["Wilo NOLH pump", "KSB Etanorm pump"],
+    }
+    outputs = {
+        "chat_agentic_plan_v1": plan_out,
+        "semantic_search_v1": {"results": _RETRIEVED},  # should NOT be called
+        "multi_hop_retrieve_v1": {"results": _MERGED, "raw_chunks_retrieved": 4, "sub_queries": ["Wilo NOLH pump", "KSB Etanorm pump"], "hop_count": 3},
+        "llm_rag_answer_v1": {"answer": "Wilo vs KSB [1][2].", "citations": [{"index": 1, "source_id": "w-1"}, {"index": 2, "source_id": "k-1"}], "decision_steps": []},
+        "eval_radar_v1": {"axes": {}, "overall": 0.8, "hallucination_rate": 0.1, "drift_rate": 0.0, "note": ""},
+        "claim_audit_v1": {"claims": [], "verdict": "ok", "supported": 2, "unsupported": 0},
+        "response_eval_v1": {"composite": 80.0, "hallucination_rate": 0.1, "context_count": 2, "hhem": 0.1, "factuality": 0.9, "coherence": 0.9},
+        "chat_self_correct_v1": {"answer": "", "citations": [], "action_taken": "declare_partial"},
+    }
+    slugs = list(outputs)
+    _install_fake_registry(monkeypatch, {s: _record(s, outputs[s]) for s in slugs})
+    for slug in slugs:
+        _mk_skill(db_session, slug)
+
+    system = System(
+        id=str(uuid.uuid4()), name="Andritz Chat Agentic (multihop test)", objective="test",
+        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
+        flow_definition=flow, default_model="gpt-4o-mini",
+    )
+    db_session.add(system)
+    db_session.commit()
+    run = Run(id=str(uuid.uuid4()), system_id=system.id, workspace_id="ws-andritz", input_ref={"query": "compare Wilo NOLH and KSB Etanorm"}, status="pending")
+    db_session.add(run)
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == "completed", summary
+
+    # The multi-hop lane fired with the planner's sub_queries wired through.
+    assert "multi_hop_retrieve_v1" in calls, "route_mode did not select the multihop lane"
+    mh_payload = calls["multi_hop_retrieve_v1"][0]
+    assert mh_payload["sub_queries"] == ["Wilo NOLH pump", "KSB Etanorm pump"]
+    assert mh_payload["query"] == "compare Wilo NOLH and KSB Etanorm"
+    # Single-active-lane: the plain semantic_search retrievers did NOT run.
+    assert "semantic_search_v1" not in calls
+    # task.generate consumed the MERGED multi-hop results (join.retrieval.results).
+    gen_payload = calls["llm_rag_answer_v1"][0]
+    assert [c["content"] for c in gen_payload["context"]] == [c["content"] for c in _MERGED]
+
+    db_session.expire_all()
+    run = db_session.query(Run).filter(Run.id == run.id).first()
+    assert run.output_ref.get("answer") == "Wilo vs KSB [1][2]."

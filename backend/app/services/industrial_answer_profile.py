@@ -58,6 +58,24 @@ DEFAULT_INDUSTRIAL_ANSWER_PROFILES: dict[str, dict[str, Any]] = {
             "Name gaps instead of filling them by analogy.",
         ],
     },
+    "table_extract": {
+        "label": "Table extraction",
+        "instructions": [
+            "Return the requested tabular data as a compact table.",
+            "Preserve the row/column structure and keep every value with its unit.",
+            "Only include rows and columns supported by the provided context; do not fabricate cells.",
+            "Name missing entries explicitly instead of guessing them.",
+        ],
+    },
+    "multi_hop": {
+        "label": "Multi-hop reasoning",
+        "instructions": [
+            "Resolve the intermediate steps before answering the final question.",
+            "Lead with the consolidated answer, then state the chain of facts it relies on.",
+            "Use only facts available in the provided context for every hop.",
+            "If an intermediate link is unsupported, say which one is missing instead of inferring it.",
+        ],
+    },
     "insufficient_context": {
         "label": "Insufficient context",
         "instructions": [
@@ -208,6 +226,33 @@ _EQUIPMENT_DETAIL_RE = re.compile(
     r"\b([A-Z]{2,}\d{2,}|pompe|pump|moteur|motor|injecteur|buse|nozzle|rouleau|dryer|s[ée]cheur|filtre)\b",
     re.IGNORECASE,
 )
+# Tabular-extraction intent: the user wants values laid out as a table/BOM, not
+# a prose fact. Anchored on strongly tabular vocabulary (``tableau`` is almost
+# always a data table in this domain) or explicit "as a table" / "table of …"
+# phrasings, so plain factual questions and physical objects like a
+# "colonne de distillation" are NOT captured.
+_TABLE_EXTRACT_RE = re.compile(
+    r"\b(tableau(?:x)?|nomenclature|bill\s+of\s+materials|BOM|bar[eè]me|tableur|spreadsheet|matrice)\b"
+    r"|\btabular\b"
+    r"|\b(?:as|in|into|sous\s+forme\s+d[e']|sous\s+la\s+forme\s+d[e'])\s+(?:(?:an?|une?|the|le|la)\s+)?tables?\b"
+    r"|\btables?\s+(?:of|des?|du|de\s+la)\b",
+    re.IGNORECASE,
+)
+# Multi-hop intent: the answer needs an intermediate entity/condition resolved
+# before the final fact. Anchored on explicit chaining signals (sequential
+# markers, a second additive condition, a cross-reference "same … as", or a
+# conditional aggregation over a derived set) so single-hop precise_fact
+# questions are NOT cannibalised.
+_MULTIHOP_RE = re.compile(
+    r"\b(?:puis|ensuite|then)\b"
+    r"|\b(?:ont|poss[eè]dent|disposent|utilisent|comportent|int[eè]grent|sont)\s+(?:aussi|[ée]galement)\b"
+    r"|\balso\s+(?:has|have|use[sd]?|include[sd]?|feature[sd]?|equipped)\b"
+    r"|\b(?:le|la|les|ce|cette|ces)\s+m[êe]mes?\b[^?.!\n]{0,40}\bque\b"
+    r"|\bthe\s+same\b[^?.!\n]{0,40}\bas\b"
+    r"|\b(?:pour|parmi|among|for)\b[^?.!\n]{0,90}\b(?:qui|que|dont|which|that|avec|with)\b"
+    r"[^?.!\n]{0,90}\b(?:combien|quels?|quelles?|how\s+many|how\s+much|which)\b",
+    re.IGNORECASE,
+)
 _PRECISE_FACT_RE = re.compile(
     r"^\s*(quelle?|quels?|quelles?|what|which|combien|how\s+much|how\s+many|pression|pressure|largeur|width|vitesse|speed)\b",
     re.IGNORECASE,
@@ -303,6 +348,10 @@ def resolve_answer_profile(query: str, answer_policy: Mapping[str, Any] | None =
         return AnswerProfileDecision("transversal_inventory", "cross_project_inventory_query", True)
     if _EQUIPMENT_DETAIL_RE.search(text):
         return AnswerProfileDecision("equipment_detail", "equipment_detail_query")
+    if _TABLE_EXTRACT_RE.search(text):
+        return AnswerProfileDecision("table_extract", "table_extract_query")
+    if _MULTIHOP_RE.search(text):
+        return AnswerProfileDecision("multi_hop", "multi_hop_query")
     if _PRECISE_FACT_RE.search(text) or text.endswith("?"):
         return AnswerProfileDecision("precise_fact", "precise_fact_query")
     default_profile = str((answer_policy or {}).get("default_answer_profile") or "precise_fact")

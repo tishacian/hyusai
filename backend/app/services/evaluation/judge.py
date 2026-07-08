@@ -38,10 +38,15 @@ JUDGE_PROMPT = """You are an expert AI Agent Judge evaluating the quality of an 
 
 ## Evaluation Context
 - User query: {query}
-- Agent response (first 2000 chars): {response}
-- Retrieved context available: {has_context}
+- Agent response (first 4000 chars): {response}
 - System prompt constraints: {system_prompt_summary}
 - Turn number in session: {turn_number}
+
+## Retrieved context excerpts
+These excerpts are the ONLY grounding evidence the agent had access to. Judge
+factual support STRICTLY against them — do NOT rely on your own world knowledge
+for domain-specific facts (equipment, part numbers, projects, measurements).
+{context_excerpts}
 
 ## Scoring Rubric (0-100 per dimension)
 Score each dimension independently:
@@ -60,8 +65,12 @@ Score each dimension independently:
 12. tool_use: Correct tool/pipeline selection and execution? (100 = optimal)
 
 ## Claim Audit
-Also extract 3-8 atomic claims from the response and label each as "supported" or "unsupported"
-based on the retrieved context and query.
+Extract 3-8 atomic claims from the response. Label a claim "supported" ONLY when
+it is directly backed by the retrieved context excerpts shown above (a trivial
+restatement of the user's own query may also count as supported). Any claim that
+cannot be verified from those excerpts — however plausible it sounds — must be
+labelled "unsupported". When no excerpts are provided, only query restatements
+can be "supported".
 
 ## RAG Component Attribution
 Classify the user query into exactly one question_type:
@@ -85,15 +94,52 @@ Return ONLY valid JSON, no markdown:
 }}"""
 
 
-class JudgeService:
-    def __init__(self):
-        self._llm = None
+def _format_context_excerpts(
+    context_chunks: list[str] | None,
+    char_budget: int = 3500,
+    max_chunks: int = 8,
+) -> str:
+    """Render retrieved chunks into a bounded, numbered excerpts block.
 
-    def _get_llm(self):
-        if self._llm is None:
-            from app.llm.llm import LLM
-            self._llm = LLM(provider=settings.default_provider, api_key=settings.openai_api_key)
-        return self._llm
+    The judge grounds claim support on the ACTUAL retrieved text (not a boolean
+    or its own prior). Targets ~6-8 chunks within ``char_budget`` chars total,
+    each truncated to an even share so no single chunk dominates the budget.
+    """
+    chunks = [c.strip() for c in (context_chunks or []) if isinstance(c, str) and c.strip()]
+    if not chunks:
+        return "(no retrieved context was provided)"
+    chunks = chunks[:max_chunks]
+    per_chunk = max(200, char_budget // len(chunks))
+    parts: list[str] = []
+    for i, chunk in enumerate(chunks, start=1):
+        text = chunk if len(chunk) <= per_chunk else chunk[:per_chunk].rstrip() + "…"
+        parts.append(f"[{i}] {text}")
+    return "\n\n".join(parts)
+
+
+class JudgeService:
+    async def _complete(self, prompt: str) -> str:
+        """Provider-neutral judge completion routed through ``ModelRouter``.
+
+        Uses ``settings.judge_model or settings.default_model`` (gpt-5 by
+        default) on ``settings.default_provider`` and relies on the router's
+        fallback chain (-> Ollama) for on-prem degradation. No
+        ``temperature``/``max_tokens`` are forced so the same call works across
+        providers and thinking models (gpt-5) without provider-specific params.
+        Heterogeneous return shapes (OpenAI ``content`` / Ollama ``response``)
+        are normalised to a plain string.
+        """
+        from app.services.model_router import ModelRouter
+
+        model = settings.judge_model or settings.default_model
+        router = ModelRouter()
+        client = await router.get_client({"provider": settings.default_provider, "model": model})
+        result = await client.generate(model=model, prompt=prompt)
+        if isinstance(result, dict):
+            return str(
+                result.get("content") or result.get("response") or result.get("completion") or ""
+            ).strip()
+        return str(result or "").strip()
 
     async def evaluate(
         self,
@@ -105,19 +151,16 @@ class JudgeService:
         session_id: str = None,
         agent_id: str = None,
     ) -> dict:
-        llm = self._get_llm()
-
         prompt = JUDGE_PROMPT.format(
             query=query,
-            response=response[:2000],
-            has_context="yes" if context_chunks else "no",
+            response=response[:4000],
+            context_excerpts=_format_context_excerpts(context_chunks),
             system_prompt_summary=system_prompt[:500] if system_prompt else "none",
             turn_number=turn_number,
         )
 
         try:
-            result = await llm.complete(prompt=prompt, model="gpt-4o", temperature=0.2, max_tokens=1500)
-            text = result.strip()
+            text = (await self._complete(prompt)).strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0]
             data = json.loads(text)

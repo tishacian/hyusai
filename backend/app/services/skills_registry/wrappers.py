@@ -346,6 +346,143 @@ async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
     }
 
 
+def _merge_multi_hop_searches(
+    searches: list[Dict[str, Any]], *, limit: int
+) -> list[Dict[str, Any]]:
+    """RRF-merge + dedupe several ``semantic_search_v1`` result sets.
+
+    Reuses ``comparative_retrieval.merge_comparative_results`` (RRF over rank
+    position, content-collapsed) so a chunk found by multiple sub-queries ranks
+    higher and is never duplicated. Rows keep the uniform
+    ``{content, score, metadata}`` shape of ``semantic_search_v1.results`` so the
+    lane is interchangeable with a single-lane retrieve at the join.
+    """
+    from app.services.rag.comparative_retrieval import (
+        _SubResult,
+        merge_comparative_results,
+    )
+
+    def _split(res: Dict[str, Any]) -> Tuple[list[str], list[float], list[Dict[str, Any]]]:
+        chunks: list[str] = []
+        scores: list[float] = []
+        metas: list[Dict[str, Any]] = []
+        for row in (res or {}).get("results") or []:
+            if isinstance(row, dict):
+                content = row.get("content") or row.get("text") or row.get("snippet") or ""
+            elif isinstance(row, str):
+                content = row
+            else:
+                content = ""
+            content = str(content or "").strip()
+            if not content:
+                continue
+            chunks.append(content)
+            score = row.get("score") if isinstance(row, dict) else None
+            try:
+                scores.append(float(score) if score is not None else 0.0)
+            except (TypeError, ValueError):
+                scores.append(0.0)
+            metas.append(dict(row.get("metadata") or {}) if isinstance(row, dict) else {})
+        return chunks, scores, metas
+
+    if not searches:
+        return []
+    primary = _split(searches[0])
+    subs: list[Any] = []
+    for index, res in enumerate(searches[1:], start=1):
+        chunks, scores, metas = _split(res)
+        subs.append(_SubResult(entity=f"hop_{index}", chunks=chunks, scores=scores, metadatas=metas))
+    chunks, scores, metas, _diag = merge_comparative_results(primary, subs, limit=limit)
+    return [
+        {"content": chunks[i], "score": scores[i], "metadata": metas[i]}
+        for i in range(len(chunks))
+    ]
+
+
+async def _multi_hop_retrieve_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Parallel multi-hop retrieval over decomposed sub-queries (Phase 4).
+
+    Consumes ``plan.thinking.sub_queries`` and runs one ``semantic_search_v1``
+    per (deduped) sub-query PLUS the main query, in parallel via
+    ``asyncio.gather``, then merges/dedupes the hits (RRF, reusing
+    ``comparative_retrieval``) into the SAME output shape as
+    ``semantic_search_v1`` (``results[]`` + ``raw_chunks_retrieved``) so it drops
+    into ``join.retrieval`` as an interchangeable lane. When ``sub_queries`` is
+    empty it degrades to a single search of the main query (never crashes the
+    DAG — a failing hop yields no hits rather than an exception).
+    """
+    import asyncio
+
+    ctx = ctx or {}
+    query = str(payload.get("query") or "").strip()
+    raw_subs = payload.get("sub_queries")
+    subs = (
+        [s.strip() for s in raw_subs if isinstance(s, str) and s.strip()]
+        if isinstance(raw_subs, list)
+        else []
+    )
+
+    # Anchor with the main query so we never under-retrieve vs a single pass,
+    # then dedupe (case-insensitive) preserving order.
+    seen: set[str] = set()
+    queries: list[str] = []
+    for candidate in [query, *subs]:
+        key = candidate.lower()
+        if candidate and key not in seen:
+            seen.add(key)
+            queries.append(candidate)
+    if not queries:
+        return {"results": [], "raw_chunks_retrieved": 0, "sub_queries": [], "hop_count": 0}
+
+    # Per-lane budgets / scope shared across every hop (resolved from the plan).
+    base = {
+        key: payload.get(key)
+        for key in (
+            "knowledge_scope",
+            "latency_profile",
+            "retrieval_profile",
+            "top_k",
+            "synthesis_k",
+            "candidate_pool_k",
+            "deep_retrieval",
+            "rag_pipeline_mode",
+        )
+        if payload.get(key) is not None
+    }
+
+    async def _one(sub_query: str) -> Dict[str, Any]:
+        try:
+            return await _semantic_search_v1({**base, "query": sub_query}, ctx)
+        except Exception as exc:  # noqa: BLE001 — one bad hop must not sink the lane
+            logger.warning("multi_hop_retrieve_v1: sub-query search failed", error=str(exc))
+            return {"results": []}
+
+    searches = list(await asyncio.gather(*[_one(q) for q in queries]))
+
+    limit = 0
+    for key in ("synthesis_k", "candidate_pool_k"):
+        try:
+            limit = max(limit, int(payload.get(key)) if payload.get(key) is not None else 0)
+        except (TypeError, ValueError):
+            continue
+    if limit <= 0:
+        limit = _LANE_BUDGETS["balanced"]["synthesis_k"]
+
+    results = _merge_multi_hop_searches(searches, limit=limit)
+    raw_total = 0
+    for res in searches:
+        try:
+            raw_total += int(res.get("raw_chunks_retrieved") or 0)
+        except (TypeError, ValueError):
+            continue
+    return {
+        "results": results,
+        "raw_chunks_retrieved": raw_total or len(results),
+        "sub_queries": queries[1:],
+        "hop_count": len(queries),
+    }
+
+
 async def _document_ingestion_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from app.services.rag.document_service import DocumentService
 
@@ -2434,7 +2571,8 @@ def _build_plan_prompt(query: str, history: Any) -> str:
         '"lang_target": ISO code, "confidence": 0..1, '
         '"retrieval": {"latency_profile": fast|balanced|deep, '
         '"retrieval_profile": oracle_fast|chat|deep_async, "top_k": int, '
-        '"rag_pipeline_mode": chah|auto, "deep_retrieval": bool}}\n'
+        '"rag_pipeline_mode": chah|auto, "deep_retrieval": bool}, '
+        '"sub_queries": [liste de 2 a 4 sous-questions autonomes]}\n'
         "Regles STRICTES:\n"
         "- action=answer par defaut, et OBLIGATOIREMENT answer des qu'un code projet / "
         "identifiant machine / reference est present (ex: AKK200, CU250S-2, D.60, "
@@ -2450,10 +2588,95 @@ def _build_plan_prompt(query: str, history: Any) -> str:
         "agregation cross-projet) ; mode=fast pour un fait ponctuel trivial ; sinon balanced. "
         "'retrieval' coherent avec 'mode'.\n"
         "- scope_hint doit etre derive de la requete reelle ; ne JAMAIS recopier les libelles "
-        "d'exemple de ce schema.\n\n"
+        "d'exemple de ce schema.\n"
+        "- sub_queries : UNIQUEMENT pour un answer_profile comparaison / multi_hop / transversal "
+        "(question a plusieurs facettes / plusieurs entites), decompose alors la requete en 2 a 4 "
+        "sous-questions AUTONOMES et distinctes (une par entite/facette, reprenant les identifiants "
+        "exacts) ; sinon renvoie une liste VIDE []. Ne jamais recopier la requete telle quelle.\n\n"
         f"Historique:\n{history_lines or '(aucun)'}\n\n"
         f"Requete: {query}\n\nJSON:"
     )
+
+
+# Answer profiles that warrant decomposing the query into parallel sub-queries
+# (Phase 4 multi-hop). Inventory/enumeration is deliberately EXCLUDED: it keeps
+# its dedicated deep lane + project_code facet (a decomposition would drop the
+# exhaustive cross-project enumeration).
+_MULTIHOP_PROFILE_TOKENS = (
+    "comparison",
+    "comparative",
+    "compare",
+    "multi_hop",
+    "multihop",
+    "multi-hop",
+    "transversal",
+)
+
+
+def _profile_is_multihop(answer_profile: Any, query: str) -> bool:
+    """Whether the plan should decompose into sub-queries for this profile.
+
+    Gated on the answer_profile label, minus inventory questions (which own the
+    deep + transversal_inventory facet lane and must not be split).
+    """
+    if _is_inventory_query(query):
+        return False
+    profile = str(answer_profile or "").lower()
+    return any(token in profile for token in _MULTIHOP_PROFILE_TOKENS)
+
+
+def _derive_comparative_sub_queries(query: str) -> list[str]:
+    """Fallback decomposition reusing the classic comparative splitter.
+
+    When the planner does not emit usable ``sub_queries`` for a comparison
+    profile, recover the two compared entities lexically (FR/EN/DE patterns) so
+    each entity still gets its own retrieval pass. Never raises.
+    """
+    try:
+        from app.services.rag.comparative_retrieval import parse_comparative_entities
+
+        entities = parse_comparative_entities(query)
+    except Exception:  # noqa: BLE001 — decomposition must never break the plan.
+        return []
+    if not entities:
+        return []
+    return [entity for entity in entities if isinstance(entity, str) and entity.strip()]
+
+
+def _coerce_sub_queries(parsed: Dict[str, Any], query: str, answer_profile: str) -> list[str]:
+    """Coerce the planner's ``sub_queries`` into a clean 0/2-4 item list.
+
+    Contract: populated (2-4 deduped, non-echo sub-questions) only when the
+    answer_profile is comparison/multi_hop/transversal; empty otherwise. Robust
+    to garbage (non-list, non-string entries) -> defaults to an empty list.
+    """
+    if not _profile_is_multihop(answer_profile, query):
+        return []
+    raw = parsed.get("sub_queries")
+    subs: list[str] = []
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, str) and item.strip():
+                subs.append(" ".join(item.split()))
+    query_norm = " ".join(str(query or "").lower().split())
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for sub in subs:
+        key = sub.lower()
+        if key in seen or key == query_norm:
+            continue
+        seen.add(key)
+        cleaned.append(sub)
+    # Fallback: a comparison profile with too few usable sub-queries recovers the
+    # compared entities lexically so decomposition still happens.
+    if len(cleaned) < 2:
+        for sub in _derive_comparative_sub_queries(query):
+            key = sub.lower()
+            if key in seen or key == query_norm:
+                continue
+            seen.add(key)
+            cleaned.append(sub)
+    return cleaned[:4]
 
 
 def _coerce_plan(parsed: Dict[str, Any], query: str, *, has_history: bool = False) -> Dict[str, Any]:
@@ -2551,16 +2774,23 @@ def _coerce_plan(parsed: Dict[str, Any], query: str, *, has_history: bool = Fals
     # reject_oos must not leak a stale refusal reason into an answer plan).
     oos_reason = _as_str("oos_reason", "Hors du perimetre Andritz.") if action == "reject_oos" else ""
 
+    answer_profile = _as_str("answer_profile", "technical")
+    # Multi-hop decomposition (Phase 4): 2-4 sub-queries for comparison /
+    # multi_hop / transversal profiles, empty list otherwise. A clarify /
+    # reject_oos plan never decomposes (there is no answer to ground).
+    sub_queries = _coerce_sub_queries(parsed, query, answer_profile) if action == "answer" else []
+
     return {
         "action": action,
         "mode": mode,
-        "answer_profile": _as_str("answer_profile", "technical"),
+        "answer_profile": answer_profile,
         "scope_hint": scope_hint,
         "clarifying_question": clarifying_question,
         "oos_reason": oos_reason,
         "lang_target": _as_str("lang_target", "fr"),
         "confidence": round(confidence, 4),
         "retrieval": retrieval,
+        "sub_queries": sub_queries,
     }
 
 
@@ -2570,8 +2800,10 @@ async def _chat_agentic_plan_v1(payload: Dict[str, Any], ctx: Optional[Dict[str,
     OUT (frozen §7): ``{action, mode, answer_profile, scope_hint,
     clarifying_question, oos_reason, lang_target, confidence,
     retrieval:{latency_profile, retrieval_profile, top_k, rag_pipeline_mode,
-    deep_retrieval}}``. Robust to non-JSON model output -> safe defaults
-    (action=answer, mode=balanced).
+    deep_retrieval}, sub_queries:[str]}``. ``sub_queries`` carries 2-4 decomposed
+    sub-questions for comparison/multi_hop/transversal profiles (empty otherwise;
+    Phase 4). Robust to non-JSON model output -> safe defaults (action=answer,
+    mode=balanced, sub_queries=[]).
     """
     ctx = ctx or {}
     query = str(payload.get("query") or "")
@@ -2802,6 +3034,7 @@ async def _response_eval_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, Any
 _REGISTRY: Dict[str, Tuple[SkillCallable, Optional[str], str]] = {
     "llm_rag_answer_v1":       (_llm_rag_answer_v1,       "app.services.rag.rag_service",          "bound"),
     "semantic_search_v1":      (_semantic_search_v1,      "app.services.rag.context",              "bound"),
+    "multi_hop_retrieve_v1":   (_multi_hop_retrieve_v1,   "app.services.rag.comparative_retrieval", "bound"),
     "chat_trivial_bypass_v1":  (_chat_trivial_bypass_v1,  None,                                     "bound"),
     "chat_grounding_policy_v1": (_stub,                   None,                                     "stub"),
     "chat_action_resolver_v1": (_stub,                    None,                                     "stub"),

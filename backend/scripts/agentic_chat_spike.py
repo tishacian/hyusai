@@ -1832,6 +1832,8 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     wins = ties = losses = 0
     comp_deltas: List[float] = []
     halluc_deltas: List[float] = []
+    hhem_deltas: List[float] = []
+    adv_hhem_deltas: List[float] = []
     lat_deltas: List[float] = []
     route_changed = 0
     paired = 0
@@ -1857,6 +1859,11 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         cb = _arm_metric(b, "judge", "composite")
         ha = _arm_metric(a, "judge", "hallucination_rate")
         hb = _arm_metric(b, "judge", "hallucination_rate")
+        # HHEM / adv_HHEM (ResponseEvaluator) — primary hallucination signal.
+        hxa = _arm_metric(a, "evaluator", "hhem")
+        hxb = _arm_metric(b, "evaluator", "hhem")
+        axa = _arm_metric(a, "evaluator", "adv_hhem")
+        axb = _arm_metric(b, "evaluator", "adv_hhem")
         la, lb = a.get("latency_ms"), b.get("latency_ms")
         if a.get("route_mode") and b.get("route_mode") and a.get("route_mode") != b.get("route_mode"):
             route_changed += 1
@@ -1872,6 +1879,10 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
                 ties += 1
         if isinstance(ha, (int, float)) and isinstance(hb, (int, float)):
             halluc_deltas.append(round(hb - ha, 3))
+        if isinstance(hxa, (int, float)) and isinstance(hxb, (int, float)):
+            hhem_deltas.append(round(hxb - hxa, 4))
+        if isinstance(axa, (int, float)) and isinstance(axb, (int, float)):
+            adv_hhem_deltas.append(round(axb - axa, 4))
         if isinstance(la, (int, float)) and isinstance(lb, (int, float)):
             lat_deltas.append(lb - la)
 
@@ -1890,15 +1901,20 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         ac = _arm_block_means(g["classic"]) if g["classic"] else None
         ag = _arm_block_means(g["agentic"]) if g["agentic"] else None
         delta = None
-        if ac and ag and ac.get("mean_composite") is not None and ag.get("mean_composite") is not None:
+        if ac and ag:
+            def _cat_delta(key: str, nd: int) -> Optional[float]:
+                av, bv = ac.get(key), ag.get(key)
+                if isinstance(av, (int, float)) and isinstance(bv, (int, float)):
+                    return round(bv - av, nd)
+                return None
             delta = {
-                "composite": round(ag["mean_composite"] - ac["mean_composite"], 2),
-                "hallucination_rate": (round(ag["mean_hallucination_rate"] - ac["mean_hallucination_rate"], 3)
-                                       if ac.get("mean_hallucination_rate") is not None
-                                       and ag.get("mean_hallucination_rate") is not None else None),
-                "latency_ms": (round(ag["mean_latency_ms"] - ac["mean_latency_ms"], 0)
-                               if ac.get("mean_latency_ms") is not None
-                               and ag.get("mean_latency_ms") is not None else None),
+                # HHEM/adv_HHEM (ResponseEvaluator) is the primary hallucination
+                # delta; composite + judge hallucination_rate stay secondary.
+                "hhem": _cat_delta("mean_hhem", 4),
+                "adv_hhem": _cat_delta("mean_adv_hhem", 4),
+                "composite": _cat_delta("mean_composite", 2),
+                "hallucination_rate": _cat_delta("mean_hallucination_rate", 3),
+                "latency_ms": _cat_delta("mean_latency_ms", 0),
             }
         by_cat_out[cat] = {
             "n": len(g["classic"]),
@@ -1943,6 +1959,8 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
             "ties": ties,
             "losses_agentic": losses,
             "mean_composite_delta": _mean(comp_deltas),
+            "mean_hhem_delta": _mean(hhem_deltas),
+            "mean_adv_hhem_delta": _mean(adv_hhem_deltas),
             "mean_hallucination_delta": _mean(halluc_deltas),
             "mean_latency_delta_ms": _mean(lat_deltas),
             "route_changed_count": route_changed,
@@ -2012,16 +2030,19 @@ def _arm_row(cid: str, cat: str, q: str, arm_name: str, route: Any, steps: str,
              arm: Dict[str, Any]) -> str:
     ev = arm.get("evaluator") if isinstance(arm.get("evaluator"), dict) else {}
     ju = arm.get("judge") if isinstance(arm.get("judge"), dict) else {}
+    # HHEM/adv_HHEM lead as the primary hallucination signal; judge composite +
+    # hallucination_rate are relegated to the trailing (secondary) columns.
     return ("| {id} | {cat} | {q} | {arm} | {route} | {steps} | {lat} | "
-            "{comp} | {hal} | {hhem} | {fact} | {coh} |".format(
+            "{hhem} | {adv} | {fact} | {coh} | {comp} | {hal} |".format(
                 id=cid, cat=cat, q=q, arm=arm_name,
                 route=_cell(route), steps=steps,
                 lat=_fmt(arm.get("latency_ms"), nd=0),
-                comp=_fmt(ju.get("composite"), nd=1),
-                hal=_fmt(ju.get("hallucination_rate"), nd=3),
                 hhem=_fmt(ev.get("hhem"), nd=3),
+                adv=_fmt(ev.get("adv_hhem"), nd=3),
                 fact=_fmt(ev.get("factuality"), nd=3),
-                coh=_fmt(ev.get("coherence"), nd=3)))
+                coh=_fmt(ev.get("coherence"), nd=3),
+                comp=_fmt(ju.get("composite"), nd=1),
+                hal=_fmt(ju.get("hallucination_rate"), nd=3)))
 
 
 def render_report_md(report: Dict[str, Any]) -> str:
@@ -2069,17 +2090,20 @@ def render_report_md(report: Dict[str, Any]) -> str:
     lines.append("- **Métriques identiques (2 arms).** `evaluate_response_metrics` → "
                  "ResponseEvaluator (relevance, factuality, coherence, HHEM, adv_HHEM) ; "
                  "`judge_answer` → JudgeService (composite 0-100, hallucination_rate). "
-                 "Timeout-safe (null + `_note`, jamais de crash). NB : le **composite des "
-                 "colonnes** vient du JudgeService (parité A/B) ; le DAG utilise en interne un "
-                 "composite distinct (ResponseEvaluator ×100) pour son verdict — voir Lecture.")
+                 "Timeout-safe (null + `_note`, jamais de crash). Le signal d'**hallucination "
+                 "PRIMAIRE** est **HHEM/adv_HHEM** (ResponseEvaluator, ancré sur les chunks, "
+                 "insensible au format) ; le `hallucination_rate` du juge LLM est **secondaire**. "
+                 "NB : le **composite des colonnes** vient du JudgeService (parité A/B) ; le DAG "
+                 "utilise en interne un composite distinct (ResponseEvaluator ×100) pour son "
+                 "verdict — voir Lecture.")
     lines.append("")
 
     # ---- Per-case table --------------------------------------------------
     lines.append("## Détail par cas (classic vs agentic, lignes adjacentes)")
     lines.append("")
     lines.append("| id | category | query | arm | route/mode | decisions/steps | latency_ms | "
-                 "composite | halluc_rate | hhem | factuality | coherence |")
-    lines.append("|" + "---|" * 12)
+                 "hhem | adv_hhem | factuality | coherence | composite | judge_halluc |")
+    lines.append("|" + "---|" * 13)
     for r in results:
         cid = _cell(r.get("id"), limit=34)
         cat = _cell(r.get("category"), limit=18)
@@ -2096,26 +2120,27 @@ def render_report_md(report: Dict[str, Any]) -> str:
     # ---- Aggregate by category (lever), both arms + delta ----------------
     lines.append("## Agrégat par levier (`category`) — A (classic) vs B (agentic)")
     lines.append("")
-    lines.append("| category | n | A comp | B comp | Δcomp | A halluc | B halluc | A lat | B lat | "
-                 "Δlat | self_correct |")
-    lines.append("|" + "---|" * 11)
+    lines.append("| category | n | A hhem | B hhem | Δhhem | A comp | B comp | A halluc | B halluc | "
+                 "A lat | B lat | self_correct |")
+    lines.append("|" + "---|" * 12)
     for cat in sorted(by_cat):
-        b = by_cat[cat]
-        ac = b.get("arm_classic") or {}
-        ag = b.get("arm_agentic") or {}
-        dl = b.get("ab_delta") or {}
-        lines.append("| {cat} | {n} | {ac} | {ag} | {dc} | {ah} | {bh} | {al} | {bl} | {dl} | "
-                     "{sc}/{na} |".format(
-                         cat=_cell(cat, limit=20), n=b.get("n"),
-                         ac=_fmt(ac.get("mean_composite"), nd=1),
-                         ag=_fmt(ag.get("mean_composite"), nd=1) if ag else "n/a",
-                         dc=_fmt(dl.get("composite"), nd=1, signed=True) if dl else "n/a",
-                         ah=_fmt(ac.get("mean_hallucination_rate"), nd=3),
-                         bh=_fmt(ag.get("mean_hallucination_rate"), nd=3) if ag else "n/a",
-                         al=_fmt(ac.get("mean_latency_ms"), nd=0),
-                         bl=_fmt(ag.get("mean_latency_ms"), nd=0) if ag else "n/a",
-                         dl=_fmt(dl.get("latency_ms"), nd=0, signed=True) if dl else "n/a",
-                         sc=b.get("self_correct_fired", 0), na=b.get("n_agentic", 0)))
+        blk = by_cat[cat]
+        c = blk.get("arm_classic") or {}
+        g = blk.get("arm_agentic") or {}
+        d = blk.get("ab_delta") or {}
+        lines.append("| {cat} | {n} | {ahhem} | {bhhem} | {dhhem} | {acomp} | {bcomp} | "
+                     "{ahal} | {bhal} | {alat} | {blat} | {sc}/{na} |".format(
+                         cat=_cell(cat, limit=20), n=blk.get("n"),
+                         ahhem=_fmt(c.get("mean_hhem"), nd=3),
+                         bhhem=_fmt(g.get("mean_hhem"), nd=3) if g else "n/a",
+                         dhhem=_fmt(d.get("hhem"), nd=3, signed=True) if d else "n/a",
+                         acomp=_fmt(c.get("mean_composite"), nd=1),
+                         bcomp=_fmt(g.get("mean_composite"), nd=1) if g else "n/a",
+                         ahal=_fmt(c.get("mean_hallucination_rate"), nd=3),
+                         bhal=_fmt(g.get("mean_hallucination_rate"), nd=3) if g else "n/a",
+                         alat=_fmt(c.get("mean_latency_ms"), nd=0),
+                         blat=_fmt(g.get("mean_latency_ms"), nd=0) if g else "n/a",
+                         sc=blk.get("self_correct_fired", 0), na=blk.get("n_agentic", 0)))
     lines.append("")
 
     # ---- Global A/B summary ----------------------------------------------
@@ -2130,7 +2155,17 @@ def render_report_md(report: Dict[str, Any]) -> str:
                  f"(B−A, sur {ab.get('paired_cases')} cas appariés)")
     lines.append(f"- **win/tie/loss (agentic, seuil ±1 pt composite)**: "
                  f"**{ab.get('wins_agentic')} / {ab.get('ties')} / {ab.get('losses_agentic')}**")
-    lines.append(f"- **hallucination_rate** — A: {_fmt(classic_sum.get('mean_hallucination_rate'), nd=3)} · "
+    lines.append(f"- **HHEM (hallucination — signal PRIMAIRE, ResponseEvaluator)** — "
+                 f"A: {_fmt(classic_sum.get('mean_hhem'), nd=3)} · "
+                 f"B: {_fmt(agentic_sum.get('mean_hhem'), nd=3)} · "
+                 f"**Δ moyen: {_fmt(ab.get('mean_hhem_delta'), nd=3, signed=True)}** "
+                 f"(plus haut = mieux ancré, moins d'hallucination)")
+    lines.append(f"- **adv_HHEM (hallucination pondérée cohérence/pertinence)** — "
+                 f"A: {_fmt(classic_sum.get('mean_adv_hhem'), nd=3)} · "
+                 f"B: {_fmt(agentic_sum.get('mean_adv_hhem'), nd=3)} · "
+                 f"**Δ moyen: {_fmt(ab.get('mean_adv_hhem_delta'), nd=3, signed=True)}**")
+    lines.append(f"- **hallucination_rate (juge LLM — signal secondaire)** — "
+                 f"A: {_fmt(classic_sum.get('mean_hallucination_rate'), nd=3)} · "
                  f"B: {_fmt(agentic_sum.get('mean_hallucination_rate'), nd=3)} · "
                  f"**Δ moyen: {_fmt(ab.get('mean_hallucination_delta'), nd=3, signed=True)}**")
     lines.append(f"- **latence** — A: {_fmt(classic_sum.get('mean_latency_ms'), nd=0)} ms · "
