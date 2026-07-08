@@ -657,12 +657,40 @@ def list_opportunities(
     return [serialize_opportunity(row) for row in rows]
 
 
-def summary_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
+def summary_payload(db: DBSession, workspace: Workspace, *, include_mail_ai: bool = True) -> dict[str, Any]:
     scope = client360_scope(workspace)
     data_sources = list_data_sources(db, workspace)
     opportunities = list_opportunities(db, workspace, limit=500)
-    mail_ai_config = _client360_mail_ai_config(db, workspace)
-    mail_ai_ready, mail_ai_disabled_reason = _mail_ai_configured(mail_ai_config)
+    if include_mail_ai:
+        mail_ai_config = _client360_mail_ai_config(db, workspace)
+        mail_ai_ready, mail_ai_disabled_reason = _mail_ai_configured(mail_ai_config)
+        mail_ai_payload = {
+            "enabled": bool(mail_ai_config.get("enabled")),
+            "configured": mail_ai_ready,
+            "disabled_reason": mail_ai_disabled_reason,
+            "provider": mail_ai_config.get("provider"),
+            "model": mail_ai_config.get("model"),
+            "model_source": mail_ai_config.get("model_source"),
+            "provider_source": mail_ai_config.get("provider_source"),
+            "routing_source": mail_ai_config.get("routing_source"),
+            "system_id": mail_ai_config.get("system_id"),
+            "capability_id": mail_ai_config.get("capability_id"),
+            "route_id": CLIENT360_AGENT_ROUTING_CONTRACT["mail_draft"]["route_id"],
+        }
+    else:
+        mail_ai_payload = {
+            "enabled": True,
+            "configured": False,
+            "disabled_reason": "resolution_deferred",
+            "provider": None,
+            "model": None,
+            "model_source": None,
+            "provider_source": None,
+            "routing_source": "deferred",
+            "system_id": None,
+            "capability_id": None,
+            "route_id": CLIENT360_AGENT_ROUTING_CONTRACT["mail_draft"]["route_id"],
+        }
     by_status: dict[str, int] = {}
     by_confidence: dict[str, int] = {}
     for item in opportunities:
@@ -683,19 +711,7 @@ def summary_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
             "scope": scope,
             "mvp_contract": CLIENT360_MVP_CONTRACT,
             "agent_routing": CLIENT360_AGENT_ROUTING_CONTRACT,
-            "mail_ai": {
-                "enabled": bool(mail_ai_config.get("enabled")),
-                "configured": mail_ai_ready,
-                "disabled_reason": mail_ai_disabled_reason,
-                "provider": mail_ai_config.get("provider"),
-                "model": mail_ai_config.get("model"),
-                "model_source": mail_ai_config.get("model_source"),
-                "provider_source": mail_ai_config.get("provider_source"),
-                "routing_source": mail_ai_config.get("routing_source"),
-                "system_id": mail_ai_config.get("system_id"),
-                "capability_id": mail_ai_config.get("capability_id"),
-                "route_id": CLIENT360_AGENT_ROUTING_CONTRACT["mail_draft"]["route_id"],
-            },
+            "mail_ai": mail_ai_payload,
         },
         "summary": {
             "opportunities": len(opportunities),

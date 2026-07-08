@@ -209,7 +209,7 @@ interface ImpactResponse {
 
       <nav sub class="ck-surface c360-tabs" aria-label="Client360 PDR">
         @for (tab of tabs; track tab.id) {
-          <button type="button" (click)="view.set(tab.id)" [ngClass]="{ active: view() === tab.id }">
+          <button type="button" (click)="openTab(tab.id)" [ngClass]="{ active: view() === tab.id }">
             {{ tab.label }}
           </button>
         }
@@ -690,6 +690,7 @@ export class Client360PageComponent implements OnInit {
   readonly draftBody = signal('');
   readonly mappingsResponse = signal<Client360MappingsResponse | null>(null);
   readonly engineResult = signal<Client360EngineResult | null>(null);
+  readonly mailAiResolved = signal(false);
 
   impactAttribution = 'unknown';
   impactReason = 'unknown';
@@ -724,15 +725,45 @@ export class Client360PageComponent implements OnInit {
   refresh(): void {
     this.loading.set(true);
     this.error.set(null);
-    this.http.get<Client360Summary>('/api/v1/client360/summary').subscribe({
+    this.mailAiResolved.set(false);
+    this.loadSummary(false);
+    this.loadMappings(false);
+    this.loadOpportunities(false);
+  }
+
+  openTab(tab: ViewKey): void {
+    this.view.set(tab);
+    if (tab === 'data' && !this.mailAiResolved()) {
+      this.loadSummary(true);
+    }
+    if (tab === 'mapping' && !this.mappingsResponse()) {
+      this.loadMappings(false);
+    }
+  }
+
+  loadSummary(includeMailAi = false): void {
+    const params = new HttpParams().set('include_mail_ai', includeMailAi ? 'true' : 'false');
+    this.http.get<Client360Summary>('/api/v1/client360/summary', { params }).subscribe({
       next: (payload) => {
+        const current = this.summary();
+        if (!includeMailAi && this.mailAiResolved() && current?.positioning?.mail_ai) {
+          payload = {
+            ...payload,
+            positioning: {
+              ...payload.positioning,
+              mail_ai: current.positioning.mail_ai,
+            },
+          };
+        }
+        if (includeMailAi) this.mailAiResolved.set(true);
         this.summary.set(payload);
-        this.loadMappings(false);
-        this.loadOpportunities(false);
       },
       error: () => {
-        this.loading.set(false);
-        this.error.set('Client360 PDR indisponible');
+        if (includeMailAi) {
+          this.error.set('Routage IA Client360 PDR indisponible');
+        } else if (!this.opportunitiesResponse()) {
+          this.error.set('Client360 PDR indisponible');
+        }
       },
     });
   }
@@ -978,6 +1009,7 @@ export class Client360PageComponent implements OnInit {
 
   mailAiStatusLabel(): string {
     const ai = this.summary()?.positioning?.mail_ai;
+    if (ai?.disabled_reason === 'resolution_deferred') return 'Resolution a la demande';
     if (!ai?.enabled) return 'Template';
     if (ai.configured) return 'IA active';
     return `Fallback ${ai.disabled_reason || 'non configure'}`;

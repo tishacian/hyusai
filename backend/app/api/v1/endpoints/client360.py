@@ -116,10 +116,11 @@ class OpportunityPatch(BaseModel):
 
 @router.get("/summary")
 def client360_summary(
+    include_mail_ai: bool = Query(default=True),
     workspace: Workspace = Depends(get_current_workspace),
     db: DBSession = Depends(get_db),
 ):
-    return summary_payload(db, workspace)
+    return summary_payload(db, workspace, include_mail_ai=include_mail_ai)
 
 
 @router.get("/scope")
