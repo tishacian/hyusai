@@ -20,6 +20,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.config import settings
+from app.core.settings_manager import get_resolved_settings
 from app.models.action_plan import WorkspaceActionItem
 from app.models.client360 import (
     CLIENT360_ATTRIBUTIONS,
@@ -37,9 +38,15 @@ from app.models.client360 import (
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
 from app.models.knowledge_table_fact import KnowledgeTableFact
 from app.models.secure_deposit import DepositFile
+from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.action_plans import create_action_item, serialize_action_item, update_action_item
+from app.services.client360_contract import (
+    CLIENT360_AGENT_ROUTING_CONTRACT,
+    CLIENT360_MVP_CONTRACT,
+    CLIENT360_SYSTEM_VARIANT,
+)
 
 
 _logger = logging.getLogger(__name__)
@@ -49,6 +56,21 @@ PILOT_TECHNOLOGIES = ("JETLACE", "HFR200")
 PILOT_COUNTRIES = ("Greece", "Turkey")
 PILOT_CUSTOMERS = ("Septona",)
 CLIENT360_MAIL_PROMPT_VERSION = "client360_pdr_mail_v2"
+KNOWN_LLM_PROVIDERS = {
+    "anthropic",
+    "azure_openai",
+    "deepseek",
+    "gemini",
+    "groq",
+    "litellm",
+    "lmstudio",
+    "ollama",
+    "openai",
+    "openai_structured",
+    "openrouter",
+    "together",
+    "xai",
+}
 CLIENT360_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "customer_name": ("customer", "client", "customer name", "client name", "account", "sold to", "ship to"),
     "customer_key": ("customer id", "client id", "customer code", "sold to code", "sap customer"),
@@ -76,6 +98,7 @@ CLIENT360_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
 def client360_scope(workspace: Workspace) -> dict[str, Any]:
     configured = _as_dict(_as_dict(getattr(workspace, "settings", None)).get("client360_pdr_scope"))
     return {
+        "official_name": CLIENT360_MVP_CONTRACT["official_name"],
         "business_scope": "spare_parts",
         "part_scope": "wear_parts",
         "pilot_technologies": _as_list(configured.get("pilot_technologies")) or list(PILOT_TECHNOLOGIES),
@@ -84,6 +107,7 @@ def client360_scope(workspace: Workspace) -> dict[str, Any]:
         "stock_automation": False,
         "internet_sources_policy": "context_only",
         "live_connectors": {"sap": False, "crm": False, "metris": False, "outlook_send": False},
+        "mvp_contract": CLIENT360_MVP_CONTRACT,
     }
 
 
@@ -128,6 +152,43 @@ def _normalize_token(value: Any) -> str:
 
 def _mapping_key(*values: Any) -> str:
     return "|".join(part for part in (_normalize_token(value) for value in values) if part)
+
+
+def _find_client360_system(db: DBSession, workspace: Workspace) -> System | None:
+    rows = (
+        db.query(System)
+        .filter(System.workspace_id == workspace.id, System.status != "retired")
+        .order_by(System.created_at.asc())
+        .all()
+    )
+    for row in rows:
+        flow = _as_dict(row.flow_definition)
+        system_settings = _as_dict(row.settings)
+        if flow.get("variant") == CLIENT360_SYSTEM_VARIANT or system_settings.get("system_type") == CLIENT360_SYSTEM_VARIANT:
+            return row
+    return next((row for row in rows if row.name == "Client360 PDR"), None)
+
+
+def _pick_config_value(*candidates: tuple[str, Any]) -> tuple[Any, str | None]:
+    for source, value in candidates:
+        if value is None or value == "":
+            continue
+        return value, source
+    return None, None
+
+
+def _split_provider_model(provider_value: Any, model_value: Any) -> tuple[str, str]:
+    provider = _safe_text(provider_value).lower()
+    model = _safe_text(model_value)
+    if model:
+        prefix, separator, rest = model.partition(":")
+        if separator and prefix.lower() in KNOWN_LLM_PROVIDERS and rest:
+            return prefix.lower(), rest
+    return provider, model
+
+
+def _resolved_setting(config: dict[str, Any], camel: str, snake: str) -> Any:
+    return config.get(camel) if config.get(camel) is not None else config.get(snake)
 
 
 def _field_for_label(label: Any) -> str | None:
@@ -600,6 +661,8 @@ def summary_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
     scope = client360_scope(workspace)
     data_sources = list_data_sources(db, workspace)
     opportunities = list_opportunities(db, workspace, limit=500)
+    mail_ai_config = _client360_mail_ai_config(db, workspace)
+    mail_ai_ready, mail_ai_disabled_reason = _mail_ai_configured(mail_ai_config)
     by_status: dict[str, int] = {}
     by_confidence: dict[str, int] = {}
     for item in opportunities:
@@ -618,6 +681,21 @@ def summary_payload(db: DBSession, workspace: Workspace) -> dict[str, Any]:
             "no_supervised_prediction": True,
             "no_automatic_email_send": True,
             "scope": scope,
+            "mvp_contract": CLIENT360_MVP_CONTRACT,
+            "agent_routing": CLIENT360_AGENT_ROUTING_CONTRACT,
+            "mail_ai": {
+                "enabled": bool(mail_ai_config.get("enabled")),
+                "configured": mail_ai_ready,
+                "disabled_reason": mail_ai_disabled_reason,
+                "provider": mail_ai_config.get("provider"),
+                "model": mail_ai_config.get("model"),
+                "model_source": mail_ai_config.get("model_source"),
+                "provider_source": mail_ai_config.get("provider_source"),
+                "routing_source": mail_ai_config.get("routing_source"),
+                "system_id": mail_ai_config.get("system_id"),
+                "capability_id": mail_ai_config.get("capability_id"),
+                "route_id": CLIENT360_AGENT_ROUTING_CONTRACT["mail_draft"]["route_id"],
+            },
         },
         "summary": {
             "opportunities": len(opportunities),
@@ -1297,16 +1375,65 @@ Contraintes strictes:
 """
 
 
-def _client360_mail_ai_config(workspace: Workspace) -> dict[str, Any]:
-    configured = _as_dict(_as_dict(getattr(workspace, "settings", None)).get("client360_pdr_mail"))
-    enabled = configured.get("ai_enabled")
-    if enabled is None:
-        enabled = settings.client360_mail_ai_enabled
+def _client360_mail_ai_config(db: DBSession, workspace: Workspace) -> dict[str, Any]:
+    workspace_settings = _as_dict(getattr(workspace, "settings", None))
+    configured = _as_dict(workspace_settings.get("client360_pdr_mail"))
+    system = _find_client360_system(db, workspace)
+    system_settings = _as_dict(system.settings if system else None)
+    system_mail = _as_dict(system_settings.get("client360_pdr_mail"))
+    system_llm = _as_dict(system_settings.get("llm") or system_settings.get("model_routing"))
+    resolved = get_resolved_settings(
+        workspace_id=workspace.id,
+        capability_id=system.capability_id if system else None,
+        system_id=system.id if system else None,
+    )
+
+    enabled, enabled_source = _pick_config_value(
+        ("workspace.settings.client360_pdr_mail.ai_enabled", configured.get("ai_enabled")),
+        ("system.settings.client360_pdr_mail.ai_enabled", system_mail.get("ai_enabled")),
+        ("global.client360_mail_ai_enabled", settings.client360_mail_ai_enabled),
+    )
+    provider_value, provider_source = _pick_config_value(
+        ("workspace.settings.client360_pdr_mail.provider", configured.get("provider")),
+        ("system.settings.client360_pdr_mail.provider", system_mail.get("provider")),
+        ("system.settings.llm.provider", system_llm.get("provider")),
+        ("agentium.resolved.defaultProvider", _resolved_setting(resolved, "defaultProvider", "default_provider")),
+        ("global.default_provider", settings.default_provider),
+        ("fallback.openai", "openai"),
+    )
+    model_value, model_source = _pick_config_value(
+        ("workspace.settings.client360_pdr_mail.model", configured.get("model")),
+        ("system.settings.client360_pdr_mail.model", system_mail.get("model")),
+        ("system.default_model", system.default_model if system else None),
+        ("system.settings.llm.model", system_llm.get("model")),
+        ("agentium.resolved.defaultModel", _resolved_setting(resolved, "defaultModel", "default_model")),
+        ("global.client360_mail_model", settings.client360_mail_model),
+        ("global.default_model", settings.default_model),
+        ("fallback.gpt-4o-mini", "gpt-4o-mini"),
+    )
+    provider, model = _split_provider_model(provider_value, model_value)
+    if not provider:
+        provider = _safe_text(settings.default_provider).lower() or "openai"
+    if not model:
+        model = _safe_text(settings.client360_mail_model or settings.default_model) or "gpt-4o-mini"
+    timeout_value, timeout_source = _pick_config_value(
+        ("workspace.settings.client360_pdr_mail.timeout_seconds", configured.get("timeout_seconds")),
+        ("system.settings.client360_pdr_mail.timeout_seconds", system_mail.get("timeout_seconds")),
+        ("global.client360_mail_timeout_seconds", settings.client360_mail_timeout_seconds),
+    )
     return {
         "enabled": bool(enabled),
-        "provider": _safe_text(configured.get("provider") or settings.default_provider or "openai") or "openai",
-        "model": _safe_text(configured.get("model") or settings.client360_mail_model or settings.default_model) or "gpt-4o-mini",
-        "timeout_seconds": float(configured.get("timeout_seconds") or settings.client360_mail_timeout_seconds or 20.0),
+        "provider": provider,
+        "model": model,
+        "timeout_seconds": float(timeout_value or 20.0),
+        "enabled_source": enabled_source,
+        "provider_source": provider_source,
+        "model_source": model_source,
+        "timeout_source": timeout_source,
+        "routing_source": "agentium_system" if system else "workspace_or_global",
+        "system_id": system.id if system else None,
+        "capability_id": system.capability_id if system else None,
+        "agent_route": CLIENT360_AGENT_ROUTING_CONTRACT["mail_draft"]["route_id"],
     }
 
 
@@ -1471,6 +1598,12 @@ async def _generate_ai_mail_draft(
             "generation_mode": "ai_assisted",
             "llm_provider": config["provider"],
             "llm_model": config["model"],
+            "llm_model_source": config.get("model_source"),
+            "llm_provider_source": config.get("provider_source"),
+            "llm_routing_source": config.get("routing_source"),
+            "llm_system_id": config.get("system_id"),
+            "llm_capability_id": config.get("capability_id"),
+            "agent_route": config.get("agent_route"),
             "prompt_version": CLIENT360_MAIL_PROMPT_VERSION,
             "prompt_hash": prompt_hash,
             "human_validation_required": True,
@@ -1493,12 +1626,13 @@ def _fallback_mail_generation(opportunity: Client360Opportunity, *, include_pric
 
 
 def _generate_mail_draft_content(
+    db: DBSession,
     workspace: Workspace,
     opportunity: Client360Opportunity,
     *,
     include_prices: bool,
 ) -> dict[str, Any]:
-    config = _client360_mail_ai_config(workspace)
+    config = _client360_mail_ai_config(db, workspace)
     configured, reason = _mail_ai_configured(config)
     if not configured:
         return _fallback_mail_generation(opportunity, include_prices=include_prices, reason=reason)
@@ -1551,7 +1685,7 @@ def create_mail_draft(
     include_prices: bool = False,
 ) -> tuple[Client360MailDraft, WorkspaceActionItem]:
     opportunity = _get_opportunity(db, workspace, opportunity_id)
-    generation = _generate_mail_draft_content(workspace, opportunity, include_prices=include_prices)
+    generation = _generate_mail_draft_content(db, workspace, opportunity, include_prices=include_prices)
     generation_metadata = dict(generation.get("metadata") or {})
     opportunity_metadata = _as_dict(opportunity.meta_data)
     if opportunity_metadata.get("pilot_dataset"):
@@ -1593,7 +1727,9 @@ def create_mail_draft(
                 "mail_draft_id": draft.id,
                 "part_family": opportunity.part_family,
                 "generation_mode": draft.meta_data.get("generation_mode"),
+                "llm_provider": draft.meta_data.get("llm_provider"),
                 "llm_model": draft.meta_data.get("llm_model"),
+                "agent_route": draft.meta_data.get("agent_route"),
                 "manual_send_only": True,
             }
         },

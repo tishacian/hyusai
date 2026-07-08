@@ -13,6 +13,7 @@ from app.models.client360 import (
     Client360Opportunity,
 )
 from app.models.knowledge_collection import KnowledgeCollection, KnowledgeCollectionSource
+from app.models.rag_preset import RagPreset
 from app.models.system import System
 from app.models.user import User
 from app.models.workspace import Workspace
@@ -160,6 +161,9 @@ def test_summary_discovers_real_knowledge_sources_and_reports_missing_inputs(db_
     payload = summary_payload(db_session, workspace)
 
     assert payload["source_counts"]["periodicity"] == 1
+    assert payload["positioning"]["mvp_contract"]["official_name"] == "Client360 PDR"
+    assert "first_replacement_confidence" in payload["positioning"]["mvp_contract"]["mvp_in_scope"]
+    assert payload["positioning"]["mail_ai"]["route_id"] == "client360_pdr_mail_writer"
     assert payload["data_sources"][0]["origin"] == "knowledge_collection_source"
     assert payload["data_sources"][0]["collection_slug"] == "andritz-client360-pilot"
     assert "installed_base_missing" in payload["data_gaps"]
@@ -194,7 +198,12 @@ def test_client360_system_seed_is_andritz_scoped_and_idempotent(db_session) -> N
     )
     system = db_session.query(System).filter(System.id == first.id).one()
     assert system.flow_definition["variant"] == CLIENT360_PDR_VARIANT
+    assert system.flow_definition["schema_version"] == 2
+    assert "product_contract" in system.flow_definition
+    assert system.flow_definition["agent_routing"]["mail_draft"]["route_id"] == "client360_pdr_mail_writer"
     assert system.settings["surface_routes"] == ["/client360"]
+    assert system.settings["product_contract"]["official_name"] == "Client360 PDR"
+    assert system.settings["client360_pdr_mail"]["model_resolution"] == "agentium_system_capability_workspace"
     assert system.execution_mode == "human_augmented"
     assert "sap_pdr_mapping" in system.flow_definition["runtime_contract"]["engines"]
     assert "POST /api/v1/client360/engines/opportunities/run" in system.flow_definition["runtime_contract"]["entrypoints"]
@@ -265,6 +274,68 @@ def test_mail_draft_uses_ai_generation_when_available(monkeypatch, db_session) -
     assert draft.meta_data["prompt_version"] == "client360_pdr_mail_v2"
     assert draft.meta_data["human_validation_required"] is True
     assert action.meta_data["client360"]["generation_mode"] == "ai_assisted"
+
+
+def test_mail_draft_resolves_agentium_system_preset_model(monkeypatch, db_session) -> None:
+    workspace = _seed_workspace(db_session, settings={"client360_pdr_mail": {"ai_enabled": True}})
+    capability = Capability(
+        slug=CLIENT360_PDR_CAPABILITY_SLUG,
+        name="Client360 PDR Opportunity Engine",
+        description="Client360 test capability",
+    )
+    db_session.add(capability)
+    db_session.flush()
+    system = System(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name=CLIENT360_PDR_SYSTEM_NAME,
+        objective="Client360 PDR",
+        capability_id=capability.id,
+        flow_definition={"variant": CLIENT360_PDR_VARIANT},
+        settings={"system_type": CLIENT360_PDR_VARIANT},
+        status="active",
+    )
+    db_session.add(system)
+    db_session.flush()
+    db_session.add(
+        RagPreset(
+            id=str(uuid4()),
+            name="Client360 system preset",
+            scope="system",
+            scope_id=system.id,
+            workspace_id=workspace.id,
+            config={"defaultProvider": "openai", "defaultModel": "test-agentium-system-model"},
+            is_default=True,
+        )
+    )
+    user = _seed_user(db_session)
+    opportunity = _seed_opportunity(db_session, workspace, confidence_label="high")
+    user_id = user.id
+    opportunity_id = opportunity.id
+    db_session.commit()
+    monkeypatch.setattr(client360_module.settings, "openai_api_key", "test-key")
+
+    async def fake_complete(**kwargs):
+        assert kwargs["provider"] == "openai"
+        assert kwargs["model"] == "test-agentium-system-model"
+        return '{"subject":"Rappel maintenance Septona","body":"Bonjour,\\n\\nProposition preventive via Agentium.\\n\\nCordialement,"}'
+
+    monkeypatch.setattr(client360_module, "_complete_client360_mail_ai", fake_complete)
+
+    draft, action = create_mail_draft(
+        db_session,
+        workspace,
+        db_session.get(User, user_id),
+        opportunity_id=opportunity_id,
+    )
+    db_session.commit()
+
+    assert draft.meta_data["generation_mode"] == "ai_assisted"
+    assert draft.meta_data["llm_model"] == "test-agentium-system-model"
+    assert draft.meta_data["llm_model_source"] == "agentium.resolved.defaultModel"
+    assert draft.meta_data["llm_routing_source"] == "agentium_system"
+    assert draft.meta_data["agent_route"] == "client360_pdr_mail_writer"
+    assert action.meta_data["client360"]["llm_provider"] == "openai"
 
 
 def test_impact_tracking_updates_opportunity_and_action_status(db_session) -> None:

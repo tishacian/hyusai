@@ -17,6 +17,12 @@ from app.models.capability import Capability
 from app.models.skill import Skill
 from app.models.system import System
 from app.models.workspace import Workspace
+from app.services.client360_contract import (
+    CLIENT360_AGENT_ROUTING_CONTRACT,
+    CLIENT360_CAPABILITY_SLUG,
+    CLIENT360_MVP_CONTRACT,
+    CLIENT360_SYSTEM_VARIANT,
+)
 
 logger = get_logger(__name__)
 
@@ -67,11 +73,12 @@ WORKSPACE_CHAT_SKILL_SLUGS = [
 ]
 
 CLIENT360_PDR_SYSTEM_NAME = "Client360 PDR"
-CLIENT360_PDR_VARIANT = "client360_pdr"
-CLIENT360_PDR_CAPABILITY_SLUG = "client360_pdr_opportunity_engine"
+CLIENT360_PDR_VARIANT = CLIENT360_SYSTEM_VARIANT
+CLIENT360_PDR_CAPABILITY_SLUG = CLIENT360_CAPABILITY_SLUG
 CLIENT360_PDR_OBJECTIVE = (
     "Identify explainable spare-parts commercial potential, prepare human-validated "
-    "outreach drafts and track impact for Andritz Client360 PDR."
+    "AI outreach drafts and track impact for Andritz Client360 PDR. The system "
+    "does not claim supervised replacement prediction or automatic stock optimization."
 )
 
 
@@ -1135,20 +1142,31 @@ def _ensure_client360_capability(db: DBSession) -> Capability:
 def _client360_flow_definition() -> Dict[str, Any]:
     return {
         "variant": CLIENT360_PDR_VARIANT,
-        "schema_version": 1,
+        "schema_version": 2,
         "source": "system_seed",
         "template_id": CLIENT360_PDR_VARIANT,
         "template_name": "Client360 PDR",
+        "product_contract": CLIENT360_MVP_CONTRACT,
+        "agent_routing": CLIENT360_AGENT_ROUTING_CONTRACT,
         "nodes": [
             {"id": "source.data_sources", "type": "source", "label": "SFTP / Knowledge sources"},
+            {"id": "task.mapping", "type": "task", "label": "SAP material -> PDR family mapping"},
             {"id": "task.potential_engine", "type": "task", "label": "Explainable PDR potential"},
-            {"id": "task.mail_draft", "type": "task", "label": "Human-validated mail draft"},
+            {"id": "task.campaign_segment", "type": "task", "label": "Light campaign segment"},
+            {
+                "id": "agent.mail_writer",
+                "type": "agent",
+                "label": "Client360 PDR mail writer",
+                "route_id": CLIENT360_AGENT_ROUTING_CONTRACT["mail_draft"]["route_id"],
+            },
             {"id": "sink.impact_tracking", "type": "sink", "label": "Campaign impact loop"},
         ],
         "edges": [
-            {"from": "source.data_sources", "to": "task.potential_engine"},
-            {"from": "task.potential_engine", "to": "task.mail_draft"},
-            {"from": "task.mail_draft", "to": "sink.impact_tracking"},
+            {"from": "source.data_sources", "to": "task.mapping"},
+            {"from": "task.mapping", "to": "task.potential_engine"},
+            {"from": "task.potential_engine", "to": "task.campaign_segment"},
+            {"from": "task.campaign_segment", "to": "agent.mail_writer"},
+            {"from": "agent.mail_writer", "to": "sink.impact_tracking"},
         ],
         "ui": {
             "type": "client360_pdr",
@@ -1166,6 +1184,7 @@ def _client360_flow_definition() -> Dict[str, Any]:
                 "GET /api/v1/client360/mappings",
                 "POST /api/v1/client360/engines/opportunities/run",
                 "POST /api/v1/client360/mail-drafts",
+                "PATCH /api/v1/client360/actions/{id}",
                 "POST /api/v1/client360/actions/{id}/impact",
             ],
             "engines": [
@@ -1178,6 +1197,9 @@ def _client360_flow_definition() -> Dict[str, Any]:
             ],
             "prediction_policy": "explainable_potential_only",
             "email_send_policy": "manual_only",
+            "model_policy": CLIENT360_AGENT_ROUTING_CONTRACT["mail_draft"]["model_resolution_order"],
+            "mvp_in_scope": CLIENT360_MVP_CONTRACT["mvp_in_scope"],
+            "deferred_scope": CLIENT360_MVP_CONTRACT["deferred_scope"],
         },
     }
 
@@ -1230,18 +1252,34 @@ def ensure_client360_pdr_system_default(db: DBSession, workspace_id: str) -> Opt
         "surface": "client360",
         "surface_routes": ["/client360"],
         "family": "andritz",
+        "product_contract": CLIENT360_MVP_CONTRACT,
+        "agent_routing": CLIENT360_AGENT_ROUTING_CONTRACT,
+        "client360_pdr_mail": {
+            "ai_enabled": True,
+            "route_id": CLIENT360_AGENT_ROUTING_CONTRACT["mail_draft"]["route_id"],
+            "model_resolution": "agentium_system_capability_workspace",
+            "manual_send_only": True,
+        },
         "human_validation_required": True,
         "no_automatic_email_send": True,
         "prediction_policy": "explainable_potential_only",
+        "deferred_scope": CLIENT360_MVP_CONTRACT["deferred_scope"],
     }
     existing = _find_client360_system(db, workspace_id)
     if existing:
+        existing_settings = _as_dict(existing.settings)
+        preserved_mail_settings = _as_dict(existing_settings.get("client360_pdr_mail"))
+        merged_settings = {**existing_settings, **system_settings}
+        merged_settings["client360_pdr_mail"] = {
+            **_as_dict(system_settings.get("client360_pdr_mail")),
+            **preserved_mail_settings,
+        }
         existing.name = CLIENT360_PDR_SYSTEM_NAME
         existing.objective = CLIENT360_PDR_OBJECTIVE
         existing.capability_id = capability.id
         existing.skill_ids = []
         existing.flow_definition = flow_definition
-        existing.settings = {**_as_dict(existing.settings), **system_settings}
+        existing.settings = merged_settings
         existing.execution_mode = "human_augmented"
         existing.execution_profile = {
             "surface": "client360",

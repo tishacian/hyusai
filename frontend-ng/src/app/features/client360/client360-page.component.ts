@@ -56,7 +56,28 @@ interface Client360Opportunity {
 
 interface Client360Summary {
   workspace: { id: string; slug: string; name: string };
-  positioning: Record<string, unknown>;
+  positioning: {
+    name?: string;
+    mode?: string;
+    no_supervised_prediction?: boolean;
+    no_automatic_email_send?: boolean;
+    mvp_contract?: {
+      promise?: string;
+      mvp_in_scope?: string[];
+      deferred_scope?: string[];
+      campaign_segments?: Array<{ id: string; label: string; confidence_policy?: string }>;
+    };
+    mail_ai?: {
+      enabled?: boolean;
+      configured?: boolean;
+      disabled_reason?: string | null;
+      provider?: string | null;
+      model?: string | null;
+      model_source?: string | null;
+      routing_source?: string | null;
+      route_id?: string | null;
+    };
+  };
   summary: {
     opportunities: number;
     customers: number;
@@ -397,6 +418,22 @@ interface ImpactResponse {
                 <span class="ok">Sources minimales detectees</span>
               }
             </div>
+            <div class="scope-panel">
+              <h3>Scope MVP</h3>
+              <p>{{ summary()?.positioning?.mvp_contract?.promise || 'Potentiel PDR explicable, validation humaine et boucle impact.' }}</p>
+              <div class="chips">
+                @for (segment of campaignSegments(); track segment.id) {
+                  <span>{{ segment.label }}</span>
+                }
+              </div>
+              <h3>Routage IA</h3>
+              <dl class="engine-facts">
+                <div><dt>Mode</dt><dd>{{ mailAiStatusLabel() }}</dd></div>
+                <div><dt>Route</dt><dd>{{ summary()?.positioning?.mail_ai?.route_id || 'client360_pdr_mail_writer' }}</dd></div>
+                <div><dt>Modele</dt><dd>{{ mailAiModelLabel() }}</dd></div>
+                <div><dt>Source</dt><dd>{{ mailAiSourceLabel() }}</dd></div>
+              </dl>
+            </div>
             @if (engineResult()) {
               <dl class="engine-facts">
                 <div><dt>Records lus</dt><dd>{{ engineResult()?.records_seen }}</dd></div>
@@ -628,6 +665,8 @@ interface ImpactResponse {
     dd { margin: 7px 0 0; color: var(--ck-fg-2); font-size: 13px; }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .chips .ok { color: var(--ck-signal-pos); }
+    .scope-panel { display: grid; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--ck-stroke-2); }
+    .scope-panel p { margin: 0; color: var(--ck-fg-3); font-size: 12px; line-height: 1.45; }
     .reason-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .reason-list span { border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); color: var(--ck-fg-4); padding: 4px 8px; font-size: 11px; }
     .reason-list span.met { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
@@ -676,6 +715,7 @@ export class Client360PageComponent implements OnInit {
 
   readonly opportunities = computed(() => this.opportunitiesResponse()?.items ?? []);
   readonly mappings = computed(() => this.mappingsResponse()?.items ?? []);
+  readonly campaignSegments = computed(() => this.summary()?.positioning?.mvp_contract?.campaign_segments ?? []);
 
   ngOnInit(): void {
     this.refresh();
@@ -934,5 +974,23 @@ export class Client360PageComponent implements OnInit {
 
   draftGenerationModel(draft: Client360MailDraft | null): string {
     return String(draft?.metadata?.['llm_model'] || draft?.metadata?.['fallback_reason'] || '');
+  }
+
+  mailAiStatusLabel(): string {
+    const ai = this.summary()?.positioning?.mail_ai;
+    if (!ai?.enabled) return 'Template';
+    if (ai.configured) return 'IA active';
+    return `Fallback ${ai.disabled_reason || 'non configure'}`;
+  }
+
+  mailAiModelLabel(): string {
+    const ai = this.summary()?.positioning?.mail_ai;
+    if (!ai?.model) return '-';
+    return ai.provider ? `${ai.provider}:${ai.model}` : ai.model;
+  }
+
+  mailAiSourceLabel(): string {
+    const ai = this.summary()?.positioning?.mail_ai;
+    return ai?.model_source || ai?.routing_source || '-';
   }
 }
