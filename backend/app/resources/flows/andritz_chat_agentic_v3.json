@@ -21,7 +21,9 @@
       "GROUNDING (fix 2026-06-26) : le run_engine ctx (_build_initial_ctx) ne porte que workspace_id, pas workspace_slug ; or la collection Qdrant physique est tenant-préfixée ({slug}__{collection}). semantic_search_v1 et llm_rag_answer_v1 résolvent donc le slug depuis l'id (sinon retrieval vide : raw_chunks_retrieved=0, embedding_ms=null). task.generate consomme le tableau context (= join.retrieval.results) au lieu de relancer une recherche ; si le join est vide il s'abstient (jamais de génération libre).",
       "PARITÉ RECALL (fix 2026-06-26) : get_retrieval_profile traite un top_k seul comme un pin utilisateur qui COLLAPSE synthesis_k/candidate_pool_k au top_k (le DAG ne ramenait ~6 ctx vs ~12 pour le classic, et ratait le chunk porteur AKK200). Correctif : le plan EXPOSE et les retrieve_* TRANSMETTENT le triplet de budgets par lane (= chat._apply_retrieval_budget_policy : balanced 8/16/40, deep 8/24/80, fast 5/12/20) ; _semantic_search_v1 backfill aussi ces budgets par lane (filet de sécurité). Vérifié live : balanced lone-top_k=6 -> 6 chunks (carrier absent) ; balanced budget complet -> merged 38 / 19 résultats (carrier 0,3 m / 10-20 m/min présent).",
       "OOS BACKSTOP (fix 2026-06-26) : _coerce_plan demote reject_oos -> answer si la requête cite un projet/machine/système connu (project code, QMS-12, URACA, Etachrom, SINAMICS…) et JAMAIS sur la base de la langue ; decision.deliver n'honore reject_oos QUE si context_count==0 (retrieval réellement vide). Un faux reject_oos (ex. QMS-12 en allemand) retombe donc sur une réponse ancrée.",
-      "ROUTAGE INVENTAIRE (fix 2026-06-26) : _coerce_plan force mode=deep + budget deep pour les questions transversales/inventaire/énumération multi-projets ('quels projets…', 'liste…', 'sur quels projets', agrégation) ; le classic route déjà ces cas en deep."
+      "ROUTAGE INVENTAIRE (fix 2026-06-26) : _coerce_plan force mode=deep + budget deep pour les questions transversales/inventaire/énumération multi-projets ('quels projets…', 'liste…', 'sur quels projets', agrégation) ; le classic route déjà ces cas en deep.",
+      "DECOUPLAGE LATENCE (fix Phase 2 2026-07-08) : les 2 juges LLM (eval_radar_v1, claim_audit_v1) sont sortis du chemin critique du verdict/egress. task.generate alimente task.response_eval (embeddings) DIRECTEMENT (arete generate->response_eval), et response_eval alimente decision.verdict DIRECTEMENT (arete response_eval->verdict). Le fork.self_eval ne fane plus que les 2 juges vers join.eval, devenu un PUITS TERMINAL (telemetrie calculee + logguee mais non gatante). Le verdict/egress ne dependent donc plus (statiquement) des juges LLM ; retirer/echouer un juge n'impacte ni le verdict ni la reponse. NB : le walker execute_run_dag attend TOUS les noeuds atteignables avant de finaliser (pas de fire-and-forget natif), donc ce decouplage est structurel/semantique — le gain latence wall-clock effectif suppose un futur ordonnancement fire-and-forget des noeuds de telemetrie cote moteur.",
+      "MULTI-HOP (fix Phase 4 2026-07-08) : chat_agentic_plan_v1 emet desormais 'sub_queries' (2-4 sous-questions) sur les profils comparaison/multi_hop/transversal (hors inventaire, qui garde sa lane deep+facette), sinon liste vide. Une lane task.retrieve_multihop (skill multi_hop_retrieve_v1) est selectionnee EN PRIORITE par decision.route_mode quand sub_queries est non vide : elle lance N semantic_search_v1 en parallele (asyncio.gather) et fusionne/dedupe (RRF via comparative_retrieval.merge_comparative_results) dans la meme forme 'results[]', consommee par join.retrieval (strategy=any) puis task.generate. Semantique lane-unique preservee (route_mode neutralise les autres lanes)."
     ],
     "nodes": [
       {
@@ -79,7 +81,8 @@
           { "name": "oos_reason", "schema": "string" },
           { "name": "lang_target", "schema": "string" },
           { "name": "confidence", "schema": "number" },
-          { "name": "retrieval", "schema": "object" }
+          { "name": "retrieval", "schema": "object" },
+          { "name": "sub_queries", "schema": "array" }
         ]
       },
       {
@@ -88,18 +91,23 @@
         "kind": "decision",
         "label": "Routage mode",
         "position": { "x": 600, "y": 420 },
-        "data": { "menu": "Controle", "description": "Choisit la profondeur de recuperation selon plan.mode. Les retrieve_* sont des enfants directs (pruning propre)." },
+        "data": { "menu": "Controle", "description": "Choisit la lane de recuperation. PRIORITE (fix Phase 4 multi-hop 2026-07-08) : si le plan a decompose la requete (plan.thinking.sub_queries non vide -> profils comparaison/multi-hop/transversal), la lane multi_hop_retrieve est selectionnee EN PREMIER (N recherches paralleles + merge) ; sinon la profondeur suit plan.mode (fast/deep, defaut balanced). Une SEULE lane est active (les autres enfants directs sont proprement neutralises via all_inputs_dead)." },
         "config": {
           "branches": [
+            { "label": "multihop", "condition": "sub_queries != [] and sub_queries != None" },
             { "label": "fast", "condition": "mode == 'fast'" },
             { "label": "deep", "condition": "mode == 'deep'" }
           ],
           "default_branch": "balanced",
           "inputs_map": {
-            "mode": { "node_id": "plan.thinking", "path": ["mode"] }
+            "mode": { "node_id": "plan.thinking", "path": ["mode"] },
+            "sub_queries": { "node_id": "plan.thinking", "path": ["sub_queries"] }
           }
         },
-        "inputs": [{ "name": "mode", "schema": "string" }],
+        "inputs": [
+          { "name": "mode", "schema": "string" },
+          { "name": "sub_queries", "schema": "array" }
+        ],
         "outputs": [{ "name": "chosen_branch", "schema": "string" }]
       },
       {
@@ -198,12 +206,47 @@
         "outputs": [{ "name": "results", "schema": "array" }]
       },
       {
+        "id": "task.retrieve_multihop",
+        "type": "retrieve",
+        "kind": "task",
+        "label": "Recuperation multi-hop",
+        "position": { "x": 900, "y": 780 },
+        "data": { "menu": "Connaissance", "description": "multi_hop_retrieve_v1 (Phase 4) : consomme plan.thinking.sub_queries, lance N semantic_search_v1 EN PARALLELE (asyncio.gather) sur les sous-questions decomposees + la requete principale, puis FUSIONNE/DEDUPE (RRF, reuse comparative_retrieval.merge_comparative_results) dans la MEME forme de sortie que semantic_search (results[], raw_chunks_retrieved). Lane selectionnee par decision.route_mode quand le plan indique un profil comparaison/multi-hop/transversal. Budgets par lane tires du plan via inputs_map ; si sub_queries est vide le skill retombe proprement sur une seule recherche de la requete principale. Sortie uniforme 'results'." },
+        "config": {
+          "skill_slug": "multi_hop_retrieve_v1",
+          "skill_id": null,
+          "inputs_map": {
+            "query": { "node_id": "run", "path": ["query"] },
+            "sub_queries": { "node_id": "plan.thinking", "path": ["sub_queries"] },
+            "knowledge_scope": { "node_id": "plan.thinking", "path": ["scope_hint"] },
+            "latency_profile": { "node_id": "plan.thinking", "path": ["retrieval", "latency_profile"] },
+            "retrieval_profile": { "node_id": "plan.thinking", "path": ["retrieval", "retrieval_profile"] },
+            "top_k": { "node_id": "plan.thinking", "path": ["retrieval", "top_k"] },
+            "synthesis_k": { "node_id": "plan.thinking", "path": ["retrieval", "synthesis_k"] },
+            "candidate_pool_k": { "node_id": "plan.thinking", "path": ["retrieval", "candidate_pool_k"] },
+            "deep_retrieval": { "node_id": "plan.thinking", "path": ["retrieval", "deep_retrieval"] }
+          }
+        },
+        "inputs": [
+          { "name": "query", "schema": "string" },
+          { "name": "sub_queries", "schema": "array" },
+          { "name": "knowledge_scope", "schema": "string" },
+          { "name": "latency_profile", "schema": "string" },
+          { "name": "retrieval_profile", "schema": "string" },
+          { "name": "top_k", "schema": "integer" },
+          { "name": "synthesis_k", "schema": "integer" },
+          { "name": "candidate_pool_k", "schema": "integer" },
+          { "name": "deep_retrieval", "schema": "boolean" }
+        ],
+        "outputs": [{ "name": "results", "schema": "array" }]
+      },
+      {
         "id": "join.retrieval",
         "type": "join",
         "kind": "join",
         "label": "Fusion recuperation",
         "position": { "x": 1180, "y": 420 },
-        "data": { "menu": "Controle", "description": "strategy=any : la 1re branche non vide (la seule active apres route_mode) gagne. Expose 'results'." },
+        "data": { "menu": "Controle", "description": "strategy=any : la 1re branche non vide (la seule active apres route_mode, parmi fast/balanced/deep/multihop) gagne. Expose 'results'." },
         "config": { "strategy": "any" },
         "inputs": [{ "name": "results", "schema": "array" }],
         "outputs": [{ "name": "results", "schema": "array" }]
@@ -244,9 +287,9 @@
         "id": "fork.self_eval",
         "type": "fork",
         "kind": "fork",
-        "label": "Auto-evaluation (fork)",
-        "position": { "x": 1740, "y": 420 },
-        "data": { "menu": "Controle", "description": "Fan-out parallele vers les 3 evaluateurs." },
+        "label": "Auto-evaluation (fork telemetrie)",
+        "position": { "x": 1740, "y": 240 },
+        "data": { "menu": "Controle", "description": "Fan-out parallele des 2 JUGES LLM de TELEMETRIE (eval_radar + claim_audit). DECOUPLAGE LATENCE (fix Phase 2 2026-07-08) : ces 2 juges LLM ne sont PLUS sur le chemin critique du verdict/egress ; ils tournent en telemetrie (calcules + logges via checkpoints/invocations) et convergent vers join.eval qui est desormais un puits terminal, SANS gater la reponse. Seul task.response_eval (embeddings) reste sur la barriere du verdict." },
         "config": {},
         "inputs": [{ "name": "answer", "schema": "string" }],
         "outputs": [{ "name": "answer", "schema": "string" }]
@@ -313,10 +356,10 @@
         "type": "analysis",
         "kind": "task",
         "label": "Response Eval (composite 0-100)",
-        "position": { "x": 2020, "y": 600 },
+        "position": { "x": 2020, "y": 420 },
         "data": {
           "menu": "Evaluation",
-          "description": "response_eval_v1 (A CONSTRUIRE) : wrapper de app.services.metrics.evaluator.ResponseEvaluator. SOURCE UNIQUE et AUTORITATIVE du composite 0-100 (ResponseEvaluator emet 0-1 -> x100). context_count = nb de chunks fournis."
+          "description": "response_eval_v1 : wrapper de app.services.metrics.evaluator.ResponseEvaluator. SOURCE UNIQUE et AUTORITATIVE du composite 0-100 (ResponseEvaluator emet 0-1 -> x100). context_count = nb de chunks fournis. CHEMIN CRITIQUE (fix Phase 2 2026-07-08) : consomme task.generate directement (arete generate->response_eval) et alimente decision.verdict SANS passer par le fork des juges LLM ; c'est le SEUL evaluateur sur la barriere du verdict/egress (embeddings ~rapides), les 2 juges LLM etant releves en telemetrie hors chemin critique."
         },
         "config": {
           "skill_slug": "response_eval_v1",
@@ -347,15 +390,15 @@
         "id": "join.eval",
         "type": "join",
         "kind": "join",
-        "label": "Fusion evaluations",
-        "position": { "x": 2300, "y": 420 },
-        "data": { "menu": "Controle", "description": "strategy=all : barriere fan-in (attend les 3 evaluateurs). NB collision hallucination_rate (eval_radar+response_eval) : response_eval est listee EN DERNIER -> autoritative dans le bundle. Le verdict lit de toute facon response_eval via inputs_map." },
+        "label": "Fusion telemetrie juges (puits)",
+        "position": { "x": 2300, "y": 240 },
+        "data": { "menu": "Controle", "description": "strategy=all : barriere fan-in des 2 JUGES LLM de telemetrie (eval_radar + claim_audit). DECOUPLAGE LATENCE (fix Phase 2 2026-07-08) : ce join est desormais un PUITS TERMINAL (aucune arete sortante) — il agrege les axes des juges pour l'observabilite (checkpoints/invocations) mais NE GATE PLUS le verdict ni l'egress. task.response_eval ne passe plus par ici : il alimente decision.verdict DIRECTEMENT. Retirer/echouer un juge n'affecte donc ni le verdict ni la reponse livree." },
         "config": { "strategy": "all" },
-        "inputs": [{ "name": "composite", "schema": "number" }],
+        "inputs": [{ "name": "overall", "schema": "number" }],
         "outputs": [
-          { "name": "composite", "schema": "number" },
+          { "name": "overall", "schema": "number" },
           { "name": "hallucination_rate", "schema": "number" },
-          { "name": "context_count", "schema": "integer" }
+          { "name": "verdict", "schema": "string" }
         ]
       },
       {
@@ -364,7 +407,7 @@
         "kind": "decision",
         "label": "Verdict qualite",
         "position": { "x": 2580, "y": 420 },
-        "data": { "menu": "Controle", "description": "weak si composite(0-100) sous le plancher qualite OU retrieval vide. PARITE A/B (fix 2026-06-26) : le terme hallucination_rate a ete RETIRE du verdict. response_eval derive hallucination_rate = 1 - factuality d'une similarite EMBEDDING (structurellement ~0.3-0.5 meme pour une reponse ancree correcte) ; le seuil >0.15 declenchait self_correct/escalate_deep sur CHAQUE run (latency aborts + re-retrieve deep qui perdait les chunks porteurs et transformait de bonnes reponses en abstentions). Le verdict s'appuie desormais sur composite + context_count uniquement, comme plancher de qualite. Lit la SOURCE UNIQUE response_eval via inputs_map." },
+        "data": { "menu": "Controle", "description": "weak si composite(0-100) sous le plancher qualite OU retrieval vide. DECOUPLAGE LATENCE (fix Phase 2 2026-07-08) : le verdict devient READY des que task.response_eval (embeddings) est settle (arete directe response_eval->verdict) — il n'attend PLUS la barriere fan-in des 2 juges LLM (eval_radar/claim_audit), qui ne sont plus des ancetres du chemin verdict/egress. PARITE A/B (fix 2026-06-26) : le terme hallucination_rate a ete RETIRE du verdict. response_eval derive hallucination_rate = 1 - factuality d'une similarite EMBEDDING (structurellement ~0.3-0.5 meme pour une reponse ancree correcte) ; le seuil >0.15 declenchait self_correct/escalate_deep sur CHAQUE run (latency aborts + re-retrieve deep qui perdait les chunks porteurs et transformait de bonnes reponses en abstentions). Le verdict s'appuie desormais sur composite + context_count uniquement, comme plancher de qualite. Lit la SOURCE UNIQUE response_eval via inputs_map." },
         "config": {
           "branches": [
             { "label": "weak", "condition": "composite < 50 or context_count == 0" },
@@ -568,18 +611,19 @@
       { "from": "decision.route_mode", "to": "task.retrieve_fast", "kind": "branch", "branch_label": "fast" },
       { "from": "decision.route_mode", "to": "task.retrieve_deep", "kind": "branch", "branch_label": "deep" },
       { "from": "decision.route_mode", "to": "task.retrieve_balanced", "kind": "branch", "branch_label": "balanced" },
+      { "from": "decision.route_mode", "to": "task.retrieve_multihop", "kind": "branch", "branch_label": "multihop" },
       { "from": "task.retrieve_fast", "to": "join.retrieval", "kind": "data", "branch_label": "fast" },
       { "from": "task.retrieve_balanced", "to": "join.retrieval", "kind": "data", "branch_label": "balanced" },
       { "from": "task.retrieve_deep", "to": "join.retrieval", "kind": "data", "branch_label": "deep" },
+      { "from": "task.retrieve_multihop", "to": "join.retrieval", "kind": "data", "branch_label": "multihop" },
       { "from": "join.retrieval", "to": "task.generate", "kind": "data" },
+      { "from": "task.generate", "to": "task.response_eval", "kind": "data" },
+      { "from": "task.response_eval", "to": "decision.verdict", "kind": "data" },
       { "from": "task.generate", "to": "fork.self_eval", "kind": "data" },
       { "from": "fork.self_eval", "to": "task.eval_radar", "kind": "data", "branch_label": "eval_radar" },
       { "from": "fork.self_eval", "to": "task.claim_audit", "kind": "data", "branch_label": "claim_audit" },
-      { "from": "fork.self_eval", "to": "task.response_eval", "kind": "data", "branch_label": "response_eval" },
       { "from": "task.eval_radar", "to": "join.eval", "kind": "data", "branch_label": "eval_radar" },
       { "from": "task.claim_audit", "to": "join.eval", "kind": "data", "branch_label": "claim_audit" },
-      { "from": "task.response_eval", "to": "join.eval", "kind": "data", "branch_label": "response_eval" },
-      { "from": "join.eval", "to": "decision.verdict", "kind": "data" },
       { "from": "decision.verdict", "to": "task.self_correct", "kind": "branch", "branch_label": "weak" },
       { "from": "task.generate", "to": "join.answer", "kind": "data" },
       { "from": "task.self_correct", "to": "join.answer", "kind": "data" },
@@ -623,6 +667,7 @@
         "chat_agentic_plan_v1",
         "chat_self_correct_v1",
         "semantic_search_v1",
+        "multi_hop_retrieve_v1",
         "llm_rag_answer_v1",
         "eval_radar_v1",
         "claim_audit_v1",
