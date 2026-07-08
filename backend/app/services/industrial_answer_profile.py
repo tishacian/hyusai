@@ -336,7 +336,12 @@ def default_answer_policy() -> dict[str, Any]:
     }
 
 
-def resolve_answer_profile(query: str, answer_policy: Mapping[str, Any] | None = None) -> AnswerProfileDecision:
+def resolve_answer_profile(
+    query: str,
+    answer_policy: Mapping[str, Any] | None = None,
+    *,
+    include_agentic_profiles: bool = False,
+) -> AnswerProfileDecision:
     text = str(query or "").strip()
     if not text:
         return AnswerProfileDecision("insufficient_context", "empty_query")
@@ -348,10 +353,15 @@ def resolve_answer_profile(query: str, answer_policy: Mapping[str, Any] | None =
         return AnswerProfileDecision("transversal_inventory", "cross_project_inventory_query", True)
     if _EQUIPMENT_DETAIL_RE.search(text):
         return AnswerProfileDecision("equipment_detail", "equipment_detail_query")
-    if _TABLE_EXTRACT_RE.search(text):
-        return AnswerProfileDecision("table_extract", "table_extract_query")
-    if _MULTIHOP_RE.search(text):
-        return AnswerProfileDecision("multi_hop", "multi_hop_query")
+    # table_extract / multi_hop only shape the answer when agentic chat routing
+    # is enabled. Gating them keeps the classic prompt shaping byte-for-byte
+    # unchanged while ``enable_agentic_chat`` is off (zero drift pre-enablement);
+    # once enabled they both classify the intent AND arm the agentic route.
+    if include_agentic_profiles:
+        if _TABLE_EXTRACT_RE.search(text):
+            return AnswerProfileDecision("table_extract", "table_extract_query")
+        if _MULTIHOP_RE.search(text):
+            return AnswerProfileDecision("multi_hop", "multi_hop_query")
     if _PRECISE_FACT_RE.search(text) or text.endswith("?"):
         return AnswerProfileDecision("precise_fact", "precise_fact_query")
     default_profile = str((answer_policy or {}).get("default_answer_profile") or "precise_fact")

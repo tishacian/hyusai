@@ -165,6 +165,46 @@ async def test_error_fallback_returns_default_scores(monkeypatch):
     assert "default scores" in result["overall_note"]
 
 
+async def test_ollama_fallback_uses_local_default_model(monkeypatch):
+    # On-prem degradation: when the primary provider fails, the judge retries on
+    # Ollama with ``ollama_default_model`` (not the cloud model name, which would
+    # fail Ollama's model-availability check).
+    monkeypatch.setattr(settings, "judge_model", "")
+    monkeypatch.setattr(settings, "default_model", "gpt-5")
+    monkeypatch.setattr(settings, "default_provider", "openai")
+    monkeypatch.setattr(settings, "ollama_default_model", "qwen3:8b")
+
+    calls: list = []
+
+    class _FailingClient:
+        async def generate(self, model, prompt):
+            raise RuntimeError("openai down")
+
+    class _OllamaClient:
+        async def generate(self, model, prompt):
+            calls.append(model)
+            return {"response": _VALID_COMPLETION}
+
+    class _FailoverRouter:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def get_client(self, preferences=None):
+            calls.append(("get_client", preferences.get("provider")))
+            if preferences.get("provider") == "ollama":
+                return _OllamaClient()
+            return _FailingClient()
+
+    monkeypatch.setattr("app.services.model_router.ModelRouter", _FailoverRouter)
+
+    result = await JudgeService().evaluate(query="q", response="r", context_chunks=["c"])
+
+    # Fell over to Ollama with the local default tag and parsed real scores.
+    assert ("get_client", "ollama") in calls
+    assert "qwen3:8b" in calls
+    assert result["composite_score"] == 88.0
+
+
 async def test_malformed_completion_falls_back(monkeypatch):
     _install_recording_router(monkeypatch, completion="not-json-at-all")
 

@@ -133,8 +133,26 @@ class JudgeService:
 
         model = settings.judge_model or settings.default_model
         router = ModelRouter()
-        client = await router.get_client({"provider": settings.default_provider, "model": model})
-        result = await client.generate(model=model, prompt=prompt)
+        try:
+            client = await router.get_client(
+                {"provider": settings.default_provider, "model": model}
+            )
+            return self._text_of(await client.generate(model=model, prompt=prompt))
+        except Exception:
+            # On-prem degradation: the requested cloud model name (e.g. gpt-5)
+            # does not exist on Ollama, so the router's model-availability check
+            # would reject the fallback. Retry explicitly on the local Ollama
+            # default tag so the judge stays usable without OpenAI. If Ollama is
+            # also unreachable this re-raises and ``evaluate`` applies defaults.
+            fallback_model = settings.ollama_default_model
+            client = await router.get_client(
+                {"provider": "ollama", "model": fallback_model}
+            )
+            return self._text_of(await client.generate(model=fallback_model, prompt=prompt))
+
+    @staticmethod
+    def _text_of(result) -> str:
+        """Normalise heterogeneous client return shapes to a plain string."""
         if isinstance(result, dict):
             return str(
                 result.get("content") or result.get("response") or result.get("completion") or ""

@@ -384,7 +384,11 @@ def _apply_workspace_chat_flow_defaults(
             request.answer_policy = answer_policy
     if request.answer_profile_decision is None:
         policy = request.answer_policy or industrial_answer_policy()
-        decision = resolve_answer_profile(request.query, policy)
+        decision = resolve_answer_profile(
+            request.query,
+            policy,
+            include_agentic_profiles=settings.enable_agentic_chat,
+        )
         request.answer_profile_decision = decision.as_dict()
         request.answer_profile = decision.profile
         if decision.requires_exhaustive_retrieval:

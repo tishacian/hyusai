@@ -227,7 +227,7 @@ def test_resolve_table_extract_profile():
         "Give me the bill of materials for the pump",
         "Show the torque values in tabular form",
     ):
-        decision = resolve_answer_profile(query, policy)
+        decision = resolve_answer_profile(query, policy, include_agentic_profiles=True)
         assert decision.profile == "table_extract", query
         assert decision.reason == "table_extract_query", query
         # A tabular request is not exhaustive-retrieval by itself: the classic
@@ -244,7 +244,7 @@ def test_resolve_multi_hop_profile():
         "Quelles machines utilisent une carde ACJ200 et disposent aussi d'un sécheur ?",
         "Show the machines that share the same motor as the ACJ200",
     ):
-        decision = resolve_answer_profile(query, policy)
+        decision = resolve_answer_profile(query, policy, include_agentic_profiles=True)
         assert decision.profile == "multi_hop", query
         assert decision.reason == "multi_hop_query", query
         assert decision.requires_exhaustive_retrieval is False, query
@@ -272,6 +272,23 @@ def test_new_profiles_do_not_cannibalise_existing():
     }
     for query, profile in expected.items():
         assert resolve_answer_profile(query, policy).profile == profile, query
+
+
+def test_new_profiles_gated_off_by_default():
+    # Zero classic drift before enablement: with include_agentic_profiles=False
+    # (the default, mirroring enable_agentic_chat off), table/multi-hop queries
+    # must NOT resolve to the agentic-only profiles; once armed, they do.
+    policy = industrial_answer_policy()
+    for query in (
+        "Extrais le tableau des couples de serrage de l'AKK200",
+        "Show the torque values in tabular form",
+        "Combien de machines partagent le même moteur que la carde ACJ200 ?",
+        "D'abord identifie le projet qui a remplacé l'AKK200, puis donne le débit de sa pompe",
+    ):
+        off = resolve_answer_profile(query, policy)  # flag off (default)
+        assert off.profile not in ("table_extract", "multi_hop"), query
+        armed = resolve_answer_profile(query, policy, include_agentic_profiles=True)
+        assert armed.profile in ("table_extract", "multi_hop"), query
 
 
 def test_new_profiles_registered_with_instructions():
@@ -304,7 +321,9 @@ def test_answer_profile_decision_contract_preserved():
     # The AnswerProfileDecision return contract must be unchanged for the new
     # profiles: profile / reason / requires_exhaustive_retrieval + as_dict().
     decision = resolve_answer_profile(
-        "Extrais le tableau des couples de serrage", industrial_answer_policy()
+        "Extrais le tableau des couples de serrage",
+        industrial_answer_policy(),
+        include_agentic_profiles=True,
     )
     assert decision.as_dict() == {
         "profile": "table_extract",
