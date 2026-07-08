@@ -39,7 +39,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
                   [style.fontFamily]="'var(--ck-font-sans)'"
                   [style.fontSize.px]="28"
                   [style.fontWeight]="500"
-                  [style.letterSpacing]="'-0.02em'"
+                  [style.letterSpacing]="'0'"
                   [style.color]="'var(--ck-fg-1)'"
                   [style.margin]="'0'"
                 >{{ title }}</h1>

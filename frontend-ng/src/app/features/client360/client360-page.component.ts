@@ -2,7 +2,7 @@ import { NgClass } from '@angular/common';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { IconComponent } from '@app/shared/ui/icon.component';
+import { GlyphComponent, PageFrameComponent } from '@app/shared/cockpit';
 
 type ViewKey = 'opportunities' | 'customer' | 'data' | 'mapping' | 'mail';
 
@@ -178,55 +178,49 @@ interface ImpactResponse {
   selector: 'app-client360-page',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, NgClass, IconComponent],
+  imports: [FormsModule, NgClass, GlyphComponent, PageFrameComponent],
   template: `
-    <section class="c360-shell">
-      <header class="c360-header">
-        <div>
-          <p class="c360-eyebrow">Andritz / Spare Parts</p>
-          <h1>Client360 PDR</h1>
-        </div>
-        <button type="button" class="icon-button" title="Rafraichir" (click)="refresh()">
-          <app-icon name="refresh-cw" [size]="15" />
-        </button>
-      </header>
+    <ck-page-frame eyebrow="Andritz / Spare Parts" title="Client360 PDR" [hasActions]="true">
+      <button actions type="button" class="icon-button" title="Rafraichir" (click)="refresh()">
+        <ck-glyph name="orbit" [size]="14" color="currentColor" />
+      </button>
 
-      <nav class="c360-tabs" aria-label="Client360 PDR">
+      <nav sub class="ck-surface c360-tabs" aria-label="Client360 PDR">
         @for (tab of tabs; track tab.id) {
           <button type="button" (click)="view.set(tab.id)" [ngClass]="{ active: view() === tab.id }">
-            <app-icon [name]="tab.icon" [size]="14" />
             {{ tab.label }}
           </button>
         }
       </nav>
 
+      <section class="c360-workspace">
       @if (loading()) {
-        <div class="state-line"><app-icon name="loader-2" [size]="14" /> Chargement Client360 PDR</div>
+        <div class="state-line"><ck-glyph name="pulse" [size]="14" color="currentColor" /> Chargement Client360 PDR</div>
       } @else if (error()) {
-        <div class="state-line error"><app-icon name="alert-triangle" [size]="14" /> {{ error() }}</div>
+        <div class="state-line error"><ck-glyph name="warn" [size]="14" color="currentColor" /> {{ error() }}</div>
       }
 
       <section class="kpi-grid">
-        <div class="kpi">
+        <div class="ck-surface kpi">
           <span>Opportunites</span>
           <strong>{{ summary()?.summary?.opportunities ?? 0 }}</strong>
         </div>
-        <div class="kpi">
+        <div class="ck-surface kpi">
           <span>Clients</span>
           <strong>{{ summary()?.summary?.customers ?? 0 }}</strong>
         </div>
-        <div class="kpi">
+        <div class="ck-surface kpi">
           <span>Sources</span>
           <strong>{{ summary()?.summary?.data_sources ?? 0 }}</strong>
         </div>
-        <div class="kpi">
+        <div class="ck-surface kpi">
           <span>Ecart adressable</span>
           <strong>{{ formatQty(summary()?.summary?.potential_gap_qty) }}</strong>
         </div>
       </section>
 
       @if (view() === 'opportunities') {
-        <section class="toolbar">
+        <section class="ck-surface toolbar">
           <label>
             Client
             <input type="search" [(ngModel)]="filters.customer" (keyup.enter)="loadOpportunities()" placeholder="Nom client" />
@@ -259,14 +253,14 @@ interface ImpactResponse {
             </select>
           </label>
           <button type="button" class="secondary" (click)="loadOpportunities()">
-            <app-icon name="filter" [size]="14" /> Filtrer
+            <ck-glyph name="sliders" [size]="14" color="currentColor" /> Filtrer
           </button>
         </section>
 
-        <section class="table-wrap">
+        <section class="ck-surface table-wrap">
           @if (opportunities().length === 0) {
             <div class="empty">
-              <app-icon name="database" [size]="18" />
+              <ck-glyph name="ledger" [size]="18" color="currentColor" />
               <span>Aucune opportunite PDR calculee pour le moment.</span>
               <small>Les sources detectees et les gaps sont visibles dans l'onglet Donnees.</small>
             </div>
@@ -315,7 +309,7 @@ interface ImpactResponse {
 
       @if (view() === 'customer') {
         <section class="split">
-          <aside class="list-panel">
+          <aside class="ck-surface list-panel">
             @for (opp of opportunities(); track opp.id) {
               <button type="button" [ngClass]="{ active: selectedOpportunity()?.id === opp.id }" (click)="selectOpportunity(opp)">
                 <strong>{{ opp.customer_name }}</strong>
@@ -323,22 +317,22 @@ interface ImpactResponse {
               </button>
             }
           </aside>
-          <article class="detail-panel">
+          <article class="ck-surface detail-panel">
             @if (selectedOpportunity()) {
               <div class="detail-head">
                 <div>
-                  <p class="c360-eyebrow">Fiche client PDR</p>
+                  <p class="ck-label c360-eyebrow">Fiche client PDR</p>
                   <h2>{{ selectedOpportunity()?.customer_name }}</h2>
                 </div>
                 <div class="button-row">
                   <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpportunity()!, 'validated')">
-                    <app-icon name="check" [size]="14" /> Valider
+                    <ck-glyph name="check" [size]="14" color="currentColor" /> Valider
                   </button>
                   <button type="button" class="secondary" (click)="updateOpportunityStatus(selectedOpportunity()!, 'dismissed')">
-                    <app-icon name="x" [size]="14" /> Rejeter
+                    <ck-glyph name="x" [size]="14" color="currentColor" /> Rejeter
                   </button>
                   <button type="button" class="primary" (click)="generateDraft(selectedOpportunity()!)">
-                    <app-icon name="mail" [size]="14" /> Brouillon mail
+                    <ck-glyph name="ledger" [size]="14" color="currentColor" /> Brouillon mail
                   </button>
                 </div>
               </div>
@@ -384,14 +378,14 @@ interface ImpactResponse {
 
       @if (view() === 'data') {
         <section class="data-layout">
-          <div class="gap-panel">
+          <div class="ck-surface gap-panel">
             <div class="detail-head compact">
               <div>
-                <p class="c360-eyebrow">Moteur donnees</p>
+                <p class="ck-label c360-eyebrow">Moteur donnees</p>
                 <h2>Gaps metier</h2>
               </div>
               <button type="button" class="primary" (click)="runEngine(false)">
-                <app-icon name="play" [size]="14" /> Calculer
+                <ck-glyph name="play" [size]="14" color="currentColor" /> Calculer
               </button>
             </div>
             <div class="chips">
@@ -412,7 +406,7 @@ interface ImpactResponse {
               </dl>
             }
           </div>
-          <div class="table-wrap">
+          <div class="ck-surface table-wrap">
             <table>
               <thead>
                 <tr>
@@ -441,10 +435,10 @@ interface ImpactResponse {
       }
 
       @if (view() === 'mapping') {
-        <section class="table-wrap">
+        <section class="ck-surface table-wrap">
           @if (mappings().length === 0) {
             <div class="empty">
-              <app-icon name="git-branch" [size]="18" />
+              <ck-glyph name="flow" [size]="18" color="currentColor" />
               <span>Aucun mapping SAP / famille PDR pour le moment.</span>
               <small>Lancer le moteur depuis Donnees cree les candidats detectables.</small>
             </div>
@@ -474,7 +468,7 @@ interface ImpactResponse {
                     <td>
                       @if (mapping.status !== 'validated') {
                         <button type="button" class="secondary" (click)="validateMapping(mapping)">
-                          <app-icon name="check" [size]="14" /> Valider
+                          <ck-glyph name="check" [size]="14" color="currentColor" /> Valider
                         </button>
                       }
                     </td>
@@ -488,21 +482,21 @@ interface ImpactResponse {
 
       @if (view() === 'mail') {
         <section class="mail-layout">
-          <div class="detail-panel">
+          <div class="ck-surface detail-panel">
             <div class="detail-head">
               <div>
-                <p class="c360-eyebrow">Mail & suivi</p>
+                <p class="ck-label c360-eyebrow">Mail & suivi</p>
                 <h2>{{ currentDraft()?.subject || 'Aucun brouillon selectionne' }}</h2>
               </div>
               @if (currentDraft()?.action_item_id) {
                 <button type="button" class="primary" (click)="markSent()">
-                  <app-icon name="send" [size]="14" /> Marquer envoye
+                  <ck-glyph name="arrow-up" [size]="14" color="currentColor" /> Marquer envoye
                 </button>
               }
             </div>
             <textarea [ngModel]="currentDraft()?.sent_body || currentDraft()?.generated_body || ''" (ngModelChange)="draftBody.set($event)"></textarea>
           </div>
-          <aside class="impact-panel">
+          <aside class="ck-surface impact-panel">
             <h3>Impact</h3>
             <label>
               Attribution
@@ -541,40 +535,56 @@ interface ImpactResponse {
           </aside>
         </section>
       }
-    </section>
+      </section>
+    </ck-page-frame>
   `,
   styles: [`
     :host { display: block; min-height: 100%; background: var(--ck-bg-base); color: var(--ck-fg-1); }
-    .c360-shell { display: flex; flex-direction: column; gap: 16px; padding: 18px; max-width: 1440px; margin: 0 auto; }
-    .c360-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-    .c360-eyebrow { margin: 0 0 4px; color: var(--ck-fg-4); font: 700 10px/1 var(--ck-font-mono); text-transform: uppercase; letter-spacing: 0; }
+    .c360-workspace { display: flex; flex-direction: column; gap: 16px; }
+    .c360-eyebrow { margin: 0 0 6px; color: var(--ck-signal-cool); letter-spacing: 0; }
     h1, h2, h3 { margin: 0; letter-spacing: 0; }
-    h1 { font-size: 24px; font-weight: 680; }
     h2 { font-size: 18px; font-weight: 650; }
     h3 { font-size: 13px; font-weight: 680; color: var(--ck-fg-2); }
     .icon-button, .primary, .secondary, .c360-tabs button, .impact-buttons button {
-      display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 6px; border: 1px solid var(--ck-stroke-2);
-      min-height: 34px; padding: 0 12px; background: var(--ck-bg-panel); color: var(--ck-fg-2); cursor: pointer; font-weight: 650;
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: var(--ck-radius-md); border: 1px solid var(--ck-stroke-2);
+      min-height: 34px; padding: 0 12px; background: var(--ck-bg-inset); color: var(--ck-fg-2); cursor: pointer; font-weight: 650;
     }
-    .primary { background: var(--ck-signal-cool); color: var(--ck-on-signal); border-color: transparent; }
+    .primary { background: color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color: var(--ck-on-signal); border-color: transparent; }
     .secondary:hover, .icon-button:hover, .c360-tabs button:hover { border-color: var(--ck-stroke-3); color: var(--ck-fg-1); }
-    .c360-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; width: fit-content; background: var(--ck-bg-panel); border: 1px solid var(--ck-stroke-2); border-radius: 8px; }
-    .c360-tabs button.active { background: rgba(103, 213, 246, .12); color: var(--ck-signal-cool); border-color: rgba(103, 213, 246, .28); }
+    .c360-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; margin-top: 18px; width: 100%; border-radius: var(--ck-radius-lg); }
+    .c360-tabs button {
+      min-height: 36px;
+      padding: 0 18px;
+      background: transparent;
+      border-color: transparent;
+      color: var(--ck-fg-4);
+      font-family: var(--ck-font-mono);
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+    .c360-tabs button.active {
+      background: var(--ck-bg-inset);
+      color: var(--ck-fg-1);
+      border-color: var(--ck-stroke-3);
+      box-shadow: inset 0 0 0 1px var(--ck-stroke-2);
+    }
     .state-line { display: inline-flex; align-items: center; gap: 8px; color: var(--ck-fg-3); font-size: 12px; }
     .state-line.error { color: var(--ck-signal-neg); }
     .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 10px; }
-    .kpi { padding: 12px; border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-panel); border-radius: 6px; }
+    .kpi { padding: 14px 16px; border-radius: var(--ck-radius-md); }
     .kpi span { display: block; color: var(--ck-fg-4); font: 700 10px/1 var(--ck-font-mono); text-transform: uppercase; letter-spacing: 0; }
     .kpi strong { display: block; margin-top: 9px; font-size: 22px; font-weight: 680; }
-    .toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; padding: 12px; border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-panel); border-radius: 6px; }
+    .toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-radius: var(--ck-radius-md); }
     label { display: grid; gap: 5px; color: var(--ck-fg-4); font: 700 10px/1 var(--ck-font-mono); text-transform: uppercase; letter-spacing: 0; }
     input, select, textarea {
-      min-height: 34px; border: 1px solid var(--ck-stroke-2); border-radius: 6px; background: var(--ck-bg-inset);
+      min-height: 34px; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset);
       color: var(--ck-fg-1); padding: 0 10px; outline: 0; font: 500 13px/1.4 var(--ck-font-sans);
     }
     textarea { width: 100%; min-height: 360px; padding: 12px; resize: vertical; white-space: pre-wrap; }
     .small-textarea { min-height: 90px; }
-    .table-wrap { overflow: auto; border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-panel); border-radius: 6px; }
+    .table-wrap { overflow: auto; border-radius: var(--ck-radius-md); }
     table { width: 100%; border-collapse: collapse; min-width: 760px; }
     th, td { padding: 11px 12px; border-bottom: 1px solid var(--ck-stroke-2); text-align: left; vertical-align: top; font-size: 12px; }
     th { color: var(--ck-fg-4); font: 700 10px/1 var(--ck-font-mono); text-transform: uppercase; letter-spacing: 0; }
@@ -582,37 +592,36 @@ interface ImpactResponse {
     td small { display: block; margin-top: 4px; color: var(--ck-fg-4); line-height: 1.35; }
     tbody tr { cursor: pointer; }
     tbody tr:hover { background: rgba(255, 255, 255, .035); }
-    .pill, .status, .chips span { display: inline-flex; align-items: center; border-radius: 6px; padding: 3px 8px; background: rgba(255,255,255,.055); border: 1px solid var(--ck-stroke-2); color: var(--ck-fg-3); font-size: 11px; white-space: nowrap; }
+    .pill, .status, .chips span { display: inline-flex; align-items: center; border-radius: var(--ck-radius-md); padding: 3px 8px; background: var(--ck-tint-faint); border: 1px solid var(--ck-stroke-2); color: var(--ck-fg-3); font-size: 11px; white-space: nowrap; }
     .pill.high { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
     .pill.medium { color: var(--ck-signal-warn); border-color: rgba(245,158,11,.35); }
     .pill.low { color: var(--ck-fg-4); }
     .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 180px; color: var(--ck-fg-3); text-align: center; }
     .empty small { color: var(--ck-fg-4); }
     .split, .mail-layout, .data-layout { display: grid; grid-template-columns: minmax(240px, 320px) 1fr; gap: 12px; min-height: 420px; }
-    .list-panel, .detail-panel, .gap-panel, .impact-panel { border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-panel); border-radius: 6px; padding: 12px; }
+    .list-panel, .detail-panel, .gap-panel, .impact-panel { border-radius: var(--ck-radius-md); padding: 12px; }
     .list-panel { display: flex; flex-direction: column; gap: 6px; overflow: auto; }
-    .list-panel button { text-align: left; border: 1px solid var(--ck-stroke-2); border-radius: 6px; background: var(--ck-bg-inset); color: var(--ck-fg-2); padding: 10px; cursor: pointer; }
+    .list-panel button { text-align: left; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); color: var(--ck-fg-2); padding: 10px; cursor: pointer; }
     .list-panel button.active { border-color: rgba(103, 213, 246, .42); color: var(--ck-signal-cool); }
     .list-panel span { display: block; margin-top: 4px; color: var(--ck-fg-4); font-size: 11px; }
     .detail-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 14px; }
     .detail-head.compact { margin-bottom: 10px; }
     .button-row { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
     .facts { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: 10px; margin: 0 0 16px; }
-    .facts div { padding: 10px; background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); border-radius: 6px; }
+    .facts div { padding: 10px; background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); }
     .engine-facts { display: grid; grid-template-columns: repeat(2, minmax(90px, 1fr)); gap: 8px; margin: 12px 0 0; }
-    .engine-facts div { padding: 8px; background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); border-radius: 6px; }
+    .engine-facts div { padding: 8px; background: var(--ck-bg-inset); border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); }
     dt { color: var(--ck-fg-4); font: 700 10px/1 var(--ck-font-mono); text-transform: uppercase; letter-spacing: 0; }
     dd { margin: 7px 0 0; color: var(--ck-fg-2); font-size: 13px; }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .chips .ok { color: var(--ck-signal-pos); }
     .reason-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-    .reason-list span { border: 1px solid var(--ck-stroke-2); border-radius: 6px; color: var(--ck-fg-4); padding: 4px 8px; font-size: 11px; }
+    .reason-list span { border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); color: var(--ck-fg-4); padding: 4px 8px; font-size: 11px; }
     .reason-list span.met { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
     .impact-panel { display: flex; flex-direction: column; gap: 12px; }
     .impact-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     @media (max-width: 900px) {
       .kpi-grid, .split, .mail-layout, .data-layout, .facts { grid-template-columns: 1fr; }
-      .c360-shell { padding: 12px; }
     }
   `],
 })
@@ -644,12 +653,12 @@ export class Client360PageComponent implements OnInit {
     status: '',
   };
 
-  readonly tabs: Array<{ id: ViewKey; label: string; icon: string }> = [
-    { id: 'opportunities', label: 'Opportunites', icon: 'target' },
-    { id: 'customer', label: 'Client', icon: 'building-2' },
-    { id: 'data', label: 'Donnees', icon: 'database' },
-    { id: 'mapping', label: 'Mapping', icon: 'git-branch' },
-    { id: 'mail', label: 'Mail & suivi', icon: 'mail' },
+  readonly tabs: Array<{ id: ViewKey; label: string }> = [
+    { id: 'opportunities', label: 'Opportunites' },
+    { id: 'customer', label: 'Client' },
+    { id: 'data', label: 'Donnees' },
+    { id: 'mapping', label: 'Mapping' },
+    { id: 'mail', label: 'Mail & suivi' },
   ];
 
   readonly opportunities = computed(() => this.opportunitiesResponse()?.items ?? []);
