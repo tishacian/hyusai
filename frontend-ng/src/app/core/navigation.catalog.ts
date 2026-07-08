@@ -161,6 +161,18 @@ export const AGENTIUM_SURFACE_ROUTES: AgentiumSurfaceRoute[] = [
     description: 'Synchronous chat surface with workspace and system context.',
   },
   {
+    id: 'client360-pdr',
+    label: 'Client360 PDR',
+    route: '/client360',
+    lens: 'operate',
+    object: 'Workbench',
+    scope: 'workspace',
+    apiPrefix: '/api/v1/client360',
+    status: 'canonical',
+    audience: 'workspace-user',
+    description: 'Explainable spare-parts potential, mail drafts and impact tracking for Andritz.',
+  },
+  {
     id: 'workspace-chat',
     label: 'Workspace Chat Focus',
     route: '/workspace/:slug/chat',

@@ -66,6 +66,14 @@ WORKSPACE_CHAT_SKILL_SLUGS = [
     "audit_log_v1",
 ]
 
+CLIENT360_PDR_SYSTEM_NAME = "Client360 PDR"
+CLIENT360_PDR_VARIANT = "client360_pdr"
+CLIENT360_PDR_CAPABILITY_SLUG = "client360_pdr_opportunity_engine"
+CLIENT360_PDR_OBJECTIVE = (
+    "Identify explainable spare-parts commercial potential, prepare human-validated "
+    "outreach drafts and track impact for Andritz Client360 PDR."
+)
+
 
 def _as_dict(value: Any) -> Dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
@@ -1085,6 +1093,209 @@ def ensure_workspace_chat_system_for_all_workspaces(db: DBSession) -> Dict[str, 
     for ws in workspaces:
         before = 1 if _find_workspace_chat_system(db, ws.id) else 0
         system = ensure_workspace_chat_system_default(db, ws.id)
+        if system is None:
+            report["skipped"] += 1
+        elif before == 0:
+            report["created"] += 1
+        else:
+            report["already"] += 1
+    return report
+
+
+def _ensure_client360_capability(db: DBSession) -> Capability:
+    capability = db.query(Capability).filter(Capability.slug == CLIENT360_PDR_CAPABILITY_SLUG).first()
+    payload = {
+        "name": "Client360 PDR Opportunity Engine",
+        "description": (
+            "Explainable spare-parts commercial potential, mail draft and impact tracking "
+            "for Andritz Client360 PDR."
+        ),
+        "tier": "client",
+        "industry": "industrial_nonwovens",
+        "input_unit": "data_source",
+        "output_unit": "opportunity",
+        "skill_ids": [],
+        "pricing": {"unit": "per_outcome", "unit_price": 0.0, "currency": "EUR"},
+        "confidence_threshold": 0.55,
+        "sla": {"latency": "interactive", "human_validation_required": True},
+        "roi_model": {},
+        "is_seeded": "Y",
+    }
+    if capability:
+        for key, value in payload.items():
+            setattr(capability, key, value)
+        db.flush()
+        return capability
+    capability = Capability(slug=CLIENT360_PDR_CAPABILITY_SLUG, **payload)
+    db.add(capability)
+    db.flush()
+    return capability
+
+
+def _client360_flow_definition() -> Dict[str, Any]:
+    return {
+        "variant": CLIENT360_PDR_VARIANT,
+        "schema_version": 1,
+        "source": "system_seed",
+        "template_id": CLIENT360_PDR_VARIANT,
+        "template_name": "Client360 PDR",
+        "nodes": [
+            {"id": "source.data_sources", "type": "source", "label": "SFTP / Knowledge sources"},
+            {"id": "task.potential_engine", "type": "task", "label": "Explainable PDR potential"},
+            {"id": "task.mail_draft", "type": "task", "label": "Human-validated mail draft"},
+            {"id": "sink.impact_tracking", "type": "sink", "label": "Campaign impact loop"},
+        ],
+        "edges": [
+            {"from": "source.data_sources", "to": "task.potential_engine"},
+            {"from": "task.potential_engine", "to": "task.mail_draft"},
+            {"from": "task.mail_draft", "to": "sink.impact_tracking"},
+        ],
+        "ui": {
+            "type": "client360_pdr",
+            "entry_route": "client360",
+            "surface_routes": ["/client360"],
+            "primary_action": "Open Client360 PDR",
+            "flow_builder_enabled": False,
+        },
+        "runtime_contract": {
+            "surface": "/client360",
+            "entrypoints": [
+                "GET /api/v1/client360/summary",
+                "GET /api/v1/client360/opportunities",
+                "PATCH /api/v1/client360/opportunities/{id}",
+                "GET /api/v1/client360/mappings",
+                "POST /api/v1/client360/engines/opportunities/run",
+                "POST /api/v1/client360/mail-drafts",
+                "POST /api/v1/client360/actions/{id}/impact",
+            ],
+            "engines": [
+                "source_discovery",
+                "sap_pdr_mapping",
+                "opportunity_generation",
+                "potential_scoring",
+                "mail_draft_generation",
+                "impact_learning_loop",
+            ],
+            "prediction_policy": "explainable_potential_only",
+            "email_send_policy": "manual_only",
+        },
+    }
+
+
+def _find_client360_system(db: DBSession, workspace_id: str) -> Optional[System]:
+    rows = (
+        db.query(System)
+        .filter(System.workspace_id == workspace_id, System.status != "retired")
+        .order_by(System.created_at.asc())
+        .all()
+    )
+    for system in rows:
+        flow = _as_dict(system.flow_definition)
+        settings = _as_dict(getattr(system, "settings", None))
+        if flow.get("variant") == CLIENT360_PDR_VARIANT or settings.get("system_type") == "client360_pdr":
+            return system
+    return next((s for s in rows if s.name == CLIENT360_PDR_SYSTEM_NAME), None)
+
+
+def _ensure_client360_navigation_profile(workspace: Workspace) -> None:
+    settings = _as_dict(getattr(workspace, "settings", None))
+    profile = _as_dict(settings.get("navigation_profile"))
+    if profile.get("key") != "business_end_user":
+        return
+    surfaces = [
+        str(item)
+        for item in _as_list(profile.get("primary_surfaces"))
+        if isinstance(item, str) and item.strip()
+    ]
+    if "client360-pdr" not in surfaces:
+        insert_at = surfaces.index("chat") + 1 if "chat" in surfaces else 0
+        surfaces.insert(insert_at, "client360-pdr")
+    profile["primary_surfaces"] = surfaces or ["chat", "client360-pdr", "knowledge-capture"]
+    profile["default_route"] = profile.get("default_route") or "/chat"
+    profile["advanced_access"] = profile.get("advanced_access") or "admin_only"
+    settings["navigation_profile"] = profile
+    workspace.settings = settings
+
+
+def ensure_client360_pdr_system_default(db: DBSession, workspace_id: str) -> Optional[System]:
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace or workspace.slug != "andritz":
+        return None
+
+    _ensure_client360_navigation_profile(workspace)
+    capability = _ensure_client360_capability(db)
+    flow_definition = _client360_flow_definition()
+    system_settings = {
+        "system_type": "client360_pdr",
+        "surface": "client360",
+        "surface_routes": ["/client360"],
+        "family": "andritz",
+        "human_validation_required": True,
+        "no_automatic_email_send": True,
+        "prediction_policy": "explainable_potential_only",
+    }
+    existing = _find_client360_system(db, workspace_id)
+    if existing:
+        existing.name = CLIENT360_PDR_SYSTEM_NAME
+        existing.objective = CLIENT360_PDR_OBJECTIVE
+        existing.capability_id = capability.id
+        existing.skill_ids = []
+        existing.flow_definition = flow_definition
+        existing.settings = {**_as_dict(existing.settings), **system_settings}
+        existing.execution_mode = "human_augmented"
+        existing.execution_profile = {
+            "surface": "client360",
+            "durability": "database",
+            "email_send": "manual_only",
+        }
+        existing.coordination_pattern = "single_agent"
+        existing.status = "active"
+        existing.default_prompt_type = existing.default_prompt_type or "factual"
+        existing.retrieval_mode_default = existing.retrieval_mode_default or "auto"
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    system = System(
+        workspace_id=workspace_id,
+        name=CLIENT360_PDR_SYSTEM_NAME,
+        objective=CLIENT360_PDR_OBJECTIVE,
+        capability_id=capability.id,
+        skill_ids=[],
+        flow_definition=flow_definition,
+        settings=system_settings,
+        execution_mode="human_augmented",
+        execution_profile={
+            "surface": "client360",
+            "durability": "database",
+            "email_send": "manual_only",
+        },
+        coordination_pattern="single_agent",
+        status="active",
+        created_by="system:client360_pdr_seed",
+        default_prompt_type="factual",
+        retrieval_mode_default="auto",
+    )
+    db.add(system)
+    db.commit()
+    db.refresh(system)
+    logger.info("client360_pdr_system_seed.created", workspace_id=workspace_id, system_id=system.id)
+    return system
+
+
+def ensure_client360_pdr_system_for_all_workspaces(db: DBSession) -> Dict[str, int]:
+    report = {"created": 0, "skipped": 0, "already": 0}
+    workspaces = (
+        db.query(Workspace)
+        .filter(Workspace.is_active.is_(True), Workspace.deleted_at.is_(None))
+        .all()
+    )
+    for ws in workspaces:
+        if ws.slug != "andritz":
+            report["skipped"] += 1
+            continue
+        before = 1 if _find_client360_system(db, ws.id) else 0
+        system = ensure_client360_pdr_system_default(db, ws.id)
         if system is None:
             report["skipped"] += 1
         elif before == 0:

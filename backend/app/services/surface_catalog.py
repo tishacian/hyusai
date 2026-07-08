@@ -206,6 +206,16 @@ SURFACE_METADATA: tuple[SurfaceMetadata, ...] = (
         notes="Workspace Knowledge Scopes: named multi-collection retrieval surfaces for assistants.",
     ),
     SurfaceMetadata(
+        "/api/v1/client360",
+        "Operate",
+        "Workbench",
+        "canonical",
+        "workspace-user",
+        "Andritz Client360 PDR",
+        ("/client360",),
+        notes="Explainable spare-parts potential, human-validated mail drafts and impact tracking for Client360 PDR.",
+    ),
+    SurfaceMetadata(
         "/api/v1/runs",
         "Operate",
         "Run",

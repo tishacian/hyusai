@@ -23,7 +23,7 @@ export interface EffectiveNavigationProfile {
 }
 
 const DEFAULT_BUSINESS_ROUTE = '/chat';
-const DEFAULT_BUSINESS_SURFACES = ['chat', 'knowledge-capture'];
+const DEFAULT_BUSINESS_SURFACES = ['chat', 'client360-pdr', 'knowledge-capture'];
 const PREVIEW_STORAGE_KEY = 'agentium_business_navigation_preview_slugs';
 
 @Injectable({ providedIn: 'root' })
@@ -88,6 +88,8 @@ export class NavigationProfileService {
     const normalized = this.pathOnly(path);
     return (
       normalized === '/chat' ||
+      normalized === '/client360' ||
+      normalized.startsWith('/client360/') ||
       normalized === '/knowledge/capture' ||
       normalized === '/account' ||
       normalized.startsWith('/account/')

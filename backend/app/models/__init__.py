@@ -25,6 +25,7 @@ from app.models.workspace_map import WorkspaceMap, WorkspaceMapLayer, WorkspaceM
 from app.models.workspace_visual import WorkspaceVisualCapture, WorkspaceVisualObservation, WorkspaceVisualSource
 from app.models.workspace_macro_indicator import WorkspaceMacroIndicator
 from app.models.meeting_decision import MeetingDecision
+from app.models.client360 import Client360DataSource, Client360Opportunity, Client360MappingRule, Client360MailDraft, Client360ImpactEvent
 
 # Canonical (mental-model) layer.
 from app.models.capability import Capability
@@ -53,6 +54,7 @@ __all__ = [
     "WorkspaceMap", "WorkspaceMapLayer", "WorkspaceMapZone", "WorkspaceMapSignal", "WorkspaceMapScore",
     "WorkspaceVisualSource", "WorkspaceVisualCapture", "WorkspaceVisualObservation",
     "WorkspaceMacroIndicator", "MeetingDecision",
+    "Client360DataSource", "Client360Opportunity", "Client360MappingRule", "Client360MailDraft", "Client360ImpactEvent",
     # Canonical
     "Capability", "Skill", "Context", "ControlPolicy", "AdaptivePolicy",
     "System", "SystemVersion", "Run", "SkillInvocation", "Impact", "Decision",

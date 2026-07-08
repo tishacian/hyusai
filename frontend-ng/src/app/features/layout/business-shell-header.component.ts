@@ -32,6 +32,14 @@ import { IconComponent } from '@app/shared/ui/icon.component';
           Recherche
         </a>
         <a
+          routerLink="/client360"
+          routerLinkActive="business-nav-active"
+          class="business-nav-link"
+        >
+          <app-icon name="target" [size]="14" />
+          Client360 PDR
+        </a>
+        <a
           routerLink="/knowledge/capture"
           routerLinkActive="business-nav-active"
           [routerLinkActiveOptions]="{ exact: true }"
@@ -119,7 +127,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
     .business-brand-subtitle {
       color: var(--ck-fg-4, rgba(177, 190, 210, 0.68));
       font: 700 9px/1 var(--ck-font-mono, ui-monospace, monospace);
-      letter-spacing: 0.14em;
+      letter-spacing: 0;
       text-transform: uppercase;
     }
     .business-nav {

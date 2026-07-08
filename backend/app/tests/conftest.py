@@ -59,6 +59,11 @@ def db_session():
 
     # Order matters for FK constraints.
     _TRUNCATE_ORDER = [
+        "client360_impact_events",
+        "client360_mail_drafts",
+        "client360_mapping_rules",
+        "client360_opportunities",
+        "client360_data_sources",
         "expert_capture_events",
         "knowledge_update_proposals",
         "expert_capture_sessions",

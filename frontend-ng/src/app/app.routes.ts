@@ -122,6 +122,11 @@ export const routes: Routes = [
           import('./features/chat/chat-workspace.component').then((m) => m.ChatWorkspaceComponent),
       },
       {
+        path: 'client360',
+        loadChildren: () =>
+          import('./features/client360/client360.routes').then((m) => m.client360Routes),
+      },
+      {
         path: 'workspace',
         loadChildren: () =>
           import('./features/workspace/workspace.routes').then((m) => m.workspaceRoutes),
