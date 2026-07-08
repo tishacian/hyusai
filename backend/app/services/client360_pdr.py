@@ -486,7 +486,12 @@ def _serialize_deposit_file(file: DepositFile) -> dict[str, Any]:
     }
 
 
-def list_data_sources(db: DBSession, workspace: Workspace) -> list[dict[str, Any]]:
+def list_data_sources(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    include_workspace_candidates: bool = False,
+) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -503,6 +508,9 @@ def list_data_sources(db: DBSession, workspace: Workspace) -> list[dict[str, Any
             seen.add(f"knowledge_source:{row.knowledge_source_id}")
         if row.deposit_file_id:
             seen.add(f"deposit_file:{row.deposit_file_id}")
+
+    if not include_workspace_candidates:
+        return items
 
     knowledge_rows = (
         db.query(KnowledgeCollectionSource, KnowledgeCollection)
@@ -657,9 +665,15 @@ def list_opportunities(
     return [serialize_opportunity(row) for row in rows]
 
 
-def summary_payload(db: DBSession, workspace: Workspace, *, include_mail_ai: bool = True) -> dict[str, Any]:
+def summary_payload(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    include_mail_ai: bool = True,
+    include_workspace_candidates: bool = True,
+) -> dict[str, Any]:
     scope = client360_scope(workspace)
-    data_sources = list_data_sources(db, workspace)
+    data_sources = list_data_sources(db, workspace, include_workspace_candidates=include_workspace_candidates)
     opportunities = list_opportunities(db, workspace, limit=500)
     if include_mail_ai:
         mail_ai_config = _client360_mail_ai_config(db, workspace)

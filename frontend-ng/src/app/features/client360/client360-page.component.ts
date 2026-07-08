@@ -742,7 +742,9 @@ export class Client360PageComponent implements OnInit {
   }
 
   loadSummary(includeMailAi = false): void {
-    const params = new HttpParams().set('include_mail_ai', includeMailAi ? 'true' : 'false');
+    const params = new HttpParams()
+      .set('include_mail_ai', includeMailAi ? 'true' : 'false')
+      .set('include_workspace_candidates', 'false');
     this.http.get<Client360Summary>('/api/v1/client360/summary', { params }).subscribe({
       next: (payload) => {
         const current = this.summary();
