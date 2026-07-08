@@ -59,7 +59,10 @@ interface ReportSource {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [GlyphComponent, LiveDotComponent, ViewTileComponent, DocumentPreviewComponent],
   template: `
-    <div style="display:grid; grid-template-columns:minmax(0,1fr) 396px; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-lg); overflow:hidden; height:calc(100vh - 172px); min-height:460px; background:var(--ck-bg-base);">
+    <!-- Page-scroll model: the shell <main> owns the scroll (a fixed 100vh calc
+         here ignored the 52px business header and broke scrolling). The fiche
+         grows naturally; the inspector stays visible via position:sticky. -->
+    <div style="display:grid; grid-template-columns:minmax(0,1fr) 396px; align-items:start; border:1px solid var(--ck-stroke-2); border-radius:var(--ck-radius-lg); overflow:visible; min-height:460px; background:var(--ck-bg-base);">
       <!-- document -->
       <div style="display:flex; flex-direction:column; min-width:0; border-right:1px solid var(--ck-stroke-2);">
         <div style="flex:none; padding:14px 24px; border-bottom:1px solid var(--ck-stroke-2); background:var(--ck-bg-panel); display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
@@ -225,10 +228,10 @@ interface ReportSource {
           </div>
         }
 
-        <div class="ck-scroll ck-ambient-grid" style="flex:1; overflow-y:auto; padding:30px 0; min-height:0;">
+        <div class="ck-ambient-grid" style="padding:30px 0;">
           <!-- empty: proposal not generated yet -->
           @if (!hasProposal()) {
-            <div style="height:100%; display:grid; place-items:center; padding:40px 28px; text-align:center;">
+            <div style="min-height:360px; display:grid; place-items:center; padding:40px 28px; text-align:center;">
               <div style="display:flex; flex-direction:column; align-items:center; gap:14px; max-width:360px;">
                 <ck-live-dot tone="violet" />
                 <ck-glyph name="pulse" [size]="26" color="var(--ck-fg-4)" />
@@ -509,8 +512,8 @@ interface ReportSource {
         </div>
       </div>
 
-      <!-- inspector -->
-      <div style="display:flex; flex-direction:column; background:var(--ck-bg-panel); min-width:0;">
+      <!-- inspector — sticky so it stays in view while the fiche scrolls the page -->
+      <div style="display:flex; flex-direction:column; background:var(--ck-bg-panel); min-width:0; position:sticky; top:12px; align-self:start; max-height:calc(100dvh - 76px);">
         <div style="flex:none; padding:14px 18px; border-bottom:1px solid var(--ck-stroke-2); display:flex; align-items:center; gap:8px;">
           <ck-glyph name="focus" [size]="15" color="var(--ck-fg-3)" />
           <span class="ck-mono" style="font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ck-fg-4);">
