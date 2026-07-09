@@ -66,9 +66,16 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
   ],
   template: `
     @if (inline()) {
-      <div class="rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10">
-        <ng-container *ngTemplateOutlet="shell"></ng-container>
-      </div>
+      @if (thumbnail()) {
+        <!-- Thumbnail: neutral light frame — dark modal chrome clashes with white PDF pages. -->
+        <div style="overflow:hidden; background:var(--ck-bg-inset, #e8ecf0);">
+          <ng-container *ngTemplateOutlet="shell"></ng-container>
+        </div>
+      } @else {
+        <div class="rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10">
+          <ng-container *ngTemplateOutlet="shell"></ng-container>
+        </div>
+      }
     } @else if (open()) {
       <div class="fixed inset-0 z-[80] bg-black/55 backdrop-blur-sm flex items-center justify-center p-4">
         <section class="w-full max-w-5xl max-h-[88vh] rounded-lg overflow-hidden bg-gray-950 text-white ring-1 ring-white/10 shadow-2xl">
@@ -112,16 +119,24 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
           }
           <div
             #scrollHost
-            class="bg-gray-900"
+            [class.bg-gray-900]="!thumbnail()"
             [class.overflow-auto]="!thumbnail()"
             [class.overflow-hidden]="thumbnail()"
             [style.height]="bodyHeight()"
             [style.pointerEvents]="thumbnail() ? 'none' : null"
+            [style.background]="thumbnail() ? 'var(--ck-bg-inset, #e8ecf0)' : null"
           >
             @if (loading()) {
-              <div class="flex h-full items-center justify-center gap-2 text-sm text-gray-300">
-                <app-icon name="loader-2" [size]="16" class="animate-spin text-cyan-300" />
-                Loading preview...
+              <div
+                class="flex h-full items-center justify-center"
+                [class.gap-2]="!thumbnail()"
+                [class.text-sm]="!thumbnail()"
+                [class.text-gray-300]="!thumbnail()"
+              >
+                <app-icon name="loader-2" [size]="thumbnail() ? 14 : 16" class="animate-spin text-cyan-300" />
+                @if (!thumbnail()) {
+                  Loading preview...
+                }
               </div>
             } @else if (error()) {
               <div class="flex h-full items-center justify-center p-6 text-center">
@@ -187,7 +202,7 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                     [height]="bodyHeight()"
                     [showToolbar]="!thumbnail()"
                     [zoom]="thumbnail() ? 'page-fit' : 'auto'"
-                    backgroundColor="#0b1220"
+                    [backgroundColor]="thumbnail() ? '#e8ecf0' : '#0b1220'"
                     [showSidebarButton]="false"
                     [showOpenFileButton]="false"
                     [showPrintButton]="false"

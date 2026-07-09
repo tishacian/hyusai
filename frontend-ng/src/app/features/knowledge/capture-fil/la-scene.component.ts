@@ -155,7 +155,7 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
       @if (engine.scene().length > 0) {
         <div class="ck-scroll" style="display:flex; gap:8px; overflow-x:auto; padding-bottom:4px;">
           @for (piece of engine.scene(); track piece.key) {
-            <div style="flex:none;" [style.width.px]="wide ? 128 : 84">
+            <div style="flex:none;" [style.width.px]="wide ? 136 : 112">
               <app-capture-view-tile
                 [view]="piece"
                 size="sm"

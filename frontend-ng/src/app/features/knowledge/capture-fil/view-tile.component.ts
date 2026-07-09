@@ -8,9 +8,10 @@ type TilePiece = CapturePinnedView | CaptureViewReference;
 type TileSize = 'sm' | 'md' | 'xl';
 
 /**
- * Clean thumbnail card for a document view (page / slide / image). No real
- * asset — a soft tinted surface + centered document/image glyph + mono caption,
- * tinted to the piece. The report inspector renders the live document instead;
+ * Thumbnail card for a document view (page / slide / image): a media box (real
+ * chromeless preview when a `previewUrl` is given, else a tinted glyph card)
+ * above a SOLID caption footer. Keeping the title/page out of the image (rather
+ * than overlaid) guarantees legible contrast whatever the thumbnail shows.
  * La Scène uses these tiles for the film strip (and the fallback active view).
  */
 @Component({
@@ -26,11 +27,10 @@ type TileSize = 'sm' | 'md' | 'xl';
         [title]="(piece.title ?? piece.filename ?? '') + ' · ' + location()"
         (click)="picked.emit()"
         [style.cursor]="clickable ? 'pointer' : 'default'"
-        [style.position]="'relative'"
+        [style.display]="'flex'"
+        [style.flexDirection]="'column'"
         [style.width]="'100%'"
-        [style.aspectRatio]="previewUrl ? null : '4 / 3'"
-        [style.height.px]="previewUrl ? heightPx() : null"
-        [style.background]="'var(--ck-bg-inset)'"
+        [style.background]="'var(--ck-bg-panel)'"
         [style.border]="'1px solid ' + (active ? tint() : 'var(--ck-stroke-2)')"
         [style.borderRadius]="'var(--ck-radius-md)'"
         [style.overflow]="'hidden'"
@@ -39,72 +39,92 @@ type TileSize = 'sm' | 'md' | 'xl';
         [style.padding]="'0'"
         [style.transition]="'opacity var(--ck-dur-med) var(--ck-ease-out), box-shadow var(--ck-dur-med)'"
       >
-        @if (previewUrl) {
-          <!-- Real document thumbnail (chromeless, non-interactive) filling the
-               tile — the actual page the piece points at. -->
-          <app-document-preview
-            [style.position]="'absolute'"
-            [style.inset]="'0'"
-            [style.display]="'block'"
-            [inline]="true"
-            [thumbnail]="true"
-            [previewUrl]="previewUrl"
-            [page]="page ?? null"
-            [heightPx]="heightPx()"
-          />
-        } @else {
-          <!-- fallback: clean page-like tinted card + centered doc/image glyph -->
-          <span
-            [style.position]="'absolute'"
-            [style.inset]="'0'"
-            [style.background]="'linear-gradient(155deg, color-mix(in oklab, ' + tint() + ' 13%, var(--ck-bg-panel)) 0%, var(--ck-bg-inset) 64%)'"
-          ></span>
-          <span
-            [style.position]="'absolute'"
-            [style.inset]="'0'"
-            [style.display]="'grid'"
-            [style.placeItems]="'center'"
-            [style.paddingBottom.px]="16"
-            [style.color]="tint()"
-            [style.opacity]="0.6"
-          >
-            <ck-glyph [name]="isImage() ? 'cube' : 'ledger'" [size]="size === 'sm' ? 22 : 34" color="currentColor" />
-          </span>
-        }
-        @if (active) {
-          <span
-            [style.position]="'absolute'"
-            [style.top.px]="6"
-            [style.right.px]="6"
-            [style.display]="'inline-flex'"
-            [style.alignItems]="'center'"
-            [style.gap.px]="4"
-            [style.padding]="'2px 6px'"
-            [style.borderRadius]="'999px'"
-            [style.background]="'var(--ck-bg-void)'"
-            [style.border]="'1px solid ' + tint()"
-          >
-            <span class="ck-live-dot" [style.width.px]="5" [style.height.px]="5" [style.background]="tint()"></span>
-            <span class="ck-mono" [style.fontSize.px]="8.5" [style.letterSpacing]="'0.1em'" [style.color]="tint()" [style.fontWeight]="700">
-              EN SCÈNE
-            </span>
-          </span>
-        }
+        <!-- media box: real preview or tinted fallback; the caption lives in a
+             solid footer below so its contrast never depends on the page bg. -->
         <span
-          [style.position]="'absolute'"
-          [style.left]="'0'"
-          [style.right]="'0'"
-          [style.bottom]="'0'"
-          [style.padding]="'7px 9px'"
-          [style.background]="'linear-gradient(0deg, var(--ck-bg-void) 30%, transparent)'"
+          [style.position]="'relative'"
+          [style.display]="'block'"
+          [style.width]="'100%'"
+          [style.aspectRatio]="previewUrl ? null : '4 / 3'"
+          [style.height.px]="previewUrl ? heightPx() : null"
+          [style.background]="'var(--ck-bg-inset)'"
+          [style.overflow]="'hidden'"
+        >
+          @if (previewUrl) {
+            <app-document-preview
+              [style.position]="'absolute'"
+              [style.inset]="'0'"
+              [style.display]="'block'"
+              [inline]="true"
+              [thumbnail]="true"
+              [previewUrl]="previewUrl"
+              [page]="page ?? null"
+              [heightPx]="heightPx()"
+            />
+          } @else {
+            <span
+              [style.position]="'absolute'"
+              [style.inset]="'0'"
+              [style.background]="'linear-gradient(155deg, color-mix(in oklab, ' + tint() + ' 13%, var(--ck-bg-panel)) 0%, var(--ck-bg-inset) 64%)'"
+            ></span>
+            <span
+              [style.position]="'absolute'"
+              [style.inset]="'0'"
+              [style.display]="'grid'"
+              [style.placeItems]="'center'"
+              [style.color]="tint()"
+              [style.opacity]="0.6"
+            >
+              <ck-glyph [name]="isImage() ? 'cube' : 'ledger'" [size]="size === 'sm' ? 22 : 34" color="currentColor" />
+            </span>
+          }
+          @if (active) {
+            <span
+              [style.position]="'absolute'"
+              [style.top.px]="5"
+              [style.right.px]="5"
+              [style.display]="'inline-flex'"
+              [style.alignItems]="'center'"
+              [style.gap.px]="4"
+              [style.padding]="'2px 7px'"
+              [style.borderRadius]="'999px'"
+              [style.background]="'color-mix(in oklab, var(--ck-bg-void) 88%, transparent)'"
+              [style.border]="'1px solid ' + tint()"
+              [style.boxShadow]="'0 1px 6px color-mix(in oklab, var(--ck-bg-void) 55%, transparent)'"
+            >
+              <span class="ck-live-dot" [style.width.px]="5" [style.height.px]="5" [style.background]="tint()"></span>
+              <span class="ck-mono" [style.fontSize.px]="8.5" [style.letterSpacing]="'0.1em'" [style.color]="tint()" [style.fontWeight]="700">
+                EN SCÈNE
+              </span>
+            </span>
+          }
+        </span>
+
+        <!-- solid caption footer: title/page never overlap the preview -->
+        <span
+          [style.flex]="'none'"
+          [style.padding]="'6px 9px'"
+          [style.borderTop]="'1px solid var(--ck-stroke-2)'"
+          [style.background]="active ? 'color-mix(in oklab, ' + tint() + ' 6%, var(--ck-bg-panel))' : 'var(--ck-bg-panel)'"
+          [style.borderLeft]="active ? '3px solid ' + tint() : '3px solid transparent'"
           [style.display]="'flex'"
           [style.flexDirection]="'column'"
           [style.gap.px]="2"
+          [style.textAlign]="'left'"
         >
-          <span class="ck-mono" [style.fontSize.px]="10.5" [style.color]="'var(--ck-fg-1)'" [style.fontWeight]="600" [style.lineHeight]="1.15">
+          <span
+            class="ck-mono"
+            [style.fontSize.px]="10.5"
+            [style.color]="'var(--ck-fg-1)'"
+            [style.fontWeight]="650"
+            [style.lineHeight]="1.2"
+            [style.overflow]="'hidden'"
+            [style.textOverflow]="'ellipsis'"
+            [style.whiteSpace]="'nowrap'"
+          >
             {{ title() }}
           </span>
-          <span class="ck-mono" [style.fontSize.px]="9" [style.color]="'var(--ck-fg-4)'" [style.letterSpacing]="'0.04em'">
+          <span class="ck-mono" [style.fontSize.px]="9.5" [style.color]="'var(--ck-fg-2)'" [style.fontWeight]="600" [style.letterSpacing]="'0.04em'">
             {{ location() }}
           </span>
         </span>
