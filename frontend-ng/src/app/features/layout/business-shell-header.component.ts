@@ -34,7 +34,8 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
           aria-label="Recherche"
         >
           <app-icon name="message-square" [size]="14" />
-          <span class="business-nav-text">Recherche</span>
+          <span class="business-nav-text business-nav-text-full">Recherche</span>
+          <span class="business-nav-text business-nav-text-short">Recherche</span>
         </a>
         <a
           routerLink="/client360"
@@ -44,7 +45,8 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
           aria-label="Client360 PDR"
         >
           <app-icon name="target" [size]="14" />
-          <span class="business-nav-text">Client360 PDR</span>
+          <span class="business-nav-text business-nav-text-full">Client360 PDR</span>
+          <span class="business-nav-text business-nav-text-short">Client360</span>
         </a>
         <a
           routerLink="/knowledge/capture"
@@ -55,7 +57,8 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
           aria-label="Capture de connaissances"
         >
           <app-icon name="mic" [size]="14" />
-          <span class="business-nav-text">Capture de connaissances</span>
+          <span class="business-nav-text business-nav-text-full">Capture de connaissances</span>
+          <span class="business-nav-text business-nav-text-short">Capture</span>
         </a>
       </nav>
 
@@ -109,15 +112,16 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
       position: relative;
       z-index: 40;
       display: grid;
-      grid-template-columns: minmax(0, 0.8fr) auto minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
       align-items: center;
-      gap: 14px;
+      gap: 12px;
       min-width: 0;
       height: 52px;
       padding: 0 16px;
       border-bottom: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
       background: var(--ck-bg-base);
       color: var(--ck-fg-1, #f5f8fc);
+      overflow: hidden;
     }
     .business-brand,
     .business-nav,
@@ -129,7 +133,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
       align-items: center;
       min-width: 0;
     }
-    .business-brand { gap: 10px; }
+    .business-brand { gap: 10px; flex: 0 1 auto; }
     .business-brand img {
       display: block;
       border-radius: 6px;
@@ -162,7 +166,11 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
       border-radius: 9px;
       border: 1px solid var(--ck-stroke-2);
       background: var(--ck-tint-faint);
+      min-width: 0;
+      max-width: min(100%, 560px);
+      flex-shrink: 1;
     }
+    .business-nav-text-short { display: none; }
     .business-nav-link,
     .business-action,
     .business-account {
@@ -189,6 +197,8 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
       justify-self: end;
       justify-content: flex-end;
       gap: 8px;
+      min-width: 0;
+      flex-shrink: 0;
     }
     .business-action {
       border: 1px solid var(--ck-stroke-hot);
@@ -280,16 +290,15 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
       white-space: nowrap;
       border: 0;
     }
-    /* Intermediate: full text collides with actions well above the 860px
-       stack point (natural full-label layout needs ~1240px). Collapse the
-       nav + low-priority chrome to icon-only so nothing overflows. */
-    @media (min-width: 861px) and (max-width: 1280px) {
-      .business-nav-text,
+    /* Compact: short nav labels + trim low-priority chrome before overlap. */
+    @media (max-width: 1560px) {
+      .business-nav-text-full,
       .business-action-text,
       .business-email,
       .business-cyan-subtitle {
         display: none;
       }
+      .business-nav-text-short { display: inline; }
       .business-nav-link,
       .business-action {
         gap: 0;
@@ -301,6 +310,15 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
       .business-account {
         max-width: none;
         padding: 0 4px;
+      }
+    }
+    /* Tighter: icon-only tabs — full labels need ~1580px with actions visible. */
+    @media (max-width: 1180px) {
+      .business-nav-text-short {
+        display: none;
+      }
+      .business-nav-link {
+        padding: 0 9px;
       }
     }
     @media (max-width: 860px) {
