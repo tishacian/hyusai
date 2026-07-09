@@ -7,10 +7,10 @@ type TilePiece = CapturePinnedView | CaptureViewReference;
 type TileSize = 'sm' | 'md' | 'xl';
 
 /**
- * Striped placeholder for a document view (page / slide / image), matching the
- * hifi "ViewTile" (ui.jsx). No real asset — hatched stripes + mono caption,
+ * Clean thumbnail card for a document view (page / slide / image). No real
+ * asset — a soft tinted surface + centered document/image glyph + mono caption,
  * tinted to the piece. The report inspector renders the live document instead;
- * La Scène uses these tiles for the active view and the film strip.
+ * La Scène uses these tiles for the film strip (and the fallback active view).
  */
 @Component({
   selector: 'app-capture-view-tile',
@@ -37,14 +37,24 @@ type TileSize = 'sm' | 'md' | 'xl';
         [style.padding]="'0'"
         [style.transition]="'opacity var(--ck-dur-med) var(--ck-ease-out), box-shadow var(--ck-dur-med)'"
       >
-        <span [style.position]="'absolute'" [style.inset]="'0'" [style.background]="stripe()"></span>
+        <!-- clean page-like surface: a soft tinted wash instead of the hatched
+             "fake text" stripes that read as an unfinished placeholder. -->
         <span
           [style.position]="'absolute'"
           [style.inset]="'0'"
-          [style.background]="'linear-gradient(160deg, color-mix(in oklab, ' + tint() + ' 10%, transparent), transparent 55%)'"
+          [style.background]="'linear-gradient(155deg, color-mix(in oklab, ' + tint() + ' 13%, var(--ck-bg-panel)) 0%, var(--ck-bg-inset) 64%)'"
         ></span>
-        <span [style.position]="'absolute'" [style.top.px]="6" [style.left.px]="6" [style.color]="tint()" [style.opacity]="0.85">
-          <ck-glyph [name]="isImage() ? 'cube' : 'ledger'" [size]="13" color="currentColor" />
+        <!-- centered document / image mark as the thumbnail's visual -->
+        <span
+          [style.position]="'absolute'"
+          [style.inset]="'0'"
+          [style.display]="'grid'"
+          [style.placeItems]="'center'"
+          [style.paddingBottom.px]="16"
+          [style.color]="tint()"
+          [style.opacity]="0.6"
+        >
+          <ck-glyph [name]="isImage() ? 'cube' : 'ledger'" [size]="size === 'sm' ? 22 : 34" color="currentColor" />
         </span>
         @if (active) {
           <span
@@ -106,10 +116,5 @@ export class ViewTileComponent {
   }
   protected isImage(): boolean {
     return !!this.view && this.view.image_index != null;
-  }
-  protected stripe(): string {
-    return this.isImage()
-      ? `repeating-linear-gradient(135deg, color-mix(in oklab, ${this.tint()} 12%, transparent) 0 7px, transparent 7px 14px)`
-      : `repeating-linear-gradient(0deg, var(--ck-stroke-1) 0 11px, transparent 11px 12px)`;
   }
 }
