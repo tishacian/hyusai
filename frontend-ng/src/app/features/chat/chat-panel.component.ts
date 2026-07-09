@@ -2896,6 +2896,344 @@ const STEP_ICONS: Record<string, string> = {
       background:
         linear-gradient(135deg, rgba(42, 145, 78, 0.98), rgba(242, 140, 56, 0.82)) !important;
     }
+
+    /* ============================================================
+       LIGHT THEME (business shell) — this component was missed by
+       the tokenization sweep. The global <html> stays pinned .dark,
+       so every Tailwind dark:* utility fires even on the light paper
+       and the hardcoded rgba() rules above never flip. The only
+       reliable flip vector under [data-theme="light"] is a scoped
+       token override. Everything below applies ONLY when an ancestor
+       carries [data-theme="light"] (i.e. the business shell), so the
+       dark cockpit above is left byte-identical.
+       ============================================================ */
+
+    /* --- Answer body + inline markup: neutral Tailwind utilities.
+           dark:* variants always win (html is .dark), so remap them
+           straight onto the light foreground tiers. --- */
+    :host-context([data-theme="light"]) .dark\\:text-white,
+    :host-context([data-theme="light"]) .dark\\:text-gray-100 { color: var(--ck-fg-1); }
+    :host-context([data-theme="light"]) .dark\\:text-gray-200,
+    :host-context([data-theme="light"]) .dark\\:text-gray-300,
+    :host-context([data-theme="light"]) .text-gray-200,
+    :host-context([data-theme="light"]) .text-gray-300 { color: var(--ck-fg-2); }
+    :host-context([data-theme="light"]) .dark\\:text-gray-400,
+    :host-context([data-theme="light"]) .text-gray-400 { color: var(--ck-fg-3); }
+    :host-context([data-theme="light"]) .text-gray-500 { color: var(--ck-fg-4); }
+    :host-context([data-theme="light"]) .hover\\:text-white:hover { color: var(--ck-fg-1); }
+    :host-context([data-theme="light"]) .hover\\:text-gray-300:hover,
+    :host-context([data-theme="light"]) .hover\\:text-gray-200:hover,
+    :host-context([data-theme="light"]) .group:hover .group-hover\\:text-gray-300 { color: var(--ck-fg-2); }
+
+    /* --- Accents: preserve semantics, pull to AA-on-paper signals.
+           Covers citation chips ([n]), SOURCES icon, deep-search sky,
+           positive/warn/negative states. --- */
+    :host-context([data-theme="light"]) .text-cyan-300,
+    :host-context([data-theme="light"]) .dark\\:text-cyan-300,
+    :host-context([data-theme="light"]) .text-cyan-400,
+    :host-context([data-theme="light"]) .text-cyan-400\\/80,
+    :host-context([data-theme="light"]) .text-cyan-500,
+    :host-context([data-theme="light"]) .text-sky-200,
+    :host-context([data-theme="light"]) .text-sky-300,
+    :host-context([data-theme="light"]) .text-sky-300\\/80,
+    :host-context([data-theme="light"]) .text-sky-300\\/70,
+    :host-context([data-theme="light"]) .hover\\:text-cyan-200:hover,
+    :host-context([data-theme="light"]) .hover\\:text-cyan-300:hover,
+    :host-context([data-theme="light"]) .hover\\:text-cyan-400:hover,
+    :host-context([data-theme="light"]) .hover\\:text-sky-300:hover { color: var(--ck-signal-cool); }
+    :host-context([data-theme="light"]) .text-emerald-300,
+    :host-context([data-theme="light"]) .dark\\:text-emerald-300,
+    :host-context([data-theme="light"]) .text-emerald-400,
+    :host-context([data-theme="light"]) .dark\\:text-emerald-400,
+    :host-context([data-theme="light"]) .text-emerald-500,
+    :host-context([data-theme="light"]) .text-emerald-600 { color: var(--ck-signal-pos); }
+    :host-context([data-theme="light"]) .text-amber-200,
+    :host-context([data-theme="light"]) .text-amber-300,
+    :host-context([data-theme="light"]) .text-amber-400 { color: var(--ck-signal-warn); }
+    :host-context([data-theme="light"]) .text-red-300,
+    :host-context([data-theme="light"]) .text-red-400 { color: var(--ck-signal-neg); }
+
+    /* Faint white surface washes read as invisible mud on paper —
+       give source cards / badges a subtle black tint instead. */
+    :host-context([data-theme="light"]) .bg-white\\/5,
+    :host-context([data-theme="light"]) .bg-white\\/\\[0\\.02\\],
+    :host-context([data-theme="light"]) .dark\\:bg-white\\/10,
+    :host-context([data-theme="light"]) .dark\\:bg-white\\/\\[0\\.03\\],
+    :host-context([data-theme="light"]) .dark\\:bg-white\\/\\[0\\.04\\],
+    :host-context([data-theme="light"]) .dark\\:bg-white\\/\\[0\\.06\\] { background-color: var(--ck-tint-faint); }
+    :host-context([data-theme="light"]) .dark\\:border-white\\/10 { border-color: var(--ck-stroke-2); }
+
+    /* --- Chat history sidebar --- */
+    :host-context([data-theme="light"]) .chat-history-shell { background: transparent; }
+    :host-context([data-theme="light"]) .chat-history-panel {
+      border-right-color: var(--ck-stroke-1);
+      background: var(--ck-bg-panel);
+    }
+    :host-context([data-theme="light"]) .chat-history-head { border-bottom-color: var(--ck-stroke-1); }
+    :host-context([data-theme="light"]) .chat-history-kicker { color: var(--ck-signal-cool); }
+    :host-context([data-theme="light"]) .chat-history-count,
+    :host-context([data-theme="light"]) .chat-history-subtitle,
+    :host-context([data-theme="light"]) .chat-history-empty,
+    :host-context([data-theme="light"]) .chat-history-actions button { color: var(--ck-fg-3); }
+    :host-context([data-theme="light"]) .chat-history-new {
+      color: var(--ck-signal-cool);
+      background: color-mix(in oklab, var(--ck-signal-cool) 12%, transparent);
+      border-color: color-mix(in oklab, var(--ck-signal-cool) 30%, transparent);
+    }
+    :host-context([data-theme="light"]) .chat-history-new:hover:not(:disabled) {
+      background: color-mix(in oklab, var(--ck-signal-cool) 18%, transparent);
+      border-color: color-mix(in oklab, var(--ck-signal-cool) 42%, transparent);
+    }
+    :host-context([data-theme="light"]) .chat-history-search {
+      border-color: var(--ck-stroke-2);
+      background: var(--ck-bg-inset);
+      color: var(--ck-fg-3);
+    }
+    :host-context([data-theme="light"]) .chat-history-search input { color: var(--ck-fg-1); }
+    :host-context([data-theme="light"]) .chat-history-search input::placeholder { color: var(--ck-fg-5); }
+    :host-context([data-theme="light"]) .chat-history-item { color: var(--ck-fg-2); }
+    :host-context([data-theme="light"]) .chat-history-item:hover {
+      background: var(--ck-tint-faint);
+      border-color: var(--ck-stroke-1);
+    }
+    :host-context([data-theme="light"]) .chat-history-item-active {
+      background: color-mix(in oklab, var(--ck-signal-cool) 12%, transparent);
+      border-color: color-mix(in oklab, var(--ck-signal-cool) 30%, transparent);
+    }
+    :host-context([data-theme="light"]) .chat-history-actions button:hover {
+      color: var(--ck-fg-1);
+      background: var(--ck-tint-soft);
+    }
+
+    /* --- Vigie context bar + trace/voice actions --- */
+    :host-context([data-theme="light"]) .vigie-context-bar {
+      border-bottom-color: var(--ck-stroke-1);
+      background: var(--ck-bg-panel);
+    }
+    :host-context([data-theme="light"]) .vigie-kicker { color: var(--ck-signal-warn); }
+    :host-context([data-theme="light"]) .vigie-scope-line { color: var(--ck-fg-3); }
+    :host-context([data-theme="light"]) .vigie-trace-button {
+      border-color: var(--ck-stroke-2);
+      background: var(--ck-bg-panel-hi);
+      color: var(--ck-fg-2);
+    }
+    :host-context([data-theme="light"]) .vigie-trace-button:hover {
+      border-color: var(--ck-stroke-3);
+      color: var(--ck-fg-1);
+      background: var(--ck-bg-inset);
+    }
+    :host-context([data-theme="light"]) .vigie-voice-primary {
+      border-color: color-mix(in oklab, var(--ck-signal-pos) 45%, transparent);
+      background: var(--ck-signal-pos);
+      color: var(--ck-on-signal);
+      box-shadow: none;
+    }
+    :host-context([data-theme="light"]) .vigie-voice-primary:hover:not(:disabled) {
+      border-color: var(--ck-signal-pos);
+      background: color-mix(in oklab, var(--ck-signal-pos) 88%, black);
+      color: var(--ck-on-signal);
+    }
+    :host-context([data-theme="light"]) .vigie-voice-primary-active,
+    :host-context([data-theme="light"]) .vigie-voice-primary-paused {
+      border-color: color-mix(in oklab, var(--ck-signal-warn) 50%, transparent);
+      background: var(--ck-signal-warn);
+      color: var(--ck-on-signal);
+    }
+    :host-context([data-theme="light"]) .vigie-voice-stop {
+      border-color: color-mix(in oklab, var(--ck-signal-neg) 45%, transparent);
+      background: var(--ck-signal-neg);
+      color: var(--ck-on-signal);
+    }
+    :host-context([data-theme="light"]) .vigie-voice-stop:hover { color: var(--ck-on-signal); }
+
+    /* --- Control bar: mode chip, source picker, selects, info dot --- */
+    :host-context([data-theme="light"]) .chat-control-bar {
+      border-bottom-color: var(--ck-stroke-1);
+      background: var(--ck-bg-panel);
+    }
+    :host-context([data-theme="light"]) .chat-mode-chip {
+      border-color: var(--ck-stroke-2);
+      background: var(--ck-bg-panel-hi);
+      color: var(--ck-fg-2);
+    }
+    :host-context([data-theme="light"]) .chat-mode-model,
+    :host-context([data-theme="light"]) .source-picker-label,
+    :host-context([data-theme="light"]) .session-doc-label,
+    :host-context([data-theme="light"]) .mini-control-label,
+    :host-context([data-theme="light"]) .source-picker-chevron,
+    :host-context([data-theme="light"]) .mini-select-chevron,
+    :host-context([data-theme="light"]) .voice-select-chevron,
+    :host-context([data-theme="light"]) .session-doc-mode-button,
+    :host-context([data-theme="light"]) .control-info-dot { color: var(--ck-fg-3); }
+    :host-context([data-theme="light"]) .source-picker-label app-icon,
+    :host-context([data-theme="light"]) .session-doc-label app-icon,
+    :host-context([data-theme="light"]) .mini-control-label app-icon { color: var(--ck-signal-cool); }
+    :host-context([data-theme="light"]) .source-picker,
+    :host-context([data-theme="light"]) .session-doc-mode,
+    :host-context([data-theme="light"]) .mini-control {
+      border-color: var(--ck-stroke-2);
+      background: var(--ck-bg-panel-hi);
+      box-shadow: inset 0 1px 0 var(--ck-tint-faint);
+    }
+    :host-context([data-theme="light"]) .source-picker-select,
+    :host-context([data-theme="light"]) .mini-select,
+    :host-context([data-theme="light"]) .voice-select {
+      background: var(--ck-bg-inset);
+      color: var(--ck-fg-1);
+      color-scheme: light;
+    }
+    :host-context([data-theme="light"]) .session-doc-mode-button:hover {
+      color: var(--ck-fg-1);
+      background: var(--ck-tint-soft);
+    }
+    :host-context([data-theme="light"]) .control-info-dot {
+      background: var(--ck-tint-soft);
+      box-shadow: inset 0 0 0 1px var(--ck-stroke-2);
+    }
+
+    /* --- Action surface bar (Corriger / Compléter / Deep search) --- */
+    :host-context([data-theme="light"]) .action-surface-bar {
+      border-bottom-color: var(--ck-stroke-1);
+      background: var(--ck-bg-panel);
+    }
+    :host-context([data-theme="light"]) .action-surface-label { color: var(--ck-fg-3); }
+    :host-context([data-theme="light"]) .action-chip {
+      border-color: color-mix(in oklab, var(--ck-signal-cool) 26%, transparent);
+      background: color-mix(in oklab, var(--ck-signal-cool) 9%, transparent);
+      color: var(--ck-signal-cool);
+    }
+    :host-context([data-theme="light"]) .action-chip:hover {
+      border-color: color-mix(in oklab, var(--ck-signal-cool) 40%, transparent);
+      background: color-mix(in oklab, var(--ck-signal-cool) 15%, transparent);
+    }
+    :host-context([data-theme="light"]) .action-empty-chip {
+      border-color: var(--ck-stroke-2);
+      background: var(--ck-tint-faint);
+      color: var(--ck-fg-2);
+    }
+    :host-context([data-theme="light"]) .action-chip span {
+      background: color-mix(in oklab, var(--ck-signal-warn) 18%, transparent);
+      color: var(--ck-signal-warn);
+    }
+
+    /* --- Voice control bar + pills + oracle --- */
+    :host-context([data-theme="light"]) .voice-control-bar {
+      border-bottom-color: var(--ck-stroke-1);
+      background: var(--ck-bg-panel);
+      color: var(--ck-fg-3);
+    }
+    :host-context([data-theme="light"]) .voice-control-label,
+    :host-context([data-theme="light"]) .voice-loop-button { color: var(--ck-fg-2); }
+    :host-context([data-theme="light"]) .voice-checkbox,
+    :host-context([data-theme="light"]) .voice-transport-button,
+    :host-context([data-theme="light"]) .demo-voice-chips-head,
+    :host-context([data-theme="light"]) .demo-voice-dismiss { color: var(--ck-fg-3); }
+    :host-context([data-theme="light"]) .managed-runtime-pill {
+      background: var(--ck-bg-panel-hi);
+      box-shadow: inset 0 0 0 1px var(--ck-stroke-2);
+      color: var(--ck-fg-2);
+    }
+    :host-context([data-theme="light"]) .voice-transport-toggle,
+    :host-context([data-theme="light"]) .voice-loop-actions {
+      border-color: var(--ck-stroke-2);
+      background: var(--ck-bg-panel-hi);
+    }
+    :host-context([data-theme="light"]) .voice-transport-button:hover:not(:disabled),
+    :host-context([data-theme="light"]) .voice-loop-button:hover:not(:disabled) {
+      color: var(--ck-fg-1);
+      background: var(--ck-tint-soft);
+    }
+    :host-context([data-theme="light"]) .voice-oracle-panel {
+      border-bottom-color: var(--ck-stroke-1);
+      color: var(--ck-fg-3);
+    }
+    :host-context([data-theme="light"]) .voice-oracle-message { color: var(--ck-fg-2); }
+    :host-context([data-theme="light"]) .voice-oracle-step {
+      background: var(--ck-bg-panel-hi);
+      color: var(--ck-fg-3);
+      box-shadow: inset 0 0 0 1px var(--ck-stroke-2);
+    }
+
+    /* --- Message stream: kill the dark top-haze on the paper --- */
+    :host-context([data-theme="light"]) .vigie-messages { background: transparent; }
+
+    /* --- Empty state (accent hexes → warn/pos signals) --- */
+    :host-context([data-theme="light"]) .vigie-empty-state > div:first-child {
+      border-color: color-mix(in oklab, var(--ck-signal-warn) 40%, transparent) !important;
+      background: color-mix(in oklab, var(--ck-signal-warn) 14%, var(--ck-bg-panel-hi)) !important;
+      color: var(--ck-signal-warn) !important;
+      box-shadow: var(--ck-shadow-card) !important;
+    }
+    :host-context([data-theme="light"]) .vigie-empty-state > div:first-child app-icon { color: var(--ck-signal-warn) !important; }
+    :host-context([data-theme="light"]) .vigie-empty-state button {
+      border-color: var(--ck-stroke-2) !important;
+      background: var(--ck-bg-panel-hi) !important;
+    }
+    :host-context([data-theme="light"]) .vigie-empty-state button:hover {
+      border-color: color-mix(in oklab, var(--ck-signal-warn) 30%, transparent) !important;
+      background: var(--ck-bg-inset) !important;
+    }
+    :host-context([data-theme="light"]) .vigie-empty-state button .bg-cyan-500\\/10,
+    :host-context([data-theme="light"]) .vigie-empty-state button .group-hover\\:bg-cyan-500\\/20 {
+      background: color-mix(in oklab, var(--ck-signal-pos) 12%, transparent) !important;
+      color: var(--ck-signal-pos) !important;
+    }
+
+    /* --- Bubbles: user = solid green pill, assistant = light paper card
+           with dark-on-paper answer text (was pale near-white). --- */
+    :host-context([data-theme="light"]) .vigie-user-bubble {
+      border-color: color-mix(in oklab, var(--ck-signal-pos) 40%, transparent) !important;
+      background: var(--ck-signal-pos) !important;
+      color: var(--ck-on-signal) !important;
+      box-shadow: var(--ck-shadow-card) !important;
+    }
+    :host-context([data-theme="light"]) .vigie-assistant-bubble {
+      border-color: var(--ck-stroke-2) !important;
+      background: var(--ck-bg-panel-hi) !important;
+      color: var(--ck-fg-1) !important;
+      box-shadow: var(--ck-shadow-card) !important;
+    }
+    :host-context([data-theme="light"]) .vigie-map-chip {
+      border-color: color-mix(in oklab, var(--ck-signal-pos) 30%, transparent) !important;
+      background: color-mix(in oklab, var(--ck-signal-pos) 12%, transparent) !important;
+      color: var(--ck-signal-pos) !important;
+      box-shadow: none !important;
+    }
+
+    /* --- Composer / input bar (accent hexes → signals) --- */
+    :host-context([data-theme="light"]) .vigie-input-bar {
+      background: var(--ck-bg-panel) !important;
+      border-top-color: var(--ck-stroke-1) !important;
+    }
+    :host-context([data-theme="light"]) .vigie-input-bar textarea {
+      border-color: var(--ck-stroke-2) !important;
+      background: var(--ck-bg-panel-hi) !important;
+      color: var(--ck-fg-1) !important;
+    }
+    :host-context([data-theme="light"]) .vigie-input-bar textarea:focus {
+      border-color: color-mix(in oklab, var(--ck-signal-warn) 45%, transparent) !important;
+      box-shadow: 0 0 0 2px color-mix(in oklab, var(--ck-signal-warn) 18%, transparent) !important;
+    }
+    :host-context([data-theme="light"]) .vigie-mic-button {
+      border-color: color-mix(in oklab, var(--ck-signal-warn) 32%, transparent) !important;
+      background: var(--ck-bg-panel-hi) !important;
+      color: var(--ck-signal-warn) !important;
+      box-shadow: none !important;
+    }
+    :host-context([data-theme="light"]) .vigie-mic-button:hover:not(:disabled) {
+      border-color: color-mix(in oklab, var(--ck-signal-pos) 36%, transparent) !important;
+      color: var(--ck-signal-pos) !important;
+    }
+    :host-context([data-theme="light"]) .vigie-send-button {
+      border-color: color-mix(in oklab, var(--ck-signal-pos) 40%, transparent) !important;
+      background: var(--ck-signal-pos) !important;
+      color: var(--ck-on-signal) !important;
+      box-shadow: none !important;
+    }
+    :host-context([data-theme="light"]) .vigie-send-button:hover:not(:disabled) {
+      border-color: var(--ck-signal-pos) !important;
+      background: color-mix(in oklab, var(--ck-signal-pos) 88%, black) !important;
+    }
   `],
 })
 export class ChatPanelComponent implements AfterViewInit {
