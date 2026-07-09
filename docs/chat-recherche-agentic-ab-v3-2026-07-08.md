@@ -364,3 +364,62 @@ ssh omnirag-demo "docker exec -d \
 ```
 
 > Artefacts durables (survivent au redéploiement du conteneur car sur le volume hôte `/data/object_store`) : `ab_v3.jsonl` (par-cas), `ab_v3.json` (synthèse), `ab_v3.md` (rapport brut du harnais). Aucune ré-orchestration nécessaire pour recomposer ce document.
+
+---
+
+## Fix latence (2026-07-09) — juges LLM sortis du DAG en ligne (migration 054)
+
+> **VERDICT du fix.** Le seul frein identifié en v3 (latence : **+29.7s**, **60% d'`aborted_latency`**) est **éliminé**. Cause racine confirmée : le marcheur de DAG (`execute_run_dag`) ne *finalise* un run qu'une fois **tous** les nœuds atteignables réglés, et chaque tick attend l'ensemble prêt (`asyncio.gather`) — les deux juges LLM `task.eval_radar` (~20s) et `task.claim_audit` (~21s), planifiés dans le même tick que `decision.verdict`, siégeaient donc sur le **chemin critique en temps réel** de la sortie de réponse (~+40s) alors même que la Phase 2 les avait déjà sortis du *contenu* du verdict. **Il n'existe pas de fire-and-forget natif dans le moteur.** Fix retenu (artefact-only, moindre risque) : **retirer `task.eval_radar` + `task.claim_audit` du DAG de service en ligne** (23 → 21 nœuds). Le verdict reste piloté par `task.response_eval` (embeddings, rapide) sur le chemin critique (gate inchangé : `composite < 50 or context_count == 0`). Le couple `fork.self_eval → join.eval` est conservé comme **no-op télémétrie instantané** (équilibre fork/join requis par le `dag_validator`). Les deux juges LLM restent dans l'allow-list de la membrane (disponibles) et sont toujours exercés **hors-ligne** par le harnais A/B (`agentic_chat_spike.py`). **Flag `enable_agentic_chat` : reste OFF.**
+
+_Sous-ensemble ciblé_ : **14 cas** eval-lourds (inventory/transversal, multi_hop, table_extract) — précisément ceux qui déclenchaient l'`aborted_latency` en v3. Rejoué sur la VM `omnirag-demo` (DAG réel via `execute_run_dag`, backend OpenAI : gén. `gpt-4o-mini`, juge offline `gpt-5` context-injecté, emb. `text-embedding-3-small`). L'arm A (déterministe) sert de témoin de latence.
+
+### Agrégat avant/après (mêmes 14 ids)
+
+| métrique (arm B agentique) | v3 avant (juges in-DAG) | après (054, juges hors-DAG) | mouvement |
+|---|---|---|---|
+| latence moyenne | **47.2 s** | **23.6 s** | **−23.6 s (≈ −50%)** |
+| latence max | 67 s | **37.9 s** | sous la valve 45 s |
+| `aborted_latency` | **6/14 = 42.9%** | **0/14 = 0%** | **effondré** |
+| statuts arm B | 8 `completed` / 6 `aborted_latency` | **14 `completed`** | plus aucun abort |
+| composite juge (qualité) | 87.9 | **86.6** | **plat (−1.3, bruit juge)** — pas de régression |
+| latence témoin arm A | 20.7 s | 21.0 s | inchangé (contrôle) |
+| écart latence **B − A** | **+26.5 s** | **+2.6 s** | quasi-parité |
+
+> Le composite est calculé par le `JudgeService` **offline** (inchangé, indépendant des juges retirés du DAG) : sa quasi-stabilité (**87.9 → 86.6**) prouve que le **contenu des réponses est intact** — les juges in-DAG étaient de la pure télémétrie et n'alimentaient jamais la réponse. Rappel headline v3 (balayage complet 95 cas) : agentique **+29.7 s / 60% abort** ; sur ce sous-ensemble ciblé, la valve n'est plus jamais atteinte.
+
+### Détail par cas (arm B : latence & statut, avant → après)
+
+| id | cat | lat v3 (s) | statut v3 | lat 054 (s) | statut 054 | comp v3 → 054 |
+|---|---|---|---|---|---|---|
+| demo_d60_greasing | table_extract | 32 | ok | 14.1 | ok | 75.4 → 70.8 |
+| avoid_list_all_pumps | inventory | 63 | **aborted** | 27.7 | ok | 80.0 → 79.4 |
+| reg_transversal_uraca | inventory | 40 | ok | 24.9 | ok | 94.3 → 93.8 |
+| tr_bhx100_puissance_carde | multi_hop | 63 | **aborted** | 27.5 | ok | 83.6 → 92.5 |
+| tr_tambour_poids | multi_hop | 55 | **aborted** | 27.8 | ok | 69.6 → 60.0 |
+| tr_d60_diametre60 | table_extract | 44 | ok | 20.5 | ok | 76.2 → 77.9 |
+| edge_mh_bba120_hp_pump | multi_hop | 43 | ok | 21.6 | ok | 86.5 → 81.9 |
+| edge_mh_akk200_filter_oring | multi_hop | 52 | **aborted** | 26.9 | ok | 90.0 → 76.2 |
+| edge_inv_etachrom_projects | inventory | 44 | ok | 22.1 | ok | 99.6 → 97.8 |
+| edge_inv_qms12_projects | inventory | 43 | ok | 21.8 | ok | 99.6 → 98.1 |
+| spl_011_akk200_filtering_cartridge_oring | table_extract | 67 | **aborted** | 37.9 | ok | 86.3 → 87.9 |
+| spl_012_geotex_def_strips_label_b | table_extract | 25 | ok | 17.1 | ok | 100.0 → 99.2 |
+| div_009_uraca_kd724_chapters_multiproject | inventory | 48 | **aborted** | 22.8 | ok | 99.6 → 99.4 |
+| hi_002_ambiguous_kd724_partial_ref | inventory | 42 | ok | 18.3 | ok | 89.6 → 98.0 |
+
+- **Spot-check qualité (juges retirés) :** `reg_transversal_uraca` (comp 93.8, réponse = liste exhaustive des projets URACA, sourcée), `edge_inv_qms12_projects` (comp 98.1, 11 projets QMS-12 cités [1]), `hi_002_ambiguous_kd724_partial_ref` (comp 98.0, 136 projets KD724) — réponses ancrées et citées, **aucune régression** par rapport à v3.
+- **Warmup** : le run de chauffe log `dag_engine: done duration_ms=14042 executed=21 nodes=21 status=completed` → le DAG en ligne exécute bien **21 nœuds** (juges absents) et se règle en ~14 s à chaud.
+
+### Reproduction (sous-ensemble ciblé)
+
+```bash
+cat backend/scripts/agentic_chat_spike.py | ssh omnirag-demo \
+  'docker exec -i agentium-backend sh -c "cat > /tmp/agentic_chat_spike.py"'
+ssh omnirag-demo 'docker exec -d -w /app/backend \
+  -e SPIKE_RUN_AGENTIC=1 -e SPIKE_BATCH=2 -e SPIKE_CASE_TIMEOUT=150 -e SPIKE_METRIC_TIMEOUT=90 \
+  -e SPIKE_IDS=demo_d60_greasing,avoid_list_all_pumps,reg_transversal_uraca,tr_bhx100_puissance_carde,tr_tambour_poids,tr_d60_diametre60,edge_mh_bba120_hp_pump,edge_mh_akk200_filter_oring,edge_inv_etachrom_projects,edge_inv_qms12_projects,spl_011_akk200_filtering_cartridge_oring,spl_012_geotex_def_strips_label_b,div_009_uraca_kd724_chapters_multiproject,hi_002_ambiguous_kd724_partial_ref \
+  -e SPIKE_JSONL=/data/object_store/lat_fix.jsonl -e SPIKE_OUTPUT=/data/object_store/lat_fix.json \
+  -e SPIKE_REPORT_MD=/data/object_store/lat_fix.md agentium-backend \
+  sh -c "python /tmp/agentic_chat_spike.py > /data/object_store/lat_fix.run.log 2>&1"'
+```
+
+> Artefacts durables : `/data/object_store/lat_fix.{jsonl,json,md,run.log}`. DB VM alembic head = `054_andritz_chat_judges_offline` ; System « Andritz Chat Agentic » : `flow_revision=054`, 21 nœuds, 6 skills câblés, `enable_agentic_chat=False`.
