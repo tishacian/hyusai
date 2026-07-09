@@ -13,21 +13,29 @@ from app.db.base import get_db
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.action_plans import serialize_action_item
+from app.services.client360_alerts import alerts_payload
 from app.services.client360_pdr import (
+    campaign_stats,
     client360_scope,
     client360_mail_settings_payload,
+    create_campaign,
     create_mail_draft,
     customer_payload,
+    generate_campaign_drafts,
+    list_campaigns,
     list_mapping_rules,
     list_opportunities,
     opportunity_facets,
     patch_action,
+    patch_campaign,
     patch_client360_mail_settings,
     patch_mapping_rule,
     patch_opportunity,
+    prepare_campaign_follow_ups,
     record_impact,
     run_opportunity_engine,
     send_mail_draft,
+    serialize_campaign,
     serialize_impact_event,
     serialize_mapping_rule,
     serialize_mail_draft,
@@ -138,6 +146,41 @@ class OpportunityPatch(BaseModel):
     owner_label: Optional[str] = None
 
 
+class CampaignSelectionCriteria(BaseModel):
+    status: Optional[str] = None
+    customer: Optional[str] = None
+    country: Optional[str] = None
+    hub: Optional[str] = None
+    technology: Optional[str] = None
+    part_family: Optional[str] = None
+    confidence: Optional[str] = None
+    limit: Optional[int] = Field(default=None, ge=1, le=500)
+
+
+class CampaignCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    campaign_type: str = Field(..., description="first_replacement, maintenance_education, renewal, cross_selling, upselling or free")
+    description: str = ""
+    status: str = "draft"
+    selection_criteria: CampaignSelectionCriteria = Field(default_factory=CampaignSelectionCriteria)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CampaignPatch(BaseModel):
+    name: Optional[str] = None
+    campaign_type: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    selection_criteria: Optional[CampaignSelectionCriteria] = None
+
+
+class CampaignDraftsCreate(BaseModel):
+    language: str = Field(default="fr", max_length=16)
+    include_prices: bool = False
+    limit: Optional[int] = Field(default=None, ge=1, le=500)
+    follow_up: bool = False
+
+
 @router.get("/summary")
 def client360_summary(
     include_mail_ai: bool = Query(default=True),
@@ -151,6 +194,15 @@ def client360_summary(
         include_mail_ai=include_mail_ai,
         include_workspace_candidates=include_workspace_candidates,
     )
+
+
+@router.get("/alerts")
+def client360_alerts(
+    limit: int = Query(default=200, ge=1, le=500),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    return alerts_payload(db, workspace, limit=limit)
 
 
 @router.get("/scope")
@@ -222,6 +274,116 @@ def client360_opportunity_patch(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/campaigns")
+def client360_campaigns(
+    status: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    return {"items": list_campaigns(db, workspace, status=status, limit=limit)}
+
+
+@router.post("/campaigns")
+def client360_campaign_create(
+    body: CampaignCreate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        campaign = create_campaign(
+            db,
+            workspace,
+            user,
+            name=body.name,
+            campaign_type=body.campaign_type,
+            selection_criteria=body.selection_criteria.model_dump(exclude_none=True),
+            description=body.description,
+            status=body.status,
+            metadata=body.metadata,
+        )
+        db.commit()
+        db.refresh(campaign)
+        return {"campaign": serialize_campaign(campaign)}
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/campaigns/{campaign_id}")
+def client360_campaign_patch(
+    campaign_id: str,
+    body: CampaignPatch,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    patch = body.model_dump(exclude_unset=True)
+    if isinstance(patch.get("selection_criteria"), dict):
+        patch["selection_criteria"] = {k: v for k, v in patch["selection_criteria"].items() if v is not None}
+    try:
+        campaign = patch_campaign(db, workspace, campaign_id, patch)
+        db.commit()
+        db.refresh(campaign)
+        return {"campaign": serialize_campaign(campaign)}
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/campaigns/{campaign_id}/drafts")
+def client360_campaign_drafts(
+    campaign_id: str,
+    body: CampaignDraftsCreate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        if body.follow_up:
+            result = prepare_campaign_follow_ups(
+                db,
+                workspace,
+                user,
+                campaign_id,
+                language=body.language,
+                include_prices=body.include_prices,
+            )
+        else:
+            result = generate_campaign_drafts(
+                db,
+                workspace,
+                user,
+                campaign_id,
+                language=body.language,
+                include_prices=body.include_prices,
+                limit=body.limit,
+            )
+        db.commit()
+        return result
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/campaigns/{campaign_id}/stats")
+def client360_campaign_stats(
+    campaign_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    try:
+        return campaign_stats(db, workspace, campaign_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/mappings")

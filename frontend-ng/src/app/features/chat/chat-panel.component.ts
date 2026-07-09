@@ -144,6 +144,16 @@ interface ChatMessage {
   decisionSteps?: DecisionStep[];
   sources?: Source[];
   mapCommand?: Record<string, unknown>;
+  // Client360 PDR natural-language action result (Andritz workspace). Carries a
+  // "Ouvrir dans Client360" CTA plus a short result summary so the chat can
+  // surface the answer without pulling the operator out of the conversation.
+  client360Cta?: {
+    label: string;
+    route: string;
+    queryParams?: Record<string, string>;
+    intent?: string;
+    count?: number | null;
+  };
   feedback?: 'up' | 'down' | null;
   durationMs?: number;
   ragMode?: string | null;
@@ -1201,6 +1211,22 @@ const STEP_ICONS: Record<string, string> = {
                     Carte stratégique prête · {{ mapCommandLabel(msg.mapCommand) }}
                   </span>
                 </div>
+              }
+
+              @if (msg.client360Cta) {
+                <a
+                  class="ml-0 mt-1 inline-flex max-w-[85%] items-center gap-2 rounded-xl px-3 py-2 text-xs bg-emerald-500/10 text-emerald-200 ring-1 ring-emerald-400/25 hover:bg-emerald-500/20 transition-colors"
+                  [routerLink]="msg.client360Cta.route"
+                  [queryParams]="msg.client360Cta.queryParams || {}"
+                >
+                  <app-icon name="arrow-up-right" [size]="14" class="text-emerald-300" />
+                  <span>
+                    {{ msg.client360Cta.label }}
+                    @if (msg.client360Cta.count != null && msg.client360Cta.intent === 'opportunities') {
+                      · {{ msg.client360Cta.count }} opportunité(s)
+                    }
+                  </span>
+                </a>
               }
 
               <!-- Missing-citations banner: model cited [N] but the retrieval
@@ -5748,6 +5774,7 @@ export class ChatPanelComponent implements AfterViewInit {
     let reasoning: DecisionStep[] = [];
     let sources: Source[] | undefined;
     let mapCommand: Record<string, unknown> | undefined;
+    let client360Cta: ChatMessage['client360Cta'] | undefined;
     let turnRunId: string | undefined;
     let retrievalInfo: ChatMessage['retrievalInfo'] = null;
     let pendingDeepSearch:
@@ -5917,6 +5944,22 @@ export class ChatPanelComponent implements AfterViewInit {
               window.dispatchEvent(new CustomEvent('agentium:action-plan-updated', { detail: chunk }));
             } else if (action.startsWith('visual_')) {
               window.dispatchEvent(new CustomEvent('agentium:visual-intelligence-updated', { detail: chunk }));
+            } else if (action === 'client360_nl_query') {
+              const payload = (chunk as Record<string, unknown>)['client360_action'] as
+                | Record<string, unknown>
+                | undefined;
+              const cta = payload?.['cta'] as Record<string, unknown> | undefined;
+              if (cta) {
+                const result = (payload?.['result'] as Record<string, unknown> | undefined) || {};
+                const rawCount = result['count'];
+                client360Cta = {
+                  label: String(cta['label'] || 'Ouvrir dans Client360'),
+                  route: String(cta['route'] || '/client360'),
+                  queryParams: (cta['query_params'] as Record<string, string> | undefined) || {},
+                  intent: payload?.['intent'] ? String(payload['intent']) : undefined,
+                  count: typeof rawCount === 'number' ? rawCount : null,
+                };
+              }
             }
           } else if (chunk.chunk_type === 'map_command') {
             // Backend builds these chunks via ``{"chunk_type": "map_command", **command}``
@@ -5955,6 +5998,7 @@ export class ChatPanelComponent implements AfterViewInit {
               decisionSteps: reasoning.length ? reasoning : undefined,
               sources,
               mapCommand,
+              client360Cta,
               feedback: null,
               evaluation: null,
               durationMs,

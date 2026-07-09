@@ -61,6 +61,7 @@ def db_session():
     _TRUNCATE_ORDER = [
         "client360_impact_events",
         "client360_mail_drafts",
+        "client360_campaigns",
         "client360_mapping_rules",
         "client360_opportunities",
         "client360_data_sources",

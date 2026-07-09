@@ -27,11 +27,15 @@ from app.core.settings_manager import get_resolved_settings
 from app.models.action_plan import WorkspaceActionItem
 from app.models.client360 import (
     CLIENT360_ATTRIBUTIONS,
+    CLIENT360_CAMPAIGN_ACTIVE_STATUSES,
+    CLIENT360_CAMPAIGN_STATUSES,
+    CLIENT360_CAMPAIGN_TYPES,
     CLIENT360_IMPACT_TYPES,
     CLIENT360_MAIL_STATUSES,
     CLIENT360_MAPPING_STATUSES,
     CLIENT360_OPPORTUNITY_STATUSES,
     CLIENT360_OUTCOME_REASONS,
+    Client360Campaign,
     Client360DataSource,
     Client360ImpactEvent,
     Client360MappingRule,
@@ -46,6 +50,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.action_plans import create_action_item, serialize_action_item, update_action_item
 from app.services.client360_contract import (
+    CLIENT360_ADDRESSABLE_WEIGHTS,
     CLIENT360_AGENT_ROUTING_CONTRACT,
     CLIENT360_MVP_CONTRACT,
     CLIENT360_SYSTEM_VARIANT,
@@ -60,6 +65,7 @@ PILOT_TECHNOLOGIES = ("JETLACE", "HFR200")
 PILOT_COUNTRIES = ("Greece", "Turkey")
 PILOT_CUSTOMERS = ("Septona",)
 CLIENT360_MAIL_PROMPT_VERSION = "client360_pdr_mail_v2"
+CLIENT360_SUMMARY_PROMPT_VERSION = "client360_pdr_customer_summary_v1"
 KNOWN_LLM_PROVIDERS = {
     "anthropic",
     "azure_openai",
@@ -108,6 +114,7 @@ def client360_scope(workspace: Workspace) -> dict[str, Any]:
         "pilot_technologies": _as_list(configured.get("pilot_technologies")) or list(PILOT_TECHNOLOGIES),
         "pilot_countries": _as_list(configured.get("pilot_countries")) or list(PILOT_COUNTRIES),
         "pilot_customers": _as_list(configured.get("pilot_customers")) or list(PILOT_CUSTOMERS),
+        "addressable_weights": {**CLIENT360_ADDRESSABLE_WEIGHTS, **_as_dict(configured.get("addressable_weights"))},
         "stock_automation": False,
         "internet_sources_policy": "context_only",
         "live_connectors": {"sap": False, "crm": False, "metris": False, "outlook_send": False},
@@ -578,6 +585,11 @@ def serialize_opportunity(opportunity: Client360Opportunity) -> dict[str, Any]:
     addressable = opportunity.potential_addressable
     if addressable is None:
         addressable = gap_qty
+    gap_value = opportunity.potential_gap_value
+    if gap_value is None and gap_qty is not None:
+        unit_price, _price_source = _opportunity_unit_price(opportunity)
+        if unit_price is not None:
+            gap_value = round(gap_qty * unit_price, 2)
     score = opportunity.confidence_score
     label = opportunity.confidence_label
     reasons = _as_list(opportunity.score_reasons)
@@ -605,7 +617,7 @@ def serialize_opportunity(opportunity: Client360Opportunity) -> dict[str, Any]:
         "potential_theoretical": potential,
         "potential_addressable": addressable,
         "potential_gap_qty": gap_qty,
-        "potential_gap_value": opportunity.potential_gap_value,
+        "potential_gap_value": gap_value,
         "potential_unit": opportunity.potential_unit,
         "currency": opportunity.currency,
         "sales_known_qty": opportunity.sales_known_qty,
@@ -660,6 +672,7 @@ def list_opportunities(
     rows = (
         query.order_by(
             Client360Opportunity.confidence_score.desc().nullslast(),
+            Client360Opportunity.potential_gap_value.desc().nullslast(),
             Client360Opportunity.potential_theoretical.desc().nullslast(),
             Client360Opportunity.updated_at.desc(),
         )
@@ -719,6 +732,9 @@ def summary_payload(
     source_counts: dict[str, int] = {}
     for item in data_sources:
         source_counts[item["source_type"]] = source_counts.get(item["source_type"], 0) + 1
+    from app.services.client360_alerts import alerts_summary_block
+
+    alerts = alerts_summary_block(db, workspace)
     return {
         "workspace": {"id": workspace.id, "slug": workspace.slug, "name": workspace.name},
         "positioning": {
@@ -747,7 +763,375 @@ def summary_payload(
         "source_counts": source_counts,
         "data_gaps": _source_gaps(data_sources),
         "data_sources": data_sources[:100],
+        "alerts": alerts,
     }
+
+
+_INSTALLED_BASE_UNKNOWN = "Non renseigne"
+
+
+def _round_or_none(value: Any) -> Optional[float]:
+    number = _safe_float(value)
+    if number is None:
+        return None
+    return round(number, 2)
+
+
+def build_installed_base_tree(opportunities: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate the customer opportunities into a technology > line > machine tree.
+
+    No dedicated installed-base entity exists in this pre-MVP: the flat
+    opportunity rows carry ``technology`` / ``line_label`` / ``machine_label``
+    and are grouped here purely for the customer fiche display.
+    """
+    tech_index: dict[str, dict[str, Any]] = {}
+    for opp in opportunities:
+        technology = _safe_text(opp.get("technology")) or _INSTALLED_BASE_UNKNOWN
+        line = _safe_text(opp.get("line_label")) or _INSTALLED_BASE_UNKNOWN
+        machine = _safe_text(opp.get("machine_label")) or _INSTALLED_BASE_UNKNOWN
+        tech_node = tech_index.setdefault(
+            technology,
+            {"technology": technology, "_lines": {}, "opportunity_count": 0, "potential_gap_value": 0.0},
+        )
+        line_node = tech_node["_lines"].setdefault(
+            line, {"line_label": line, "_machines": {}, "opportunity_count": 0, "potential_gap_value": 0.0}
+        )
+        machine_node = line_node["_machines"].setdefault(
+            machine, {"machine_label": machine, "parts": [], "opportunity_count": 0, "potential_gap_value": 0.0}
+        )
+        gap_value = _safe_float(opp.get("potential_gap_value")) or 0.0
+        part = {
+            "opportunity_id": opp.get("id"),
+            "part_family": opp.get("part_family"),
+            "part_reference": opp.get("part_reference"),
+            "part_description": opp.get("part_description"),
+            "installed_quantity": opp.get("installed_quantity"),
+            "potential_gap_qty": opp.get("potential_gap_qty"),
+            "potential_gap_value": opp.get("potential_gap_value"),
+            "currency": opp.get("currency"),
+            "next_due_at": opp.get("next_due_at"),
+            "confidence_label": opp.get("confidence_label"),
+            "status": opp.get("status"),
+        }
+        machine_node["parts"].append(part)
+        for node in (tech_node, line_node, machine_node):
+            node["opportunity_count"] += 1
+            node["potential_gap_value"] += gap_value
+
+    tree: list[dict[str, Any]] = []
+    for tech_node in sorted(tech_index.values(), key=lambda n: (-n["potential_gap_value"], n["technology"])):
+        lines: list[dict[str, Any]] = []
+        for line_node in sorted(tech_node.pop("_lines").values(), key=lambda n: (-n["potential_gap_value"], n["line_label"])):
+            machines: list[dict[str, Any]] = []
+            for machine_node in sorted(
+                line_node.pop("_machines").values(), key=lambda n: (-n["potential_gap_value"], n["machine_label"])
+            ):
+                machine_node["parts"].sort(key=lambda p: (-(_safe_float(p.get("potential_gap_value")) or 0.0), _safe_text(p.get("part_family"))))
+                machine_node["potential_gap_value"] = _round_or_none(machine_node["potential_gap_value"])
+                machines.append(machine_node)
+            line_node["machines"] = machines
+            line_node["potential_gap_value"] = _round_or_none(line_node["potential_gap_value"])
+            lines.append(line_node)
+        tech_node["lines"] = lines
+        tech_node["potential_gap_value"] = _round_or_none(tech_node["potential_gap_value"])
+        tree.append(tech_node)
+    return tree
+
+
+def build_customer_timeline(
+    opportunities: list[dict[str, Any]],
+    drafts: list[dict[str, Any]],
+    impacts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge drafts, impact events and opportunity updates into a single timeline.
+
+    Sorted most-recent first; entries without a usable timestamp are dropped so
+    the fiche only shows anchored events.
+    """
+    events: list[dict[str, Any]] = []
+    for opp in opportunities:
+        at = opp.get("updated_at") or opp.get("created_at")
+        if not at:
+            continue
+        events.append(
+            {
+                "at": at,
+                "kind": "opportunity_update",
+                "label": f"Opportunite {_safe_text(opp.get('part_family')) or 'PDR'} - {labelify_status(opp.get('status'))}",
+                "status": opp.get("status"),
+                "opportunity_id": opp.get("id"),
+            }
+        )
+    for draft in drafts:
+        if draft.get("sent_at"):
+            events.append(
+                {
+                    "at": draft["sent_at"],
+                    "kind": "mail_sent",
+                    "label": f"Mail envoye : {_safe_text(draft.get('subject')) or 'brouillon'}",
+                    "opportunity_id": draft.get("opportunity_id"),
+                    "mail_draft_id": draft.get("id"),
+                }
+            )
+        elif draft.get("created_at"):
+            events.append(
+                {
+                    "at": draft["created_at"],
+                    "kind": "mail_draft",
+                    "label": f"Brouillon mail : {_safe_text(draft.get('subject')) or 'sans objet'}",
+                    "opportunity_id": draft.get("opportunity_id"),
+                    "mail_draft_id": draft.get("id"),
+                }
+            )
+    for impact in impacts:
+        at = impact.get("occurred_at") or impact.get("created_at")
+        if not at:
+            continue
+        events.append(
+            {
+                "at": at,
+                "kind": f"impact_{_safe_text(impact.get('impact_type')) or 'event'}",
+                "label": _safe_text(impact.get("summary")) or f"Impact : {_safe_text(impact.get('impact_type'))}",
+                "impact_type": impact.get("impact_type"),
+                "opportunity_id": impact.get("opportunity_id"),
+                "mail_draft_id": impact.get("mail_draft_id"),
+            }
+        )
+    events.sort(key=lambda item: _safe_text(item.get("at")), reverse=True)
+    return events
+
+
+def labelify_status(value: Any) -> str:
+    labels = {
+        "detected": "detectee",
+        "validated": "validee",
+        "draft_generated": "brouillon",
+        "sent": "envoyee",
+        "responded": "reponse",
+        "quote_requested": "devis",
+        "won": "gagnee",
+        "lost": "perdue",
+        "dismissed": "ecartee",
+    }
+    return labels.get(_safe_text(value), _safe_text(value) or "-")
+
+
+_CLIENT360_SUMMARY_SYSTEM_PROMPT = """Tu es l'assistant commercial technique ANDRITZ pour Client360 PDR.
+Tu rediges un resume factuel de la fiche client a partir d'agregats structures,
+pour aider un commercial humain a preparer un echange sur les pieces d'usure.
+
+Contraintes strictes:
+- N'invente aucun client, contact, prix, delai, reference, date, stock ou chiffre.
+- Utilise uniquement les agregats fournis (parc installe, opportunites, chronologie).
+- Si une donnee est absente, ne l'affirme pas et signale l'incertitude avec tact.
+- Ne promets ni remise ni stock automatique, ne fais aucune prediction supervisee.
+- Ton expert, sobre, synthetique. Maximum 6 phrases pour le resume.
+- Retourne strictement un objet JSON: {"summary": "...", "highlights": ["...", "..."]}.
+"""
+
+
+def _customer_summary_aggregates(
+    customer_name: str,
+    opportunities: list[dict[str, Any]],
+    installed_base: list[dict[str, Any]],
+    timeline: list[dict[str, Any]],
+    data_gaps: list[str],
+) -> dict[str, Any]:
+    total_gap_value = sum(_safe_float(opp.get("potential_gap_value")) or 0.0 for opp in opportunities)
+    total_gap_qty = sum(_safe_float(opp.get("potential_gap_qty")) or 0.0 for opp in opportunities)
+    by_confidence: dict[str, int] = {}
+    for opp in opportunities:
+        label = _safe_text(opp.get("confidence_label")) or "unknown"
+        by_confidence[label] = by_confidence.get(label, 0) + 1
+    due_dates = sorted(_safe_text(opp.get("next_due_at")) for opp in opportunities if opp.get("next_due_at"))
+    technologies = [node.get("technology") for node in installed_base]
+    return {
+        "customer": customer_name,
+        "opportunity_count": len(opportunities),
+        "technologies": technologies,
+        "technology_count": len(technologies),
+        "total_potential_gap_qty": round(total_gap_qty, 2),
+        "total_potential_gap_value": round(total_gap_value, 2),
+        "by_confidence": by_confidence,
+        "next_due_at": due_dates[0] if due_dates else None,
+        "data_gaps": data_gaps,
+        "recent_events": [
+            {"at": event.get("at"), "kind": event.get("kind"), "label": event.get("label")}
+            for event in timeline[:5]
+        ],
+    }
+
+
+def _summary_user_prompt(aggregates: dict[str, Any]) -> str:
+    return (
+        "Redige le resume de fiche client ANDRITZ Client360 PDR a partir de ces agregats.\n"
+        "Ne retourne ni markdown, ni commentaire hors JSON.\n\n"
+        f"{json.dumps(aggregates, ensure_ascii=False, sort_keys=True)}"
+    )
+
+
+def _client360_summary_ai_config(db: DBSession, workspace: Workspace) -> dict[str, Any]:
+    """Reuse the mail model-resolution helper, retagged for the summary route."""
+    config = dict(_client360_mail_ai_config(db, workspace))
+    config["agent_route"] = CLIENT360_AGENT_ROUTING_CONTRACT["customer_summary"]["route_id"]
+    return config
+
+
+def _parse_ai_summary_json(text: str) -> dict[str, Any] | None:
+    cleaned = _strip_code_fence(text)
+    candidates = [cleaned]
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start >= 0 and end > start:
+        candidates.append(cleaned[start : end + 1])
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        summary = _safe_text(payload.get("summary"))
+        if summary:
+            highlights = [
+                _safe_text(item)
+                for item in _as_list(payload.get("highlights"))
+                if _safe_text(item)
+            ]
+            return {"summary": summary, "highlights": highlights[:6]}
+    if len(cleaned) >= 60:
+        return {"summary": cleaned, "highlights": []}
+    return None
+
+
+async def _complete_client360_summary_ai(
+    *,
+    provider: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    workspace: Workspace,
+) -> str:
+    from app.llm.llm import LLM
+
+    provider_key = _safe_text(provider).lower() or "openai"
+    api_key = settings.openai_api_key if provider_key == "openai" else None
+    llm = LLM(provider=provider_key, api_key=api_key)
+    return await llm.complete(
+        prompt=user_prompt,
+        system_prompt=system_prompt,
+        model=model,
+        temperature=0.2,
+        max_tokens=700,
+        user=f"workspace:{workspace.id}:client360_pdr_customer_summary",
+    )
+
+
+async def _generate_ai_customer_summary(
+    workspace: Workspace,
+    aggregates: dict[str, Any],
+    *,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    user_prompt = _summary_user_prompt(aggregates)
+    prompt_hash = _prompt_hash(_CLIENT360_SUMMARY_SYSTEM_PROMPT, user_prompt)
+    raw = await asyncio.wait_for(
+        _complete_client360_summary_ai(
+            provider=str(config["provider"]),
+            model=str(config["model"]),
+            system_prompt=_CLIENT360_SUMMARY_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            workspace=workspace,
+        ),
+        timeout=float(config["timeout_seconds"]),
+    )
+    parsed = _parse_ai_summary_json(raw)
+    if parsed is None:
+        raise ValueError("Client360 customer summary AI returned an unparsable payload")
+    return {
+        "text": parsed["summary"],
+        "highlights": parsed.get("highlights", []),
+        "generation_mode": "ai_assisted",
+        "provider": config["provider"],
+        "model": config["model"],
+        "model_source": config.get("model_source"),
+        "provider_source": config.get("provider_source"),
+        "routing_source": config.get("routing_source"),
+        "system_id": config.get("system_id"),
+        "capability_id": config.get("capability_id"),
+        "route_id": config.get("agent_route"),
+        "prompt_version": CLIENT360_SUMMARY_PROMPT_VERSION,
+        "prompt_hash": prompt_hash,
+    }
+
+
+def _fallback_customer_summary(aggregates: dict[str, Any], *, reason: str | None = None) -> dict[str, Any]:
+    customer = _safe_text(aggregates.get("customer")) or "Ce client"
+    count = int(aggregates.get("opportunity_count") or 0)
+    technologies = [tech for tech in _as_list(aggregates.get("technologies")) if _safe_text(tech)]
+    gap_value = _safe_float(aggregates.get("total_potential_gap_value"))
+    by_confidence = _as_dict(aggregates.get("by_confidence"))
+    high = int(by_confidence.get("high") or 0)
+    next_due = _safe_text(aggregates.get("next_due_at"))
+    data_gaps = [gap for gap in _as_list(aggregates.get("data_gaps")) if _safe_text(gap)]
+
+    sentences: list[str] = []
+    if count:
+        techno_txt = f" sur {len(technologies)} technologie(s) ({', '.join(technologies[:4])})" if technologies else ""
+        sentences.append(f"{customer} presente {count} opportunite(s) PDR detectee(s){techno_txt}.")
+    else:
+        sentences.append(f"{customer} n'a pas encore d'opportunite PDR detectee.")
+    if gap_value:
+        sentences.append(f"Le potentiel d'ecart valorise cumule est estime a {gap_value:g} EUR (indicatif, non contractuel).")
+    if high:
+        sentences.append(f"{high} opportunite(s) sont en confiance haute et peuvent etre activees en priorite.")
+    if next_due:
+        sentences.append(f"Prochaine echeance estimee : {next_due[:10]}.")
+    if data_gaps:
+        sentences.append(f"Donnees a completer : {', '.join(data_gaps[:4])}.")
+
+    highlights: list[str] = []
+    if gap_value:
+        highlights.append(f"Potentiel valorise : {gap_value:g} EUR")
+    if high:
+        highlights.append(f"Confiance haute : {high}")
+    if next_due:
+        highlights.append(f"Echeance : {next_due[:10]}")
+
+    metadata_reason = {"fallback_reason": reason} if reason else {}
+    return {
+        "text": " ".join(sentences),
+        "highlights": highlights,
+        "generation_mode": "deterministic_template",
+        "provider": None,
+        "model": None,
+        "route_id": CLIENT360_AGENT_ROUTING_CONTRACT["customer_summary"]["route_id"],
+        "prompt_version": CLIENT360_SUMMARY_PROMPT_VERSION,
+        **metadata_reason,
+    }
+
+
+def _generate_customer_summary_content(
+    db: DBSession,
+    workspace: Workspace,
+    aggregates: dict[str, Any],
+) -> dict[str, Any]:
+    config = _client360_summary_ai_config(db, workspace)
+    configured, reason = _mail_ai_configured(config)
+    if not configured:
+        return _fallback_customer_summary(aggregates, reason=reason)
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            return asyncio.run(_generate_ai_customer_summary(workspace, aggregates, config=config))
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("Client360 AI customer summary failed; using deterministic fallback", exc_info=True)
+            return _fallback_customer_summary(aggregates, reason=type(exc).__name__)
+
+    _logger.warning("Client360 AI customer summary skipped inside running event loop")
+    return _fallback_customer_summary(aggregates, reason="running_event_loop")
 
 
 def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> dict[str, Any]:
@@ -796,6 +1180,13 @@ def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> d
             or customer_norm in _normalize_token(item.get("filename"))
         )
     ][:10]
+    serialized_drafts = [serialize_mail_draft(row) for row in drafts]
+    serialized_impacts = [serialize_impact_event(row) for row in impacts]
+    data_gaps = sorted({gap for item in opportunities for gap in item.get("data_gaps", [])})
+    installed_base = build_installed_base_tree(opportunities)
+    timeline = build_customer_timeline(opportunities, serialized_drafts, serialized_impacts)
+    aggregates = _customer_summary_aggregates(customer_name, opportunities, installed_base, timeline, data_gaps)
+    ai_summary = _generate_customer_summary_content(db, workspace, aggregates)
     return {
         "customer": {
             "id": customer_id,
@@ -804,11 +1195,14 @@ def customer_payload(db: DBSession, workspace: Workspace, customer_id: str) -> d
             "hubs": sorted({item["hub"] for item in opportunities if item.get("hub")}),
             "technologies": sorted({item["technology"] for item in opportunities if item.get("technology")}),
         },
+        "ai_summary": ai_summary,
+        "installed_base": installed_base,
+        "timeline": timeline,
         "opportunities": opportunities,
-        "mail_drafts": [serialize_mail_draft(row) for row in drafts],
-        "impact_events": [serialize_impact_event(row) for row in impacts],
+        "mail_drafts": serialized_drafts,
+        "impact_events": serialized_impacts,
         "market_signals": market_signals,
-        "data_gaps": sorted({gap for item in opportunities for gap in item.get("data_gaps", [])}),
+        "data_gaps": data_gaps,
     }
 
 
@@ -1118,7 +1512,116 @@ def _sales_for_record(record: dict[str, Any], sales_index: dict[str, dict[str, A
     return {}
 
 
-def _build_opportunity_payload(record: dict[str, Any], scope: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+def _unit_price_from_value_qty(value: Any, qty: Any) -> Optional[float]:
+    known_value = _safe_non_negative_float(value)
+    known_qty = _safe_float(qty)
+    if known_value is None or known_qty is None or known_qty <= 0:
+        return None
+    return round(known_value / known_qty, 4)
+
+
+def _index_pricing(records: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, float]]]:
+    family: dict[str, dict[str, float]] = {}
+    family_technology: dict[str, dict[str, float]] = {}
+    for record in records:
+        value = _safe_non_negative_float(record.get("sales_known_value"))
+        qty = _safe_float(record.get("sales_known_qty"))
+        if value is None or qty is None or qty <= 0:
+            continue
+        fam = _record_family(record)
+        if not fam:
+            continue
+        family_key = _mapping_key(fam)
+        if family_key:
+            bucket = family.setdefault(family_key, {"value": 0.0, "qty": 0.0})
+            bucket["value"] += value
+            bucket["qty"] += qty
+        family_tech_key = _mapping_key(fam, record.get("technology"))
+        if family_tech_key:
+            bucket = family_technology.setdefault(family_tech_key, {"value": 0.0, "qty": 0.0})
+            bucket["value"] += value
+            bucket["qty"] += qty
+    return {"family": family, "family_technology": family_technology}
+
+
+def _bucket_unit_price(bucket: dict[str, float] | None) -> Optional[float]:
+    if not bucket or bucket.get("qty", 0.0) <= 0:
+        return None
+    return round(float(bucket["value"]) / float(bucket["qty"]), 4)
+
+
+def _estimate_unit_price(record: dict[str, Any], pricing_index: dict[str, Any]) -> tuple[Optional[float], dict[str, Any]]:
+    currency = _safe_text(record.get("currency")) or None
+    direct = _unit_price_from_value_qty(record.get("sales_known_value"), record.get("sales_known_qty"))
+    if direct is not None:
+        return direct, {
+            "source": "direct",
+            "unit_price": direct,
+            "currency": currency,
+            "sales_known_value": _safe_non_negative_float(record.get("sales_known_value")),
+            "sales_known_qty": _safe_float(record.get("sales_known_qty")),
+        }
+    family = _record_family(record)
+    family_index = _as_dict(pricing_index.get("family"))
+    family_price = _bucket_unit_price(family_index.get(_mapping_key(family)))
+    if family_price is not None:
+        return family_price, {"source": "family_average", "unit_price": family_price, "currency": currency}
+    family_tech_index = _as_dict(pricing_index.get("family_technology"))
+    family_tech_price = _bucket_unit_price(family_tech_index.get(_mapping_key(family, record.get("technology"))))
+    if family_tech_price is not None:
+        return family_tech_price, {"source": "family_technology_average", "unit_price": family_tech_price, "currency": currency}
+    return None, {"source": None, "unit_price": None, "currency": currency}
+
+
+def _addressable_factor(
+    weights: dict[str, Any],
+    *,
+    hub_present: bool,
+    has_purchase_history: bool,
+    conversion_rate: float,
+) -> float:
+    factor = float(weights.get("base", CLIENT360_ADDRESSABLE_WEIGHTS["base"]))
+    if hub_present:
+        factor += float(weights.get("hub_present", CLIENT360_ADDRESSABLE_WEIGHTS["hub_present"]))
+    if has_purchase_history:
+        factor += float(weights.get("existing_purchase_history", CLIENT360_ADDRESSABLE_WEIGHTS["existing_purchase_history"]))
+    factor += float(weights.get("observed_conversion", CLIENT360_ADDRESSABLE_WEIGHTS["observed_conversion"])) * max(0.0, min(1.0, conversion_rate))
+    return round(max(0.0, min(1.0, factor)), 4)
+
+
+def _observed_conversion_rate(db: DBSession, workspace: Workspace) -> float:
+    counts: dict[str, int] = {}
+    for (impact_type,) in (
+        db.query(Client360ImpactEvent.impact_type)
+        .filter(Client360ImpactEvent.workspace_id == workspace.id)
+        .all()
+    ):
+        counts[impact_type] = counts.get(impact_type, 0) + 1
+    orders = counts.get("order", 0)
+    signals = orders + counts.get("lost", 0) + counts.get("response", 0) + counts.get("quote", 0) + counts.get("no_response", 0)
+    if signals <= 0:
+        return 0.0
+    return round(orders / signals, 4)
+
+
+def _opportunity_unit_price(opportunity: Client360Opportunity) -> tuple[Optional[float], str | None]:
+    pricing = _as_dict(_as_dict(opportunity.meta_data).get("pricing"))
+    stored = _safe_non_negative_float(pricing.get("unit_price"))
+    if stored is not None:
+        return stored, _safe_text(pricing.get("source")) or "meta_data"
+    direct = _unit_price_from_value_qty(opportunity.sales_known_value, opportunity.sales_known_qty)
+    if direct is not None:
+        return direct, "direct"
+    return None, None
+
+
+def _build_opportunity_payload(
+    record: dict[str, Any],
+    scope: dict[str, Any],
+    *,
+    pricing_index: dict[str, Any] | None = None,
+    conversion_rate: float = 0.0,
+) -> tuple[dict[str, Any] | None, str | None]:
     customer_name = _safe_text(record.get("customer_name") or record.get("customer_key"))
     family = _record_family(record)
     if not customer_name:
@@ -1135,6 +1638,18 @@ def _build_opportunity_payload(record: dict[str, Any], scope: dict[str, Any]) ->
     )
     sales_qty = _safe_non_negative_float(record.get("sales_known_qty"))
     gap_qty = max(round(float(annual) - float(sales_qty or 0), 4), 0) if annual is not None and sales_qty is not None else None
+    unit_price, pricing_meta = _estimate_unit_price(record, _as_dict(pricing_index))
+    gap_value = round(gap_qty * unit_price, 2) if gap_qty is not None and unit_price is not None else None
+    weights = _as_dict(scope.get("addressable_weights")) or dict(CLIENT360_ADDRESSABLE_WEIGHTS)
+    hub_present = bool(_safe_text(record.get("hub")))
+    has_purchase_history = _safe_float(record.get("sales_known_qty")) is not None
+    factor = _addressable_factor(
+        weights,
+        hub_present=hub_present,
+        has_purchase_history=has_purchase_history,
+        conversion_rate=conversion_rate,
+    )
+    addressable = round(gap_qty * factor, 4) if gap_qty is not None else None
     next_due = None
     if record.get("next_due_at"):
         try:
@@ -1160,11 +1675,12 @@ def _build_opportunity_payload(record: dict[str, Any], scope: dict[str, Any]) ->
         delivery_time_weeks=_safe_float(record.get("delivery_time_weeks")),
         annual_theoretical_qty=annual,
         potential_theoretical=annual,
-        potential_addressable=gap_qty,
+        potential_addressable=addressable,
         potential_gap_qty=gap_qty,
+        potential_gap_value=gap_value,
         sales_known_qty=sales_qty,
         sales_known_value=_safe_non_negative_float(record.get("sales_known_value")),
-        currency=_safe_text(record.get("currency")) or None,
+        currency=_safe_text(record.get("currency")) or pricing_meta.get("currency"),
         next_due_at=next_due,
         data_gaps=[],
         evidence_refs=_as_list(record.get("evidence_refs")),
@@ -1178,6 +1694,15 @@ def _build_opportunity_payload(record: dict[str, Any], scope: dict[str, Any]) ->
                 "name": record.get("contact_name"),
                 "email": record.get("contact_email"),
                 "hub": record.get("hub"),
+            },
+            "pricing": pricing_meta,
+            "addressable_factors": {
+                "weights": weights,
+                "hub_present": hub_present,
+                "existing_purchase_history": has_purchase_history,
+                "observed_conversion_rate": round(max(0.0, min(1.0, conversion_rate)), 4),
+                "factor": factor,
+                "gap_qty": gap_qty,
             },
             "scope": scope,
         },
@@ -1208,6 +1733,7 @@ def _build_opportunity_payload(record: dict[str, Any], scope: dict[str, Any]) ->
         "potential_theoretical": opportunity.potential_theoretical,
         "potential_addressable": opportunity.potential_addressable,
         "potential_gap_qty": opportunity.potential_gap_qty,
+        "potential_gap_value": opportunity.potential_gap_value,
         "sales_known_qty": opportunity.sales_known_qty,
         "sales_known_value": opportunity.sales_known_value,
         "currency": opportunity.currency,
@@ -1242,6 +1768,8 @@ def run_opportunity_engine(
 
     periodicity_index = _index_periodicity(mapped_records)
     sales_index = _index_sales(mapped_records)
+    pricing_index = _index_pricing(mapped_records)
+    conversion_rate = _observed_conversion_rate(db, workspace)
     opportunity_records: list[dict[str, Any]] = []
     for record in mapped_records:
         family = _record_family(record)
@@ -1254,7 +1782,12 @@ def run_opportunity_engine(
         if record.get("installed_quantity") is None:
             skipped["installed_quantity_missing_for_generation"] = skipped.get("installed_quantity_missing_for_generation", 0) + 1
             continue
-        payload, reason = _build_opportunity_payload(record, scope)
+        payload, reason = _build_opportunity_payload(
+            record,
+            scope,
+            pricing_index=pricing_index,
+            conversion_rate=conversion_rate,
+        )
         if reason:
             skipped[reason] = skipped.get(reason, 0) + 1
             continue
@@ -1841,6 +2374,7 @@ def serialize_mail_draft(row: Client360MailDraft) -> dict[str, Any]:
         "id": row.id,
         "opportunity_id": row.opportunity_id,
         "action_item_id": row.action_item_id,
+        "campaign_id": row.campaign_id,
         "subject": row.subject,
         "generated_body": row.generated_body,
         "sent_body": row.sent_body,
@@ -2075,6 +2609,7 @@ def serialize_impact_event(row: Client360ImpactEvent) -> dict[str, Any]:
         "opportunity_id": row.opportunity_id,
         "action_item_id": row.action_item_id,
         "mail_draft_id": row.mail_draft_id,
+        "campaign_id": row.campaign_id,
         "impact_type": row.impact_type,
         "attribution": row.attribution,
         "reason": row.reason,
@@ -2123,12 +2658,22 @@ def record_impact(
     client360_meta = _as_dict(_as_dict(action.meta_data).get("client360"))
     resolved_opportunity_id = opportunity_id or client360_meta.get("opportunity_id")
     resolved_draft_id = mail_draft_id or client360_meta.get("mail_draft_id")
+    resolved_campaign_id = None
+    if resolved_draft_id:
+        draft_row = (
+            db.query(Client360MailDraft)
+            .filter(Client360MailDraft.id == resolved_draft_id, Client360MailDraft.workspace_id == workspace.id)
+            .first()
+        )
+        if draft_row is not None:
+            resolved_campaign_id = draft_row.campaign_id
     event = Client360ImpactEvent(
         id=str(uuid4()),
         workspace_id=workspace.id,
         opportunity_id=resolved_opportunity_id,
         action_item_id=action.id,
         mail_draft_id=resolved_draft_id,
+        campaign_id=resolved_campaign_id,
         impact_type=impact_type,
         attribution=attribution,
         reason=reason,
@@ -2188,3 +2733,409 @@ def opportunity_facets(db: DBSession, workspace: Workspace) -> dict[str, list[st
         if confidence:
             result["confidence_labels"].add(confidence)
     return {key: sorted(value) for key, value in result.items()}
+
+
+# ---------------------------------------------------------------------------
+# Campaign entity and transformation tracking (spec §5).
+#
+# A campaign selects opportunities from the same filters as ``list_opportunities``,
+# de-duplicates customers already engaged in another active campaign or without a
+# contact email, then generates human-validated mail drafts in batch. Impact
+# events attached to those drafts feed the transformation stats. No email is ever
+# sent automatically: the contract ``no_automatic_email_send`` still holds.
+# ---------------------------------------------------------------------------
+
+CAMPAIGN_SELECTION_KEYS = (
+    "status",
+    "customer",
+    "country",
+    "hub",
+    "technology",
+    "part_family",
+    "confidence",
+    "limit",
+)
+_CAMPAIGN_RESPONDED_STATUSES = {"responded", "quote_requested", "won", "lost", "dismissed"}
+
+
+def _campaign_selection_filters(criteria: Any) -> dict[str, Any]:
+    data = _as_dict(criteria)
+    out: dict[str, Any] = {}
+    for key in CAMPAIGN_SELECTION_KEYS:
+        value = data.get(key)
+        if value is None or value == "":
+            continue
+        out[key] = _safe_int(value, 100) if key == "limit" else _safe_text(value)
+    return out
+
+
+def serialize_campaign(row: Client360Campaign) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "campaign_type": row.campaign_type,
+        "status": row.status,
+        "description": row.description,
+        "selection_criteria": row.selection_criteria or {},
+        "targeted_count": row.targeted_count,
+        "drafts_count": row.drafts_count,
+        "metadata": row.meta_data or {},
+        "created_by_user_id": row.created_by_user_id,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+def list_campaigns(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    status: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    query = db.query(Client360Campaign).filter(Client360Campaign.workspace_id == workspace.id)
+    if status:
+        query = query.filter(Client360Campaign.status == status)
+    rows = query.order_by(Client360Campaign.created_at.desc()).limit(max(1, min(limit, 500))).all()
+    return [serialize_campaign(row) for row in rows]
+
+
+def _get_campaign(db: DBSession, workspace: Workspace, campaign_id: str) -> Client360Campaign:
+    row = (
+        db.query(Client360Campaign)
+        .filter(Client360Campaign.id == campaign_id, Client360Campaign.workspace_id == workspace.id)
+        .first()
+    )
+    if not row:
+        raise LookupError("Client360 campaign not found")
+    return row
+
+
+def create_campaign(
+    db: DBSession,
+    workspace: Workspace,
+    user: User | None,
+    *,
+    name: str,
+    campaign_type: str,
+    selection_criteria: dict[str, Any] | None = None,
+    description: str = "",
+    status: str = "draft",
+    metadata: dict[str, Any] | None = None,
+) -> Client360Campaign:
+    clean_name = _safe_text(name)
+    if not clean_name:
+        raise ValueError("Campaign name is required")
+    if campaign_type not in CLIENT360_CAMPAIGN_TYPES:
+        raise ValueError("Invalid Client360 campaign type")
+    if status not in CLIENT360_CAMPAIGN_STATUSES:
+        raise ValueError("Invalid Client360 campaign status")
+    row = Client360Campaign(
+        id=str(uuid4()),
+        workspace_id=workspace.id,
+        name=clean_name,
+        campaign_type=campaign_type,
+        status=status,
+        description=_safe_text(description),
+        selection_criteria=_campaign_selection_filters(selection_criteria),
+        targeted_count=0,
+        drafts_count=0,
+        meta_data=_as_dict(metadata),
+        created_by_user_id=user.id if user else None,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def patch_campaign(
+    db: DBSession,
+    workspace: Workspace,
+    campaign_id: str,
+    patch: dict[str, Any],
+) -> Client360Campaign:
+    campaign = _get_campaign(db, workspace, campaign_id)
+    if patch.get("name") is not None:
+        clean_name = _safe_text(patch["name"])
+        if not clean_name:
+            raise ValueError("Campaign name is required")
+        campaign.name = clean_name
+    if patch.get("campaign_type") is not None:
+        if patch["campaign_type"] not in CLIENT360_CAMPAIGN_TYPES:
+            raise ValueError("Invalid Client360 campaign type")
+        campaign.campaign_type = patch["campaign_type"]
+    if patch.get("status") is not None:
+        if patch["status"] not in CLIENT360_CAMPAIGN_STATUSES:
+            raise ValueError("Invalid Client360 campaign status")
+        campaign.status = patch["status"]
+    if patch.get("description") is not None:
+        campaign.description = _safe_text(patch["description"])
+    if patch.get("selection_criteria") is not None:
+        campaign.selection_criteria = _campaign_selection_filters(patch["selection_criteria"])
+    campaign.updated_at = datetime.utcnow()
+    db.flush()
+    return campaign
+
+
+def _serialized_contact_email(item: dict[str, Any]) -> str:
+    contact = _as_dict(_as_dict(item.get("metadata")).get("contact"))
+    return _safe_text(contact.get("email"))
+
+
+def _customers_in_active_campaigns(
+    db: DBSession,
+    workspace: Workspace,
+    *,
+    exclude_campaign_id: str | None = None,
+) -> set[str]:
+    active_ids = [
+        cid
+        for (cid,) in db.query(Client360Campaign.id)
+        .filter(
+            Client360Campaign.workspace_id == workspace.id,
+            Client360Campaign.status.in_(CLIENT360_CAMPAIGN_ACTIVE_STATUSES),
+        )
+        .all()
+        if cid and cid != exclude_campaign_id
+    ]
+    if not active_ids:
+        return set()
+    rows = (
+        db.query(Client360Opportunity.customer_key)
+        .join(Client360MailDraft, Client360MailDraft.opportunity_id == Client360Opportunity.id)
+        .filter(
+            Client360MailDraft.workspace_id == workspace.id,
+            Client360MailDraft.campaign_id.in_(active_ids),
+        )
+        .all()
+    )
+    return {customer_key for (customer_key,) in rows if customer_key}
+
+
+def _customers_with_campaign_drafts(db: DBSession, workspace: Workspace, campaign_id: str) -> set[str]:
+    rows = (
+        db.query(Client360Opportunity.customer_key)
+        .join(Client360MailDraft, Client360MailDraft.opportunity_id == Client360Opportunity.id)
+        .filter(
+            Client360MailDraft.workspace_id == workspace.id,
+            Client360MailDraft.campaign_id == campaign_id,
+        )
+        .all()
+    )
+    return {customer_key for (customer_key,) in rows if customer_key}
+
+
+def _attach_campaign_to_draft(draft: Client360MailDraft, campaign_id: str, *, extra: dict[str, Any] | None = None) -> None:
+    draft.campaign_id = campaign_id
+    metadata = dict(draft.meta_data or {})
+    metadata["campaign_id"] = campaign_id
+    if extra:
+        metadata.update(extra)
+    draft.meta_data = metadata
+
+
+def generate_campaign_drafts(
+    db: DBSession,
+    workspace: Workspace,
+    user: User,
+    campaign_id: str,
+    *,
+    language: str = "fr",
+    include_prices: bool = False,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    campaign = _get_campaign(db, workspace, campaign_id)
+    filters = _campaign_selection_filters(campaign.selection_criteria)
+    items = list_opportunities(db, workspace, **filters)
+
+    engaged = _customers_in_active_campaigns(db, workspace, exclude_campaign_id=campaign.id)
+    already_drafted = _customers_with_campaign_drafts(db, workspace, campaign.id)
+    max_new = _safe_int(limit, 0) if limit is not None else None
+
+    created: list[Client360MailDraft] = []
+    skipped: dict[str, int] = {}
+    seen_customers: set[str] = set()
+
+    def _skip(reason: str) -> None:
+        skipped[reason] = skipped.get(reason, 0) + 1
+
+    for item in items:
+        customer_key = _safe_text(item.get("customer_key"))
+        if customer_key and (customer_key in already_drafted or customer_key in seen_customers):
+            _skip("already_in_campaign")
+            continue
+        if customer_key and customer_key in engaged:
+            _skip("active_campaign_conflict")
+            continue
+        if not _serialized_contact_email(item):
+            _skip("missing_contact_email")
+            continue
+        if max_new is not None and len(created) >= max_new:
+            break
+        draft, _action = create_mail_draft(
+            db,
+            workspace,
+            user,
+            opportunity_id=item["id"],
+            language=language,
+            include_prices=include_prices,
+        )
+        _attach_campaign_to_draft(draft, campaign.id)
+        if customer_key:
+            seen_customers.add(customer_key)
+        created.append(draft)
+
+    db.flush()
+    campaign.targeted_count = len({_safe_text(item.get("customer_key")) for item in items if item.get("customer_key")})
+    campaign.drafts_count = (
+        db.query(Client360MailDraft)
+        .filter(Client360MailDraft.workspace_id == workspace.id, Client360MailDraft.campaign_id == campaign.id)
+        .count()
+    )
+    if created and campaign.status in ("draft", "in_review"):
+        campaign.status = "active"
+    campaign.updated_at = datetime.utcnow()
+    db.flush()
+    return {
+        "campaign": serialize_campaign(campaign),
+        "created": len(created),
+        "skipped": skipped,
+        "drafts": [serialize_mail_draft(draft) for draft in created],
+    }
+
+
+def prepare_campaign_follow_ups(
+    db: DBSession,
+    workspace: Workspace,
+    user: User,
+    campaign_id: str,
+    *,
+    language: str = "fr",
+    include_prices: bool = False,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    from app.services.client360_alerts import alert_thresholds
+
+    campaign = _get_campaign(db, workspace, campaign_id)
+    current_time = now or datetime.utcnow()
+    no_response_days = int(alert_thresholds(workspace)["no_response_days"])
+
+    sent_drafts = (
+        db.query(Client360MailDraft)
+        .filter(
+            Client360MailDraft.workspace_id == workspace.id,
+            Client360MailDraft.campaign_id == campaign.id,
+            Client360MailDraft.status == "sent",
+        )
+        .all()
+    )
+
+    prepared: list[Client360MailDraft] = []
+    skipped: dict[str, int] = {}
+
+    def _skip(reason: str) -> None:
+        skipped[reason] = skipped.get(reason, 0) + 1
+
+    already_followed_up = {
+        _safe_text(_as_dict(draft.meta_data).get("follow_up_of"))
+        for draft in db.query(Client360MailDraft)
+        .filter(
+            Client360MailDraft.workspace_id == workspace.id,
+            Client360MailDraft.campaign_id == campaign.id,
+        )
+        .all()
+        if _as_dict(draft.meta_data).get("follow_up_of")
+    }
+
+    for draft in sent_drafts:
+        if draft.sent_at is None:
+            _skip("missing_sent_at")
+            continue
+        if draft.id in already_followed_up:
+            _skip("follow_up_already_prepared")
+            continue
+        days_since = (current_time - draft.sent_at).days
+        if days_since < no_response_days:
+            _skip("not_due_yet")
+            continue
+        opportunity = _get_opportunity(db, workspace, draft.opportunity_id)
+        if opportunity.status in _CAMPAIGN_RESPONDED_STATUSES:
+            _skip("already_responded")
+            continue
+        follow_up, _action = create_mail_draft(
+            db,
+            workspace,
+            user,
+            opportunity_id=draft.opportunity_id,
+            language=language,
+            include_prices=include_prices,
+        )
+        _attach_campaign_to_draft(
+            follow_up,
+            campaign.id,
+            extra={
+                "follow_up": True,
+                "follow_up_of": draft.id,
+                "days_since_sent": days_since,
+                "human_validation_required": True,
+                "automatic_send": False,
+            },
+        )
+        prepared.append(follow_up)
+
+    db.flush()
+    campaign.drafts_count = (
+        db.query(Client360MailDraft)
+        .filter(Client360MailDraft.workspace_id == workspace.id, Client360MailDraft.campaign_id == campaign.id)
+        .count()
+    )
+    campaign.updated_at = datetime.utcnow()
+    db.flush()
+    return {
+        "campaign": serialize_campaign(campaign),
+        "prepared": len(prepared),
+        "no_response_days": no_response_days,
+        "skipped": skipped,
+        "drafts": [serialize_mail_draft(draft) for draft in prepared],
+    }
+
+
+def campaign_stats(db: DBSession, workspace: Workspace, campaign_id: str) -> dict[str, Any]:
+    campaign = _get_campaign(db, workspace, campaign_id)
+    drafts = (
+        db.query(Client360MailDraft)
+        .filter(Client360MailDraft.workspace_id == workspace.id, Client360MailDraft.campaign_id == campaign.id)
+        .all()
+    )
+    sent = sum(1 for draft in drafts if draft.status == "sent")
+
+    events = (
+        db.query(Client360ImpactEvent)
+        .filter(Client360ImpactEvent.workspace_id == workspace.id, Client360ImpactEvent.campaign_id == campaign.id)
+        .all()
+    )
+    responses = sum(1 for event in events if event.impact_type == "response")
+    quotes = sum(1 for event in events if event.impact_type == "quote")
+    orders = sum(1 for event in events if event.impact_type == "order")
+    won_value = round(sum(float(event.order_value or 0) for event in events if event.impact_type == "order"), 2)
+
+    filters = _campaign_selection_filters(campaign.selection_criteria)
+    items = list_opportunities(db, workspace, **filters)
+    potential_gap_value = round(sum(float(item.get("potential_gap_value") or 0) for item in items), 2)
+    targeted_customers = len({_safe_text(item.get("customer_key")) for item in items if item.get("customer_key")})
+
+    return {
+        "campaign": serialize_campaign(campaign),
+        "stats": {
+            "targeted_opportunities": len(items),
+            "targeted_customers": targeted_customers,
+            "potential_gap_value": potential_gap_value,
+            "drafts": len(drafts),
+            "sent": sent,
+            "responses": responses,
+            "quotes": quotes,
+            "orders": orders,
+            "won_value": won_value,
+            "currency": "EUR",
+        },
+    }

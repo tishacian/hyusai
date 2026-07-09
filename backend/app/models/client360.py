@@ -16,6 +16,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     JSON,
     String,
     Text,
@@ -66,6 +67,18 @@ CLIENT360_OUTCOME_REASONS = (
     "other",
     "unknown",
 )
+CLIENT360_CAMPAIGN_TYPES = (
+    "first_replacement",
+    "maintenance_education",
+    "renewal",
+    "cross_selling",
+    "upselling",
+    "free",
+)
+CLIENT360_CAMPAIGN_STATUSES = ("draft", "in_review", "active", "completed", "archived")
+# Statuses for which a customer is considered already engaged in a campaign, so
+# a new campaign de-duplicates them out. Completed/archived campaigns free them.
+CLIENT360_CAMPAIGN_ACTIVE_STATUSES = ("draft", "in_review", "active")
 
 
 class Client360DataSource(Base):
@@ -200,6 +213,40 @@ class Client360MappingRule(Base):
     )
 
 
+class Client360Campaign(Base):
+    __tablename__ = "client360_campaigns"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    name = Column(String(255), nullable=False)
+    campaign_type = Column(String(40), nullable=False, default="free")
+    status = Column(String(32), nullable=False, default="draft", index=True)
+    description = Column(Text, nullable=False, default="")
+    selection_criteria = Column(JSON, nullable=False, default=dict)
+
+    targeted_count = Column(Integer, nullable=False, default=0)
+    drafts_count = Column(Integer, nullable=False, default=0)
+
+    meta_data = Column("metadata", JSON, nullable=False, default=dict)
+
+    created_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "campaign_type IN ('first_replacement', 'maintenance_education', 'renewal', 'cross_selling', 'upselling', 'free')",
+            name="ck_client360_campaigns_type",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'in_review', 'active', 'completed', 'archived')",
+            name="ck_client360_campaigns_status",
+        ),
+        Index("ix_client360_campaigns_workspace_status", "workspace_id", "status"),
+    )
+
+
 class Client360MailDraft(Base):
     __tablename__ = "client360_mail_drafts"
 
@@ -207,6 +254,7 @@ class Client360MailDraft(Base):
     workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     opportunity_id = Column(String(36), ForeignKey("client360_opportunities.id", ondelete="CASCADE"), nullable=False, index=True)
     action_item_id = Column(String(36), ForeignKey("workspace_action_items.id", ondelete="SET NULL"), nullable=True, index=True)
+    campaign_id = Column(String(36), ForeignKey("client360_campaigns.id", ondelete="SET NULL"), nullable=True, index=True)
 
     subject = Column(String(255), nullable=False)
     generated_body = Column(Text, nullable=False)
@@ -237,6 +285,7 @@ class Client360ImpactEvent(Base):
     opportunity_id = Column(String(36), ForeignKey("client360_opportunities.id", ondelete="SET NULL"), nullable=True, index=True)
     action_item_id = Column(String(36), ForeignKey("workspace_action_items.id", ondelete="SET NULL"), nullable=True, index=True)
     mail_draft_id = Column(String(36), ForeignKey("client360_mail_drafts.id", ondelete="SET NULL"), nullable=True, index=True)
+    campaign_id = Column(String(36), ForeignKey("client360_campaigns.id", ondelete="SET NULL"), nullable=True, index=True)
 
     impact_type = Column(String(32), nullable=False)
     attribution = Column(String(24), nullable=False, default="unknown")

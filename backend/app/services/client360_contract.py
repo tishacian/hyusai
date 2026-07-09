@@ -7,6 +7,18 @@ from typing import Any
 CLIENT360_SYSTEM_VARIANT = "client360_pdr"
 CLIENT360_CAPABILITY_SLUG = "client360_pdr_opportunity_engine"
 
+# Deterministic default weights used to turn a raw quantity gap into a weighted
+# addressable potential. The factor is base + bonuses (present hub, existing
+# purchase history) + observed conversion rate contribution, clamped to [0, 1].
+# Defaults are tuned so a fully-signalled opportunity with a 100% observed
+# conversion rate reaches 1.0 (full gap considered addressable).
+CLIENT360_ADDRESSABLE_WEIGHTS: dict[str, float] = {
+    "base": 0.4,
+    "hub_present": 0.2,
+    "existing_purchase_history": 0.25,
+    "observed_conversion": 0.15,
+}
+
 CLIENT360_MVP_CONTRACT: dict[str, Any] = {
     "official_name": "Client360 PDR",
     "product_mode": "assistant_commercial_ia_spare_parts",
@@ -31,6 +43,7 @@ CLIENT360_MVP_CONTRACT: dict[str, Any] = {
         "prioritized_opportunities",
         "human_validated_ai_mail_drafts",
         "manual_mail_follow_up",
+        "campaign_transformation_tracking",
         "impact_learning_loop",
         "hub_country_routing_context",
     ],
@@ -96,5 +109,22 @@ CLIENT360_AGENT_ROUTING_CONTRACT: dict[str, Any] = {
         ],
         "human_validation_required": True,
         "manual_send_only": True,
-    }
+    },
+    "customer_summary": {
+        "route_id": "client360_pdr_customer_summary",
+        "kind": "llm",
+        "prompt_version": "client360_pdr_customer_summary_v1",
+        "model_resolution_order": [
+            "workspace.settings.client360_pdr_mail",
+            "system.settings.client360_pdr_mail",
+            "system.default_model",
+            "agentium.resolved_system_preset",
+            "agentium.resolved_capability_preset",
+            "agentium.resolved_workspace_preset",
+            "global_defaults",
+        ],
+        "human_validation_required": False,
+        "manual_send_only": False,
+        "read_only": True,
+    },
 }
