@@ -544,15 +544,25 @@ async def handle_client360_chat_query(
     query: str,
     assistant_profile: Optional[str] = None,
     session_id: Optional[str] = None,
+    require_trigger: bool = True,
 ) -> Optional[dict[str, Any]]:
     """Resolve a Client360 NL question into a bounded read + chat response.
 
-    Returns ``None`` (so the caller falls through to normal RAG) when the
-    workspace is not ``andritz`` or the question is not a Client360 query.
+    This powers the **dedicated** Client360 assistant surface (endpoint
+    ``POST /api/v1/client360/chat``); it is intentionally NOT wired into the
+    general Andritz research chat so the two are fully decoupled.
+
+    Returns ``None`` when the workspace is not ``andritz``. When
+    ``require_trigger`` is ``True`` it also returns ``None`` for questions that
+    do not clearly belong to the Client360 domain (legacy keyword guard). The
+    dedicated assistant passes ``require_trigger=False`` since every question on
+    that surface is implicitly about Client360.
     """
     if (workspace.slug or "").lower() != ANDRITZ_WORKSPACE_SLUG:
         return None
-    if not query or not is_client360_query(query):
+    if not query or not query.strip():
+        return None
+    if require_trigger and not is_client360_query(query):
         return None
 
     # Single bounded scan reused for facet vocabulary and (for the list intent)

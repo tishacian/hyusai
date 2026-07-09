@@ -55,14 +55,28 @@ def _run(coro):
 
 
 # ---------------------------------------------------------------------------
-# Registry manifest binding
+# Decoupling from the general research chat
 # ---------------------------------------------------------------------------
-def test_manifest_registered_in_andritz_pack() -> None:
+def test_not_registered_in_research_chat_actions() -> None:
+    """The Client360 assistant is dedicated to the Client360 app; it must NOT be
+    wired into the general Andritz research-chat action registry (otherwise the
+    research chat would redirect Client360-sounding questions)."""
     manifest = next((m for m in ANDRITZ_ACTIONS if m.action_id == client360_chat.CLIENT360_NL_ACTION_ID), None)
-    assert manifest is not None
-    assert manifest.pack == "andritz_industrial_v1"
-    assert manifest.audit_event == client360_chat.CLIENT360_NL_AUDIT_EVENT
-    assert "chat" in manifest.surfaces
+    assert manifest is None
+
+
+def test_dedicated_surface_answers_without_trigger(db_session) -> None:
+    """On the dedicated endpoint (require_trigger=False) any question is answered
+    within the Client360 domain, even without a Client360 keyword."""
+    workspace = _seed_workspace(db_session)
+    _seed_opportunity(db_session, workspace)
+    result = _run(
+        client360_chat.handle_client360_chat_query(
+            db_session, workspace, None, query="donne-moi un aperçu", require_trigger=False
+        )
+    )
+    assert result is not None
+    assert result["action"] == "client360_nl_query"
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,18 @@ import { FormsModule } from '@angular/forms';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { GlyphComponent, PageFrameComponent } from '@app/shared/cockpit';
 
-type ViewKey = 'opportunities' | 'customer' | 'data' | 'mapping' | 'mail' | 'campaigns';
+type ViewKey = 'opportunities' | 'customer' | 'data' | 'mapping' | 'mail' | 'campaigns' | 'chat';
+
+interface Client360ChatSource {
+  title?: string;
+  source_label?: string;
+}
+
+interface Client360ChatResponse {
+  content?: string;
+  sources?: Client360ChatSource[];
+  intent?: string;
+}
 
 interface Client360DataSource {
   id: string;
@@ -1103,6 +1114,51 @@ interface Client360CampaignDraftsResult {
           </div>
         </section>
       }
+
+      @if (view() === 'chat') {
+        <section class="ck-surface chat-assistant">
+          <div class="panel-head">
+            <h3><ck-glyph name="orbit" [size]="14" color="currentColor" /> Assistant Client360</h3>
+            <span class="muted">Opportunites, campagnes et fiches clients — reponses sourcees, jamais de SQL libre.</span>
+          </div>
+          <div class="chat-thread">
+            @for (msg of chatMessages(); track $index) {
+              <div class="chat-msg" [ngClass]="msg.role">
+                <div class="chat-bubble">
+                  <p class="chat-text">{{ msg.content }}</p>
+                  @if (msg.sources?.length) {
+                    <ul class="chat-sources">
+                      @for (src of msg.sources; track $index) {
+                        <li>{{ src }}</li>
+                      }
+                    </ul>
+                  }
+                </div>
+              </div>
+            } @empty {
+              <div class="state-line">Posez une question : « opportunites haute confiance », « campagnes en cours », « fiche client Septona »…</div>
+            }
+            @if (chatBusy()) {
+              <div class="chat-msg assistant"><div class="chat-bubble muted"><ck-glyph name="pulse" [size]="12" color="currentColor" /> Recherche…</div></div>
+            }
+          </div>
+          @if (chatError()) {
+            <div class="action-status error" role="status" aria-live="polite">{{ chatError() }}</div>
+          }
+          <form class="chat-input" (ngSubmit)="sendChatMessage()">
+            <input
+              type="text"
+              name="chatInput"
+              [(ngModel)]="chatInput"
+              [disabled]="chatBusy()"
+              placeholder="Poser une question a l'assistant Client360…"
+            />
+            <button type="submit" class="primary" [disabled]="chatBusy() || !chatInput.trim()">
+              <ck-glyph name="arrow-up" [size]="14" color="currentColor" /> Envoyer
+            </button>
+          </form>
+        </section>
+      }
       </section>
     </ck-page-frame>
   `,
@@ -1276,6 +1332,21 @@ interface Client360CampaignDraftsResult {
     @keyframes c360-spin {
       to { transform: rotate(360deg); }
     }
+    .chat-assistant { display: flex; flex-direction: column; gap: 12px; padding: 16px; min-height: 420px; }
+    .chat-thread { display: flex; flex-direction: column; gap: 10px; flex: 1; overflow-y: auto; max-height: 60vh; padding-right: 4px; }
+    .chat-msg { display: flex; }
+    .chat-msg.user { justify-content: flex-end; }
+    .chat-msg.assistant { justify-content: flex-start; }
+    .chat-bubble {
+      max-width: 82%; border-radius: var(--ck-radius-lg); padding: 10px 12px; font-size: 13px; line-height: 1.5;
+      border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-inset); color: var(--ck-fg-1);
+    }
+    .chat-msg.user .chat-bubble { background: color-mix(in oklab, var(--ck-signal-cool) 88%, transparent); color: var(--ck-on-signal); border-color: transparent; }
+    .chat-bubble.muted { color: var(--ck-fg-3); font-style: italic; }
+    .chat-text { margin: 0; white-space: pre-wrap; }
+    .chat-sources { margin: 8px 0 0; padding-left: 16px; font-size: 11px; color: var(--ck-fg-3); }
+    .chat-input { display: flex; gap: 8px; align-items: center; }
+    .chat-input input { flex: 1; min-height: 38px; border-radius: var(--ck-radius-md); border: 1px solid var(--ck-stroke-2); background: var(--ck-bg-inset); color: var(--ck-fg-1); padding: 0 12px; }
   `],
 })
 export class Client360PageComponent implements OnInit {
@@ -1305,6 +1376,10 @@ export class Client360PageComponent implements OnInit {
   readonly campaignStats = signal<Client360CampaignStats | null>(null);
   readonly campaignStatus = signal<string | null>(null);
   readonly campaignBusy = signal(false);
+  readonly chatMessages = signal<Array<{ role: 'user' | 'assistant'; content: string; sources?: string[] }>>([]);
+  readonly chatBusy = signal(false);
+  readonly chatError = signal<string | null>(null);
+  chatInput = '';
 
   recipientEmail = '';
   smtpEnabled = true;
@@ -1347,6 +1422,7 @@ export class Client360PageComponent implements OnInit {
     { id: 'mapping', label: 'Mapping' },
     { id: 'mail', label: 'Mail & suivi' },
     { id: 'campaigns', label: 'Campagnes' },
+    { id: 'chat', label: 'Assistant' },
   ];
 
   readonly opportunities = computed(() => this.opportunitiesResponse()?.items ?? []);
@@ -1410,6 +1486,32 @@ export class Client360PageComponent implements OnInit {
     if (tab === 'campaigns' && !this.campaignsResponse()) {
       this.loadCampaigns(false);
     }
+  }
+
+  sendChatMessage(): void {
+    const query = this.chatInput.trim();
+    if (!query || this.chatBusy()) return;
+    this.chatError.set(null);
+    this.chatMessages.update((msgs) => [...msgs, { role: 'user', content: query }]);
+    this.chatInput = '';
+    this.chatBusy.set(true);
+    this.http.post<Client360ChatResponse>('/api/v1/client360/chat', { query }).subscribe({
+      next: (payload) => {
+        const sources = (payload.sources ?? [])
+          .map((src) => src?.source_label || src?.title)
+          .filter((label): label is string => !!label);
+        this.chatMessages.update((msgs) => [
+          ...msgs,
+          { role: 'assistant', content: payload.content || 'Aucune reponse.', sources },
+        ]);
+        this.chatBusy.set(false);
+      },
+      error: (err) => {
+        const detail = err?.error?.detail;
+        this.chatError.set(typeof detail === 'string' ? detail : 'Assistant Client360 indisponible.');
+        this.chatBusy.set(false);
+      },
+    });
   }
 
   loadSummary(includeMailAi = false): void {

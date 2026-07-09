@@ -14,6 +14,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.action_plans import serialize_action_item
 from app.services.client360_alerts import alerts_payload
+from app.services.client360_chat import handle_client360_chat_query
 from app.services.client360_pdr import (
     campaign_stats,
     client360_scope,
@@ -57,6 +58,12 @@ class MailDraftSend(BaseModel):
     to_email: str = Field(..., min_length=3, max_length=320)
     subject: Optional[str] = Field(default=None, max_length=255)
     body: Optional[str] = None
+
+
+class Client360ChatRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=2000)
+    session_id: Optional[str] = None
+    assistant_profile: Optional[str] = None
 
 
 class Client360MailSettingsPatch(BaseModel):
@@ -203,6 +210,36 @@ def client360_alerts(
     db: DBSession = Depends(get_db),
 ):
     return alerts_payload(db, workspace, limit=limit)
+
+
+@router.post("/chat")
+async def client360_chat(
+    payload: Client360ChatRequest,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Dedicated Client360 assistant.
+
+    Fully decoupled from the general Andritz research chat: this endpoint only
+    serves the Client360 application's own assistant tab and always answers
+    within the Client360 PDR domain (``require_trigger=False``).
+    """
+    result = await handle_client360_chat_query(
+        db,
+        workspace,
+        user,
+        query=payload.query,
+        assistant_profile=payload.assistant_profile,
+        session_id=payload.session_id,
+        require_trigger=False,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Client360 assistant is not available for this workspace.",
+        )
+    return result
 
 
 @router.get("/scope")

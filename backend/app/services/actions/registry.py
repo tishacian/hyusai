@@ -268,38 +268,6 @@ ANDRITZ_ACTIONS = (
         pack="andritz_industrial_v1",
         capability_template="secure_deposit",
     ),
-    ActionManifest(
-        action_id="andritz.client360_nl_query",
-        label="Client360 en langage naturel",
-        description=(
-            "Répondre à une question Client360 PDR en langage naturel : traduction "
-            "bornée vers les filtres d'opportunités/campagnes existants (jamais de SQL "
-            "libre), réponse sourcée avec evidence_refs et CTA vers Client360."
-        ),
-        surfaces=("chat", "flow"),
-        phrases=(
-            "opportunites client360",
-            "montre les opportunites",
-            "opportunites haute confiance",
-            "potentiel pieces de rechange",
-            "clients a relancer",
-            "fiche client",
-            "parc installe",
-            "statistiques campagne",
-            "show client360 opportunities",
-            "spare parts potential",
-        ),
-        required_permission="action.execute",
-        confirmation_policy="direct_safe",
-        # Executed by app.services.client360_chat.handle_client360_chat_query,
-        # which is wired into the /chat action-router sequence and guarded to the
-        # andritz workspace (same guard as ensure_client360_pdr_system_default).
-        handler=ActionHandler("backend_service", "client360_nl_query", "/client360"),
-        audit_event="action.andritz.client360_nl_query",
-        pack="andritz_industrial_v1",
-        capability_template="client360_pdr_opportunity_engine",
-        direct_safe=True,
-    ),
 )
 
 
