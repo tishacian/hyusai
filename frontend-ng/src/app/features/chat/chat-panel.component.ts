@@ -1113,14 +1113,14 @@ const STEP_ICONS: Record<string, string> = {
                       [title]="citationTooltipForSources(sources, tok.n)"
                       (click)="gotoSourceTarget(msg, tok.n, sourceHostId || msg.id, openDirectSources !== false)"
                     >
-                      {{ tok.n }}
+                      {{ tok.label || tok.n }}
                     </button>
                   } @else {
                     <span
                       class="inline-flex items-center justify-center min-w-[1.25rem] h-[1.125rem] px-1 mx-0.5 align-baseline rounded-md text-[10px] font-mono bg-gray-400/15 text-gray-500 ring-1 ring-gray-400/20"
                       [title]="'Source [' + tok.n + '] referenced by the model but not available'"
                     >
-                      {{ tok.n }}
+                      {{ tok.label || tok.n }}
                     </span>
                   }
                 }
@@ -4690,19 +4690,11 @@ export class ChatPanelComponent implements AfterViewInit {
         tokens.push({ kind: 'text', value: content.slice(last, idx) });
       }
       const label = m[1].trim();
-      const numeric = /^\d+(?:\s*,\s*\d+)*$/.test(label);
-      if (numeric) {
-        for (const part of label.split(',')) {
-          const n = parseInt(part.trim(), 10);
-          if (Number.isFinite(n) && n > 0) tokens.push({ kind: 'cite', n });
-        }
+      const expanded = this.expandBracketCitation(label, sources);
+      if (expanded.length === 1 && expanded[0].kind === 'text' && expanded[0].value === `[${label}]`) {
+        tokens.push({ kind: 'text', value: m[0] });
       } else {
-        const n = this.resolveSourceReferenceIndex(label, sources);
-        if (n) {
-          tokens.push({ kind: 'cite', n, label });
-        } else {
-          tokens.push({ kind: 'text', value: m[0] });
-        }
+        tokens.push(...expanded);
       }
       last = idx + m[0].length;
     }
@@ -4859,15 +4851,14 @@ export class ChatPanelComponent implements AfterViewInit {
       }
       if (match[2] && match[3]) {
         tokens.push({ kind: 'link', value: match[2], href: match[3] });
-      } else if (match[5]) {
-        for (const part of match[5].split(',')) {
-          const n = parseInt(part.trim(), 10);
-          if (Number.isFinite(n) && n > 0) tokens.push({ kind: 'cite', n });
+      } else if (match[5] || match[7]) {
+        const label = (match[5] || match[7] || '').trim();
+        const expanded = this.expandBracketCitation(label, sources);
+        if (expanded.length === 1 && expanded[0].kind === 'text' && expanded[0].value === `[${label}]`) {
+          tokens.push({ kind: 'text', value: match[0] });
+        } else {
+          tokens.push(...expanded);
         }
-      } else if (match[7]) {
-        const label = match[7].trim();
-        const n = this.resolveSourceReferenceIndex(label, sources);
-        tokens.push(n ? { kind: 'cite', n, label } : { kind: 'text', value: match[0] });
       } else if (match[9] || match[11]) {
         tokens.push({ kind: 'strong', value: match[9] ?? match[11] ?? '' });
       } else if (match[13]) {
@@ -4991,6 +4982,71 @@ export class ChatPanelComponent implements AfterViewInit {
     }, 50);
   }
 
+  /**
+   * Turn bracket content into cite chips. Supports ``[1, 2]``, stacked numeric
+   * refs, and comma-separated document labels such as
+   * ``[TTN21546J, TTN20951J]``.
+   */
+  private expandBracketCitation(label: string, sources?: Source[] | null): AnswerToken[] {
+    const trimmed = label.trim();
+    if (!trimmed) return [{ kind: 'text', value: '[]' }];
+
+    if (/^\d+(?:\s*,\s*\d+)*$/.test(trimmed)) {
+      const tokens: AnswerToken[] = [];
+      for (const part of trimmed.split(',')) {
+        const n = parseInt(part.trim(), 10);
+        if (Number.isFinite(n) && n > 0) tokens.push({ kind: 'cite', n });
+      }
+      return tokens.length ? tokens : [{ kind: 'text', value: `[${trimmed}]` }];
+    }
+
+    const parts = trimmed.split(',').map((part) => part.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      const tokens = parts.flatMap((part) => this.expandSingleBracketCitation(part, sources, false));
+      if (!tokens.length) return [{ kind: 'text', value: `[${trimmed}]` }];
+      if (tokens.every((token) => token.kind === 'text')) {
+        return [{ kind: 'text', value: `[${trimmed}]` }];
+      }
+      return tokens;
+    }
+
+    return this.expandSingleBracketCitation(trimmed, sources, true);
+  }
+
+  private expandSingleBracketCitation(
+    part: string,
+    sources?: Source[] | null,
+    bracketFallback = true,
+  ): AnswerToken[] {
+    const trimmed = part.trim();
+    if (!trimmed) return [];
+    if (this.isWildcardSourceReference(trimmed)) {
+      return [{ kind: 'text', value: trimmed }];
+    }
+    const n = this.resolveSourceReferenceIndex(trimmed, sources);
+    if (n) return [{ kind: 'cite', n, label: trimmed }];
+    return bracketFallback ? [{ kind: 'text', value: `[${trimmed}]` }] : [{ kind: 'text', value: trimmed }];
+  }
+
+  private isWildcardSourceReference(value: string): boolean {
+    return /[*?]/.test(value) || /x{2,}/i.test(value);
+  }
+
+  private isAndritzProjectCode(value: string): boolean {
+    return /^[A-Z]{3}\d{2,4}[A-Z]{0,2}$/i.test(value.trim());
+  }
+
+  private andritzProjectCodePrefixMatch(target: string, candidateNorm: string): boolean {
+    if (!target || !candidateNorm) return false;
+    return (
+      candidateNorm === target ||
+      candidateNorm.startsWith(`${target} `) ||
+      candidateNorm.startsWith(`${target}.`) ||
+      candidateNorm.startsWith(`${target}_`) ||
+      candidateNorm.startsWith(`${target}-`)
+    );
+  }
+
   private resolveSourceReferenceIndex(label: string, sources?: Source[] | null): number | null {
     if (!sources?.length) return null;
     const target = this.normalizeSourceReference(label);
@@ -4998,6 +5054,7 @@ export class ChatPanelComponent implements AfterViewInit {
     const targetBase = this.normalizeSourceReference(this.basenameSourceReference(label));
     const targetStem = this.stripSourceExtension(targetBase);
     const allowLooseMatch = target.length >= 10 && /[\s._/-]/.test(label);
+    const andritzCode = this.isAndritzProjectCode(label);
     let looseMatch: number | null = null;
 
     for (let i = 0; i < sources.length; i += 1) {
@@ -5013,6 +5070,7 @@ export class ChatPanelComponent implements AfterViewInit {
           targetBase === candidateBase ||
           (!!targetStem && targetStem.length >= 4 && targetStem === candidateStem);
         if (exact) return i + 1;
+        if (andritzCode && this.andritzProjectCodePrefixMatch(target, candidateNorm)) return i + 1;
         if (
           looseMatch == null &&
           allowLooseMatch &&
@@ -5042,6 +5100,7 @@ export class ChatPanelComponent implements AfterViewInit {
     add(src.document_id);
     add(src.id);
     add(src.url);
+    add(src['project_code']);
     for (const key of [
       'title',
       'filename',
@@ -5053,6 +5112,7 @@ export class ChatPanelComponent implements AfterViewInit {
       'path',
       'name',
       'citation_label',
+      'project_code',
       'url',
     ]) {
       add(meta[key]);
