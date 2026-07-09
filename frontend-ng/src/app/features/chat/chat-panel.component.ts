@@ -1667,7 +1667,7 @@ const STEP_ICONS: Record<string, string> = {
                     (click)="toggleCorrection(msg)"
                   >
                     <app-icon name="pencil" [size]="12" />
-                    <span>Corriger / Compléter</span>
+                    <span>Corriger</span>
                   </button>
                 }
                 @if (!isDemoMode() && msg.evaluation) {
@@ -1824,7 +1824,7 @@ const STEP_ICONS: Record<string, string> = {
                 <div class="ml-2 mt-1.5 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/25 hover:bg-amber-500/15 transition"
+                    class="qa-review-badge inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/25 hover:bg-amber-500/15 transition"
                     [title]="qaReviewTooltip()"
                     (click)="openQaReview(qa.decisionId, qa.runId)"
                   >
@@ -2949,7 +2949,9 @@ const STEP_ICONS: Record<string, string> = {
     :host-context([data-theme="light"]) .text-emerald-600 { color: var(--ck-signal-pos); }
     :host-context([data-theme="light"]) .text-amber-200,
     :host-context([data-theme="light"]) .text-amber-300,
-    :host-context([data-theme="light"]) .text-amber-400 { color: var(--ck-signal-warn); }
+    :host-context([data-theme="light"]) .dark\\:text-amber-300,
+    :host-context([data-theme="light"]) .text-amber-400,
+    :host-context([data-theme="light"]) .text-amber-700 { color: var(--ck-signal-warn); }
     :host-context([data-theme="light"]) .text-red-300,
     :host-context([data-theme="light"]) .text-red-400 { color: var(--ck-signal-neg); }
 
@@ -2962,6 +2964,18 @@ const STEP_ICONS: Record<string, string> = {
     :host-context([data-theme="light"]) .dark\\:bg-white\\/\\[0\\.04\\],
     :host-context([data-theme="light"]) .dark\\:bg-white\\/\\[0\\.06\\] { background-color: var(--ck-tint-faint); }
     :host-context([data-theme="light"]) .dark\\:border-white\\/10 { border-color: var(--ck-stroke-2); }
+
+    /* --- QA / warn pills (Réponse à vérifier, missing citations) --- */
+    :host-context([data-theme="light"]) .qa-review-badge,
+    :host-context([data-theme="light"]) .bg-amber-500\\/10.text-amber-300 {
+      background: color-mix(in oklab, var(--ck-signal-warn) 14%, var(--ck-bg-panel-hi)) !important;
+      color: var(--ck-signal-warn) !important;
+      --tw-ring-color: color-mix(in oklab, var(--ck-signal-warn) 38%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--ck-signal-warn) 38%, transparent);
+    }
+    :host-context([data-theme="light"]) .qa-review-badge:hover {
+      background: color-mix(in oklab, var(--ck-signal-warn) 20%, var(--ck-bg-panel-hi)) !important;
+    }
 
     /* --- Chat history sidebar --- */
     :host-context([data-theme="light"]) .chat-history-shell { background: transparent; }

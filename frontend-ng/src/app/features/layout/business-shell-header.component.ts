@@ -30,34 +30,46 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
           routerLinkActive="business-nav-active"
           [routerLinkActiveOptions]="{ exact: true }"
           class="business-nav-link"
+          title="Recherche"
+          aria-label="Recherche"
         >
           <app-icon name="message-square" [size]="14" />
-          Recherche
+          <span class="business-nav-text">Recherche</span>
         </a>
         <a
           routerLink="/client360"
           routerLinkActive="business-nav-active"
           class="business-nav-link"
+          title="Client360 PDR"
+          aria-label="Client360 PDR"
         >
           <app-icon name="target" [size]="14" />
-          Client360 PDR
+          <span class="business-nav-text">Client360 PDR</span>
         </a>
         <a
           routerLink="/knowledge/capture"
           routerLinkActive="business-nav-active"
           [routerLinkActiveOptions]="{ exact: true }"
           class="business-nav-link"
+          title="Capture de connaissances"
+          aria-label="Capture de connaissances"
         >
           <app-icon name="mic" [size]="14" />
-          Capture de connaissances
+          <span class="business-nav-text">Capture de connaissances</span>
         </a>
       </nav>
 
       <div class="business-actions">
         @if (navigation.effective().preview) {
-          <button type="button" class="business-action" (click)="exitPreview()">
+          <button
+            type="button"
+            class="business-action"
+            (click)="exitPreview()"
+            title="Mode avancé"
+            aria-label="Mode avancé"
+          >
             <app-icon name="panel-left" [size]="13" />
-            Mode avancé
+            <span class="business-action-text">Mode avancé</span>
           </button>
         }
 
@@ -97,7 +109,7 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
       position: relative;
       z-index: 40;
       display: grid;
-      grid-template-columns: minmax(190px, 0.8fr) auto minmax(220px, 1fr);
+      grid-template-columns: minmax(0, 0.8fr) auto minmax(0, 1fr);
       align-items: center;
       gap: 14px;
       min-width: 0;
@@ -267,6 +279,29 @@ import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
       clip: rect(0, 0, 0, 0);
       white-space: nowrap;
       border: 0;
+    }
+    /* Intermediate: full text collides with actions well above the 860px
+       stack point (natural full-label layout needs ~1240px). Collapse the
+       nav + low-priority chrome to icon-only so nothing overflows. */
+    @media (min-width: 861px) and (max-width: 1280px) {
+      .business-nav-text,
+      .business-action-text,
+      .business-email,
+      .business-cyan-subtitle {
+        display: none;
+      }
+      .business-nav-link,
+      .business-action {
+        gap: 0;
+        padding: 0 9px;
+      }
+      .business-workspace select {
+        max-width: 128px;
+      }
+      .business-account {
+        max-width: none;
+        padding: 0 4px;
+      }
     }
     @media (max-width: 860px) {
       .business-header {
