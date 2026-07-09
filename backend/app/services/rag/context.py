@@ -425,6 +425,26 @@ def _apply_source_policy_to_retrieval_policy(
     )
 
 
+def _enabled_expert_fiche_collection(
+    *,
+    workspace_slug: Any,
+    source_policy: Any,
+) -> str:
+    """Resolve the expert-fiche collection slug when the feature is on, else "".
+
+    Returns ``""`` unless the workspace opted in via
+    ``source_policy["expert_fiche_correction_enabled"]``; otherwise the resolved
+    ``resolve_expert_fiche_collection`` slug. Shared by the profile-time
+    inclusion (``_include_expert_fiche_collection``) and the post-planner union
+    in ``retrieve_rag_context`` so both agree on the destination slug.
+    """
+    if not isinstance(source_policy, Mapping):
+        return ""
+    if not bool(source_policy.get("expert_fiche_correction_enabled")):
+        return ""
+    return resolve_expert_fiche_collection({"slug": workspace_slug}, source_policy)
+
+
 def _include_expert_fiche_collection(
     collections: list[str],
     *,
@@ -439,11 +459,10 @@ def _include_expert_fiche_collection(
     so a validated expert fiche is always retrievable for the chat turn when the
     feature is on; the order returned when OFF is byte-for-byte unchanged.
     """
-    if not isinstance(source_policy, Mapping):
-        return collections
-    if not bool(source_policy.get("expert_fiche_correction_enabled")):
-        return collections
-    slug = resolve_expert_fiche_collection({"slug": workspace_slug}, source_policy)
+    slug = _enabled_expert_fiche_collection(
+        workspace_slug=workspace_slug,
+        source_policy=source_policy,
+    )
     if slug and slug not in collections:
         collections.append(slug)
     return collections
@@ -2183,6 +2202,34 @@ async def retrieve_rag_context(
         profile["_corpus_plan_soft_scope_collections"] = list(corpus_plan.soft_scope_collections or [])
         profile["_corpus_plan_recall_floor_collections"] = list(corpus_plan.recall_floor_collections or [])
         profile["_corpus_plan_recall_floor_top_n"] = int(corpus_plan.recall_floor_top_n or 0)
+    # Authoritative correction overlay (Volet 3): once a workspace opts into
+    # expert-fiche corrections the resolved fiche collection must ALWAYS be a
+    # retrieval candidate. ``get_retrieval_profile`` already appends it, but the
+    # corpus planner may REPLACE the collection list with a hard ledger/table
+    # scope (``plan_corpus`` -> ``retrieval_scope['collections']`` above) that
+    # targets other collections, and the membrane inbound allowlist may
+    # intersect it away — either drops the fiche before retrieval. Re-union it
+    # here, AFTER all scope narrowing, so a hard knowledge_scope can no longer
+    # exclude it. Strictly additive and single-collection: only the fiche slug
+    # is added, nothing else is broadened. The fan-out then searches the fiche
+    # collection unscoped (see ``_expert_fiche_collection`` below) so the
+    # planner's document_filename filter — scoped to the OTHER collections'
+    # docs — cannot filter every fiche chunk out.
+    expert_fiche_collection = _enabled_expert_fiche_collection(
+        workspace_slug=request.get("workspace_slug"),
+        source_policy=request.get("source_policy"),
+    )
+    if expert_fiche_collection:
+        profile["_expert_fiche_collection"] = expert_fiche_collection
+        planned_collections = list(profile.get("collections") or [])
+        if expert_fiche_collection not in planned_collections:
+            planned_collections.append(expert_fiche_collection)
+            profile["collections"] = planned_collections
+            profile["collection"] = planned_collections[0]
+            collections = planned_collections
+    expert_fiche_included = bool(
+        expert_fiche_collection and expert_fiche_collection in (collections or [])
+    )
     retrieval_filters = dict(profile.get("retrieval_filters") or {})
     metrics: dict[str, Any] = {
         "query": query,
@@ -2231,6 +2278,8 @@ async def retrieve_rag_context(
         "soft_scope_collections": list(corpus_plan.soft_scope_collections or []) if corpus_plan else [],
         "recall_floor_collections": list(corpus_plan.recall_floor_collections or []) if corpus_plan else [],
         "recall_floor_top_n": int(corpus_plan.recall_floor_top_n or 0) if corpus_plan else 0,
+        "expert_fiche_collection": expert_fiche_collection or None,
+        "expert_fiche_collection_included": expert_fiche_included,
     }
     cache_key = _retrieval_context_cache_key(
         profile=profile,
@@ -2994,17 +3043,31 @@ async def _retrieve_multi_collection_context(
     soft_scope_used: list[str] = []
     recall_floor_top_n = int(profile.get("_corpus_plan_recall_floor_top_n") or 0)
     recall_floor_added: dict[str, int] = {}
+    # Authoritative correction overlay: the fiche collection (unioned in by
+    # ``retrieve_rag_context`` when ``expert_fiche_correction_enabled``) is
+    # searched by semantic relevance only — never with the planner's hard
+    # document/project scope, which targets the other collections' docs and
+    # would filter every fiche chunk out. Affects only this single collection.
+    expert_fiche_collection = str(profile.get("_expert_fiche_collection") or "")
+    expert_fiche_searched = False
 
     retrieval_loop_started_perf = time.perf_counter()
     retrieval_loop_deadline_perf = retrieval_loop_started_perf + max(deadline_seconds, 0.01)
     deadline_exceeded = False
     for collection in profile.get("collections") or []:
+        is_expert_fiche = bool(expert_fiche_collection) and str(collection) == expert_fiche_collection
         use_soft_scope = bool(
-            soft_scope_filters
+            not is_expert_fiche
+            and soft_scope_filters
             and not retrieval_filters
             and str(collection) in soft_scope_collections
         )
-        call_filters = soft_scope_filters if use_soft_scope else retrieval_filters
+        if is_expert_fiche:
+            call_filters: dict[str, Any] = {}
+        elif use_soft_scope:
+            call_filters = soft_scope_filters
+        else:
+            call_filters = retrieval_filters
         remaining_seconds = retrieval_loop_deadline_perf - time.perf_counter()
         if remaining_seconds <= 0:
             deadline_exceeded = True
@@ -3064,6 +3127,8 @@ async def _retrieve_multi_collection_context(
             )
             if use_soft_scope:
                 soft_scope_used.append(collection)
+            if is_expert_fiche:
+                expert_fiche_searched = True
             metadatas = []
             for meta in result.metadatas or []:
                 annotated = dict(meta or {})
@@ -3166,6 +3231,8 @@ async def _retrieve_multi_collection_context(
             "candidates_added": sum(recall_floor_added.values()),
             "top_n": recall_floor_top_n,
         }
+    if expert_fiche_collection:
+        metrics["expert_fiche_collection_searched"] = expert_fiche_searched
     retrieval_loop_ms = int((time.perf_counter() - retrieval_loop_started_perf) * 1000)
 
     # For discovery intent keep the fused pool wide enough that every collection's

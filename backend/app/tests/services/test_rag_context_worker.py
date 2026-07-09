@@ -2414,6 +2414,239 @@ async def test_retrieve_rag_context_exposes_multi_collection_metadata(monkeypatc
     assert len(result["collection_results"]) == 2
 
 
+# --- Expert-fiche always a candidate under a hard scope ------------------------
+#
+# Regression for: when the corpus planner applies a HARD knowledge scope (a
+# ledger/table document_filename narrowing), it OVERWRITES the collection list —
+# dropping the expert-fiche collection that ``get_retrieval_profile`` appended.
+# With ``expert_fiche_correction_enabled`` on, the fiche collection must be
+# re-unioned AFTER all narrowing and searched UNSCOPED so the planner's hard
+# document_filename filter (scoped to the other collections' docs) can no longer
+# exclude it. The weight-18 boost then reorders it; here we only prove candidacy.
+
+_ANDRITZ_NOTICES = "andritz-notices-techniques-spl-pilot"
+_ANDRITZ_ARCHIVE = "andritz-notices-archive-spl-pilot"
+_ANDRITZ_FICHE = "andritz-expert-fiche"
+
+
+def _plan_corpus_narrowing_to(collections, filters):
+    """Fake ``plan_corpus`` that emulates a HARD scope narrowing.
+
+    Returns a CorpusPlan whose ``retrieval_scope['collections']`` is exactly the
+    narrowed non-fiche set (as the ledger/table planner does), carrying the hard
+    ``document_filename`` filter — reproducing the gate that dropped the fiche.
+    """
+
+    def _fake(*, db, profile, query, request=None, retrieval_policy=None):
+        return rag_corpus_planner.CorpusPlan(
+            intent="content_search",
+            dense=False,
+            source_count=1,
+            chunk_count=1,
+            latency_profile="fast",
+            deadline_seconds=2.5,
+            top_k=profile["top_k"],
+            candidate_pool_k=profile["candidate_pool_k"],
+            synthesis_k=profile["synthesis_k"],
+            source_display_k=profile["source_display_k"],
+            retrieval_scope={"collections": list(collections)},
+            filters=dict(filters),
+        )
+
+    return _fake
+
+
+def _install_multi_collection_capture(monkeypatch):
+    """Wire the fan-out fakes and return the per-collection filter capture dict."""
+    monkeypatch.setattr(
+        rag_context,
+        "get_resolved_settings",
+        lambda **_kwargs: {
+            "ragCollectionName": "documents",
+            "ragVectorDBType": "qdrant",
+            "ragTopK": 5,
+            "ragPipelineMode": "chah",
+        },
+    )
+    monkeypatch.setattr(
+        rag_context,
+        "_document_service_for_profile",
+        lambda _profile, collection: SimpleNamespace(collection_name=collection),
+    )
+
+    async def _fake_resolve_retrieval_mode(*_args, **_kwargs):
+        return True, "hybrid", "test"
+
+    monkeypatch.setattr(rag_context, "resolve_retrieval_mode", _fake_resolve_retrieval_mode)
+
+    captured_filters: dict = {}
+
+    async def _fake_retrieve(doc_svc, query, _mode, **kwargs):
+        captured_filters[doc_svc.collection_name] = dict(kwargs.get("filters") or {})
+        metadata = {"document_title": doc_svc.collection_name}
+        if doc_svc.collection_name == _ANDRITZ_FICHE:
+            metadata["source_type"] = "expert_fiche"
+        return SimpleNamespace(
+            chunks=[f"{doc_svc.collection_name}:{query}"],
+            scores=[0.9],
+            metadatas=[metadata],
+            pipeline="chah",
+            label="test",
+            reason="test",
+            detail="test",
+        )
+
+    monkeypatch.setattr(rag_context, "retrieve_for_mode", _fake_retrieve)
+    return captured_filters
+
+
+async def test_hard_scope_still_includes_expert_fiche_collection_unscoped(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "andritz_spl",
+            "label": "Andritz SPL",
+            "collection_slugs": [_ANDRITZ_NOTICES, _ANDRITZ_ARCHIVE],
+            "default_mode": "chah",
+            "top_k": 5,
+        },
+    )
+    # Planner narrows to a single non-fiche collection with a HARD doc filter
+    # (drops both the scope's archive collection AND the appended fiche).
+    hard_filter = {"document_filename": ["Notice_convoyeur_J1.pdf"]}
+    monkeypatch.setattr(
+        rag_context,
+        "plan_corpus",
+        _plan_corpus_narrowing_to([_ANDRITZ_NOTICES], hard_filter),
+    )
+    captured_filters = _install_multi_collection_capture(monkeypatch)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "réglage bande convoyeur J1 pointe unique",
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+            "knowledge_scope": "andritz_spl",
+            "source_policy": {"expert_fiche_correction_enabled": True},
+        }
+    )
+
+    # The fiche collection survives the hard scope and is a candidate...
+    assert _ANDRITZ_FICHE in result["collections_touched"]
+    assert _ANDRITZ_NOTICES in result["collections_touched"]
+    # ...and the planner's non-fiche narrowing is NOT broadened (archive dropped).
+    assert _ANDRITZ_ARCHIVE not in result["collections_touched"]
+    # The notices collection keeps the planner's hard document scope...
+    assert captured_filters[_ANDRITZ_NOTICES] == hard_filter
+    # ...but the fiche overlay is searched UNSCOPED so the hard filter can't
+    # exclude its chunks.
+    assert captured_filters[_ANDRITZ_FICHE] == {}
+    assert result["metrics"]["expert_fiche_collection"] == _ANDRITZ_FICHE
+    assert result["metrics"]["expert_fiche_collection_included"] is True
+    assert result["metrics"]["expert_fiche_collection_searched"] is True
+
+
+async def test_hard_scope_without_expert_fiche_flag_does_not_broaden(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "andritz_spl",
+            "label": "Andritz SPL",
+            "collection_slugs": [_ANDRITZ_NOTICES, _ANDRITZ_ARCHIVE],
+            "default_mode": "chah",
+            "top_k": 5,
+        },
+    )
+    hard_filter = {"document_filename": ["Notice_convoyeur_J1.pdf"]}
+    monkeypatch.setattr(
+        rag_context,
+        "plan_corpus",
+        _plan_corpus_narrowing_to([_ANDRITZ_NOTICES, _ANDRITZ_ARCHIVE], hard_filter),
+    )
+    captured_filters = _install_multi_collection_capture(monkeypatch)
+
+    result = await retrieve_rag_context(
+        {
+            "query": "maintenance archive notice technique planning",
+            "workspace_id": "workspace-andritz",
+            "workspace_slug": "andritz",
+            "knowledge_scope": "andritz_spl",
+            # No expert_fiche_correction_enabled -> feature OFF.
+            "source_policy": {"industrial_grounding": True},
+        }
+    )
+
+    # Feature OFF: the candidate set is exactly the planner's narrowed scope; the
+    # fiche collection is never added and nothing is broadened.
+    assert result["collections_touched"] == [_ANDRITZ_NOTICES, _ANDRITZ_ARCHIVE]
+    assert _ANDRITZ_FICHE not in result["collections_touched"]
+    assert captured_filters[_ANDRITZ_NOTICES] == hard_filter
+    assert captured_filters[_ANDRITZ_ARCHIVE] == hard_filter
+    assert _ANDRITZ_FICHE not in captured_filters
+    assert result["metrics"]["expert_fiche_collection"] is None
+    assert result["metrics"]["expert_fiche_collection_included"] is False
+    assert "expert_fiche_collection_searched" not in result["metrics"]
+
+
+async def test_expert_fiche_survives_membrane_inbound_allowlist(monkeypatch):
+    monkeypatch.setattr(
+        rag_context,
+        "resolve_knowledge_scope",
+        lambda **_kwargs: {
+            "key": "andritz_spl",
+            "label": "Andritz SPL",
+            "collection_slugs": [_ANDRITZ_NOTICES],
+            "default_mode": "chah",
+            "top_k": 5,
+        },
+    )
+    # Planner is a passthrough here: the ONLY collection-narrowing gate under
+    # test is the authoritative membrane inbound allowlist (which excludes the
+    # fiche). Proves the post-planner union restores it after that filter too.
+    def _passthrough_plan_corpus(*, db, profile, query, request=None, retrieval_policy=None):
+        return rag_corpus_planner.CorpusPlan(
+            intent="content_search",
+            dense=False,
+            source_count=1,
+            chunk_count=1,
+            latency_profile="fast",
+            deadline_seconds=2.5,
+            top_k=profile["top_k"],
+            candidate_pool_k=profile["candidate_pool_k"],
+            synthesis_k=profile["synthesis_k"],
+            source_display_k=profile["source_display_k"],
+            retrieval_scope={"collections": list(profile.get("collections") or [])},
+            filters={},
+        )
+
+    monkeypatch.setattr(rag_context, "plan_corpus", _passthrough_plan_corpus)
+    _install_multi_collection_capture(monkeypatch)
+
+    request = {
+        "query": "membrane allowlist convoyeur J1 correction experte",
+        "workspace_id": "workspace-andritz",
+        "workspace_slug": "andritz",
+        "knowledge_scope": "andritz_spl",
+        "source_policy": {
+            "expert_fiche_correction_enabled": True,
+            # Authoritative membrane spec whose inbound allowlist excludes the
+            # fiche collection (only the notices collection is allowed inbound).
+            "membrane_spec": {"inbound": {"collection_allowlist": [_ANDRITZ_NOTICES]}},
+        },
+    }
+
+    # The membrane inbound filter (in get_retrieval_profile) drops the fiche...
+    profile = get_retrieval_profile(dict(request))
+    assert profile["collections"] == [_ANDRITZ_NOTICES]
+
+    # ...but the post-narrowing union restores it as an authoritative candidate.
+    result = await retrieve_rag_context(request)
+    assert _ANDRITZ_FICHE in result["collections_touched"]
+    assert _ANDRITZ_NOTICES in result["collections_touched"]
+
+
 # --- Document-discovery widen-then-rerank-then-truncate -------------------------
 
 _DISCOVERY_POLICY_GUIDE = SimpleNamespace(
