@@ -206,14 +206,24 @@ export class CaptureFilShellComponent {
       void this.engine.hydrateFeed();
       await this.engine.loadProposal();
       this.surface.set('review');
-    } else {
-      // Every non-terminal session (draft / planning / plan_ready AND already
-      // in-progress) lands on the launch surface, which owns the single explicit
-      // Start/"Reprendre" affordance. We never auto-connect on open — that was
-      // the "la capture démarre directe sans bouton" regression. The launch
-      // button connects with the right (LiveKit) transport.
-      this.surface.set('plan');
+      return;
     }
+    // A genuinely in-progress session with NO plan (free conversation) has
+    // nothing to configure: routing it to the plan surface traps the operator in
+    // a plan editor with no path to the live capture ("bloqué dans le mode
+    // configuration plan"). Resume straight into the live session surface,
+    // connecting with the right (LiveKit) transport. Fresh/plan-less sessions
+    // (not yet started) and every session WITH a plan still land on the launch
+    // surface, which owns the single explicit Start/"Reprendre" affordance.
+    if (this.engine.isResumable() && this.engine.isFreeConversation()) {
+      void this.engine.connect(info.id);
+      this.surface.set('session');
+      return;
+    }
+    // Every other non-terminal session lands on the launch surface. We never
+    // auto-connect a not-yet-started session — that was the "la capture démarre
+    // directe sans bouton" regression. The launch button connects live.
+    this.surface.set('plan');
   }
 
   /** Bidirectional provenance: "Revoir l'instant capté" jumps back to Le Fil. */

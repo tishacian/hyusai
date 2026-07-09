@@ -234,32 +234,23 @@ export class CaptureFilPlanComponent {
   protected readonly sessionId = this.engine.sessionId;
   protected readonly title = computed(() => this.engine.session()?.title ?? 'Plan de capture');
   protected readonly objective = computed(() => this.engine.session()?.objective ?? '');
-  protected readonly isFree = computed(
-    () => (this.engine.session()?.plan_mode ?? '') === 'free_conversation',
-  );
+  /**
+   * No-plan (free conversation) mode. Delegates to the engine so the detection
+   * is robust on resume: the list/get serializer omits the top-level `plan_mode`,
+   * so the engine falls back to `plan.mode` / schema / "no topics". Otherwise a
+   * plan-less session wrongly rendered the plan-configuration outline editor.
+   */
+  protected readonly isFree = this.engine.isFreeConversation;
   /**
    * Session already started (resume path) — the button reconnects instead of
    * issuing a fresh Start. A cyan-new session is created as "planned" (never
    * started: the backend only flips it to "active" once `started_at` is set), so
-   * it must show "Démarrer la capture". Use a POSITIVE allowlist of genuinely
-   * in-progress / resumable statuses (plus an already-live engine connection) —
-   * a blocklist wrongly treated every unknown/pre-start status (incl. "planned")
-   * as in-progress and showed "Reprendre" for fresh sessions.
+   * it must show "Démarrer la capture". Uses the engine's POSITIVE allowlist of
+   * genuinely in-progress / resumable statuses (plus an already-live engine
+   * connection) — a blocklist wrongly treated every unknown/pre-start status
+   * (incl. "planned") as in-progress and showed "Reprendre" for fresh sessions.
    */
-  protected readonly isLive = computed(() => {
-    if (this.engine.connected()) return true;
-    const status = (this.engine.session()?.status ?? '').toLowerCase();
-    return [
-      'active',
-      'paused',
-      'live',
-      'recording',
-      'capturing',
-      'in_progress',
-      'running',
-      'ongoing',
-    ].includes(status);
-  });
+  protected readonly isLive = computed(() => this.engine.connected() || this.engine.isResumable());
 
   protected readonly outlineText = computed(
     () => this.outlineDraft() ?? this.serializeOutline(this.topics()),

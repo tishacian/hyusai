@@ -389,6 +389,55 @@ export class CaptureEngine {
   /** Mic is capturing AND not muted-while-typing — drives the composer VU (D3). */
   readonly micActive = computed(() => this._micActive() && !this._micMuted());
 
+  /**
+   * Genuinely in-progress / resumable statuses (positive allowlist — mirrors the
+   * launch surface's Start-vs-Reprendre gate). A blocklist wrongly treated every
+   * unknown/pre-start status (incl. "planned") as in-progress; keep this list the
+   * single source of truth so resume routing and the CTA label agree.
+   */
+  private static readonly RESUMABLE_STATUSES = new Set([
+    'active',
+    'paused',
+    'live',
+    'recording',
+    'capturing',
+    'in_progress',
+    'running',
+    'ongoing',
+  ]);
+
+  /** True when the bound session's status is a genuinely in-progress one. */
+  readonly isResumable = computed(() =>
+    CaptureEngine.RESUMABLE_STATUSES.has((this._session()?.status ?? '').toLowerCase()),
+  );
+
+  /**
+   * True when the bound session has NO plan (free-conversation mode). The list /
+   * get serializer omits the top-level `plan_mode`, so on resume we must fall
+   * back to the authoritative `plan.mode` / `plan.schema_version`, and finally to
+   * "no topics" — otherwise a plan-less session is wrongly forced into the plan
+   * configuration surface.
+   */
+  readonly isFreeConversation = computed(() => this.sessionIsFree(this._session()));
+
+  private sessionIsFree(info: CaptureSessionInfo | null): boolean {
+    if (!info) return false;
+    const explicit = (info.plan_mode ?? '').toLowerCase();
+    if (explicit === 'free_conversation') return true;
+    if (explicit === 'plan_build' || explicit === 'provided_plan' || explicit === 'ai_plan') {
+      return false;
+    }
+    const plan = this.asRecord(info.plan);
+    const planMode = String(plan['mode'] ?? '').toLowerCase();
+    if (planMode === 'free_conversation') return true;
+    if (planMode) return false;
+    const schema = String(plan['schema_version'] ?? '').toLowerCase();
+    if (schema.startsWith('free_conversation')) return true;
+    if (schema.startsWith('plan_build')) return false;
+    const topics = plan['topics'];
+    return !Array.isArray(topics) || topics.length === 0;
+  }
+
   // ---- session minuterie / closure (P1, v0) ------------------------------
   /** Whether the capture is currently paused (timer frozen, mic cut). */
   readonly paused = this._paused.asReadonly();
