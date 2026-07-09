@@ -145,7 +145,10 @@ async def test_translation_suite_skills_are_cataloged_and_stubbed():
 
 
 @pytest.mark.asyncio
-async def test_semantic_search_wrapper_defaults_to_fast_latency(monkeypatch):
+async def test_semantic_search_wrapper_defaults_to_balanced_latency(monkeypatch):
+    # Recall-parity fix (f31204da7): the wrapper deliberately defaults an
+    # unpinned latency_profile to "balanced" (never hardcode "fast") so factual
+    # lookups get a real candidate pool, matching the classic pipeline.
     seen: dict = {}
 
     async def fake_retrieve_rag_context(request):
@@ -168,7 +171,7 @@ async def test_semantic_search_wrapper_defaults_to_fast_latency(monkeypatch):
 
     await wrappers._semantic_search_v1({"query": "de quelles donnees disposes-tu ?"}, {})
 
-    assert seen["latency_profile"] == "fast"
+    assert seen["latency_profile"] == "balanced"
     assert seen["rag_pipeline_mode"] == "auto"
 
 
