@@ -367,12 +367,12 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       border: 1px solid rgba(242, 140, 56, 0.32);
       background:
         radial-gradient(circle at 35% 25%, rgba(242, 140, 56, 0.25), transparent 45%),
-        rgba(11, 18, 28, 0.92);
-      color: #f5a85a;
+        var(--ck-bg-panel);
+      color: var(--ck-signal-warn);
       font: 800 10px/1 var(--ck-font-mono, ui-monospace, monospace);
       font-weight: 800;
       letter-spacing: 0.05em;
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+      box-shadow: var(--ck-shadow-card);
     }
     .t-executive-copy {
       display: flex;
@@ -412,9 +412,9 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       padding: 4px 7px 4px 9px;
       min-height: 34px;
       border-radius: 12px;
-      border: 1px solid rgba(148, 197, 229, 0.14);
-      background: rgba(255, 255, 255, 0.04);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--ck-stroke-2);
+      background: var(--ck-tint-faint);
+      box-shadow: inset 0 1px 0 var(--ck-stroke-1);
     }
     .t-picker-label {
       display: inline-flex;
@@ -433,15 +433,15 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       width: 14px;
       height: 14px;
       border-radius: 999px;
-      color: rgba(177, 190, 210, 0.78);
-      background: rgba(255, 255, 255, 0.055);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      color: var(--ck-fg-3);
+      background: var(--ck-tint-soft);
+      box-shadow: inset 0 0 0 1px var(--ck-stroke-2);
       cursor: help;
     }
     .t-info-dot:hover {
-      color: rgb(219, 249, 255);
-      background: rgba(34, 211, 238, 0.13);
-      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.25);
+      color: var(--ck-signal-cool);
+      background: var(--ck-tint-soft);
+      box-shadow: inset 0 0 0 1px var(--ck-stroke-hot);
     }
     .t-picker-wrap {
       position: relative;
@@ -454,7 +454,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       width: 100%;
       -webkit-appearance: none;
       appearance: none;
-      background: rgba(2, 8, 18, 0.38);
+      background: var(--ck-bg-inset);
       border: 0;
       border-radius: 8px;
       color: var(--ck-fg-1);
@@ -464,14 +464,17 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       padding: 6px 26px 6px 10px;
       outline: 0;
     }
+    :host-context([data-theme="light"]) .t-picker {
+      color-scheme: light;
+    }
     .t-picker:focus {
-      box-shadow: 0 0 0 1px rgba(103, 213, 246, 0.42);
-      background: rgba(6, 13, 25, 0.76);
+      box-shadow: 0 0 0 1px var(--ck-stroke-hot);
+      background: var(--ck-bg-panel);
     }
     .t-picker-chevron {
       position: absolute;
       right: 8px;
-      color: rgba(177, 190, 210, 0.72);
+      color: var(--ck-fg-3);
       pointer-events: none;
     }
     .t-source-pill {
@@ -480,8 +483,8 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       min-height: 24px;
       padding: 4px 9px;
       border-radius: 999px;
-      border: 1px solid rgba(125, 211, 252, 0.22);
-      background: rgba(125, 211, 252, 0.08);
+      border: 1px solid var(--ck-stroke-hot);
+      background: var(--ck-tint-soft);
       color: var(--ck-signal-cool);
       font-size: 11px;
       font-weight: 600;
@@ -494,28 +497,26 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       min-height: 28px;
       padding: 0 9px;
       border-radius: 8px;
-      border: 1px solid rgba(103, 213, 246, 0.20);
-      background: rgba(34, 211, 238, 0.08);
-      color: rgb(207, 250, 254);
+      border: 1px solid var(--ck-stroke-hot);
+      background: var(--ck-tint-faint);
+      color: var(--ck-signal-cool);
       font-size: 11px;
       font-weight: 750;
       white-space: nowrap;
       transition: 140ms ease;
     }
     .t-flow-link:hover {
-      border-color: rgba(103, 213, 246, 0.38);
-      background: rgba(34, 211, 238, 0.14);
-      color: rgb(245, 248, 252);
+      border-color: var(--ck-stroke-hot);
+      background: var(--ck-tint-soft);
+      color: var(--ck-fg-1);
     }
     .t-executive-shell .t-source-pill {
       border-color: rgba(101, 214, 110, 0.30);
       background:
         linear-gradient(135deg, rgba(101, 214, 110, 0.11), rgba(242, 140, 56, 0.06)),
-        rgba(8, 17, 12, 0.86);
-      color: #d9ffdf;
-      box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, 0.035),
-        0 10px 28px rgba(5, 40, 18, 0.16);
+        var(--ck-bg-panel);
+      color: var(--ck-signal-pos);
+      box-shadow: var(--ck-shadow-card);
     }
     .t-inline .t-source-pill {
       max-width: 280px;
@@ -537,7 +538,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       flex-direction: column;
       gap: 12px;
       overflow-y: auto;
-      background: rgba(255, 255, 255, 0.01);
+      background: var(--ck-tint-faint);
     }
     /* In inline (overlay) mode the sidebar stacks above the chat. */
     .t-inline .t-body {
@@ -599,11 +600,11 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
     }
     .t-dropzone:hover {
       border-color: var(--ck-signal-cool);
-      background: rgba(125, 211, 252, 0.04);
+      background: var(--ck-tint-faint);
     }
     .t-dropzone-hot {
       border-color: var(--ck-signal-cool) !important;
-      background: rgba(125, 211, 252, 0.08) !important;
+      background: var(--ck-tint-soft) !important;
     }
     .t-file-input { display: none; }
     .t-drop-icon {
@@ -657,7 +658,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       align-items: center;
       gap: 4px;
       padding: 2px 8px;
-      background: rgba(125, 211, 252, 0.08);
+      background: var(--ck-tint-faint);
       border: 1px solid var(--ck-stroke-2);
       border-radius: 3px;
       color: var(--ck-signal-cool);
@@ -669,7 +670,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       transition: background 120ms;
     }
     .t-persist-btn:hover:not([disabled]) {
-      background: rgba(125, 211, 252, 0.14);
+      background: var(--ck-tint-soft);
     }
     .t-persist-btn[disabled] { opacity: 0.5; cursor: wait; }
     .t-docs-list {
@@ -693,7 +694,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
     }
     .t-doc-item:hover {
       border-color: var(--ck-stroke-2);
-      background: rgba(255, 255, 255, 0.02);
+      background: var(--ck-tint-faint);
     }
     .t-doc-row {
       display: flex;
@@ -727,7 +728,7 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
     }
     .t-doc-remove:hover:not([disabled]) {
       color: var(--ck-fg-1);
-      background: rgba(255, 255, 255, 0.04);
+      background: var(--ck-tint-faint);
       border-color: var(--ck-stroke-2);
     }
     .t-doc-remove[disabled] {
@@ -777,9 +778,9 @@ function isSentinelShowcaseProfile(profile: Record<string, unknown> | null): boo
       font-size: 9px;
       padding: 1px 5px;
       border-radius: 8px;
-      background: rgba(125, 211, 252, 0.08);
+      background: var(--ck-tint-soft);
       color: var(--ck-signal-cool);
-      border: 1px solid rgba(125, 211, 252, 0.2);
+      border: 1px solid var(--ck-stroke-hot);
     }
     .t-empty-hint {
       font-size: 10px;

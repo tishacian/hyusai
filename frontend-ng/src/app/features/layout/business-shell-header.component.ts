@@ -4,13 +4,16 @@ import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthStore } from '@app/store/auth.store';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
 import { WorkspaceService } from '@app/core/workspace.service';
+import { ThemeService } from '@app/core/theme.service';
+import { I18nService } from '@app/core/i18n.service';
 import { IconComponent } from '@app/shared/ui/icon.component';
+import { GlyphComponent, type CkGlyphName } from '@app/shared/cockpit';
 
 @Component({
   selector: 'app-business-shell-header',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, RouterLink, RouterLinkActive, IconComponent],
+  imports: [FormsModule, RouterLink, RouterLinkActive, IconComponent, GlyphComponent],
   template: `
     <header class="business-header">
       <div class="business-brand">
@@ -58,6 +61,16 @@ import { IconComponent } from '@app/shared/ui/icon.component';
           </button>
         }
 
+        <button
+          type="button"
+          class="business-theme-toggle"
+          (click)="cycleTheme()"
+          [title]="themeTooltip()"
+          [attr.aria-label]="themeTooltip()"
+        >
+          <ck-glyph [name]="themeGlyph()" [size]="14" />
+        </button>
+
         <label class="business-workspace">
           <span class="sr-only">Workspace</span>
           <select
@@ -91,7 +104,7 @@ import { IconComponent } from '@app/shared/ui/icon.component';
       height: 52px;
       padding: 0 16px;
       border-bottom: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
-      background: rgba(7, 12, 20, 0.96);
+      background: var(--ck-bg-base);
       color: var(--ck-fg-1, #f5f8fc);
     }
     .business-brand,
@@ -135,8 +148,8 @@ import { IconComponent } from '@app/shared/ui/icon.component';
       gap: 6px;
       padding: 4px;
       border-radius: 9px;
-      border: 1px solid rgba(148, 197, 229, 0.13);
-      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid var(--ck-stroke-2);
+      background: var(--ck-tint-faint);
     }
     .business-nav-link,
     .business-action,
@@ -150,15 +163,15 @@ import { IconComponent } from '@app/shared/ui/icon.component';
     }
     .business-nav-link {
       padding: 0 11px;
-      color: rgba(226, 236, 248, 0.76);
+      color: var(--ck-fg-2);
       font-size: 12px;
       font-weight: 680;
     }
     .business-nav-link:hover,
     .business-nav-active {
-      color: rgb(245, 248, 252);
-      background: rgba(34, 211, 238, 0.10);
-      box-shadow: inset 0 0 0 1px rgba(103, 213, 246, 0.18);
+      color: var(--ck-signal-cool);
+      background: var(--ck-tint-soft);
+      box-shadow: inset 0 0 0 1px var(--ck-stroke-hot);
     }
     .business-actions {
       justify-self: end;
@@ -166,41 +179,63 @@ import { IconComponent } from '@app/shared/ui/icon.component';
       gap: 8px;
     }
     .business-action {
-      border: 1px solid rgba(103, 213, 246, 0.22);
-      background: rgba(34, 211, 238, 0.08);
-      color: rgb(207, 250, 254);
+      border: 1px solid var(--ck-stroke-hot);
+      background: var(--ck-tint-faint);
+      color: var(--ck-signal-cool);
       padding: 0 10px;
       font-size: 11px;
       font-weight: 740;
       cursor: pointer;
     }
     .business-action:hover {
-      border-color: rgba(103, 213, 246, 0.38);
-      background: rgba(34, 211, 238, 0.14);
+      border-color: var(--ck-stroke-hot);
+      background: var(--ck-tint-soft);
+    }
+    .business-theme-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      border-radius: 4px;
+      border: 1px solid var(--ck-stroke-2);
+      background: transparent;
+      color: var(--ck-fg-2);
+      cursor: pointer;
+      transition: 140ms ease;
+    }
+    .business-theme-toggle:hover {
+      border-color: var(--ck-stroke-3);
+      background: var(--ck-tint-faint);
+      color: var(--ck-fg-1);
     }
     .business-workspace select {
       max-width: 180px;
       min-height: 32px;
       border-radius: 7px;
-      border: 1px solid rgba(148, 197, 229, 0.13);
-      background: rgba(255, 255, 255, 0.035);
-      color: rgba(226, 236, 248, 0.82);
+      border: 1px solid var(--ck-stroke-2);
+      background: var(--ck-bg-inset);
+      color: var(--ck-fg-2);
       color-scheme: dark;
       padding: 0 9px;
       font-size: 12px;
       font-weight: 650;
       outline: 0;
     }
+    :host-context([data-theme="light"]) .business-workspace select {
+      color-scheme: light;
+    }
     .business-account {
       max-width: 210px;
-      color: rgba(226, 236, 248, 0.76);
+      color: var(--ck-fg-2);
       padding: 0 9px 0 4px;
-      border: 1px solid rgba(148, 197, 229, 0.13);
-      background: rgba(255, 255, 255, 0.025);
+      border: 1px solid var(--ck-stroke-2);
+      background: var(--ck-tint-faint);
     }
     .business-account:hover {
-      color: rgb(245, 248, 252);
-      background: rgba(255, 255, 255, 0.055);
+      color: var(--ck-fg-1);
+      background: var(--ck-tint-soft);
     }
     .business-avatar {
       display: inline-flex;
@@ -256,7 +291,29 @@ export class BusinessShellHeaderComponent {
   protected readonly workspace = inject(WorkspaceService);
   protected readonly navigation = inject(NavigationProfileService);
   protected readonly auth = inject(AuthStore);
+  protected readonly theme = inject(ThemeService);
+  protected readonly i18n = inject(I18nService);
   private readonly router = inject(Router);
+
+  private static readonly THEME_GLYPHS: Record<'system' | 'light' | 'dark', CkGlyphName> = {
+    light: 'crosshair',
+    dark: 'pulse',
+    system: 'orbit',
+  };
+
+  readonly themeGlyph = computed<CkGlyphName>(
+    () => BusinessShellHeaderComponent.THEME_GLYPHS[this.theme.businessTheme()],
+  );
+
+  readonly themeTooltip = computed(() => {
+    // Read the locale signal so the tooltip re-renders on locale flip.
+    this.i18n.locale();
+    return this.i18n.t(`titlebar.theme.${this.theme.businessTheme()}`);
+  });
+
+  cycleTheme(): void {
+    this.theme.cycleBusinessTheme();
+  }
 
   readonly initials = computed(() => {
     const email = this.auth.email() || '';

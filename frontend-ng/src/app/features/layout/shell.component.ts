@@ -4,6 +4,7 @@ import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 import { WorkspaceService } from '@app/core/workspace.service';
 import { NavigationProfileService } from '@app/core/navigation-profile.service';
+import { ThemeService } from '@app/core/theme.service';
 import { TitleBarComponent } from './title-bar.component';
 import { SideRailComponent } from './side-rail.component';
 import { MiniRailComponent } from './mini-rail.component';
@@ -37,6 +38,7 @@ import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draf
   ],
   template: `
     <div
+      [attr.data-theme]="businessShell() ? theme.businessResolved() : null"
       [style.position]="'fixed'"
       [style.inset]="'0'"
       [style.height]="'100dvh'"
@@ -85,6 +87,7 @@ import { AssistantDraftDrawerComponent } from '@app/features/chat/assistant-draf
 export class ShellComponent {
   private readonly workspaceService = inject(WorkspaceService);
   private readonly navigationProfile = inject(NavigationProfileService);
+  protected readonly theme = inject(ThemeService);
   private readonly router = inject(Router);
   private readonly url = toSignal(
     this.router.events.pipe(

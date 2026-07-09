@@ -1240,7 +1240,7 @@ interface Client360CampaignDraftsResult {
     td strong { display: block; color: var(--ck-fg-1); font-size: 12px; }
     td small { display: block; margin-top: 4px; color: var(--ck-fg-4); line-height: 1.35; }
     tbody tr { cursor: pointer; }
-    tbody tr:hover { background: rgba(255, 255, 255, .035); }
+    tbody tr:hover { background: var(--ck-tint-faint); }
     .pill, .status, .chips span { display: inline-flex; align-items: center; border-radius: var(--ck-radius-md); padding: 3px 8px; background: var(--ck-tint-faint); border: 1px solid var(--ck-stroke-2); color: var(--ck-fg-3); font-size: 11px; white-space: nowrap; }
     .pill.high { color: var(--ck-signal-pos); border-color: rgba(16,185,129,.35); }
     .pill.medium { color: var(--ck-signal-warn); border-color: rgba(245,158,11,.35); }
@@ -1254,15 +1254,15 @@ interface Client360CampaignDraftsResult {
     .list-panel, .detail-panel, .gap-panel, .impact-panel, .smtp-panel { border-radius: var(--ck-radius-md); padding: 12px; }
     .list-panel { display: flex; flex-direction: column; gap: 6px; overflow: auto; }
     .list-panel button { text-align: left; border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); color: var(--ck-fg-2); padding: 10px; cursor: pointer; }
-    .list-panel button.active { border-color: rgba(103, 213, 246, .42); color: var(--ck-signal-cool); }
+    .list-panel button.active { border-color: var(--ck-stroke-hot); color: var(--ck-signal-cool); }
     .list-panel span { display: block; margin-top: 4px; color: var(--ck-fg-4); font-size: 11px; }
     .detail-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 14px; }
     .detail-head.compact { margin-bottom: 10px; }
     .draft-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--ck-fg-4); font-size: 11px; }
-    .draft-meta .pill.ai_assisted { color: var(--ck-signal-cool); border-color: rgba(103, 213, 246, .42); }
+    .draft-meta .pill.ai_assisted { color: var(--ck-signal-cool); border-color: var(--ck-stroke-hot); }
     .c360-summary { border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); padding: 12px; margin-bottom: 14px; }
     .c360-summary-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-    .c360-summary .pill.ai_assisted { color: var(--ck-signal-cool); border-color: rgba(103, 213, 246, .42); }
+    .c360-summary .pill.ai_assisted { color: var(--ck-signal-cool); border-color: var(--ck-stroke-hot); }
     .c360-summary-text { margin: 0 0 8px; color: var(--ck-fg-2); line-height: 1.55; }
     .c360-tree { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
     .c360-tree-node, .c360-tree-line { border: 1px solid var(--ck-stroke-2); border-radius: var(--ck-radius-md); background: var(--ck-bg-inset); padding: 6px 10px; }
