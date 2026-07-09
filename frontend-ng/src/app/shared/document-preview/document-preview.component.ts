@@ -110,7 +110,14 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
               </div>
             </header>
           }
-          <div #scrollHost class="overflow-auto bg-gray-900" [style.height]="bodyHeight()">
+          <div
+            #scrollHost
+            class="bg-gray-900"
+            [class.overflow-auto]="!thumbnail()"
+            [class.overflow-hidden]="thumbnail()"
+            [style.height]="bodyHeight()"
+            [style.pointerEvents]="thumbnail() ? 'none' : null"
+          >
             @if (loading()) {
               <div class="flex h-full items-center justify-center gap-2 text-sm text-gray-300">
                 <app-icon name="loader-2" [size]="16" class="animate-spin text-cyan-300" />
@@ -176,8 +183,10 @@ const RICH_PREVIEW_CACHE_LIMIT = 50;
                   <ngx-extended-pdf-viewer
                     [src]="pdfUrl"
                     [page]="normalizedPage() || 1"
-                    [textLayer]="true"
+                    [textLayer]="!thumbnail()"
                     [height]="bodyHeight()"
+                    [showToolbar]="!thumbnail()"
+                    [zoom]="thumbnail() ? 'page-fit' : 'auto'"
                     backgroundColor="#0b1220"
                     [showSidebarButton]="false"
                     [showOpenFileButton]="false"
@@ -252,6 +261,12 @@ export class DocumentPreviewComponent {
    * `previewUrl` is present, independent of `open`.
    */
   readonly inline = input(false);
+  /**
+   * Thumbnail mode (implies inline): a chromeless, non-interactive rendering of
+   * the target page fitted to the box — used by La Scène film-strip tiles to
+   * show a real document preview instead of a decorative placeholder.
+   */
+  readonly thumbnail = input(false);
   /** Body height in px for inline mode; modal keeps its 72vh viewport. */
   readonly heightPx = input<number | null>(null);
   readonly previewUrl = input<string | null>(null);

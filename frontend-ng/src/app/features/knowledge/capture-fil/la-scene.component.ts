@@ -159,6 +159,8 @@ import { documentToPinnedView, viewTitle } from './capture-presentation';
               <app-capture-view-tile
                 [view]="piece"
                 size="sm"
+                [previewUrl]="previewUrlFor(piece)"
+                [page]="piece.page ?? null"
                 [active]="piece.key === engine.activeViewKey()"
                 [dim]="piece.key !== engine.activeViewKey()"
                 [clickable]="true"

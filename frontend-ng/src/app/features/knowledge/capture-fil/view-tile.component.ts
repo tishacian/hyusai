@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 import type { CapturePinnedView, CaptureViewReference } from '@app/core/api.service';
 import { GlyphComponent } from '@app/shared/cockpit';
+import { DocumentPreviewComponent } from '@app/shared/document-preview/document-preview.component';
 import { toneVar, viewLocation, viewTitle, viewTone } from './capture-presentation';
 
 type TilePiece = CapturePinnedView | CaptureViewReference;
@@ -16,7 +17,7 @@ type TileSize = 'sm' | 'md' | 'xl';
   selector: 'app-capture-view-tile',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [GlyphComponent],
+  imports: [GlyphComponent, DocumentPreviewComponent],
   template: `
     @let piece = view;
     @if (piece) {
@@ -27,7 +28,8 @@ type TileSize = 'sm' | 'md' | 'xl';
         [style.cursor]="clickable ? 'pointer' : 'default'"
         [style.position]="'relative'"
         [style.width]="'100%'"
-        [style.aspectRatio]="'4 / 3'"
+        [style.aspectRatio]="previewUrl ? null : '4 / 3'"
+        [style.height.px]="previewUrl ? heightPx() : null"
         [style.background]="'var(--ck-bg-inset)'"
         [style.border]="'1px solid ' + (active ? tint() : 'var(--ck-stroke-2)')"
         [style.borderRadius]="'var(--ck-radius-md)'"
@@ -37,25 +39,38 @@ type TileSize = 'sm' | 'md' | 'xl';
         [style.padding]="'0'"
         [style.transition]="'opacity var(--ck-dur-med) var(--ck-ease-out), box-shadow var(--ck-dur-med)'"
       >
-        <!-- clean page-like surface: a soft tinted wash instead of the hatched
-             "fake text" stripes that read as an unfinished placeholder. -->
-        <span
-          [style.position]="'absolute'"
-          [style.inset]="'0'"
-          [style.background]="'linear-gradient(155deg, color-mix(in oklab, ' + tint() + ' 13%, var(--ck-bg-panel)) 0%, var(--ck-bg-inset) 64%)'"
-        ></span>
-        <!-- centered document / image mark as the thumbnail's visual -->
-        <span
-          [style.position]="'absolute'"
-          [style.inset]="'0'"
-          [style.display]="'grid'"
-          [style.placeItems]="'center'"
-          [style.paddingBottom.px]="16"
-          [style.color]="tint()"
-          [style.opacity]="0.6"
-        >
-          <ck-glyph [name]="isImage() ? 'cube' : 'ledger'" [size]="size === 'sm' ? 22 : 34" color="currentColor" />
-        </span>
+        @if (previewUrl) {
+          <!-- Real document thumbnail (chromeless, non-interactive) filling the
+               tile — the actual page the piece points at. -->
+          <app-document-preview
+            [style.position]="'absolute'"
+            [style.inset]="'0'"
+            [style.display]="'block'"
+            [inline]="true"
+            [thumbnail]="true"
+            [previewUrl]="previewUrl"
+            [page]="page ?? null"
+            [heightPx]="heightPx()"
+          />
+        } @else {
+          <!-- fallback: clean page-like tinted card + centered doc/image glyph -->
+          <span
+            [style.position]="'absolute'"
+            [style.inset]="'0'"
+            [style.background]="'linear-gradient(155deg, color-mix(in oklab, ' + tint() + ' 13%, var(--ck-bg-panel)) 0%, var(--ck-bg-inset) 64%)'"
+          ></span>
+          <span
+            [style.position]="'absolute'"
+            [style.inset]="'0'"
+            [style.display]="'grid'"
+            [style.placeItems]="'center'"
+            [style.paddingBottom.px]="16"
+            [style.color]="tint()"
+            [style.opacity]="0.6"
+          >
+            <ck-glyph [name]="isImage() ? 'cube' : 'ledger'" [size]="size === 'sm' ? 22 : 34" color="currentColor" />
+          </span>
+        }
         @if (active) {
           <span
             [style.position]="'absolute'"
@@ -103,7 +118,16 @@ export class ViewTileComponent {
   @Input() active = false;
   @Input() dim = false;
   @Input() clickable = false;
+  /** Auth-aware rich-preview URL — when set, renders a real thumbnail. */
+  @Input() previewUrl?: string | null;
+  /** Page to render in the thumbnail (PDF). */
+  @Input() page?: number | null;
   @Output() picked = new EventEmitter<void>();
+
+  /** Fixed thumbnail box height per size (definite height for the PDF viewer). */
+  protected heightPx(): number {
+    return this.size === 'xl' ? 300 : this.size === 'md' ? 168 : 104;
+  }
 
   protected tint(): string {
     return this.view ? toneVar(viewTone(this.view)) : 'var(--ck-signal-cool)';
