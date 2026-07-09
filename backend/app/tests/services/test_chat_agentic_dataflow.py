@@ -399,10 +399,12 @@ def _static_ancestors(flow: Dict[str, Any], node_id: str) -> set:
     return seen
 
 
-def test_flow_valid_and_judges_off_verdict_egress_critical_path():
-    """Phase 2 proof (structural): the verdict/egress path depends ONLY on
-    task.response_eval (embeddings); the two LLM judges (eval_radar / claim_audit)
-    are on a telemetry branch and are NOT ancestors of any egress node. Also
+def test_flow_valid_and_judges_removed_from_online_serving_dag():
+    """Phase A latency proof (structural): the two LLM judges (eval_radar /
+    claim_audit) are GONE from the online serving DAG entirely — no node, no edge.
+    The verdict/egress path depends ONLY on task.response_eval (embeddings). The
+    fork.self_eval -> join.eval scaffold is retained as an instant terminal
+    telemetry no-op (keeps the fork/join balance the two data-joins need). Also
     guards the flow is structurally valid (0 errors / 0 warnings)."""
     from app.services.chains.dag_validator import has_errors, validate_flow
 
@@ -414,13 +416,23 @@ def test_flow_valid_and_judges_off_verdict_egress_critical_path():
     assert not has_errors(issues), errors
     assert errors == [] and warnings == [], [i.to_dict() for i in issues]
 
+    node_ids = {n["id"] for n in flow["nodes"]}
+    # The LLM judge nodes were removed from the online serving DAG.
+    assert "task.eval_radar" not in node_ids
+    assert "task.claim_audit" not in node_ids
+    # No edge anywhere references the removed judge nodes.
+    for e in flow["edges"]:
+        assert e["from"] not in ("task.eval_radar", "task.claim_audit")
+        assert e["to"] not in ("task.eval_radar", "task.claim_audit")
+
     edges = {(e["from"], e["to"]) for e in flow["edges"]}
-    # Critical path rewired: generate -> response_eval -> verdict (direct).
+    # Critical path: generate -> response_eval -> verdict (direct, embeddings only).
     assert ("task.generate", "task.response_eval") in edges
     assert ("task.response_eval", "decision.verdict") in edges
-    # The old barrier edge is gone; join.eval is now a terminal telemetry sink.
+    # join.eval is a terminal telemetry sink fed ONLY by the instant fork scaffold.
     assert ("join.eval", "decision.verdict") not in edges
     assert not any(src == "join.eval" for src, _ in edges), "join.eval must be terminal"
+    assert ("fork.self_eval", "join.eval") in edges
 
     egress_nodes = [
         "decision.verdict",
@@ -441,9 +453,12 @@ def test_flow_valid_and_judges_off_verdict_egress_critical_path():
             f"{node_id} still depends on the claim_audit LLM judge (egress blocked)"
         )
 
-    # The judges still run as telemetry (fork -> judges -> join.eval terminal).
+    # The retained scaffold: join.eval's only ancestors are the instant fork and
+    # its generate feed — never an LLM judge.
     judge_ancestors = _static_ancestors(flow, "join.eval")
-    assert {"task.eval_radar", "task.claim_audit", "fork.self_eval"} <= judge_ancestors
+    assert "fork.self_eval" in judge_ancestors
+    assert "task.eval_radar" not in judge_ancestors
+    assert "task.claim_audit" not in judge_ancestors
     # decision.verdict still reads the response_eval composite via inputs_map.
     verdict = next(n for n in flow["nodes"] if n["id"] == "decision.verdict")
     vmap = verdict["config"]["inputs_map"]
@@ -452,10 +467,17 @@ def test_flow_valid_and_judges_off_verdict_egress_critical_path():
 
 
 @pytest.mark.asyncio
-async def test_agentic_dag_judges_run_but_do_not_gate_answer(db_session, monkeypatch):
-    """Phase 2 runtime proof: on a strong verdict the answer is delivered from
-    the response_eval-driven path, while the two LLM judges STILL execute
-    (telemetry computed) — decoupled, not removed."""
+async def test_agentic_dag_answer_egresses_without_llm_judges(db_session, monkeypatch):
+    """Phase A latency runtime proof: the answer is delivered from the
+    response_eval-driven (embeddings) verdict path WITHOUT the two LLM judges
+    ever being invoked — they were removed from the online serving DAG, so they
+    can no longer sit on the run's wall-clock critical path. Even if the fake
+    registry could resolve them, no node references them so they never fire; and
+    to make the "does not block egress" guarantee concrete, the judge skills are
+    wired to a slow coroutine that would time out the run if it were ever awaited
+    on the answer path."""
+    import asyncio
+
     flow = _load_flow_definition()
     calls: Dict[str, int] = {}
 
@@ -463,6 +485,13 @@ async def test_agentic_dag_judges_run_but_do_not_gate_answer(db_session, monkeyp
         async def _fn(payload, ctx=None):
             calls[slug] = calls.get(slug, 0) + 1
             return output
+        return _fn
+
+    def _slow_judge(slug: str):
+        async def _fn(payload, ctx=None):
+            calls[slug] = calls.get(slug, 0) + 1
+            await asyncio.sleep(30)  # would blow any latency budget if awaited
+            return {}
         return _fn
 
     plan_out = {
@@ -476,20 +505,24 @@ async def test_agentic_dag_judges_run_but_do_not_gate_answer(db_session, monkeyp
         "chat_agentic_plan_v1": plan_out,
         "semantic_search_v1": {"results": _RETRIEVED},
         "llm_rag_answer_v1": {"answer": "Largeur 0.3 m [1].", "citations": [{"index": 1, "source_id": "50a149bf-chunk_0"}], "decision_steps": []},
-        "eval_radar_v1": {"axes": {}, "overall": 0.7, "hallucination_rate": 0.1, "drift_rate": 0.0, "note": ""},
-        "claim_audit_v1": {"claims": [], "verdict": "ok", "supported": 1, "unsupported": 0},
         # strong verdict (composite >= 50) -> self_correct skipped.
         "response_eval_v1": {"composite": 82.0, "hallucination_rate": 0.1, "context_count": 1, "hhem": 0.1, "factuality": 0.9, "coherence": 0.9},
         "chat_self_correct_v1": {"answer": "should not run", "citations": [], "action_taken": "declare_partial"},
     }
     slugs = list(outputs)
-    _install_fake_registry(monkeypatch, {s: _record(s, outputs[s]) for s in slugs})
-    for slug in slugs:
+    registry = {s: _record(s, outputs[s]) for s in slugs}
+    # The judge skills are still registered (they remain available), but wired to
+    # a 30s sleep: if any surviving edge put them on the answer path the run would
+    # not complete promptly. They must simply never be invoked.
+    registry["eval_radar_v1"] = _slow_judge("eval_radar_v1")
+    registry["claim_audit_v1"] = _slow_judge("claim_audit_v1")
+    _install_fake_registry(monkeypatch, registry)
+    for slug in list(registry):
         _mk_skill(db_session, slug)
 
     system = System(
         id=str(uuid.uuid4()), name="Andritz Chat Agentic (latency test)", objective="test",
-        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
+        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(list(registry))).all()],
         flow_definition=flow, default_model="gpt-4o-mini",
     )
     db_session.add(system)
@@ -498,7 +531,8 @@ async def test_agentic_dag_judges_run_but_do_not_gate_answer(db_session, monkeyp
     db_session.add(run)
     db_session.commit()
 
-    summary = await execute_run_dag(run.id)
+    # If a judge were still on the critical path the 30s sleep would trip this.
+    summary = await asyncio.wait_for(execute_run_dag(run.id), timeout=10)
     assert summary["status"] == "completed", summary
 
     # The answer was delivered from the (strong) response_eval verdict path.
@@ -507,9 +541,9 @@ async def test_agentic_dag_judges_run_but_do_not_gate_answer(db_session, monkeyp
     assert run.output_ref.get("answer") == "Largeur 0.3 m [1]."
     # Strong verdict: self_correct was NOT invoked (verdict read response_eval).
     assert "chat_self_correct_v1" not in calls
-    # The LLM judges STILL ran as telemetry (computed, off the critical path).
-    assert calls.get("eval_radar_v1") == 1
-    assert calls.get("claim_audit_v1") == 1
+    # The LLM judges NEVER ran: they are no longer wired into the serving DAG.
+    assert "eval_radar_v1" not in calls
+    assert "claim_audit_v1" not in calls
 
 
 @pytest.mark.asyncio

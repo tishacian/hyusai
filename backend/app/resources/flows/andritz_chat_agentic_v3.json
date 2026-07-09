@@ -22,7 +22,7 @@
       "PARITÉ RECALL (fix 2026-06-26) : get_retrieval_profile traite un top_k seul comme un pin utilisateur qui COLLAPSE synthesis_k/candidate_pool_k au top_k (le DAG ne ramenait ~6 ctx vs ~12 pour le classic, et ratait le chunk porteur AKK200). Correctif : le plan EXPOSE et les retrieve_* TRANSMETTENT le triplet de budgets par lane (= chat._apply_retrieval_budget_policy : balanced 8/16/40, deep 8/24/80, fast 5/12/20) ; _semantic_search_v1 backfill aussi ces budgets par lane (filet de sécurité). Vérifié live : balanced lone-top_k=6 -> 6 chunks (carrier absent) ; balanced budget complet -> merged 38 / 19 résultats (carrier 0,3 m / 10-20 m/min présent).",
       "OOS BACKSTOP (fix 2026-06-26) : _coerce_plan demote reject_oos -> answer si la requête cite un projet/machine/système connu (project code, QMS-12, URACA, Etachrom, SINAMICS…) et JAMAIS sur la base de la langue ; decision.deliver n'honore reject_oos QUE si context_count==0 (retrieval réellement vide). Un faux reject_oos (ex. QMS-12 en allemand) retombe donc sur une réponse ancrée.",
       "ROUTAGE INVENTAIRE (fix 2026-06-26) : _coerce_plan force mode=deep + budget deep pour les questions transversales/inventaire/énumération multi-projets ('quels projets…', 'liste…', 'sur quels projets', agrégation) ; le classic route déjà ces cas en deep.",
-      "DECOUPLAGE LATENCE (fix Phase 2 2026-07-08) : les 2 juges LLM (eval_radar_v1, claim_audit_v1) sont sortis du chemin critique du verdict/egress. task.generate alimente task.response_eval (embeddings) DIRECTEMENT (arete generate->response_eval), et response_eval alimente decision.verdict DIRECTEMENT (arete response_eval->verdict). Le fork.self_eval ne fane plus que les 2 juges vers join.eval, devenu un PUITS TERMINAL (telemetrie calculee + logguee mais non gatante). Le verdict/egress ne dependent donc plus (statiquement) des juges LLM ; retirer/echouer un juge n'impacte ni le verdict ni la reponse. NB : le walker execute_run_dag attend TOUS les noeuds atteignables avant de finaliser (pas de fire-and-forget natif), donc ce decouplage est structurel/semantique — le gain latence wall-clock effectif suppose un futur ordonnancement fire-and-forget des noeuds de telemetrie cote moteur.",
+      "SORTIE LATENCE (fix Phase A 2026-07-09) : les 2 juges LLM (eval_radar_v1, claim_audit_v1) sont RETIRES du DAG de service en ligne. Diagnostic : le walker execute_run_dag ne finalise le run qu'apres que TOUS les noeuds atteignables se soient settle (pas de fire-and-forget natif), et chaque tick asyncio.gather attend TOUT l'ensemble ready — donc decision.verdict et toute la queue d'egress (verdict->self_correct?->join.answer->egress_gate->deliver->sink), planifies dans le meme tick que les 2 juges LLM (~20-21s chacun), etaient BLOQUES derriere eux : les juges siegaient sur le chemin critique wall-clock (~+40s) meme sans gater le CONTENU de la reponse (Phase 2 les avait deja sortis du chemin du verdict, mais pas du wall-clock du walker). Fix : task.generate alimente task.response_eval (embeddings, rapide) DIRECTEMENT (arete generate->response_eval), response_eval alimente decision.verdict DIRECTEMENT (arete response_eval->verdict), et fork.self_eval->join.eval est reduit a un passthrough INSTANTANE (zero skill/LLM) conserve comme ancre structurelle fork/join (le validateur exige >=1 fork pour equilibrer join.retrieval + join.answer, qui sont des fan-in pilotes par decision). Les juges LLM restent DISPONIBLES hors ligne pour le harness A/B agentic_chat_spike.py (qui les mesure via JudgeService/ResponseEvaluator directement, hors membrane), ou ils etaient un instrument de mesure, pas une exigence de service. Retirer un juge n'impacte donc ni le verdict, ni la reponse, ni desormais la latence wall-clock. Les 2 skills restent listes dans membrane_spec.capabilities.allowed_skills (permis/disponibles) bien que non cables dans le graphe.",
       "MULTI-HOP (fix Phase 4 2026-07-08) : chat_agentic_plan_v1 emet desormais 'sub_queries' (2-4 sous-questions) sur les profils comparaison/multi_hop/transversal (hors inventaire, qui garde sa lane deep+facette), sinon liste vide. Une lane task.retrieve_multihop (skill multi_hop_retrieve_v1) est selectionnee EN PRIORITE par decision.route_mode quand sub_queries est non vide : elle lance N semantic_search_v1 en parallele (asyncio.gather) et fusionne/dedupe (RRF via comparative_retrieval.merge_comparative_results) dans la meme forme 'results[]', consommee par join.retrieval (strategy=any) puis task.generate. Semantique lane-unique preservee (route_mode neutralise les autres lanes)."
     ],
     "nodes": [
@@ -287,69 +287,12 @@
         "id": "fork.self_eval",
         "type": "fork",
         "kind": "fork",
-        "label": "Auto-evaluation (fork telemetrie)",
+        "label": "Auto-evaluation (scaffold telemetrie, no-op)",
         "position": { "x": 1740, "y": 240 },
-        "data": { "menu": "Controle", "description": "Fan-out parallele des 2 JUGES LLM de TELEMETRIE (eval_radar + claim_audit). DECOUPLAGE LATENCE (fix Phase 2 2026-07-08) : ces 2 juges LLM ne sont PLUS sur le chemin critique du verdict/egress ; ils tournent en telemetrie (calcules + logges via checkpoints/invocations) et convergent vers join.eval qui est desormais un puits terminal, SANS gater la reponse. Seul task.response_eval (embeddings) reste sur la barriere du verdict." },
+        "data": { "menu": "Controle", "description": "SORTIE LATENCE (fix Phase A 2026-07-09) : les 2 JUGES LLM (eval_radar_v1, claim_audit_v1) sont RETIRES du DAG de service en ligne — le walker execute_run_dag attend TOUS les noeuds atteignables avant de finaliser (pas de fire-and-forget natif) ET chaque tick asyncio.gather attend TOUT l'ensemble ready, donc les 2 juges LLM (~20-21s chacun) siegaient sur le chemin critique wall-clock de l'egress meme sans gater le CONTENU de la reponse. Les juges restent DISPONIBLES hors ligne (harness A/B agentic_chat_spike.py, qui les mesure via JudgeService/ResponseEvaluator directement). Ce fork est conserve comme puits terminal INSTANTANE (arete unique fork->join.eval, zero skill, zero LLM) : il preserve l'equilibre fork/join exige par le validateur (join.retrieval + join.answer sont des fan-in pilotes par decision, sans fork propre) sans reintroduire de latence. Seul task.response_eval (embeddings) reste sur la barriere du verdict." },
         "config": {},
         "inputs": [{ "name": "answer", "schema": "string" }],
         "outputs": [{ "name": "answer", "schema": "string" }]
-      },
-      {
-        "id": "task.eval_radar",
-        "type": "analysis",
-        "kind": "task",
-        "label": "Eval Radar (juge multi-axes)",
-        "position": { "x": 2020, "y": 240 },
-        "data": { "menu": "Evaluation", "description": "Juge multi-axes (eval_radar_v1). Ports alignes sur le wrapper reel: axes/overall/hallucination_rate/drift_rate/note." },
-        "config": {
-          "skill_slug": "eval_radar_v1",
-          "skill_id": null,
-          "inputs_map": {
-            "answer": { "node_id": "task.generate", "path": ["answer"] },
-            "query": { "node_id": "run", "path": ["query"] },
-            "context_chunks": { "node_id": "join.retrieval", "path": ["results"] }
-          }
-        },
-        "inputs": [
-          { "name": "answer", "schema": "string" },
-          { "name": "query", "schema": "string" },
-          { "name": "context_chunks", "schema": "array" }
-        ],
-        "outputs": [
-          { "name": "axes", "schema": "object" },
-          { "name": "overall", "schema": "number" },
-          { "name": "hallucination_rate", "schema": "number" },
-          { "name": "drift_rate", "schema": "number" },
-          { "name": "note", "schema": "string" }
-        ]
-      },
-      {
-        "id": "task.claim_audit",
-        "type": "analysis",
-        "kind": "task",
-        "label": "Audit des claims",
-        "position": { "x": 2020, "y": 420 },
-        "data": { "menu": "Evaluation", "description": "Groundedness / claims (claim_audit_v1). Ports alignes sur le wrapper reel: claims/verdict/supported/unsupported." },
-        "config": {
-          "skill_slug": "claim_audit_v1",
-          "skill_id": null,
-          "inputs_map": {
-            "answer": { "node_id": "task.generate", "path": ["answer"] },
-            "citations": { "node_id": "task.generate", "path": ["citations"] },
-            "query": { "node_id": "run", "path": ["query"] }
-          }
-        },
-        "inputs": [
-          { "name": "answer", "schema": "string" },
-          { "name": "citations", "schema": "array" },
-          { "name": "query", "schema": "string" }
-        ],
-        "outputs": [
-          { "name": "claims", "schema": "array" },
-          { "name": "verdict", "schema": "string" },
-          { "name": "supported", "schema": "integer" },
-          { "name": "unsupported", "schema": "integer" }
-        ]
       },
       {
         "id": "task.response_eval",
@@ -390,16 +333,12 @@
         "id": "join.eval",
         "type": "join",
         "kind": "join",
-        "label": "Fusion telemetrie juges (puits)",
+        "label": "Puits telemetrie (terminal, no-op)",
         "position": { "x": 2300, "y": 240 },
-        "data": { "menu": "Controle", "description": "strategy=all : barriere fan-in des 2 JUGES LLM de telemetrie (eval_radar + claim_audit). DECOUPLAGE LATENCE (fix Phase 2 2026-07-08) : ce join est desormais un PUITS TERMINAL (aucune arete sortante) — il agrege les axes des juges pour l'observabilite (checkpoints/invocations) mais NE GATE PLUS le verdict ni l'egress. task.response_eval ne passe plus par ici : il alimente decision.verdict DIRECTEMENT. Retirer/echouer un juge n'affecte donc ni le verdict ni la reponse livree." },
+        "data": { "menu": "Controle", "description": "PUITS TERMINAL INSTANTANE (aucune arete sortante). SORTIE LATENCE (fix Phase A 2026-07-09) : les 2 juges LLM ayant ete retires du DAG en ligne, ce join ne fusionne plus que le passthrough instantane de fork.self_eval (arete unique fork.self_eval->join.eval). Il ne calcule aucune metrique LLM et n'ajoute aucune latence ; il subsiste comme ancre structurelle (paire fork/join) pour l'equilibre du validateur et documente l'emplacement de l'ancienne lane de juges, desormais mesuree hors ligne. NE GATE NI le verdict NI l'egress : task.response_eval alimente decision.verdict DIRECTEMENT." },
         "config": { "strategy": "all" },
-        "inputs": [{ "name": "overall", "schema": "number" }],
-        "outputs": [
-          { "name": "overall", "schema": "number" },
-          { "name": "hallucination_rate", "schema": "number" },
-          { "name": "verdict", "schema": "string" }
-        ]
+        "inputs": [{ "name": "answer", "schema": "string" }],
+        "outputs": [{ "name": "answer", "schema": "string" }]
       },
       {
         "id": "decision.verdict",
@@ -620,10 +559,7 @@
       { "from": "task.generate", "to": "task.response_eval", "kind": "data" },
       { "from": "task.response_eval", "to": "decision.verdict", "kind": "data" },
       { "from": "task.generate", "to": "fork.self_eval", "kind": "data" },
-      { "from": "fork.self_eval", "to": "task.eval_radar", "kind": "data", "branch_label": "eval_radar" },
-      { "from": "fork.self_eval", "to": "task.claim_audit", "kind": "data", "branch_label": "claim_audit" },
-      { "from": "task.eval_radar", "to": "join.eval", "kind": "data", "branch_label": "eval_radar" },
-      { "from": "task.claim_audit", "to": "join.eval", "kind": "data", "branch_label": "claim_audit" },
+      { "from": "fork.self_eval", "to": "join.eval", "kind": "data" },
       { "from": "decision.verdict", "to": "task.self_correct", "kind": "branch", "branch_label": "weak" },
       { "from": "task.generate", "to": "join.answer", "kind": "data" },
       { "from": "task.self_correct", "to": "join.answer", "kind": "data" },

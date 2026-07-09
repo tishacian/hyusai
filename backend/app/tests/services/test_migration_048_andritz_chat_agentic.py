@@ -77,7 +77,10 @@ def test_artifact_loads_and_has_full_dag() -> None:
     assert artifact is not None
     flow = artifact["flow_definition"]
     assert flow["variant"] == "chat_agentic_thinking_v1"
-    assert len(flow["nodes"]) == 23
+    # Phase A latency fix (2026-07-09): the two LLM judge nodes (eval_radar /
+    # claim_audit) were removed from the online serving DAG (23 -> 21 nodes);
+    # fork.self_eval -> join.eval is kept as an instant telemetry scaffold.
+    assert len(flow["nodes"]) == 21
     assert "membrane_spec" in artifact
 
 
@@ -128,10 +131,13 @@ def test_upgrade_seeds_system_idempotent_then_downgrade(db_session, monkeypatch)
     assert system.status == "active"
     assert (system.settings or {}).get("seed_origin") == "048_andritz_chat_agentic"
     assert (system.settings or {}).get("variant") == "chat_agentic_thinking_v1"
-    assert len(system.skill_ids or []) == 8
+    # Phase A latency fix (2026-07-09): dropping the two LLM judge nodes leaves
+    # 6 distinct skills wired into the graph (eval_radar_v1 / claim_audit_v1 are
+    # no longer node-bound, though they stay in the membrane allow-list below).
+    assert len(system.skill_ids or []) == 6
 
     nodes = (system.flow_definition or {}).get("nodes") or []
-    assert len(nodes) == 23
+    assert len(nodes) == 21
     unresolved = [
         n["id"] for n in nodes
         if (n.get("config") or {}).get("skill_slug") and not (n.get("config") or {}).get("skill_id")
@@ -151,6 +157,9 @@ def test_upgrade_seeds_system_idempotent_then_downgrade(db_session, monkeypatch)
     extra = policy.extra or {}
     assert extra.get("membrane_origin") == "048_andritz_chat_agentic"
     assert "membrane_spec" in extra
+    # The membrane allow-list still permits all 8 skills (the two LLM judges stay
+    # AVAILABLE for the offline A/B harness even though they were unwired from the
+    # online serving DAG in the Phase A latency fix).
     assert len(extra["membrane_spec"]["capabilities"]["allowed_skills"]) == 8
     assert policy.max_latency_ms == 45000
     assert policy.mandatory_hitl_if_confidence_below == 0.35
