@@ -44,6 +44,39 @@
         ]
       },
       {
+        "id": "source.sftp_arrival",
+        "type": "source.sftp_arrival",
+        "kind": "source",
+        "label": "Arrivee SFTP (declaratif)",
+        "position": { "x": 320, "y": 40 },
+        "data": {
+          "menu": "Sources",
+          "description": "SOURCE DECLARATIVE (Flow Builder Phase 1). Trigger type 'depot SFTP' rendu comme noeud de premiere classe pour la tracabilite ; en Phase 1 c'est une source declarative (le walker retourne l'input du run, aucun run reellement declenche). INVARIANT DE GOUVERNANCE : la promotion d'un fichier SFTP vers une collection reste une action operateur explicite ; l'execution reelle du trigger est Phase 3.",
+          "declarative": true
+        },
+        "config": {},
+        "inputs": [],
+        "outputs": [{ "name": "file", "schema": "object" }]
+      },
+      {
+        "id": "asset.collection",
+        "type": "source.collection",
+        "kind": "asset",
+        "label": "Collection notices SPL (pilote)",
+        "position": { "x": 620, "y": 40 },
+        "data": {
+          "menu": "Sources",
+          "description": "ASSET DECLARATIF (Flow Builder Phase 1). Nomme la collection de connaissances alimentant les lanes de recuperation. DECLARATIF en Phase 1 : le walker emet {collection: <slug>} en pass-through SILENCIEUX mais la recuperation garde sa resolution implicite workspace (aucun changement runtime : la reponse du DAG est identique avec ou sans ce noeud). En Phase 2, les task.retrieve_* liront leur collection depuis ce noeud via inputs_map (binding authoritative, feature-flagge) et l'allowlist membrane sera synchronisee depuis le graphe.",
+          "declarative": true
+        },
+        "config": {
+          "collection_slug": "andritz-notices-techniques-spl-pilot",
+          "workspace_scoped": true
+        },
+        "inputs": [],
+        "outputs": [{ "name": "collection", "schema": "string" }]
+      },
+      {
         "id": "plan.thinking",
         "type": "llm",
         "kind": "task",
@@ -569,7 +602,12 @@
       { "from": "hitl.expert_review", "to": "decision.deliver", "kind": "control" },
       { "from": "decision.deliver", "to": "sink.ask_user", "kind": "branch", "branch_label": "clarify" },
       { "from": "decision.deliver", "to": "sink.oos", "kind": "branch", "branch_label": "reject_oos" },
-      { "from": "decision.deliver", "to": "sink.final_answer", "kind": "branch", "branch_label": "deliver" }
+      { "from": "decision.deliver", "to": "sink.final_answer", "kind": "branch", "branch_label": "deliver" },
+      { "from": "source.sftp_arrival", "to": "asset.collection", "kind": "data" },
+      { "from": "asset.collection", "to": "task.retrieve_fast", "kind": "data" },
+      { "from": "asset.collection", "to": "task.retrieve_balanced", "kind": "data" },
+      { "from": "asset.collection", "to": "task.retrieve_deep", "kind": "data" },
+      { "from": "asset.collection", "to": "task.retrieve_multihop", "kind": "data" }
     ],
     "ui": {
       "type": "agentic_chat",

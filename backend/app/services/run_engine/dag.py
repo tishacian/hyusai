@@ -858,8 +858,22 @@ async def _execute_node(
     # We emit the matching `node_end` inline (skipping the shared
     # summary block) so the UI gets one clean skipped marker.
     in_edges = graph.in_edges.get(node.id, [])
-    if in_edges and all(
-        (e.source, e.target, e.branch_label) in state.dead_edges for e in in_edges
+    # Declarative ``asset`` sources are pass-throughs: their (data) edges never
+    # gate whether a downstream node fires. When deciding if this node sits on a
+    # fully-dead branch we therefore consider ONLY non-asset inbound edges —
+    # otherwise a declarative ``asset -> retrieve`` edge would revive a lane a
+    # decision just killed (breaking the single-active-lane pruning). A node fed
+    # exclusively by asset edges has no gating edges and always runs.
+    gating_edges = [
+        e
+        for e in in_edges
+        if not (
+            graph.nodes.get(e.source) is not None
+            and graph.nodes[e.source].kind == "asset"
+        )
+    ]
+    if gating_edges and all(
+        (e.source, e.target, e.branch_label) in state.dead_edges for e in gating_edges
     ):
         _append_checkpoint(
             db,
@@ -947,6 +961,17 @@ async def _execute_node(
             result = await _run_subflow(
                 db, run, node, state, control=control, upstream=node_input
             )
+            return result
+
+        if node.kind == "asset":
+            # Declarative source asset (Phase 1). A silent pass-through that
+            # merely NAMES the collection it stands for — the walker does not
+            # read it yet (retrieval keeps its implicit workspace resolution);
+            # the graph edge becomes authoritative only in Phase 2. Read the
+            # slug from ``config`` like the other handlers (cf. _run_decision).
+            # No unknown-kind warning: an asset node is expected, not a mistake.
+            collection_slug = (node.config or {}).get("collection_slug")
+            result = {"output": {"collection": collection_slug}}
             return result
 
         # Unknown kind → treat as pass-through with a warning.

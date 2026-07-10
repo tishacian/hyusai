@@ -26,6 +26,7 @@ import {
 } from '@angular/core';
 import { A11yModule } from '@angular/cdk/a11y';
 import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
+import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import { FlowStore } from './flow.store';
 import { ManifestFieldsComponent } from './manifest-fields.component';
 
@@ -125,6 +126,30 @@ import { ManifestFieldsComponent } from './manifest-fields.component';
             </section>
           }
 
+          @if ((n.kind ?? 'task') === 'asset') {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">Collection asset</span>
+              <label class="ck-flow-field">
+                <span class="ck-flow-field__label">Collection slug</span>
+                <input
+                  class="ck-flow-input"
+                  type="text"
+                  [value]="collectionSlug(n)"
+                  (input)="onCollectionSlug($event)"
+                  placeholder="my-collection-slug"
+                />
+              </label>
+              <label class="ck-flow-field ck-flow-field--row">
+                <input
+                  type="checkbox"
+                  [checked]="workspaceScoped(n)"
+                  (change)="onWorkspaceScoped($event)"
+                />
+                <span class="ck-flow-field__label">Workspace scoped</span>
+              </label>
+            </section>
+          }
+
           <!-- P2: manifest-driven editable fields (write back to the exact
                runtime_read_path via the store's dotted-path writers). -->
           <app-manifest-fields />
@@ -156,6 +181,42 @@ export class FlowInspectorComponent {
   description(n: { data?: Record<string, unknown> }): string {
     const d = n.data?.['description'];
     return typeof d === 'string' ? d : '';
+  }
+
+  /** Current `collection_slug` from an asset node's config (empty if unset). */
+  collectionSlug(n: CanonicalFlowNode): string {
+    const v = (n.config as Record<string, unknown> | undefined)?.['collection_slug'];
+    return typeof v === 'string' ? v : '';
+  }
+
+  /** Current `workspace_scoped` flag; defaults to true (the palette seed). */
+  workspaceScoped(n: CanonicalFlowNode): boolean {
+    const v = (n.config as Record<string, unknown> | undefined)?.['workspace_scoped'];
+    return v !== false;
+  }
+
+  // ponytail: plain text input for the collection slug. A live picker fed by
+  // GET /documents/collections can replace this once a shared collections
+  // catalog service exists — Phase 1 keeps it declarative to avoid coupling
+  // the inspector to an HTTP fetch + loading state.
+  onCollectionSlug(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'collection_slug',
+      (event.target as HTMLInputElement).value,
+    );
+  }
+
+  onWorkspaceScoped(event: Event): void {
+    const id = this.node()?.id;
+    if (!id) return;
+    this.store.updateNodeConfig(
+      id,
+      'workspace_scoped',
+      (event.target as HTMLInputElement).checked,
+    );
   }
 
   onLabel(event: Event): void {

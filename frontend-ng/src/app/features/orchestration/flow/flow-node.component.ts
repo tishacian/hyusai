@@ -28,6 +28,7 @@ import {
   input,
 } from '@angular/core';
 import { FFlowModule } from '@foblex/flow';
+import { IconComponent } from '@app/shared/ui/icon.component';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import type { FlowNodeView } from './flow-foblex.adapter';
 import { FlowManifestService } from './flow-manifest.service';
@@ -45,7 +46,7 @@ interface RuntimeBadge {
   selector: 'app-flow-node',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FFlowModule],
+  imports: [FFlowModule, IconComponent],
   styleUrl: './flow-node.component.scss',
   template: `
     <div
@@ -85,7 +86,12 @@ interface RuntimeBadge {
         }
       </header>
 
-      <div class="ck-flow-node__title">{{ label() }}</div>
+      <div class="ck-flow-node__title">
+        @if (kind() === 'asset') {
+          <app-icon name="database" [size]="13" class="ck-flow-node__title-icon" />
+        }
+        {{ label() }}
+      </div>
       @if (description(); as desc) {
         <div class="ck-flow-node__desc">{{ desc }}</div>
       }
@@ -149,6 +155,8 @@ export class FlowNodeComponent {
     switch (node.kind ?? 'task') {
       case 'source':
         return 'TRIGGER';
+      case 'asset':
+        return 'ASSET';
       case 'sink':
         return 'OUTPUT';
       case 'decision':
@@ -189,6 +197,8 @@ export class FlowNodeComponent {
       case 'source':
       case 'sink':
         return 'emerald';
+      case 'asset':
+        return 'cyan';
       case 'decision':
       case 'fork':
       case 'join':

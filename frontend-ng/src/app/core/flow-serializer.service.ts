@@ -66,6 +66,7 @@ export type NodeKind =
   | 'hitl'      // Pause for Human-in-the-loop approval.
   | 'subflow'   // Nested execution of another System.
   | 'source'    // Flow input (from trigger).
+  | 'asset'     // Declarative data source (e.g. a knowledge collection).
   | 'sink';     // Flow output.
 
 /**
@@ -913,7 +914,10 @@ export class FlowSerializerService {
       const node = byId.get(id);
       if (!node) continue;
       const kind = node.kind ?? 'task';
-      if (kind === 'source' || kind === 'sink') continue;
+      // `asset` is a declarative data source (structurally like `source`):
+      // it binds no skill and never runs, so it is skipped silently rather
+      // than reported as an advanced, client-simulated kind.
+      if (kind === 'source' || kind === 'sink' || kind === 'asset') continue;
       if (kind !== 'task') {
         skipped.push(kind);
         continue;

@@ -366,6 +366,32 @@ def _effective_chat_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _effective_dag_config(flow: Mapping[str, Any]) -> Dict[str, Any]:
+    """Project the minimal effective config for a ``run_engine_dag`` system.
+
+    Historically ``{}`` for non-chat DAGs — the traceability gap this closes:
+    a run-engine flow now surfaces the collections its declarative ``asset``
+    nodes (Flow Builder Phase 1) point at, plus whether any of them is
+    workspace-scoped. Purely a projection of the graph; changes no runtime.
+    """
+    nodes = _as_list(flow.get("nodes"))
+    collections: List[str] = []
+    workspace_scoped = False
+    for node in nodes:
+        if not isinstance(node, Mapping) or str(node.get("kind")) != "asset":
+            continue
+        cfg = _as_dict(node.get("config"))
+        slug = cfg.get("collection_slug")
+        if isinstance(slug, str) and slug and slug not in collections:
+            collections.append(slug)
+        if cfg.get("workspace_scoped"):
+            workspace_scoped = True
+    return {
+        "collections": collections,
+        "workspace_scoped": workspace_scoped,
+    }
+
+
 def _trace_from_payload(payload: Any) -> Dict[str, Any] | None:
     data = _as_dict(payload)
     trace = data.get("retrieval_decision_trace")
@@ -422,7 +448,7 @@ def serialize_flow_manifest(db: DBSession, system: System) -> Dict[str, Any]:
         "live_surface": f"/{live_surface}" if live_surface else None,
         "runtime_contract": flow.get("runtime_contract") or {},
         "prompt_contract": flow.get("prompt_contract") or {},
-        "effective_config": _effective_chat_config(flow) if sync_mode == "chat_runtime" else {},
+        "effective_config": _effective_chat_config(flow) if sync_mode == "chat_runtime" else _effective_dag_config(flow),
         "latest_retrieval_decision": latest_retrieval_decision,
         "unit_catalog": units,
         "summary": {

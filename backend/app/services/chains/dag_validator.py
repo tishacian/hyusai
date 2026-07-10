@@ -92,6 +92,23 @@ def _node_kind(node: Mapping[str, Any]) -> str:
     return "task"
 
 
+def _is_declarative_source_node(node: Mapping[str, Any]) -> bool:
+    """True for declarative source/asset nodes (Phase 1 Flow Builder sources).
+
+    These sit UPSTREAM of the real entry (``asset.collection`` naming a
+    collection, ``source.sftp_arrival`` naming a trigger) and are purely
+    declarative — the run engine ignores them. They may legitimately be left
+    unwired while authoring, so they are exempted from the ``unreachable_node``
+    / ``node_orphan`` ERRORS that would otherwise block a save. Matches the
+    ``asset`` kind and any typed ``source.*`` node (e.g. ``source.sftp_arrival``,
+    ``source.collection``) — never the plain chat/request entry (``type:input``).
+    """
+    if _node_kind(node) == "asset":
+        return True
+    node_type = node.get("type")
+    return isinstance(node_type, str) and node_type.startswith("source.")
+
+
 def _has_cycle(adj: Mapping[str, Sequence[str]]) -> bool:
     """Iterative DFS cycle detection. We avoid recursion to survive
     runaway auto-generated graphs without hitting Python's default
@@ -323,6 +340,17 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
                         node_id=nid,
                     )
                 )
+        elif kind == "asset":
+            collection_slug = cfg.get("collection_slug")
+            if not isinstance(collection_slug, str) or not collection_slug.strip():
+                issues.append(
+                    ValidationIssue(
+                        level="warn",
+                        code="asset_no_collection",
+                        message=f"Asset {node.get('label') or nid!r} declares no collection_slug.",
+                        node_id=nid,
+                    )
+                )
 
     if join_count > 0 and fork_count == 0:
         issues.append(
@@ -373,6 +401,10 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
             nid = _node_id(node)
             if not nid:
                 continue
+            # Declarative source/asset nodes sit upstream of the entry and may be
+            # left unwired — never block a save on their reachability.
+            if _is_declarative_source_node(node):
+                continue
             if nid not in reachable:
                 issues.append(
                     ValidationIssue(
@@ -392,6 +424,10 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
         for node in nodes:
             nid = _node_id(node)
             if not nid:
+                continue
+            # A declarative source/asset dropped on the canvas but not yet wired
+            # is a legitimate authoring state, not a broken graph — do not error.
+            if _is_declarative_source_node(node):
                 continue
             if not adj.get(nid) and not rev.get(nid):
                 issues.append(

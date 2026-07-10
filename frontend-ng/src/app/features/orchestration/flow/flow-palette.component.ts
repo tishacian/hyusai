@@ -103,6 +103,11 @@ import type { PaletteItem } from './flow.types';
                 <span class="ck-flow-palette__name">{{ item.label }}</span>
                 <span class="ck-flow-palette__type">{{ item.type }}</span>
               </span>
+              @if (item.badge) {
+                <span class="ck-flow-palette__badge" [attr.data-tone]="item.tone">
+                  {{ item.badge }}
+                </span>
+              }
             </button>
           }
         </div>

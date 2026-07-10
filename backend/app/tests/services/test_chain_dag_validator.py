@@ -356,6 +356,63 @@ def test_variable_unresolved_silent_for_reserved_namespace_and_legacy_strings() 
     assert "variable_unresolved" not in _codes(validate_flow(flow))
 
 
+# ---------------------------------------------------------------------------
+# Phase 1 Flow Builder sources — declarative asset / source nodes.
+# ---------------------------------------------------------------------------
+
+
+def test_asset_without_collection_warns_but_does_not_error() -> None:
+    flow = {
+        "nodes": [
+            {"id": "asset.x", "kind": "asset", "type": "source.collection", "config": {}}
+        ],
+        "edges": [],
+    }
+    issues = validate_flow(flow)
+    assert _codes(issues) == {"asset_no_collection"}
+    assert not has_errors(issues)
+
+
+def test_asset_with_collection_is_valid() -> None:
+    flow = {
+        "nodes": [
+            {
+                "id": "asset.x",
+                "kind": "asset",
+                "type": "source.collection",
+                "config": {"collection_slug": "andritz-notices", "workspace_scoped": True},
+            }
+        ],
+        "edges": [],
+    }
+    assert validate_flow(flow) == []
+
+
+def test_declarative_source_and_asset_exempt_from_orphan_and_unreachable() -> None:
+    """An ``asset`` node and a typed declarative ``source.*`` trigger dropped on
+    the canvas but not yet wired must NOT block a save (no orphan / unreachable
+    error) — they sit upstream of the entry and the run engine ignores them."""
+    flow = {
+        "nodes": [
+            {"id": "src", "kind": "source", "type": "input"},
+            {"id": "main", "kind": "task", "config": {"skill_id": "s1"}},
+            {
+                "id": "asset.coll",
+                "kind": "asset",
+                "type": "source.collection",
+                "config": {"collection_slug": "c"},
+            },
+            {"id": "trigger.sftp", "kind": "source", "type": "source.sftp_arrival"},
+        ],
+        "edges": [{"from": "src", "to": "main"}],
+    }
+    issues = validate_flow(flow)
+    codes = _codes(issues)
+    assert "node_orphan" not in codes
+    assert "unreachable_node" not in codes
+    assert not has_errors(issues)
+
+
 def test_variable_unresolved_warns_on_missing_declared_port() -> None:
     flow = {
         "schema_version": 3,

@@ -80,6 +80,13 @@
   &.has-breakpoint .ck-flow-node__bar {
     background: var(--ck-signal-neg, #ef5a6f);
   }
+
+  /* Asset (declarative data source, e.g. a collection): dashed frame so it
+     reads as a source-of-record distinct from executable task nodes. */
+  &[data-kind='asset'] {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--tone) 55%, transparent);
+  }
 }
 
 @keyframes ckNodePulse {
@@ -184,10 +191,18 @@
 }
 
 .ck-flow-node__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.25;
   color: var(--ck-fg-1, #f2f5f8);
+}
+
+.ck-flow-node__title-icon {
+  flex-shrink: 0;
+  color: var(--tone);
 }
 
 .ck-flow-node__desc {
