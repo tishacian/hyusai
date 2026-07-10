@@ -152,6 +152,7 @@ def run_sftp_reconciliation_job(job_id: str) -> dict[str, Any]:
             actor=actor,
             details={"job_id": job.id, "mode": mode, "result": _compact_reconciliation_summary(job.result or result)},
         )
+        _emit_sftp_file_arrived_event(db, workspace=workspace, job=job, mode=mode, result=result)
         db.commit()
         return job.result or result
     except Exception as exc:  # noqa: BLE001
@@ -164,6 +165,41 @@ def run_sftp_reconciliation_job(job_id: str) -> dict[str, Any]:
         return {"status": "failed", "error": str(exc)}
     finally:
         db.close()
+
+
+def _emit_sftp_file_arrived_event(
+    db: DBSession,
+    *,
+    workspace: Workspace,
+    job: WorkspaceJob,
+    mode: str,
+    result: dict[str, Any],
+) -> None:
+    """Fire the Phase 3 ``sftp.file_arrived`` event trigger (flag-gated, safe).
+
+    Inert unless ``settings.enable_event_triggers`` is ON. Governance restricts
+    this event to analysis / notification runs ONLY — it can NEVER trigger
+    ingestion (that stays an explicit operator promotion). Any failure is
+    swallowed so a trigger problem never breaks reconciliation.
+    """
+    if not settings.enable_event_triggers:
+        return
+    try:
+        from app.services.run_engine import triggers
+
+        summary = _compact_reconciliation_summary(result) if isinstance(result, dict) else {}
+        triggers.emit_sftp_file_arrived(
+            db,
+            workspace_id=workspace.id,
+            payload={
+                "workspace_id": workspace.id,
+                "job_id": job.id,
+                "mode": mode,
+                "reconciled_at": summary.get("generated_at"),
+            },
+        )
+    except Exception:  # noqa: BLE001 — never break reconciliation.
+        pass
 
 
 def _run_quarantine(

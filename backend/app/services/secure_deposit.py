@@ -1733,6 +1733,36 @@ def record_staged_file_from_path(
     return file
 
 
+def _emit_deposit_promoted_event(
+    db: DBSession,
+    *,
+    workspace_id: str,
+    collection_slug: str | None,
+    file_ids: list[str],
+) -> None:
+    """Fire the Phase 3 ``deposit.promoted`` event trigger (flag-gated, safe).
+
+    Inert unless ``settings.enable_event_triggers`` is ON (master switch). Any
+    failure — import, registry, dispatch — is swallowed so an event-trigger
+    problem can NEVER break a Knowledge promotion. ``deposit.promoted`` is the
+    only governance-permitted event that may feed a side-effecting downstream
+    run (still HITL-gated); see docs/adr-flow-source-nodes.md §6.
+    """
+    if not settings.enable_event_triggers:
+        return
+    try:
+        from app.services.run_engine import triggers
+
+        triggers.emit_deposit_promoted(
+            db,
+            workspace_id=workspace_id,
+            collection_slug=collection_slug,
+            file_ids=file_ids,
+        )
+    except Exception:  # noqa: BLE001 — never break promotion.
+        pass
+
+
 async def promote_file_to_collection(
     db: DBSession,
     *,
@@ -1750,20 +1780,27 @@ async def promote_file_to_collection(
     collection_slug = (collection_slug or default_collection_slug).strip() or default_collection_slug
     extension = extension_for(deposit_file.filename or "")
     if extension == "zip":
-        return _promote_archive_file_to_collection(
+        promoted = _promote_archive_file_to_collection(
             db,
             deposit_file=deposit_file,
             workspace=workspace,
             user=user,
             collection_slug=collection_slug,
         )
+        _emit_deposit_promoted_event(
+            db,
+            workspace_id=workspace.id,
+            collection_slug=promoted.promoted_collection_slug or collection_slug,
+            file_ids=[promoted.id],
+        )
+        return promoted
     if extension in _LEGACY_SPREADSHEET_EXTENSIONS:
         raise HTTPException(
             status_code=422,
             detail="Legacy .xls spreadsheets are not supported for Knowledge promotion yet",
         )
     if extension in _SPREADSHEET_EXTENSIONS:
-        return _promote_single_worker_file_to_collection(
+        promoted = _promote_single_worker_file_to_collection(
             db,
             deposit_file=deposit_file,
             workspace=workspace,
@@ -1771,6 +1808,13 @@ async def promote_file_to_collection(
             collection_slug=collection_slug,
             mode="spreadsheet",
         )
+        _emit_deposit_promoted_event(
+            db,
+            workspace_id=workspace.id,
+            collection_slug=promoted.promoted_collection_slug or collection_slug,
+            file_ids=[promoted.id],
+        )
+        return promoted
 
     app_settings = get_resolved_settings(workspace_id=workspace.id)
     db_type = resolve_vector_db_type(app_settings)
@@ -1804,6 +1848,12 @@ async def promote_file_to_collection(
             "collection_slug": collection_slug,
             "result": result,
         },
+    )
+    _emit_deposit_promoted_event(
+        db,
+        workspace_id=workspace.id,
+        collection_slug=collection_slug,
+        file_ids=[deposit_file.id],
     )
     return deposit_file
 
@@ -2154,10 +2204,17 @@ def promote_files_to_collection_batch(
         },
     )
     db.flush()
+    promoted_files = [item["deposit_file"] for item in selected]
+    _emit_deposit_promoted_event(
+        db,
+        workspace_id=workspace.id,
+        collection_slug=collection.slug,
+        file_ids=[f.id for f in promoted_files],
+    )
     return {
         "collection": collection,
         "job": job,
-        "promoted_files": [item["deposit_file"] for item in selected],
+        "promoted_files": promoted_files,
         "skipped": skipped,
         "result": result,
     }

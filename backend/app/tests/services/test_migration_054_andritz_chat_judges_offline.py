@@ -77,7 +77,10 @@ def test_artifact_is_the_judges_offline_shape() -> None:
     node_ids = {n["id"] for n in flow["nodes"]}
     assert "task.eval_radar" not in node_ids
     assert "task.claim_audit" not in node_ids
-    assert len(flow["nodes"]) == 21
+    # Judges-offline shape (21 nodes) + Flow Builder sources DAG Phase 1
+    # (migration 055) declarative source-plane nodes (asset.collection +
+    # source.sftp_arrival) -> 23 nodes; judges stay unwired.
+    assert len(flow["nodes"]) == 23
     # judges stay AVAILABLE in the membrane allow-list.
     allowed = artifact["membrane_spec"]["capabilities"]["allowed_skills"]
     assert "eval_radar_v1" in allowed and "claim_audit_v1" in allowed
@@ -125,13 +128,13 @@ def test_upgrade_pulls_judges_then_idempotent_then_downgrade(db_session, monkeyp
     system_id, policy_id = _seed_system_with_prior_flow(db_session)
     monkeypatch.setattr(MIG, "op", types.SimpleNamespace(get_bind=lambda: db_session.connection()))
 
-    # --- upgrade: flow -> 21-node judges-offline artifact ------------------
+    # --- upgrade: flow -> judges-offline artifact (23 nodes post-Phase 1) --
     MIG.upgrade()
     db_session.expire_all()
     system = db_session.query(System).filter(System.id == system_id).one()
     nodes = (system.flow_definition or {}).get("nodes") or []
     node_ids = {n["id"] for n in nodes}
-    assert len(nodes) == 21
+    assert len(nodes) == 23
     assert "task.eval_radar" not in node_ids and "task.claim_audit" not in node_ids
     # skill_ids resolve to the 6 node-bound skills (judges are unwired).
     assert len(system.skill_ids or []) == 6

@@ -80,7 +80,9 @@ def test_artifact_loads_and_has_full_dag() -> None:
     # Phase A latency fix (2026-07-09): the two LLM judge nodes (eval_radar /
     # claim_audit) were removed from the online serving DAG (23 -> 21 nodes);
     # fork.self_eval -> join.eval is kept as an instant telemetry scaffold.
-    assert len(flow["nodes"]) == 21
+    # Flow Builder sources DAG Phase 1 (migration 055) then added two declarative
+    # source-plane nodes (asset.collection + source.sftp_arrival) -> 23 nodes.
+    assert len(flow["nodes"]) == 23
     assert "membrane_spec" in artifact
 
 
@@ -137,7 +139,7 @@ def test_upgrade_seeds_system_idempotent_then_downgrade(db_session, monkeypatch)
     assert len(system.skill_ids or []) == 6
 
     nodes = (system.flow_definition or {}).get("nodes") or []
-    assert len(nodes) == 21
+    assert len(nodes) == 23
     unresolved = [
         n["id"] for n in nodes
         if (n.get("config") or {}).get("skill_slug") and not (n.get("config") or {}).get("skill_id")

@@ -34,6 +34,19 @@ class Settings(BaseSettings):
     # default: no behavior change until explicitly enabled per deployment.
     flow_asset_binding_authoritative: bool = False
 
+    # Flow Builder sources DAG, Phase 3. Global master switch for EXECUTABLE
+    # event triggers (``source.sftp_arrival`` / ``deposit.promoted`` source
+    # nodes). When OFF (default) NO trigger is ever registered or fired: the
+    # emission hooks in ``secure_deposit`` and the SFTP reconciliation path are
+    # inert and ``triggers.emit_event`` short-circuits to a no-op, so deploy is
+    # byte-identical to Phase 2. When ON, each System with a trigger source node
+    # is still governed per-System by ``settings.event_trigger.mode`` which
+    # defaults to ``dry_run`` (a run is only JOURNALED as ``simulated``, never
+    # executed); ``live`` execution is opt-in per System. The governance
+    # invariant (docs/adr-flow-source-nodes.md §6) is enforced in code
+    # regardless of this flag. Off by default: no behavior change on deploy.
+    enable_event_triggers: bool = False
+
     # Ollama fallback
     ollama_base_url: str = "http://localhost:11434"
     ollama_default_model: str = "qwen3:8b"

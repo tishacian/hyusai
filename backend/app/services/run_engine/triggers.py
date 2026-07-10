@@ -1,0 +1,555 @@
+"""Event-trigger registry and dispatch — Flow Builder sources DAG, Phase 3.
+
+This module makes ``source`` trigger nodes (e.g. ``source.sftp_arrival``,
+``source.deposit_promoted``) *executable*: an emission hook fires an
+``event_kind`` for a workspace, this service resolves which System(s) declared a
+matching trigger node in their ``flow_definition`` and, subject to the
+non-negotiable governance invariant, either JOURNALS a ``simulated`` Run
+(dry-run, Phase 3a) or dispatches a REAL Run via ``schedule_run`` (live,
+Phase 3b).
+
+Master switch: ``settings.enable_event_triggers`` (default OFF). When OFF this
+module is completely inert — ``emit_event`` returns ``[]`` before touching the
+DB, so deploy behaviour is byte-identical to Phase 2.
+
+GOVERNANCE INVARIANT (docs/adr-flow-source-nodes.md §6 — enforced in code):
+
+* SFTP promotion stays an EXPLICIT operator action. ``sftp.file_arrived`` may
+  ONLY trigger analysis / notification runs — NEVER ingestion (a side effect).
+* Only ``deposit.promoted`` (already human-validated) may feed a downstream run
+  that produces a side effect, and any such side effect MUST be gated by an
+  ``hitl`` node (pause + ``proposed`` Decision) on its path.
+* This is encoded as a per-``event_kind`` allowlist (:data:`_GOVERNANCE`):
+  each event declares the effect classes it permits downstream and whether a
+  side effect requires an ``hitl`` gate. Anything outside the allowlist is
+  rejected/skipped — the flag cannot relax it.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Set, Tuple
+from uuid import uuid4
+
+from sqlalchemy.orm import Session as DBSession
+
+from app.core.config import settings
+from app.core.logging import get_logger
+from app.db.base import SessionLocal
+from app.models.run import Run
+from app.models.system import System
+
+logger = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Trigger taxonomy
+# ---------------------------------------------------------------------------
+EVENT_SFTP_FILE_ARRIVED = "sftp.file_arrived"
+EVENT_DEPOSIT_PROMOTED = "deposit.promoted"
+
+# A ``kind == 'source'`` node is an ACTIVE trigger when its ``type`` is one of
+# these; the value is the ``event_kind`` it listens for. ``source.chat_request``
+# / ``input`` sources are NOT triggers (they are reasoning-plane entry points),
+# so they never appear here and are ignored by the registry.
+TRIGGER_TYPE_TO_EVENT: Dict[str, str] = {
+    "source.sftp_arrival": EVENT_SFTP_FILE_ARRIVED,
+    "source.deposit_promoted": EVENT_DEPOSIT_PROMOTED,
+}
+
+
+# ---------------------------------------------------------------------------
+# Governance allowlist (per event_kind)
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class EventGovernance:
+    """Per-``event_kind`` allowlist that encodes the ADR governance invariant.
+
+    ``permitted_effects`` are the node *effect classes* an auto-triggered run of
+    this event may contain (see :func:`_node_effect`). ``require_hitl_for_side_effects``
+    forces any permitted side effect to sit downstream of an ``hitl`` node.
+    """
+
+    event_kind: str
+    permitted_effects: Set[str]
+    require_hitl_for_side_effects: bool
+
+
+# Effect classes. ``ingestion`` is the only SIDE EFFECT (it writes data into a
+# collection); ``analysis`` / ``notification`` are read-only.
+_EFFECT_INGESTION = "ingestion"
+_EFFECT_ANALYSIS = "analysis"
+_EFFECT_NOTIFICATION = "notification"
+
+_GOVERNANCE: Dict[str, EventGovernance] = {
+    # SFTP arrival is NOT human-validated → analysis / notification ONLY, never
+    # ingestion. This is the hard invariant: an SFTP arrival can never, by
+    # itself, cause data to enter a collection.
+    EVENT_SFTP_FILE_ARRIVED: EventGovernance(
+        event_kind=EVENT_SFTP_FILE_ARRIVED,
+        permitted_effects={_EFFECT_ANALYSIS, _EFFECT_NOTIFICATION},
+        require_hitl_for_side_effects=True,
+    ),
+    # A promoted file has already passed an explicit operator validation, so a
+    # downstream run MAY carry a side effect — but only when it is gated by an
+    # ``hitl`` node (pause + proposed Decision) before the effect is applied.
+    EVENT_DEPOSIT_PROMOTED: EventGovernance(
+        event_kind=EVENT_DEPOSIT_PROMOTED,
+        permitted_effects={_EFFECT_ANALYSIS, _EFFECT_NOTIFICATION, _EFFECT_INGESTION},
+        require_hitl_for_side_effects=True,
+    ),
+}
+
+# Node signals that mark a WRITE / ingestion side effect.
+_INGESTION_NODE_TYPES = {"ingest", "ingestion", "index", "promote", "write"}
+_INGESTION_SKILL_PREFIXES = ("document_ingest", "ingest", "collection_index", "promote")
+_INGESTION_EFFECT_TOKENS = {"ingestion", "write", "side_effect"}
+_NOTIFICATION_EFFECT_TOKENS = {"notification", "notify"}
+
+
+def _node_effect(node: Dict[str, Any]) -> str:
+    """Classify a node's effect: ``ingestion`` (side effect), ``notification``
+    or ``analysis`` (default, read-only).
+
+    Precedence: an explicit ``config.effect`` / ``effect`` marker wins, then the
+    node ``type``, then a bound ingestion skill slug. Everything else is
+    read-only ``analysis`` — retrieval, generation, evaluation, routing.
+    """
+    if not isinstance(node, dict):
+        return _EFFECT_ANALYSIS
+    config = node.get("config") if isinstance(node.get("config"), dict) else {}
+    explicit = str(config.get("effect") or node.get("effect") or "").lower()
+    if explicit in _INGESTION_EFFECT_TOKENS:
+        return _EFFECT_INGESTION
+    if explicit in _NOTIFICATION_EFFECT_TOKENS:
+        return _EFFECT_NOTIFICATION
+    if explicit in ("analysis", "read", "read_only"):
+        return _EFFECT_ANALYSIS
+    ntype = str(node.get("type") or "").lower()
+    if ntype in _INGESTION_NODE_TYPES:
+        return _EFFECT_INGESTION
+    slug = str(config.get("skill_slug") or "").lower()
+    if any(slug.startswith(prefix) for prefix in _INGESTION_SKILL_PREFIXES):
+        return _EFFECT_INGESTION
+    return _EFFECT_ANALYSIS
+
+
+# ---------------------------------------------------------------------------
+# Flow inspection helpers
+# ---------------------------------------------------------------------------
+def _flow_nodes(flow: Any) -> List[Dict[str, Any]]:
+    if not isinstance(flow, dict):
+        return []
+    nodes = flow.get("nodes")
+    return [n for n in nodes if isinstance(n, dict)] if isinstance(nodes, list) else []
+
+
+def _flow_edges(flow: Any) -> List[Dict[str, Any]]:
+    if not isinstance(flow, dict):
+        return []
+    edges = flow.get("edges")
+    return [e for e in edges if isinstance(e, dict)] if isinstance(edges, list) else []
+
+
+def _trigger_nodes(flow: Any) -> List[Dict[str, Any]]:
+    """Return the ACTIVE trigger source nodes of a flow.
+
+    A node is an active trigger when ``kind == 'source'``, its ``type`` is a
+    known trigger type, and it is not explicitly disabled
+    (``config.trigger_enabled == False``). The Phase-1 ``data.declarative``
+    marker is UI provenance only and does NOT disable the trigger — execution
+    is governed by the master flag + per-System mode, not by that marker.
+    """
+    out: List[Dict[str, Any]] = []
+    for node in _flow_nodes(flow):
+        if node.get("kind") != "source":
+            continue
+        if str(node.get("type") or "") not in TRIGGER_TYPE_TO_EVENT:
+            continue
+        config = node.get("config") if isinstance(node.get("config"), dict) else {}
+        if config.get("trigger_enabled") is False:
+            continue
+        out.append(node)
+    return out
+
+
+def _trigger_event_kinds(flow: Any) -> Set[str]:
+    return {TRIGGER_TYPE_TO_EVENT[str(n.get("type"))] for n in _trigger_nodes(flow)}
+
+
+def _edge_endpoints(edge: Dict[str, Any]) -> Tuple[str, str]:
+    src = str(edge.get("from") or edge.get("source") or "")
+    dst = str(edge.get("to") or edge.get("target") or "")
+    return src, dst
+
+
+def _reachable_from(start_ids: List[str], edges: List[Dict[str, Any]]) -> Set[str]:
+    """Node ids reachable (descendants) from any of ``start_ids`` — excludes the
+    start ids themselves unless they form a cycle."""
+    adj: Dict[str, List[str]] = defaultdict(list)
+    for edge in edges:
+        src, dst = _edge_endpoints(edge)
+        if src and dst:
+            adj[src].append(dst)
+    seen: Set[str] = set()
+    stack = list(start_ids)
+    while stack:
+        current = stack.pop()
+        for succ in adj.get(current, []):
+            if succ not in seen:
+                seen.add(succ)
+                stack.append(succ)
+    return seen
+
+
+def _ancestors_of(target: str, edges: List[Dict[str, Any]]) -> Set[str]:
+    rev: Dict[str, List[str]] = defaultdict(list)
+    for edge in edges:
+        src, dst = _edge_endpoints(edge)
+        if src and dst:
+            rev[dst].append(src)
+    seen: Set[str] = set()
+    stack = [target]
+    while stack:
+        current = stack.pop()
+        for pred in rev.get(current, []):
+            if pred not in seen:
+                seen.add(pred)
+                stack.append(pred)
+    return seen
+
+
+# ---------------------------------------------------------------------------
+# Governance verdict
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class GovernanceVerdict:
+    eligible: bool
+    reason: str
+
+
+def evaluate_governance(event_kind: str, flow: Any) -> GovernanceVerdict:
+    """Decide whether ``event_kind`` may trigger a run of ``flow``.
+
+    Enforces the ADR invariant in code: the flow must contain an active trigger
+    node for the event, and every node reachable from that trigger must carry an
+    effect the event permits; a permitted side effect must additionally be gated
+    by an ``hitl`` ancestor.
+    """
+    gov = _GOVERNANCE.get(event_kind)
+    if gov is None:
+        return GovernanceVerdict(False, "unknown_event_kind")
+
+    nodes = _flow_nodes(flow)
+    node_by_id = {str(n.get("id")): n for n in nodes if n.get("id")}
+    trigger_ids = [
+        str(n.get("id"))
+        for n in _trigger_nodes(flow)
+        if TRIGGER_TYPE_TO_EVENT[str(n.get("type"))] == event_kind and n.get("id")
+    ]
+    if not trigger_ids:
+        return GovernanceVerdict(False, "no_active_trigger_node")
+
+    edges = _flow_edges(flow)
+    downstream_ids = _reachable_from(trigger_ids, edges)
+    hitl_ids = {nid for nid, n in node_by_id.items() if n.get("kind") == "hitl"}
+
+    for nid in downstream_ids:
+        node = node_by_id.get(nid)
+        if node is None:
+            continue
+        effect = _node_effect(node)
+        if effect not in gov.permitted_effects:
+            # SFTP arrival hitting an ingestion node is the canonical rejection.
+            return GovernanceVerdict(False, f"effect_not_permitted:{effect}:{nid}")
+        if effect == _EFFECT_INGESTION and gov.require_hitl_for_side_effects:
+            if not hitl_ids:
+                return GovernanceVerdict(False, f"side_effect_without_hitl:{nid}")
+            if not (_ancestors_of(nid, edges) & hitl_ids):
+                return GovernanceVerdict(False, f"side_effect_not_gated_by_hitl:{nid}")
+
+    return GovernanceVerdict(True, "eligible")
+
+
+# ---------------------------------------------------------------------------
+# Registry
+# ---------------------------------------------------------------------------
+def build_registry(
+    db: DBSession, *, workspace_id: Optional[str] = None
+) -> Dict[Tuple[str, Optional[str]], List[str]]:
+    """Map ``(event_kind, workspace_id) -> [system_id]`` for every System whose
+    ``flow_definition`` declares an active trigger node.
+
+    Only ``active`` Systems are registered (a draft/paused/retired System never
+    fires). Optionally scoped to a single ``workspace_id`` to keep the scan
+    small on the emission hot path.
+    """
+    query = db.query(System).filter(System.status == "active")
+    if workspace_id is not None:
+        query = query.filter(System.workspace_id == workspace_id)
+    registry: Dict[Tuple[str, Optional[str]], List[str]] = defaultdict(list)
+    for system in query.all():
+        for event_kind in _trigger_event_kinds(system.flow_definition or {}):
+            key = (event_kind, system.workspace_id)
+            if system.id not in registry[key]:
+                registry[key].append(system.id)
+    return dict(registry)
+
+
+# ---------------------------------------------------------------------------
+# Idempotence (dedup)
+# ---------------------------------------------------------------------------
+_TRIGGER_META_KEY = "_event_trigger"
+
+
+def _payload_hash(payload: Any) -> str:
+    canonical = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _dedup_key(system_id: str, event_kind: str, payload: Any) -> str:
+    """Idempotence key ``(system_id, event_kind, payload_hash)`` — a promoted
+    file (same payload) triggers at most one run per System."""
+    return f"{system_id}:{event_kind}:{_payload_hash(payload)}"
+
+
+def _find_run_by_dedup(db: DBSession, system_id: str, dedup_key: str) -> Optional[Run]:
+    """Return an existing triggered Run (simulated OR real) for this dedup key.
+
+    Scans this System's ``webhook``-triggered runs and matches the marker stored
+    in ``input_ref`` — no schema change needed and triggered runs are low volume.
+    """
+    candidates = (
+        db.query(Run)
+        .filter(Run.system_id == system_id, Run.trigger == "webhook")
+        .all()
+    )
+    for run in candidates:
+        meta = (run.input_ref or {}).get(_TRIGGER_META_KEY) or {}
+        if meta.get("dedup_key") == dedup_key:
+            return run
+    return None
+
+
+def _trigger_input_ref(
+    event_kind: str, dedup_key: str, payload: Any, *, mode: str, simulated: bool
+) -> Dict[str, Any]:
+    return {
+        _TRIGGER_META_KEY: {
+            "event_kind": event_kind,
+            "dedup_key": dedup_key,
+            "payload": payload,
+            "mode": mode,
+            "simulated": simulated,
+            "emitted_at": datetime.utcnow().isoformat(),
+        }
+    }
+
+
+def _commit_or_flush(db: DBSession, owns_session: bool) -> None:
+    if owns_session:
+        db.commit()
+    else:
+        db.flush()
+
+
+def _journal_simulated_run(
+    db: DBSession,
+    system: System,
+    event_kind: str,
+    workspace_id: Optional[str],
+    payload: Any,
+    dedup_key: str,
+    *,
+    owns_session: bool,
+) -> Run:
+    """Persist a DRY-RUN Run: ``status='simulated'``, ``trigger='webhook'``, a
+    visible ``trigger_simulated`` checkpoint and a ``simulated`` marker in
+    ``input_ref``. The run is NEVER executed."""
+    run = Run(
+        id=str(uuid4()),
+        workspace_id=workspace_id or system.workspace_id,
+        system_id=system.id,
+        input_ref=_trigger_input_ref(
+            event_kind, dedup_key, payload, mode="dry_run", simulated=True
+        ),
+        status="simulated",
+        trigger="webhook",
+        checkpoints=[
+            {
+                "kind": "trigger_simulated",
+                "t": datetime.utcnow().isoformat(),
+                "event_kind": event_kind,
+                "dedup_key": dedup_key,
+            }
+        ],
+    )
+    db.add(run)
+    _commit_or_flush(db, owns_session)
+    logger.info(
+        "triggers: journaled simulated run",
+        system_id=system.id,
+        event_kind=event_kind,
+        run_id=run.id,
+    )
+    return run
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+def emit_event(
+    event_kind: str,
+    workspace_id: Optional[str],
+    payload: Dict[str, Any],
+    *,
+    db: Optional[DBSession] = None,
+) -> List[Dict[str, Any]]:
+    """Emit ``event_kind`` for ``workspace_id`` and process every target System.
+
+    Returns a list of per-target result dicts (``status`` one of ``simulated`` /
+    ``duplicate`` / ``rejected`` / ``no_target``). No-op returning ``[]`` when
+    ``settings.enable_event_triggers`` is OFF — the master kill-switch.
+
+    Phase 3a: eligible targets JOURNAL a ``simulated`` Run (dry-run); nothing is
+    executed. The per-System ``live`` execution path lands in Phase 3b.
+
+    ``db`` — reuse the caller's session when provided (the created run is flushed
+    and committed with the caller's transaction); otherwise a private session is
+    opened and committed here.
+    """
+    if not settings.enable_event_triggers:
+        return []
+
+    owns_session = db is None
+    if owns_session:
+        db = SessionLocal()
+    try:
+        registry = build_registry(db, workspace_id=workspace_id)
+        system_ids = registry.get((event_kind, workspace_id), [])
+        if not system_ids:
+            return [{"status": "no_target", "event_kind": event_kind, "workspace_id": workspace_id}]
+        results: List[Dict[str, Any]] = []
+        for system_id in system_ids:
+            system = db.query(System).filter(System.id == system_id).first()
+            if not system:
+                continue
+            results.append(
+                _process_target(
+                    db,
+                    system,
+                    event_kind,
+                    workspace_id,
+                    payload,
+                    owns_session=owns_session,
+                )
+            )
+        return results
+    finally:
+        if owns_session:
+            db.close()
+
+
+def _process_target(
+    db: DBSession,
+    system: System,
+    event_kind: str,
+    workspace_id: Optional[str],
+    payload: Dict[str, Any],
+    *,
+    owns_session: bool,
+) -> Dict[str, Any]:
+    """Governance → dedup → dry-run journal for a single target System."""
+    verdict = evaluate_governance(event_kind, system.flow_definition or {})
+    if not verdict.eligible:
+        logger.info(
+            "triggers: governance rejected",
+            system_id=system.id,
+            event_kind=event_kind,
+            reason=verdict.reason,
+        )
+        return {"system_id": system.id, "status": "rejected", "reason": verdict.reason}
+
+    dedup_key = _dedup_key(system.id, event_kind, payload)
+    existing = _find_run_by_dedup(db, system.id, dedup_key)
+    if existing is not None:
+        return {
+            "system_id": system.id,
+            "status": "duplicate",
+            "run_id": existing.id,
+            "dedup_key": dedup_key,
+        }
+
+    run = _journal_simulated_run(
+        db, system, event_kind, workspace_id, payload, dedup_key, owns_session=owns_session
+    )
+    return {
+        "system_id": system.id,
+        "status": "simulated",
+        "run_id": run.id,
+        "dedup_key": dedup_key,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Convenience emission hooks (flag-guarded, exception-safe)
+# ---------------------------------------------------------------------------
+def emit_deposit_promoted(
+    db: DBSession,
+    *,
+    workspace_id: Optional[str],
+    collection_slug: Optional[str],
+    file_ids: List[str],
+) -> List[Dict[str, Any]]:
+    """Hook fired AFTER an operator promotes deposit file(s) to a collection.
+
+    ``deposit.promoted`` is the only event allowed to feed a side-effecting
+    downstream run (still HITL-gated). Flag-guarded and exception-safe: a
+    trigger failure never breaks the promotion.
+    """
+    if not settings.enable_event_triggers:
+        return []
+    file_ids = [fid for fid in (file_ids or []) if fid]
+    payload = {
+        "collection_slug": collection_slug,
+        "file_ids": file_ids,
+        "file_id": file_ids[0] if len(file_ids) == 1 else None,
+        "workspace_id": workspace_id,
+    }
+    try:
+        return emit_event(EVENT_DEPOSIT_PROMOTED, workspace_id, payload, db=db)
+    except Exception as exc:  # noqa: BLE001 — never break promotion.
+        logger.warning(
+            "triggers: emit deposit.promoted failed",
+            workspace_id=workspace_id,
+            collection_slug=collection_slug,
+            error=str(exc),
+        )
+        return []
+
+
+def emit_sftp_file_arrived(
+    db: DBSession,
+    *,
+    workspace_id: Optional[str],
+    payload: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Hook fired when the SFTP reconciliation path observes a file arrival.
+
+    Governance-restricted to analysis / notification runs only (NEVER
+    ingestion). Flag-guarded and exception-safe.
+    """
+    if not settings.enable_event_triggers:
+        return []
+    try:
+        return emit_event(EVENT_SFTP_FILE_ARRIVED, workspace_id, payload or {}, db=db)
+    except Exception as exc:  # noqa: BLE001 — never break reconciliation.
+        logger.warning(
+            "triggers: emit sftp.file_arrived failed",
+            workspace_id=workspace_id,
+            error=str(exc),
+        )
+        return []
