@@ -34,7 +34,7 @@ from app.models.user import User
 from app.models.workspace import Workspace
 from app.services.audit_logger import emit_audit_event
 from app.services.chains import dag_validator, export_service, version_service
-from app.services.run_engine import schedule_run
+from app.services.run_engine import schedule_run, triggers
 from app.services.systems.flow_manifest import serialize_flow_manifest
 
 router = APIRouter()
@@ -82,6 +82,20 @@ class SystemUpdate(BaseModel):
 class RunCreate(BaseModel):
     input_ref: Dict[str, Any] = {}
     trigger: str = "manual"
+
+
+class EventTriggerUpdate(BaseModel):
+    """Per-System event-trigger piloting knobs (Flow Builder sources DAG,
+    Phase 3). ``mode`` flips ``dry_run`` ⇄ ``live``; ``disabled`` re-arms
+    (``False``) or manually opens (``True``) the circuit breaker. Both merge
+    into ``System.settings['event_trigger']`` — no schema change, no migration.
+
+    This ONLY sets mode / breaker state; it never touches the code-enforced
+    governance allowlist (``triggers._GOVERNANCE``) which stays authoritative.
+    """
+
+    mode: Optional[str] = None
+    disabled: Optional[bool] = None
 
 
 class SystemUpdateOptions(BaseModel):
@@ -149,6 +163,28 @@ def _serialize(s: System) -> Dict[str, Any]:
         "created_by": s.created_by,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+    }
+
+
+def _event_trigger_state(s: System) -> Dict[str, Any]:
+    """Read-only projection of a System's event-trigger piloting state.
+
+    Combines the GLOBAL master switch (``settings.enable_event_triggers``)
+    with the per-System mode + circuit-breaker fields stored under
+    ``System.settings['event_trigger']``. ``mode`` is resolved through the same
+    ``triggers.trigger_mode`` the run engine uses, so the UI never drifts from
+    the executor's own reading (anything but the literal ``live`` is ``dry_run``).
+    """
+    blob = getattr(s, "settings", None) or {}
+    et = blob.get("event_trigger") if isinstance(blob, dict) else {}
+    et = et if isinstance(et, dict) else {}
+    return {
+        "system_id": s.id,
+        "master_enabled": bool(settings.enable_event_triggers),
+        "mode": triggers.trigger_mode(s),
+        "disabled": bool(et.get("disabled")),
+        "disabled_reason": et.get("disabled_reason"),
+        "disabled_at": et.get("disabled_at"),
     }
 
 
@@ -405,6 +441,87 @@ async def update_system(
     if created_version is not None:
         payload["new_version"] = version_service.serialize_version_summary(created_version)
     return payload
+
+
+@router.get("/{system_id}/event-trigger")
+async def get_system_event_trigger(
+    system_id: str,
+    workspace: Workspace = Depends(get_current_workspace),
+    db: DBSession = Depends(get_db),
+):
+    """Current event-trigger piloting state for a System (Phase 3).
+
+    Read-only: master switch + per-System mode + circuit-breaker status. The
+    Flow Builder inspector reads this when an SFTP trigger node is selected.
+    """
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .first()
+    )
+    if not s:
+        raise HTTPException(404, "System not found")
+    return _event_trigger_state(s)
+
+
+@router.patch("/{system_id}/event-trigger")
+async def update_system_event_trigger(
+    system_id: str,
+    body: EventTriggerUpdate,
+    workspace: Workspace = Depends(get_current_workspace),
+    user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Set a System's event-trigger ``mode`` and/or re-arm its circuit breaker.
+
+    Merges the given fields into ``System.settings['event_trigger']`` (a plain
+    JSON setting — no migration). Setting ``disabled=False`` re-arms the breaker
+    and clears its provenance (``disabled_reason`` / ``disabled_at``). Governance
+    stays code-enforced and is never relaxed here.
+    """
+    s = (
+        db.query(System)
+        .filter(System.id == system_id, System.workspace_id == workspace.id)
+        .first()
+    )
+    if not s:
+        raise HTTPException(404, "System not found")
+
+    updates: Dict[str, Any] = {}
+    if body.mode is not None:
+        mode = str(body.mode).lower()
+        if mode not in (triggers.TRIGGER_MODE_DRY_RUN, triggers.TRIGGER_MODE_LIVE):
+            raise HTTPException(400, "mode must be 'dry_run' or 'live'")
+        updates["mode"] = mode
+    if body.disabled is not None:
+        updates["disabled"] = bool(body.disabled)
+        if not body.disabled:
+            # Re-arm: clear the circuit-breaker provenance and stamp the reset.
+            updates["disabled_reason"] = None
+            updates["disabled_at"] = None
+            updates["rearmed_at"] = datetime.utcnow().isoformat()
+    if not updates:
+        raise HTTPException(400, "no event-trigger fields to update")
+
+    # Reassign a NEW dict so SQLAlchemy flags the JSON column dirty (in-place
+    # mutation of a plain JSON dict is not tracked) — same pattern the run
+    # engine's own writer uses.
+    blob = dict(s.settings) if isinstance(s.settings, dict) else {}
+    et = dict(blob.get("event_trigger") or {})
+    et.update(updates)
+    blob["event_trigger"] = et
+    s.settings = blob
+    db.commit()
+    db.refresh(s)
+
+    emit_audit_event(
+        workspace_id=workspace.id,
+        event_type="system.event_trigger.update",
+        actor=_actor_display_name(user),
+        details={"system_id": s.id, "updates": updates},
+        db=db,
+    )
+    return _event_trigger_state(s)
 
 
 @router.delete("/{system_id}", status_code=204)

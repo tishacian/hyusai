@@ -188,6 +188,52 @@
   }
 }
 
+.ck-flow-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ck-fg-3, #8891a0);
+}
+
+.ck-flow-hint__btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ck-signal-cool, #7dd3fc);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Secondary action link (node deep-links: open collection / SFTP deposit). */
+.ck-flow-action {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ck-fg-1, #f2f5f8);
+  background: var(--ck-bg-inset, #0a0d11);
+  border: 1px solid var(--ck-stroke-2, rgba(255, 255, 255, 0.08));
+  border-radius: var(--ck-radius-sm, 4px);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    border-color var(--ck-dur-fast) var(--ck-ease-out),
+    background var(--ck-dur-fast) var(--ck-ease-out);
+
+  &:hover {
+    border-color: var(--ck-stroke-3, rgba(255, 255, 255, 0.14));
+    background: var(--ck-tint-soft, rgba(255, 255, 255, 0.04));
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ck-signal-cool);
+    outline-offset: 2px;
+  }
+}
+
 .ck-flow-ports {
   display: flex;
   flex-wrap: wrap;

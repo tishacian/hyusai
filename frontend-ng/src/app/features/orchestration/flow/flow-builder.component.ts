@@ -139,6 +139,7 @@ import {
         @if (inspectorOpen()) {
           <app-flow-inspector
             class="flow-builder__inspector"
+            [systemId]="systemId()"
             (close)="inspectorOpen.set(false)"
           />
         }

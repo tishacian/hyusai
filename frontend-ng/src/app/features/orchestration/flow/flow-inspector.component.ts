@@ -21,20 +21,32 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
+  effect,
   inject,
+  input,
   output,
 } from '@angular/core';
 import { A11yModule } from '@angular/cdk/a11y';
+import { RouterLink } from '@angular/router';
 import { GlyphComponent } from '@app/shared/cockpit/glyph.component';
 import type { CanonicalFlowNode } from '@app/core/flow-serializer.service';
 import { FlowStore } from './flow.store';
 import { ManifestFieldsComponent } from './manifest-fields.component';
+import { FlowCollectionsService } from './flow-collections.service';
+import { FlowTriggerControlsComponent } from './flow-trigger-controls.component';
 
 @Component({
   selector: 'app-flow-inspector',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [A11yModule, GlyphComponent, ManifestFieldsComponent],
+  imports: [
+    A11yModule,
+    RouterLink,
+    GlyphComponent,
+    ManifestFieldsComponent,
+    FlowTriggerControlsComponent,
+  ],
   styleUrl: './flow-inspector.component.scss',
   template: `
     <aside
@@ -129,16 +141,46 @@ import { ManifestFieldsComponent } from './manifest-fields.component';
           @if ((n.kind ?? 'task') === 'asset') {
             <section class="ck-flow-section">
               <span class="ck-flow-section__label">Collection asset</span>
-              <label class="ck-flow-field">
-                <span class="ck-flow-field__label">Collection slug</span>
-                <input
-                  class="ck-flow-input"
-                  type="text"
-                  [value]="collectionSlug(n)"
-                  (input)="onCollectionSlug($event)"
-                  placeholder="my-collection-slug"
-                />
-              </label>
+
+              @if (collectionsState() === 'loaded' && collectionOptions().length > 0) {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">Collection</span>
+                  <select
+                    class="ck-flow-input"
+                    [value]="collectionSlug(n)"
+                    (change)="onCollectionSlug($event)"
+                  >
+                    <option value="">— Sélectionner une collection —</option>
+                    @for (slug of collectionOptions(); track slug) {
+                      <option [value]="slug">{{ slug }}</option>
+                    }
+                  </select>
+                </label>
+              } @else {
+                <label class="ck-flow-field">
+                  <span class="ck-flow-field__label">Collection slug</span>
+                  <input
+                    class="ck-flow-input"
+                    type="text"
+                    [value]="collectionSlug(n)"
+                    (input)="onCollectionSlug($event)"
+                    placeholder="my-collection-slug"
+                  />
+                </label>
+                @if (collectionsState() === 'loading') {
+                  <p class="ck-flow-hint">Chargement des collections…</p>
+                } @else if (collectionsState() === 'error') {
+                  <p class="ck-flow-hint">
+                    Collections indisponibles — saisie manuelle.
+                    <button type="button" class="ck-flow-hint__btn" (click)="retryCollections()">
+                      Réessayer
+                    </button>
+                  </p>
+                } @else if (collectionsState() === 'loaded') {
+                  <p class="ck-flow-hint">Aucune collection indexée — saisie manuelle.</p>
+                }
+              }
+
               <label class="ck-flow-field ck-flow-field--row">
                 <input
                   type="checkbox"
@@ -147,6 +189,38 @@ import { ManifestFieldsComponent } from './manifest-fields.component';
                 />
                 <span class="ck-flow-field__label">Workspace scoped</span>
               </label>
+
+              @if (collectionSlug(n); as slug) {
+                <a class="ck-flow-action" [routerLink]="['/knowledge', slug]">
+                  <ck-glyph name="layers" [size]="12" color="currentColor" />
+                  Ouvrir la collection
+                </a>
+              } @else {
+                <a class="ck-flow-action" routerLink="/knowledge">
+                  <ck-glyph name="layers" [size]="12" color="currentColor" />
+                  Ouvrir Knowledge
+                </a>
+              }
+            </section>
+          }
+
+          @if (isTriggerSource(n)) {
+            <section class="ck-flow-section">
+              <span class="ck-flow-section__label">Déclencheur (source)</span>
+              @if (isSftpTrigger(n)) {
+                <a class="ck-flow-action" routerLink="/connectors/sftp">
+                  <ck-glyph name="orbit" [size]="12" color="currentColor" />
+                  Ouvrir le dépôt SFTP
+                </a>
+              }
+              @if (systemId(); as sid) {
+                <app-flow-trigger-controls [systemId]="sid" />
+              } @else {
+                <p class="ck-flow-hint">
+                  Le pilotage des déclencheurs est disponible une fois le flux enregistré
+                  dans un Système.
+                </p>
+              }
             </section>
           }
 
@@ -168,6 +242,18 @@ import { ManifestFieldsComponent } from './manifest-fields.component';
 })
 export class FlowInspectorComponent {
   private readonly store = inject(FlowStore);
+  private readonly collectionsSvc = inject(FlowCollectionsService);
+
+  /** Active trigger source node types (mirror of the backend
+   *  `triggers.TRIGGER_TYPE_TO_EVENT`) — the nodes that offer piloting. */
+  private static readonly TRIGGER_TYPES = new Set<string>([
+    'source.sftp_arrival',
+    'source.deposit_promoted',
+  ]);
+
+  /** The System this inspector's flow is bound to (null on the scratchpad).
+   *  Passed from the shell so trigger piloting can target the right System. */
+  readonly systemId = input<string | null>(null);
 
   /** Deterministic, single-frame selection straight from the store. */
   readonly node = this.store.selectedNode;
@@ -176,7 +262,48 @@ export class FlowInspectorComponent {
    *  the toolbar, owned elsewhere — this is a read-only indicator). */
   readonly dirty = this.store.dirty;
 
+  /** Live collections catalogue for the asset picker (cached, shared). */
+  readonly collectionsState = this.collectionsSvc.state;
+
+  /** Picker options: the catalogue plus the node's current slug when it isn't
+   *  in the catalogue, so an existing binding is never dropped from the list. */
+  readonly collectionOptions = computed<string[]>(() => {
+    const list = [...this.collectionsSvc.collections()];
+    const n = this.node();
+    const cur = n ? this.collectionSlug(n) : '';
+    if (cur && !list.includes(cur)) list.unshift(cur);
+    return list;
+  });
+
   readonly close = output<void>();
+
+  constructor() {
+    // Lazy, cached fetch: only hit the collections endpoint once an asset node
+    // is actually inspected (keeps the fetch off the builder's hot path).
+    effect(() => {
+      const n = this.node();
+      if (n && (n.kind ?? 'task') === 'asset') this.collectionsSvc.ensureLoaded();
+    });
+  }
+
+  /** Retry the collections fetch after a load error (manual-entry fallback
+   *  stays available meanwhile). */
+  retryCollections(): void {
+    this.collectionsSvc.retry();
+  }
+
+  /** True for an active trigger source node (SFTP arrival / deposit promoted). */
+  isTriggerSource(n: CanonicalFlowNode): boolean {
+    return (
+      (n.kind ?? 'task') === 'source' &&
+      FlowInspectorComponent.TRIGGER_TYPES.has(String(n.type))
+    );
+  }
+
+  /** True for the SFTP arrival trigger specifically (offers the deposit link). */
+  isSftpTrigger(n: CanonicalFlowNode): boolean {
+    return (n.kind ?? 'task') === 'source' && String(n.type).startsWith('source.sftp');
+  }
 
   description(n: { data?: Record<string, unknown> }): string {
     const d = n.data?.['description'];
@@ -195,17 +322,16 @@ export class FlowInspectorComponent {
     return v !== false;
   }
 
-  // ponytail: plain text input for the collection slug. A live picker fed by
-  // GET /documents/collections can replace this once a shared collections
-  // catalog service exists — Phase 1 keeps it declarative to avoid coupling
-  // the inspector to an HTTP fetch + loading state.
+  // Shared by the live picker (`<select>`, fed by FlowCollectionsService) and
+  // the manual-entry fallback (`<input>`, shown while the catalogue is loading,
+  // empty or unavailable). Both event targets expose `.value`.
   onCollectionSlug(event: Event): void {
     const id = this.node()?.id;
     if (!id) return;
     this.store.updateNodeConfig(
       id,
       'collection_slug',
-      (event.target as HTMLInputElement).value,
+      (event.target as HTMLInputElement | HTMLSelectElement).value,
     );
   }
 
