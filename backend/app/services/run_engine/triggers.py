@@ -30,7 +30,7 @@ import hashlib
 import json
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 from uuid import uuid4
 
@@ -399,6 +399,224 @@ def _journal_simulated_run(
 
 
 # ---------------------------------------------------------------------------
+# Per-System execution mode + guards (Phase 3b: live execution)
+# ---------------------------------------------------------------------------
+TRIGGER_MODE_DRY_RUN = "dry_run"
+TRIGGER_MODE_LIVE = "live"
+
+# Rate limit: max REAL triggered runs per System per rolling hour. Overridable
+# per System via ``ControlPolicy.extra['event_trigger_max_runs_per_hour']`` so
+# no new table is needed.
+DEFAULT_MAX_TRIGGERED_RUNS_PER_HOUR = 10
+# Circuit breaker: this many CONSECUTIVE triggered-run failures trip the breaker
+# (disable the trigger + file a proposed Decision).
+CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3
+
+_SETTINGS_TRIGGER_KEY = "event_trigger"
+
+
+def _system_trigger_settings(system: System) -> Dict[str, Any]:
+    blob = system.settings if isinstance(system.settings, dict) else {}
+    et = blob.get(_SETTINGS_TRIGGER_KEY)
+    return et if isinstance(et, dict) else {}
+
+
+def trigger_mode(system: System) -> str:
+    """Per-System execution mode: ``dry_run`` (default) or ``live``.
+
+    Read from ``system.settings['event_trigger']['mode']`` — a plain JSON
+    setting so no migration is required. Anything other than the literal
+    ``live`` (including absent/typo) resolves to ``dry_run`` (fail-safe).
+    """
+    mode = str(_system_trigger_settings(system).get("mode") or TRIGGER_MODE_DRY_RUN).lower()
+    return TRIGGER_MODE_LIVE if mode == TRIGGER_MODE_LIVE else TRIGGER_MODE_DRY_RUN
+
+
+def _trigger_disabled(system: System) -> bool:
+    """True once the circuit breaker has disabled this System's trigger."""
+    return bool(_system_trigger_settings(system).get("disabled"))
+
+
+def _set_trigger_settings(system: System, **updates: Any) -> None:
+    """Merge ``updates`` into ``system.settings['event_trigger']``.
+
+    Reassigns ``system.settings`` to a NEW dict so SQLAlchemy flags the JSON
+    column dirty (in-place mutation of a plain JSON dict is not tracked).
+    """
+    blob = dict(system.settings) if isinstance(system.settings, dict) else {}
+    et = dict(blob.get(_SETTINGS_TRIGGER_KEY) or {})
+    et.update(updates)
+    blob[_SETTINGS_TRIGGER_KEY] = et
+    system.settings = blob
+
+
+def _max_runs_per_hour(db: DBSession, system: System) -> int:
+    try:
+        from app.services.run_engine.engine import _load_control_policy  # noqa: WPS433
+
+        cp = _load_control_policy(db, system)
+    except Exception:  # noqa: BLE001
+        cp = None
+    if cp is not None and isinstance(cp.extra, dict):
+        val = cp.extra.get("event_trigger_max_runs_per_hour")
+        if isinstance(val, (int, float)) and val > 0:
+            return int(val)
+    return DEFAULT_MAX_TRIGGERED_RUNS_PER_HOUR
+
+
+def _count_recent_triggered_runs(db: DBSession, system_id: str, since: datetime) -> int:
+    """Count REAL (non-simulated) triggered runs since ``since`` — the rate
+    limit denominator. Simulated dry-run journals are excluded."""
+    return (
+        db.query(Run)
+        .filter(
+            Run.system_id == system_id,
+            Run.trigger == "webhook",
+            Run.status != "simulated",
+            Run.started_at >= since,
+        )
+        .count()
+    )
+
+
+def _recent_triggered_run_statuses(db: DBSession, system_id: str, limit: int) -> List[str]:
+    rows = (
+        db.query(Run)
+        .filter(Run.system_id == system_id, Run.trigger == "webhook", Run.status != "simulated")
+        .order_by(Run.started_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [r.status for r in rows]
+
+
+def _trip_circuit_breaker(db: DBSession, system: System) -> None:
+    """Disable this System's trigger and file a ``proposed`` Decision.
+
+    Reuses the Hypervisor's ``_log_decision`` so the operator sees the same
+    review surface used by ``hitl`` pauses; the trigger stays disabled until an
+    operator flips ``settings.event_trigger.disabled`` back off.
+    """
+    _set_trigger_settings(
+        system,
+        disabled=True,
+        disabled_reason="circuit_breaker",
+        disabled_at=datetime.utcnow().isoformat(),
+    )
+    db.commit()
+    try:
+        from app.services.run_engine.engine import _log_decision  # noqa: WPS433
+
+        _log_decision(
+            db,
+            scope="system",
+            target_id=system.id,
+            kind="trigger_circuit_open",
+            status="proposed",
+            title="Event trigger disabled after repeated failures",
+            rationale={
+                "system_id": system.id,
+                "reason": "circuit_breaker",
+                "consecutive_failures": CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "triggers: circuit breaker decision log failed", system_id=system.id, error=str(exc)
+        )
+    logger.warning("triggers: circuit breaker tripped", system_id=system.id)
+
+
+def _circuit_open(db: DBSession, system: System) -> bool:
+    """Return True when the breaker is open — already disabled, OR the last
+    :data:`CIRCUIT_BREAKER_FAILURE_THRESHOLD` triggered runs all failed (which
+    also TRIPS it here)."""
+    if _trigger_disabled(system):
+        return True
+    statuses = _recent_triggered_run_statuses(db, system.id, CIRCUIT_BREAKER_FAILURE_THRESHOLD)
+    if len(statuses) >= CIRCUIT_BREAKER_FAILURE_THRESHOLD and all(s == "failed" for s in statuses):
+        _trip_circuit_breaker(db, system)
+        return True
+    return False
+
+
+def _create_triggered_run(
+    db: DBSession,
+    system: System,
+    event_kind: str,
+    workspace_id: Optional[str],
+    payload: Any,
+    dedup_key: str,
+) -> Run:
+    """Persist a REAL pending run (``trigger='webhook'``) and COMMIT it so the
+    engine's own session can pick it up. The ``simulated`` marker is False."""
+    run = Run(
+        id=str(uuid4()),
+        workspace_id=workspace_id or system.workspace_id,
+        system_id=system.id,
+        input_ref=_trigger_input_ref(
+            event_kind, dedup_key, payload, mode=TRIGGER_MODE_LIVE, simulated=False
+        ),
+        status="pending",
+        trigger="webhook",
+        checkpoints=[
+            {
+                "kind": "trigger_dispatched",
+                "t": datetime.utcnow().isoformat(),
+                "event_kind": event_kind,
+                "dedup_key": dedup_key,
+            }
+        ],
+    )
+    db.add(run)
+    db.commit()
+    return run
+
+
+def _dispatch_live_run(run_id: str) -> None:
+    """Hand the run to the engine (``schedule_run`` manages its own loop).
+
+    Module-level so tests can monkeypatch it to observe dispatch without
+    actually executing a flow.
+    """
+    from app.services.run_engine.engine import schedule_run  # noqa: WPS433
+
+    schedule_run(run_id)
+
+
+def _process_live(
+    db: DBSession,
+    system: System,
+    event_kind: str,
+    workspace_id: Optional[str],
+    payload: Dict[str, Any],
+    dedup_key: str,
+) -> Dict[str, Any]:
+    """Live path guards: circuit breaker → rate limit → dispatch one real run."""
+    if _circuit_open(db, system):
+        logger.warning("triggers: circuit open, skipping dispatch", system_id=system.id)
+        return {"system_id": system.id, "status": "circuit_open", "dedup_key": dedup_key}
+
+    since = datetime.utcnow() - timedelta(hours=1)
+    if _count_recent_triggered_runs(db, system.id, since) >= _max_runs_per_hour(db, system):
+        logger.warning("triggers: rate limited", system_id=system.id, event_kind=event_kind)
+        return {"system_id": system.id, "status": "rate_limited", "dedup_key": dedup_key}
+
+    run = _create_triggered_run(db, system, event_kind, workspace_id, payload, dedup_key)
+    try:
+        _dispatch_live_run(run.id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "triggers: live dispatch failed", system_id=system.id, run_id=run.id, error=str(exc)
+        )
+        return {"system_id": system.id, "status": "dispatch_failed", "run_id": run.id, "dedup_key": dedup_key}
+    logger.info(
+        "triggers: dispatched live run", system_id=system.id, event_kind=event_kind, run_id=run.id
+    )
+    return {"system_id": system.id, "status": "dispatched", "run_id": run.id, "dedup_key": dedup_key}
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 def emit_event(
@@ -410,16 +628,20 @@ def emit_event(
 ) -> List[Dict[str, Any]]:
     """Emit ``event_kind`` for ``workspace_id`` and process every target System.
 
-    Returns a list of per-target result dicts (``status`` one of ``simulated`` /
-    ``duplicate`` / ``rejected`` / ``no_target``). No-op returning ``[]`` when
-    ``settings.enable_event_triggers`` is OFF — the master kill-switch.
+    Returns a list of per-target result dicts. ``status`` is one of:
+    ``simulated`` (dry-run journal), ``dispatched`` (live run scheduled),
+    ``duplicate`` (dedup hit), ``rejected`` (governance), ``rate_limited``,
+    ``circuit_open``, ``dispatch_failed`` or ``no_target``. No-op returning
+    ``[]`` when ``settings.enable_event_triggers`` is OFF — the master switch.
 
-    Phase 3a: eligible targets JOURNAL a ``simulated`` Run (dry-run); nothing is
-    executed. The per-System ``live`` execution path lands in Phase 3b.
+    Per-System mode decides dry-run vs live: only a System whose
+    ``settings.event_trigger.mode == 'live'`` (and only while the flag is ON and
+    the event is governance-eligible) dispatches a real run; the default
+    ``dry_run`` merely journals a ``simulated`` run.
 
-    ``db`` — reuse the caller's session when provided (the created run is flushed
-    and committed with the caller's transaction); otherwise a private session is
-    opened and committed here.
+    ``db`` — reuse the caller's session when provided (dry-run journals flush
+    into the caller's transaction; a live dispatch commits it so the engine's
+    own session can read the run); otherwise a private session is opened here.
     """
     if not settings.enable_event_triggers:
         return []
@@ -462,7 +684,13 @@ def _process_target(
     *,
     owns_session: bool,
 ) -> Dict[str, Any]:
-    """Governance → dedup → dry-run journal for a single target System."""
+    """Governance → dedup → (live dispatch | dry-run journal) for one System.
+
+    The mode gate is the ONLY difference between Phase 3a and 3b: a target in
+    ``live`` mode dispatches a real run through the guarded live path; every
+    other case (default ``dry_run``) journals a ``simulated`` run. Governance
+    and dedup are enforced identically in both modes.
+    """
     verdict = evaluate_governance(event_kind, system.flow_definition or {})
     if not verdict.eligible:
         logger.info(
@@ -482,6 +710,11 @@ def _process_target(
             "run_id": existing.id,
             "dedup_key": dedup_key,
         }
+
+    # Live execution is opt-in per System AND still gated by the master flag
+    # (already asserted in ``emit_event``). Everything else stays dry-run.
+    if trigger_mode(system) == TRIGGER_MODE_LIVE:
+        return _process_live(db, system, event_kind, workspace_id, payload, dedup_key)
 
     run = _journal_simulated_run(
         db, system, event_kind, workspace_id, payload, dedup_key, owns_session=owns_session
