@@ -155,6 +155,7 @@
           "skill_id": null,
           "inputs_map": {
             "query": { "node_id": "run", "path": ["query"] },
+            "collection": { "node_id": "asset.collection", "path": ["collection"] },
             "knowledge_scope": { "node_id": "plan.thinking", "path": ["scope_hint"] },
             "latency_profile": { "node_id": "plan.thinking", "path": ["retrieval", "latency_profile"] },
             "retrieval_profile": { "node_id": "plan.thinking", "path": ["retrieval", "retrieval_profile"] },
@@ -165,6 +166,7 @@
         },
         "inputs": [
           { "name": "query", "schema": "string" },
+          { "name": "collection", "schema": "string" },
           { "name": "knowledge_scope", "schema": "string" },
           { "name": "latency_profile", "schema": "string" },
           { "name": "retrieval_profile", "schema": "string" },
@@ -186,6 +188,7 @@
           "skill_id": null,
           "inputs_map": {
             "query": { "node_id": "run", "path": ["query"] },
+            "collection": { "node_id": "asset.collection", "path": ["collection"] },
             "knowledge_scope": { "node_id": "plan.thinking", "path": ["scope_hint"] },
             "latency_profile": { "node_id": "plan.thinking", "path": ["retrieval", "latency_profile"] },
             "retrieval_profile": { "node_id": "plan.thinking", "path": ["retrieval", "retrieval_profile"] },
@@ -196,6 +199,7 @@
         },
         "inputs": [
           { "name": "query", "schema": "string" },
+          { "name": "collection", "schema": "string" },
           { "name": "knowledge_scope", "schema": "string" },
           { "name": "latency_profile", "schema": "string" },
           { "name": "retrieval_profile", "schema": "string" },
@@ -217,6 +221,7 @@
           "skill_id": null,
           "inputs_map": {
             "query": { "node_id": "run", "path": ["query"] },
+            "collection": { "node_id": "asset.collection", "path": ["collection"] },
             "knowledge_scope": { "node_id": "plan.thinking", "path": ["scope_hint"] },
             "latency_profile": { "node_id": "plan.thinking", "path": ["retrieval", "latency_profile"] },
             "retrieval_profile": { "node_id": "plan.thinking", "path": ["retrieval", "retrieval_profile"] },
@@ -228,6 +233,7 @@
         },
         "inputs": [
           { "name": "query", "schema": "string" },
+          { "name": "collection", "schema": "string" },
           { "name": "knowledge_scope", "schema": "string" },
           { "name": "latency_profile", "schema": "string" },
           { "name": "retrieval_profile", "schema": "string" },
@@ -250,6 +256,7 @@
           "skill_id": null,
           "inputs_map": {
             "query": { "node_id": "run", "path": ["query"] },
+            "collection": { "node_id": "asset.collection", "path": ["collection"] },
             "sub_queries": { "node_id": "plan.thinking", "path": ["sub_queries"] },
             "knowledge_scope": { "node_id": "plan.thinking", "path": ["scope_hint"] },
             "latency_profile": { "node_id": "plan.thinking", "path": ["retrieval", "latency_profile"] },
@@ -262,6 +269,7 @@
         },
         "inputs": [
           { "name": "query", "schema": "string" },
+          { "name": "collection", "schema": "string" },
           { "name": "sub_queries", "schema": "array" },
           { "name": "knowledge_scope", "schema": "string" },
           { "name": "latency_profile", "schema": "string" },

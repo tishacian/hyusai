@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.auth import get_current_user, get_current_workspace
+from app.core.config import settings
 from app.db.base import get_db
 from app.models.run import Run
 from app.models.system import System
@@ -268,6 +269,80 @@ async def get_system_flow_manifest(
     return serialize_flow_manifest(db, s)
 
 
+def _connected_asset_collection_slugs(flow: Optional[Dict[str, Any]]) -> List[str]:
+    """Collection slugs declared by ``asset`` nodes that are WIRED into the graph.
+
+    An asset node counts only when it has at least one outbound edge (it actually
+    feeds a retrieval lane); a dropped-but-unwired asset is authoring scaffolding
+    and never contributes to the retrieval policy. Returns a stable, de-duped,
+    sorted list (``[]`` when there are no connected asset nodes → neutral).
+    """
+    if not isinstance(flow, dict):
+        return []
+    nodes = flow.get("nodes") or []
+    edges = flow.get("edges") or []
+    connected_sources = {
+        str(e.get("from"))
+        for e in edges
+        if isinstance(e, dict) and e.get("from")
+    }
+    slugs: List[str] = []
+    for node in nodes:
+        if not isinstance(node, dict) or node.get("kind") != "asset":
+            continue
+        nid = str(node.get("id") or "")
+        if nid and nid not in connected_sources:
+            continue
+        cfg = node.get("config") if isinstance(node.get("config"), dict) else {}
+        slug = cfg.get("collection_slug")
+        if isinstance(slug, str) and slug.strip() and slug.strip() not in slugs:
+            slugs.append(slug.strip())
+    return sorted(slugs)
+
+
+def _sync_membrane_collection_allowlist(
+    db: DBSession, system: System, flow: Optional[Dict[str, Any]]
+) -> None:
+    """Phase 2 (``p2-membrane``, flag-gated): mirror the graph's connected asset
+    collections into the membrane inbound allowlist on the bound ControlPolicy.
+
+    The GRAPH becomes the retrieval policy: on flow save (flag ON) the inbound
+    ``collection_allowlist`` is set to the connected ``asset`` collection slugs
+    (``[]`` when there are none — neutral, never over-restrictive).
+
+    SAFETY (cannot block legitimate retrieval): this writes DECLARATIVE metadata
+    only. The DAG retrieval path (``retrieve_rag_context``) enforces the inbound
+    allowlist via the WORKSPACE ``source_policy``, not this ControlPolicy, so the
+    synced list is never consulted on that path; and even where it is consulted,
+    ``_apply_membrane_inbound_collections`` falls back to the full collection set
+    on an empty intersection. We only UPDATE an EXISTING ``membrane_spec`` (never
+    fabricate one) so a system that had a derived spec is not silently promoted
+    to an authoritative one for the capability/outbound facets.
+    """
+    policy_id = getattr(system, "control_policy_id", None)
+    if not policy_id:
+        return
+    from app.models.policy import ControlPolicy
+
+    policy = db.query(ControlPolicy).filter(ControlPolicy.id == policy_id).first()
+    if policy is None:
+        return
+    extra = dict(policy.extra) if isinstance(policy.extra, dict) else {}
+    spec = extra.get("membrane_spec")
+    if not isinstance(spec, dict):
+        return  # no authoritative spec to sync into — leave derived behaviour intact
+    spec = dict(spec)
+    inbound = dict(spec.get("inbound")) if isinstance(spec.get("inbound"), dict) else {}
+    slugs = _connected_asset_collection_slugs(flow)
+    if list(inbound.get("collection_allowlist") or []) == slugs:
+        return  # already coherent — avoid a needless write / version churn
+    inbound["collection_allowlist"] = slugs
+    spec["inbound"] = inbound
+    extra["membrane_spec"] = spec
+    # Reassign so SQLAlchemy detects the JSON column mutation.
+    policy.extra = extra
+
+
 @router.patch("/{system_id}")
 async def update_system(
     system_id: str,
@@ -313,6 +388,12 @@ async def update_system(
             created_by=_actor_display_name(user),
             message=options.version_message,
         )
+
+    # Phase 2 (p2-membrane, flag-gated): when a new flow is saved, sync the
+    # membrane inbound collection_allowlist from the graph's connected asset
+    # nodes. Flag OFF (default) = Phase 1 behaviour (allowlist untouched).
+    if new_flow is not None and settings.flow_asset_binding_authoritative:
+        _sync_membrane_collection_allowlist(db, s, new_flow)
 
     db.commit()
     db.refresh(s)

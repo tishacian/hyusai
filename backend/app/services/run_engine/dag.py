@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from sqlalchemy.orm import Session as DBSession
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.base import SessionLocal
 from app.models.capability import Capability
@@ -47,6 +48,7 @@ from .variable_pool import (
     apply_inputs_map,
     apply_outputs_map,
     resolve_selector,
+    selector_segments,
 )
 from .engine import (
     _apply_control_postchecks,
@@ -819,6 +821,52 @@ def _emit_hitl_pause(
 
 
 # ---------------------------------------------------------------------------
+# Phase 2 — authoritative asset -> collection binding (flag-gated)
+# ---------------------------------------------------------------------------
+def _asset_node_ids(graph: DagGraph) -> Set[str]:
+    """Node ids whose kind is ``asset`` (declarative collection sources)."""
+    return {nid for nid, node in graph.nodes.items() if node.kind == "asset"}
+
+
+def _selector_targets_asset(selector: Any, asset_ids: Set[str]) -> bool:
+    """True when ``selector`` is a VariableRef/dot-path whose HEAD is an asset."""
+    segs = selector_segments(selector)
+    return bool(segs) and segs[0] in asset_ids
+
+
+def _effective_inputs_map(
+    node: DagNode, graph: DagGraph
+) -> Optional[Dict[str, Any]]:
+    """Return the node's ``inputs_map`` with asset-sourced refs gated by the flag.
+
+    GATE SEAM (Phase 2 ``p2-binding``): a ``VariableRef`` whose SOURCE node has
+    ``kind == 'asset'`` is an authoritative collection binding and is honoured
+    ONLY when ``settings.flow_asset_binding_authoritative`` is ON. When OFF the
+    ref is dropped so the consuming retrieve node falls back to implicit
+    workspace resolution — byte-identical to Phase 1 (whose retrieve nodes carry
+    the SAME non-asset inputs_map, so dropping the lone asset ref reduces the map
+    to its Phase-1 shape). Non-asset VariableRefs are NEVER gated.
+
+    Returns ``None`` when there is no usable map so the caller stays on the
+    pre-P1 flat-merge path (``maps_present`` False).
+    """
+    raw = node.config.get("inputs_map") if isinstance(node.config, dict) else None
+    if not isinstance(raw, dict) or not raw:
+        return None
+    if settings.flow_asset_binding_authoritative:
+        return raw
+    asset_ids = _asset_node_ids(graph)
+    if not asset_ids:
+        return raw
+    filtered = {
+        port: selector
+        for port, selector in raw.items()
+        if not _selector_targets_asset(selector, asset_ids)
+    }
+    return filtered or None
+
+
+# ---------------------------------------------------------------------------
 # Per-node dispatcher
 # ---------------------------------------------------------------------------
 async def _execute_node(
@@ -889,7 +937,15 @@ async def _execute_node(
         )
         return {"output": {}, "skipped_reason": "all_inputs_dead"}
 
-    merged_input = _merge_predecessor_outputs(graph, state, node.id)
+    # Phase 2 gate (merge path): asset nodes are declarative pass-throughs whose
+    # ``{collection: <slug>}`` output must only reach a consumer when the
+    # authoritative-binding flag is ON. With the flag OFF we exclude asset data
+    # edges from the predecessor merge so the collection never leaks into the
+    # retrieve payload (nor the ctx) — implicit workspace resolution, iso Phase 1.
+    merged_input = _merge_predecessor_outputs(
+        graph, state, node.id,
+        include_assets=settings.flow_asset_binding_authoritative,
+    )
     # Expose the merged upstream output to the ctx so downstream decision
     # nodes can reference fields produced by any ancestor (e.g.
     # ``confidence`` from a task node).
@@ -899,12 +955,14 @@ async def _execute_node(
     # P1 — resolve ``config.inputs_map`` selectors against the typed pool.
     # When the map is empty/absent ``node_input`` is the same object as
     # ``merged_input`` and ``maps_present`` is False, so every handler stays
-    # byte-identical to the pre-P1 flat-merge path.
-    maps_present = bool(
-        isinstance(node.config, dict) and node.config.get("inputs_map")
-    )
+    # byte-identical to the pre-P1 flat-merge path. Phase 2 gate (inputs_map
+    # path): ``_effective_inputs_map`` drops asset-sourced VariableRefs when the
+    # flag is OFF (see its docstring), so a retrieve node whose only asset ref is
+    # ``collection`` reverts to its Phase-1 map shape.
+    effective_map = _effective_inputs_map(node, graph)
+    maps_present = bool(effective_map)
     node_input = (
-        apply_inputs_map(node.config, state.pool, merged_input)
+        apply_inputs_map({"inputs_map": effective_map}, state.pool, merged_input)
         if maps_present
         else merged_input
     )
@@ -1594,12 +1652,20 @@ def _seed_pool(pool: VariablePool, run: Run, system: System) -> None:
 
 
 def _merge_predecessor_outputs(
-    graph: DagGraph, state: WalkerState, node_id: str
+    graph: DagGraph, state: WalkerState, node_id: str, *, include_assets: bool = True
 ) -> Dict[str, Any]:
     merged: Dict[str, Any] = {}
     for edge in graph.in_edges.get(node_id, []):
         if (edge.source, edge.target, edge.branch_label) in state.dead_edges:
             continue
+        # Phase 2 gate: with authoritative binding OFF, an ``asset`` node's
+        # output does not contribute to the merge (the collection reaches a
+        # consumer only via a flag-ON inputs_map VariableRef) — so retrieval
+        # keeps its implicit workspace resolution, byte-identical to Phase 1.
+        if not include_assets:
+            src_node = graph.nodes.get(edge.source)
+            if src_node is not None and src_node.kind == "asset":
+                continue
         upstream = state.node_outputs.get(edge.source)
         if upstream:
             merged.update(upstream)

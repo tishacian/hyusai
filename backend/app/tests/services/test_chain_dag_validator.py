@@ -413,6 +413,57 @@ def test_declarative_source_and_asset_exempt_from_orphan_and_unreachable() -> No
     assert not has_errors(issues)
 
 
+def test_asset_binding_mismatch_warns_when_collection_ref_points_elsewhere() -> None:
+    """A retrieval task fed by an asset via a data edge but whose
+    ``inputs_map.collection`` VariableRef points at a DIFFERENT node is an
+    incoherent authoritative binding — warn (never error)."""
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "asset.a", "kind": "asset", "type": "source.collection", "config": {"collection_slug": "coll-a"}},
+            {"id": "asset.b", "kind": "asset", "type": "source.collection", "config": {"collection_slug": "coll-b"}},
+            {
+                "id": "task.retrieve",
+                "kind": "task",
+                "config": {
+                    "skill_id": "s",
+                    # Fed by asset.a (edge below) but binds collection from asset.b.
+                    "inputs_map": {"collection": {"node_id": "asset.b", "path": ["collection"]}},
+                },
+            },
+        ],
+        "edges": [
+            {"from": "asset.a", "to": "task.retrieve", "kind": "data"},
+        ],
+    }
+    issues = validate_flow(flow)
+    assert "asset_binding_mismatch" in _codes(issues)
+    assert not has_errors(issues)  # warn level only
+
+
+def test_asset_binding_coherent_is_silent() -> None:
+    """When the collection ref points at the SAME asset that feeds the task via a
+    data edge (the seeded Phase 2 shape), no mismatch fires."""
+    flow = {
+        "schema_version": 3,
+        "nodes": [
+            {"id": "asset.a", "kind": "asset", "type": "source.collection", "config": {"collection_slug": "coll-a"}},
+            {
+                "id": "task.retrieve",
+                "kind": "task",
+                "config": {
+                    "skill_id": "s",
+                    "inputs_map": {"collection": {"node_id": "asset.a", "path": ["collection"]}},
+                },
+            },
+        ],
+        "edges": [
+            {"from": "asset.a", "to": "task.retrieve", "kind": "data"},
+        ],
+    }
+    assert "asset_binding_mismatch" not in _codes(validate_flow(flow))
+
+
 def test_variable_unresolved_warns_on_missing_declared_port() -> None:
     flow = {
         "schema_version": 3,

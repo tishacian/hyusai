@@ -530,6 +530,50 @@ def validate_flow(flow: Mapping[str, Any]) -> List[ValidationIssue]:
                     )
                 )
 
+    # asset_binding_mismatch (warn): a retrieval ``task`` fed by an ``asset`` node
+    # via a data edge but whose ``inputs_map.collection`` VariableRef points at a
+    # DIFFERENT node — an incoherent authoritative binding (Phase 2). Structural
+    # only (the run engine still gates the binding by flag); keep it a warning so
+    # the editor surfaces the drift without blocking a save.
+    asset_ids = {nid for nid, node in nodes_by_id.items() if _node_kind(node) == "asset"}
+    if asset_ids:
+        asset_sources_by_target: Dict[str, Set[str]] = {}
+        for edge in edges:
+            src = edge.get("from")
+            dst = edge.get("to")
+            if src in asset_ids and isinstance(dst, str):
+                asset_sources_by_target.setdefault(dst, set()).add(src)
+        for node in nodes:
+            nid = _node_id(node)
+            if not nid or _node_kind(node) != "task":
+                continue
+            feeding_assets = asset_sources_by_target.get(nid)
+            if not feeding_assets:
+                continue
+            cfg = node.get("config") or {}
+            if not isinstance(cfg, Mapping):
+                continue
+            inputs_map = cfg.get("inputs_map")
+            if not isinstance(inputs_map, Mapping):
+                continue
+            coll_ref = inputs_map.get("collection")
+            if not _is_variable_ref(coll_ref):
+                continue
+            ref_node = coll_ref.get("node_id")
+            if ref_node not in feeding_assets:
+                issues.append(
+                    ValidationIssue(
+                        level="warn",
+                        code="asset_binding_mismatch",
+                        message=(
+                            f"Task {node.get('label') or nid!r} binds collection from "
+                            f"{ref_node!r} but is fed by asset node(s) "
+                            f"{sorted(feeding_assets)}."
+                        ),
+                        node_id=nid,
+                    )
+                )
+
     return issues
 
 

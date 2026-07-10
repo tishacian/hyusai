@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     # default: no behavior change until explicitly enabled per deployment.
     enable_agentic_chat: bool = False
 
+    # Flow Builder sources DAG, Phase 2. When ON, an ``asset`` node's collection
+    # becomes the AUTHORITATIVE retrieval scope: retrieve nodes read it via an
+    # ``inputs_map`` VariableRef and the membrane inbound allowlist is synced from
+    # the graph on flow save. When OFF (default) asset-sourced VariableRefs are
+    # skipped and asset data edges contribute nothing to the merge, so retrieval
+    # keeps its implicit workspace resolution — byte-identical to Phase 1. Off by
+    # default: no behavior change until explicitly enabled per deployment.
+    flow_asset_binding_authoritative: bool = False
+
     # Ollama fallback
     ollama_base_url: str = "http://localhost:11434"
     ollama_default_model: str = "qwen3:8b"

@@ -192,6 +192,13 @@ async def test_agentic_dag_dataflow_grounds_generate_and_self_correct(db_session
     # Recall-parity: the full balanced budget triple is wired through inputs_map.
     assert search_payload["synthesis_k"] == 16
     assert search_payload["candidate_pool_k"] == 40
+    # Phase 2 (p2-binding), flag OFF (default): the asset-sourced ``collection``
+    # VariableRef is GATED — retrieval keeps implicit workspace resolution, so the
+    # bound collection slug must NOT reach the retrieval skill (iso Phase 1).
+    assert "collection" not in search_payload, (
+        "flag OFF must not pass the asset-bound collection (implicit workspace "
+        "resolution); the gate seam in dag.py leaked the asset ref"
+    )
 
     # ----- C1: task.generate CONSUMES join.retrieval.results ----------------
     gen_payload = calls["llm_rag_answer_v1"][0]["payload"]
@@ -614,3 +621,89 @@ async def test_agentic_dag_multihop_lane_selected_when_sub_queries(db_session, m
     db_session.expire_all()
     run = db_session.query(Run).filter(Run.id == run.id).first()
     assert run.output_ref.get("answer") == "Wilo vs KSB [1][2]."
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — authoritative asset -> collection binding (flag-gated).
+# ---------------------------------------------------------------------------
+_ASSET_COLLECTION_SLUG = "andritz-notices-techniques-spl-pilot"
+
+
+async def _run_binding_probe(db_session, monkeypatch) -> Dict[str, Any]:
+    """Walk the real flow with mocked skills and return the balanced retrieve
+    lane's payload. Shared by the flag OFF / ON binding tests below."""
+    flow = _load_flow_definition()
+    calls: Dict[str, List[Dict[str, Any]]] = {}
+
+    def _record(slug: str, output: Dict[str, Any]):
+        async def _fn(payload, ctx=None):
+            calls.setdefault(slug, []).append(dict(payload or {}))
+            return output
+        return _fn
+
+    plan_out = {
+        "action": "answer", "mode": "balanced", "answer_profile": "technical",
+        "scope_hint": "AKK200", "clarifying_question": "", "oos_reason": "",
+        "lang_target": "fr", "confidence": 0.8,
+        "retrieval": {"latency_profile": "balanced", "retrieval_profile": "chat", "top_k": 8, "synthesis_k": 16, "candidate_pool_k": 40, "rag_pipeline_mode": "chah", "deep_retrieval": False},
+        "sub_queries": [],
+    }
+    outputs = {
+        "chat_agentic_plan_v1": plan_out,
+        "semantic_search_v1": {"results": _RETRIEVED},
+        "llm_rag_answer_v1": {"answer": "Largeur 0.3 m [1].", "citations": [{"index": 1, "source_id": "50a149bf-chunk_0"}], "decision_steps": []},
+        "response_eval_v1": {"composite": 82.0, "hallucination_rate": 0.1, "context_count": 1, "hhem": 0.1, "factuality": 0.9, "coherence": 0.9},
+        "chat_self_correct_v1": {"answer": "", "citations": [], "action_taken": "declare_partial"},
+    }
+    slugs = list(outputs)
+    _install_fake_registry(monkeypatch, {s: _record(s, outputs[s]) for s in slugs})
+    for slug in slugs:
+        _mk_skill(db_session, slug)
+
+    system = System(
+        id=str(uuid.uuid4()), name="Andritz Chat Agentic (binding test)", objective="test",
+        skill_ids=[r.id for r in db_session.query(Skill).filter(Skill.slug.in_(slugs)).all()],
+        flow_definition=flow, default_model="gpt-4o-mini",
+    )
+    db_session.add(system)
+    db_session.commit()
+    run = Run(id=str(uuid.uuid4()), system_id=system.id, workspace_id="ws-andritz", input_ref={"query": _QUERY}, status="pending")
+    db_session.add(run)
+    db_session.commit()
+
+    summary = await execute_run_dag(run.id)
+    assert summary["status"] == "completed", summary
+    assert "semantic_search_v1" in calls, "the balanced retrieve lane never fired"
+    return calls["semantic_search_v1"][0]
+
+
+@pytest.mark.asyncio
+async def test_asset_binding_flag_off_is_iso_phase1_no_collection(db_session, monkeypatch):
+    """Flag OFF (default): the DAG completes AND the asset-bound collection is NOT
+    passed to the retrieval skill — implicit workspace resolution, iso Phase 1."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "flow_asset_binding_authoritative", False)
+    search_payload = await _run_binding_probe(db_session, monkeypatch)
+    assert "collection" not in search_payload, (
+        "flag OFF leaked the asset-bound collection into the retrieval payload"
+    )
+    # The rest of the payload is unchanged (the non-asset inputs_map still wires).
+    assert search_payload["query"] == _QUERY
+    assert search_payload["top_k"] == 8
+
+
+@pytest.mark.asyncio
+async def test_asset_binding_flag_on_passes_bound_collection(db_session, monkeypatch):
+    """Flag ON: the retrieve lane receives the asset node's collection slug via
+    the inputs_map VariableRef (authoritative binding)."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "flow_asset_binding_authoritative", True)
+    search_payload = await _run_binding_probe(db_session, monkeypatch)
+    assert search_payload.get("collection") == _ASSET_COLLECTION_SLUG, (
+        "flag ON must pass the asset-bound collection to semantic_search_v1"
+    )
+    # Binding is additive: the non-asset inputs_map is still wired through.
+    assert search_payload["query"] == _QUERY
+    assert search_payload["top_k"] == 8

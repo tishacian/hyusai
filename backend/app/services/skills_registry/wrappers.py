@@ -270,44 +270,73 @@ async def _semantic_search_v1(payload: Dict[str, Any], ctx: Optional[Dict[str, A
 
     ctx = ctx or {}
     runtime_kwargs = _rag_runtime_kwargs(payload, ctx)
-    request = {
-        "query": payload["query"],
-        "workspace_id": ctx.get("workspace_id") or payload.get("workspace_id"),
-        # Resolve the tenant slug (DAG ctx omits it) so retrieval hits the
-        # real ``{slug}__{collection}`` Qdrant collection instead of a phantom
-        # un-prefixed one (root cause of raw_chunks_retrieved=0 in the A/B).
-        "workspace_slug": _resolve_workspace_slug(payload, ctx),
-        "capability_id": ctx.get("capability_id") or payload.get("capability_id"),
-        "system_id": ctx.get("system_id") or payload.get("system_id"),
-        "knowledge_scope": payload.get("knowledge_scope") or ctx.get("knowledge_scope"),
-        "rag_pipeline_mode": payload.get("mode") or payload.get("rag_pipeline_mode") or "auto",
-        # top_k / latency_profile / retrieval_profile / budgets flow from the
-        # plan via runtime_kwargs; default to the balanced lane (never hardcode
-        # fast) so factual lookups get a real candidate pool, matching classic.
-        **runtime_kwargs,
-    }
-    request.setdefault("latency_profile", "balanced")
-    # RECALL PARITY (fix 2026-06-26): backfill the full lane budget triple
-    # (top_k/synthesis_k/candidate_pool_k/source_display_k) so a lone top_k pin
-    # does not collapse synthesis_k/candidate_pool_k (which starved the DAG to ~6
-    # ctx vs classic ~12 and made it miss carrier chunks). When nothing is
-    # pinned, the lane sets all budgets = chat._apply_retrieval_budget_policy.
-    # Explicit payload values (plan overrides) win via setdefault.
-    lane = str(request.get("latency_profile") or "balanced").lower()
-    for budget_key, budget_value in _LANE_BUDGETS.get(lane, _LANE_BUDGETS["balanced"]).items():
-        request.setdefault(budget_key, budget_value)
-    # TRANSVERSAL-INVENTORY PARITY (fix 2026-06-26): "which projects use X"
-    # questions need the exhaustive project_code FACET (classic arms it via
-    # answer_profile=transversal_inventory), not a handful of deep chunks.
-    # retrieve_rag_context only builds the facet when this profile is set AND
-    # query_targets_projects(query) — so arming it here is a no-op for ordinary
-    # queries and reaches classic parity for inventory ones.
-    if _is_inventory_query(str(payload.get("query") or "")) and not request.get("answer_profile"):
-        request["answer_profile"] = "transversal_inventory"
-    request = {key: value for key, value in request.items() if value is not None}
-    apply_retrieval_profile_to_request(request)
+    # Phase 2 (p2-binding): an authoritative asset->collection binding scopes
+    # retrieval to a single collection (``context_collection``). If that bound
+    # collection resolves to empty/unknown we MUST fall back to workspace scope
+    # rather than return a SILENTLY EMPTY retrieval (grounding lesson 2026-06-26,
+    # docs/chat-recherche-agentic-grounding-audit-2026-06-26.md). We detect the
+    # bound collection here and, on a zero-chunk primary result, retry without it.
+    # This safety net is flag-INDEPENDENT (it reacts to context_collection, which
+    # the DAG only injects when the flag is ON), so callers with no collection are
+    # byte-identical to before.
+    bound_collection = runtime_kwargs.get("context_collection")
+
+    def _build_request(*, with_collection: bool) -> Dict[str, Any]:
+        kwargs = dict(runtime_kwargs)
+        if not with_collection:
+            kwargs.pop("context_collection", None)
+        request = {
+            "query": payload["query"],
+            "workspace_id": ctx.get("workspace_id") or payload.get("workspace_id"),
+            # Resolve the tenant slug (DAG ctx omits it) so retrieval hits the
+            # real ``{slug}__{collection}`` Qdrant collection instead of a phantom
+            # un-prefixed one (root cause of raw_chunks_retrieved=0 in the A/B).
+            "workspace_slug": _resolve_workspace_slug(payload, ctx),
+            "capability_id": ctx.get("capability_id") or payload.get("capability_id"),
+            "system_id": ctx.get("system_id") or payload.get("system_id"),
+            "knowledge_scope": payload.get("knowledge_scope") or ctx.get("knowledge_scope"),
+            "rag_pipeline_mode": payload.get("mode") or payload.get("rag_pipeline_mode") or "auto",
+            # top_k / latency_profile / retrieval_profile / budgets flow from the
+            # plan via runtime_kwargs; default to the balanced lane (never hardcode
+            # fast) so factual lookups get a real candidate pool, matching classic.
+            **kwargs,
+        }
+        request.setdefault("latency_profile", "balanced")
+        # RECALL PARITY (fix 2026-06-26): backfill the full lane budget triple
+        # (top_k/synthesis_k/candidate_pool_k/source_display_k) so a lone top_k pin
+        # does not collapse synthesis_k/candidate_pool_k (which starved the DAG to ~6
+        # ctx vs classic ~12 and made it miss carrier chunks). When nothing is
+        # pinned, the lane sets all budgets = chat._apply_retrieval_budget_policy.
+        # Explicit payload values (plan overrides) win via setdefault.
+        lane = str(request.get("latency_profile") or "balanced").lower()
+        for budget_key, budget_value in _LANE_BUDGETS.get(lane, _LANE_BUDGETS["balanced"]).items():
+            request.setdefault(budget_key, budget_value)
+        # TRANSVERSAL-INVENTORY PARITY (fix 2026-06-26): "which projects use X"
+        # questions need the exhaustive project_code FACET (classic arms it via
+        # answer_profile=transversal_inventory), not a handful of deep chunks.
+        # retrieve_rag_context only builds the facet when this profile is set AND
+        # query_targets_projects(query) — so arming it here is a no-op for ordinary
+        # queries and reaches classic parity for inventory ones.
+        if _is_inventory_query(str(payload.get("query") or "")) and not request.get("answer_profile"):
+            request["answer_profile"] = "transversal_inventory"
+        request = {key: value for key, value in request.items() if value is not None}
+        apply_retrieval_profile_to_request(request)
+        return request
+
+    request = _build_request(with_collection=True)
     result = await retrieve_rag_context(request)
     chunks = list(result.get("chunks") or [])
+    if bound_collection and not chunks:
+        logger.warning(
+            "semantic_search_v1: authoritative asset collection returned no context; "
+            "falling back to workspace scope (grounding safety net)",
+            collection=bound_collection,
+            workspace_id=request.get("workspace_id"),
+            query=str(payload.get("query") or "")[:120],
+        )
+        request = _build_request(with_collection=False)
+        result = await retrieve_rag_context(request)
+        chunks = list(result.get("chunks") or [])
     scores = list(result.get("scores") or [])
     metadatas = list(result.get("metadatas") or [])
     metrics = dict(result.get("metrics") or {})

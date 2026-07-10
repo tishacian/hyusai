@@ -176,6 +176,74 @@ async def test_semantic_search_wrapper_defaults_to_balanced_latency(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_semantic_search_bound_collection_falls_back_to_workspace(monkeypatch):
+    """Phase 2 grounding safety: when an authoritative bound collection returns
+    ZERO context, the wrapper retries at workspace scope (drops context_collection)
+    rather than surfacing a silently empty retrieval (lesson 2026-06-26)."""
+    requests: list[dict] = []
+
+    async def fake_retrieve_rag_context(request):
+        requests.append(dict(request))
+        # First attempt (scoped to the bound collection) returns nothing;
+        # the workspace-scope retry (no context_collection) finds the chunk.
+        if request.get("context_collection"):
+            return {"chunks": [], "scores": [], "metadatas": [], "metrics": {}}
+        return {
+            "chunks": ["workspace evidence"],
+            "scores": [0.77],
+            "metadatas": [{"document_filename": "fallback.pdf"}],
+            "metrics": {"raw_chunks_retrieved": 1},
+        }
+
+    monkeypatch.setattr(
+        "app.services.rag.context.retrieve_rag_context",
+        fake_retrieve_rag_context,
+    )
+
+    result = await wrappers._semantic_search_v1(
+        {"query": "largeur AKK200", "collection": "andritz-notices-techniques-spl-pilot"},
+        {"workspace_id": "ws-1", "workspace_slug": "andritz"},
+    )
+
+    assert len(requests) == 2, "empty bound-collection retrieval did not fall back"
+    assert requests[0].get("context_collection") == "andritz-notices-techniques-spl-pilot"
+    assert "context_collection" not in requests[1], "fallback must drop the collection scope"
+    assert result["results"] == [
+        {"content": "workspace evidence", "score": 0.77, "metadata": {"document_filename": "fallback.pdf"}}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_semantic_search_bound_collection_no_fallback_when_grounded(monkeypatch):
+    """The fallback is a safety net: a bound collection that DOES ground stays
+    scoped (single retrieval, no workspace widening)."""
+    requests: list[dict] = []
+
+    async def fake_retrieve_rag_context(request):
+        requests.append(dict(request))
+        return {
+            "chunks": ["scoped evidence"],
+            "scores": [0.9],
+            "metadatas": [{"document_filename": "scoped.pdf"}],
+            "metrics": {"raw_chunks_retrieved": 1},
+        }
+
+    monkeypatch.setattr(
+        "app.services.rag.context.retrieve_rag_context",
+        fake_retrieve_rag_context,
+    )
+
+    result = await wrappers._semantic_search_v1(
+        {"query": "largeur AKK200", "collection": "andritz-notices-techniques-spl-pilot"},
+        {"workspace_id": "ws-1", "workspace_slug": "andritz"},
+    )
+
+    assert len(requests) == 1, "a grounded bound collection must not trigger a fallback"
+    assert requests[0].get("context_collection") == "andritz-notices-techniques-spl-pilot"
+    assert result["results"][0]["content"] == "scoped evidence"
+
+
+@pytest.mark.asyncio
 async def test_llm_rag_answer_wrapper_forwards_scope_and_budget(monkeypatch):
     captured: dict = {}
 
