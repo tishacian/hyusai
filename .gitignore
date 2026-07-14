@@ -95,6 +95,13 @@ docs/render/out/*.docx
 docs/render/out/*.pptx
 docs/render/assets/diagrams/
 
+# PIH business/proposal binaries — kept local, never tracked (may contain
+# commercial pricing/offers). Markdown notes under docs/pih/ stay tracked.
+docs/pih/**/*.docx
+docs/pih/**/*.xlsx
+docs/pih/**/*.pdf
+docs/pih/**/*.pptx
+
 # Scala / SBT / Metals build & BSP artifacts (root)
 /target/
 /.bsp/
